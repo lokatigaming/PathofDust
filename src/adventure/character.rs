@@ -529,8 +529,9 @@ pub struct Character {
     pub secondary_passive_allocations: HashMap<String, u32>,
 }
 
-/// Bag size — see `Character::inventory`.
-pub const INVENTORY_CAPACITY: usize = 50;
+/// Bag size — see `Character::inventory`. Raised 50 -> 150 (2026-08-18, a
+/// live request).
+pub const INVENTORY_CAPACITY: usize = 150;
 
 /// Dust cost of every character-model change AFTER a character's first
 /// (free) one - see `AdventureManager::change_model`. Currently moot -
@@ -1335,7 +1336,18 @@ impl Character {
             return Err(CraftError::CannotKrangleUnique);
         }
         if let Some(required) = action.required_affix_count() {
-            if item.affixes.len() != required {
+            // A Reforge/Recombine crit-bonus affix (`Item::crit_bonus_affixes`)
+            // doesn't count toward this precondition (2026-08-18, a live
+            // report): the designed ceiling is 4 normal affixes + up to 1
+            // EACH from a Reforge/Recombine crit (see `crit_bonus_affixes`'
+            // own doc), so an item sitting at, say, 3 normal + 1 crit-bonus
+            // affix (e.g. after an Annulment removed one of its normal
+            // affixes) should still read as "3" for Augment/Regal/Exalt's
+            // exact-count gate, not "4" - otherwise a crit-bonus affix
+            // silently eats into the normal-crafting progression it was
+            // never meant to count against.
+            let normal_affix_count = item.affixes.iter().filter(|(a, _)| !item.crit_bonus_affixes.contains(a)).count();
+            if normal_affix_count != required {
                 return Err(CraftError::PreconditionNotMet);
             }
         }
@@ -3072,6 +3084,32 @@ mod crit_lineage_tests {
         let mut rng = StdRng::seed_from_u64(5);
         let roll = character.roll_recombine(&id_a, &id_b, false, &mut rng).expect("roll should succeed");
         assert!(roll.reforge_crit_used, "reforge_crit_used must inherit true if EITHER source already had it, preventing the merged item from getting a fresh reforge-crit shot");
+    }
+
+    #[test]
+    fn crit_bonus_affix_does_not_count_toward_required_affix_count() {
+        // 2026-08-18, a live report: an item that picked up a Reforge/
+        // Recombine crit-bonus affix, then had a normal affix Annulled
+        // off, ends up with 3 normal affixes + 1 crit-bonus affix (4
+        // total) - it should still read as "3" for Exalt's exact-count
+        // gate, not "4", so it stays Exalt-eligible instead of getting
+        // silently stuck one crafting step short of the normal ceiling.
+        let mut character = Character::new("test".to_string());
+        let mut item = perfect_weapon(30);
+        item.affixes = vec![(Affix::Evasion, 1.0), (Affix::Splash, 1.0), (Affix::IncreasedLife, 1.0), (Affix::CritChance, 1.0)];
+        item.crit_bonus_affixes = vec![Affix::CritChance];
+        let item_id = item.id.clone();
+        character.equip(item);
+
+        let exalt_pool = character.craftable_affix_pool(&item_id, CraftAction::Exalt);
+        assert!(exalt_pool.is_ok(), "3 normal + 1 crit-bonus affix should satisfy Exalt's required_affix_count of 3, got {exalt_pool:?}");
+
+        // Sanity: Augment (requires exactly 1 normal affix) must still
+        // correctly reject this same item - the fix only excludes
+        // crit-bonus affixes from the count, it doesn't stop counting
+        // normal ones.
+        let augment_pool = character.craftable_affix_pool(&item_id, CraftAction::Augment);
+        assert!(matches!(augment_pool, Err(CraftError::PreconditionNotMet)));
     }
 }
 
