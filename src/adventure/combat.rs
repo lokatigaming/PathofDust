@@ -5844,6 +5844,18 @@ pub(crate) fn apply_hit(
     // from here on, so this stays correct for either use. 0 whenever the
     // target isn't cursed, or the curser IS the attacker (crediting
     // yourself for cursing your own target would just be a no-op split).
+    // Disabled (2026-08-18, explicit request) - the curse's marginal
+    // damage no longer gets carved out of the real attacker's credit and
+    // handed to the cursing Warlock; a hit against a cursed target now
+    // counts entirely toward whoever actually landed it, same as any
+    // other hit. `curse_credit_id`/`curse_share` below are still computed
+    // (harmless, and keeps the two use sites below compiling
+    // unconditionally) - only their two actual USE sites are gated behind
+    // this flag, so flipping it back to `true` restores the original
+    // credit-to-Warlock behavior exactly, without needing to re-derive
+    // any of this - same "left implemented-but-inert" precedent as
+    // Slayer's Rot/Withering Touch.
+    const CURSE_CREDITS_WARLOCK_DAMAGE: bool = false;
     let curse_credit_id = units[target_idx].curse_source_id.clone().filter(|id| *id != units[attacker_idx].id);
     let curse_share = if curse_credit_id.is_some() { (outcome.curse_bonus_damage.round().max(0.0) as i64).min(final_damage.max(0)) } else { 0 };
 
@@ -6143,12 +6155,19 @@ pub(crate) fn apply_hit(
     // Purely so Cthulhu's ability can find "the top DPS" later - see
     // `damage_dealt_total`'s doc. Harmless to track on a boss/add
     // attacker too, just never read for those. Curse's own share (see
-    // `curse_share`'s doc above) goes to the cursing Warlock instead.
-    units[attacker_idx].damage_dealt_total += (final_damage - curse_share).max(0) as u64;
-    if let Some(curse_source_id) = &curse_credit_id {
-        if let Some(curser_idx) = units.iter().position(|u| u.id == *curse_source_id) {
-            units[curser_idx].damage_dealt_total += curse_share.max(0) as u64;
+    // `curse_share`'s doc above) would go to the cursing Warlock instead,
+    // while `CURSE_CREDITS_WARLOCK_DAMAGE` is enabled - disabled today, so
+    // this attacker just keeps the full `final_damage` credit like any
+    // other hit.
+    if CURSE_CREDITS_WARLOCK_DAMAGE {
+        units[attacker_idx].damage_dealt_total += (final_damage - curse_share).max(0) as u64;
+        if let Some(curse_source_id) = &curse_credit_id {
+            if let Some(curser_idx) = units.iter().position(|u| u.id == *curse_source_id) {
+                units[curser_idx].damage_dealt_total += curse_share.max(0) as u64;
+            }
         }
+    } else {
+        units[attacker_idx].damage_dealt_total += final_damage.max(0) as u64;
     }
 
     // Warlock's Doom - bank actual damage dealt to this target while its
@@ -6432,7 +6451,7 @@ pub(crate) fn apply_hit(
 
     let attacker_id = units[attacker_idx].id.clone();
     let target_id = units[target_idx].id.clone();
-    if curse_share > 0 {
+    if CURSE_CREDITS_WARLOCK_DAMAGE && curse_share > 0 {
         // Warlock's Curse of Weakness family - split into two events for
         // the SAME real hit (see `curse_share`'s doc above): the
         // attacker's own share first, with an INTERMEDIATE `target_hp_after`
