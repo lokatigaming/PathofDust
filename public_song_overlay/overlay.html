@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Song Request Overlay</title>
+<style>
+  /* No background color at all — OBS Browser Sources render transparently
+     by default, but only if the page itself doesn't paint an opaque
+     background. An explicit background here (even black) would show as a
+     solid box over the rest of the scene whenever the video is hidden
+     ("Show on Stream" off, or nothing queued yet). */
+  html, body { margin: 0; padding: 0; overflow: hidden; }
+  #player { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
+  /* Nothing playing, or "Show on Stream" off: video keeps playing in the
+     background if applicable (audio included) but isn't visually
+     rendered — visibility:hidden rather than display:none so the player
+     doesn't get throttled/paused for being detached from layout. This is
+     the *only* state the overlay has — fully invisible, nothing shown to
+     viewers, no placeholder text. */
+  .hidden-on-stream { visibility: hidden; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+  let player = null;
+  let playerReady = false;
+  let currentVideoId = null;
+  let pendingVideoId = null;
+  let ws = null;
+
+  // A command (e.g. insertSong from an entrance theme) can arrive over
+  // the WebSocket before the YouTube IFrame API has finished its own
+  // async init — right after this page itself was just reloaded/
+  // refreshed being the most likely time for that race. Without this,
+  // runCommand's playerReady guard below just silently drops it forever;
+  // this replays the single most recent one once the player's ready
+  // instead. Only the latest matters — an older queued command being
+  // superseded by a newer one before the player's even ready is fine to
+  // just drop.
+  let pendingCommand = null;
+
+  // !songinsert/!si state — entirely local to this page, the server never
+  // learns the interrupted song's playback position. While an insert is
+  // active, incoming `state` broadcasts are ignored (see applyState)
+  // since now_playing server-side still refers to the *interrupted* song,
+  // not what's actually showing right now.
+  let insertActive = false;
+  let resumeVideoId = null;
+  let resumeTime = 0;
+
+  // Volume ducking during alerts — 20%, restored when alert-box.html's
+  // sound actually finishes (its real `ended`/error event triggers
+  // 'unduckVolume'), not a fixed timer, so it naturally covers alert
+  // sounds of any length. duckBaselineVolume is only captured on the
+  // *first* duck of a burst; a later duck before the matching unduck
+  // arrives just re-lowers to DUCK_VOLUME_PERCENT (already there)
+  // without touching the remembered baseline, so the eventual restore
+  // always uses the true original volume. DUCK_SAFETY_TIMEOUT_MS is a
+  // fallback in case 'unduckVolume' never arrives for some reason (e.g.
+  // alert-box.html reloaded mid-sound) — same reasoning as
+  // clear_active_insert_if_stuck server-side for !songinsert.
+  const DUCK_VOLUME_PERCENT = 20;
+  const DUCK_SAFETY_TIMEOUT_MS = 15000;
+  const ALERT_PAUSE_SAFETY_TIMEOUT_MS = 15000;
+  let duckBaselineVolume = null;
+  let duckSafetyTimeoutId = null;
+
+  function restoreDuckedVolume() {
+    if (duckBaselineVolume === null) return;
+    if (player.setVolume) player.setVolume(duckBaselineVolume);
+    duckBaselineVolume = null;
+    clearTimeout(duckSafetyTimeoutId);
+    duckSafetyTimeoutId = null;
+  }
+
+  // Follow alerts pause outright instead of ducking — same
+  // remember-then-restore shape as ducking, but with play/pause state
+  // instead of volume. wasPlayingBeforeAlertPause is only captured on the
+  // *first* pause of a possible burst, so the eventual resume reflects
+  // whether the song was truly playing beforehand (not resuming
+  // something that was already paused for an unrelated reason, e.g.
+  // !modpause, and not resuming twice for a rapid pair of follows).
+  let pausedForAlert = false;
+  let wasPlayingBeforeAlertPause = false;
+  let alertPauseSafetyTimeoutId = null;
+
+  function resumeFromAlertPause() {
+    if (!pausedForAlert) return;
+    if (wasPlayingBeforeAlertPause && player.playVideo) player.playVideo();
+    pausedForAlert = false;
+    wasPlayingBeforeAlertPause = false;
+    clearTimeout(alertPauseSafetyTimeoutId);
+    alertPauseSafetyTimeoutId = null;
+  }
+
+  // Browsers block autoplay-with-sound unless the video starts muted (OBS's
+  // Browser Source is exempt from this and would autoplay with sound even
+  // without the mute trick, but starting muted then unmuting on the first
+  // PLAYING event keeps this working the same way in a plain browser tab
+  // too, e.g. when previewing the overlay outside OBS).
+  function onYouTubeIframeAPIReady() {
+    player = new YT.Player('player', {
+      width: '100%',
+      height: '100%',
+      playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, rel: 0 },
+      events: {
+        onReady: () => {
+          playerReady = true;
+          if (pendingVideoId) {
+            player.loadVideoById(pendingVideoId);
+            pendingVideoId = null;
+          }
+          if (pendingCommand) {
+            const { action, volume, videoId } = pendingCommand;
+            pendingCommand = null;
+            runCommand(action, volume, videoId);
+          }
+        },
+        onStateChange: onPlayerStateChange,
+        onError: onPlayerError,
+      },
+    });
+  }
+
+  let unmuteAttempted = false;
+
+  // The volume level (0-100) the player should actually be at whenever
+  // it's not ducked/paused-for-alert — last set by !votevolume/!modvolume
+  // (or 100 if neither's ever run). The unmute dance below used to
+  // hardcode setVolume(100) every time it ran, which fired on *every*
+  // song transition (applyState resets unmuteAttempted whenever a new
+  // video id loads) and silently blew away any vote/mod-set volume the
+  // moment the next song started — this is what's actually remembered
+  // and reapplied instead.
+  let currentVolume = 100;
+
+  // Shared by the ENDED and onError paths — swaps back to whatever song
+  // an active insert (!songinsert/!si or an entrance theme) interrupted,
+  // at the exact position it was left at.
+  function resumeFromInsert() {
+    insertActive = false;
+    currentVideoId = resumeVideoId;
+    if (resumeVideoId) {
+      resetStuckWatchdog();
+      player.loadVideoById(resumeVideoId, resumeTime);
+    } else {
+      // Nothing was playing before this insert started — go back to
+      // that same hidden state instead of leaving the insert's last
+      // frame frozen on screen.
+      player.stopVideo();
+      applyVisibility(false);
+    }
+    resumeVideoId = null;
+  }
+
+  function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.PLAYING) {
+      send({ type: 'playerState', playing: true });
+      if (!unmuteAttempted) {
+        unmuteAttempted = true;
+        player.unMute();
+        player.setVolume(currentVolume);
+        send({ type: 'muted', muted: false });
+      }
+    }
+    if (event.data === YT.PlayerState.PAUSED) {
+      send({ type: 'playerState', playing: false });
+    }
+    if (event.data === YT.PlayerState.ENDED) {
+      if (insertActive) {
+        resumeFromInsert();
+        send({ type: 'insertEnded' });
+        return;
+      }
+      send({ type: 'ended' });
+    }
+  }
+
+  // YouTube IFrame API error codes — see
+  // https://developers.google.com/youtube/iframe_api_reference#onError.
+  // The API doesn't distinguish "owner disabled embedding" from "blocked
+  // in this region" — both surface as 101/150, so the reason text covers
+  // both rather than guessing which one it was.
+  function playbackErrorReason(code) {
+    switch (code) {
+      case 2: return 'invalid video link';
+      case 5: return 'a playback error';
+      case 100: return 'video not found or removed';
+      case 101:
+      case 150: return "not playable here (owner restricted it to YouTube.com only, or it's blocked in this region)";
+      default: return `an unknown playback error (code ${code})`;
+    }
+  }
+
+  // A video failing to play (removed, region-locked, embedding disabled,
+  // etc.) is reported back to the server so it can skip it and announce
+  // why in chat, instead of the stream just silently stalling on it.
+  function onPlayerError(event) {
+    const reason = playbackErrorReason(event.data);
+    if (insertActive) {
+      const videoId = currentVideoId;
+      resumeFromInsert();
+      send({ type: 'insertPlaybackError', videoId, reason });
+      return;
+    }
+    send({ type: 'playbackError', videoId: currentVideoId, reason });
+  }
+
+  function reportStuckPlayback() {
+    const reason = 'playback stalled';
+    if (insertActive) {
+      const videoId = currentVideoId;
+      resumeFromInsert();
+      send({ type: 'insertPlaybackError', videoId, reason });
+      return;
+    }
+    send({ type: 'playbackError', videoId: currentVideoId, reason });
+  }
+
+  // ---- Stuck-playback watchdog ----
+  // The IFrame API only fires onError for a *hard* failure (removed,
+  // region-locked, etc.) — a bad connection, a CDN hiccup, or YouTube
+  // just wedging can leave the player reporting a normal state forever
+  // while the actual video time never advances, with no event at all to
+  // react to. This polls getCurrentTime() every STUCK_CHECK_INTERVAL_MS
+  // and, unless the player is intentionally paused, treats several
+  // consecutive checks with no progress as stuck — routed through the
+  // same playbackError path onPlayerError uses (skips the song, or
+  // resumes an interrupted insert, and announces why in chat).
+  const STUCK_CHECK_INTERVAL_MS = 10000;
+  // 3 consecutive stalled checks (~30s of zero progress) before acting —
+  // generous enough that a normal buffering pause on a slow connection
+  // right after a video loads doesn't get mistaken for actually stuck.
+  const STUCK_STRIKES_THRESHOLD = 3;
+  let stuckWatchdogTime = null;
+  let stuckStrikes = 0;
+
+  // Called whenever a video is freshly loaded (a real new-video swap, an
+  // insert starting, or resuming an interrupted one) so a slow-but-normal
+  // start doesn't inherit a near-miss strike count from whatever played
+  // before it.
+  function resetStuckWatchdog() {
+    stuckWatchdogTime = null;
+    stuckStrikes = 0;
+  }
+
+  function checkForStuckPlayback() {
+    if (!playerReady || !player.getCurrentTime || !player.getPlayerState) return;
+    if (!currentVideoId) return; // nothing loaded at all — nothing to be stuck on
+
+    // PAUSED is intentional (!modpause/!votepause) — never treat that as
+    // stuck. Everything else (PLAYING, BUFFERING, CUED, UNSTARTED)
+    // should be making progress toward actually playing.
+    if (player.getPlayerState() === YT.PlayerState.PAUSED) {
+      resetStuckWatchdog();
+      return;
+    }
+
+    const currentTime = player.getCurrentTime();
+    if (stuckWatchdogTime !== null && currentTime - stuckWatchdogTime < 1) {
+      stuckStrikes++;
+    } else {
+      stuckStrikes = 0;
+    }
+    stuckWatchdogTime = currentTime;
+
+    if (stuckStrikes >= STUCK_STRIKES_THRESHOLD) {
+      resetStuckWatchdog();
+      reportStuckPlayback();
+    }
+  }
+
+  setInterval(checkForStuckPlayback, STUCK_CHECK_INTERVAL_MS);
+
+  // Fallback for plain-browser-tab testing: if the browser blocked the
+  // programmatic unmute above (no prior user interaction with this page),
+  // the first click anywhere satisfies that requirement. Not needed inside
+  // OBS, where Browser Sources autoplay with sound regardless.
+  document.addEventListener('click', () => {
+    if (playerReady && player.isMuted && player.isMuted()) {
+      player.unMute();
+      player.setVolume(currentVolume);
+      send({ type: 'muted', muted: false });
+    }
+  });
+
+  // Transport controls relayed from the dock — this page is the only one
+  // holding a real YT.Player, so it's the one that actually executes these.
+  function runCommand(action, volume, videoId) {
+    if (!playerReady) {
+      pendingCommand = { action, volume, videoId };
+      return;
+    }
+    switch (action) {
+      case 'play':
+        player.playVideo();
+        break;
+      case 'pause':
+        player.pauseVideo();
+        break;
+      case 'restart':
+        player.seekTo(0, true);
+        player.playVideo();
+        break;
+      case 'mute':
+        player.mute();
+        send({ type: 'muted', muted: true });
+        break;
+      case 'unmute':
+        player.unMute();
+        player.setVolume(currentVolume);
+        send({ type: 'muted', muted: false });
+        break;
+      case 'setVolume':
+        currentVolume = volume;
+        player.setVolume(volume);
+        break;
+      case 'insertSong':
+        resumeVideoId = currentVideoId;
+        resumeTime = (player.getCurrentTime && player.getCurrentTime()) || 0;
+        insertActive = true;
+        currentVideoId = videoId;
+        // Force the video visible even if nothing was playing before
+        // (the player sits hidden — visibility:hidden — whenever
+        // now_playing is empty) — a theme/insert should always be seen,
+        // not just heard. Deliberately *not* forcing unmuteAttempted
+        // true here like before: that assumed something was already
+        // playing (and therefore already unmuted), which isn't true in
+        // this exact "nothing was playing" case — leaving it alone lets
+        // onPlayerStateChange's PLAYING handler run the real unmute
+        // dance when needed, while still no-op'ing (as before) when the
+        // player was already unmuted from an interrupted song.
+        applyVisibility(true);
+        resetStuckWatchdog();
+        player.loadVideoById(videoId);
+        break;
+      case 'duckVolume': {
+        if (!player.getVolume || !player.setVolume) break;
+        if (duckBaselineVolume === null) {
+          duckBaselineVolume = player.getVolume();
+        }
+        player.setVolume(DUCK_VOLUME_PERCENT);
+        clearTimeout(duckSafetyTimeoutId);
+        duckSafetyTimeoutId = setTimeout(restoreDuckedVolume, DUCK_SAFETY_TIMEOUT_MS);
+        break;
+      }
+      case 'unduckVolume':
+        restoreDuckedVolume();
+        break;
+      case 'pauseForAlert': {
+        if (!player.pauseVideo || !player.getPlayerState) break;
+        if (!pausedForAlert) {
+          wasPlayingBeforeAlertPause = player.getPlayerState() === YT.PlayerState.PLAYING;
+          pausedForAlert = true;
+        }
+        player.pauseVideo();
+        clearTimeout(alertPauseSafetyTimeoutId);
+        alertPauseSafetyTimeoutId = setTimeout(resumeFromAlertPause, ALERT_PAUSE_SAFETY_TIMEOUT_MS);
+        break;
+      }
+      case 'resumeForAlert':
+        resumeFromAlertPause();
+        break;
+      case 'skipInsert':
+        if (insertActive) {
+          resumeFromInsert();
+          send({ type: 'insertEnded' });
+        }
+        break;
+    }
+  }
+
+  function applyVisibility(visible) {
+    document.getElementById('player').classList.toggle('hidden-on-stream', !visible);
+  }
+
+  function applyState(state) {
+    // now_playing here still refers to whatever was interrupted, not the
+    // inserted song actually on stream — applying it now would yank the
+    // insert away mid-playback. Once insertEnded fires (see the ENDED
+    // handler), the next state broadcast is correct again.
+    if (insertActive) return;
+
+    const np = state.nowPlaying;
+
+    if (!np) {
+      currentVideoId = null;
+      if (playerReady) player.stopVideo();
+      applyVisibility(false);
+      return;
+    }
+
+    applyVisibility(state.showOnStream);
+    if (np.videoId === currentVideoId) return;
+    currentVideoId = np.videoId;
+    unmuteAttempted = false;
+    resetStuckWatchdog();
+
+    if (playerReady) {
+      player.loadVideoById(np.videoId);
+    } else {
+      pendingVideoId = np.videoId;
+    }
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'state') applyState(msg);
+      else if (msg.type === 'command') runCommand(msg.action, msg.volume, msg.videoId);
+    };
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+</script>
+</body>
+</html>

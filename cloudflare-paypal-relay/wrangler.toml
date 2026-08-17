@@ -1,0 +1,15 @@
+name = "lokati-paypal-relay"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Create with: wrangler kv namespace create TIPS_KV
+# then paste the printed id below.
+kv_namespaces = [
+  { binding = "TIPS_KV", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
+]
+
+# Secrets are NOT set here — set them with:
+#   wrangler secret put PAYPAL_CLIENT_ID
+#   wrangler secret put PAYPAL_CLIENT_SECRET
+#   wrangler secret put PAYPAL_WEBHOOK_ID
+#   wrangler secret put RELAY_TOKEN

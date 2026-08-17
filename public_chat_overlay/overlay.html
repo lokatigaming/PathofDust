@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chat Overlay</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; background: transparent; overflow: hidden;
+    font-family: "Segoe UI", Arial, sans-serif;
+  }
+
+  /* Drag handle: hover the top-left corner to grab and reposition the box.
+     OBS browser sources have no window chrome, so this is the only way to
+     move the overlay around the canvas — position is saved in
+     localStorage so it survives OBS restarts. */
+  #chat-box {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: 420px;
+    max-height: 500px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column-reverse;
+    padding: 8px;
+    box-sizing: border-box;
+  }
+
+  #drag-handle {
+    position: absolute;
+    top: 0; left: 0;
+    width: 28px; height: 28px;
+    cursor: move;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  #chat-box:hover #drag-handle { opacity: 1; }
+
+  .message {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 3px 0;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 16px;
+    line-height: 1.4;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    animation: fade-in 0.15s ease-out;
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .sender { font-weight: 600; color: #a685ff; }
+  .sender::after { content: ":"; color: #ccc; margin-right: 2px; }
+  .emote { height: 1.6em; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div id="chat-box">
+  <div id="drag-handle" title="Drag to reposition"></div>
+</div>
+
+<script>
+  const chatBox = document.getElementById('chat-box');
+  const dragHandle = document.getElementById('drag-handle');
+  const MAX_MESSAGES = 12;
+
+  // ---- Draggable positioning (persisted across OBS restarts) ----
+  const saved = JSON.parse(localStorage.getItem('chatOverlayPos') || 'null');
+  if (saved) {
+    chatBox.style.top = saved.top;
+    chatBox.style.left = saved.left;
+  }
+
+  let dragging = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  dragHandle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    const rect = chatBox.getBoundingClientRect();
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const top = `${e.clientY - dragOffsetY}px`;
+    const left = `${e.clientX - dragOffsetX}px`;
+    chatBox.style.top = top;
+    chatBox.style.left = left;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    localStorage.setItem('chatOverlayPos', JSON.stringify({ top: chatBox.style.top, left: chatBox.style.left }));
+  });
+
+  // ---- Chat feed ----
+  function renderMessage(event) {
+    const el = document.createElement('div');
+    el.className = 'message';
+
+    const sender = document.createElement('span');
+    sender.className = 'sender';
+    sender.textContent = event.sender;
+    el.appendChild(sender);
+
+    for (const seg of event.segments) {
+      if (seg.type === 'emote') {
+        const img = document.createElement('img');
+        img.className = 'emote';
+        img.src = seg.url;
+        img.alt = seg.code;
+        img.title = seg.code;
+        el.appendChild(img);
+      } else {
+        const span = document.createElement('span');
+        span.textContent = seg.value;
+        el.appendChild(span);
+      }
+    }
+
+    // column-reverse means "prepend" visually adds to the bottom (newest
+    // at the bottom, growing upward) — insert as the first DOM child.
+    chatBox.insertBefore(el, chatBox.firstChild);
+
+    while (chatBox.children.length > MAX_MESSAGES + 1) { // +1 for the drag handle
+      chatBox.removeChild(chatBox.lastChild);
+    }
+  }
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = (event) => renderMessage(JSON.parse(event.data));
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,2245 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Adventure Overlay</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; background: transparent; overflow: hidden;
+    width: 100%; height: 100%;
+  }
+  canvas { display: block; }
+  /* Flicker Strike's dash effect (see spawnFlickerEffect) - a real <img>,
+     not drawn into the canvas, since canvas drawImage only ever shows a
+     GIF's first frame; a native <img> animates it for real. Position/
+     size/opacity are all driven every frame from JS (updateAndDrawFlickerDashes),
+     not fixed here. Each cast gets its own 4 freshly-created elements
+     (never reused across casts) so simultaneous casts from different
+     characters each play their own animation from frame 1 independently. */
+  .flicker-fx {
+    position: fixed;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    z-index: 5;
+    transform: translate(-50%, -50%);
+  }
+  /* Dragon's Breath (see spawnDragonsBreathShot) - same real-<img>
+     reasoning as .flicker-fx above. Every burst shares this class; a
+     horizontal flip (matching the Dragon's own facing) is applied per-
+     burst via inline transform (see updateAndDrawDragonBreathShots). */
+  .dragon-fx {
+    position: fixed;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    z-index: 5;
+  }
+  /* A GIF-flagged boss body (see bossGifImgFor/GIF_SPRITES) - a real
+     <img> instead of a canvas draw, same reasoning as .flicker-fx, just
+     long-lived per boss instead of a one-shot effect. No mix-blend-mode
+     (this is the actual character art, not a glow/fire overlay) and no
+     translate baked in - drawEnemy positions it in absolute left/top
+     terms directly, matching its own canvas-draw math exactly. */
+  .boss-gif {
+    position: fixed;
+    pointer-events: none;
+    z-index: 5;
+  }
+  /* Same reasoning as .boss-gif, for a player character whose custom
+     drop-in sprite (see CUSTOM_SPRITE_DIR) turned out to be a .gif - see
+     characterGifImgFor. */
+  .character-gif {
+    position: fixed;
+    pointer-events: none;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<script>
+  // Prototype renderer. Players and the boss are drawn as real pixel-art
+  // sprites (see sprites/ — sliced from adventure/sprites.png and
+  // adventure/bosses.png by a one-time prep script). Push-only page:
+  // everything here is derived from "state" (full roster + world stage,
+  // sent on connect and after every change)
+  // and "encounter" (a one-shot event to replay) messages from the bot's
+  // adventure_overlay_server.rs — there's nothing for this page to
+  // report back.
+  //
+  // Combat is a REAL per-unit simulation resolved instantly server-side
+  // (see adventure.rs's simulate_battle) — every player and the boss
+  // have actual HP, and the "encounter" message carries the full event
+  // log (who hit/healed whom, and their HP after) plus a
+  // displayDurationMs the server already compressed the log's real
+  // timestamps into. This page's only job during battle is to play that
+  // log back at the right pace and render its real consequences (HP
+  // bars, knockouts) — it doesn't invent anything about who's winning.
+
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  // Every enemy (a lone boss, or one member of a basic encounter's
+  // group) gets an id like "__enemy_0__" - must match adventure.rs's
+  // enemy_unit_id. A real boss fight always has exactly one, at index 0.
+  const ENEMY_ID_PREFIX = '__enemy_';
+  const BOSS_ID = '__enemy_0__';
+  function isEnemyUnitId(id) {
+    return typeof id === 'string' && id.startsWith(ENEMY_ID_PREFIX);
+  }
+  function enemyUnitIndex(id) {
+    return parseInt(id.slice(ENEMY_ID_PREFIX.length), 10);
+  }
+  function enemyUnitIds(encounter) {
+    if (!encounter) return [];
+    return [...encounter.units.keys()].filter(isEnemyUnitId).sort((a, b) => enemyUnitIndex(a) - enemyUnitIndex(b));
+  }
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ?highlight=<name> (2026-08-16, a live request) - dims every OTHER
+  // player character so one can be spotlighted on stream. Matched
+  // against the character's stable lowercased id (same key `characters`
+  // itself is keyed by, e.g. "kibukah" for "Kibukah"), not their raw
+  // display name, so casing in the URL doesn't matter. `null` (no dim at
+  // all, normal behavior) when the param is absent - a query string
+  // typo just silently highlights nobody rather than dimming everyone.
+  const highlightName = new URLSearchParams(location.search).get('highlight')?.trim().toLowerCase() || null;
+  const HIGHLIGHT_DIM_ALPHA = 0.15;
+
+  // id -> { displayName, level, xp, xpNeeded, wins, losses, role, color,
+  // wanderX/Y + wanderTargetX/Y + nextWanderAt (idle roaming), jumpOffset
+  // + jumpVy + nextJumpAt (idle random jumps) }. Updated in place (not
+  // replaced) on every "state" message so a character's animation state
+  // doesn't reset just because a new snapshot arrived. Combat HP is NOT
+  // stored here — that's transient, per-fight state, kept on `encounter`
+  // instead (see applyEncounter).
+  const characters = new Map();
+  let stage = 0;
+
+  // Deterministic per-character color (hash of their stable id) so it
+  // stays the same across reloads without needing to store it anywhere.
+  // Still used as a fallback (sprite not loaded yet) and for the boss's
+  // hit-flash math elsewhere.
+  function hashStr(s) {
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    return hash;
+  }
+  function colorForId(id) {
+    return `hsl(${hashStr(id) % 360}, 70%, 55%)`;
+  }
+
+  // ---- Sprites. Full replacement (2026-08-13) - every one of these came
+  // pre-isolated (its own transparent-background PNG) from
+  // C:\...\twitch-bot-rs\adventure\player sprites\, instead of being cut
+  // out of a packed character sheet the way every earlier batch was (see
+  // adventure.rs's ALL_SPRITES doc comment for why that approach kept
+  // producing defects). One flat pool, picked independent of role. A
+  // player's own explicit pick (see adventure.rs's
+  // Character::model/effective_sprite) always wins when they have one -
+  // this hash is only the fallback for whoever hasn't picked yet, same
+  // idea as colorForId, so it's stable across reloads/reconnects without
+  // needing to be stored anywhere server-side. MUST stay byte-identical
+  // (same names, same order) to adventure.rs's own ALL_SPRITES, hand-synced.
+  const ALL_SPRITES = [
+    'awoooo', 'axe-dood', 'bookworm', 'crawly', 'crystal-maiden', 'dafuq-is-that-wing', 'deer-guy', 'def-from-alaska', 'def-not-a-dealer',
+    'def-not-bad-guy', 'existential-crisis-guy', 'fantastic-1', 'frosty', 'green-ranger', 'hail', 'hangry-af', 'leanidas',
+    'lionguard-azure', 'lionguard-cobalt', 'lionguard-crimson', 'lionguard-royal', 'lionguard-scarlet',
+    'magma-guy-1', 'mooooooo', 'new-katarina-skin', 'oonga-boonga', 'pinocchio', 'purp-ninja-guy', 'pyra', 'shangchi', 'shiny-dood', 'skully', 'sns-blue',
+    'sprite-01', 'sprite-02', 'sprite-03', 'sprite-04', 'sprite-05', 'sprite-06', 'sprite-07', 'sprite-08', 'sprite-09', 'sprite-10',
+    'sprite-11', 'sprite-12', 'sprite-13', 'sprite-14', 'sprite-15', 'sprite-16', 'sprite-17', 'sprite-18', 'sprite-19', 'sprite-20',
+    'sprite-21', 'sprite-22', 'sprite-23', 'sprite-24', 'sprite-25', 'sprite-26', 'sprite-27', 'sprite-28', 'sprite-29', 'sprite-30',
+    'sprite-31', 'sprite-32', 'sprite-33', 'sprite-34', 'sprite-35', 'sprite-36', 'sprite-37', 'sprite-38', 'sprite-39', 'sprite-40',
+    'sprite-41', 'sprite-42', 'sprite-43', 'sprite-44', 'sprite-45', 'sprite-46', 'sprite-47', 'sprite-48', 'sprite-49', 'sprite-50',
+    'tamer', 'thing-vtemu', 'trash-mob', 'twilight-bs', 'valkvalk', 'wizard-guy', 'wow3-frozen-throne',
+  ];
+  // Sliced from adventure/bosses.png the same way. The server picks
+  // which ONE (or, stage 50+, TWO distinct) of these a real boss fight
+  // actually is (see adventure.rs's BossKind - each name here
+  // corresponds to a specific unique mechanic, not just a cosmetic skin)
+  // and sends them as msg.bossSprites (see applyEncounter) - this array
+  // exists here only so every boss sprite gets preloaded up front, not
+  // to pick one itself.
+  const BOSS_SPRITES = ['bosses/boss-lich-green', 'bosses/boss-demon-fire', 'bosses/boss-cthulhu-blue', 'bosses/boss-dragon-purple', 'bosses/boss-dragon-bahamut', 'bosses/cube1', 'bosses/cube2'];
+  // "Basic enemy" filler-fight opponents (see adventure.rs's
+  // EncounterKind::Basic / run_basic_encounter) - a separate, weaker pool
+  // picked instead of BOSS_SPRITES when the encounter says kind:'basic',
+  // so a minute-to-minute filler fight doesn't show a giant dragon.
+  const BASIC_ENEMY_SPRITES = ['enemy-orc-warrior', 'enemy-ogre-brute', 'enemy-orc-axeman'];
+
+  // Sprites are sliced from packed sheets by hand (see the sprite-
+  // sourcing note this project keeps hitting), so different source
+  // sheets end up with different amounts of transparent padding around
+  // the actual character art - two sprites both drawn at the SAME
+  // nominal height (dh below) can still read as visibly different sizes
+  // on screen, because one's "character" fills more of its own canvas
+  // than the other's does. Fixed by measuring each sprite's real opaque
+  // bounding-box height once, on load, and using that (not the raw PNG
+  // height) as what "this sprite's height" actually means everywhere it's
+  // drawn - see contentScaleFor/drawCharacter/drawEnemy.
+  function computeContentScale(img) {
+    try {
+      const cvs = document.createElement('canvas');
+      cvs.width = img.naturalWidth;
+      cvs.height = img.naturalHeight;
+      if (cvs.width === 0 || cvs.height === 0) return 1;
+      const octx = cvs.getContext('2d');
+      octx.drawImage(img, 0, 0);
+      const { data } = octx.getImageData(0, 0, cvs.width, cvs.height);
+      const ALPHA_THRESHOLD = 10;
+      let minY = -1;
+      let maxY = -1;
+      for (let y = 0; y < cvs.height; y++) {
+        let rowHasContent = false;
+        const rowStart = y * cvs.width * 4;
+        for (let x = 0; x < cvs.width; x++) {
+          if (data[rowStart + x * 4 + 3] > ALPHA_THRESHOLD) {
+            rowHasContent = true;
+            break;
+          }
+        }
+        if (rowHasContent) {
+          if (minY === -1) minY = y;
+          maxY = y;
+        }
+      }
+      if (minY === -1 || maxY < minY) return 1;
+      const contentHeight = maxY - minY + 1;
+      const scale = contentHeight / cvs.height;
+      // A near-fully-opaque sprite (scale close to 1) or a scan that
+      // somehow found almost nothing real (near 0, likely a decode
+      // glitch) both fall back to no correction rather than risking a
+      // wild, wrong blow-up.
+      return scale > 0.05 ? scale : 1;
+    } catch (err) {
+      // Canvas tainted (shouldn't happen - sprites are same-origin) or
+      // any other decode issue - no correction rather than a hard crash.
+      return 1;
+    }
+  }
+
+  // Sprite names that are actually animated GIFs rather than static PNGs
+  // (Bahamut, 2026-08-15) - loaded into `spriteImages` the same way as
+  // any other sprite (still need the Image object's naturalWidth/
+  // contentScale for sizing), but CONFIRMED LIVE (2026-08-15 follow-up,
+  // a real report that it rendered frozen) that `ctx.drawImage` only
+  // ever shows a GIF's first frame in this project's actual OBS/browser
+  // environment - the .flicker-fx doc comment had it right all along,
+  // and the claim below (that this already worked fine for death.gif)
+  // was simply wrong, never actually verified. `drawEnemy` now renders
+  // any GIF-flagged boss through a real persistent <img> element instead
+  // (see `bossGifImgFor`) - this Set is what tells it which ones need
+  // that treatment.
+  // 'death' added (2026-08-15) now that Lich's summoned adds use it as
+  // their sprite (see spriteNameForEnemySlot) - it's the same known
+  // frozen-frame issue Bahamut had, just newly relevant now that it can
+  // render prominently (up to LICH_MAX_ADDS times per fight) instead of
+  // only briefly on the downed-ghost overlay.
+  const GIF_SPRITES = new Set(['bosses/boss-dragon-bahamut', 'death']);
+
+  const spriteImages = {};
+  for (const name of [...ALL_SPRITES, ...BOSS_SPRITES, ...BASIC_ENEMY_SPRITES]) {
+    const img = new Image();
+    img.onload = () => {
+      img.contentScale = computeContentScale(img);
+    };
+    img.src = `sprites/${name}.${GIF_SPRITES.has(name) ? 'gif' : 'png'}`;
+    spriteImages[name] = img;
+  }
+
+  // Persistent real <img> per boss slot for a GIF-flagged sprite (see
+  // GIF_SPRITES's doc for why canvas drawImage can't animate one) - NOT
+  // a per-cast throwaway like .flicker-fx/.dragon-fx's effects, since a
+  // boss body needs to keep animating for the whole fight. Keyed by boss
+  // slot index (matches bossImgAt's own `i`); `applyEncounter` clears
+  // this out for every new fight so a stale element from a PREVIOUS
+  // encounter's different boss lineup never lingers. Renders above the
+  // whole canvas (same z-index as every other DOM-based effect here),
+  // so it can end up visually in front of a hero standing on top of it -
+  // a minor, accepted trade-off, same one .flicker-fx/.dragon-fx already
+  // have.
+  const bossGifImgs = new Map();
+  function bossGifImgFor(slotIndex, spriteName) {
+    if (!spriteName || !GIF_SPRITES.has(spriteName)) return null;
+    let img = bossGifImgs.get(slotIndex);
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'boss-gif';
+      img.style.display = 'none';
+      img.src = `sprites/${spriteName}.gif`;
+      document.body.appendChild(img);
+      bossGifImgs.set(slotIndex, img);
+    }
+    return img;
+  }
+  function clearBossGifImgs() {
+    for (const img of bossGifImgs.values()) img.remove();
+    bossGifImgs.clear();
+  }
+
+  // Same persistent-<img> reasoning as bossGifImgFor, for a player's own
+  // custom drop-in sprite (see getOrLoadSprite's doc) that turned out to
+  // be a .gif - unlike GIF_SPRITES' fixed boss entries, whether a given
+  // custom sprite is even a gif at all is only known once `sourceImg`
+  // (whatever spriteForCharacter already resolved for this character)
+  // has actually finished loading, so this reads that instead of
+  // deciding up front. Keyed by character id (stable across a fight,
+  // unlike a boss's array slot) - `sourceImg.src` doubles as the cache-
+  // invalidation key, so a live sprite change swaps the element instead
+  // of leaving a stale one on screen.
+  const characterGifImgs = new Map();
+  function characterGifImgFor(id, sourceImg) {
+    const isGif = sourceImg && sourceImg.complete && sourceImg.naturalWidth > 0 && sourceImg.src.endsWith('.gif');
+    const cached = characterGifImgs.get(id);
+    if (!isGif) {
+      if (cached) {
+        cached.remove();
+        characterGifImgs.delete(id);
+      }
+      return null;
+    }
+    if (cached && cached.src === sourceImg.src) return cached;
+    if (cached) cached.remove();
+    const img = document.createElement('img');
+    img.className = 'character-gif';
+    img.style.display = 'none';
+    img.src = sourceImg.src;
+    document.body.appendChild(img);
+    characterGifImgs.set(id, img);
+    return img;
+  }
+
+  // NOTE: drawDowned still draws this via plain ctx.drawImage, not the
+  // GIF_SPRITES-aware persistent-<img> path (that's only wired into
+  // bossImgAt/bossGifImgFor, used for enemy/boss bodies - see
+  // spriteNameForEnemySlot) - so the downed-ghost overlay specifically
+  // still renders 'death' frozen on frame 1. Only the newly-added Lich-
+  // minion usage goes through the fixed path. Left as its own follow-up
+  // rather than expanding scope here.
+  {
+    const deathImg = new Image();
+    deathImg.src = 'sprites/death.gif';
+    spriteImages['death'] = deathImg;
+  }
+  // Prefers the character's live `model` field (see adventure.rs's
+  // Character::effective_sprite/CharacterView.model) - the server already
+  // resolved "explicit pick, or the same hash-of-id fallback" for us, so
+  // this only re-derives the hash itself as a last resort for an id we
+  // somehow don't have state for yet (e.g. drawn on the very first frame
+  // before any 'state' message has arrived).
+  // Lazily loads (and caches) any sprite name not already in the
+  // preloaded pool - covers self-service custom drop-in sprites
+  // (adventure.rs's CUSTOM_SPRITE_DIR, sent as a `model` value like
+  // "custom/mycoolsprite") which can't be known ahead of time the way
+  // ALL_SPRITES/BOSS_SPRITES/BASIC_ENEMY_SPRITES are, since new ones can
+  // appear with zero code change/redeploy. A custom sprite's extension
+  // isn't known ahead of time either (the picker doesn't distinguish
+  // "dropped as .png" from "dropped as .gif") - tries `.gif` first (a
+  // failed request just 404s harmlessly) and falls back to `.png` on
+  // error, so either just works by dropping the file in. Only custom
+  // sprites pay this extra-request cost - everything else still resolves
+  // its one known extension directly via GIF_SPRITES, same as before.
+  function getOrLoadSprite(name) {
+    let img = spriteImages[name];
+    if (img) return img;
+    img = new Image();
+    img.onload = () => {
+      img.contentScale = computeContentScale(img);
+    };
+    if (name.startsWith('custom/')) {
+      img.onerror = () => {
+        img.onerror = null;
+        img.src = `sprites/${name}.png`;
+      };
+      img.src = `sprites/${name}.gif`;
+    } else {
+      img.src = `sprites/${name}.${GIF_SPRITES.has(name) ? 'gif' : 'png'}`;
+    }
+    spriteImages[name] = img;
+    return img;
+  }
+  function spriteForCharacter(id) {
+    const c = characters.get(id);
+    const name = (c && c.model) || ALL_SPRITES[hashStr(id) % ALL_SPRITES.length];
+    const img = getOrLoadSprite(name);
+    return img && img.complete && img.naturalWidth > 0 ? img : null;
+  }
+  function loadedSprite(name) {
+    const img = getOrLoadSprite(name);
+    return img && img.complete && img.naturalWidth > 0 ? img : null;
+  }
+
+  function applyState(snapshot) {
+    stage = snapshot.stage;
+    const seen = new Set();
+    for (const cv of snapshot.characters) {
+      seen.add(cv.id);
+      let c = characters.get(cv.id);
+      if (!c) {
+        c = {
+          color: colorForId(cv.id),
+          wanderX: 0, wanderY: 0, wanderTargetX: 0, wanderTargetY: 0, nextWanderAt: 0,
+          jumpOffset: 0, jumpVy: 0,
+          nextJumpAt: performance.now() + Math.random() * 3000,
+          facingLeft: false,
+          nextFlipAt: performance.now() + 2000 + Math.random() * 4000,
+          scatterX: 0, scatterY: 0, scatterVX: 0, scatterVY: 0,
+          flyBob: 0, bobPhase: Math.random() * Math.PI * 2,
+        };
+        characters.set(cv.id, c);
+      }
+      c.displayName = cv.displayName;
+      c.level = cv.level;
+      c.xp = cv.xp;
+      c.xpNeeded = cv.xpNeeded;
+      c.wins = cv.wins;
+      c.losses = cv.losses;
+      c.role = cv.role;
+      c.downedUntilMs = cv.downedUntilMs ?? null;
+      c.retreated = !!cv.retreated;
+      c.model = cv.model;
+      c.flying = !!cv.flying;
+    }
+    for (const id of [...characters.keys()]) {
+      if (!seen.has(id)) {
+        characters.delete(id);
+        // See characterGifImgFor's doc - a character who's left the
+        // roster entirely (not just downed/retreated) shouldn't leave a
+        // stale persistent <img> element behind forever.
+        const gifImg = characterGifImgs.get(id);
+        if (gifImg) {
+          gifImg.remove();
+          characterGifImgs.delete(id);
+        }
+      }
+    }
+  }
+
+  // ---- Knockout/revive: a character the server's fight log actually
+  // defeated sits out REVIVE_DURATION_MS (must match adventure.rs's
+  // REVIVE_DURATION) after the fight, in EVERY phase (idle wander AND any
+  // encounter that starts before they're back) - see drawDowned. Compared
+  // against Date.now(), not the requestAnimationFrame `now` used
+  // elsewhere in draw() - downedUntilMs is a real wall-clock timestamp
+  // from the server, not a page-relative one.
+  const REVIVE_DURATION_MS = 30000;
+  function isDowned(c, nowEpoch) {
+    return !!c && c.downedUntilMs != null && nowEpoch < c.downedUntilMs;
+  }
+  // 75% opaque (25% transparent) the moment they go down, easing out to
+  // fully transparent right as they revive - per the request.
+  function deathFadeAlpha(c, nowEpoch) {
+    const remaining = c.downedUntilMs - nowEpoch;
+    const progress = 1 - Math.max(0, Math.min(1, remaining / REVIVE_DURATION_MS));
+    return 0.75 * (1 - progress);
+  }
+
+  // ---- Idle motion: wandering + random jumps (true idle only - not
+  // used during an active encounter, see draw()) ----
+  const GRAVITY = 1500; // px/s^2
+  // How far above the ground line an idle character's feet are ever
+  // allowed to render, wander+jump combined - a live request that idle
+  // characters were reading as floating too high (a big jumpVy roll
+  // alone can peak over 100px). Physics themselves are untouched (a
+  // jump's real height still plays out normally, this only clamps what
+  // actually gets drawn), so the timing/feel of a hop is unchanged, just
+  // its visible peak.
+  const IDLE_MAX_LIFT = 15;
+
+  // Split out from updateIdleMotion so a ghost (see isDowned) can wander
+  // the same way a normal idle character does without also jumping.
+  function updateWander(c, now, dt, wanderRangeX) {
+    if (now >= c.nextWanderAt) {
+      c.wanderTargetX = (Math.random() - 0.5) * 2 * wanderRangeX;
+      c.wanderTargetY = (Math.random() - 0.5) * 30;
+      c.nextWanderAt = now + 1200 + Math.random() * 2600;
+    }
+    const ease = Math.min(dt * 1.6, 1);
+    c.wanderX += (c.wanderTargetX - c.wanderX) * ease;
+    c.wanderY += (c.wanderTargetY - c.wanderY) * ease;
+  }
+
+  function updateJump(c, now, dt) {
+    if (c.jumpOffset <= 0 && c.jumpVy === 0 && now >= c.nextJumpAt) {
+      c.jumpVy = 380 + Math.random() * 260;
+      c.nextJumpAt = now + 1000 + Math.random() * 3500;
+    }
+    if (c.jumpOffset > 0 || c.jumpVy > 0) {
+      c.jumpVy -= GRAVITY * dt;
+      c.jumpOffset += c.jumpVy * dt;
+      if (c.jumpOffset <= 0) {
+        c.jumpOffset = 0;
+        c.jumpVy = 0;
+      }
+    }
+  }
+
+  function updateIdleMotion(c, now, dt, wanderRangeX) {
+    updateWander(c, now, dt, wanderRangeX);
+    updateJump(c, now, dt);
+  }
+
+  // "Wings of Flight" cosmetic (see CharacterView.flying) - a flying
+  // idle character hovers well above the crowd instead of walking the
+  // ground and hopping (updateJump). Reuses the same horizontal wander
+  // as everyone else (updateWander), but replaces the vertical jump
+  // physics with a slow, gentle up/down bob around a fixed hover
+  // height - no gravity, never touches the ground. `bobPhase` is a
+  // per-character offset (derived from their own id hash, see draw())
+  // so a whole flying roster doesn't bob in perfect unison.
+  const FLY_HEIGHT = 170; // px above ground - clears a grounded idle character's head
+  function updateFlyMotion(c, now, dt, wanderRangeX, bobPhase) {
+    updateWander(c, now, dt, wanderRangeX);
+    c.flyBob = Math.sin(now / 900 + bobPhase) * 16;
+  }
+
+  // Dragon redesign (2026-08-15) - same "fixed height + gentle sine bob,
+  // no gravity" idea as Wings of Flight above, just for an enemy instead
+  // of a player (see the enemy positions pass in draw(), which computes
+  // this directly rather than calling updateFlyMotion - that one's
+  // spliced into the player-only idle-phase branch and never touches
+  // enemy positioning at all). Applies in every phase, not idle-only - a
+  // Dragon should never look grounded, mid-fight included.
+  const DRAGON_HOVER_HEIGHT = 130; // px above its normal ground stance
+  // 2026-08-15 follow-up - the Dragon read as too dominant at the normal
+  // boss size (72%/50% of canvas height, same as every other boss), so
+  // its own rendered height is halved on top of whatever the normal
+  // boss-sizing math already picked - applied at the one spot baseDh is
+  // read for it (see the Pass 1 positions loop), not by touching
+  // bossSpriteHeight itself (that'd shrink every OTHER boss kind too).
+  const DRAGON_SIZE_MULT = 0.5;
+  // A Lich's summoned adds (identified the same sprite-name way as the
+  // Dragon above - they fall back to the 'death' sprite, see
+  // spriteNameForEnemySlot's doc) read as too dominant at full boss size
+  // for what's meant to be a lesser minion, not the real threat - halved
+  // the same way/at the same spot as DRAGON_SIZE_MULT (2026-08-16, a live
+  // request).
+  const LICH_SUMMON_SIZE_MULT = 0.5;
+  // Gelatinous Cube (2026-08-17, a live request: "cubes should slide not
+  // jump and slam") - how long one one-way crawl across its patrol range
+  // takes (see updateCubeCrawl). Slow and continuous on purpose - a
+  // "crawls across the screen" ooze shouldn't cover ground anywhere near
+  // as fast as Dragon's own attack-triggered flight burst.
+  const CUBE_CRAWL_CYCLE_MS = 6000;
+
+  // Periodically mirrors a character horizontally - reads as "looking
+  // around" rather than always facing the same fixed direction. Own
+  // random schedule per character (like the idle wander/jump timers), so
+  // a whole roster doesn't turn in unison. Runs every phase, not just
+  // idle - a stray flip mid-fight is a minor cosmetic nit, not worth the
+  // complexity of suppressing it during specific animations.
+  function updateFacing(c, now) {
+    if (now >= c.nextFlipAt) {
+      c.facingLeft = !c.facingLeft;
+      c.nextFlipAt = now + 2000 + Math.random() * 4000;
+    }
+  }
+
+  // Real fling physics for a boss leap-attack landing - see draw(),
+  // which sets scatterVX/scatterVY directly on impact (a randomized
+  // velocity, not just a proportional nudge). Horizontal decelerates via
+  // drag (a slide, not a snap-back); vertical is real gravity (the same
+  // arc shape as the idle random-jump physics), so it reads as being
+  // knocked off their feet and tumbling back, not sliding on rails.
+  function updateScatter(c, dt) {
+    c.scatterX += c.scatterVX * dt;
+    c.scatterVX *= Math.max(0, 1 - dt * 2.2);
+
+    if (c.scatterY > 0 || c.scatterVY > 0) {
+      c.scatterVY -= GRAVITY * dt;
+      c.scatterY += c.scatterVY * dt;
+      if (c.scatterY <= 0) {
+        c.scatterY = 0;
+        c.scatterVY = 0;
+      }
+    }
+
+    // Once horizontal velocity has mostly bled off, ease away any tiny
+    // leftover offset the rest of the way rather than letting it hang at
+    // some imperceptible fractional pixel forever.
+    if (Math.abs(c.scatterVX) < 4) {
+      c.scatterX += (0 - c.scatterX) * Math.min(dt * 3, 1);
+    }
+  }
+
+  // ---- Combat event playback ----
+  // encounter = {
+  //   won, stage, startTime, displayDurationMs,
+  //   units: Map(id -> { displayName, isBoss, role, maxHp, hp, alive }),
+  //   events: [...], firedIndex,
+  // }
+  let encounter = null;
+  const unitFlash = new Map(); // id -> time the hit-flash should end
+  const projectiles = []; // ranged attacks / boss smashes, arcing toward their target
+  const auras = []; // support heal sparks, arcing toward an ally
+  const meleeSwings = []; // brief sword-swipe flourishes
+  const impacts = []; // brief expanding rings where any of the above lands
+  const floatingText = []; // damage numbers / CRIT / MISS, drifting up and fading at the target
+
+  // Spawns one floating-text entry at `pos` (a positions-map entry, so
+  // {x, y (feet), radius}) - a little horizontal jitter so back-to-back
+  // hits on the same target don't perfectly overlap. `big` gets a larger
+  // font and a slightly longer hang time (used for crits).
+  function spawnFloatingText(pos, text, color, big) {
+    if (!pos) return;
+    floatingText.push({
+      x: pos.x + (Math.random() - 0.5) * 24,
+      y: pos.y - pos.radius * 1.3,
+      text,
+      color,
+      big: !!big,
+      startTime: performance.now(),
+      durationMs: big ? 900 : 750,
+    });
+  }
+
+  function applyEncounter(msg) {
+    // Clears out any GIF-flagged boss <img> elements from whatever fight
+    // was showing before - see bossGifImgFor's doc for why these are
+    // long-lived (unlike .flicker-fx/.dragon-fx's per-cast throwaways)
+    // and need explicit cleanup rather than just aging out on their own.
+    clearBossGifImgs();
+    const units = new Map();
+    for (const u of msg.units) {
+      units.set(u.id, { displayName: u.displayName, isBoss: u.isBoss, role: u.role, maxHp: u.maxHp, hp: u.maxHp, alive: true });
+    }
+    encounter = {
+      kind: msg.kind,
+      won: msg.won,
+      stage: msg.stage,
+      startTime: performance.now(),
+      displayDurationMs: msg.displayDurationMs,
+      units,
+      events: msg.events,
+      firedIndex: 0,
+      enemyCount: msg.enemyCount ?? null,
+      // A real boss fight now names its own sprite(s) (msg.bossSprites,
+      // one per simultaneous boss - see stage-50+ multi-boss fights) -
+      // the server picks specific BossKinds (Lich/Fire Demon/Cthulhu/
+      // Dragon) that also decide which unique mechanics run that fight,
+      // so the sprites shown have to match, not be an independent random
+      // pick like this used to be. A basic encounter still gets nothing
+      // from the server (msg.bossSprites empty/absent) and keeps picking
+      // its own random filler-mob look here, shared by every member of
+      // the group same as before (a single-entry array, reused for every
+      // index via bossImgAt's own fallback).
+      bossSprites: msg.bossSprites && msg.bossSprites.length > 0 ? msg.bossSprites : [BASIC_ENEMY_SPRITES[Math.floor(Math.random() * BASIC_ENEMY_SPRITES.length)]],
+      // Which character ids have already been scattered (see
+      // stepEnemyLeap's slam landing) THIS fight - a fresh Set per
+      // encounter, so a leap-heavy fight can't knock the same hero around
+      // over and over. Purely a presentation cap (the server's real fight
+      // log/damage numbers don't know or care about this); once a hero's
+      // in here, later slams still flash/impact normally, they just don't
+      // add scatter velocity to that hero again.
+      scatteredIds: new Set(),
+    };
+  }
+
+  function fireEvent(event, positions) {
+    if (event.kind === 'attack') {
+      const targetUnit = encounter.units.get(event.target);
+      if (targetUnit) {
+        targetUnit.hp = event.targetHpAfter;
+      }
+      const from = positions.get(event.attacker);
+      const to = positions.get(event.target);
+      const attackerUnit = encounter.units.get(event.attacker);
+      if (event.evaded) {
+        // Nothing landed - see Affix::Evasion/resolve_hit in
+        // adventure.rs. No projectile/swing/flash, just the miss text.
+        spawnFloatingText(to, 'MISS', '#b8b8c8', false);
+      } else {
+        if (from && to) {
+          if (isEnemyUnitId(event.attacker)) {
+            projectiles.push({ fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, startTime: performance.now(), durationMs: 360, color: '#ff5050', arc: 50 });
+          } else if (attackerUnit && attackerUnit.role === 'melee') {
+            meleeSwings.push({ x: to.x, y: to.y, radius: to.radius, startTime: performance.now(), durationMs: 260 });
+          } else {
+            projectiles.push({ fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, startTime: performance.now(), durationMs: 380, color: '#ffd76a', arc: 70 });
+          }
+        }
+        unitFlash.set(event.target, performance.now() + (event.isCrit ? 320 : 220));
+        const text = event.isCrit ? `CRIT -${event.damage}` : `-${event.damage}`;
+        spawnFloatingText(to, text, event.isCrit ? '#ffb020' : '#ffffff', event.isCrit);
+      }
+    } else if (event.kind === 'heal') {
+      const targetUnit = encounter.units.get(event.target);
+      if (targetUnit) targetUnit.hp = event.targetHpAfter;
+      const from = positions.get(event.healer);
+      const to = positions.get(event.target);
+      if (from && to) auras.push({ fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, startTime: performance.now(), durationMs: 550 });
+    } else if (event.kind === 'defeat') {
+      const unit = encounter.units.get(event.unit);
+      if (unit) unit.alive = false;
+    } else if (event.kind === 'skillCast') {
+      // Generic signal for ANY skill or boss ability with a visible
+      // effect (see adventure.rs's CombatEvent::SkillCast) - Flicker
+      // Strike (a player ArchetypeSkill) and Dragon's Breath (the first
+      // BOSS ability to use this event, 2026-08-15) so far.
+      if (event.skill === 'Flicker Strike') {
+        spawnFlickerEffect(positions.get(event.unit), event.unit);
+      } else if (event.skill === "Dragon's Breath") {
+        // Just flips a flag - see updateDragonFlight's doc for why the
+        // actual flight/breath cycle gets kicked off from inside Pass 1
+        // (next frame) rather than here directly.
+        const st = encounter.dragonFlight?.get(event.unit);
+        if (st) st.pendingBreath = true;
+      }
+    }
+  }
+
+  // ---- Flicker Strike choreography ----
+  // Real character-sprite copies (not just the gif) dash to the center
+  // of the screen, fan out to all 4 corners, dash back, then the gif
+  // itself grows for a full second before a quick collapse - per a live
+  // request that a single static flash at the caster's own spot was
+  // getting lost in the rest of a fight's clutter. Phase lengths are
+  // fixed so the WHOLE sequence always takes exactly 2000ms as asked;
+  // jitter (see spawnFlickerEffect) only varies pacing WITHIN that fixed
+  // budget, so multiple simultaneous Slayers (or the 4 copies of one
+  // cast) never look robotically synced without the total ever drifting.
+  const FLICKER_TO_CENTER_MS = 150;
+  const FLICKER_OUT_WINDOW_MS = 400;
+  const FLICKER_BACK_WINDOW_MS = 400;
+  const FLICKER_GROW_MS = 1000;
+  const FLICKER_OUT_END_MS = FLICKER_TO_CENTER_MS + FLICKER_OUT_WINDOW_MS; // 550
+  const FLICKER_BACK_END_MS = FLICKER_OUT_END_MS + FLICKER_BACK_WINDOW_MS; // 950
+  const FLICKER_GROW_END_MS = FLICKER_BACK_END_MS + FLICKER_GROW_MS; // 1950
+  const FLICKER_TOTAL_MS = 2000; // 50ms collapse after grow, see updateAndDrawFlickerDashes
+  const FLICKER_GIF_GROW_SCALE = 3; // how much bigger the gif gets at the peak of the grow
+
+  function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  const flickerDashes = [];
+
+  function spawnFlickerEffect(casterPos, id) {
+    if (!casterPos) return;
+    const c = characters.get(id);
+    const sprite = spriteForCharacter(id);
+    const margin = Math.max(casterPos.radius * 1.6, 90);
+    const corners = [
+      { x: margin, y: margin },
+      { x: canvas.width - margin, y: margin },
+      { x: margin, y: canvas.height - margin },
+      { x: canvas.width - margin, y: canvas.height - margin },
+    ];
+    // Each of the 4 copies gets its own small random start delay and
+    // out/back travel time (bounded well inside the fixed windows above,
+    // worst case 60+340+340=740ms of an 800ms budget) plus a little
+    // resting-position offset back at center, so the 4 don't move in
+    // lockstep or perfectly overlap once they return.
+    const copies = corners.map((corner) => ({
+      corner,
+      centerJitter: { x: (Math.random() - 0.5) * 24, y: (Math.random() - 0.5) * 24 },
+      outStart: Math.random() * 60,
+      outDur: 260 + Math.random() * 80,
+      backDur: 260 + Math.random() * 80,
+      gifImg: (() => {
+        const img = document.createElement('img');
+        img.className = 'flicker-fx';
+        img.src = 'skill-effects/flicker-strike.gif';
+        img.style.display = 'none';
+        document.body.appendChild(img);
+        return img;
+      })(),
+    }));
+    flickerDashes.push({
+      sprite,
+      facingLeft: c ? c.facingLeft : false,
+      radius: casterPos.radius,
+      origin: { x: casterPos.x, y: casterPos.y },
+      center: { x: canvas.width / 2, y: canvas.height / 2 },
+      copies,
+      startTime: performance.now(),
+    });
+  }
+
+  function drawFlickerGhost(x, y, size, sprite, facingLeft, alpha) {
+    if (!sprite || alpha <= 0) return;
+    ctx.globalAlpha = alpha;
+    const aspect = sprite.naturalWidth / sprite.naturalHeight;
+    const dh = (size * 2.2) / (sprite.contentScale || 1);
+    const dw = dh * aspect;
+    const top = y - dh;
+    if (facingLeft) {
+      ctx.save();
+      ctx.translate(x, 0);
+      ctx.scale(-1, 1);
+      ctx.translate(-x, 0);
+      ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function updateAndDrawFlickerDashes(now) {
+    for (let i = flickerDashes.length - 1; i >= 0; i--) {
+      const d = flickerDashes[i];
+      const elapsed = now - d.startTime;
+      if (elapsed >= FLICKER_TOTAL_MS) {
+        d.copies.forEach((copy) => copy.gifImg.remove());
+        flickerDashes.splice(i, 1);
+        continue;
+      }
+
+      if (elapsed < FLICKER_TO_CENTER_MS) {
+        // Leg 1: the real character alone, dashing to center - the 4
+        // copies don't exist yet (their gif <img>s stay hidden).
+        const t = easeInOutQuad(elapsed / FLICKER_TO_CENTER_MS);
+        drawFlickerGhost(lerp(d.origin.x, d.center.x, t), lerp(d.origin.y, d.center.y, t), d.radius, d.sprite, d.facingLeft, 1);
+        continue;
+      }
+
+      d.copies.forEach((copy) => {
+        let x, y;
+        let alpha = 1;
+        let sizeMult = 1;
+        const outStartAbs = FLICKER_TO_CENTER_MS + copy.outStart;
+        const outEndAbs = outStartAbs + copy.outDur;
+        const backEndAbs = outEndAbs + copy.backDur;
+        const restX = d.center.x + copy.centerJitter.x;
+        const restY = d.center.y + copy.centerJitter.y;
+
+        if (elapsed < outStartAbs) {
+          x = d.center.x;
+          y = d.center.y;
+        } else if (elapsed < outEndAbs) {
+          const t = easeInOutQuad((elapsed - outStartAbs) / copy.outDur);
+          x = lerp(d.center.x, copy.corner.x, t);
+          y = lerp(d.center.y, copy.corner.y, t);
+        } else if (elapsed < backEndAbs) {
+          const t = easeInOutQuad((elapsed - outEndAbs) / copy.backDur);
+          x = lerp(copy.corner.x, restX, t);
+          y = lerp(copy.corner.y, restY, t);
+        } else {
+          x = restX;
+          y = restY;
+        }
+
+        if (elapsed >= FLICKER_BACK_END_MS) {
+          const growElapsed = elapsed - FLICKER_BACK_END_MS;
+          if (growElapsed < FLICKER_GROW_MS) {
+            sizeMult = 1 + (FLICKER_GIF_GROW_SCALE - 1) * easeInOutQuad(growElapsed / FLICKER_GROW_MS);
+          } else {
+            // Quick collapse - whatever's left of FLICKER_TOTAL_MS after
+            // the grow phase (currently ~50ms).
+            const t = Math.min(1, (elapsed - FLICKER_GROW_END_MS) / (FLICKER_TOTAL_MS - FLICKER_GROW_END_MS));
+            sizeMult = FLICKER_GIF_GROW_SCALE * (1 - t);
+            alpha = 1 - t;
+          }
+        }
+
+        drawFlickerGhost(x, y, d.radius, d.sprite, d.facingLeft, alpha);
+
+        const gifSize = d.radius * 2.2 * 1.5 * sizeMult;
+        copy.gifImg.style.display = '';
+        copy.gifImg.style.width = gifSize + 'px';
+        copy.gifImg.style.height = gifSize + 'px';
+        copy.gifImg.style.left = x + 'px';
+        copy.gifImg.style.top = y - (d.radius * 2.2) / 2 + 'px';
+        copy.gifImg.style.opacity = 0.5 * alpha;
+      });
+    }
+  }
+
+  // ---- Dragon's Breath / flight choreography (2026-08-15 follow-up) ----
+  // Replaces the original single-sweep design: instead of one gif
+  // traveling on its own, the DRAGON ITSELF flies across the field over
+  // DRAGONSBREATH_CYCLE_MS (3s) every time its ability fires, alternating
+  // which side it flies TO each cast (so it naturally turns around and
+  // heads back the other way next time, without needing separate
+  // direction-tracking state - see updateDragonFlight), while leaving a
+  // trail of brief, roughly-stationary breath bursts behind it - a NEW
+  // one fired every DRAGONSBREATH_SHOT_INTERVAL_MS (200ms) rather than
+  // one continuous stream. No more vertical-flip trick (it never looked
+  // right) - just one plain copy per shot, mirrored HORIZONTALLY to
+  // match whichever way the Dragon itself is currently facing (see
+  // drawEnemy's facingLeft), so the fire visually points the same way
+  // the Dragon's body does.
+  const DRAGONSBREATH_CYCLE_MS = 3000;
+  const DRAGONSBREATH_SHOT_INTERVAL_MS = 200;
+  const DRAGONSBREATH_SHOT_FADE_MS = 500; // how long each individual burst stays visible
+  const DRAGONSBREATH_SIZE = 1300; // rendered gif square size, px (5x the original 260)
+
+  const dragonBreathShots = [];
+
+  function spawnDragonsBreathShot(x, y, facingLeft) {
+    const img = document.createElement('img');
+    img.className = 'dragon-fx';
+    img.src = 'skill-effects/dragonsbreath.gif';
+    img.style.display = 'none';
+    document.body.appendChild(img);
+    dragonBreathShots.push({ img, x, y, facingLeft, startTime: performance.now() });
+  }
+
+  function updateAndDrawDragonBreathShots(now) {
+    for (let i = dragonBreathShots.length - 1; i >= 0; i--) {
+      const s = dragonBreathShots[i];
+      const elapsed = now - s.startTime;
+      if (elapsed >= DRAGONSBREATH_SHOT_FADE_MS) {
+        s.img.remove();
+        dragonBreathShots.splice(i, 1);
+        continue;
+      }
+      const t = elapsed / DRAGONSBREATH_SHOT_FADE_MS;
+      // Quick fade in, quick fade out - each burst is brief by design,
+      // the trail of overlapping bursts (spawned every 200ms, each
+      // visible for 500ms) is what reads as a continuous breath.
+      const alpha = t < 0.2 ? t / 0.2 : (1 - t) / 0.8;
+      s.img.style.display = '';
+      s.img.style.width = DRAGONSBREATH_SIZE + 'px';
+      s.img.style.height = DRAGONSBREATH_SIZE + 'px';
+      s.img.style.left = s.x - DRAGONSBREATH_SIZE / 2 + 'px';
+      s.img.style.top = s.y - DRAGONSBREATH_SIZE / 2 + 'px';
+      s.img.style.transform = s.facingLeft ? 'scaleX(-1)' : '';
+      s.img.style.opacity = Math.max(0, Math.min(1, alpha)) * 0.9;
+    }
+  }
+
+  // Per-dragon flight state, keyed by unit id on `encounter.dragonFlight`
+  // (a fresh Map per encounter, same convention as `encounter.enemyLeap`)
+  // - called every frame from the Pass 1 positions loop for any dragon-
+  // sprite enemy. Idle: hovers in place (fixed x, gentle sine bob on y),
+  // facing whichever way it last flew (starts facing left, "toward the
+  // party," before its first cast - see the lazy-init below). A skillCast
+  // handler elsewhere just flips `pendingBreath` on this same state
+  // rather than starting the flight directly, since only this function
+  // (running inside draw()'s Pass 1) has `homeX`/`canvas.width` in scope
+  // to compute a real target - picked up here on the very next frame.
+  // Once flying: linearly interpolates x from where it started to the
+  // FAR side of the field over DRAGONSBREATH_CYCLE_MS, firing a breath
+  // burst (spawnDragonsBreathShot) at its current position roughly every
+  // DRAGONSBREATH_SHOT_INTERVAL_MS along the way - lands exactly on the
+  // far side when the cycle ends, ready to alternate back the other way
+  // on the NEXT cast 2s later (5s ability cadence - 3s flight = 2s idle
+  // gap).
+  function updateDragonFlight(id, homeX, homeY, now) {
+    if (!encounter.dragonFlight) encounter.dragonFlight = new Map();
+    let st = encounter.dragonFlight.get(id);
+    if (!st) {
+      st = { x: homeX, facingLeft: true, breathActive: false, breathStartTime: 0, startX: homeX, targetX: homeX, lastShotAt: 0, pendingBreath: false };
+      encounter.dragonFlight.set(id, st);
+    }
+
+    if (st.pendingBreath && !st.breathActive) {
+      st.pendingBreath = false;
+      st.breathActive = true;
+      st.breathStartTime = now;
+      st.startX = st.x;
+      // Alternates between its home spot and the mirrored point on the
+      // far side of the field each cast - whichever of the two it's
+      // currently CLOSER to is where it just came from, so the other one
+      // is always "the far side" to head toward next.
+      const mirrorX = canvas.width - homeX;
+      st.targetX = Math.abs(st.x - homeX) < Math.abs(st.x - mirrorX) ? mirrorX : homeX;
+      st.facingLeft = st.targetX < st.startX;
+      st.lastShotAt = now - DRAGONSBREATH_SHOT_INTERVAL_MS; // fires its first burst immediately
+    }
+
+    const bobPhase = ((hashStr(id) % 1000) / 1000) * Math.PI * 2;
+    const bob = Math.sin(now / 900 + bobPhase) * 14;
+
+    if (st.breathActive) {
+      const elapsed = now - st.breathStartTime;
+      if (elapsed >= DRAGONSBREATH_CYCLE_MS) {
+        st.breathActive = false;
+        st.x = st.targetX;
+      } else {
+        st.x = lerp(st.startX, st.targetX, elapsed / DRAGONSBREATH_CYCLE_MS);
+        if (now - st.lastShotAt >= DRAGONSBREATH_SHOT_INTERVAL_MS) {
+          st.lastShotAt = now;
+          spawnDragonsBreathShot(st.x, homeY - DRAGON_HOVER_HEIGHT - bob, st.facingLeft);
+        }
+      }
+    }
+
+    return { x: st.x, y: homeY - DRAGON_HOVER_HEIGHT - bob, facingLeft: st.facingLeft };
+  }
+
+  // Gelatinous Cube crawl (2026-08-17, a live request: "cubes should
+  // slide not jump and slam") - keyed by unit id on encounter.cubeCrawl,
+  // same per-enemy Map convention as encounter.dragonFlight/enemyLeap.
+  // Unlike stepEnemyLeap's rise/hang/slam arc, this never leaves the
+  // ground and never scatters anyone - a continuous, perpetual back-and-
+  // forth lerp between its home spot and the mirrored point on the far
+  // side of the field, same "alternate toward whichever side it isn't
+  // currently near" targeting Dragon's flight uses, just ground-bound and
+  // running the whole battle phase instead of only on an ability cast. A
+  // gentle uniform pulse in `scale` (the only per-frame size knob the
+  // renderer supports - see the Pass 1 positions loop's finalDh/scale
+  // math) stands in for a hover bob - reads as gelatinous jiggle without
+  // ever looking airborne.
+  function updateCubeCrawl(id, homeX, homeY, now) {
+    if (!encounter.cubeCrawl) encounter.cubeCrawl = new Map();
+    let st = encounter.cubeCrawl.get(id);
+    if (!st) {
+      const mirrorX = canvas.width - homeX;
+      st = { x: homeX, startX: homeX, targetX: mirrorX, facingLeft: mirrorX < homeX, legStartTime: now };
+      encounter.cubeCrawl.set(id, st);
+    }
+    const elapsed = now - st.legStartTime;
+    if (elapsed >= CUBE_CRAWL_CYCLE_MS) {
+      st.startX = st.targetX;
+      st.targetX = st.startX === homeX ? canvas.width - homeX : homeX;
+      st.facingLeft = st.targetX < st.startX;
+      st.legStartTime = now;
+      st.x = st.startX;
+    } else {
+      st.x = lerp(st.startX, st.targetX, elapsed / CUBE_CRAWL_CYCLE_MS);
+    }
+    const jigglePhase = ((hashStr(id) % 1000) / 1000) * Math.PI * 2;
+    const scale = 1 + Math.sin(now / 260 + jigglePhase) * 0.05;
+    return { x: st.x, y: homeY, scale, facingLeft: st.facingLeft };
+  }
+
+  function updateAndDrawEffects(now) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      const t = (now - p.startTime) / p.durationMs;
+      if (t >= 1) {
+        impacts.push({ x: p.toX, y: p.toY, startTime: now, color: p.color });
+        projectiles.splice(i, 1);
+        continue;
+      }
+      const x = p.fromX + (p.toX - p.fromX) * t;
+      const y = p.fromY + (p.toY - p.fromY) * t - Math.sin(t * Math.PI) * p.arc;
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    }
+
+    for (let i = auras.length - 1; i >= 0; i--) {
+      const a = auras[i];
+      const t = (now - a.startTime) / a.durationMs;
+      if (t >= 1) {
+        impacts.push({ x: a.toX, y: a.toY, startTime: now, color: '#8cffb0' });
+        auras.splice(i, 1);
+        continue;
+      }
+      const x = a.fromX + (a.toX - a.fromX) * t;
+      const y = a.fromY + (a.toY - a.fromY) * t - Math.sin(t * Math.PI) * 34;
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#8cffb0';
+      ctx.shadowColor = '#8cffb0';
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    for (let i = meleeSwings.length - 1; i >= 0; i--) {
+      const s = meleeSwings[i];
+      const t = (now - s.startTime) / s.durationMs;
+      if (t >= 1) {
+        meleeSwings.splice(i, 1);
+        continue;
+      }
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      ctx.translate(s.x, s.y);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, s.radius * 0.6, -0.7, 0.7);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (let i = impacts.length - 1; i >= 0; i--) {
+      const imp = impacts[i];
+      const t = (now - imp.startTime) / 280;
+      if (t >= 1) {
+        impacts.splice(i, 1);
+        continue;
+      }
+      ctx.beginPath();
+      ctx.arc(imp.x, imp.y, 8 + t * 26, 0, Math.PI * 2);
+      ctx.strokeStyle = imp.color;
+      ctx.globalAlpha = 1 - t;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    for (let i = floatingText.length - 1; i >= 0; i--) {
+      const f = floatingText[i];
+      const t = (now - f.startTime) / f.durationMs;
+      if (t >= 1) {
+        floatingText.splice(i, 1);
+        continue;
+      }
+      const y = f.y - t * 46;
+      // Holds fully opaque for the first 70% of its life, then fades
+      // out over the remainder - reads as "pop up, hang, dissolve"
+      // rather than fading the instant it appears.
+      const alpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.fillStyle = f.color;
+      ctx.font = `bold ${f.big ? 26 : 18}px "Segoe UI", Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(f.text, f.x, y);
+      ctx.restore();
+    }
+  }
+
+  // ---- Encounter phase timing ----
+  // Charge and resolve are short, fixed bookends around the "battle"
+  // phase - unlike before, battle's length isn't randomized, it's
+  // exactly `displayDurationMs` from the server (the real fight's
+  // timeline, already compressed to a watchable length there).
+  const CHARGE_MS = 700;
+  const RESOLVE_MS = 1800;
+
+  function encounterPhase(now) {
+    if (!encounter) return null;
+    const elapsed = now - encounter.startTime;
+    const totalMs = CHARGE_MS + encounter.displayDurationMs + RESOLVE_MS;
+    if (elapsed >= totalMs) {
+      encounter = null;
+      return null;
+    }
+    if (elapsed < CHARGE_MS) {
+      return { name: 'charge', progress: elapsed / CHARGE_MS };
+    }
+    if (elapsed < CHARGE_MS + encounter.displayDurationMs) {
+      return { name: 'battle', progress: (elapsed - CHARGE_MS) / encounter.displayDurationMs, battleElapsedMs: elapsed - CHARGE_MS };
+    }
+    return { name: 'resolve', progress: (elapsed - CHARGE_MS - encounter.displayDurationMs) / RESOLVE_MS };
+  }
+
+  // ---- Background: simple line-art parallax (placeholder for real art)
+  // ---- Two hill/mountain layers at different speeds/heights for depth,
+  // plus an occasional simple bridge silhouette — all thin translucent
+  // strokes rather than filled shapes, so the transparent Browser Source
+  // still reads as an overlay and not an opaque backdrop. Scroll is
+  // continuous and time-based, just there to sell "always traveling
+  // forward" even at idle.
+  let bgScrollX = 0;
+  const BG_SPEED_PX_S = 34;
+
+  function drawRidgeLayer(groundY, baseHeight, amplitude, wavelength, speedMul, color, lineWidth) {
+    const offset = bgScrollX * speedMul;
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    for (let x = 0; x <= canvas.width; x += 6) {
+      const worldX = x + offset;
+      const y =
+        groundY - baseHeight -
+        Math.sin(worldX / wavelength * Math.PI * 2) * amplitude -
+        Math.sin(worldX / (wavelength * 0.4) + 1.7) * amplitude * 0.35;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function drawBridges(groundY, speedMul) {
+    const spacing = 620;
+    const width = 150;
+    const offset = (bgScrollX * speedMul) % spacing;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2;
+    for (let cx = -offset; cx < canvas.width + spacing; cx += spacing) {
+      const deckY = groundY - 8;
+      ctx.beginPath();
+      ctx.moveTo(cx - width / 2, deckY);
+      ctx.lineTo(cx + width / 2, deckY);
+      ctx.stroke();
+      for (const dx of [-width / 2 + 14, 0, width / 2 - 14]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx, deckY);
+        ctx.lineTo(cx + dx, deckY + 20);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(cx - width / 2, deckY);
+      ctx.quadraticCurveTo(cx, deckY - 30, cx + width / 2, deckY);
+      ctx.stroke();
+    }
+  }
+
+  // ---- Drawing ----
+  // Two-layer bar, the classic MMO treatment: the bright fill tracks
+  // `displayFrac` (eased quickly toward the real value every frame - see
+  // updateUnitDisplayHp - rather than snapping instantly), and a lighter
+  // trailing band shows `ghostFrac` catching down to it more slowly on
+  // damage, so a hit visibly drains out instead of just jump-cutting the
+  // bar to its new length. This is what actually reads as the bar
+  // "moving with the flow of combat" rather than being a static readout.
+  function drawHealthBar(x, barY, width, height, displayFrac, ghostFrac, label) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(x - width / 2 - 2, barY - 2, width + 4, height + 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(x - width / 2, barY, width, height);
+
+    const g = Math.max(0, Math.min(1, ghostFrac));
+    const f = Math.max(0, Math.min(1, displayFrac));
+    if (g > f) {
+      ctx.fillStyle = 'rgba(255,150,60,0.9)';
+      ctx.fillRect(x - width / 2, barY, width * g, height);
+    }
+
+    ctx.fillStyle = f > 0.5 ? '#5fd66a' : f > 0.2 ? '#e0c23f' : '#ff4444';
+    ctx.fillRect(x - width / 2, barY, width * f, height);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - width / 2, barY, width, height);
+    if (label) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur = 3;
+      ctx.fillText(label, x, barY - 6);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // Eases a unit's displayed HP toward its real HP every frame (fast),
+  // and its "ghost" trailing HP down toward real HP more slowly on
+  // damage (snapping up immediately on a heal, where there's no trail to
+  // show) - see drawHealthBar. Called once per combat unit per frame.
+  function updateUnitDisplayHp(u, dt) {
+    if (u.displayHp === undefined) {
+      u.displayHp = u.hp;
+      u.ghostHp = u.hp;
+    }
+    // Slowed down from *6/*1.4 - that was fast enough to drain a full bar
+    // in well under 200ms, which read as an instant snap rather than a
+    // visible depletion.
+    const catchUpPerSec = u.maxHp * 3;
+    if (u.displayHp > u.hp) u.displayHp = Math.max(u.hp, u.displayHp - catchUpPerSec * dt);
+    else u.displayHp = Math.min(u.hp, u.displayHp + catchUpPerSec * dt);
+
+    const ghostDecayPerSec = u.maxHp * 0.9;
+    if (u.ghostHp > u.hp) u.ghostHp = Math.max(u.hp, u.ghostHp - ghostDecayPerSec * dt);
+    else u.ghostHp = u.hp;
+  }
+
+  // A character on their post-knockout revive countdown (see isDowned) -
+  // no formation slot, no health bar (they're not part of any fight right
+  // now), just the death gif fading from mostly-visible to fully
+  // transparent as fadeAlpha (see deathFadeAlpha) counts down to 0.
+  // Feet-anchored (`y` is ground-contact), same convention as drawCharacter.
+  function drawDowned(x, y, size, displayName, fadeAlpha) {
+    const sprite = loadedSprite('death');
+    const dh = size * 2.2;
+    const dw = sprite ? dh * (sprite.naturalWidth / sprite.naturalHeight) : dh;
+    const top = y - dh;
+
+    ctx.globalAlpha = fadeAlpha;
+    if (sprite) {
+      ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y - dh / 2, dh / 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#333';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = '13px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(displayName, x, top - 10);
+    ctx.shadowBlur = 0;
+  }
+
+  // `size` is the same "radius" scale used throughout the rest of the
+  // file (from level/spacing) — sprites are drawn at roughly 2x that as
+  // their height, same footprint the old circle occupied, preserving
+  // aspect ratio rather than squashing to a fixed box. Falls back to the
+  // original plain circle if the sprite for this character's role hasn't
+  // finished loading yet (or the roster somehow has an unrecognized
+  // role) — a character is never just invisible while art loads in.
+  // `y` is where the character's FEET are (the ground-contact point),
+  // not its center - the sprite is drawn entirely above it. This used to
+  // be center-anchored, which for tall sprites (much taller than the old
+  // placeholder circles) sank roughly the bottom half - including the
+  // health bar - below the canvas's own bottom edge, since groundY only
+  // left a slim 60px margin below it. Feet-anchoring fixes both: the
+  // character actually stands on the ground line instead of being buried
+  // to the waist in it, and the health bar (just below the feet) stays
+  // comfortably on-canvas.
+  function drawCharacter(x, y, size, sprite, fallbackColor, flashColor, flashAlpha, displayName, level, hpFrac, ghostFrac, downed, facingLeft, gifImg, dimAlpha) {
+    const dim = dimAlpha ?? 1;
+    ctx.globalAlpha = (downed ? 0.45 : 1) * dim;
+
+    let dw, dh, top;
+    if (sprite) {
+      const aspect = sprite.naturalWidth / sprite.naturalHeight;
+      // Divides by the sprite's own content scale (see
+      // computeContentScale's doc) so "size*2.2" means the same actual
+      // character height regardless of how much transparent padding
+      // this particular sprite sheet happened to leave around its art -
+      // a sprite whose character only fills 70% of its canvas gets
+      // drawn proportionally bigger so that 70% still ends up the
+      // target size, instead of the whole (mostly-empty) canvas being
+      // treated as the character.
+      dh = (size * 2.2) / (sprite.contentScale || 1);
+      dw = dh * aspect;
+      top = y - dh;
+
+      // A custom drop-in sprite that turned out to be a .gif renders
+      // through the real, persistent <img> passed in as `gifImg` instead
+      // of a canvas draw - same reasoning/limitation as drawEnemy's own
+      // gifImg branch (canvas drawImage only ever shows a GIF's first
+      // frame). Flip/downed-tint are CSS here (no canvas save/translate/
+      // filter needed); hit-flash tint has no DOM equivalent yet, same
+      // known gap bossGifImgFor's doc already calls out for bosses.
+      if (gifImg) {
+        gifImg.style.display = '';
+        gifImg.style.left = x - dw / 2 + 'px';
+        gifImg.style.top = top + 'px';
+        gifImg.style.width = dw + 'px';
+        gifImg.style.height = dh + 'px';
+        gifImg.style.opacity = (downed ? 0.45 : 1) * dim;
+        gifImg.style.transform = facingLeft ? 'scaleX(-1)' : '';
+        gifImg.style.filter = downed ? 'grayscale(1) brightness(0.55)' : '';
+      } else {
+        if (downed) ctx.filter = 'grayscale(1) brightness(0.55)';
+        if (facingLeft) {
+          // Mirrors in place around the character's own x - translate to
+          // that axis, flip, translate back, so the flip doesn't also
+          // shift its position.
+          ctx.save();
+          ctx.translate(x, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-x, 0);
+          ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+          ctx.restore();
+        } else {
+          ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+        }
+        ctx.filter = 'none';
+
+        // Tints only the sprite's own already-opaque pixels, not its
+        // rectangular bounding box, so the flash respects the art's silhouette.
+        if (flashAlpha > 0) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'source-atop';
+          ctx.globalAlpha = flashAlpha;
+          ctx.fillStyle = flashColor;
+          ctx.fillRect(x - dw / 2, top, dw, dh);
+          ctx.restore();
+        }
+      }
+    } else {
+      if (gifImg) gifImg.style.display = 'none';
+      dh = size * 2;
+      dw = dh;
+      top = y - dh;
+      ctx.beginPath();
+      ctx.arc(x, y - size, size, 0, Math.PI * 2);
+      ctx.fillStyle = downed ? '#666' : flashAlpha > 0 ? flashColor : fallbackColor;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.stroke();
+    }
+
+    const levelFont = Math.max(14, Math.min(26, size * 0.3));
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${levelFont}px "Segoe UI", Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 4;
+    // Corner badge rather than dead-center, now that the center shows
+    // actual character art instead of a blank circle.
+    ctx.fillText(String(level), x + dw * 0.28, top + dh * 0.92);
+
+    const nameFont = Math.max(13, Math.min(18, size * 0.18));
+    ctx.font = `${nameFont}px "Segoe UI", Arial, sans-serif`;
+    ctx.fillText(displayName, x, top - 10);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+
+    // Not drawn here - collected and drawn in a dedicated pass after
+    // every sprite (see draw()'s healthBars array), so a bar can never
+    // end up visually buried under a neighboring character's sprite in
+    // a dense cluster the way it could when drawn inline per-character.
+    return hpFrac !== null ? { x, barY: y + 12, width: Math.max(64, size * 1.7), height: 9, hpFrac, ghostFrac, label: null } : null;
+  }
+
+  // `y` is the boss's feet/ground-contact point, same feet-anchoring
+  // reasoning as drawCharacter - it used to be center-anchored, which
+  // for a large boss could push its health bar (computed off `radius`,
+  // sometimes 150+px) absurdly far above its actual body, in one video
+  // capture landing up near the very top of the canvas while the boss
+  // itself sat near the bottom. The bar's position is now derived from
+  // this function's own real sprite-top, and returned (same pattern as
+  // drawCharacter) instead of recomputed separately by the caller with
+  // its own ad hoc formula - the two had drifted out of sync, which is
+  // exactly what caused that bug.
+  function drawEnemy(x, y, radius, tintFlash, sprite, leapGlow, spriteHeight, alpha, label, showAura, facingLeft, gifImg) {
+    if (radius <= 0) {
+      if (gifImg) gifImg.style.display = 'none';
+      return null;
+    }
+
+    ctx.globalAlpha = alpha ?? 1;
+
+    let dh, top;
+    if (sprite) {
+      const aspect = sprite.naturalWidth / sprite.naturalHeight;
+      // Sized off spriteHeight (a big, roughly-constant fraction of
+      // canvas height - see draw()), NOT radius*2.3 - radius alone caps
+      // out too small to read as "huge and intimidating" since it's also
+      // driving HP-scaled things like the health bar's width. Divided by
+      // contentScale same as drawCharacter - see computeContentScale's doc.
+      dh = spriteHeight / (sprite.contentScale || 1);
+      const dw = dh * aspect;
+      top = y - dh;
+      const centerY = y - dh / 2;
+
+      // A GIF-flagged boss (Bahamut) renders through the real, persistent
+      // <img> passed in as `gifImg` instead of a canvas draw - see
+      // GIF_SPRITES's doc for why. Flip is a CSS transform here (no
+      // canvas save/translate/scale needed since this isn't a canvas
+      // draw at all); hit-flash tint has no DOM equivalent for this path
+      // yet, a small known gap (see bossGifImgFor's doc).
+      if (gifImg && gifImg.complete && gifImg.naturalWidth > 0) {
+        gifImg.style.display = '';
+        gifImg.style.left = x - dw / 2 + 'px';
+        gifImg.style.top = top + 'px';
+        gifImg.style.width = dw + 'px';
+        gifImg.style.height = dh + 'px';
+        gifImg.style.opacity = alpha ?? 1;
+        gifImg.style.transform = facingLeft ? 'scaleX(-1)' : '';
+      } else {
+        if (gifImg) gifImg.style.display = 'none';
+        // Enemy facing (2026-08-15, Dragon only so far - see
+        // updateDragonFlight) - same horizontal-mirror technique
+        // drawCharacter/drawFlickerGhost already use for player facing.
+        // Every sprite's default art faces right, so `facingLeft` mirrors
+        // it; every other enemy kind never sets this (undefined ->
+        // falsy), so they're completely unaffected.
+        if (facingLeft) {
+          ctx.save();
+          ctx.translate(x, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-x, 0);
+          ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+          ctx.restore();
+        } else {
+          ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
+        }
+
+        if (tintFlash > 0) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'source-atop';
+          ctx.globalAlpha = tintFlash;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(x - dw / 2, top, dw, dh);
+          ctx.restore();
+        }
+      }
+    } else {
+      if (gifImg) gifImg.style.display = 'none';
+      // Fallback while art loads (or an unrecognized name slips through).
+      dh = radius * 2;
+      top = y - dh;
+      const centerY = y - radius;
+
+      ctx.beginPath();
+      ctx.arc(x, centerY, radius, 0, Math.PI * 2);
+      ctx.fillStyle = tintFlash > 0 ? `rgba(255,255,255,${tintFlash.toFixed(2)})` : '#8b1e1e';
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.stroke();
+
+      const eyeOffsetX = radius * 0.32;
+      const eyeOffsetY = centerY - radius * 0.15;
+      const eyeRadius = Math.max(4, radius * 0.11);
+      for (const dir of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(x + dir * eyeOffsetX, eyeOffsetY, eyeRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + dir * eyeOffsetX, eyeOffsetY, eyeRadius * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a0000';
+        ctx.fill();
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    return { x, barY: top - 26, width: Math.max(180, radius * 2.1), height: 16, label: label ?? 'BOSS' };
+  }
+
+  // ---- Enemy leap-and-slam pounce: every enemy (a lone boss, or each
+  // member of a basic encounter's group - see EncounterResult::
+  // enemy_count) periodically leaps at a random alive player, hangs at
+  // the peak (the telegraph), then slams down - scattering anyone
+  // standing nearby with real velocity + gravity (see updateScatter).
+  // Each enemy id runs its own independent random timer
+  // (encounter.enemyLeap: id -> state), so a group doesn't leap in
+  // lockstep - more enemies means more overlapping leaps, part of what
+  // makes a bigger group tougher. Never leaps back "home" - wherever it
+  // lands becomes its new resting spot until its next leap.
+  const LEAP_RISE_MS = 420;
+  const LEAP_HANG_MS = 480;
+  const LEAP_SLAM_MS = 320;
+  const LEAP_TOTAL_MS = LEAP_RISE_MS + LEAP_HANG_MS + LEAP_SLAM_MS;
+  const SCATTER_RADIUS = 210;
+
+  function stepEnemyLeap(encounter, id, homeX, homeY, now, groundY, ids, characters, leftMargin) {
+    if (!encounter.enemyLeap) encounter.enemyLeap = new Map();
+    let st = encounter.enemyLeap.get(id);
+    if (!st) {
+      st = { restX: homeX, restY: homeY, leap: null, nextLeapAt: now + 800 + Math.random() * 2400 };
+      encounter.enemyLeap.set(id, st);
+    }
+    if (!st.leap && now >= st.nextLeapAt) {
+      const aliveIds = ids.filter((pid) => encounter.units.get(pid)?.alive);
+      if (aliveIds.length > 0) {
+        const targetId = aliveIds[Math.floor(Math.random() * aliveIds.length)];
+        const targetChar = characters.get(targetId);
+        const targetX = targetChar.battleX !== undefined ? targetChar.battleX : leftMargin + 40;
+        st.leap = { startTime: now, fromX: st.restX, fromY: st.restY, targetX, targetY: groundY, landed: false };
+      }
+      st.nextLeapAt = now + 4000 + Math.random() * 4000;
+    }
+
+    let leapX = null;
+    let leapY = null;
+    let scale = 1;
+    let glow = 0;
+    if (st.leap) {
+      const leap = st.leap;
+      const elapsed = now - leap.startTime;
+      const dxTotal = leap.targetX - leap.fromX;
+
+      if (elapsed >= LEAP_TOTAL_MS) {
+        // Lands for good right here - the one guaranteed-once moment
+        // this whole sequence resolves at, regardless of how frame
+        // timing lined up with the phase boundaries above.
+        if (!leap.landed) {
+          leap.landed = true;
+          ids.forEach((pid) => {
+            const cu = encounter.units.get(pid);
+            if (!cu || !cu.alive) return;
+            const cc = characters.get(pid);
+            const cx = cc.battleX !== undefined ? cc.battleX : leftMargin;
+            const dx = cx - leap.targetX;
+            // Once-per-fight cap (see `scatteredIds`'s doc) - a hero who's
+            // already been knocked around this fight still sees/feels the
+            // slam (flash + impact ring below fire either way), they just
+            // don't get launched a second time. Wings of Flight (live
+            // request) makes a flying hero immune to this entirely -
+            // never added to scatteredIds either, since there's nothing
+            // to "already have happened once" for someone who's never
+            // launchable in the first place.
+            if (!cc.flying && Math.abs(dx) < SCATTER_RADIUS && !encounter.scatteredIds.has(pid)) {
+              encounter.scatteredIds.add(pid);
+              const baseDir = dx !== 0 ? Math.sign(dx) : Math.random() < 0.5 ? -1 : 1;
+              if (encounter.kind === 'basic') {
+                // A basic-encounter mook is a shove, not a launch - a
+                // real boss's scatter (below) was way too much for rank-
+                // and-file enemies. scatterVX decays at rate 2.2/s (see
+                // updateScatter), so total travel ≈ VX/2.2 - solving for
+                // a flat 150-250px total displacement (falls off toward
+                // 150 at the edge of SCATTER_RADIUS, up to 250 at the
+                // landing point itself) gives the VX below directly,
+                // rather than reusing the boss's much bigger magnitude
+                // constants scaled down by feel.
+                const falloff = 1 - Math.abs(dx) / SCATTER_RADIUS;
+                const distance = 150 + falloff * 100;
+                cc.scatterVX = baseDir * distance * 2.2;
+                cc.scatterVY = 650 + Math.random() * 350;
+              } else {
+                const strength = 0.4 + 0.6 * (1 - Math.abs(dx) / SCATTER_RADIUS);
+                const randomSpread = (Math.random() - 0.5) * 0.9;
+                cc.scatterVX = (baseDir + randomSpread) * (2080 + Math.random() * 1680) * strength;
+                cc.scatterVY = (2080 + Math.random() * 1520) * strength;
+              }
+            }
+          });
+          unitFlash.set(id, now + 260);
+          impacts.push({ x: leap.targetX, y: leap.targetY, startTime: now, color: '#ffffff' });
+        }
+        st.restX = leap.targetX;
+        st.restY = leap.targetY;
+        st.leap = null;
+      } else if (elapsed < LEAP_RISE_MS) {
+        const p = elapsed / LEAP_RISE_MS;
+        const eased = 1 - Math.pow(1 - p, 2);
+        leapX = leap.fromX + dxTotal * eased * 0.65;
+        leapY = leap.fromY - Math.sin(p * Math.PI * 0.5) * 130;
+        scale = 1 + p * 0.08;
+        glow = p * 0.35;
+      } else if (elapsed < LEAP_RISE_MS + LEAP_HANG_MS) {
+        const p = (elapsed - LEAP_RISE_MS) / LEAP_HANG_MS;
+        leapX = leap.fromX + dxTotal * 0.65 + dxTotal * 0.1 * p;
+        leapY = leap.fromY - 130 + Math.sin(p * Math.PI) * 6;
+        scale = 1.08 + p * 0.06;
+        glow = 0.35 + p * 0.65;
+      } else {
+        const p = (elapsed - LEAP_RISE_MS - LEAP_HANG_MS) / LEAP_SLAM_MS;
+        const eased = p * p;
+        leapX = leap.fromX + dxTotal * 0.75 + dxTotal * 0.25 * eased;
+        leapY = leap.fromY - 130 * (1 - eased);
+        scale = 1.14 - eased * 0.14;
+        glow = 1 - eased * 0.5;
+      }
+    }
+    return { x: leapX !== null ? leapX : st.restX, y: leapY !== null ? leapY : st.restY, scale, glow };
+  }
+
+  function drawBanner(text, color, progress) {
+    const alpha = progress < 0.5 ? progress / 0.5 : 1 - (progress - 0.5) / 0.5;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.fillStyle = color;
+    ctx.font = 'bold 40px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 10;
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 40);
+    ctx.restore();
+  }
+
+  let lastTime = null;
+
+  function draw(now) {
+    const dt = lastTime ? Math.min((now - lastTime) / 1000, 0.05) : 0;
+    lastTime = now;
+    bgScrollX += BG_SPEED_PX_S * dt;
+    // Real wall-clock time, for comparing against downedUntilMs (a server
+    // timestamp) - `now` above is requestAnimationFrame's page-relative
+    // clock and isn't comparable to it.
+    const nowEpoch = Date.now();
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const groundY = canvas.height - 60;
+
+    drawRidgeLayer(groundY, 90, 26, 340, 0.22, 'rgba(255,255,255,0.14)', 2);
+    drawRidgeLayer(groundY, 34, 14, 190, 0.5, 'rgba(255,255,255,0.22)', 2);
+    drawBridges(groundY, 0.78);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, groundY + 20);
+    ctx.lineTo(canvas.width, groundY + 20);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(`Stage ${stage}`, 16, 28);
+    ctx.shadowBlur = 0;
+
+    const phase = encounterPhase(now);
+
+    // Idle-status heroes (no encounter running at all - just standing/
+    // wandering between fights) are drawn at 45% of their normal max
+    // size, well past the requested >=40% cut - full size is reserved
+    // for when a fight's actually happening (charge/battle/resolve), so
+    // a crowd of idle characters doesn't dominate the screen the same
+    // way an active encounter does.
+    const IDLE_HERO_SCALE = 0.55;
+
+    // Heroes shrink to half THEIR OWN resting size once the fight
+    // actually starts, so the boss (now sized to always look huge - see
+    // bossSpriteHeight below) reads as dramatically bigger by
+    // comparison, then ease back to that resting size as the fight
+    // resolves. Charge deliberately matches idle's own IDLE_HERO_SCALE
+    // (not full size) - it used to default to 1, which read as heroes
+    // visibly POPPING bigger the instant a fight started (charge), then
+    // shrinking for battle, then growing again through resolve, then
+    // shrinking a third time back to idle once the fight actually ended
+    // - a live-reported bug, fixed by giving every phase a scale that's
+    // continuous with its neighbor instead of one phase (charge) being
+    // implicitly full-size. Battle's shrink is eased over its first
+    // 400ms (not an instant cut), resolve's grow-back over the whole phase.
+    const BATTLE_HERO_SCALE = IDLE_HERO_SCALE * 0.5;
+    let heroScale = IDLE_HERO_SCALE;
+    if (phase && phase.name === 'battle') {
+      const shrinkT = Math.min(phase.battleElapsedMs / 400, 1);
+      heroScale = IDLE_HERO_SCALE - shrinkT * (IDLE_HERO_SCALE - BATTLE_HERO_SCALE);
+    } else if (phase && phase.name === 'resolve') {
+      heroScale = BATTLE_HERO_SCALE + Math.min(phase.progress, 1) * (IDLE_HERO_SCALE - BATTLE_HERO_SCALE);
+    }
+
+    let rush = 0;
+    let jump = 0;
+    if (phase && phase.name === 'charge') {
+      rush = 30 * phase.progress;
+      jump = Math.sin(phase.progress * Math.PI) * 50;
+    } else if (phase && phase.name === 'battle') {
+      rush = 30 + Math.sin(now / 25) * 6;
+    } else if (phase && phase.name === 'resolve') {
+      rush = 30 * (1 - phase.progress);
+      if (encounter && encounter.won) {
+        jump = Math.abs(Math.sin(phase.progress * Math.PI * 5)) * 22 * (1 - phase.progress);
+      } else {
+        jump = -18 * Math.sin(phase.progress * Math.PI);
+      }
+    }
+
+    // Enemy sizing computed before the party loop, since events fired
+    // this frame need to know where units actually are to aim effects.
+    // Sprites render much wider than the old placeholder circles did
+    // (see drawEnemy/drawCharacter's dh/dw math - roughly 1.1-1.2x the
+    // "radius" as an actual half-width, times the art's own aspect
+    // ratio), so anchoring purely off `radius` the way the circles could
+    // get away with was letting wide sprites (wings, robes) run past the
+    // canvas edge. bossHalfWidth below is the real drawn half-width, and
+    // everything derived from it (anchor, right-reserve) uses that
+    // instead - plus a hard clamp at the very end as a final backstop.
+    // Actual on-screen size/position (leap growth, charge-in, resolve-out)
+    // is computed later, per enemy, in the Pass 1 positions loop - see
+    // stepEnemyLeap.
+    // First boss's sprite drives the shared layout math below (aspect
+    // ratio, size) even when a second boss (stage 50+, see
+    // enemyUnitIds) has a different one - a minor cosmetic approximation
+    // (spacing computed off one aspect ratio for both), not a functional
+    // bug. Each boss still draws with its OWN correct sprite - see
+    // bossImgAt, used at the actual drawEnemy call sites instead of this.
+    const bossImg = encounter ? loadedSprite(encounter.bossSprites?.[0]) : null;
+    // A Lich's summoned adds (or any enemy slot beyond the real boss/
+    // bosses' own sprite array) are NOT another copy of the primary boss -
+    // falling back to bossSprites[0] here used to mean every Lich add
+    // rendered as a full duplicate of boss slot 0, Dragon flight/breath
+    // included whenever that slot's boss happened to be a Dragon (a live
+    // report: "20 dragons" in one fight, really 1 real Dragon boss + up to
+    // LICH_MAX_ADDS adds all misrendering with its sprite). Falls back to
+    // 'death' instead (a live request - the Lich's minions are always its
+    // victims' corpses reanimated, sprite-wise) - GIF-flagged (see
+    // GIF_SPRITES) so it animates properly via bossImgAt/bossGifImgFor
+    // instead of freezing on frame 1.
+    const spriteNameForEnemySlot = (i) => {
+      const sprites = encounter?.bossSprites;
+      if (sprites && i < sprites.length) return sprites[i];
+      return 'death';
+    };
+    const bossImgAt = (i) => (encounter ? loadedSprite(spriteNameForEnemySlot(i)) : null);
+    const bossAspect = bossImg ? bossImg.naturalWidth / bossImg.naturalHeight : 1;
+    // A real boss always reads as huge and dominant, regardless of its
+    // current HP - a big, roughly-constant fraction of canvas height.
+    // Basic-enemy filler fights (see EncounterKind::Basic) render notably
+    // smaller per-member - still a real threat, just not "huge and
+    // dominant" the way the actual boss is supposed to read. A stage-50+
+    // TWO-boss fight scales down from the single-boss 0.72 so a pair
+    // doesn't just double the total footprint on screen.
+    const bossCount = encounter ? Math.max(1, enemyUnitIds(encounter).length) : 1;
+    const isMultiBoss = !!encounter && encounter.kind !== 'basic' && bossCount > 1;
+    const bossSpriteHeight = encounter ? Math.max(160, canvas.height * (encounter.kind === 'basic' ? 0.4 : isMultiBoss ? 0.5 : 0.72)) : 0;
+    const bossHalfWidth = bossSpriteHeight > 0 ? (bossSpriteHeight / 2) * bossAspect : 0;
+    const bossAnchorX = canvas.width - 40 - bossHalfWidth;
+
+    // Sprite half-width estimate for a character of a given "radius" -
+    // same 1.15x-and-a-bit-extra logic as the boss above (dh = size*2.2,
+    // so half-height = size*1.1; art aspect isn't exactly square, so a
+    // touch of margin on top). Used both for the left margin (has to fit
+    // the largest a sprite could ever be) and to clamp every character's
+    // final position so nothing can render off-canvas regardless of
+    // formation math.
+    //
+    // Also budgets vertical headroom now that characters are
+    // feet-anchored (see drawCharacter) - the whole sprite height
+    // (size*2.2) plus its name label has to fit above groundY, with some
+    // slack for upward jump/sway offsets.
+    const maxRadius = Math.max(30, (canvas.height - 140) / 2.2);
+    const spriteHalfWidth = (r) => r * 1.25;
+
+    // Retreated (every piece of equipped gear worn out - see
+    // CharacterView::retreated) means they've pulled back to camp to
+    // repair, not just knocked out - excluded from the battlefield
+    // entirely (idle AND any encounter), unlike a downed ghost which
+    // still wanders around mid-revive.
+    const ids = [...characters.keys()].filter((id) => !characters.get(id).retreated).sort();
+
+    // A basic encounter's enemies need to visibly outsize the party
+    // they're fighting, not shrink to fit a fixed footprint the way the
+    // old single "boss" sprite budget assumed - each one is sized directly
+    // off the CURRENT frame's biggest player sprite (so a high-level
+    // roster still faces something imposing, not fixed 90s-era mooks),
+    // with a floor for an all-level-1 party. Grid cells deliberately
+    // overlap a bit (cellW/rowStep below are less than a full sprite
+    // width/height) so a big group reads as a packed crowd instead of
+    // sprawling off-screen.
+    let enemyDh = 0;
+    let enemyCols = 1;
+    let enemyRows = 1;
+    let enemyCellW = 0;
+    let enemyRowStep = 0;
+    let enemyFootprintW = 0;
+    if (encounter && encounter.kind === 'basic') {
+      const maxPlayerDh = ids.length
+        ? Math.max(
+            ...ids.map((id) => {
+              const c = characters.get(id);
+              const r = Math.min((12 + Math.min(c.level, 30) * 0.77) * 4, maxRadius) * heroScale;
+              return r * 2.2;
+            })
+          )
+        : 90;
+      const count = Math.max(1, enemyUnitIds(encounter).length);
+      enemyCols = Math.ceil(Math.sqrt(count));
+      enemyRows = Math.ceil(count / enemyCols);
+      enemyDh = Math.min(canvas.height * 0.62, Math.max(maxPlayerDh * 1.35, 110));
+      enemyCellW = enemyDh * bossAspect * 0.72;
+      enemyRowStep = enemyDh * 0.4;
+      enemyFootprintW = enemyCols * enemyCellW + enemyCellW * 0.3;
+    } else if (isMultiBoss) {
+      // Same grid mechanics as a basic encounter's group (proven to
+      // avoid overlap for N simultaneous enemies), just sized off
+      // bossSpriteHeight (huge, boss-scale) instead of the players'
+      // own sprite size - a stage-50+ pair of real bosses should still
+      // read as dominant, not shrink to basic-mob scale.
+      const count = Math.max(1, bossCount);
+      enemyCols = Math.ceil(Math.sqrt(count));
+      enemyRows = Math.ceil(count / enemyCols);
+      enemyDh = bossSpriteHeight;
+      enemyCellW = enemyDh * bossAspect * 0.85;
+      enemyRowStep = enemyDh * 0.35;
+      enemyFootprintW = enemyCols * enemyCellW + enemyCellW * 0.3;
+    }
+
+    const leftMargin = Math.max(60, spriteHalfWidth(maxRadius) + 10);
+    const rightReserve = Math.max(140, encounter && (encounter.kind === 'basic' || isMultiBoss) ? enemyFootprintW + 60 : bossHalfWidth * 2 + 60);
+    const available = Math.max(canvas.width - leftMargin - rightReserve, 100);
+    const spacing = Math.min(80, available / Math.max(ids.length, 1));
+    const wanderRangeX = Math.max(spacing * 0.9, 40);
+
+    // Every enemy - a lone boss or each member of a basic encounter's
+    // group - now leaps/attacks independently via stepEnemyLeap (see its
+    // definition, above draw()), called per-enemy in the Pass 1
+    // positions loop below. Player formation still anchors off a single
+    // point though: a real boss's current leap-tracked position, or (for
+    // a whole group) just the static group anchor - individual members
+    // roam/leap around that zone rather than the party trying to track
+    // each one.
+    const bossRestState = encounter && encounter.kind !== 'basic' ? encounter.enemyLeap?.get(BOSS_ID) : undefined;
+    const bossEngageX = bossRestState ? bossRestState.restX : bossAnchorX;
+
+    // Role-based battle formation: melee crowds up near the boss, ranged
+    // hangs back at range, support holds the middle - a real combat
+    // lineup instead of everyone standing shoulder to shoulder like
+    // during charge/resolve. Tracks the boss's CURRENT resting spot
+    // (it wanders via leaping now, not fixed at the anchor). Seeded once
+    // per encounter (not lazily on first read) from the exact position
+    // charge left each character at, so the charge -> battle transition
+    // eases smoothly into formation instead of snapping from a stale
+    // leftover position.
+    // All three lanes are gap-offsets from the boss's CURRENT position -
+    // not a mix of boss-tracking (melee) and fixed-screen-position
+    // (ranged/support) like before. That mismatch was exactly why the
+    // formation visibly "collapsed" onto the boss whenever a leap carried
+    // it somewhere far off: melee followed it there while ranged/support
+    // stayed put, destroying the intended close/mid/far spacing.
+    //
+    // Clamping each lane independently (an earlier version of this fix)
+    // reintroduced the exact same collapse in a different form: whenever
+    // the boss was anywhere left-ish (common, since it leaps toward
+    // players who start out near leftMargin), both ranged AND support
+    // would clamp to the same leftMargin floor and land on top of each
+    // other - and since melee's lane sits close to the boss regardless,
+    // a boss near the left pulled everyone into one clump again. Instead,
+    // the whole formation is anchored as a single unit: if the boss is
+    // too close to the left edge to fit the full spread, the anchor (not
+    // each lane) shifts right, keeping the 110/300/600 relative spacing
+    // intact rather than letting any one lane collapse onto another.
+    const meleeGap = 110;
+    const fullRangeGap = 600;
+    const formationAnchorX = Math.max(leftMargin + fullRangeGap, bossEngageX);
+    const meleeLaneX = formationAnchorX - meleeGap;
+    const rangedLaneX = formationAnchorX - fullRangeGap;
+    const supportLaneX = formationAnchorX - fullRangeGap / 2;
+    if (phase && phase.name === 'battle' && encounter && !encounter.formationSeeded) {
+      ids.forEach((id, i) => {
+        characters.get(id).battleX = leftMargin + i * spacing + 30;
+      });
+      encounter.formationSeeded = true;
+    }
+
+    // Grouped by role so members of the same role fan out across a
+    // formation band instead of bunching on a single point. Anyone still
+    // on their revive countdown (see isDowned) isn't part of this fight
+    // at all - excluded from the formation the same way the server
+    // excluded them from combat, not just drawn "downed" within it.
+    const roleIds = { melee: [], ranged: [], support: [] };
+    ids.forEach((id) => {
+      const c = characters.get(id);
+      if (isDowned(c, nowEpoch)) return;
+      (roleIds[c.role] || roleIds.support).push(id);
+    });
+
+    // Pass 1: positions. Needed up front so events firing this frame can
+    // aim their effect at where units actually are, not last frame's spot.
+    const positions = new Map();
+    const isBasicEncounter = !!encounter && encounter.kind === 'basic';
+    if (encounter) {
+      enemyUnitIds(encounter).forEach((id, i) => {
+        // Home slot: where this enemy starts out and falls back to
+        // during charge/resolve - the single anchor for a boss, or this
+        // particular member's own grid slot for a group (each still
+        // roams away from it via leaping during battle - see
+        // stepEnemyLeap).
+        let homeX, homeY, baseDh;
+        if (isBasicEncounter || isMultiBoss) {
+          const col = i % enemyCols;
+          const row = Math.floor(i / enemyCols);
+          const stagger = row % 2 === 1 ? enemyCellW * 0.5 : 0;
+          homeX = bossAnchorX - enemyFootprintW / 2 + enemyCellW / 2 + col * enemyCellW + stagger;
+          homeY = groundY - (enemyRows - 1 - row) * enemyRowStep;
+          baseDh = enemyDh;
+        } else {
+          homeX = bossAnchorX;
+          homeY = groundY;
+          baseDh = bossSpriteHeight;
+        }
+
+        // Dragon redesign (2026-08-15) - identified by sprite name (the
+        // only signal the overlay has; it never learns the real
+        // BossKind - see boss_sprites/bossImgAt). A basic encounter's
+        // filler mobs never match, and a Lich's summoned adds now fall
+        // back to a generic sprite (see spriteNameForEnemySlot) instead
+        // of copying boss slot 0, so this can't misfire on either.
+        const enemySpriteName = spriteNameForEnemySlot(i);
+        const isDragon = !isBasicEncounter && /dragon/i.test(enemySpriteName);
+        // Gelatinous Cube (2026-08-17, a live request: "cubes should
+        // slide not jump and slam") - same sprite-name identification
+        // shape as isDragon above (bosses/cube1 or bosses/cube2, per
+        // BossKind::sprite - either frame counts, the crawl doesn't care
+        // which is currently showing).
+        const isCube = !isBasicEncounter && /cube/i.test(enemySpriteName);
+        if (!isBasicEncounter && enemySpriteName === 'death') {
+          baseDh *= LICH_SUMMON_SIZE_MULT;
+        }
+
+        let x, y, scale, glow, facingLeft;
+        if (isCube && phase && phase.name === 'battle') {
+          // Ground-bound continuous slide - never enters stepEnemyLeap's
+          // rise/hang/slam arc, and never scatters anyone.
+          const crawl = updateCubeCrawl(id, homeX, homeY, now);
+          x = crawl.x;
+          y = crawl.y;
+          scale = crawl.scale;
+          glow = 0;
+          facingLeft = crawl.facingLeft;
+        } else if (isDragon) {
+          // Floats via updateDragonFlight (see its own doc) instead of
+          // stepEnemyLeap's leap-and-slam - never scatters players (that
+          // knockback only ever comes from a leap landing, which a
+          // hovering/flying Dragon simply never does), and floats
+          // through every phase, not just battle. Rendered at half its
+          // normal boss size (DRAGON_SIZE_MULT) - it read as too
+          // dominant at the standard boss scale.
+          baseDh *= DRAGON_SIZE_MULT;
+          let s = 1;
+          let dropIn = 0;
+          if (phase && phase.name === 'charge') {
+            s = phase.progress;
+            dropIn = (1 - phase.progress) * 120;
+          } else if (phase && phase.name === 'resolve' && encounter.won) {
+            s = 1 - phase.progress;
+          }
+          const flight = updateDragonFlight(id, homeX, homeY, now);
+          x = flight.x;
+          y = flight.y - dropIn;
+          scale = s;
+          glow = 0;
+          facingLeft = flight.facingLeft;
+        } else if (phase && phase.name === 'battle') {
+          const step = stepEnemyLeap(encounter, id, homeX, homeY, now, groundY, ids, characters, leftMargin);
+          x = step.x + Math.sin(now / 20 + 1.3 + i) * 5;
+          y = step.y;
+          scale = step.scale;
+          glow = step.glow;
+        } else {
+          // Charge (entrance) and resolve (retreat) both just sit at the
+          // home slot - only battle actually leaps/roams.
+          let s = 1;
+          let dropIn = 0;
+          if (phase && phase.name === 'charge') {
+            s = phase.progress;
+            dropIn = (1 - phase.progress) * 120;
+          } else if (phase && phase.name === 'resolve' && encounter.won) {
+            s = 1 - phase.progress;
+          }
+          x = homeX;
+          y = homeY - dropIn;
+          scale = s;
+          glow = 0;
+        }
+
+        // Clamped against THIS frame's actual rendered half-width/height,
+        // not the resting size - a leap grows it up to ~14% bigger at its
+        // peak, and clamping against the smaller resting size could still
+        // let that larger frame poke past the edge.
+        const finalDh = baseDh * Math.max(0, scale);
+        const finalHalfW = (finalDh / 2) * bossAspect;
+        const clampedX = Math.max(finalHalfW + 4, Math.min(canvas.width - finalHalfW - 4, x));
+        const clampedY = Math.max(finalDh + 30, y);
+        positions.set(id, { x: clampedX, y: clampedY, radius: finalDh / 2, spriteHeight: finalDh, glow, facingLeft });
+      });
+    }
+
+    ids.forEach((id, i) => {
+      const c = characters.get(id);
+      let x, y;
+      const ghost = isDowned(c, nowEpoch);
+
+      // On their revive countdown - sits out entirely, in every phase
+      // (never a combat participant), but still wanders like a normal
+      // idle character rather than standing frozen - just no jumping (see
+      // updateWander/updateJump and drawDowned).
+      if (ghost) {
+        updateWander(c, now, dt, wanderRangeX);
+        x = leftMargin + i * spacing + c.wanderX;
+        y = groundY - Math.min(c.wanderY, IDLE_MAX_LIFT);
+        // Same IDLE_HERO_SCALE cut as a normal idle character - a
+        // reviving ghost is still an idle-status sprite, just wandering
+        // instead of standing.
+        const radius = Math.min((12 + Math.min(c.level, 30) * 0.77) * 4, maxRadius) * IDLE_HERO_SCALE;
+        const halfW = spriteHalfWidth(radius);
+        x = Math.max(halfW + 4, Math.min(canvas.width - halfW - 4, x));
+        positions.set(id, { x, y, radius });
+        return;
+      }
+
+      const combatUnit = encounter ? encounter.units.get(id) : null;
+      const downed = combatUnit ? !combatUnit.alive : false;
+      updateFacing(c, now);
+
+      if (!phase && c.flying) {
+        updateFlyMotion(c, now, dt, wanderRangeX, c.bobPhase);
+        x = leftMargin + i * spacing + c.wanderX;
+        y = groundY - FLY_HEIGHT - c.wanderY - c.flyBob;
+      } else if (!phase) {
+        updateIdleMotion(c, now, dt, wanderRangeX);
+        x = leftMargin + i * spacing + c.wanderX;
+        // Feet never more than IDLE_MAX_LIFT above the ground line while
+        // idle - wanderY alone (+/-15) was already close to that, but
+        // jumpOffset on top of it (a real hop, peaking well over 100px
+        // for a big jumpVy roll) was pushing idle characters way higher
+        // than intended. Horizontal wander/jump timing itself is
+        // untouched - only the resulting vertical position gets clamped.
+        y = groundY - Math.min(c.wanderY + c.jumpOffset, IDLE_MAX_LIFT);
+      } else if (downed) {
+        // Stays put, slumped, once knocked out for the rest of the fight.
+        x = leftMargin + i * spacing;
+        y = groundY;
+      } else if (phase.name === 'battle') {
+        const laneX = c.role === 'melee' ? meleeLaneX : c.role === 'ranged' ? rangedLaneX : supportLaneX;
+        const group = roleIds[c.role] || roleIds.support;
+        const roleIndex = group.indexOf(id);
+        const groupSize = group.length;
+        // Fans same-role characters across a band (instead of a single
+        // jittered point) and keeps a continuous, individually-phased
+        // sway going even once settled - a moving target rather than a
+        // fixed one, so the formation never just freezes in place.
+        const spreadWidth = Math.min(300, 48 * groupSize);
+        const fanX = groupSize > 1 ? (roleIndex / (groupSize - 1) - 0.5) * spreadWidth : 0;
+        const sway = Math.sin(now / 480 + roleIndex * 1.7) * 20;
+        const ease = Math.min(dt * 2.5, 1);
+        c.battleX += (laneX + fanX + sway - c.battleX) * ease;
+        if (c.flying) {
+          // Wings of Flight (live request, 2026-08-15) - stays airborne
+          // through battle too now, not idle-only (same "apply in every
+          // phase" precedent the Dragon's own hover already established -
+          // see DRAGON_HOVER_HEIGHT's doc), and immune to the knockback/
+          // scatter below entirely - nothing to knock off their feet when
+          // they're not standing on any. X still follows the normal
+          // melee/ranged/support formation lane above; only bob replaces
+          // the ground-relative sway+scatter for Y (same bob formula
+          // updateFlyMotion uses, inlined here since that helper's own
+          // wander call would fight with battleX-driven positioning).
+          c.flyBob = Math.sin(now / 900 + c.bobPhase) * 16;
+          x = c.battleX;
+          y = groundY - FLY_HEIGHT - c.flyBob;
+        } else {
+          updateScatter(c, dt);
+          x = c.battleX + c.scatterX;
+          y = groundY - Math.abs(Math.sin(now / 340 + roleIndex * 1.3)) * 10 - (roleIndex % 2) * 14 - c.scatterY;
+        }
+      } else if (c.flying) {
+        // Charge/resolve phases - same flying override, X keeps the
+        // normal rush-in/retreat animation, only Y switches to the fixed
+        // hover height instead of a ground hop.
+        x = leftMargin + i * spacing + rush;
+        c.flyBob = Math.sin(now / 900 + c.bobPhase) * 16;
+        y = groundY - FLY_HEIGHT - c.flyBob;
+      } else {
+        x = leftMargin + i * spacing + rush;
+        y = groundY - jump;
+      }
+      const radius = Math.min((12 + Math.min(c.level, 30) * 0.77) * 4, maxRadius) * heroScale;
+      // Hard backstop: whatever the formation/wander/jitter math above
+      // landed on, never let the actual drawn sprite hang off either
+      // edge of the canvas.
+      const halfW = spriteHalfWidth(radius);
+      x = Math.max(halfW + 4, Math.min(canvas.width - halfW - 4, x));
+      positions.set(id, { x, y, radius });
+    });
+
+    // Fire whatever real combat events have now come due, using the
+    // positions just computed.
+    if (phase && phase.name === 'battle' && encounter) {
+      while (encounter.firedIndex < encounter.events.length && encounter.events[encounter.firedIndex].atMs <= phase.battleElapsedMs) {
+        fireEvent(encounter.events[encounter.firedIndex], positions);
+        encounter.firedIndex++;
+      }
+    }
+
+    // Ease every combat unit's displayed/ghost HP toward its real value
+    // this frame - see updateUnitDisplayHp - before drawing any of them.
+    if (encounter) {
+      for (const u of encounter.units.values()) updateUnitDisplayHp(u, dt);
+    }
+
+    // Pass 2: draw. Boss body first so heroes always render on top of it
+    // (melee especially - they crowd right up against it), even when
+    // they visually overlap; health bars are collected here and drawn in
+    // their own final pass instead of inline, so one can never end up
+    // buried under a neighboring sprite in a dense cluster; effects on
+    // top of both; the banner over everything.
+    const healthBars = [];
+
+    if (phase && encounter) {
+      // Each enemy - lone boss or group member alike - is a real,
+      // independently-simulated CombatUnit now (see adventure.rs's
+      // simulate_battle taking a Vec<BossStats>), drawn and
+      // health-barred individually, faded out (not removed - keeps the
+      // formation's slots stable) once its own Defeat event fires. Only
+      // a real boss gets the pulsing red aura and the "BOSS" label - a
+      // basic encounter's rank-and-file don't need either.
+      enemyUnitIds(encounter).forEach((id, i) => {
+        const unit = encounter.units.get(id);
+        const pos = positions.get(id);
+        if (!unit || !pos) return;
+        const flashUntil = unitFlash.get(id);
+        const tintFlash = flashUntil && now < flashUntil ? 1 : 0;
+        const alpha = unit.alive ? 1 : 0.35;
+        const label = isBasicEncounter ? null : 'BOSS';
+        const showAura = !isBasicEncounter;
+        const spriteName = spriteNameForEnemySlot(i);
+        const gifImg = bossGifImgFor(i, spriteName);
+        const bar = drawEnemy(pos.x, pos.y, pos.radius, tintFlash, bossImgAt(i), pos.glow, pos.spriteHeight, alpha, label, showAura, pos.facingLeft, gifImg);
+        if (bar && unit.alive) {
+          bar.hpFrac = unit.displayHp / unit.maxHp;
+          bar.ghostFrac = unit.ghostHp / unit.maxHp;
+          healthBars.push(bar);
+        }
+      });
+    }
+
+    ids.forEach((id) => {
+      const c = characters.get(id);
+      const pos = positions.get(id);
+
+      const combatUnit = encounter ? encounter.units.get(id) : null;
+      const downed = combatUnit ? !combatUnit.alive : false;
+
+      // Two distinct ghost states, both drawn the same way (drawDowned):
+      // isDowned (a real, timed revive countdown - see adventure.rs) only
+      // starts once the WHOLE encounter that killed them has finished
+      // playing out, so it can't preempt their own death animation.
+      // `downed` here means THIS fight's replay has already fired their
+      // Defeat event - individually, exactly when their own bar hits
+      // zero, not all at once - so they go ghost right then too, just at
+      // a flat (non-counting-down) alpha since the real 30s timer hasn't
+      // started yet.
+      // ?highlight=<login> (see its own doc up top) - everyone but the
+      // named character gets dimmed, ghost/downed rendering included.
+      const dimAlpha = highlightName && id !== highlightName ? HIGHLIGHT_DIM_ALPHA : 1;
+
+      const revivingGhost = isDowned(c, nowEpoch);
+      if (revivingGhost || downed) {
+        // drawCharacter (which normally positions/hides this) isn't
+        // called on this path - hide it directly so a custom-gif
+        // character's persistent <img> doesn't keep floating at its last
+        // position while drawDowned draws the ghost separately.
+        const staleGifImg = characterGifImgs.get(id);
+        if (staleGifImg) staleGifImg.style.display = 'none';
+        drawDowned(pos.x, pos.y, pos.radius, c.displayName, (revivingGhost ? deathFadeAlpha(c, nowEpoch) : 0.75) * dimAlpha);
+        return;
+      }
+
+      const hpFrac = combatUnit ? combatUnit.displayHp / combatUnit.maxHp : null;
+      const ghostFrac = combatUnit ? combatUnit.ghostHp / combatUnit.maxHp : null;
+
+      let flashColor = '#ffffff';
+      let flashAlpha = 0;
+      const flashUntil = unitFlash.get(id);
+      if (flashUntil && now < flashUntil) {
+        flashAlpha = 0.85;
+      } else if (phase && phase.name === 'resolve' && encounter && !encounter.won && !downed) {
+        flashColor = '#dc3c3c';
+        flashAlpha = 0.4 + 0.4 * Math.sin(now / 50);
+      }
+
+      let radius = pos.radius;
+      if (phase && phase.name === 'resolve' && encounter && encounter.won) {
+        radius *= 1 + 0.15 * Math.sin(phase.progress * Math.PI);
+      }
+
+      const sprite = spriteForCharacter(id);
+      const gifImg = characterGifImgFor(id, sprite);
+      const bar = drawCharacter(pos.x, pos.y, radius, sprite, c.color, flashColor, flashAlpha, c.displayName, c.level, hpFrac, ghostFrac, downed, c.facingLeft, gifImg, dimAlpha);
+      if (bar) healthBars.push(bar);
+    });
+
+    updateAndDrawEffects(now);
+    updateAndDrawFlickerDashes(now);
+    updateAndDrawDragonBreathShots(now);
+
+    for (const bar of healthBars) {
+      drawHealthBar(bar.x, bar.barY, bar.width, bar.height, bar.hpFrac, bar.ghostFrac, bar.label);
+    }
+
+    if (phase && phase.name === 'resolve') {
+      drawBanner(encounter.won ? 'Victory!' : 'Defeated...', encounter.won ? '#7CFC7C' : '#FF6B6B', phase.progress);
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  requestAnimationFrame(draw);
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'state') {
+        applyState(msg);
+      } else if (msg.type === 'encounter') {
+        applyEncounter(msg);
+      }
+    };
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+</script>
+</body>
+</html>

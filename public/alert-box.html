@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Alert Box</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+    }
+
+    .alert-stage {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .alert {
+        position: relative;
+        width: 440px;
+        text-align: center;
+        opacity: 0;
+        transform: scale(0.7) translateY(20px);
+        transition: opacity 0.4s cubic-bezier(.34, 1.56, .64, 1), transform 0.4s cubic-bezier(.34, 1.56, .64, 1);
+    }
+
+    .alert.show {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+
+    .alert-bg {
+        width: 100%;
+        display: block;
+        filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.7));
+    }
+
+    .alert-text {
+        position: absolute;
+        left: 50%;
+        top: 58%;
+        transform: translate(-50%, -50%);
+        width: 92%;
+        font-family: 'Pirata One', serif;
+        font-size: 3.4rem;
+        line-height: 1.2;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0, 0, 0, 0.85);
+    }
+
+    .alert-highlight { color: #e93d3d; }
+    .alert-rest { color: #fff; }
+
+    .video-alert-wrap {
+        position: relative;
+        display: none;
+        max-width: 640px;
+        max-height: 480px;
+    }
+
+    .video-alert {
+        display: block;
+        width: 100%;
+        max-width: 640px;
+        max-height: 480px;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+    }
+
+    /* Text caption over a video alert (currently just the raid one) —
+       same look as .alert-text, positioned near the bottom of the video
+       instead of centered over the static image. */
+    .video-alert-text {
+        position: absolute;
+        left: 50%;
+        bottom: 6%;
+        transform: translateX(-50%);
+        width: 92%;
+        text-align: center;
+        font-family: 'Pirata One', serif;
+        font-size: 2rem;
+        line-height: 1.2;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0, 0, 0, 0.85);
+    }
+</style>
+</head>
+<body>
+
+    <div class="alert-stage">
+        <div class="alert" id="alert">
+            <img class="alert-bg" src="alert-bg.png" alt="">
+            <div class="alert-text">
+                <span class="alert-highlight" id="alert-highlight"></span><span class="alert-rest" id="alert-rest"></span>
+            </div>
+        </div>
+        <div class="video-alert-wrap" id="video-alert-wrap">
+            <video class="video-alert" id="video-alert" playsinline></video>
+            <div class="video-alert-text">
+                <span class="alert-highlight" id="video-alert-highlight"></span><span class="alert-rest" id="video-alert-rest"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const stage = document.getElementById('alert');
+        const highlightEl = document.getElementById('alert-highlight');
+        const restEl = document.getElementById('alert-rest');
+        const videoAlertWrap = document.getElementById('video-alert-wrap');
+        const videoEl = document.getElementById('video-alert');
+        const videoHighlightEl = document.getElementById('video-alert-highlight');
+        const videoRestEl = document.getElementById('video-alert-rest');
+
+        const DISPLAY_MS = 9000;
+        const FADE_MS = 500; // must match the CSS transition duration above
+
+        // ---- Sound ----
+        // Per-alert-type sound files (public/follow.mp3, public/sub.mp3 —
+        // sub.mp3 covers both subs and bit cheers). Anything without a
+        // dedicated file (currently just tips) falls back to
+        // alert-sound.mp3 if that exists, else a synthesized two-note
+        // chime via the Web Audio API, so there's always *some* sound
+        // with zero file dependency.
+        const ALERT_SOUND_FILES = {
+            follow: 'follow.mp3',
+            subscription: 'sub.mp3',
+            subscriptionGift: 'sub.mp3',
+            cheer: 'sub.mp3',
+        };
+
+        // ~30% louder than each file's native volume. HTMLMediaElement.volume
+        // tops out at 1.0 (the source file's own native level) so bumping
+        // that alone couldn't get any louder — a Web Audio gain node can
+        // actually amplify past 100%, which is what this multiplier is
+        // applied to below (both for real files, via a GainNode per file,
+        // and for the synthesized chime's own oscillator gain).
+        const ALERT_GAIN_MULTIPLIER = 1.3;
+
+        let audioCtx = null;
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (err) {
+            console.error('Could not create AudioContext for alert sounds:', err);
+        }
+
+        // One <audio> + gain node per distinct file, built lazily and
+        // reused — createMediaElementSource can only ever be called once
+        // per element, so each file's node graph is set up exactly once.
+        const gainBoostedAudio = {};
+        function getGainBoostedAudio(file) {
+            if (gainBoostedAudio[file]) return gainBoostedAudio[file];
+            const audio = new Audio(file);
+            if (audioCtx) {
+                try {
+                    const source = audioCtx.createMediaElementSource(audio);
+                    const gain = audioCtx.createGain();
+                    gain.gain.value = ALERT_GAIN_MULTIPLIER;
+                    source.connect(gain).connect(audioCtx.destination);
+                } catch (err) {
+                    console.error(`Could not set up gain boost for ${file}:`, err);
+                }
+            }
+            gainBoostedAudio[file] = audio;
+            return audio;
+        }
+
+        // Plays until the sound actually finishes (its real `ended`/error
+        // event calls onEnded), not a fixed guess at how long it is. Falls
+        // back to the synthesized chime if the file itself fails to play,
+        // which then calls onEnded once *it* finishes instead — never both.
+        function playSoundFile(file, onEnded) {
+            const audio = getGainBoostedAudio(file);
+            audio.currentTime = 0;
+            audio.onended = onEnded;
+            audio.play().catch((err) => {
+                console.warn(`${file} failed to play, falling back to chime:`, err);
+                playSynthesizedChime(onEnded);
+            });
+        }
+
+        function playSynthesizedChime(onEnded) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const now = ctx.currentTime;
+
+                function tone(freq, start, duration, peakGain) {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0, now + start);
+                    gain.gain.linearRampToValueAtTime(peakGain * ALERT_GAIN_MULTIPLIER, now + start + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + start + duration);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(now + start);
+                    osc.stop(now + start + duration + 0.05);
+                }
+
+                tone(523.25, 0, 0.35, 0.3);    // C5
+                tone(783.99, 0.12, 0.5, 0.3);  // G5
+
+                // Matches the longer tone's actual stop time (start + duration
+                // + the 0.05s tail above) — no `ended` event exists for raw
+                // oscillators, so this is the real total duration, not a guess.
+                setTimeout(onEnded, (0.12 + 0.5 + 0.05) * 1000);
+            } catch (err) {
+                console.error('Could not play synthesized alert sound:', err);
+                onEnded();
+            }
+        }
+
+        // Must match SONG_REQUEST_SERVER_PORT in the bot's .env (default
+        // 4002) — this page (served on the alert server's own port) has
+        // no other way to know that value, since it's just a static file.
+        const SONG_OVERLAY_PORT = 4002;
+
+        function songOverlayPost(path) {
+            fetch(`http://localhost:${SONG_OVERLAY_PORT}${path}`, { method: 'POST' }).catch(() => {});
+        }
+
+        // Ducks the song player's volume — everything except follow (see
+        // startMusicSuppression). Restored by unduckSongVolume once the
+        // alert sound actually finishes. Best-effort: if the song overlay
+        // isn't running, this just fails silently — no alert should ever
+        // depend on it.
+        function duckSongVolume() { songOverlayPost('/duck'); }
+        function unduckSongVolume() { songOverlayPost('/unduck'); }
+
+        // Full mute (not just a duck) for the raid video alert below —
+        // muted for exactly as long as raid.mp4 is actually playing.
+        function muteSongVolume() { songOverlayPost('/mute'); }
+        function unmuteSongVolume() { songOverlayPost('/unmute'); }
+
+        // Follow alerts pause the music outright rather than ducking it.
+        function pauseSongForAlert() { songOverlayPost('/alert-pause'); }
+        function resumeSongForAlert() { songOverlayPost('/alert-resume'); }
+
+        // Follow gets a full pause; every other templated alert type just
+        // ducks. Both start*/end* pairs are fired right alongside the
+        // alert actually appearing (not when the underlying Twitch event
+        // first arrives), so they line up with what viewers actually
+        // see/hear even when several same-type alerts got batched
+        // together and held for a bit first (see scheduleBatch below).
+        function startMusicSuppression(type) {
+            if (type === 'follow') pauseSongForAlert();
+            else duckSongVolume();
+        }
+
+        function endMusicSuppression(type) {
+            if (type === 'follow') resumeSongForAlert();
+            else unduckSongVolume();
+        }
+
+        // Cheers only get the sub.mp3 treatment at 500+ bits — anything
+        // smaller falls back to the plain alert sound instead, same as
+        // before sub.mp3 was wired up to cheers at all. Merged/batched
+        // cheer events already carry the *summed* bits total (see
+        // mergeEvents below), so a handful of small cheers landing
+        // together that add up to 500+ still gets the bigger sound.
+        const CHEER_SUB_SOUND_MIN_BITS = 500;
+
+        // Tips (and small cheers, see above) have no dedicated file —
+        // falls back to alert-sound.mp3 if one's been dropped in, else
+        // the synthesized chime (same fallback chain used before
+        // per-type files existed).
+        function playAlertSound(event, onEnded) {
+            const useFallback = event.type === 'cheer' && (event.bits || 0) < CHEER_SUB_SOUND_MIN_BITS;
+            const file = useFallback ? 'alert-sound.mp3' : ALERT_SOUND_FILES[event.type] || 'alert-sound.mp3';
+            playSoundFile(file, onEnded);
+        }
+
+        // raid isn't here — see playRaidVideoAlert, it plays raid.mp4
+        // instead of the generic image+text template.
+        const TEMPLATES = {
+            follow: (e) => ({ highlight: e.name, rest: ' is now following!' }),
+            subscription: (e) => ({ highlight: e.name, rest: ' just subscribed!' }),
+            subscriptionGift: (e) => ({ highlight: e.name, rest: ` gifted ${e.amount} sub${e.amount === 1 ? '' : 's'}!` }),
+            cheer: (e) => ({ highlight: e.name, rest: ` cheered ${e.bits} bits!` }),
+            tip: (e) => ({
+                highlight: e.name,
+                rest: ` tipped ${(e.currency ? e.currency + ' ' : '') + e.amount}!${e.message ? ` "${e.message}"` : ''}`,
+            }),
+        };
+
+        const queue = [];
+        let showing = false;
+
+        // A plain video clip (e.g. !handsome) — plays until it naturally
+        // ends rather than a fixed timer, since video length varies. No
+        // caption text — those clips aren't tied to any chatter/event.
+        function playVideoAlert(event) {
+            videoHighlightEl.textContent = '';
+            videoRestEl.textContent = '';
+            videoAlertWrap.style.display = 'block';
+            videoEl.src = event.src;
+            videoEl.currentTime = 0;
+
+            videoEl.onended = () => {
+                videoAlertWrap.style.display = 'none';
+                videoEl.removeAttribute('src');
+                videoEl.load(); // release the file, drop it fully out of the DOM state
+                showing = false;
+                processQueue();
+            };
+
+            videoEl.play().catch((err) => {
+                console.error('Video alert failed to play:', err);
+                videoAlertWrap.style.display = 'none';
+                showing = false;
+                processQueue();
+            });
+        }
+
+        // Raid alert — plays raid.mp4 in place of the generic image+text
+        // template, muting song requests for exactly as long as the video
+        // is actually playing (not a fixed timer) rather than just
+        // ducking, since a raid should be heard clearly over the music.
+        function playRaidVideoAlert(event) {
+            muteSongVolume();
+
+            videoHighlightEl.textContent = event.name;
+            videoRestEl.textContent = ` raided with ${event.viewers} viewers!`;
+            videoAlertWrap.style.display = 'block';
+            videoEl.src = 'raid.mp4';
+            videoEl.currentTime = 0;
+
+            videoEl.onended = () => {
+                videoAlertWrap.style.display = 'none';
+                videoEl.removeAttribute('src');
+                videoEl.load();
+                unmuteSongVolume();
+                showing = false;
+                processQueue();
+            };
+
+            videoEl.play().catch((err) => {
+                console.error('Raid video alert failed to play:', err);
+                videoAlertWrap.style.display = 'none';
+                unmuteSongVolume(); // don't leave it stuck muted if playback never actually started
+                showing = false;
+                processQueue();
+            });
+        }
+
+        function processQueue() {
+            if (showing || !queue.length) return;
+            showing = true;
+
+            const event = queue.shift();
+
+            if (event.type === 'video') {
+                playVideoAlert(event);
+                return;
+            }
+
+            if (event.type === 'raid') {
+                playRaidVideoAlert(event);
+                return;
+            }
+
+            const template = TEMPLATES[event.type];
+            if (!template) {
+                showing = false;
+                processQueue();
+                return;
+            }
+
+            const { highlight, rest } = template(event);
+            highlightEl.textContent = highlight;
+            restEl.textContent = rest;
+
+            stage.classList.add('show');
+            startMusicSuppression(event.type);
+            playAlertSound(event, () => endMusicSuppression(event.type));
+
+            setTimeout(() => {
+                stage.classList.remove('show');
+                setTimeout(() => {
+                    showing = false;
+                    processQueue();
+                }, FADE_MS);
+            }, DISPLAY_MS);
+        }
+
+        // ---- Batching ----
+        // If several same-type events land close together (e.g. a handful
+        // of people following within a couple seconds of each other), show
+        // one combined alert listing every name in order instead of a
+        // separate pop-in per person. Each event briefly waits in a holding
+        // pen (per type) — every new same-type arrival resets that type's
+        // timer — before actually being pushed to the display queue, so a
+        // burst has time to fully collect before anything appears.
+        const BATCH_WINDOW_MS = 1500;
+        const pendingBatches = {}; // type -> { events: [...], timer }
+
+        function formatNameList(names) {
+            if (names.length === 1) return names[0];
+            if (names.length === 2) return `${names[0]} and ${names[1]}`;
+            return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+        }
+
+        function mergeEvents(type, events) {
+            if (events.length === 1) return events[0];
+
+            const merged = { type, name: formatNameList(events.map((e) => e.name)) };
+
+            if (type === 'subscriptionGift') {
+                merged.amount = events.reduce((sum, e) => sum + (e.amount || 0), 0);
+            } else if (type === 'cheer') {
+                merged.bits = events.reduce((sum, e) => sum + (e.bits || 0), 0);
+            } else if (type === 'raid') {
+                merged.viewers = events.reduce((sum, e) => sum + (e.viewers || 0), 0);
+            } else if (type === 'tip') {
+                // Per-tip messages don't combine cleanly, so a merged alert
+                // just shows the combined total, no message text.
+                merged.amount = events.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+                merged.currency = events[0].currency;
+            }
+
+            return merged;
+        }
+
+        function scheduleBatch(event) {
+            const type = event.type;
+            if (!pendingBatches[type]) pendingBatches[type] = { events: [], timer: null };
+
+            const batch = pendingBatches[type];
+            batch.events.push(event);
+
+            clearTimeout(batch.timer);
+            batch.timer = setTimeout(() => {
+                const events = batch.events;
+                delete pendingBatches[type];
+                queue.push(mergeEvents(type, events));
+                processQueue();
+            }, BATCH_WINDOW_MS);
+        }
+
+        // EventSource auto-reconnects if the bot restarts or OBS reloads
+        // the browser source — no reconnect logic needed here.
+        const source = new EventSource('/events');
+        source.onmessage = (msg) => {
+            try {
+                const event = JSON.parse(msg.data);
+                // Video clips don't merge with anything — each play-through
+                // goes straight to the queue instead of the batching pen.
+                if (event.type === 'video') {
+                    queue.push(event);
+                    processQueue();
+                } else {
+                    scheduleBatch(event);
+                }
+            } catch (err) {
+                console.error('Bad alert event:', err);
+            }
+        };
+    </script>
+
+</body>
+</html>

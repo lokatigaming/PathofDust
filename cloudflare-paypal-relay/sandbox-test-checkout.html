@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PayPal Sandbox Test Checkout</title>
+</head>
+<body>
+<h1>PayPal Sandbox Test Checkout — $1.00</h1>
+<p>
+  Open this file locally (double-click it) and log in with a <strong>Sandbox buyer test
+  account</strong> — find its email/password under <em>Sandbox &rarr; Accounts</em> in the
+  PayPal Developer Dashboard. Completing this fires a genuine, properly-signed Sandbox
+  webhook at the relay Worker, same as a real payment would — but free and repeatable as
+  many times as needed.
+</p>
+<p>
+  Before this works, the Worker needs its Sandbox secrets set (see
+  cloudflare-paypal-relay/worker.js's header comment): <code>PAYPAL_API_BASE</code> =
+  <code>https://api-m.sandbox.paypal.com</code>, plus Sandbox values for
+  <code>PAYPAL_CLIENT_ID</code>, <code>PAYPAL_CLIENT_SECRET</code>, and
+  <code>PAYPAL_WEBHOOK_ID</code> (from a Sandbox-mode webhook subscription pointed at the
+  same Worker URL).
+</p>
+<div id="paypal-button-container"></div>
+
+<script src="https://www.paypal.com/sdk/js?client-id=BAAc6ZrOrk2SDUogm_PiNKimsOacM44tE97zlqvZQWyxuez_ZZMLI_yWHIfE1YTjtlpvV1qEpwUQ2r8C5A&currency=USD"></script>
+<script>
+  paypal.Buttons({
+    createOrder: (data, actions) => {
+      return actions.order.create({
+        purchase_units: [{ amount: { value: '1.00' } }],
+      });
+    },
+    onApprove: (data, actions) => {
+      return actions.order.capture().then((details) => {
+        document.body.insertAdjacentHTML(
+          'beforeend',
+          `<p>Paid! Order ${details.id}, status ${details.status}. Check the Worker's logs / poll /pending-tips now.</p>`
+        );
+      });
+    },
+  }).render('#paypal-button-container');
+</script>
+</body>
+</html>

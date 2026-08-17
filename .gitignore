@@ -1,0 +1,52 @@
+# --- Secrets / credentials ---
+.env
+tokens.json
+patreon-tokens.json
+
+# --- Rust build artifacts ---
+/target
+
+# --- Live runtime state / save data (not source, not meant to ship) ---
+adventure-characters.json
+adventure-characters.json.*
+adventure-last-fight.json
+adventure-last-fights.json.bak
+adventure-world.json
+adventure-rampage-state.json
+adventure-reforge-cooldown.json
+adventure-sessions.json
+adventure-sprite-count.json
+adventure-item-balance.toml
+adventure-live-tunables.toml
+adventure-fights-coarse-seq.json
+adventure-fights-detail-seq.json
+adventure-fights-coarse/
+adventure-fights-detail/
+adventure-*-marker.json
+announcements.json
+bugreports.json
+channel-points-*.json
+commands.json
+daily-greeted.json
+entrance-themes.json
+patch-notes.json
+patreon-seen.json
+personal-playlists.json
+playrandom-state.json
+search-cache.json
+song-queue.json
+tips-history.json
+
+# --- Logs / crash dumps ---
+logs/
+crashdumps/
+watchdog.log
+*.log
+
+# --- Personal scratch / design reference (not part of the buildable app) ---
+/adventure/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini

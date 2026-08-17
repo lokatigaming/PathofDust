@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Alert Sound Preview</title>
+<style>
+    body {
+        background: #0d0e12;
+        color: #e2e8f0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        gap: 16px;
+    }
+
+    h1 { font-size: 1.3rem; margin-bottom: 8px; }
+
+    button {
+        padding: 16px 32px;
+        font-size: 1rem;
+        font-weight: 700;
+        background: #e93d3d;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        width: 280px;
+    }
+
+    button:hover { background: #c92b2b; }
+
+    p.label { color: #94a3b8; font-size: 0.85rem; margin: 0; width: 280px; text-align: center; }
+</style>
+</head>
+<body>
+
+    <h1>Synthesized "Currency Drop" Sound — Pick One</h1>
+
+    <button onclick="playSchwingA()">A — Sharp metallic schwing</button>
+    <p class="label">Fast bright sweep + noise burst + shimmering metallic tail</p>
+
+    <button onclick="playSchwingB()">B — Bright sparkle chime</button>
+    <p class="label">Higher-pitched, quicker, more bell-like tail</p>
+
+    <button onclick="playSchwingC()">C — Deep whoosh with ring</button>
+    <p class="label">Lower start pitch, longer sweep, deeper resonant ring</p>
+
+    <script>
+        function makeNoiseBurst(ctx, now, durationSec, filterFreq, peakGain) {
+            const bufferSize = Math.floor(ctx.sampleRate * durationSec);
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'highpass';
+            filter.frequency.value = filterFreq;
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(peakGain, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
+
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(ctx.destination);
+            noise.start(now);
+        }
+
+        function makeSweep(ctx, now, { type, startFreq, endFreq, sweepDur, peakGain }) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(startFreq, now);
+            osc.frequency.exponentialRampToValueAtTime(endFreq, now + sweepDur);
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(peakGain, now + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + sweepDur + 0.05);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + sweepDur + 0.1);
+        }
+
+        function makeShimmerTail(ctx, now, { startTime, freqs, peakGain, tailDur }) {
+            freqs.forEach((freq, i) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0, now + startTime);
+                gain.gain.linearRampToValueAtTime(peakGain, now + startTime + 0.02 + i * 0.01);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + startTime + tailDur);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now + startTime);
+                osc.stop(now + startTime + tailDur + 0.1);
+            });
+        }
+
+        function playSchwingA() {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const now = ctx.currentTime;
+            makeSweep(ctx, now, { type: 'sawtooth', startFreq: 300, endFreq: 1800, sweepDur: 0.18, peakGain: 0.25 });
+            makeNoiseBurst(ctx, now, 0.15, 2000, 0.15);
+            makeShimmerTail(ctx, now, { startTime: 0.1, freqs: [2400, 3100, 3600], peakGain: 0.08, tailDur: 0.8 });
+        }
+
+        function playSchwingB() {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const now = ctx.currentTime;
+            makeSweep(ctx, now, { type: 'triangle', startFreq: 600, endFreq: 3200, sweepDur: 0.1, peakGain: 0.28 });
+            makeNoiseBurst(ctx, now, 0.08, 3500, 0.12);
+            makeShimmerTail(ctx, now, { startTime: 0.06, freqs: [3000, 3800, 4500, 5200], peakGain: 0.07, tailDur: 0.6 });
+        }
+
+        function playSchwingC() {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const now = ctx.currentTime;
+            makeSweep(ctx, now, { type: 'sawtooth', startFreq: 150, endFreq: 1100, sweepDur: 0.28, peakGain: 0.28 });
+            makeNoiseBurst(ctx, now, 0.2, 1500, 0.18);
+            makeShimmerTail(ctx, now, { startTime: 0.18, freqs: [1600, 2000, 2450, 3000], peakGain: 0.09, tailDur: 1.1 });
+        }
+    </script>
+
+</body>
+</html>
