@@ -27,7 +27,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse, Redirect};
+use axum::response::{Html, IntoResponse, Json, Redirect};
 use axum::routing::{get, post};
 use base64::Engine;
 use rand::RngCore;
@@ -36,10 +36,10 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, recent_fights, summarize_fight, AdventureManager, Affix, Archetype, AutoDisenchantTier, Character,
-    CombatEvent, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, Item, LiveTunables, PassiveError, PassivePreview, PendingVeil, PendingVeilAction,
-    RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate, VeilChosenOutcome,
-    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST, NICKNAME_MAX_LEN,
-    PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
+    CombatEvent, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, Item, LastFightSnapshot, LiveTunables, PassiveError, PassivePreview, PendingVeil,
+    PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate, VeilChosenOutcome,
+    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, COARSE_FIGHTS_CAPACITY, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
+    NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
 };
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
@@ -173,6 +173,7 @@ pub async fn start_adventure_web_server(
         .route("/characters/:login", get(character_detail))
         .route("/characters/:login/passives", get(character_passives_readonly))
         .route("/fights", get(fights_page))
+        .route("/fights.json", get(fights_json))
         .route("/admin/tunables", get(admin_tunables_page))
         .route("/admin/tunables/save", post(do_save_tunables))
         .route("/overlay", get(overlay_page))
@@ -1807,33 +1808,76 @@ async fn character_passives_readonly(State(state): State<AppState>, headers: Hea
     Html(render_page(&body))
 }
 
-/// Streamer-only fight-history breakdown (see `recent_fights`) - gated
-/// to a single hardcoded login, not just "logged in" like everything
-/// else on this dashboard, per an explicit request for a link that's
-/// only visible on that one account. Anyone else (including a normal
-/// logged-in player) gets the same generic "not found" a bad
-/// `/characters/{login}` shows - doesn't hint that a restricted page
-/// exists at all.
+/// The streamer's own login still gets the full, unfiltered fight-history
+/// list (see `fights_for_viewer`) - everything today's `/admin/tunables`-
+/// style balance tuning is built around. Everyone else (2026-08-17, opened
+/// up from a single-account-only page) sees the same page, scoped to just
+/// the fights they personally took part in.
 const FIGHTS_PAGE_LOGIN: &str = "lokati_gaming";
 
-async fn fights_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct FightsPageParams {
+    limit: Option<usize>,
+}
+
+/// Shared by `fights_page` (HTML) and `fights_json` (the companion app's
+/// preferred format) so both read exactly the same rules. The streamer's
+/// login gets `recent_fights(limit)` unfiltered, same as always; anyone
+/// else gets the full currently-stored history fetched first (cheap at
+/// today's `COARSE_FIGHTS_CAPACITY`-fight retention), filtered to fights
+/// they actually appear in (`units[].id`, the same lowercase login used
+/// everywhere else - NOT `participants`, which holds display names and
+/// would mismatch case), THEN capped at `limit` - fetching-then-filtering
+/// (rather than filtering a `recent_fights(limit)` slice) is what actually
+/// answers "the last N fights THEY were in," not "however many of the
+/// last N fights overall happened to include them."
+fn fights_for_viewer(login: &str, requested_limit: usize) -> Vec<LastFightSnapshot> {
+    let limit = requested_limit.clamp(1, COARSE_FIGHTS_CAPACITY);
+    if login == FIGHTS_PAGE_LOGIN {
+        recent_fights(limit)
+    } else {
+        recent_fights(COARSE_FIGHTS_CAPACITY).into_iter().filter(|snap| snap.result.units.iter().any(|u| !u.is_boss && u.id == login)).take(limit).collect()
+    }
+}
+
+async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<FightsPageParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        Some((login, _)) if login == FIGHTS_PAGE_LOGIN => {
+        None => render_logged_out(),
+        Some((login, _)) => {
             let viewer = state.adventure.character(&login).await;
+            let is_streamer = login == FIGHTS_PAGE_LOGIN;
+            let limit = params.limit.unwrap_or(FIGHTS_PAGE_DISPLAY_LIMIT);
             // recent_fights()'s per-fight-file read is real, synchronous
             // disk I/O (see its doc) - offloaded so it can't stall this
             // worker thread's own tokio runtime.
-            tokio::task::spawn_blocking(move || render_fights_page(viewer.as_ref()))
+            let fights = tokio::task::spawn_blocking(move || fights_for_viewer(&login, limit)).await.unwrap_or_default();
+            tokio::task::spawn_blocking(move || render_fights_page(viewer.as_ref(), &fights, is_streamer))
                 .await
                 .unwrap_or_else(|err| {
                     tracing::error!("fights_page render task panicked: {err}");
                     "<div class=\"card\"><h1>Error</h1></div>".to_string()
                 })
         }
-        _ => "<div class=\"card\"><h1>Not Found</h1></div>".to_string(),
     };
     Html(render_page(&body))
+}
+
+/// JSON twin of `/fights` (2026-08-17, a live request) - the desktop
+/// companion app would rather parse this than scrape the HTML page's
+/// markup. Same session cookie, same `fights_for_viewer` rules (streamer
+/// unfiltered, everyone else scoped to their own fights), same `?limit=`.
+/// 401 with an empty array when not logged in, same "don't hint at
+/// what's behind the gate" spirit `fights_page` itself now only applies
+/// to logged-out visitors (every logged-in viewer can reach this now).
+async fn fights_json(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<FightsPageParams>) -> impl IntoResponse {
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return (StatusCode::UNAUTHORIZED, Json(Vec::<LastFightSnapshot>::new())).into_response();
+    };
+    let limit = params.limit.unwrap_or(FIGHTS_PAGE_DISPLAY_LIMIT);
+    let fights = tokio::task::spawn_blocking(move || fights_for_viewer(&login, limit)).await.unwrap_or_default();
+    Json(fights).into_response()
 }
 
 /// Gates `/admin/tunables` the same way `FIGHTS_PAGE_LOGIN` gates
@@ -2269,17 +2313,20 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
 /// request.
 const FIGHTS_PAGE_DISPLAY_LIMIT: usize = 10;
 
-/// `/fights` - streamer-only breakdown of the last up-to-`FIGHTS_PAGE_DISPLAY_LIMIT`
-/// encounters (see `recent_fights`), newest first: outcome, boss stats
-/// (real boss fights only), the same top-3 DPS/tanks/heals leaderboard
-/// the chat report uses (see `summarize_fight`), and loot/broken/retreated -
-/// everything needed to start tuning balance without having to catch a
-/// fight live or dig through raw JSON by hand.
-fn render_fights_page(viewer: Option<&Character>) -> String {
-    let fights = recent_fights(FIGHTS_PAGE_DISPLAY_LIMIT);
+/// `/fights` - breakdown of recent encounters (2026-08-17, opened up from
+/// streamer-only to every player - see `fights_for_viewer`), newest first:
+/// outcome, boss stats (real boss fights only), the same top-3 DPS/tanks/
+/// heals leaderboard the chat report uses (see `summarize_fight`), and
+/// loot/broken/retreated. `fights` is already resolved (fetched + filtered
+/// + limited) by the caller via `fights_for_viewer` - this function only
+/// renders. Everything needed to start tuning balance without having to
+/// catch a fight live or dig through raw JSON by hand, for the streamer;
+/// a personal fight log for everyone else.
+fn render_fights_page(viewer: Option<&Character>, fights: &[LastFightSnapshot], is_streamer: bool) -> String {
     let header = format!("{}<div class=\"card\"><h1>Fight History</h1></div>", top_nav(viewer));
     if fights.is_empty() {
-        return format!("{header}<div class=\"card\"><p class=\"muted\">No fights logged yet.</p></div>");
+        let msg = if is_streamer { "No fights logged yet." } else { "You haven't been in any recently logged fights yet." };
+        return format!("{header}<div class=\"card\"><p class=\"muted\">{msg}</p></div>");
     }
     let cards: String = fights
         .iter()
@@ -2617,6 +2664,7 @@ fn top_nav(character: Option<&Character>) -> String {
           <a class=\"top-nav-link\" href=\"/inventory\">🎒 Bag &amp; Crafting</a>\
           <a class=\"top-nav-link\" href=\"/passives\">🌳 Passives</a>\
           <a class=\"top-nav-link\" href=\"/characters\">🏆 Character List</a>\
+          <a class=\"top-nav-link\" href=\"/fights\">📜 Fight History</a>\
           <a class=\"top-nav-link\" href=\"/wiki\">📖 Wiki</a>\
           <a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">📺 Watch Overlay</a>\
           {stats}\

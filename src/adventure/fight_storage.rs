@@ -9,13 +9,15 @@
 // over capacity" - O(1) per fight, never a read-modify-rewrite of
 // anything that already exists on disk.
 //
-// Two parallel tiers, identical mechanism, different capacity:
-// - COARSE: replaces the old log 1:1 (same `LastFightSnapshot` shape,
-//   same 100-fight retention) - what `/fights` and `recent_fights()` read.
+// Two parallel tiers, identical mechanism, different capacity (both
+// lowered 2026-08-17, Phase 2, once real file sizes were measured - see
+// `COARSE_FIGHTS_CAPACITY`/`DETAIL_FIGHTS_CAPACITY`'s own docs):
+// - COARSE: replaces the old log 1:1 (same `LastFightSnapshot` shape) -
+//   what `/fights` and `recent_fights()` read.
 // - DETAIL: the new full-roll-granularity log (see `RollEvent` in
 //   `manager.rs`), retained for a much smaller recent window only -
-//   full detail isn't needed/affordable for the whole 100-fight history,
-//   just "what just happened."
+//   full detail isn't needed/affordable for the whole coarse-tier
+//   history, just "what just happened."
 
 use super::*;
 use serde::de::DeserializeOwned;
@@ -26,12 +28,20 @@ pub(crate) const DETAIL_FIGHTS_DIR: &str = "adventure-fights-detail";
 const COARSE_SEQ_PATH: &str = "adventure-fights-coarse-seq.json";
 const DETAIL_SEQ_PATH: &str = "adventure-fights-detail-seq.json";
 
-pub(crate) const COARSE_FIGHTS_CAPACITY: usize = 100;
+/// Lowered from the original 100 (2026-08-17, Phase 2) once real
+/// detail-tier file sizes were actually measured - a single heavily-
+/// built, multi-boss late-game fight's detail file already reached
+/// 49MB with Phase 1's rolls alone, before Phase 2's extra sources.
+/// "We don't need long logs, just efficient ones" - a live decision to
+/// keep both tiers small rather than retain a long history.
+pub(crate) const COARSE_FIGHTS_CAPACITY: usize = 10;
 /// Full roll-level detail is expensive relative to the coarse tier (see
 /// `RollEvent`'s own doc) - retained for a much smaller recent window,
-/// "what just happened" rather than the full 100-fight history. Easily
-/// tuned once Phase 1's real detail-file sizes are actually measured.
-pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 15;
+/// "what just happened" rather than the full coarse-tier history.
+/// Lowered from 15 alongside `COARSE_FIGHTS_CAPACITY` above, same
+/// reasoning - real fights already ran up to 49MB on this tier with
+/// Phase 1 alone.
+pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 5;
 
 /// Bumps and persists the next sequence number for a tier, used to name
 /// that fight's own file - zero-padded so plain filename sorting is

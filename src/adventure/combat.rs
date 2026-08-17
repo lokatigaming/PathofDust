@@ -641,6 +641,12 @@ pub(crate) struct CombatSimUnit {
     id: String,
     display_name: String,
     is_boss: bool,
+    /// When this unit entered the fight - `0` for anyone present at the
+    /// start (every player, the main boss(es)), the real current `at_ms`
+    /// for a mid-fight add (e.g. Lich's Raise Dead summons) so its OWN
+    /// `boss_defense_ignore` growth starts from its own spawn, not the
+    /// main boss's already-elapsed time.
+    spawned_at_ms: u32,
     role: Option<CombatFunction>,
     hp: i64,
     max_hp: u64,
@@ -2366,6 +2372,12 @@ pub(crate) struct CombatSimUnit {
     /// instead, gated on `outcome.evaded` rather than `!outcome.evaded`.
     /// 0.0 without any of the three invested.
     evade_counter_chance: f64,
+    /// When the evade-counter above last actually fired (0 = never yet
+    /// this fight) - the trigger below requires a full 1000ms to have
+    /// passed since this before rolling again, capping Voidstep/
+    /// Counterflow/Wild Fury at 1 real counter-attack per second no
+    /// matter how many evades land in that window (a live request).
+    evade_counter_last_fired_at_ms: u32,
     /// Party-wide temporary buffs, broadcast on a trigger to every alive
     /// non-boss unit - same `for u in units.iter_mut() { if !u.is_boss &&
     /// u.alive { ... } }` idiom Guardian Spirit's Final Blessing/Paladin's
@@ -2482,6 +2494,455 @@ pub(crate) struct CombatSimUnit {
     fleetingshadow_speed_pct: f64,
 }
 
+/// Test-only zeroed baseline (2026-08-17, Phase 2) - `CombatSimUnit` has
+/// no real `Default` (430 fields, deliberately: every REAL construction
+/// site must be explicit about every stat, so a real fight can never
+/// silently inherit a zero it didn't mean to). This impl is `#[cfg(test)]`-
+/// gated specifically so it can never leak into a real build and can
+/// never accidentally become a shortcut for production code - it exists
+/// purely so tests can write `CombatSimUnit { id: "x".into(), damage_reduction:
+/// 0.5, ..Default::default() }` instead of a 430-field literal, matching
+/// this codebase's existing fixed-seed test conventions elsewhere.
+#[cfg(test)]
+impl Default for CombatSimUnit {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            display_name: String::new(),
+            is_boss: false,
+            spawned_at_ms: 0,
+            role: None,
+            hp: 0,
+            max_hp: 0,
+            atk: 0,
+            heal_power: 0.0,
+            intervene: 0.0,
+            attack_interval_ms: 0,
+            next_action_at_ms: 0,
+            alive: false,
+            helm_power: 0.0,
+            helm_cooldown_ms: 0,
+            next_helm_at_ms: 0,
+            helm_stack_bonus: 0.0,
+            boots_power: 0.0,
+            boots_cooldown_ms: 0,
+            next_boots_at_ms: 0,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+            late_stage_damage_penalty_pct: 0.0,
+            boss_focus_stacks: 0.0,
+            boss_ability: None,
+            next_ability_at_ms: 0,
+            boss_dynamic_power_mult: 0.0,
+            cthulhu_debuff_stacks: 0,
+            cthulhu_debuff_expires_at_ms: 0,
+            cthulhu_debuff_pct_per_stack: 0.0,
+            cube_shred_stacks: 0,
+            cube_shred_expires_at_ms: 0,
+            damage_dealt_total: 0,
+            level: 0,
+            life_leech_pct: 0.0,
+            leech_window_start_ms: 0,
+            leech_gained_in_window: 0.0,
+            skills: Vec::new(),
+            skill_stacks: HashMap::new(),
+            next_flicker_at_ms: 0,
+            has_celestial_conversion: false,
+            wound_deal_leech_per_stack: 0.0,
+            wound_deal_max_stacks: 0,
+            wound_deal_duration_ms: 0,
+            wound_deal_damage_dealt_debuff: 0.0,
+            wound_deal_heal_received_debuff: 0.0,
+            wound_deal_explosion_pct: 0.0,
+            wound_deal_explosion_self_leech_pct: 0.0,
+            wound_deal_explosion_extra_targets: 0,
+            wound_deal_spreads_to_splash: false,
+            contagion_chance: 0.0,
+            gravechill_speed_debuff_pct: 0.0,
+            plaguebearer_extra_targets: 0,
+            wound_stacks: 0,
+            wound_max_stacks: 0,
+            wound_expires_at_ms: 0,
+            wound_leech_per_stack: 0.0,
+            wound_damage_dealt_debuff: 0.0,
+            wound_heal_received_debuff: 0.0,
+            wound_damage_taken_total: 0.0,
+            flicker_cooldown_ms: 0,
+            next_bloodpact_at_ms: 0,
+            bloodpact_last_fired_at_ms: 0,
+            bloodpact_cooldown_ms: 0,
+            bloodpact_uses_this_fight: 0,
+            bloodpact_triage_pct: 0.0,
+            bloodpact_finaloffering_min_prior_uses: 0,
+            bloodpact_finaloffering_pct: 0.0,
+            bloodpact_warlordsresolve_pct: 0.0,
+            bloodpact_cleanslate_reset_chance: 0.0,
+            bloodpact_secondwind_reset_chance: 0.0,
+            bloodpact_hp_cost_pct: 0.0,
+            bloodpact_damage_mult: 0.0,
+            bloodpact_martyrdom_shield_pct: 0.0,
+            bloodpact_kill_refund_pct: 0.0,
+            bloodpact_nonlethal_refund_pct: 0.0,
+            bloodpact_bloodforblood_pct: 0.0,
+            shield_hp: 0.0,
+            shield_expires_at_ms: 0,
+            shield_reflect_pct: 0.0,
+            shield_reflect_chance: 0.0,
+            shield_reflect_requires_full_absorb: false,
+            guardian_spirit_charges: 0,
+            guardian_spirit_heal_pct: 0.0,
+            guardian_spirit_save_dr_pct: 0.0,
+            guardian_spirit_save_heal_power_pct: 0.0,
+            verdantburst_charges: 0,
+            temp_heal_power_bonus: 0.0,
+            temp_heal_power_bonus_expires_at_ms: 0,
+            eternallight_bonus_pct: 0.0,
+            temp_damage_reduction_bonus: 0.0,
+            temp_damage_reduction_bonus_expires_at_ms: 0,
+            overflow_grace_shield_pct: 0.0,
+            overflow_grace_shield_duration_ms: 0,
+            overflow_grace_shield_dr_pct: 0.0,
+            heal_crit_bonus_mult: 0.0,
+            heal_crit_chance_bonus: 0.0,
+            heal_crit_splash_pct: 0.0,
+            grace_lowest_ally_bonus_pct: 0.0,
+            prayer_chance: 0.0,
+            prayer_bounce_targets: 0,
+            prayer_bounce_value_pct: 0.0,
+            unbroken_prayer_chance: 0.0,
+            divine_favor_shield_pct: 0.0,
+            divine_favor_shield_duration_ms: 0,
+            healing_touch_pct: 0.0,
+            crit_shield_max_hp_pct: 0.0,
+            soul_harvest_heal_pct: 0.0,
+            darkritual_dmg_pct: 0.0,
+            eternal_hunger_shield_pct: 0.0,
+            divine_shield_amount_pct: 0.0,
+            divine_shield_cooldown_ms: 0,
+            next_divine_shield_at_ms: 0,
+            consecration_shield_pct: 0.0,
+            communion_heal_power_pct: 0.0,
+            purify_dmg_debuff_pct: 0.0,
+            lastjudgment_skip_chance: 0.0,
+            consecration_shield_duration_ms: 0,
+            smite_heal_pct: 0.0,
+            smite_zealotry_bonus_pct: 0.0,
+            smite_extra_targets: 0,
+            zealotry_martyrscall_bonus_pct: 0.0,
+            zealotry_risingfervor_pct_per_ally: 0.0,
+            zealotry_guardianswrath_speed_pct: 0.0,
+            zealotry_guardianswrath_speed_bonus: 0.0,
+            zealotry_guardianswrath_expires_at_ms: 0,
+            smite_judgment_bonus_pct: 0.0,
+            judgment_threshold: 0.0,
+            smite_holyfire_dmg_pct: 0.0,
+            purgingflame_heal_reduction_pct: 0.0,
+            temp_heal_reduction_pct: 0.0,
+            temp_heal_reduction_expires_at_ms: 0,
+            executionersblessing_heal_pct: 0.0,
+            wrathoftheheavens_chance: 0.0,
+            unyieldingroots_cycle_ms: 0,
+            gambit_crit_per_missing_20pct: 0.0,
+            deathdefiant_grace_ms: 0,
+            deathdefiant_frozen_crit_bonus: 0.0,
+            deathdefiant_frozen_crit_bonus_expires_at_ms: 0,
+            bramble_reflect_pct: 0.0,
+            poison_thorns_debuff_pct: 0.0,
+            entangle_chance: 0.0,
+            recent_attackers: Vec::new(),
+            temp_damage_dealt_debuff: 0.0,
+            temp_damage_dealt_debuff_expires_at_ms: 0,
+            frenzy_strike_chance: 0.0,
+            frenzy_extra_hits: 0,
+            frenzy_bloodscent_threshold: 0.0,
+            frenzy_dr_shred_pct: 0.0,
+            frenzy_extra_dmg_pct: 0.0,
+            frenzy_culling_threshold: 0.0,
+            frenzy_heal_pct: 0.0,
+            frenzy_shield_chance: 0.0,
+            frenzy_undying_charges: 0,
+            frenzy_chain_chance: 0.0,
+            frenzy_chain_max_extra: 0,
+            spike_barrier_reflect_pct: 0.0,
+            aegis_shield_pct: 0.0,
+            aegis_shield_duration_ms: 0,
+            aegis_rally_speed_pct: 0.0,
+            aegis_extra_targets: 0,
+            thornedhide_pct_per_stack: 0.0,
+            thornedhide_stacks: 0,
+            thornedhide_expires_at_ms: 0,
+            thornedhide_debuff_pct_per_stack: 0.0,
+            spike_retribution_chance: 0.0,
+            spike_unyielding_chance: 0.0,
+            block_damage_reduction_pct: 0.0,
+            stonewall_auto_block_hits: 0,
+            hits_taken_this_fight: 0,
+            stack_speed_per_stack: 0.0,
+            stack_dmg_per_stack: 0.0,
+            stack_avalanche_dmg_per_stack: 0.0,
+            stack_crit_per_stack: 0.0,
+            shatter_shred_pct: 0.0,
+            overwhelm_shred_linger_ms: 0,
+            crush_dr_threshold: 0.0,
+            stack_splash_per_stack: 0.0,
+            windfury_chance: 0.0,
+            stack_shred_per_stack: 0.0,
+            stack_speed_max_stacks: 0,
+            stack_speed_duration_ms: 0,
+            stack_speed_current: 0,
+            stack_speed_expires_at_ms: 0,
+            flowing_speed_per_stack: 0.0,
+            flowing_crit_per_stack: 0.0,
+            flowing_max_stacks: 0,
+            flowing_duration_ms: 0,
+            risingstorm_dmg_pct: 0.0,
+            nervestrike_crit_mult_bonus: 0.0,
+            vitalpoints_shred_per_stack: 0.0,
+            eternalflow_bonus_stacks: 0,
+            onehundredhands_bonus_stacks: 0,
+            stormfront_splash_pct: 0.0,
+            flowing_current: 0,
+            flowing_expires_at_ms: 0,
+            flowing_last_target: 0,
+            chakra_of_many_pct: 0.0,
+            chakra_of_light_pct: 0.0,
+            chakraoflife_duration_ms: 0,
+            chakraoflife_immune_until_ms: 0,
+            next_chakraoflife_expiry_at_ms: 0,
+            own_mark_crit_chance: 0.0,
+            own_mark_crit_mult: 0.0,
+            own_mark_low_hp_dmg: 0.0,
+            own_mark_ally_crit_chance: 0.0,
+            own_mark_ally_dmg_pct: 0.0,
+            own_mark_ally_crit_mult: 0.0,
+            own_mark_spread_count: 0,
+            killzone_threshold: 0.0,
+            cleankill_remark_chance: 0.0,
+            huntersreward_heal_pct: 0.0,
+            own_curse_dmg_taken: 0.0,
+            own_curse_spread_count: 0,
+            own_doom_detonate_pct: 0.0,
+            own_curse_heal_reduction_pct: 0.0,
+            own_curse_spread_bonus_pct: 0.0,
+            own_soul_stone_max: 0,
+            own_cursed_blood_target_count: 0,
+            own_dreadfuldeath_shred_pct: 0.0,
+            own_apocalypse_splash_pct: 0.0,
+            has_applied_mark_this_fight: false,
+            mark_source_id: None,
+            mark_crit_chance_bonus: 0.0,
+            mark_crit_multiplier_bonus: 0.0,
+            mark_low_hp_damage_bonus: 0.0,
+            mark_ally_crit_chance_bonus: 0.0,
+            mark_ally_dmg_bonus: 0.0,
+            mark_ally_crit_multiplier_bonus: 0.0,
+            curse_dmg_taken_bonus: 0.0,
+            soul_stones: 0,
+            soul_stone_uses_this_fight: 0,
+            curse_expires_at_ms: 0,
+            next_curse_expiry_at_ms: 0,
+            curse_damage_taken_total: 0.0,
+            curse_detonate_pct: 0.0,
+            curse_source_id: None,
+            curse_heal_reduction_bonus: 0.0,
+            fel_rush_speed_bonus: 0.0,
+            fel_rush_duration_ms: 0,
+            ravage_stack_pct: 0.0,
+            fel_rush_stacks: 0,
+            fel_rush_expires_at_ms: 0,
+            early_fight_speed_bonus_pct: 0.0,
+            early_fight_speed_window_end_ms: 0,
+            flicker_frenzy_speed_bonus: 0.0,
+            unrelenting_duration_bonus_ms: 0,
+            adrenaline_crit_mult_bonus: 0.0,
+            chainreaper_heal_pct: 0.0,
+            deathspiral_heal_pct: 0.0,
+            insatiable_extend_chance: 0.0,
+            secondheartbeat_chance: 0.0,
+            overflowvessel_shield_pct: 0.0,
+            flicker_frenzy_expires_at_ms: 0,
+            endless_thirst_cap_bonus: 0.0,
+            endless_thirst_uncapped: false,
+            endless_thirst_expires_at_ms: 0,
+            reapers_momentum_per_kill: 0,
+            reapers_momentum_banked: 0,
+            attack_speed_pct: 0.0,
+            speed_overflow_dmg_pct: 0.0,
+            speed_overflow_crit_pct: 0.0,
+            speed_overflow_threshold: 0.0,
+            unbreakable_faith_heal_pct: 0.0,
+            eternalvow_shield_chance: 0.0,
+            graciousburden_heal_pct: 0.0,
+            bondeddevotion_dr_pct: 0.0,
+            bondeddevotion_duration_ms: 0,
+            twin_strike_chance: 0.0,
+            twin_strike_dmg_pct: 0.0,
+            finiteloop_max_repeats: 0,
+            doubletap_max_repeats: 0,
+            in_splash_resolution: false,
+            own_pack_instinct_evasion_pct: 0.0,
+            own_symbiosis_dr_pct: 0.0,
+            sharedstrength_extra_targets: 0,
+            templeguardian_heal_pct: 0.0,
+            next_templeguardian_heal_at_ms: 0,
+            lingering_effect_pct: 0.0,
+            lingering_dots: Vec::new(),
+            next_lingering_tick_at_ms: 0,
+            seedoflife_shield_pct: 0.0,
+            wildheart_self_heal_pct: 0.0,
+            wildinstinct_dr_pct: 0.0,
+            wildroar_charges: 0,
+            naturesembrace_heal_targets: 0,
+            thickhide_cycle_ms: 0,
+            next_thickhide_cleanse_at_ms: 0,
+            thickhide_target_count: 0,
+            fire_damage_pct: 0.0,
+            cold_damage_pct: 0.0,
+            chaos_damage_pct: 0.0,
+            lightning_damage_pct: 0.0,
+            divine_damage_pct: 0.0,
+            fire_dr_debuff: Vec::new(),
+            cold_evasion_debuff: Vec::new(),
+            chaos_block_debuff: Vec::new(),
+            lightning_dmg_taken: Vec::new(),
+            divine_heal_reduction: Vec::new(),
+            fire_dr_buff: Vec::new(),
+            cold_evasion_buff: Vec::new(),
+            chaos_block_buff: Vec::new(),
+            divine_heal_power_buff: Vec::new(),
+            block_overflow_dmg_rate: 0.0,
+            evasion_overflow_dmg_rate: 0.0,
+            elemental_overflow_dmg_bonus: 0.0,
+            elemental_overflow_dmg_bonus_expires_at_ms: 0,
+            volley_dmg_per_target_pct: 0.0,
+            splash_target_dmg_bonus: 0.0,
+            exploit_weakness_crit_mult_pct: 0.0,
+            exploit_weakness_threshold: 0.0,
+            weakpoint_crit_chance_pct: 0.0,
+            nightstalker_evasion_pct: 0.0,
+            assassinate_crit_mult_bonus: 0.0,
+            silentblade_evasion_pct: 0.0,
+            fadeaway_duration_bonus_ms: 0,
+            backstab_dmg_pct: 0.0,
+            backstab_pending_dmg_pct: 0.0,
+            smokescreen_evasion_pct: 0.0,
+            markedfordeath_hits_remaining: 0,
+            markedfordeath_hit_count: 0,
+            finalcut_speed_pct: 0.0,
+            empoweredbolt_invested: false,
+            empoweredbolt_crit_mult_bonus: 0.0,
+            volatilemagic_splash_pct: 0.0,
+            arcaneinstability_threshold: 0.0,
+            arcaneinstability_bonus_pct: 0.0,
+            premeditation_refund_chance: 0.0,
+            stack_evasion_per_stack: 0.0,
+            huntersinstinct_crit_vs_boss_pct: 0.0,
+            naturesward_dr_vs_boss_pct: 0.0,
+            silentkiller_dmg_pct: 0.0,
+            has_hit_boss_this_fight: false,
+            assassinate_charges: 0,
+            dark_communion_pct: 0.0,
+            compassion_prioritize_lowest: false,
+            compassion_dr_pct: 0.0,
+            covenant_pct: 0.0,
+            unbreakablebond_dr_pct: 0.0,
+            vigor_heal_pct: 0.0,
+            vengefulblood_shield_pct: 0.0,
+            secondgale_duration_ms: 0,
+            temp_reckless_immunity_expires_at_ms: 0,
+            reckless_penalty_offset: 0.0,
+            lastlaugh_crit_bonus: false,
+            lastlaugh_crit_mult: false,
+            ragefueled_speed_pct: 0.0,
+            retaliation_chance: 0.0,
+            retaliation_dmg_pct: 0.0,
+            retaliation_heal_pct: 0.0,
+            retaliation_laststand_bonus: 0.0,
+            grudge_pct_per_hit: 0.0,
+            grudge_hit_counts: Vec::new(),
+            retaliation_crit_bonus: 0.0,
+            retaliation_payback_threshold: 0.0,
+            force_crit_next_hit: false,
+            retaliation_surge_pct: 0.0,
+            hardened_stacks: 0,
+            hardened_pct_per_stack: 0.0,
+            retaliation_secondwind_threshold: 0.0,
+            laststand_defiance_pct: 0.0,
+            laststand_berserkvigor_pct: 0.0,
+            immovable_crit_dr_pct: 0.0,
+            reserves_heal_received_pct: 0.0,
+            unbroken_ignore_evasion_pct: 0.0,
+            unbroken_crippling_grip_dr_pct: 0.0,
+            unyieldingspirit_threshold: 0.0,
+            temp_evasion_debuff: 0.0,
+            temp_evasion_debuff_expires_at_ms: 0,
+            frostnova_evasion_debuff_pct: 0.0,
+            frostnova_duration_ms: 0,
+            absolutezero_threshold: 0.0,
+            staticfield_speed_debuff_pct: 0.0,
+            temp_attack_speed_debuff: 0.0,
+            temp_attack_speed_debuff_expires_at_ms: 0,
+            infernalpact_heal_pct: 0.0,
+            stormcaller_extra_targets: 0,
+            piercing_shots_crit_chance_bonus: 0.0,
+            windpierce_splash_crit_pct: 0.0,
+            armorbreaker_dr_shred_pct: 0.0,
+            scorchedearth_dmg_debuff_pct: 0.0,
+            truestrike_primary_crit_pct: 0.0,
+            stormofarrows_extra_targets: 0,
+            widerburst_extra_targets: 0,
+            inner_focus_heal_pct: 0.0,
+            inner_focus_meditation_bonus: 0.0,
+            inner_focus_chiburst_pct: 0.0,
+            inner_focus_serenity_dr_pct: 0.0,
+            risingtide_heal_power_pct: 0.0,
+            widecircle_extra_targets: 0,
+            harmonize_dr_pct: 0.0,
+            serenity_dr_duration_ms: 0,
+            clarity_triggers_on_block: false,
+            evade_counter_chance: 0.0,
+            evade_counter_last_fired_at_ms: 0,
+            temp_party_attack_speed_bonus: 0.0,
+            temp_party_attack_speed_bonus_expires_at_ms: 0,
+            temp_party_increased_damage_bonus: 0.0,
+            temp_party_increased_damage_bonus_expires_at_ms: 0,
+            temp_party_damage_reduction_bonus: 0.0,
+            temp_party_damage_reduction_bonus_expires_at_ms: 0,
+            warlord_party_dmg_pct: 0.0,
+            low_hp_party_dr_pct: 0.0,
+            low_hp_party_dr_threshold: 0.0,
+            warcry_party_speed_pct: 0.0,
+            neverending_invested: false,
+            bloodlust_stack_expiries: Vec::new(),
+            opportunist_guaranteed_hits: 0,
+            hits_landed_this_fight: 0,
+            ambush_dr_cut_pct: 0.0,
+            openingmove_cooldown_ms: 0,
+            next_openingmove_at_ms: 0,
+            coldsteel_pass_chance: 0.0,
+            coldsteel_pending: false,
+            coldsteel_pass_chance_pending: 0.0,
+            coldsteel_ambush_pct_pending: 0.0,
+            predator_dmg_taken_pct: 0.0,
+            predator_dmg_taken_bonus: 0.0,
+            predator_expires_at_ms: 0,
+            cutthroat_low_hp_dmg_pct: 0.0,
+            vanish_evasion_pct: 0.0,
+            temp_evasion_buff: 0.0,
+            temp_evasion_buff_expires_at_ms: 0,
+            vanishingshot_crit_pct: 0.0,
+            temp_crit_chance_buff: 0.0,
+            temp_crit_chance_buff_expires_at_ms: 0,
+            fleetingshadow_speed_pct: 0.0,
+        }
+    }
+}
+
 /// One active Lingering Effect instance - see `lingering_dots`' doc.
 /// Lingering Effect is symmetric: a landed HIT leaves a damage-over-time
 /// debuff on the enemy struck (`is_heal: false`), and a landed HEAL
@@ -2595,6 +3056,18 @@ pub(crate) struct HitOutcome {
     /// `RollEvent` sink) turns these into real `RollEvent`s once the
     /// hit's outcome is known.
     probabilistic_rolls: Vec<(RollCategory, &'static str, Option<f64>, bool)>,
+    /// Every deterministic (non-probabilistic) source that contributed to
+    /// this hit (2026-08-17, Phase 2) - DR/block/evasion sources feeding
+    /// `combine_reduction_sources`, crit-chance/multiplier sources, and
+    /// increased-damage sources (including the attacker-side `raw_dmg *=`
+    /// debuffs, e.g. Thornedhide/Cthulhu/the late-stage penalty, as a
+    /// NEGATIVE magnitude under the same `IncreasedDamage` bucket - this
+    /// field is about pipeline stage, not sign). Each tuple is `(category,
+    /// source name, magnitude)` - no probability/succeeded, these aren't
+    /// rolls. Same "only non-zero/active sources" filter as
+    /// `probabilistic_rolls`. Sibling field, same `apply_hit` conversion
+    /// treatment, just a different tuple shape (no roll outcome to carry).
+    deterministic_sources: Vec<(RollCategory, &'static str, f64)>,
 }
 
 /// Attacker-side base damage before any of the crit/increased-damage/
@@ -2718,6 +3191,22 @@ pub(crate) fn attacker_base_damage(unit: &CombatSimUnit, rng: &mut impl Rng) -> 
 /// case.
 pub(crate) const CRIT_BONUS_MULT: f64 = 0.5;
 
+/// Named return for `roll_attacker_damage` (2026-08-17, Phase 2 -
+/// replaces the old plain `(f64, bool, f64, bool)` tuple now that a 5th,
+/// heap-allocated value is joining it). `deterministic_sources` carries
+/// every non-zero crit-chance/crit-multiplier/increased-damage source
+/// this roll actually used - `resolve_hit` merges it into its own
+/// `HitOutcome.deterministic_sources`. The heal-roll call site
+/// (`apply_heal`) only reads `damage`/`is_crit`, ignoring the rest -
+/// nothing there needs roll-level detail.
+pub(crate) struct RollAttackerDamageResult {
+    damage: f64,
+    is_crit: bool,
+    crit_remainder: f64,
+    crit_remainder_roll: bool,
+    deterministic_sources: Vec<(RollCategory, &'static str, f64)>,
+}
+
 /// `mark_crit_bonus`/`mark_crit_mult_bonus`/`mark_dmg_bonus` are Hunter's
 /// Mark/Predator's Eye/Kill Zone's live bonuses - computed by
 /// `resolve_hit` (the only caller, which has both `atk` AND `def` and can
@@ -2734,7 +3223,12 @@ pub(crate) fn roll_attacker_damage(
     mark_dmg_bonus: f64,
     force_crit: bool,
     arcane_instability_active: bool,
-) -> (f64, bool, f64, bool) {
+) -> RollAttackerDamageResult {
+    // Full-detail combat log (2026-08-17, Phase 2) - every non-zero
+    // crit-chance/multiplier/increased-damage source gets named here as
+    // it's computed, same "only what's actually non-zero" filter as
+    // everywhere else in this system.
+    let mut deterministic_sources: Vec<(RollCategory, &'static str, f64)> = Vec::new();
     // Berserker's Gambit - a live missing-HP-scaling crit bonus, stepped
     // in 20%-missing increments (not continuous) per the node's own "for
     // every 20% max HP missing" text. Checked here rather than baked into
@@ -2783,6 +3277,27 @@ pub(crate) fn roll_attacker_damage(
     let paradox_excess_speed = (atk.attack_speed_pct - if atk.speed_overflow_threshold > 0.0 { atk.speed_overflow_threshold } else { 1.0 }).max(0.0);
     let paradox_bonus = paradox_excess_speed * atk.speed_overflow_crit_pct;
     let crit_chance = (atk.crit_chance + gambit_bonus + flowing_bonus + mark_crit_bonus + vanishingshot_bonus + riptide_bonus + paradox_bonus).max(0.0);
+    if atk.crit_chance > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Crit chance", atk.crit_chance));
+    }
+    if gambit_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Gambit", gambit_bonus));
+    }
+    if flowing_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Pressure Point", flowing_bonus));
+    }
+    if mark_crit_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Hunter's Mark family", mark_crit_bonus));
+    }
+    if vanishingshot_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Vanishing Shot", vanishingshot_bonus));
+    }
+    if riptide_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Riptide", riptide_bonus));
+    }
+    if paradox_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::Crit, "Paradox", paradox_bonus));
+    }
     let guaranteed_stacks = crit_chance.floor();
     let remainder = crit_chance - guaranteed_stacks;
     let remainder_roll = rng.gen_bool(remainder);
@@ -2829,6 +3344,31 @@ pub(crate) fn roll_attacker_damage(
     if arcane_instability_active {
         crit_multiplier += atk.arcaneinstability_bonus_pct;
     }
+    // Crit-MULTIPLIER sources only actually affect anything when this
+    // hit is a crit (`crit_bonus_mult` below multiplies by `crit_stacks`,
+    // which is 0 on a non-crit) - gated on `is_crit` so a non-crit hit
+    // doesn't log a bunch of sources that contributed nothing this time.
+    if is_crit {
+        deterministic_sources.push((RollCategory::Crit, "Crit multiplier", atk.crit_multiplier));
+        if mark_crit_mult_bonus > 0.0 {
+            deterministic_sources.push((RollCategory::Crit, "Predator's Eye/Exploit Weakness", mark_crit_mult_bonus));
+        }
+        if atk.lastlaugh_crit_mult && atk.max_hp > 0 && (atk.hp as f64 / atk.max_hp as f64) < 0.25 {
+            deterministic_sources.push((RollCategory::Crit, "Last Laugh", 0.50));
+        }
+        if force_crit && atk.assassinate_crit_mult_bonus > 0.0 {
+            deterministic_sources.push((RollCategory::Crit, "Coup de Grace", atk.assassinate_crit_mult_bonus));
+        }
+        if force_crit && atk.empoweredbolt_invested && atk.hits_landed_this_fight == 0 && atk.empoweredbolt_crit_mult_bonus > 0.0 {
+            deterministic_sources.push((RollCategory::Crit, "Empowered Bolt", atk.empoweredbolt_crit_mult_bonus));
+        }
+        if atk.nervestrike_crit_mult_bonus > 0.0 {
+            deterministic_sources.push((RollCategory::Crit, "Nerve Strike", atk.nervestrike_crit_mult_bonus));
+        }
+        if arcane_instability_active {
+            deterministic_sources.push((RollCategory::Crit, "Arcane Instability", atk.arcaneinstability_bonus_pct));
+        }
+    }
     let crit_bonus_mult = 1.0 + crit_stacks * (crit_multiplier - 1.0) * CRIT_BONUS_MULT;
     let mut dmg = base_damage * crit_bonus_mult;
     // Mage's Temporal Rift / Warlock's Unstable Power - baseline attack
@@ -2859,9 +3399,10 @@ pub(crate) fn roll_attacker_damage(
     // increased damage, same live stack count Bloodlust's own
     // `stack_damage_bonus` reads.
     let avalanche_bonus = if atk.stack_avalanche_dmg_per_stack > 0.0 && at_ms <= atk.stack_speed_expires_at_ms { atk.stack_speed_current as f64 * atk.stack_avalanche_dmg_per_stack } else { 0.0 };
+    let bloodlust_bonus = stack_damage_bonus(atk, at_ms);
     dmg *= 1.0
         + atk.increased_damage
-        + stack_damage_bonus(atk, at_ms)
+        + bloodlust_bonus
         + mark_dmg_bonus
         + speed_overflow_bonus
         + elemental_overflow_bonus
@@ -2869,7 +3410,34 @@ pub(crate) fn roll_attacker_damage(
         + berserkvigor_bonus
         + avalanche_bonus
         + atk.splash_target_dmg_bonus;
-    (dmg, is_crit, remainder, remainder_roll)
+    if atk.increased_damage > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Increased damage (gear/tree)", atk.increased_damage));
+    }
+    if bloodlust_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Bloodlust", bloodlust_bonus));
+    }
+    if mark_dmg_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Kill Zone/Alpha's Predator", mark_dmg_bonus));
+    }
+    if speed_overflow_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Temporal Rift/Unstable Power", speed_overflow_bonus));
+    }
+    if elemental_overflow_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Elemental overflow", elemental_overflow_bonus));
+    }
+    if party_dmg_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Warlord's Resolve", party_dmg_bonus));
+    }
+    if berserkvigor_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Berserk Vigor", berserkvigor_bonus));
+    }
+    if avalanche_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Avalanche", avalanche_bonus));
+    }
+    if atk.splash_target_dmg_bonus > 0.0 {
+        deterministic_sources.push((RollCategory::IncreasedDamage, "Splash target bonus", atk.splash_target_dmg_bonus));
+    }
+    RollAttackerDamageResult { damage: dmg, is_crit, crit_remainder: remainder, crit_remainder_roll: remainder_roll, deterministic_sources }
 }
 
 /// Resolves one hit's actual damage from a base roll, running it through
@@ -2960,8 +3528,9 @@ pub(crate) fn resolve_hit(
     // done. (No longer skippable-on-evasion the way it used to be, back
     // when only the final post-mitigation `damage` mattered.)
     let arcane_instability_active = atk.arcaneinstability_threshold > 0.0 && def.max_hp > 0 && (def.hp as f64 / def.max_hp as f64) > atk.arcaneinstability_threshold;
+    let attacker_roll = roll_attacker_damage(base_damage, atk, at_ms, rng, mark_crit_bonus, mark_crit_mult_bonus, mark_dmg_bonus, force_crit, arcane_instability_active);
     let (mut raw_dmg, is_crit, crit_remainder, crit_remainder_roll) =
-        roll_attacker_damage(base_damage, atk, at_ms, rng, mark_crit_bonus, mark_crit_mult_bonus, mark_dmg_bonus, force_crit, arcane_instability_active);
+        (attacker_roll.damage, attacker_roll.is_crit, attacker_roll.crit_remainder, attacker_roll.crit_remainder_roll);
     // Full-detail combat log (2026-08-17, Wiring Phase 1) - every genuine
     // probabilistic roll this hit resolves, in the order they're rolled.
     // A remainder of exactly 0.0 means crit_chance was a whole number
@@ -2971,6 +3540,13 @@ pub(crate) fn resolve_hit(
     if crit_remainder > 0.0 {
         probabilistic_rolls.push((RollCategory::Crit, "Crit chance remainder", Some(crit_remainder), crit_remainder_roll));
     }
+    // Full-detail combat log (2026-08-17, Phase 2) - the attacker-side
+    // `raw_dmg *=` debuffs below (Cthulhu through the late-stage penalty)
+    // aren't from `roll_attacker_damage` - they're applied here, directly
+    // in `resolve_hit` - so they get their own local accumulator, merged
+    // into the final combined `deterministic_sources` alongside
+    // `attacker_roll`'s own and the DR/evasion sources further down.
+    let mut attacker_side_debuffs: Vec<(RollCategory, &'static str, f64)> = Vec::new();
     // Cthulhu's stacking debuff (see `cthulhu_debuff_stacks`) - an
     // attacker-side nerf, not a defensive mitigation, so it's baked into
     // the roll itself and DOES carry into `unmitigated_damage` too (that
@@ -2978,7 +3554,9 @@ pub(crate) fn resolve_hit(
     // attacker's own reduced output). Same lazy-expiry + floor shape as
     // Thornedhide just below.
     if atk.cthulhu_debuff_stacks > 0 && at_ms <= atk.cthulhu_debuff_expires_at_ms {
-        raw_dmg *= (1.0 - atk.cthulhu_debuff_stacks as f64 * atk.cthulhu_debuff_pct_per_stack).max(0.1);
+        let mult = (atk.cthulhu_debuff_stacks as f64 * atk.cthulhu_debuff_pct_per_stack).min(0.9);
+        raw_dmg *= 1.0 - mult;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Cthulhu's debuff", -mult));
     }
     // Slayer's Necrotic Grip - the ATTACKER's own outgoing damage is
     // reduced while THEY themselves are wounded (lazily treated as
@@ -2986,19 +3564,23 @@ pub(crate) fn resolve_hit(
     // `CombatSimUnit`'s doc, same convention as every other wound read).
     if atk.wound_stacks > 0 && at_ms <= atk.wound_expires_at_ms {
         raw_dmg *= 1.0 - atk.wound_damage_dealt_debuff;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Necrotic Grip", -atk.wound_damage_dealt_debuff));
     }
     // Poison Thorns - a temporary damage-dealt debuff from a recent
     // Bramblegrowth reflect, same lazy-expiry convention as every other
     // timed field here.
     if atk.temp_damage_dealt_debuff > 0.0 && at_ms <= atk.temp_damage_dealt_debuff_expires_at_ms {
         raw_dmg *= 1.0 - atk.temp_damage_dealt_debuff;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Poison Thorns", -atk.temp_damage_dealt_debuff));
     }
     // Warrior's Thornedhide - a live stacking damage-dealt debuff on the
     // ATTACKER from a prior Spike Barrier trigger (see
     // `thornedhide_stacks`'s doc), same shape as Poison Thorns' own
     // single-value version just above.
     if atk.thornedhide_stacks > 0 && at_ms <= atk.thornedhide_expires_at_ms {
-        raw_dmg *= (1.0 - atk.thornedhide_stacks as f64 * atk.thornedhide_debuff_pct_per_stack).max(0.1);
+        let mult = (atk.thornedhide_stacks as f64 * atk.thornedhide_debuff_pct_per_stack).min(0.9);
+        raw_dmg *= 1.0 - mult;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Thornedhide", -mult));
     }
     // Warlock's Soul Stone - every time it's saved THIS attacker from a
     // killing blow (see the death-save chain in `apply_hit`), it stacks a
@@ -3006,12 +3588,15 @@ pub(crate) fn resolve_hit(
     // outgoing damage debuff - same floor convention as those two so 3+
     // uses can't push a hit to/below zero.
     if atk.soul_stone_uses_this_fight > 0 {
-        raw_dmg *= (1.0 - atk.soul_stone_uses_this_fight as f64 * SOUL_STONE_DMG_PENALTY_PER_USE).max(0.1);
+        let mult = (atk.soul_stone_uses_this_fight as f64 * SOUL_STONE_DMG_PENALTY_PER_USE).min(0.9);
+        raw_dmg *= 1.0 - mult;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Soul Stone penalty", -mult));
     }
     // Rogue's Cutthroat - a crit against a target below 25% HP deals extra
     // damage.
     if is_crit && atk.cutthroat_low_hp_dmg_pct > 0.0 && def.max_hp > 0 && (def.hp as f64 / def.max_hp as f64) < 0.25 {
         raw_dmg *= 1.0 + atk.cutthroat_low_hp_dmg_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Cutthroat", atk.cutthroat_low_hp_dmg_pct));
     }
     // Rogue's Silent Killer - bonus damage on this unit's first hit
     // landed against a boss this fight. Read BEFORE `apply_hit` marks it
@@ -3019,12 +3604,14 @@ pub(crate) fn resolve_hit(
     // qualifies.
     if def.is_boss && !atk.has_hit_boss_this_fight && atk.silentkiller_dmg_pct > 0.0 {
         raw_dmg *= 1.0 + atk.silentkiller_dmg_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Silent Killer", atk.silentkiller_dmg_pct));
     }
     // Rogue's Backstab - a one-shot bonus for the next hit while Vanish is
     // active, cleared by `apply_hit` right after this call (see
     // `backstab_pending_dmg_pct`'s doc).
     if atk.backstab_pending_dmg_pct > 0.0 {
         raw_dmg *= 1.0 + atk.backstab_pending_dmg_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Backstab", atk.backstab_pending_dmg_pct));
     }
     // Late-stage damage penalty (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
     // doc) - a hard, unbypassable cap on damage dealt TO a real boss this
@@ -3035,8 +3622,13 @@ pub(crate) fn resolve_hit(
     // defender-side mitigation source below (`combine_reduction_sources`,
     // `boss_focus_stacks`, curse), so nothing can counteract it. 0.0 for
     // every unit except a real boss, so this is a no-op everywhere else.
+    // Finally answerable per-hit (2026-08-17, Phase 2) - this exact
+    // `RollEvent` is what the "is the late-stage penalty functioning as
+    // intended" question earlier today needed and couldn't get from the
+    // coarse-tier log alone.
     if def.late_stage_damage_penalty_pct > 0.0 {
         raw_dmg *= 1.0 - def.late_stage_damage_penalty_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Late-stage damage penalty", -def.late_stage_damage_penalty_pct));
     }
     let unmitigated_damage = raw_dmg.round().max(0.0) as u64;
     // Rogue's Nightstalker - live evasion bonus specifically against a
@@ -3082,8 +3674,61 @@ pub(crate) fn resolve_hit(
     // Silent Steps - live evasion bonus per active Fleetfoot stack.
     let silentsteps_bonus =
         if def.stack_evasion_per_stack > 0.0 && at_ms <= def.stack_speed_expires_at_ms { def.stack_speed_current as f64 * def.stack_evasion_per_stack } else { 0.0 };
-    let base_evasion =
-        (combine_reduction_sources(&[def.evasion, nightstalker_bonus, pack_instinct_evasion_bonus, vanish_buff, silentsteps_bonus]) - unbroken_ignore - frostnova_debuff).max(0.0);
+    // Full-detail combat log (2026-08-17, Phase 2) - named alongside the
+    // plain values so each contributing source can be logged as its own
+    // `RollEvent` (category `Evasion`, same bucket the evasion ROLL
+    // itself uses - the roll-vs-deterministic distinction lives in which
+    // `HitOutcome` field a source ends up in, not the category). Same
+    // "only log what's actually non-zero" filter as everywhere else.
+    let mut evasion_sources: Vec<(&'static str, f64)> = Vec::new();
+    if def.evasion > 0.0 {
+        evasion_sources.push(("Evasion", def.evasion));
+    }
+    if nightstalker_bonus > 0.0 {
+        evasion_sources.push(("Nightstalker", nightstalker_bonus));
+    }
+    if pack_instinct_evasion_bonus > 0.0 {
+        evasion_sources.push(("Pack Instinct", pack_instinct_evasion_bonus));
+    }
+    if vanish_buff > 0.0 {
+        evasion_sources.push(("Vanish", vanish_buff));
+    }
+    if silentsteps_bonus > 0.0 {
+        evasion_sources.push(("Silent Steps", silentsteps_bonus));
+    }
+    let evasion_combine_values: Vec<f64> = evasion_sources.iter().map(|(_, v)| *v).collect();
+    // Hard cap at 95% (2026-08-17, a live request) - each individual
+    // source is already capped at 75% on its own (`capped_stat_with_overflow`), but MULTIPLE 75% sources combined multiplicatively
+    // (e.g. gear + Nightstalker + Pack Instinct) can still exceed that -
+    // two 75% sources alone already combine to 93.75%. This is a real
+    // ceiling on the COMBINED result specifically, not a change to any
+    // individual source's own cap.
+    let pre_boss_evasion = combine_reduction_sources(&evasion_combine_values).min(0.95) - unbroken_ignore - frostnova_debuff;
+    // Base boss buff - see `boss_defense_ignore`'s own doc. Floored
+    // relative to this defender's OWN pre-boss value: never pushed below
+    // 25% by the boss's ignore effect specifically if they naturally had
+    // at least that much, never artificially raised up to 25% if they
+    // didn't (a floor, not a guarantee).
+    let boss_ignore_evasion = boss_defense_ignore(atk, at_ms);
+    let base_evasion = (pre_boss_evasion - boss_ignore_evasion).max(pre_boss_evasion.min(0.25));
+    // Unbroken/Frost Nova/Boss Pressure are post-combine adjustments, not
+    // combine inputs (see above) - logged as their own negative-magnitude
+    // sources rather than folded into the combine's own named vec.
+    if unbroken_ignore > 0.0 {
+        evasion_sources.push(("Unbroken (evasion-ignore)", -unbroken_ignore));
+    }
+    if frostnova_debuff > 0.0 {
+        evasion_sources.push(("Frost Nova", -frostnova_debuff));
+    }
+    if boss_ignore_evasion > 0.0 {
+        evasion_sources.push(("Boss Pressure", -boss_ignore_evasion));
+    }
+    // Converted once here (rather than at each `HitOutcome` construction
+    // site below) since `evasion_sources` itself is only used to build
+    // `evasion_combine_values` above - this is the single place that
+    // needs to survive to every return point, cloned where more than one
+    // does.
+    let evasion_roll_sources: Vec<(RollCategory, &'static str, f64)> = evasion_sources.into_iter().map(|(name, mag)| (RollCategory::Evasion, name, mag)).collect();
     // Rogue's Opportunist - your first N hits each fight (N = the skill's
     // own rank) are guaranteed to land: this hit skips the evasion roll
     // AND the block roll entirely (see the block-roll site below) if it's
@@ -3140,6 +3785,12 @@ pub(crate) fn resolve_hit(
             opportunist_guaranteed,
             curse_bonus_damage: 0.0,
             probabilistic_rolls,
+            deterministic_sources: evasion_roll_sources
+                .clone()
+                .into_iter()
+                .chain(attacker_roll.deterministic_sources.clone())
+                .chain(attacker_side_debuffs.clone())
+                .collect(),
         };
     }
     // Druid's Pack Instinct - +evasion while THIS unit is the party's
@@ -3158,14 +3809,22 @@ pub(crate) fn resolve_hit(
                 opportunist_guaranteed,
                 curse_bonus_damage: 0.0,
                 probabilistic_rolls,
+                deterministic_sources: evasion_roll_sources
+                    .into_iter()
+                    .chain(attacker_roll.deterministic_sources)
+                    .chain(attacker_side_debuffs)
+                    .collect(),
             };
         }
     }
     // Block and damage reduction are separate SOURCES, combined via
     // `combine_reduction_sources` rather than each taking their own
     // sequential cut - see that function's doc for why (and for where a
-    // future 3rd source, the passive tree, plugs in).
-    let mut sources: Vec<f64> = Vec::new();
+    // future 3rd source, the passive tree, plugs in). Named (2026-08-17,
+    // Phase 2) so each can be logged as its own `RollEvent` (category
+    // `Mitigation`) - `combine_reduction_sources` itself still only ever
+    // sees the plain `&[f64]` derived below, its signature is untouched.
+    let mut sources: Vec<(&'static str, f64)> = Vec::new();
     // Elemental damage rework - Chaos's block-chance debuff/buff, same
     // "own floor/ceiling, applied before the roll" shape as Cold's
     // evasion adjustment above.
@@ -3174,11 +3833,14 @@ pub(crate) fn resolve_hit(
         if target_chaos_buff > 0.0 { (block_after_elemental_debuff + target_chaos_buff).min(block_after_elemental_debuff.max(ELEMENTAL_DEFENSE_CEILING)) } else { block_after_elemental_debuff };
     // Berserker's Shatter - Overwhelm's live shred also reduces the
     // DEFENDER's block chance for THIS roll, by the same amount.
-    let block_after_elemental = if atk.shatter_shred_pct > 0.0 {
-        (block_after_elemental_buff - stack_shred_bonus(atk, at_ms) * atk.shatter_shred_pct).max(0.0)
-    } else {
-        block_after_elemental_buff
-    };
+    let pre_boss_block =
+        if atk.shatter_shred_pct > 0.0 { block_after_elemental_buff - stack_shred_bonus(atk, at_ms) * atk.shatter_shred_pct } else { block_after_elemental_buff };
+    // Base boss buff - see `boss_defense_ignore`'s own doc. Same relative-
+    // floor shape as evasion above; a no-op (leaves `pre_boss_block`
+    // untouched) whenever `atk` isn't a boss, since `boss_ignore_block`
+    // is 0.0 then.
+    let boss_ignore_block = boss_defense_ignore(atk, at_ms);
+    let block_after_elemental = (pre_boss_block - boss_ignore_block).max(pre_boss_block.min(0.25));
     // Warrior's Stonewall - this unit's first N hits TAKEN each fight are
     // automatically blocked (N = rank), bypassing the block roll the same
     // way Opportunist bypasses evasion/block above.
@@ -3205,7 +3867,7 @@ pub(crate) fn resolve_hit(
     if is_blocked {
         // Second Skin - overrides the flat block-reduction constant with
         // this unit's own rank-scaled value.
-        sources.push(def.block_damage_reduction_pct);
+        sources.push(("Block reduction (Second Skin)", def.block_damage_reduction_pct));
     }
     // Ambush - a guaranteed-landing hit also ignores a fraction of the
     // target's damage reduction (a negative source, same slot Overwhelm's
@@ -3218,7 +3880,7 @@ pub(crate) fn resolve_hit(
         // may not have Ambush invested themselves at all.
         let ambush_pct = if coldsteel_triggered { def.coldsteel_ambush_pct_pending } else { atk.ambush_dr_cut_pct };
         if ambush_pct > 0.0 {
-            sources.push(-ambush_pct);
+            sources.push(("Ambush", -ambush_pct));
         }
     }
     // Unlike block, damage reduction alone allows negative - see
@@ -3236,57 +3898,59 @@ pub(crate) fn resolve_hit(
     let dr_after_elemental_debuff = if target_fire_debuff > 0.0 { (def.damage_reduction - target_fire_debuff).max(def.damage_reduction.min(ELEMENTAL_DEFENSE_FLOOR)) } else { def.damage_reduction };
     let dr_after_elemental =
         if target_fire_buff > 0.0 { (dr_after_elemental_debuff + target_fire_buff).min(dr_after_elemental_debuff.max(ELEMENTAL_DEFENSE_CEILING)) } else { dr_after_elemental_debuff };
-    sources.push(dr_after_elemental);
+    if dr_after_elemental != 0.0 {
+        sources.push(("Damage reduction", dr_after_elemental));
+    }
     // Warrior's Hardened - a persistent, never-decaying stacking DR bonus
     // built up from prior Retaliations this fight.
     if def.hardened_stacks > 0 {
-        sources.push(def.hardened_stacks as f64 * def.hardened_pct_per_stack);
+        sources.push(("Hardened", def.hardened_stacks as f64 * def.hardened_pct_per_stack));
     }
     // Warrior's Defiance - live DR bonus while below Last Stand's own
     // 25%-HP threshold.
     if def.laststand_defiance_pct > 0.0 && def.max_hp > 0 && (def.hp as f64 / def.max_hp as f64) < 0.25 {
-        sources.push(def.laststand_defiance_pct);
+        sources.push(("Defiance", def.laststand_defiance_pct));
     }
     // Warrior's Immovable - extra DR specifically against a critical hit.
     if is_crit && def.immovable_crit_dr_pct > 0.0 {
-        sources.push(def.immovable_crit_dr_pct);
+        sources.push(("Immovable", def.immovable_crit_dr_pct));
     }
     // Berserker's Second Gale - temporarily cancels out Reckless Swing/
     // Death Wish's own extra-damage-taken penalty (which is otherwise
     // baked permanently into `damage_reduction` - see
     // `reckless_penalty_offset`'s doc) while its window is active.
     if def.reckless_penalty_offset > 0.0 && at_ms <= def.temp_reckless_immunity_expires_at_ms {
-        sources.push(def.reckless_penalty_offset);
+        sources.push(("Second Gale", def.reckless_penalty_offset));
     }
     // Lightning's damage-TAKEN stack - a negative source, same "unit's
     // own damage-taken debuff, no attacker-identity check" shape as
     // Curse of Weakness's own negative source below.
     if target_lightning_dmg_taken > 0.0 {
-        sources.push(-target_lightning_dmg_taken);
+        sources.push(("Lightning damage-taken stack", -target_lightning_dmg_taken));
     }
     // Druid's Symbiosis - same live lowest-HP-ally gate as Pack Instinct,
     // its own separate mitigation source.
     if symbiosis_dr_bonus > 0.0 {
-        sources.push(symbiosis_dr_bonus);
+        sources.push(("Symbiosis", symbiosis_dr_bonus));
     }
     // Divine Intervention - a temporary bonus for whoever Guardian Spirit
     // just saved (lazy-expiry, same convention as every other timed
     // field on `CombatSimUnit`).
     if def.temp_damage_reduction_bonus > 0.0 && at_ms <= def.temp_damage_reduction_bonus_expires_at_ms {
-        sources.push(def.temp_damage_reduction_bonus);
+        sources.push(("Guardian Spirit (Divine Intervention)", def.temp_damage_reduction_bonus));
     }
     // Paladin's Unwavering / Cleric's Unyielding Faith (2026-08-17,
     // shared mechanic - see `low_hp_party_dr_pct`'s doc) - a party-wide
     // broadcast, separate field from the self/ally-targeted
     // `temp_damage_reduction_bonus` above.
     if def.temp_party_damage_reduction_bonus > 0.0 && at_ms <= def.temp_party_damage_reduction_bonus_expires_at_ms {
-        sources.push(def.temp_party_damage_reduction_bonus);
+        sources.push(("Unwavering/Unyielding Faith", def.temp_party_damage_reduction_bonus));
     }
     // Balanced Faith - +damage reduction while Overflowing Grace's shield
     // is still active on this unit (the same `shield_hp`/
     // `shield_expires_at_ms` pool Martyrdom's shield also uses).
     if def.overflow_grace_shield_dr_pct > 0.0 && def.shield_hp > 0.0 && at_ms <= def.shield_expires_at_ms {
-        sources.push(def.overflow_grace_shield_dr_pct);
+        sources.push(("Balanced Faith", def.overflow_grace_shield_dr_pct));
     }
     // Nature's Ward (2026-08-16 rework) - a multiplicative DR source
     // gated to only apply when the ATTACKER is a boss, same
@@ -3294,7 +3958,7 @@ pub(crate) fn resolve_hit(
     // already use elsewhere in this function.
     let naturesward_bonus = if atk.is_boss { def.naturesward_dr_vs_boss_pct } else { 0.0 };
     if naturesward_bonus > 0.0 {
-        sources.push(naturesward_bonus);
+        sources.push(("Nature's Ward", naturesward_bonus));
     }
     // Overwhelm - a NEGATIVE source (see `stack_shred_bonus`'s doc),
     // scaled off the ATTACKER's own current Bloodlust stack count, not
@@ -3312,12 +3976,12 @@ pub(crate) fn resolve_hit(
         shred *= 2.0;
     }
     if shred > 0.0 {
-        sources.push(-shred);
+        sources.push(("Overwhelm/Crush shred", -shred));
     }
     // Monk's Vital Points - live target-DR-shred per active Flowing
     // Strikes stack.
     if atk.vitalpoints_shred_per_stack > 0.0 && at_ms <= atk.flowing_expires_at_ms {
-        sources.push(-(atk.flowing_current as f64 * atk.vitalpoints_shred_per_stack));
+        sources.push(("Vital Points", -(atk.flowing_current as f64 * atk.vitalpoints_shred_per_stack)));
     }
     // Monk's Crippling Grip (Last Bastion, 2026-08-17) - a second,
     // independent conversion channel off the SAME evasion-overflow pool
@@ -3326,7 +3990,7 @@ pub(crate) fn resolve_hit(
     // instead - unconditional once invested, no live gate needed (unlike
     // Vital Points above, which scales with a live stack count).
     if atk.unbroken_crippling_grip_dr_pct > 0.0 {
-        sources.push(-atk.unbroken_crippling_grip_dr_pct);
+        sources.push(("Crippling Grip", -atk.unbroken_crippling_grip_dr_pct));
     }
     // Warlock's Curse of Weakness - a NEGATIVE source too, but unlike
     // Overwhelm's shred (scaled off the attacker) this is unconditional
@@ -3340,13 +4004,13 @@ pub(crate) fn resolve_hit(
     // whatever else gets pushed after it.
     let curse_source_idx = if def.curse_dmg_taken_bonus > 0.0 { Some(sources.len()) } else { None };
     if curse_source_idx.is_some() {
-        sources.push(-def.curse_dmg_taken_bonus);
+        sources.push(("Curse of Weakness", -def.curse_dmg_taken_bonus));
     }
     // Rogue's Predator - a live, unconditional damage-taken debuff on
     // whoever a guaranteed-landing hit just struck, same "any attacker
     // benefits" shape as Curse of Weakness above.
     if def.predator_dmg_taken_bonus > 0.0 && at_ms <= def.predator_expires_at_ms {
-        sources.push(-def.predator_dmg_taken_bonus);
+        sources.push(("Predator", -def.predator_dmg_taken_bonus));
     }
     // Gelatinous Cube's shred - same unconditional "any attacker benefits
     // once applied to def" shape as Curse of Weakness/Predator above. The
@@ -3355,7 +4019,24 @@ pub(crate) fn resolve_hit(
     // as explicit defense-in-depth matching the request's literal
     // "clamping to 50%" wording.
     if def.cube_shred_stacks > 0 && at_ms <= def.cube_shred_expires_at_ms {
-        sources.push(-(def.cube_shred_stacks as f64 * CUBE_SHRED_PCT_PER_STACK).min(0.5));
+        sources.push(("Gelatinous Cube shred", -(def.cube_shred_stacks as f64 * CUBE_SHRED_PCT_PER_STACK).min(0.5)));
+    }
+    // Base boss buff - see `boss_defense_ignore`'s own doc. Snapshotted
+    // BEFORE this source is pushed so the floor below can tell "how much
+    // DR this defender had without any boss pressure at all" apart from
+    // "how much survives once it's included" - same "snapshot, then
+    // recompute" idiom `curse_bonus_damage` below already uses for an
+    // analogous marginal-contribution question.
+    // Hard cap at 95% (2026-08-17, a live request) - Block's own reduction
+    // (pushed into `sources` above when `is_blocked`) combines through
+    // this SAME call alongside every DR source, so "cap Block+DR combined
+    // mitigation" is just capping this one combined value - a landed
+    // (non-evaded) hit always deals at least 5% of its raw damage,
+    // however stacked a defender's block+DR sources get.
+    let dr_pre_boss = combine_reduction_sources(&sources.iter().map(|(_, v)| *v).collect::<Vec<_>>()).min(0.95);
+    let boss_ignore_dr = boss_defense_ignore(atk, at_ms);
+    if boss_ignore_dr > 0.0 {
+        sources.push(("Boss Pressure", -boss_ignore_dr));
     }
     // `combine_reduction_sources` returns the combined REDUCTION fraction
     // (0.875 for "87.5% reduced" per its own doc) - damage that actually
@@ -3369,7 +4050,13 @@ pub(crate) fn resolve_hit(
     // running pure evasion with no DR/block affixes at all was taking
     // exactly 0 damage on every one of 285 non-evaded hits in a single
     // fight, including several individual hits over 15,000 unmitigated.
-    let mut dmg = raw_dmg * (1.0 - combine_reduction_sources(&sources));
+    let source_values: Vec<f64> = sources.iter().map(|(_, v)| *v).collect();
+    // Floored the same relative way as evasion/block above - the boss's
+    // OWN pressure can never push this defender's effective DR below 25%
+    // if they naturally had at least that much, never raises it if they
+    // didn't.
+    let dr_combined = combine_reduction_sources(&source_values).min(0.95).max(dr_pre_boss.min(0.25));
+    let mut dmg = raw_dmg * (1.0 - dr_combined);
     // The real boss's survivability-focus debuff (see
     // `boss_focus_stacks`) - a target-side vulnerability, applied last,
     // after every other mitigation has already taken its cut.
@@ -3384,12 +4071,21 @@ pub(crate) fn resolve_hit(
     // included) or how `combine_reduction_sources` weighs them against
     // each other.
     let curse_bonus_damage = if let Some(idx) = curse_source_idx {
-        let sources_without_curse: Vec<f64> = sources.iter().enumerate().filter(|(i, _)| *i != idx).map(|(_, &v)| v).collect();
-        let dmg_without_curse = raw_dmg * (1.0 - combine_reduction_sources(&sources_without_curse)) * (1.0 + def.boss_focus_stacks);
+        let source_values_without_curse: Vec<f64> = source_values.iter().enumerate().filter(|(i, _)| *i != idx).map(|(_, &v)| v).collect();
+        let dmg_without_curse = raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse)) * (1.0 + def.boss_focus_stacks);
         (dmg - dmg_without_curse).max(0.0)
     } else {
         0.0
     };
+    // Full-detail combat log (2026-08-17, Phase 2) - the named DR/block
+    // sources (category `Mitigation`) plus the evasion sources captured
+    // earlier (category `Evasion`, logged here too since a hit that
+    // DIDN'T evade still rolled - and was influenced by - the same
+    // evasion figure).
+    let mut deterministic_sources: Vec<(RollCategory, &'static str, f64)> = evasion_roll_sources;
+    deterministic_sources.extend(sources.into_iter().map(|(name, mag)| (RollCategory::Mitigation, name, mag)));
+    deterministic_sources.extend(attacker_roll.deterministic_sources);
+    deterministic_sources.extend(attacker_side_debuffs);
     HitOutcome {
         damage: dmg.round().max(0.0) as u64,
         unmitigated_damage,
@@ -3399,6 +4095,7 @@ pub(crate) fn resolve_hit(
         opportunist_guaranteed,
         curse_bonus_damage,
         probabilistic_rolls,
+        deterministic_sources,
     }
 }
 
@@ -3609,15 +4306,21 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
     // evaluate that against - a documented scope simplification). Only
     // ever consulted for a damage-flavor tick below.
     let def = &units[target_idx];
-    let mut sources: Vec<f64> = vec![def.damage_reduction];
+    // Named (2026-08-17, Phase 2) - same treatment as `resolve_hit`'s own
+    // (much larger) DR combine, just this function's own smaller 4-source
+    // set (no block/evasion, by design - see this function's own doc).
+    let mut sources: Vec<(&'static str, f64)> = Vec::new();
+    if def.damage_reduction != 0.0 {
+        sources.push(("Damage reduction", def.damage_reduction));
+    }
     if def.temp_damage_reduction_bonus > 0.0 && at_ms <= def.temp_damage_reduction_bonus_expires_at_ms {
-        sources.push(def.temp_damage_reduction_bonus);
+        sources.push(("Guardian Spirit (Divine Intervention)", def.temp_damage_reduction_bonus));
     }
     if def.temp_party_damage_reduction_bonus > 0.0 && at_ms <= def.temp_party_damage_reduction_bonus_expires_at_ms {
-        sources.push(def.temp_party_damage_reduction_bonus);
+        sources.push(("Unwavering/Unyielding Faith", def.temp_party_damage_reduction_bonus));
     }
     if def.overflow_grace_shield_dr_pct > 0.0 && def.shield_hp > 0.0 && at_ms <= def.shield_expires_at_ms {
-        sources.push(def.overflow_grace_shield_dr_pct);
+        sources.push(("Balanced Faith", def.overflow_grace_shield_dr_pct));
     }
     // Nature's Ward's new (2026-08-16) "vs boss attacker" condition has no
     // meaningful attacker context here - a Lingering Effect DoT tick isn't
@@ -3625,7 +4328,8 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
     // mitigation pass at all (the old Unyielding Roots DR-double this
     // block used to include here is gone for the same reason its
     // `resolve_hit` counterpart is - see `unyieldingroots_cycle_ms`'s doc).
-    let reduction = combine_reduction_sources(&sources);
+    let source_values: Vec<f64> = sources.iter().map(|(_, v)| *v).collect();
+    let reduction = combine_reduction_sources(&source_values);
 
     let mut due_indices = Vec::new();
     for (i, dot) in units[target_idx].lingering_dots.iter().enumerate() {
@@ -3675,6 +4379,7 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
         let final_damage = (dot.amount_per_tick * (1.0 - reduction)).round().max(0.0) as i64;
         let new_hp = (units[target_idx].hp - final_damage).max(0);
         units[target_idx].hp = new_hp;
+        let hit_id = next_hit_id();
         events.push(CombatEvent::Attack {
             at_ms,
             attacker: dot.source_id.clone(),
@@ -3684,8 +4389,23 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
             target_hp_after: new_hp as u64,
             is_crit: false,
             evaded: false,
-            hit_id: next_hit_id(),
+            hit_id,
         });
+        for (name, mag) in &sources {
+            rolls.push(RollEvent {
+                event_id: next_hit_id(),
+                hit_id,
+                caused_by: None,
+                at_ms,
+                category: RollCategory::Mitigation,
+                source: std::borrow::Cow::Borrowed(*name),
+                actor: target_id.clone(),
+                target: Some(dot.source_id.clone()),
+                probability: None,
+                succeeded: None,
+                magnitude: Some(*mag),
+            });
+        }
         if new_hp == 0 {
             units[target_idx].alive = false;
             events.push(CombatEvent::Defeat { at_ms, unit: target_id });
@@ -4037,6 +4757,26 @@ pub(crate) fn stack_shred_bonus(unit: &CombatSimUnit, at_ms: u32) -> f64 {
         return 0.0;
     }
     unit.stack_shred_per_stack * unit.stack_speed_current as f64
+}
+
+/// Base boss buff (2026-08-17, a live request) - every boss ignores 2% of
+/// the defender's evasion/block/damage-reduction per second they've been
+/// alive in the fight, unconditional and independent of any passive tree
+/// or gear (a mid-fight add like a Lich's Raise Dead summon starts this
+/// from its OWN `spawned_at_ms`, not the main boss's already-elapsed
+/// time - see that field's own doc). Left deliberately uncapped here -
+/// `resolve_hit`'s own 3 call sites are each responsible for flooring the
+/// DEFENDER's resulting stat at a relative 25% (never below that if they
+/// naturally had at least that much, never artificially raised if they
+/// didn't), not this function.
+pub(crate) const BOSS_DEFENSE_IGNORE_PER_SEC: f64 = 0.02;
+
+pub(crate) fn boss_defense_ignore(atk: &CombatSimUnit, at_ms: u32) -> f64 {
+    if !atk.is_boss {
+        return 0.0;
+    }
+    let secs_alive = at_ms.saturating_sub(atk.spawned_at_ms) as f64 / 1000.0;
+    secs_alive * BOSS_DEFENSE_IGNORE_PER_SEC
 }
 
 /// Berserker's Hurricane - live splash bonus from Bloodlust/Frenzied
@@ -4572,6 +5312,49 @@ pub(crate) fn apply_hit(
                 magnitude: None,
             });
         }
+        // Full-detail combat log (2026-08-17, Phase 2) - sibling loop for
+        // `outcome.deterministic_sources`. Actor attribution follows the
+        // same per-source judgment call as Evasion/Block above: a
+        // defender's own personal stat/buff attributes to the defender;
+        // a source that's really the ATTACKER's own mechanic reducing
+        // the defender's effective DR (Ambush, Overwhelm/Crush, Vital
+        // Points, Crippling Grip, Gelatinous Cube's shred) attributes to
+        // the attacker; Predator/the Lightning proc stack are explicitly
+        // documented as "any attacker benefits, no source-identity
+        // check" (see their own doc comments in `resolve_hit`), so they
+        // attribute to whoever's CURRENTLY benefiting rather than an
+        // untracked original applier. Curse of Weakness is the one
+        // source with a real tracked applier (`curse_source_id`, same
+        // field the credit-split below already reads) - attributed
+        // there specifically, matching the original "should count
+        // toward the Warlock's own DPS" design this whole system traces
+        // back to.
+        for (category, source, magnitude) in &outcome.deterministic_sources {
+            let (actor, target) = match *category {
+                RollCategory::Evasion => (roll_target_id.clone(), roll_attacker_id.clone()),
+                RollCategory::Mitigation => match *source {
+                    "Curse of Weakness" => (units[target_idx].curse_source_id.clone().unwrap_or_else(|| roll_attacker_id.clone()), roll_target_id.clone()),
+                    "Ambush" | "Overwhelm/Crush shred" | "Vital Points" | "Crippling Grip" | "Gelatinous Cube shred" | "Lightning damage-taken stack" | "Predator" => {
+                        (roll_attacker_id.clone(), roll_target_id.clone())
+                    }
+                    _ => (roll_target_id.clone(), roll_attacker_id.clone()),
+                },
+                _ => (roll_attacker_id.clone(), roll_target_id.clone()),
+            };
+            rolls.push(RollEvent {
+                event_id: next_hit_id(),
+                hit_id,
+                caused_by: None,
+                at_ms,
+                category: *category,
+                source: std::borrow::Cow::Borrowed(*source),
+                actor,
+                target: Some(target),
+                probability: None,
+                succeeded: None,
+                magnitude: Some(*magnitude),
+            });
+        }
     }
     // Backstab is one-shot - consumed the instant it's read above,
     // regardless of whether this hit landed or was evaded (it was "used
@@ -4983,7 +5766,13 @@ pub(crate) fn apply_hit(
         // that itself gets evaded can't chain into a second free counter.
         if counts_as_primary_hit && units[target_idx].alive && units[attacker_idx].alive {
             let counter_chance = units[target_idx].evade_counter_chance;
-            if counter_chance > 0.0 && rng.gen_bool(counter_chance.clamp(0.0, 1.0)) {
+            // Capped at 1 real trigger per second (a live request) - many
+            // evades landing in quick succession (multiple enemies/adds
+            // attacking) could otherwise roll this far more often than
+            // intended.
+            let counter_ready = at_ms >= units[target_idx].evade_counter_last_fired_at_ms.saturating_add(1_000);
+            if counter_chance > 0.0 && counter_ready && rng.gen_bool(counter_chance.clamp(0.0, 1.0)) {
+                units[target_idx].evade_counter_last_fired_at_ms = at_ms;
                 let counter_base = attacker_base_damage(&units[target_idx], rng);
                 apply_hit(units, target_idx, attacker_idx, counter_base, at_ms, events, rolls, rng, false, true);
             }
@@ -5460,7 +6249,17 @@ pub(crate) fn apply_hit(
             // of the fight. Resetting stacks forces a real rebuild (another
             // `max_stacks` hits) before the next explosion can fire.
             let secondwind_chance = units[attacker_idx].bloodpact_secondwind_reset_chance;
-            if secondwind_chance > 0.0 && rng.gen_bool(secondwind_chance.clamp(0.0, 1.0)) {
+            // Second Wind (wound -> hemorrhage -> hemorrhagesecondwind) is a
+            // SEPARATE branch from Sacrifice/Bloodpact (wound_deal_max_stacks
+            // > 0 alone doesn't imply it) - a Slayer can have this without
+            // ever investing in Bloodpact, in which case `bloodpact_cooldown_ms`
+            // is still its "never invested" u32::MAX sentinel. Gating on that
+            // (real investment only) fixes a live crash: writing a small real
+            // `next_bloodpact_at_ms` for such a character while
+            // `bloodpact_cooldown_ms` stays u32::MAX made the very next
+            // `at_ms + bloodpact_cooldown_ms` (below) overflow u32 and panic,
+            // killing the fight this character was in.
+            if secondwind_chance > 0.0 && units[attacker_idx].bloodpact_cooldown_ms < u32::MAX && rng.gen_bool(secondwind_chance.clamp(0.0, 1.0)) {
                 // Clamped so Bloodpact can never actually re-fire more than
                 // once per 1000ms from ANY reset source (this one or Clean
                 // Slate's) - "ready now" only if a full second has already
@@ -5488,26 +6287,28 @@ pub(crate) fn apply_hit(
                 if !units[explosion_target].alive {
                     continue;
                 }
-                // Always an enemy target (see `explosion_targets`' own
-                // same-side filter above), so Pack Instinct/Symbiosis
-                // (ally-only) never apply here - 0.0 is exact, not a
-                // shortcut.
-                // Elemental debuffs/buffs (last 7 params) deliberately
-                // read as 0.0 here, same "this explosion bypasses
-                // apply_hit entirely and skips its whole on-hit side-
-                // effect suite" precedent already established just above
-                // (Lingering Effect/mark/speed-stacks don't fire off it
-                // either) - not an oversight.
-                let explosion_outcome =
-                    resolve_hit(explosion_base, &units[attacker_idx], &units[explosion_target], at_ms, rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+                // Flat, unmodifiable true damage (2026-08-17, a live
+                // request) - explosion_base itself IS the damage dealt, no
+                // crit roll and no `resolve_hit`/mitigation pass at all.
+                // Previously routed through `resolve_hit`, which meant this
+                // already-huge "% of banked damage" base ALSO got crit-
+                // multiplied - with high enough crit chance (guaranteed
+                // extra crit-multiplier stacks past 100%, see
+                // `roll_attacker_damage`'s doc), that compounded an already
+                // large number into the trillions, a live-reported bug.
+                // Same "true damage, not a hit" shape as
+                // `apply_reflect_damage`/Volatile Magic's splash - always an
+                // enemy target (see `explosion_targets`' own same-side
+                // filter above), so Pack Instinct/Symbiosis (ally-only)
+                // never apply here regardless.
                 // Shield absorption - the same block `apply_hit` runs,
                 // duplicated here since this explosion bypasses apply_hit
                 // entirely (it needs its own target list/self-leech
                 // handling, not a single attacker/target pair). A live
-                // audit found this missing outright: an active shield
-                // used to do nothing at all against a Hemorrhage
-                // explosion.
-                let mut final_damage = explosion_outcome.damage as i64;
+                // audit found this missing outright: an active shield used
+                // to do nothing at all against a Hemorrhage explosion -
+                // still respected here even though crit/mitigation aren't.
+                let mut final_damage = explosion_base.round().max(0.0) as i64;
                 if final_damage > 0 && units[explosion_target].shield_hp > 0.0 && at_ms <= units[explosion_target].shield_expires_at_ms {
                     let absorbed = units[explosion_target].shield_hp.min(final_damage as f64);
                     units[explosion_target].shield_hp -= absorbed;
@@ -5529,10 +6330,14 @@ pub(crate) fn apply_hit(
                     attacker: ex_attacker_id,
                     target: ex_target_id.clone(),
                     damage: final_damage.max(0) as u64,
-                    unmitigated_damage: explosion_outcome.unmitigated_damage,
+                    // Pre-shield flat amount - shields still reduce what
+                    // actually lands (`final_damage`), but there's no
+                    // mitigation step to distinguish "unmitigated" from
+                    // otherwise, same convention `apply_reflect_damage` uses.
+                    unmitigated_damage: explosion_base.round().max(0.0) as u64,
                     target_hp_after: ex_new_hp as u64,
-                    is_crit: explosion_outcome.is_crit,
-                    evaded: explosion_outcome.evaded,
+                    is_crit: false,
+                    evaded: false,
                     hit_id: next_hit_id(),
                 });
                 if self_leech_pct > 0.0 && final_damage > 0 {
@@ -6653,6 +7458,7 @@ pub(crate) fn simulate_battle(
                 id: id.clone(),
                 display_name: c.display_name.clone(),
                 is_boss: false,
+                spawned_at_ms: 0,
                 role: Some(c.archetype.combat_function()),
                 // Warlock's Life Tap - drains a flat % of max HP once at
                 // construction (same "the trade is just always on" spirit
@@ -7056,6 +7862,7 @@ pub(crate) fn simulate_battle(
                 serenity_dr_duration_ms: SERENITY_DR_DURATION_MS + (c.passive_node_magnitude("unshakable") * 1000.0).round() as u32,
                 clarity_triggers_on_block: c.passive_node_rank("clarity") >= 2,
                 evade_counter_chance: c.passive_node_magnitude("voidstep") + c.passive_node_magnitude("counterflow") + c.passive_node_magnitude("wildfury"),
+                evade_counter_last_fired_at_ms: 0,
                 temp_party_attack_speed_bonus: 0.0,
                 temp_party_attack_speed_bonus_expires_at_ms: 0,
                 temp_party_increased_damage_bonus: 0.0,
@@ -7597,6 +8404,7 @@ pub(crate) fn simulate_battle(
                 None => format!("Enemy {}", i + 1),
             },
             is_boss: true,
+            spawned_at_ms: 0,
             role: None,
             hp: enemy.hp as i64,
             max_hp: enemy.hp,
@@ -7994,6 +8802,7 @@ pub(crate) fn simulate_battle(
             serenity_dr_duration_ms: 0,
             clarity_triggers_on_block: false,
             evade_counter_chance: 0.0,
+            evade_counter_last_fired_at_ms: 0,
             temp_party_attack_speed_bonus: 0.0,
             temp_party_attack_speed_bonus_expires_at_ms: 0,
             temp_party_increased_damage_bonus: 0.0,
@@ -8499,6 +9308,7 @@ pub(crate) fn simulate_battle(
                                 id: add_unit_id(&boss_id, (lich_summon_count + j) as usize),
                                 display_name: "Skeleton".to_string(),
                                 is_boss: true,
+                                spawned_at_ms: at_ms,
                                 role: None,
                                 hp: (boss_max_hp / 10).max(20) as i64,
                                 max_hp: (boss_max_hp / 10).max(20),
@@ -8898,6 +9708,7 @@ pub(crate) fn simulate_battle(
                                 serenity_dr_duration_ms: 0,
                                 clarity_triggers_on_block: false,
                                 evade_counter_chance: 0.0,
+                                evade_counter_last_fired_at_ms: 0,
                                 temp_party_attack_speed_bonus: 0.0,
                                 temp_party_attack_speed_bonus_expires_at_ms: 0,
                                 temp_party_increased_damage_bonus: 0.0,
@@ -9365,7 +10176,13 @@ pub(crate) fn simulate_battle(
                             // refund has a chance to also fully reset
                             // Bloodpact's cooldown.
                             let cleanslate_chance = units[actor_idx].bloodpact_cleanslate_reset_chance;
-                            if cleanslate_chance > 0.0 && rng.gen_bool(cleanslate_chance.clamp(0.0, 1.0)) {
+                            // Defensive, same reasoning as Second Wind's own
+                            // guard above - Clean Slate's tree prerequisites
+                            // (cleanslate -> grimbargain -> sacrifice) already
+                            // guarantee real Bloodpact investment whenever
+                            // this can fire at all, but this reset shouldn't
+                            // silently rely on that staying true forever.
+                            if cleanslate_chance > 0.0 && units[actor_idx].bloodpact_cooldown_ms < u32::MAX && rng.gen_bool(cleanslate_chance.clamp(0.0, 1.0)) {
                                 // Same 1s-from-any-source floor as Second Wind's reset above.
                                 units[actor_idx].next_bloodpact_at_ms = at_ms.max(units[actor_idx].bloodpact_last_fired_at_ms + 1_000);
                             }
@@ -9456,7 +10273,8 @@ pub(crate) fn simulate_battle(
                     if heal_crit_chance_bonus > 0.0 {
                         units[actor_idx].crit_chance = (original_crit_chance + heal_crit_chance_bonus).min(1.0);
                     }
-                    let (raw, is_crit, _, _) = roll_attacker_damage(heal_base, &units[actor_idx], at_ms, &mut rng, 0.0, 0.0, 0.0, false, false);
+                    let heal_roll = roll_attacker_damage(heal_base, &units[actor_idx], at_ms, &mut rng, 0.0, 0.0, 0.0, false, false);
+                    let (raw, is_crit) = (heal_roll.damage, heal_roll.is_crit);
                     if heal_crit_chance_bonus > 0.0 {
                         units[actor_idx].crit_chance = original_crit_chance;
                     }
@@ -9616,19 +10434,119 @@ pub(crate) fn compress_events(events: Vec<CombatEvent>) -> (Vec<CombatEvent>, u3
     (rescaled, display_duration)
 }
 
+/// Purely presentational thinning for the overlay's own live WebSocket
+/// broadcast (2026-08-17, a live request: "the overlay is just for show,"
+/// after severe overlay lag was traced to real fights now producing
+/// hundreds of thousands of events - `compress_events` above only
+/// rescales TIME into a fixed 6-35s window, it never bounded event COUNT,
+/// so event density (and the client's `requestAnimationFrame` replay
+/// load) scaled up freely with build complexity (Frenzy multi-strikes,
+/// splash, Hemorrhage explosions, ...). NEVER applied to the saved
+/// fight-history file or any real game logic (both `run_encounter`/
+/// `run_basic_encounter` call sites finish reading/persisting the FULL
+/// `events` - including `newly_downed`'s revive-timer scan - before this
+/// runs, right before `encounter_tx.send`) - this only ever touches the
+/// copy that goes out over the wire to the overlay.
+///
+/// Buckets already-`compress_events`-rescaled events into 1-second
+/// windows of the FINAL display timeline, and independently caps how many
+/// PLAYER-caused vs BOSS-caused events survive each window (classified by
+/// `CombatEvent::actor_id`'s presence in `units`' `is_boss` set) -
+/// dropping the overflow once a window's cap is hit, keeping insertion
+/// (chronological) order for everything that survives.
+pub(crate) const OVERLAY_MAX_PLAYER_EVENTS_PER_SEC: usize = 500;
+pub(crate) const OVERLAY_MAX_BOSS_EVENTS_PER_SEC: usize = 1000;
+
+pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatUnitInfo]) -> Vec<CombatEvent> {
+    let boss_ids: std::collections::HashSet<&str> = units.iter().filter(|u| u.is_boss).map(|u| u.id.as_str()).collect();
+    let mut player_count_by_sec: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    let mut boss_count_by_sec: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    events
+        .into_iter()
+        .filter(|e| {
+            let sec = e.at_ms() / 1_000;
+            let is_boss_actor = boss_ids.contains(e.actor_id());
+            let (counter, cap) =
+                if is_boss_actor { (&mut boss_count_by_sec, OVERLAY_MAX_BOSS_EVENTS_PER_SEC) } else { (&mut player_count_by_sec, OVERLAY_MAX_PLAYER_EVENTS_PER_SEC) };
+            let entry = counter.entry(sec).or_insert(0);
+            *entry += 1;
+            *entry <= cap
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod overlay_event_thinning_tests {
+    use super::*;
+
+    fn attack_at(at_ms: u32, attacker: &str) -> CombatEvent {
+        CombatEvent::Attack {
+            at_ms,
+            attacker: attacker.to_string(),
+            target: "someone".to_string(),
+            damage: 1,
+            unmitigated_damage: 1,
+            target_hp_after: 0,
+            is_crit: false,
+            evaded: false,
+            hit_id: 0,
+        }
+    }
+
+    #[test]
+    fn caps_player_and_boss_events_independently_per_second() {
+        let units = vec![
+            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, role: None, max_hp: 100 },
+            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, role: None, max_hp: 100 },
+        ];
+        let mut events = Vec::new();
+        for _ in 0..600 {
+            events.push(attack_at(500, "a_player"));
+        }
+        for _ in 0..1200 {
+            events.push(attack_at(500, "__enemy_0__"));
+        }
+        let thinned = thin_events_for_overlay(events, &units);
+        let player_count = thinned.iter().filter(|e| e.actor_id() == "a_player").count();
+        let boss_count = thinned.iter().filter(|e| e.actor_id() == "__enemy_0__").count();
+        assert_eq!(player_count, OVERLAY_MAX_PLAYER_EVENTS_PER_SEC, "player events must cap at the player limit, not the boss one");
+        assert_eq!(boss_count, OVERLAY_MAX_BOSS_EVENTS_PER_SEC, "boss events must cap at the boss limit, independent of the player count");
+    }
+
+    #[test]
+    fn different_seconds_each_get_their_own_budget() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, role: None, max_hp: 100 }];
+        let mut events = Vec::new();
+        for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
+            events.push(attack_at(500, "a_player"));
+        }
+        for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
+            events.push(attack_at(1_500, "a_player"));
+        }
+        let thinned = thin_events_for_overlay(events, &units);
+        assert_eq!(thinned.len(), OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2, "each 1-second window gets its own independent budget");
+    }
+
+    #[test]
+    fn under_the_cap_nothing_is_dropped() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, role: None, max_hp: 100 }];
+        let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
+        let thinned = thin_events_for_overlay(events, &units);
+        assert_eq!(thinned.len(), 3);
+    }
+}
+
 #[cfg(test)]
 mod full_detail_combat_log_tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
 
     // `roll_elemental_proc`/`RollEvent` are the two pure, cheaply-testable
-    // pieces of Wiring Phase 1 - `apply_hit`/`resolve_hit` themselves take
-    // a `&mut [CombatSimUnit]` (a 300+-field struct with no `Default`,
-    // hand-written in full at every one of its 3 real construction sites
-    // elsewhere in this file), so a full integration test through the
-    // actual hit-resolution pipeline would mean hand-authoring that same
-    // giant literal a 4th time purely for a test - these two units cover
-    // the actual NEW logic this phase added instead.
+    // pieces of Wiring Phase 1 (`resolve_hit`'s own 300+-field
+    // `CombatSimUnit` had no `Default` yet when these were written - see
+    // the `#[cfg(test)] impl Default for CombatSimUnit` above, added in
+    // Phase 2, which is what the `resolve_hit`-level tests further down
+    // this module build on instead).
 
     #[test]
     fn elemental_proc_does_not_roll_at_all_below_zero_chance() {
@@ -9746,6 +10664,228 @@ mod full_detail_combat_log_tests {
         let warlock_share = RollEvent { event_id: next_hit_id(), actor: "warlock".to_string(), magnitude: Some(10.0), ..attacker_share.clone() };
         assert_eq!(attacker_share.hit_id, warlock_share.hit_id, "both halves of one real hit must share the same hit_id");
         assert_ne!(attacker_share.event_id, warlock_share.event_id, "each RollEvent still needs its own distinct event_id");
+    }
+
+    // Phase 2 - real `resolve_hit`-level tests, using the `#[cfg(test)]
+    // impl Default for CombatSimUnit` added this phase specifically so
+    // these could exist. `neutral_attacker`/`neutral_defender` are both
+    // fully zeroed (evasion/block/crit chance all 0.0) so a hit
+    // deterministically lands, unblocked, non-crit - each test then
+    // overrides only the field(s) it cares about via `..Default::default()`
+    // struct-update syntax.
+
+    fn neutral_attacker() -> CombatSimUnit {
+        CombatSimUnit { id: "attacker".to_string(), display_name: "Attacker".to_string(), alive: true, hp: 100, max_hp: 100, ..Default::default() }
+    }
+
+    fn neutral_defender() -> CombatSimUnit {
+        CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100, max_hp: 100, ..Default::default() }
+    }
+
+    #[test]
+    fn hardened_only_defender_logs_exactly_one_mitigation_source() {
+        let atk = neutral_attacker();
+        let def = CombatSimUnit { hardened_stacks: 3, hardened_pct_per_stack: 0.05, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(1);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        assert!(!outcome.evaded, "zero evasion must never dodge");
+        let mitigation: Vec<_> = outcome.deterministic_sources.iter().filter(|(cat, ..)| *cat == RollCategory::Mitigation).collect();
+        assert_eq!(mitigation.len(), 1, "only Hardened is invested - expected exactly 1 Mitigation source, got {mitigation:?}");
+        let (_, name, magnitude) = mitigation[0];
+        assert_eq!(*name, "Hardened");
+        assert!((*magnitude - 0.15).abs() < 1e-9, "3 stacks * 5% = 15%, got {magnitude}");
+    }
+
+    #[test]
+    fn zero_investment_defender_logs_no_mitigation_or_evasion_sources() {
+        let atk = neutral_attacker();
+        let def = neutral_defender();
+        let mut rng = StdRng::seed_from_u64(2);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let mitigation_or_evasion: Vec<_> =
+            outcome.deterministic_sources.iter().filter(|(cat, ..)| matches!(cat, RollCategory::Mitigation | RollCategory::Evasion)).collect();
+        assert!(mitigation_or_evasion.is_empty(), "a fully zeroed defender should log nothing - got {mitigation_or_evasion:?}");
+    }
+
+    #[test]
+    fn late_stage_penalty_logs_as_its_own_negative_increased_damage_source() {
+        // The exact mechanic the "is our new hyperbolic damage reduction
+        // functioning as intended" question earlier today needed - this
+        // is what makes it directly answerable from a real fight's
+        // detail-tier log going forward.
+        let atk = neutral_attacker();
+        let def = CombatSimUnit { late_stage_damage_penalty_pct: 0.1939, is_boss: true, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(3);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let penalty = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Late-stage damage penalty");
+        let (category, _, magnitude) = penalty.expect("late-stage penalty must be logged when non-zero");
+        assert_eq!(*category, RollCategory::IncreasedDamage);
+        assert!((*magnitude - (-0.1939)).abs() < 1e-9, "must log the real negative magnitude, not just a flag - got {magnitude}");
+        // The penalty is applied upstream of `unmitigated_damage`'s own
+        // capture (see its doc) - both `damage` and `unmitigated_damage`
+        // already reflect the same cut, so with no OTHER mitigation
+        // invested they should be numerically equal to each other, and
+        // both well below the raw 1000 base damage.
+        assert_eq!(outcome.damage, outcome.unmitigated_damage);
+        // 1000 base * (1 - 0.1939) = 806.1, rounds to 806 - the neutral
+        // attacker has zero crit/increased-damage, so this is the only
+        // thing touching the roll.
+        assert_eq!(outcome.unmitigated_damage, 806);
+    }
+
+    #[test]
+    fn crit_chance_sources_only_logged_when_they_actually_contributed() {
+        // Gambit/Pressure Point/etc. are all 0 for a neutral attacker -
+        // a base `crit_chance` alone should be the ONLY Crit-chance
+        // source (crit-MULTIPLIER sources are separately gated on
+        // `is_crit`, covered by the next test).
+        let atk = CombatSimUnit { crit_chance: 0.5, ..neutral_attacker() };
+        let def = neutral_defender();
+        let mut rng = StdRng::seed_from_u64(4);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let crit_sources: Vec<_> = outcome.deterministic_sources.iter().filter(|(cat, ..)| *cat == RollCategory::Crit).collect();
+        let chance_source = crit_sources.iter().find(|(_, name, _)| *name == "Crit chance");
+        assert!(chance_source.is_some(), "a real crit_chance investment must be logged");
+        assert!((chance_source.unwrap().2 - 0.5).abs() < 1e-9);
+        assert!(
+            crit_sources.iter().all(|(_, name, _)| *name != "Gambit" && *name != "Pressure Point"),
+            "unused crit-chance sources must not appear - got {crit_sources:?}"
+        );
+    }
+
+    #[test]
+    fn hit_id_is_shared_between_the_attack_style_deterministic_sources_and_probabilistic_rolls() {
+        // Not a `RollEvent`-level test (that correlation is `apply_hit`'s
+        // job, covered by Phase 1's own test) - this locks in the
+        // PRECONDITION `apply_hit` relies on: both vecs coming back off
+        // the SAME `resolve_hit` call describe the same one hit, so
+        // tagging them with the same `hit_id` downstream is actually
+        // meaningful and not an accident of unrelated data.
+        let atk = CombatSimUnit { crit_chance: 0.5, ..neutral_attacker() };
+        let def = CombatSimUnit { damage_reduction: 0.1, evasion: 0.1, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(5);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        assert!(!outcome.probabilistic_rolls.is_empty(), "evasion/block/crit-remainder rolls should all fire with these inputs");
+        assert!(!outcome.deterministic_sources.is_empty(), "DR/evasion/crit-chance sources should all be non-empty with these inputs");
+    }
+
+    // Base boss buff (2026-08-17, a live request) - `boss_defense_ignore`
+    // itself, plus the relative-floor formula each of evasion/block/DR
+    // applies it through in `resolve_hit`.
+
+    #[test]
+    fn boss_defense_ignore_is_zero_at_the_moment_of_spawn() {
+        let boss = CombatSimUnit { is_boss: true, spawned_at_ms: 5_000, ..neutral_attacker() };
+        assert_eq!(boss_defense_ignore(&boss, 5_000), 0.0);
+    }
+
+    #[test]
+    fn boss_defense_ignore_grows_2pct_per_second_alive() {
+        let boss = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
+        assert!((boss_defense_ignore(&boss, 20_000) - 0.40).abs() < 1e-9, "20s alive * 2%/s = 40%");
+        // A mid-fight add's OWN spawn time, not the fight's global clock -
+        // 5s alive (10_000 - 5_000), not 10s.
+        let add = CombatSimUnit { is_boss: true, spawned_at_ms: 5_000, ..neutral_attacker() };
+        assert!((boss_defense_ignore(&add, 10_000) - 0.10).abs() < 1e-9, "5s alive since ITS OWN spawn * 2%/s = 10%");
+    }
+
+    #[test]
+    fn boss_defense_ignore_is_always_zero_for_a_non_boss() {
+        let player = CombatSimUnit { is_boss: false, spawned_at_ms: 0, ..neutral_attacker() };
+        assert_eq!(boss_defense_ignore(&player, 1_000_000), 0.0);
+    }
+
+    #[test]
+    fn evasion_floor_never_drops_below_25pct_when_defender_naturally_had_more() {
+        // Boss alive 60s -> ignores 120%, would otherwise crush evasion to
+        // 0 (or attempt to go negative) without the floor.
+        let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
+        let def = CombatSimUnit { evasion: 0.50, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(6);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
+        assert!((chance.expect("evasion roll must be logged") - 0.25).abs() < 1e-9, "must floor at exactly 25%, got {chance:?}");
+    }
+
+    #[test]
+    fn evasion_floor_does_not_raise_a_naturally_lower_stat() {
+        // Only 10% evasion to begin with - boss pressure has nothing to
+        // "protect" above 10%, and must NOT artificially raise it to 25%.
+        let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
+        let def = CombatSimUnit { evasion: 0.10, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(7);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
+        assert!((chance.expect("evasion roll must be logged") - 0.10).abs() < 1e-9, "must stay at the defender's own natural 10%, not be raised - got {chance:?}");
+    }
+
+    #[test]
+    fn block_floor_never_drops_below_25pct_when_defender_naturally_had_more() {
+        let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
+        let def = CombatSimUnit { block_chance: 0.60, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(8);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Block && *name == "Block chance").and_then(|(_, _, p, _)| *p);
+        assert!((chance.expect("block roll must be logged") - 0.25).abs() < 1e-9, "must floor at exactly 25%, got {chance:?}");
+    }
+
+    #[test]
+    fn dr_boss_pressure_is_logged_as_its_own_negative_mitigation_source() {
+        let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
+        let def = CombatSimUnit { damage_reduction: 0.50, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(9);
+        let outcome = resolve_hit(100.0, &atk, &def, 10_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        // "Boss Pressure" is logged in BOTH the evasion and DR source
+        // lists now (this test's boss ignores evasion too) - filter by
+        // category to find the DR (Mitigation) one specifically.
+        let boss_pressure = outcome.deterministic_sources.iter().find(|(cat, name, _)| *cat == RollCategory::Mitigation && *name == "Boss Pressure");
+        let (_, _, magnitude) = boss_pressure.expect("Boss Pressure must be logged in Mitigation for a boss alive 10s");
+        assert!((*magnitude - (-0.20)).abs() < 1e-9, "10s alive * -2%/s = -20%, got {magnitude}");
+    }
+
+    #[test]
+    fn dr_floor_never_drops_below_25pct_when_defender_naturally_had_more() {
+        // 50% DR, boss alive long enough to ignore far more than needed to
+        // crush it past 25% without the floor.
+        let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
+        let def = CombatSimUnit { damage_reduction: 0.50, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(10);
+        let outcome = resolve_hit(1000.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        // 1000 * (1 - 0.25) = 750 is the floor; boss pressure must never
+        // push the real damage taken ABOVE that (i.e. DR below 25%).
+        assert!(outcome.damage <= 750, "DR must never be floored below 25% by boss pressure alone - got damage {}", outcome.damage);
+    }
+
+    #[test]
+    fn evasion_hard_cap_holds_even_with_heavy_multiplicative_stacking() {
+        // Each individual source is only 75% (already at its own cap),
+        // but 3 combined multiplicatively would reach 1-(1-0.75)^3 =
+        // 98.4375% without the new hard cap - must clamp to 95% instead.
+        let atk = CombatSimUnit { is_boss: true, ..neutral_attacker() };
+        let def = CombatSimUnit { evasion: 0.75, nightstalker_evasion_pct: 0.75, temp_evasion_buff: 0.75, temp_evasion_buff_expires_at_ms: 10_000, ..neutral_defender() };
+        let mut rng = StdRng::seed_from_u64(11);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
+        assert!(chance.expect("evasion roll must be logged") <= 0.95 + 1e-9, "combined evasion must never exceed 95%, got {chance:?}");
+    }
+
+    #[test]
+    fn block_plus_dr_combined_never_mitigates_past_95pct() {
+        // Stacked well past what 95% alone would allow - at least 5% of
+        // raw damage must always land on a hit that wasn't evaded.
+        let atk = neutral_attacker();
+        let def = CombatSimUnit {
+            damage_reduction: 0.75,
+            block_chance: 1.0,
+            block_damage_reduction_pct: 0.75,
+            hardened_stacks: 5,
+            hardened_pct_per_stack: 0.5,
+            ..neutral_defender()
+        };
+        let mut rng = StdRng::seed_from_u64(12);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        assert!(!outcome.evaded, "zero evasion must never dodge");
+        assert!(outcome.damage >= 50, "at least 5% of 1000 raw damage (50) must always land on a non-evaded hit - got {}", outcome.damage);
     }
 }
 

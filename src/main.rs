@@ -527,7 +527,9 @@ async fn async_main() -> anyhow::Result<()> {
     // daily-rolling file too means a crash/restart can actually be
     // diagnosed after the fact. `_log_guard` has to stay alive for the
     // whole program — dropping it stops the background flush thread and
-    // buffered log lines are lost.
+    // buffered log lines are lost. (Briefly disabled 2026-08-17 after
+    // logs/ grew to several GB - re-enabled with a one-time cleanup of the
+    // old files, see that same commit.)
     std::fs::create_dir_all("logs")?;
     let file_appender = tracing_appender::rolling::daily("logs", "bot.log");
     let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);

@@ -338,6 +338,21 @@ impl CombatEvent {
         }
     }
 
+    /// The unit "responsible" for this event - the attacker/healer for
+    /// Attack/Heal/Shield, the unit itself for Defeat/SkillCast/
+    /// BuffSnapshot. Used by `thin_events_for_overlay` to classify each
+    /// event as player-caused or boss-caused (via `units`' own `is_boss`).
+    pub(crate) fn actor_id(&self) -> &str {
+        match self {
+            CombatEvent::Attack { attacker, .. } => attacker,
+            CombatEvent::Heal { healer, .. } => healer,
+            CombatEvent::Shield { healer, .. } => healer,
+            CombatEvent::Defeat { unit, .. } => unit,
+            CombatEvent::SkillCast { unit, .. } => unit,
+            CombatEvent::BuffSnapshot { unit, .. } => unit,
+        }
+    }
+
     /// Returns a copy of this event with its timestamp replaced — used
     /// by `compress_events` to rescale a whole log at once.
     pub(crate) fn with_at_ms(self, at_ms: u32) -> Self {
@@ -3551,7 +3566,7 @@ impl AdventureManager {
         }
 
         self.broadcast_state().await;
-        let result = EncounterResult {
+        let mut result = EncounterResult {
             kind: EncounterKind::Boss,
             stage,
             won,
@@ -3590,6 +3605,11 @@ impl AdventureManager {
             rolls,
         };
         save_last_fight(&result, boss_stats_snapshot);
+        // Presentational only - see `thin_events_for_overlay`'s own doc.
+        // The full-fidelity `events` was already persisted above and
+        // `newly_downed` already scanned it in full; only the copy going
+        // out over the wire to the overlay gets thinned.
+        result.events = thin_events_for_overlay(result.events, &result.units);
         let _ = self.encounter_tx.send(result);
 
         // The fight above is resolved instantly, but the overlay spends
@@ -3835,7 +3855,7 @@ impl AdventureManager {
         }
 
         self.broadcast_state().await;
-        let result = EncounterResult {
+        let mut result = EncounterResult {
             kind: EncounterKind::Basic,
             stage,
             won,
@@ -3854,6 +3874,11 @@ impl AdventureManager {
             rolls,
         };
         save_last_fight(&result, Vec::new());
+        // Presentational only - see `thin_events_for_overlay`'s own doc.
+        // The full-fidelity `events` was already persisted above and
+        // `newly_downed` already scanned it in full; only the copy going
+        // out over the wire to the overlay gets thinned.
+        result.events = thin_events_for_overlay(result.events, &result.units);
         let _ = self.encounter_tx.send(result);
 
         // Same reasoning as run_encounter's identical block - delay
