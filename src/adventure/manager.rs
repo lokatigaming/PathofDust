@@ -594,14 +594,130 @@ pub fn summarize_fight(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Figh
     }
 }
 
+/// The display name of whichever player died first in this fight (by
+/// `Defeat` event `at_ms`), if anyone did - the same logic
+/// `summarize_fight` tracks inline, kept as its own standalone pass here
+/// (rather than extracted out of `summarize_fight`) so that already-
+/// deployed function's control flow and single-pass cost stay untouched.
+/// Used by `full_player_fight_stats`'s summary builder.
+fn first_player_to_die(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Option<String> {
+    let is_player = |id: &str| units.iter().find(|u| u.id == id).map(|u| !u.is_boss).unwrap_or(false);
+    let display_name = |id: &str| units.iter().find(|u| u.id == id).map(|u| u.display_name.clone());
+    let mut first_death: Option<(u32, String)> = None;
+    for event in events {
+        if let CombatEvent::Defeat { unit, at_ms } = event {
+            if is_player(unit) && first_death.as_ref().map_or(true, |(t, _)| *at_ms < *t) {
+                first_death = Some((*at_ms, unit.clone()));
+            }
+        }
+    }
+    first_death.and_then(|(_, id)| display_name(&id))
+}
+
+/// Per-player aggregates for one fight, one row per participant even if
+/// they contributed nothing (unlike `FightSummary`'s top-3-only
+/// leaderboards) - the lightweight data `FightSummarySnapshot` persists
+/// and `/fights.json` serves (2026-08-18, the `/fights.json` size/latency
+/// fix). `hits`/`crits`/`evaded` are about this player's own outgoing
+/// attacks: `hits` = landed (non-evaded) attacks, `crits` a subset of
+/// those, `evaded` = attacks this player threw that the target dodged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerFightStats {
+    pub id: String,
+    pub display_name: String,
+    pub damage_dealt: u64,
+    pub damage_taken: u64,
+    pub healing_done: u64,
+    pub hits: u32,
+    pub crits: u32,
+    pub evaded: u32,
+}
+
+/// Builds a full (never truncated) per-player breakdown for one fight -
+/// deliberately a separate function from `summarize_fight` rather than a
+/// refactor of it, since that function's top-3-truncated output already
+/// backs the live chat announcement and `render_fights_page`, both
+/// currently deployed. Seeded from `units` (every non-boss unit gets an
+/// entry, even one nothing here ever touches) rather than only entries
+/// event data happens to mention. `damage_taken` counts each hit's
+/// `unmitigated_damage` regardless of `evaded` - same "real incoming
+/// threat, not just what leaked through" semantic `summarize_fight`'s own
+/// damage_taken already uses.
+pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Vec<PlayerFightStats> {
+    let mut stats: HashMap<String, PlayerFightStats> = units
+        .iter()
+        .filter(|u| !u.is_boss)
+        .map(|u| {
+            (
+                u.id.clone(),
+                PlayerFightStats { id: u.id.clone(), display_name: u.display_name.clone(), ..Default::default() },
+            )
+        })
+        .collect();
+    for event in events {
+        match event {
+            CombatEvent::Attack { attacker, target, damage, unmitigated_damage, is_crit, evaded, .. } => {
+                if let Some(s) = stats.get_mut(attacker) {
+                    if *evaded {
+                        s.evaded += 1;
+                    } else {
+                        s.hits += 1;
+                        s.damage_dealt += *damage as u64;
+                        if *is_crit {
+                            s.crits += 1;
+                        }
+                    }
+                }
+                if let Some(s) = stats.get_mut(target) {
+                    s.damage_taken += *unmitigated_damage as u64;
+                }
+            }
+            CombatEvent::Heal { healer, amount, .. } | CombatEvent::Shield { healer, amount, .. } => {
+                if let Some(s) = stats.get_mut(healer) {
+                    s.healing_done += *amount as u64;
+                }
+            }
+            CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } | CombatEvent::BuffSnapshot { .. } => {}
+        }
+    }
+    stats.into_values().collect()
+}
+
+/// The lightweight per-fight aggregate `/fights.json` and the encounter
+/// WebSocket broadcast serve (2026-08-18) instead of the full coarse-tier
+/// snapshot (`LastFightSnapshot`, which carries the entire event log) -
+/// a few KB regardless of how many events the real fight generated.
+/// Persisted via `save_summary_fight`/`recent_summary_fights`
+/// (`fight_storage.rs`); built once per fight in `save_last_fight` and
+/// also carried on `EncounterResult::summary` for the broadcast, so it's
+/// computed from the FULL event log exactly once, never from the
+/// overlay-thinned copy (`thin_events_for_overlay` runs on `result.events`
+/// AFTER this is built).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FightSummarySnapshot {
+    pub kind: EncounterKind,
+    pub stage: u32,
+    pub won: bool,
+    pub started_at_unix_ms: u64,
+    pub display_duration_ms: u32,
+    pub participants: usize,
+    pub players: Vec<PlayerFightStats>,
+    pub first_to_die: Option<String>,
+    pub loot: Vec<LootDrop>,
+    pub broken: Vec<BrokenItem>,
+}
+
 /// Boss (the !nextencounter/10-minute progression fight) or Basic (the
 /// once-a-minute filler fight against a weaker assortment of enemies -
 /// see `run_basic_encounter`) - main.rs uses this to pick the right chat
 /// wording (only a Boss win advances the stage). The overlay doesn't
 /// care - both play back through the identical animation pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum EncounterKind {
+    #[default]
     Boss,
     Basic,
 }
@@ -666,6 +782,19 @@ pub struct EncounterResult {
     /// can't just ride along on `events`.
     #[serde(skip)]
     pub rolls: Vec<RollEvent>,
+    /// The lightweight per-fight aggregate (2026-08-18, the `/fights.json`
+    /// size/latency fix) - unlike `rolls` above, deliberately NOT
+    /// `#[serde(skip)]`: this SHOULD ride along on the WebSocket broadcast
+    /// this struct's `Serialize` impl produces, so a live consumer (e.g.
+    /// the companion app's leaderboard) can be exact without needing the
+    /// full (thinned, for the overlay) event log. Built once by
+    /// `save_last_fight` from the FULL untouched `events`/`units` and
+    /// assigned onto `result.summary` right after that call - the value
+    /// in the struct literal at construction time is just a transient
+    /// `Default` placeholder, the same idiom `events` itself already
+    /// follows (built once, then reassigned before the struct goes
+    /// anywhere).
+    pub summary: FightSummarySnapshot,
 }
 
 /// One resolved fight, persisted to disk purely for after-the-fact
@@ -721,12 +850,26 @@ pub struct DetailFightSnapshot {
 /// writes to this path anymore.
 pub(crate) const LAST_FIGHTS_LOG_PATH: &str = "adventure-last-fights.json";
 
-pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStats>) {
+pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStats>) -> FightSummarySnapshot {
     let started_at_unix_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
     let snapshot = LastFightSnapshot { result: result.clone(), boss_stats, started_at_unix_ms };
     save_coarse_fight(&snapshot);
     let rolls = result.rolls.clone();
     save_detail_fight(&DetailFightSnapshot { snapshot, rolls });
+    let summary = FightSummarySnapshot {
+        kind: result.kind,
+        stage: result.stage,
+        won: result.won,
+        started_at_unix_ms,
+        display_duration_ms: result.display_duration_ms,
+        participants: result.participants.len(),
+        players: full_player_fight_stats(&result.units, &result.events),
+        first_to_die: first_player_to_die(&result.units, &result.events),
+        loot: result.loot.clone(),
+        broken: result.broken.clone(),
+    };
+    save_summary_fight(&summary);
+    summary
 }
 
 /// Web dashboard: the rolling coarse-tier fight-history log, newest
@@ -3603,8 +3746,11 @@ impl AdventureManager {
             // doesn't affect correctness - just means `rolls.at_ms` isn't
             // directly comparable to `events.at_ms` in the same file.
             rolls,
+            // Transient placeholder - overwritten below by
+            // `save_last_fight`'s return, the same idiom `events` follows.
+            summary: FightSummarySnapshot::default(),
         };
-        save_last_fight(&result, boss_stats_snapshot);
+        result.summary = save_last_fight(&result, boss_stats_snapshot);
         // Presentational only - see `thin_events_for_overlay`'s own doc.
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
@@ -3872,8 +4018,11 @@ impl AdventureManager {
             // See `run_encounter`'s matching field for why `rolls` isn't
             // rescaled the way `events` just was above.
             rolls,
+            // Transient placeholder - overwritten below by
+            // `save_last_fight`'s return, the same idiom `events` follows.
+            summary: FightSummarySnapshot::default(),
         };
-        save_last_fight(&result, Vec::new());
+        result.summary = save_last_fight(&result, Vec::new());
         // Presentational only - see `thin_events_for_overlay`'s own doc.
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
@@ -4446,6 +4595,107 @@ pub(crate) fn roll_disenchant_sand(quality_percent: f64, rng: &mut impl Rng, san
         (rng.gen_range(1..=3) as f64 * sand_mult).round() as u64
     } else {
         0
+    }
+}
+
+#[cfg(test)]
+mod fight_summary_tests {
+    use super::*;
+
+    fn player(id: &str) -> CombatUnitInfo {
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, role: None, max_hp: 1000 }
+    }
+
+    fn boss(id: &str) -> CombatUnitInfo {
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, role: None, max_hp: 10_000 }
+    }
+
+    fn attack(at_ms: u32, attacker: &str, target: &str, damage: u64, unmitigated_damage: u64, is_crit: bool, evaded: bool) -> CombatEvent {
+        CombatEvent::Attack {
+            at_ms,
+            attacker: attacker.to_string(),
+            target: target.to_string(),
+            damage,
+            unmitigated_damage,
+            target_hp_after: 0,
+            is_crit,
+            evaded,
+            hit_id: 0,
+        }
+    }
+
+    #[test]
+    fn every_non_boss_unit_gets_a_row_even_with_zero_events() {
+        let units = vec![player("alice"), player("bob"), boss("__enemy_0")];
+        let stats = full_player_fight_stats(&units, &[]);
+        assert_eq!(stats.len(), 2);
+        assert!(stats.iter().all(|s| s.hits == 0 && s.crits == 0 && s.evaded == 0 && s.damage_dealt == 0 && s.damage_taken == 0 && s.healing_done == 0));
+        assert!(stats.iter().any(|s| s.id == "alice"));
+        assert!(stats.iter().any(|s| s.id == "bob"));
+    }
+
+    #[test]
+    fn boss_units_never_get_their_own_row() {
+        let units = vec![player("alice"), boss("__enemy_0")];
+        let events = vec![attack(0, "__enemy_0", "alice", 50, 50, false, false)];
+        let stats = full_player_fight_stats(&units, &events);
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].id, "alice");
+    }
+
+    #[test]
+    fn damage_taken_counts_unmitigated_damage_even_when_evaded() {
+        let units = vec![player("alice"), boss("__enemy_0")];
+        let events = vec![attack(0, "__enemy_0", "alice", 0, 500, false, true)];
+        let stats = full_player_fight_stats(&units, &events);
+        let alice = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice.damage_taken, 500);
+        assert_eq!(alice.damage_dealt, 0);
+    }
+
+    #[test]
+    fn hits_crits_and_evaded_are_counted_from_the_attackers_own_swings() {
+        let units = vec![player("alice"), boss("__enemy_0")];
+        let events = vec![
+            attack(0, "alice", "__enemy_0", 100, 100, false, false),
+            attack(1, "alice", "__enemy_0", 300, 300, true, false),
+            attack(2, "alice", "__enemy_0", 0, 0, false, true),
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let alice = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice.hits, 2);
+        assert_eq!(alice.crits, 1);
+        assert_eq!(alice.evaded, 1);
+        assert_eq!(alice.damage_dealt, 400);
+    }
+
+    #[test]
+    fn heal_and_shield_events_both_count_toward_healing_done() {
+        let units = vec![player("alice"), player("bob"), boss("__enemy_0")];
+        let events = vec![
+            CombatEvent::Heal { at_ms: 0, healer: "alice".to_string(), target: "bob".to_string(), amount: 40, target_hp_after: 0 },
+            CombatEvent::Shield { at_ms: 1, healer: "alice".to_string(), target: "bob".to_string(), amount: 25 },
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let alice = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice.healing_done, 65);
+    }
+
+    #[test]
+    fn first_player_to_die_ignores_boss_defeats_and_picks_the_earliest() {
+        let units = vec![player("alice"), player("bob"), boss("__enemy_0")];
+        let events = vec![
+            CombatEvent::Defeat { at_ms: 500, unit: "__enemy_0".to_string() },
+            CombatEvent::Defeat { at_ms: 900, unit: "bob".to_string() },
+            CombatEvent::Defeat { at_ms: 300, unit: "alice".to_string() },
+        ];
+        assert_eq!(first_player_to_die(&units, &events), Some("alice".to_string()));
+    }
+
+    #[test]
+    fn first_player_to_die_is_none_when_nobody_died() {
+        let units = vec![player("alice"), boss("__enemy_0")];
+        assert_eq!(first_player_to_die(&units, &[]), None);
     }
 }
 

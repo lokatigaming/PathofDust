@@ -25,8 +25,10 @@ use std::path::{Path, PathBuf};
 
 pub(crate) const COARSE_FIGHTS_DIR: &str = "adventure-fights-coarse";
 pub(crate) const DETAIL_FIGHTS_DIR: &str = "adventure-fights-detail";
+pub(crate) const SUMMARY_FIGHTS_DIR: &str = "adventure-fights-summary";
 const COARSE_SEQ_PATH: &str = "adventure-fights-coarse-seq.json";
 const DETAIL_SEQ_PATH: &str = "adventure-fights-detail-seq.json";
+const SUMMARY_SEQ_PATH: &str = "adventure-fights-summary-seq.json";
 
 /// Lowered from the original 100 (2026-08-17, Phase 2) once real
 /// detail-tier file sizes were actually measured - a single heavily-
@@ -42,6 +44,14 @@ pub(crate) const COARSE_FIGHTS_CAPACITY: usize = 10;
 /// reasoning - real fights already ran up to 49MB on this tier with
 /// Phase 1 alone.
 pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 5;
+/// A summary is just per-player aggregates + loot/broken - a few KB
+/// regardless of how many events the real fight generated (2026-08-18,
+/// the `/fights.json` size/latency fix) - roughly 100-1000x smaller than
+/// a coarse file, so a much longer retention window than
+/// `COARSE_FIGHTS_CAPACITY` costs about what 1-2 coarse files do. This
+/// also gives `/fights.json`'s own `?limit=` a genuinely useful range
+/// again, independent of the coarse tier's own much smaller retention.
+pub(crate) const SUMMARY_FIGHTS_CAPACITY: usize = 200;
 
 /// Bumps and persists the next sequence number for a tier, used to name
 /// that fight's own file - zero-padded so plain filename sorting is
@@ -133,6 +143,17 @@ pub(crate) fn save_detail_fight(detail: &DetailFightSnapshot) {
 /// log's whole-file read on every request.
 pub(crate) fn recent_coarse_fights(limit: usize) -> Vec<LastFightSnapshot> {
     read_recent(COARSE_FIGHTS_DIR, limit)
+}
+
+pub(crate) fn save_summary_fight(summary: &FightSummarySnapshot) {
+    write_and_prune(SUMMARY_FIGHTS_DIR, SUMMARY_SEQ_PATH, SUMMARY_FIGHTS_CAPACITY, summary);
+}
+
+/// Reads up to `limit` most recent fight summaries, newest first - what
+/// `/fights.json` reads instead of the full coarse-tier snapshot (see
+/// `fight_summaries_for_viewer` in `adventure_web.rs`).
+pub(crate) fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
+    read_recent(SUMMARY_FIGHTS_DIR, limit)
 }
 
 const STORAGE_MIGRATION_MARKER_PATH: &str = "adventure-fights-storage-migration-marker.json";

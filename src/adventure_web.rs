@@ -35,11 +35,12 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::adventure::{
-    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, recent_fights, summarize_fight, AdventureManager, Affix, Archetype, AutoDisenchantTier, Character,
-    CombatEvent, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, Item, LastFightSnapshot, LiveTunables, PassiveError, PassivePreview, PendingVeil,
+    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, recent_fights, recent_summary_fights, summarize_fight, AdventureManager, Affix, Archetype,
+    AutoDisenchantTier, Character, CombatEvent, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, Item, LastFightSnapshot,
+    LiveTunables, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate, VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, COARSE_FIGHTS_CAPACITY, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
-    NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
+    NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
 };
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
@@ -1841,6 +1842,24 @@ fn fights_for_viewer(login: &str, requested_limit: usize) -> Vec<LastFightSnapsh
     }
 }
 
+/// Same shape as `fights_for_viewer` above, but reads the summary tier
+/// (2026-08-18, the `/fights.json` size/latency fix) instead of the
+/// coarse tier - what `fights_json` actually serves now, since a
+/// consumer like the companion app only wants the per-player aggregates,
+/// not the full event log. `SUMMARY_FIGHTS_CAPACITY` is far larger than
+/// `COARSE_FIGHTS_CAPACITY` (summaries are a few KB each), so unlike
+/// `fights_for_viewer`, reading the whole tier before filtering here
+/// isn't the meaningful cost `fights_for_viewer`'s own doc flags for the
+/// coarse tier.
+fn fight_summaries_for_viewer(login: &str, requested_limit: usize) -> Vec<FightSummarySnapshot> {
+    let limit = requested_limit.clamp(1, SUMMARY_FIGHTS_CAPACITY);
+    if login == FIGHTS_PAGE_LOGIN {
+        recent_summary_fights(limit)
+    } else {
+        recent_summary_fights(SUMMARY_FIGHTS_CAPACITY).into_iter().filter(|s| s.players.iter().any(|p| p.id == login)).take(limit).collect()
+    }
+}
+
 async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<FightsPageParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
@@ -1873,11 +1892,11 @@ async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(pa
 /// to logged-out visitors (every logged-in viewer can reach this now).
 async fn fights_json(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<FightsPageParams>) -> impl IntoResponse {
     let Some((login, _)) = current_session(&headers, &state).await else {
-        return (StatusCode::UNAUTHORIZED, Json(Vec::<LastFightSnapshot>::new())).into_response();
+        return (StatusCode::UNAUTHORIZED, Json(Vec::<FightSummarySnapshot>::new())).into_response();
     };
     let limit = params.limit.unwrap_or(FIGHTS_PAGE_DISPLAY_LIMIT);
-    let fights = tokio::task::spawn_blocking(move || fights_for_viewer(&login, limit)).await.unwrap_or_default();
-    Json(fights).into_response()
+    let summaries = tokio::task::spawn_blocking(move || fight_summaries_for_viewer(&login, limit)).await.unwrap_or_default();
+    Json(summaries).into_response()
 }
 
 /// Gates `/admin/tunables` the same way `FIGHTS_PAGE_LOGIN` gates
