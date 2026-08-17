@@ -4830,9 +4830,14 @@ pub(crate) fn scale_by_power_mult(stats: BossStats, power_mult: f64) -> BossStat
 
 pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, power_mult: f64, tunables: &LiveTunables) -> BossStats {
     let party_size = party_size.max(1) as f64;
-    let stage_mult = 1.0 + stage as f64 * 0.05;
+    // Tripled 0.05 -> 0.15 (2026-08-18, a live request) - HP now scales
+    // +15%/stage instead of +5%, e.g. stage 400 goes from a ~2100%
+    // multiplier to ~6100%.
+    let stage_mult = 1.0 + stage as f64 * 0.15;
     let level_mult = 1.0 + avg_level * 0.15;
-    let atk_stage_mult = 1.0 + stage as f64 * 0.08 * BOSS_DAMAGE_SCALING_MULT;
+    // Raised 0.08 -> 0.10 (2026-08-18, same request) - damage now scales
+    // +10%/stage instead of +8%.
+    let atk_stage_mult = 1.0 + stage as f64 * 0.10 * BOSS_DAMAGE_SCALING_MULT;
     let atk_level_mult = 1.0 + avg_level * 0.15 * BOSS_DAMAGE_SCALING_MULT;
     let jitter = 1.0 + rand::thread_rng().gen_range(-0.1..0.1);
 
