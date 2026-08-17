@@ -574,7 +574,6 @@
   //   events: [...], firedIndex,
   // }
   let encounter = null;
-  const unitFlash = new Map(); // id -> time the hit-flash should end
   const projectiles = []; // ranged attacks / boss smashes, arcing toward their target
   const auras = []; // support heal sparks, arcing toward an ally
   const meleeSwings = []; // brief sword-swipe flourishes
@@ -663,7 +662,6 @@
             projectiles.push({ fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, startTime: performance.now(), durationMs: 380, color: '#ffd76a', arc: 70 });
           }
         }
-        unitFlash.set(event.target, performance.now() + (event.isCrit ? 320 : 220));
         const text = event.isCrit ? `CRIT -${event.damage}` : `-${event.damage}`;
         spawnFloatingText(to, text, event.isCrit ? '#ffb020' : '#ffffff', event.isCrit);
       }
@@ -1282,7 +1280,7 @@
   // character actually stands on the ground line instead of being buried
   // to the waist in it, and the health bar (just below the feet) stays
   // comfortably on-canvas.
-  function drawCharacter(x, y, size, sprite, fallbackColor, flashColor, flashAlpha, displayName, level, hpFrac, ghostFrac, downed, facingLeft, gifImg, dimAlpha) {
+  function drawCharacter(x, y, size, sprite, fallbackColor, displayName, level, hpFrac, ghostFrac, downed, facingLeft, gifImg, dimAlpha) {
     const dim = dimAlpha ?? 1;
     ctx.globalAlpha = (downed ? 0.45 : 1) * dim;
 
@@ -1306,8 +1304,7 @@
       // of a canvas draw - same reasoning/limitation as drawEnemy's own
       // gifImg branch (canvas drawImage only ever shows a GIF's first
       // frame). Flip/downed-tint are CSS here (no canvas save/translate/
-      // filter needed); hit-flash tint has no DOM equivalent yet, same
-      // known gap bossGifImgFor's doc already calls out for bosses.
+      // filter needed).
       if (gifImg) {
         gifImg.style.display = '';
         gifImg.style.left = x - dw / 2 + 'px';
@@ -1333,17 +1330,6 @@
           ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
         }
         ctx.filter = 'none';
-
-        // Tints only the sprite's own already-opaque pixels, not its
-        // rectangular bounding box, so the flash respects the art's silhouette.
-        if (flashAlpha > 0) {
-          ctx.save();
-          ctx.globalCompositeOperation = 'source-atop';
-          ctx.globalAlpha = flashAlpha;
-          ctx.fillStyle = flashColor;
-          ctx.fillRect(x - dw / 2, top, dw, dh);
-          ctx.restore();
-        }
       }
     } else {
       if (gifImg) gifImg.style.display = 'none';
@@ -1352,7 +1338,7 @@
       top = y - dh;
       ctx.beginPath();
       ctx.arc(x, y - size, size, 0, Math.PI * 2);
-      ctx.fillStyle = downed ? '#666' : flashAlpha > 0 ? flashColor : fallbackColor;
+      ctx.fillStyle = downed ? '#666' : fallbackColor;
       ctx.fill();
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -1392,7 +1378,7 @@
   // drawCharacter) instead of recomputed separately by the caller with
   // its own ad hoc formula - the two had drifted out of sync, which is
   // exactly what caused that bug.
-  function drawEnemy(x, y, radius, tintFlash, sprite, leapGlow, spriteHeight, alpha, label, showAura, facingLeft, gifImg) {
+  function drawEnemy(x, y, radius, sprite, spriteHeight, alpha, label, facingLeft, gifImg) {
     if (radius <= 0) {
       if (gifImg) gifImg.style.display = 'none';
       return null;
@@ -1417,8 +1403,7 @@
       // <img> passed in as `gifImg` instead of a canvas draw - see
       // GIF_SPRITES's doc for why. Flip is a CSS transform here (no
       // canvas save/translate/scale needed since this isn't a canvas
-      // draw at all); hit-flash tint has no DOM equivalent for this path
-      // yet, a small known gap (see bossGifImgFor's doc).
+      // draw at all).
       if (gifImg && gifImg.complete && gifImg.naturalWidth > 0) {
         gifImg.style.display = '';
         gifImg.style.left = x - dw / 2 + 'px';
@@ -1445,15 +1430,6 @@
         } else {
           ctx.drawImage(sprite, x - dw / 2, top, dw, dh);
         }
-
-        if (tintFlash > 0) {
-          ctx.save();
-          ctx.globalCompositeOperation = 'source-atop';
-          ctx.globalAlpha = tintFlash;
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(x - dw / 2, top, dw, dh);
-          ctx.restore();
-        }
       }
     } else {
       if (gifImg) gifImg.style.display = 'none';
@@ -1464,7 +1440,7 @@
 
       ctx.beginPath();
       ctx.arc(x, centerY, radius, 0, Math.PI * 2);
-      ctx.fillStyle = tintFlash > 0 ? `rgba(255,255,255,${tintFlash.toFixed(2)})` : '#8b1e1e';
+      ctx.fillStyle = '#8b1e1e';
       ctx.fill();
       ctx.lineWidth = 4;
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
@@ -1577,7 +1553,6 @@
               }
             }
           });
-          unitFlash.set(id, now + 260);
           impacts.push({ x: leap.targetX, y: leap.targetY, startTime: now, color: '#ffffff' });
         }
         st.restX = leap.targetX;
@@ -2129,20 +2104,17 @@
       // simulate_battle taking a Vec<BossStats>), drawn and
       // health-barred individually, faded out (not removed - keeps the
       // formation's slots stable) once its own Defeat event fires. Only
-      // a real boss gets the pulsing red aura and the "BOSS" label - a
-      // basic encounter's rank-and-file don't need either.
+      // a real boss gets the "BOSS" label - a basic encounter's rank-and-
+      // file don't need one.
       enemyUnitIds(encounter).forEach((id, i) => {
         const unit = encounter.units.get(id);
         const pos = positions.get(id);
         if (!unit || !pos) return;
-        const flashUntil = unitFlash.get(id);
-        const tintFlash = flashUntil && now < flashUntil ? 1 : 0;
         const alpha = unit.alive ? 1 : 0.35;
         const label = isBasicEncounter ? null : 'BOSS';
-        const showAura = !isBasicEncounter;
         const spriteName = spriteNameForEnemySlot(i);
         const gifImg = bossGifImgFor(i, spriteName);
-        const bar = drawEnemy(pos.x, pos.y, pos.radius, tintFlash, bossImgAt(i), pos.glow, pos.spriteHeight, alpha, label, showAura, pos.facingLeft, gifImg);
+        const bar = drawEnemy(pos.x, pos.y, pos.radius, bossImgAt(i), pos.spriteHeight, alpha, label, pos.facingLeft, gifImg);
         if (bar && unit.alive) {
           bar.hpFrac = unit.displayHp / unit.maxHp;
           bar.ghostFrac = unit.ghostHp / unit.maxHp;
@@ -2186,16 +2158,6 @@
       const hpFrac = combatUnit ? combatUnit.displayHp / combatUnit.maxHp : null;
       const ghostFrac = combatUnit ? combatUnit.ghostHp / combatUnit.maxHp : null;
 
-      let flashColor = '#ffffff';
-      let flashAlpha = 0;
-      const flashUntil = unitFlash.get(id);
-      if (flashUntil && now < flashUntil) {
-        flashAlpha = 0.85;
-      } else if (phase && phase.name === 'resolve' && encounter && !encounter.won && !downed) {
-        flashColor = '#dc3c3c';
-        flashAlpha = 0.4 + 0.4 * Math.sin(now / 50);
-      }
-
       let radius = pos.radius;
       if (phase && phase.name === 'resolve' && encounter && encounter.won) {
         radius *= 1 + 0.15 * Math.sin(phase.progress * Math.PI);
@@ -2203,7 +2165,7 @@
 
       const sprite = spriteForCharacter(id);
       const gifImg = characterGifImgFor(id, sprite);
-      const bar = drawCharacter(pos.x, pos.y, radius, sprite, c.color, flashColor, flashAlpha, c.displayName, c.level, hpFrac, ghostFrac, downed, c.facingLeft, gifImg, dimAlpha);
+      const bar = drawCharacter(pos.x, pos.y, radius, sprite, c.color, c.displayName, c.level, hpFrac, ghostFrac, downed, c.facingLeft, gifImg, dimAlpha);
       if (bar) healthBars.push(bar);
     });
 
