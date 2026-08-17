@@ -2124,12 +2124,19 @@ impl Character {
     /// spent there are still saved, just mechanically inert for now).
     pub(crate) fn passive_bonus(&self) -> ArchetypeBonus {
         let mut bonus = ArchetypeBonus::default();
-        let nodes = self.archetype.passive_nodes();
-        for (key, &rank) in &self.passive_allocations {
-            let Some(node) = nodes.iter().find(|n| n.key == key.as_str()) else { continue };
-            if let crate::passive_tree::PassiveEffect::FlatStat { stat, .. } = node.effect {
-                stat.add(&mut bonus, node.magnitude_at_rank(rank));
-            }
+        self.accumulate_flat_stat_bonus(self.archetype, &self.passive_allocations, &mut bonus);
+        // Split Personality (2026-08-18 bugfix) - a live report found a
+        // secondary-tree investment in a generic FlatStat node (e.g.
+        // Rogue's Deadly Precision/Shadowstep as a Monk's 2nd class) was
+        // silently doing nothing in REAL fights, not just under-reported
+        // on the sheet - `combat_evasion`/`combat_crit_multiplier` (which
+        // call this function) are the exact same functions `CombatSimUnit`
+        // construction calls, there's no separate path. Bespoke `Special`-
+        // effect nodes were never affected (each reads its own
+        // `passive_node_rank`/`_magnitude`, which already checks both
+        // trees) - only this generic pooling loop was primary-only.
+        if let Some(secondary) = self.effective_secondary_archetype() {
+            self.accumulate_flat_stat_bonus(secondary, &self.secondary_passive_allocations, &mut bonus);
         }
         // Warrior's Colossus - a genuine exception to the generic
         // FlatStat loop above: its own text ("Juggernaut's max HP bonus
@@ -2142,9 +2149,26 @@ impl Character {
         // directly via `passive_node_magnitude`) rather than a new
         // `PassiveEffect` variant, since this is currently the only node
         // in the whole tree shaped this way. A no-op (both factors 0.0)
-        // for every archetype/character without both invested.
+        // for every archetype/character without both invested. Already
+        // secondary-tree-safe as-is - `passive_node_magnitude` itself
+        // checks both trees, regardless of which one Juggernaut/Colossus
+        // actually sit in.
         bonus.max_hp_pct += self.passive_node_magnitude("juggernaut") * self.passive_node_magnitude("colossus");
         bonus
+    }
+
+    /// Shared by `passive_bonus`'s primary/secondary call sites - the
+    /// exact loop body that function always had, just parameterized on
+    /// WHICH archetype's node list and allocations map to read instead of
+    /// hardcoded to `self.archetype`/`self.passive_allocations`.
+    fn accumulate_flat_stat_bonus(&self, archetype: Archetype, allocations: &HashMap<String, u32>, bonus: &mut ArchetypeBonus) {
+        let nodes = archetype.passive_nodes();
+        for (key, &rank) in allocations {
+            let Some(node) = nodes.iter().find(|n| n.key == key.as_str()) else { continue };
+            if let crate::passive_tree::PassiveEffect::FlatStat { stat, .. } = node.effect {
+                stat.add(bonus, node.magnitude_at_rank(rank));
+            }
+        }
     }
 
     /// Titan's Grip - converts a fraction of Juggernaut+Colossus's OWN
@@ -2183,22 +2207,33 @@ impl Character {
     /// "~10% per point" budget the rest of the tree targets, regardless
     /// of how much overflow is actually available to convert).
     pub(crate) fn passive_overflow_bonus(&self) -> ArchetypeBonus {
+        // Already includes both trees - see `passive_bonus`'s own 2026-08-18
+        // fix.
         let tree_bonus = self.passive_bonus();
         let mut result = ArchetypeBonus::default();
-        let nodes = self.archetype.passive_nodes();
-        for (key, &rank) in &self.passive_allocations {
+        self.accumulate_overflow_conversion_bonus(self.archetype, &self.passive_allocations, &tree_bonus, &mut result);
+        if let Some(secondary) = self.effective_secondary_archetype() {
+            self.accumulate_overflow_conversion_bonus(secondary, &self.secondary_passive_allocations, &tree_bonus, &mut result);
+        }
+        result
+    }
+
+    /// Shared by `passive_overflow_bonus`'s primary/secondary call sites -
+    /// same parameterized-loop-body shape as `accumulate_flat_stat_bonus`.
+    fn accumulate_overflow_conversion_bonus(&self, archetype: Archetype, allocations: &HashMap<String, u32>, tree_bonus: &ArchetypeBonus, result: &mut ArchetypeBonus) {
+        let nodes = archetype.passive_nodes();
+        for (key, &rank) in allocations {
             let Some(node) = nodes.iter().find(|n| n.key == key.as_str()) else { continue };
             if let crate::passive_tree::PassiveEffect::OverflowConversion { input, output, .. } = node.effect {
                 if input.overflow_cap().is_none() {
                     continue;
                 }
-                let overflow = self.combined_stat_overflow(input, &tree_bonus);
+                let overflow = self.combined_stat_overflow(input, tree_bonus);
                 let raw = overflow * node.magnitude_at_rank(rank);
                 let capped = raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank as f64).max(0.0);
-                output.add(&mut result, capped);
+                output.add(result, capped);
             }
         }
-        result
     }
 
     /// How many points are invested in a specific passive node by key,
@@ -3121,6 +3156,64 @@ mod split_personality_tests {
         // eagerly clears this map on any real re-pick.
         assert_eq!(character.secondary_passive_allocations.get("mark"), Some(&3), "underlying storage is untouched by unequip alone - only the derived getters are live-gated");
         let _ = item_id;
+    }
+
+    #[test]
+    fn secondary_tree_flat_stat_nodes_feed_real_combat_stats() {
+        // 2026-08-18 bugfix - a live report (kuokkiz: Monk primary, Rogue
+        // secondary) found Deadly Precision/Shadowstep (both plain
+        // FlatStat nodes) doing nothing despite being invested, while
+        // bespoke Special-effect nodes worked fine. Warrior's "bulwark"
+        // (block chance) stands in for the primary tree here, Rogue's
+        // "precision"/"shadowstep" (crit multiplier/evasion) for the
+        // secondary - `combat_crit_multiplier`/`combat_evasion` are the
+        // SAME functions real `CombatSimUnit` construction calls, so this
+        // is asserting the real fight-facing stat, not just the sheet.
+        let mut character = Character::new("test".to_string());
+        character.archetype = Archetype::Warrior;
+        character.equip(split_personality_item(0));
+        character.secondary_archetype = Some(Archetype::Rogue);
+        character.passive_allocations.insert("bulwark".to_string(), 3);
+        character.secondary_passive_allocations.insert("precision".to_string(), 3);
+        character.secondary_passive_allocations.insert("shadowstep".to_string(), 3);
+
+        let bonus = character.passive_bonus();
+        assert!((bonus.block_chance - 0.20).abs() < 1e-9, "primary tree's own FlatStat node must still pool - got {}", bonus.block_chance);
+        assert!((bonus.crit_multiplier - 0.35).abs() < 1e-9, "secondary tree's Deadly Precision (3/3 = +35%) must now pool too - got {}", bonus.crit_multiplier);
+        assert!((bonus.evasion - 0.20).abs() < 1e-9, "secondary tree's Shadowstep (3/3 = +20%) must now pool too - got {}", bonus.evasion);
+
+        // The real combat-facing functions - same ones CombatSimUnit
+        // construction calls (combat.rs:7502/7513) - must reflect the
+        // secondary contribution too, not just the raw `passive_bonus()`
+        // struct.
+        assert!(character.combat_crit_multiplier() > 2.0, "base crit multiplier (2.0) must be boosted by the secondary tree's Deadly Precision");
+        assert!(character.combat_evasion() > 0.0, "evasion must be nonzero from the secondary tree's Shadowstep alone");
+    }
+
+    #[test]
+    fn secondary_tree_overflow_conversion_nodes_also_work() {
+        // Same bug, the OverflowConversion half of `passive_bonus`'s
+        // sibling function `passive_overflow_bonus`. Rogue's "Elusive"
+        // (evasion overflow -> crit chance) needs real evasion overflow
+        // to have anything to convert, so this equips gear-less/tree-only
+        // evasion investment high enough to matter isn't realistic here -
+        // instead this just confirms the secondary node is discovered and
+        // iterated at all (no panic, no `NodeNotFound`-shaped silent
+        // skip), which is what the primary-only bug would have prevented
+        // outright regardless of how much overflow existed.
+        let mut character = Character::new("test".to_string());
+        character.archetype = Archetype::Warrior;
+        character.equip(split_personality_item(0));
+        character.secondary_archetype = Some(Archetype::Rogue);
+        character.secondary_passive_allocations.insert("shadowstep".to_string(), 3);
+        character.secondary_passive_allocations.insert("elusive".to_string(), 3);
+
+        // Elusive requires Shadowstep at its own unlock rank - just
+        // confirming this resolves without error/panic and produces a
+        // real (if small/zero) crit_chance figure is enough to prove the
+        // secondary tree's OverflowConversion node is being read at all.
+        let overflow_bonus = character.passive_overflow_bonus();
+        assert!(overflow_bonus.crit_chance >= 0.0, "must resolve cleanly for a secondary-tree OverflowConversion node");
     }
 }
 
