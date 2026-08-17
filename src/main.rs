@@ -1069,7 +1069,7 @@ async fn async_main() -> anyhow::Result<()> {
 
                     let mut msg = match (result.kind, result.won) {
                         (EncounterKind::Boss, true) => format!(
-                            "⚔️ The party ({} heroes) defeated the stage {} enemy! Onward to stage {}!",
+                            "⚔️ Victory! The party ({} heroes) bested the stage {} enemy! Onward to stage {}!",
                             result.participants.len(),
                             result.stage,
                             result.stage + 1
