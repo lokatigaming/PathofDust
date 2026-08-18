@@ -1203,7 +1203,7 @@ static MAGE_NODES: &[PassiveNode] = &[
     modifier_with_effect("cataclysm", "overload", "Cataclysm", "Overload's bonus is increased by another 3% per rank (up to +9% at 3/3).", FlatStat { stat: CritMultiplier, at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("volatilemagic", "overload", "Volatile Magic", "A critical strike splashes 10% of its damage per rank to nearby enemies (up to 30% at 3/3) - this is not a hit and won't trigger any other on-hit effects.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("arcaneinstability", "overload", "Arcane Instability", "Critical damage is increased by 5%/9%/12% (rank 1/2/3) against targets above 65% HP.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
-    modifier_with_effect("echoingpower", "spellecho", "Echoing Power", "Spell Echo's re-cast damage is increased from 50% per rank (up to 80% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
+    modifier_with_effect("echoingpower", "spellecho", "Echoing Power", "Spell Echo's re-cast damage is increased from 50% per rank (up to 95% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("resonance", "spellecho", "Resonance", "Spell Echo's trigger chance is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     // Finite Loop (renamed from "Infinite Loop" 2026-08-16 - the old name
     // promised a real recursive chain but was implemented as a flat
