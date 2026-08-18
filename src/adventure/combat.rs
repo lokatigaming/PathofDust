@@ -1513,11 +1513,12 @@ pub(crate) struct CombatSimUnit {
     /// Eternal Flow - bonus stacks added on each Relentless Assault
     /// refresh. 0 without it invested.
     eternalflow_bonus_stacks: u32,
-    /// One Hundred Hands (2026-08-17) - extra Flowing Strikes stacks added
-    /// on a Pressure Point crit, on TOP of `add_flowing_stack`'s own
-    /// normal +1 (no target-match gating, unlike that normal refresh -
-    /// crit is crit regardless of target continuity). 0 without it
-    /// invested.
+    /// Flow like Water (2026-08-17 as "One Hundred Hands", renamed and
+    /// promoted from modifier to Specialization 2026-08-18) - extra
+    /// Flowing Strikes stacks added on a Pressure Point crit, on TOP of
+    /// `add_flowing_stack`'s own normal +1 (no target-match gating, unlike
+    /// that normal refresh - crit is crit regardless of target
+    /// continuity). 0 without it invested.
     onehundredhands_bonus_stacks: u32,
     /// Stormfront - live splash bonus while at MAX Flowing Strikes stacks
     /// specifically (not scaled per-stack below max). 0.0 without it
@@ -5674,7 +5675,7 @@ pub(crate) fn apply_hit(
         }
         if counts_as_primary_hit {
             add_flowing_stack(units, attacker_idx, target_idx, at_ms);
-            // One Hundred Hands - a crit tops up EXTRA Flowing Strikes
+            // Flow like Water - a crit tops up EXTRA Flowing Strikes
             // stacks on top of add_flowing_stack's own normal +1, even
             // against a new target (no target-match gating - crit is crit
             // regardless of target continuity).
@@ -8331,7 +8332,15 @@ pub(crate) fn simulate_battle(
                 nervestrike_crit_mult_bonus: c.passive_node_magnitude("nervestrike"),
                 vitalpoints_shred_per_stack: c.passive_node_magnitude("vitalpoints"),
                 eternalflow_bonus_stacks: c.passive_node_rank("eternalflow"),
-                onehundredhands_bonus_stacks: c.passive_node_rank("onehundredhands"),
+                // `.min(3)` because this reads the RAW rank, and Flow like
+                // Water became a Specialization (max_rank 4) in the
+                // 2026-08-18 swap - without the clamp its 4th point would
+                // silently grant a 4th bonus stack, breaking the shared
+                // convention that a spec's 4th point only unlocks its
+                // modifiers (what `magnitude_at_rank` enforces for every
+                // magnitude-based spec) and contradicting this node's own
+                // "up to 3 at 3/3" text.
+                onehundredhands_bonus_stacks: c.passive_node_rank("onehundredhands").min(3),
                 stormfront_splash_pct: c.passive_node_magnitude("stormfront"),
                 flowing_current: 0,
                 flowing_expires_at_ms: 0,

@@ -180,6 +180,58 @@ pub(crate) fn run_item_migrations(characters_path: &PathBuf, characters: &mut Ha
     }
 }
 
+/// Moves any `hundredfists` rank onto `onehundredhands` (renamed "Flow
+/// like Water") - the 2026-08-18 swap exchanged those two nodes' tiers,
+/// so the three Chakra modifiers now hang off `onehundredhands` instead.
+/// Without this, a Monk who had invested in the old Hundred Fists spec
+/// would find their Chakras suddenly parented to a node they have no
+/// points in, stranding every point spent below it. Moving the rank
+/// across (rather than granting a respec) keeps their total points spent
+/// identical and keeps those Chakras unlocked.
+///
+/// Guarded on `onehundredhands` being unallocated so it can never fuse
+/// two real investments into one over-ranked node, and clamped to the
+/// Specialization `max_rank` of 4 for the same reason `passive_node_rank`
+/// callers can't rely on stored ranks being in range.
+pub(crate) fn migrate_flowlikewater_swap(character: &mut Character) {
+    for tree in [&mut character.passive_allocations, &mut character.secondary_passive_allocations] {
+        // Both trees, since Split Personality can run Monk as a secondary.
+        if let Some(rank) = tree.remove("hundredfists") {
+            if rank > 0 && tree.get("onehundredhands").copied().unwrap_or(0) == 0 {
+                tree.insert("onehundredhands".to_string(), rank.min(4));
+            }
+        }
+    }
+}
+
+/// Character-level counterpart to `ITEM_MIGRATIONS` - same
+/// (marker filename, mutation) shape, for one-time corrections that touch
+/// a character's own fields rather than their gear.
+pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[("adventure-flowlikewater-swap-marker.json", migrate_flowlikewater_swap)];
+
+/// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -
+/// same save-then-mark-done-per-migration crash-safety contract
+/// `run_item_migrations` documents (deliberately NOT batched into one save
+/// at the end, so a crash between the save and the marker write can't make
+/// an already-applied migration look pending and re-run on top of mutated
+/// data).
+pub(crate) fn run_character_migrations(characters_path: &PathBuf, characters: &mut HashMap<String, Character>) {
+    for (marker, f) in CHARACTER_MIGRATIONS.iter().copied() {
+        if crate::state::load_json::<bool>(marker).is_some() {
+            continue;
+        }
+        for character in characters.values_mut() {
+            f(character);
+        }
+        if let Err(err) = crate::state::save_json(characters_path, characters) {
+            tracing::error!("Failed to persist character migration '{marker}' to {}: {err}", characters_path.display());
+        }
+        if let Err(err) = crate::state::save_json(marker, &true) {
+            tracing::error!("Failed to persist character migration marker to {marker}: {err}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod gloves_speed_rebalance_tests {
     use super::*;
@@ -316,6 +368,109 @@ mod crit_lineage_backfill_tests {
         assert!(item.reforge_crit_used);
         assert!(item.recombine_crit_used);
         assert_eq!(item.affixes.len(), 5, "the migration must never remove any of the player's existing affixes, only stop further growth");
+    }
+}
+
+#[cfg(test)]
+mod flowlikewater_swap_tests {
+    use super::*;
+
+    fn monk_with(primary: &[(&str, u32)], secondary: &[(&str, u32)]) -> Character {
+        let mut c = Character::new("test".to_string());
+        c.archetype = Archetype::Monk;
+        c.passive_allocations = primary.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        c.secondary_passive_allocations = secondary.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        c
+    }
+
+    #[test]
+    fn moves_hundredfists_rank_onto_flow_like_water() {
+        // The real live case: yo_pony had hundredfists=4 with Chakras
+        // hanging off it. After the swap those Chakras parent to
+        // onehundredhands, so the rank has to come with them or every
+        // point below is stranded.
+        let mut c = monk_with(&[("hundredfists", 4), ("chakraoflight", 3), ("chakraoflife", 1)], &[]);
+        migrate_flowlikewater_swap(&mut c);
+        assert_eq!(c.passive_allocations.get("onehundredhands").copied(), Some(4));
+        assert!(!c.passive_allocations.contains_key("hundredfists"), "the old key must be removed, not left duplicating the points");
+        assert_eq!(c.passive_allocations.get("chakraoflight").copied(), Some(3), "points below the swapped node must be untouched");
+        assert_eq!(c.passive_allocations.get("chakraoflife").copied(), Some(1));
+    }
+
+    #[test]
+    fn does_not_fuse_two_real_investments() {
+        // Nobody live has both, but if they did, silently summing them
+        // into one over-ranked node would be worse than dropping the move.
+        let mut c = monk_with(&[("hundredfists", 3), ("onehundredhands", 2)], &[]);
+        migrate_flowlikewater_swap(&mut c);
+        assert_eq!(c.passive_allocations.get("onehundredhands").copied(), Some(2), "an existing allocation must win, not be overwritten or added to");
+        assert!(!c.passive_allocations.contains_key("hundredfists"));
+    }
+
+    #[test]
+    fn migrates_the_secondary_tree_too() {
+        // Split Personality can run Monk as a secondary archetype.
+        let mut c = monk_with(&[], &[("hundredfists", 2)]);
+        migrate_flowlikewater_swap(&mut c);
+        assert_eq!(c.secondary_passive_allocations.get("onehundredhands").copied(), Some(2));
+        assert!(!c.secondary_passive_allocations.contains_key("hundredfists"));
+    }
+
+    #[test]
+    fn is_a_no_op_for_a_character_who_never_invested() {
+        let mut c = monk_with(&[("pressurepoint", 4)], &[]);
+        migrate_flowlikewater_swap(&mut c);
+        assert!(!c.passive_allocations.contains_key("onehundredhands"), "must not conjure an allocation out of nothing");
+        assert_eq!(c.passive_allocations.get("pressurepoint").copied(), Some(4));
+    }
+
+    #[test]
+    fn no_node_in_any_tree_points_at_a_missing_parent() {
+        // Cheap global guard against a typo'd parent key in any archetype -
+        // the swap re-parented three Chakras by hand, and a mistyped key
+        // would otherwise only surface as a silently unreachable node.
+        for archetype in ALL_ARCHETYPES {
+            let nodes = archetype.passive_nodes();
+            for node in nodes.iter() {
+                if let Some(parent_key) = node.parent {
+                    assert!(
+                        nodes.iter().any(|n| n.key == parent_key),
+                        "{archetype:?} node {} points at missing parent {parent_key}",
+                        node.key
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_swapped_monk_nodes_all_sit_under_a_rank_4_capable_parent() {
+        // A Modifier carries `unlock_at: Some(4)`, so its parent has to be
+        // able to REACH rank 4 - i.e. a Specialization (max_rank 4), not a
+        // Skill (max_rank 3). This is scoped to the nodes the 2026-08-18
+        // swap actually moved rather than asserted tree-wide, because the
+        // tree already contains pre-existing Modifiers parented to Skills
+        // (Monk's windwalker/unbrokenchain/risingstorm hang off the
+        // flowingstrikes Skill and are therefore permanently unreachable -
+        // a real pre-existing bug, deliberately not "fixed" by this test).
+        let nodes = Archetype::Monk.passive_nodes();
+        let tier_of = |key: &str| nodes.iter().find(|n| n.key == key).unwrap_or_else(|| panic!("missing node {key}")).tier;
+        let max_rank_of = |key: &str| nodes.iter().find(|n| n.key == key).unwrap_or_else(|| panic!("missing node {key}")).max_rank;
+
+        // Flow like Water took the spec slot; Hundred Fists took the modifier slot.
+        assert_eq!(tier_of("onehundredhands"), crate::passive_tree::PassiveTier::Specialization);
+        assert_eq!(tier_of("hundredfists"), crate::passive_tree::PassiveTier::Modifier);
+
+        for (child, expected_parent) in [
+            ("hundredfists", "pressurepoint"),
+            ("chakraofmany", "onehundredhands"),
+            ("chakraoflight", "onehundredhands"),
+            ("chakraoflife", "onehundredhands"),
+        ] {
+            let node = nodes.iter().find(|n| n.key == child).unwrap();
+            assert_eq!(node.parent, Some(expected_parent), "{child} should hang off {expected_parent}");
+            assert_eq!(max_rank_of(expected_parent), 4, "{child}'s parent {expected_parent} must be able to reach rank 4 or {child} can never unlock");
+        }
     }
 }
 

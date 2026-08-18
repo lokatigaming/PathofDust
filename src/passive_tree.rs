@@ -819,7 +819,13 @@ static MONK_NODES: &[PassiveNode] = &[
     skill("flowingstrikes", "Flowing Strikes", "Each consecutive hit on the same target grants a stacking +3% attack speed for 4s, max 5 stacks, at rank 1 - +1% per rank (+5% per stack at 3/3, 25% at cap).", Special { at_rank_1: 0.03, per_additional_rank: 0.01 }),
     skill("innerfocus", "Inner Focus", "Successfully evading a hit heals you for 3% of max HP at rank 1 - +2% per rank (7% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.02 }),
     skill("ironbody", "Iron Body", "Increases evasion by 6% at rank 1 - +4% per rank (14% at 3/3).", FlatStat { stat: Evasion, at_rank_1: 0.06, per_additional_rank: 0.04 }),
-    spec("hundredfists", "flowingstrikes", "Hundred Fists", "Flowing Strikes' max stacks are increased by 2 per rank (up to 11 stacks at 3/3, from the base 5).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
+    // Swapped with Hundred Fists (2026-08-18) - this is the only node that
+    // bypasses `add_flowing_stack`'s target-match gate ("even against a new
+    // target"), and live logs showed the gate pinning a Monk's stacks at 1
+    // for a whole multi-boss fight (consecutive same-target hits: 2.1%).
+    // Promoting the counterplay to the spec slot and demoting the cap
+    // increase makes the fix reachable before the payoff it enables.
+    spec("onehundredhands", "flowingstrikes", "Flow like Water", "A crit from Pressure Point refreshes Flowing Strikes and grants +1 bonus stack per rank (up to 3 at 3/3), even against a new target.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     spec("pressurepoint", "flowingstrikes", "Pressure Point", "Flowing Strikes' stacks also grant +2% crit chance per rank per stack (up to +6% per stack at 3/3).", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
     spec("relentlessassault", "flowingstrikes", "Relentless Assault", "Landing a hit while at max Flowing Strikes stacks refreshes their duration, unlocked at rank 2 - rank 3 extends the base duration by 2s.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
     spec("meditation", "innerfocus", "Meditation", "Inner Focus's heal is increased by 1% max HP per rank for every 10% evasion you have (up to +3% per 10% at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
@@ -837,38 +843,37 @@ static MONK_NODES: &[PassiveNode] = &[
     modifier_with_effect("risingstorm", "flowingstrikes", "Rising Storm", "Reaching max Flowing Strikes stacks grants a burst of +10% increased damage per rank for 3s (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("nervestrike", "pressurepoint", "Nerve Strike", "Pressure Point's crits also deal +10% crit damage per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("vitalpoints", "pressurepoint", "Vital Points", "Pressure Point's stacks also reduce the target's damage reduction by 2% per rank per stack (up to -6% per stack at 3/3).", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
-    // Still NotYetImplemented - nothing in Flowing Strikes' model ever
-    // "consumes" a stack today (stacks only grow on a consecutive hit or
-    // reset to 1 on a target switch/timeout - see `add_flowing_stack`'s
-    // doc), so there's no consumption event for this to prevent.
-    // Replaced (2026-08-17) - Flowing Strikes stacks never actually get
-    // "consumed" (they only grow-on-hit or reset-on-timeout/target-switch),
-    // so the old "chance to not consume one" premise had nothing to apply
-    // to. Re-anchored to a real crit-triggered top-up instead.
+    // Swapped down from its old spec slot under Flowing Strikes
+    // (2026-08-18) - see Flow like Water's own note above. Its magnitude
+    // is unchanged at the modifier tier: rank 3 still gives +6 max stacks
+    // (5 base -> 11), exactly what the description below already says.
     modifier_with_effect(
-        "onehundredhands",
+        "hundredfists",
         "pressurepoint",
-        "One Hundred Hands",
-        "A crit from Pressure Point refreshes Flowing Strikes and grants +1 bonus stack per rank (up to 3 at 3/3), even against a new target.",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        "Hundred Fists",
+        "Flowing Strikes' max stacks are increased by 2 per rank (up to 11 stacks at 3/3, from the base 5).",
+        Special { at_rank_1: 2.0, per_additional_rank: 2.0 },
     ),
+    // The three Chakras follow the spec SLOT, not the node that used to
+    // occupy it (2026-08-18 swap) - a modifier's parent must be a
+    // Specialization, and Hundred Fists is a modifier now.
     modifier_with_effect(
         "chakraofmany",
-        "hundredfists",
+        "onehundredhands",
         "Chakra of Many",
         "Summons a spectral clone that attacks alongside you, dealing 10% of your damage per rank (up to 30% at 3/3) - immune to damage itself, and vanishes the instant you fall.",
         Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
     ),
     modifier_with_effect(
         "chakraoflight",
-        "hundredfists",
+        "onehundredhands",
         "Chakra of Light",
         "Each hit also triggers the lightning damage debuff (increased damage taken) on the target, worth 10% of your own increased damage per rank (up to 30% at 3/3) - e.g. 3000% increased damage at rank 3 triggers 900%, or 9 stacks of the debuff.",
         Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
     ),
     modifier_with_effect(
         "chakraoflife",
-        "hundredfists",
+        "onehundredhands",
         "Chakra of Life",
         "A hit that would kill you instead makes you immune to all damage for 1s per rank (up to 3s at 3/3), during which you keep fighting - the instant it ends, you die.",
         Special { at_rank_1: 1.0, per_additional_rank: 1.0 },

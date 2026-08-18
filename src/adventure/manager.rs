@@ -1144,6 +1144,11 @@ impl AdventureManager {
         // `ITEM_MIGRATIONS`'s doc for what each does and why order matters.
         run_item_migrations(&characters_path, &mut characters);
 
+        // One-time character-field corrections (currently: the Flow like
+        // Water / Hundred Fists tier swap's allocation move) - see
+        // `CHARACTER_MIGRATIONS`'s doc.
+        run_character_migrations(&characters_path, &mut characters);
+
         // One-time distribution: every character who joined before free
         // craft tokens existed gets one of each `CraftAction` right now
         // "so players can learn how to use it" - new characters get the
