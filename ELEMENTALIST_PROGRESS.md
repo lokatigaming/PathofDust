@@ -37,9 +37,12 @@ stage's "all existing tests still pass" check is protecting.
       nodes now real, including Cleansing Flames' own 3 modifiers,
       Enshrouded/Guardian/Shielding Fire - see Decision 20 below on why
       those 3 are counted as part of this stage)
-- [ ] Stage 5 — Golem foundation (summoner-death rule, dead-but-
+- [x] Stage 5 — Golem foundation (summoner-death rule, dead-but-
       scheduled lifecycle state, on-death hook wrapper, Golem Master,
-      `/passives` type-picker UI, Basic golem)
+      `/passives` type-picker UI, Basic golem) (done 2026-08-19) — the
+      "dead but scheduled" state and on-death hook wrapper both turned
+      out to already exist from Stage 4's Rising Phoenix work, reused
+      directly rather than rebuilt (see Decision 30)
 - [ ] Stage 6 — Golem types (Thunder/Flame/Water) + the mandatory
       Thunder Golem all-`BossKind` damage-isolation test
 
@@ -335,9 +338,75 @@ listed here for completeness, not decisions made unattended):*
    under a second in a fast-ticking fight), acceptable slack against a
    3-second gameplay threshold.
 
+30. **Stage 5's own "dead but scheduled to return" lifecycle state and
+   general on-death hook wrapper both turned out to already exist**,
+   built in Stage 4 for Rising Phoenix - reused directly rather than
+   rebuilt. Specifically: `revive_at_ms`/the main loop's per-iteration
+   alive-state sweep (`prev_alive` comparison) already generalize to
+   "detect a death from any source, do X" - the summoner-death rule
+   just needed its OWN sweep branch (`kill_golems_of_dead_summoners`)
+   riding the SAME snapshot Rising Phoenix's own branch already
+   computes, not a parallel mechanism. This meaningfully de-risked
+   Stage 5 relative to the plan's own original framing (which expected
+   "a general on-death hook wrapper, touching ~9 Defeat-emitting call
+   sites" as NEW work) - confirms the plan's own "if not already built"
+   hedge on this exact machinery.
+31. **`CombatSimUnit` has no real `Default` in production code -
+   deliberately** (`impl Default for CombatSimUnit` is `#[cfg(test)]`-
+   gated, with its own doc explaining why: "every REAL construction
+   site must be explicit about every stat"). `spawn_golem` needed a
+   zeroed base and, per that same philosophy, could not simply use
+   `..Default::default()` - discovered as a compile error, not
+   anticipated in the plan. Resolution: extracted a new
+   `zeroed_combat_unit()` function (production code, NOT test-gated)
+   holding a byte-for-byte copy of the test-only Default impl's own
+   ~465-field literal, kept in sync by hand. This respects the
+   deliberate "no accidental production zero-inheritance" design rather
+   than weakening it - `zeroed_combat_unit()` is its own explicit,
+   visible opt-in, used by exactly one call site so far.
+32. **Golem stat scaling (33%) applies to core magnitude/rate stats
+   (max hp, atk, crit chance/multiplier, evasion, damage reduction,
+   block chance) - attack cadence (`attack_interval_ms`) is COPIED, not
+   scaled.** The spec's "as if they were a player with 33% of your
+   stats" reads naturally as scaling OUTPUT/survivability numbers, not
+   attack speed - nothing in the spec suggests golems act 33% as often.
+   Every other field defaults to zero/off via `zeroed_combat_unit()` -
+   "a basic unified hit," none of the Elementalist's own tree bonuses
+   (elemental procs, splash, Righteous Fire, etc.) carry over to a
+   golem.
+33. **The 33%-less-damage-per-golem penalty is its own independent
+   multiplicative term** (`golem_summon_dmg_penalty`, same shape as
+   Conflagration/`conflagration_dmg_pct`), NOT folded into the shared
+   additive `increased_damage` pool - required for the spec's own "1%
+   of normal damage at 3 golems" to compute exactly (`1.0 - 0.33*3 =
+   0.01`); mixing it into `increased_damage` would interact
+   unpredictably with the caster's own other bonuses instead of always
+   landing on the exact spec'd number.
+34. **Golem ids use a new `__golem_` prefix, deliberately never
+   matching any real roster username** - this is the ENTIRE mechanism
+   keeping golems invisible in the OBS overlay (Stage 0 resolution #1):
+   the player-formation loop is keyed off the real `characters` Map, so
+   an id that can't appear in that map is automatically skipped, no
+   explicit "invisible" flag or frontend change needed anywhere.
+35. **`/passives/set-golem-type` mirrors `set-secondary`'s existing
+   pattern exactly** (form, manager method, error enum, silent-redirect-
+   with-popup-on-error) - one dropdown per Golem-Master-unlocked slot,
+   entirely absent from the page for a non-Elementalist or an
+   Elementalist with 0 points in Golem Master, matching the "hidden,
+   not disabled" convention Split Personality's own section already
+   established. Always free (same as every other passive-tree choice
+   action), takes effect on the character's next fight (golems are
+   spawned fresh every `simulate_battle` call - no "already summoned"
+   live state to migrate).
+36. **Basic golems get nothing beyond `spawn_golem`'s flat scaling** -
+   Thunder/Flame/Water's own bespoke sub-passives (all 9 of their
+   modifiers) remain `NotYetImplemented` on the tree and unread by
+   `spawn_golem`/anywhere else, correctly deferred to Stage 6 per the
+   original plan.
+
 *(Everything above this line was decided without a check-in, during
 autonomous execution. Nothing further yet - this section grows as
-Stages 5-6 proceed.)*
+Stage 6 proceeds.)*
 
 ---
 
@@ -457,6 +526,48 @@ Stages 5-6 proceed.)*
   `manager.rs`'s existing `player_vitals_tests` module proving the
   revive-then-survive and revive-then-die-again `died_at_ms` cases).
   Full suite: **216 passing, 0 failed** (was 197).
+- Committed as `ce82cca`, pushed.
+
+## Stage 5 summary (for the morning, or a fresh session)
+
+- Golem Master's foundation is real: `spawn_golem` builds 1-3 Basic
+  golems per fight for an Elementalist with the skill invested (33% of
+  the caster's core stats, attack cadence copied not scaled - see
+  Decision 32), the caster's own damage drops via a new independent
+  `golem_summon_dmg_penalty` term (Decision 33), and a new
+  `/passives/set-golem-type` picker lets the player assign a type per
+  unlocked slot (`Character::golem_slot_types`, a new additive-schema
+  field - Decision 35).
+- The owner-mandated summoner-death rule is real and tested: golems die
+  the instant their summoner dies (`kill_golems_of_dead_summoners`) and
+  never count toward the fight's own alive-party check
+  (`any_real_player_alive`) - both extracted as standalone functions
+  specifically so the REQUIRED test (owner's own 3rd Stage-0 addition)
+  could exercise them directly, plus one end-to-end test mirroring the
+  main loop's actual termination check.
+- Both of Stage 5's anticipated "hard new machinery" items (dead-but-
+  scheduled lifecycle state, general on-death hook wrapper) turned out
+  to already exist from Stage 4's Rising Phoenix work and were reused
+  directly - see Decision 30. The one genuinely new piece of
+  infrastructure this stage needed was `zeroed_combat_unit()` (Decision
+  31), working around `CombatSimUnit`'s deliberately test-only
+  `Default` impl.
+- Thunder/Flame/Water's own bespoke behavior is still entirely
+  `NotYetImplemented`/unread - correctly deferred to Stage 6. Golems
+  are invisible in the OBS overlay purely because their id
+  (`__golem_`-prefixed) can never match the roster-keyed `characters`
+  Map the player-formation loop reads (Decision 34) - no frontend
+  change was needed for this at all, confirming Stage 0's own
+  resolution #1.
+- 11 new tests (8 in `combat.rs`'s new `elementalist_stage_5_tests`
+  module covering stat scaling, the damage penalty, and the summoner-
+  death rule from 3 angles; 3 in `character.rs`'s `elementalist_tests`
+  covering `GolemType`'s default and `golem_slot_types`' JSON
+  round-trip/pre-existing-save migration). Also caught up
+  `WIKI_IMPACT.md` with one consolidated entry per stage done so far
+  (Stages 1-5), since CLAUDE.md's standing rule applies regardless of
+  this branch not being merged/deployed yet. Full suite: **227
+  passing, 0 failed** (was 216).
 - Commit is next.
 
 ---

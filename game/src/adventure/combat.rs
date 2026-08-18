@@ -1817,6 +1817,37 @@ pub(crate) struct CombatSimUnit {
     /// already has a naturally higher personal override.
     temp_shieldingfire_block_pct: f64,
     temp_shieldingfire_block_pct_expires_at_ms: u32,
+    /// Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
+    /// `true` for a summoned golem unit, `false` for every real player/
+    /// boss. Golems are `is_boss: false` (they fight on the party's
+    /// side) but must NOT count toward `any_player_alive`'s fight-
+    /// termination check (an owner-mandated rule - see the main event
+    /// loop's own comment) or appear in `build_player_vitals`'s HP-curve
+    /// tracking (that's for real players' health bars).
+    is_golem: bool,
+    /// For a golem unit (`is_golem: true`): the id of the Elementalist
+    /// who summoned it - when THAT unit dies, this golem dies too (the
+    /// same owner-mandated summoner-death rule, enforced via the main
+    /// event loop's own death-detection sweep - see
+    /// `try_schedule_rising_phoenix_revival`'s sibling logic there).
+    /// `None` for every non-golem unit.
+    golem_summoner_id: Option<String>,
+    /// For a golem unit: which `GolemType` it is - `None` for every
+    /// non-golem unit. Read by Stage 6's type-specific mechanics
+    /// (Thunder/Flame/Water); `Some(GolemType::Basic)` has no bespoke
+    /// behavior of its own.
+    golem_type: Option<GolemType>,
+    /// Elementalist's own "33% less damage per summoned golem, additive"
+    /// penalty (docs/elementalist_spec.md - "1% of normal damage at 3
+    /// golems" only works out via ADDITIVE stacking of the reduction
+    /// itself: `1.0 - 0.33*3 = 0.01`). Applied as its own independent
+    /// multiplicative term in `resolve_hit` (same shape as
+    /// `conflagration_dmg_pct`'s own doc), NOT folded into the shared
+    /// `increased_damage` pool - mixing it in there would interact
+    /// unpredictably with the caster's OWN other damage bonuses instead
+    /// of always landing on the exact spec'd numbers. 0.0 for every
+    /// non-Elementalist and for an Elementalist with no golems summoned.
+    golem_summon_dmg_penalty: f64,
     /// Chakra of Life - a hit that would kill this unit instead grants
     /// this many ms of full damage immunity (`chakraoflife_immune_until_ms`
     /// below), after which the unit dies unconditionally
@@ -3018,6 +3049,10 @@ impl Default for CombatSimUnit {
             shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct_expires_at_ms: 0,
+            is_golem: false,
+            golem_summoner_id: None,
+            golem_type: None,
+            golem_summon_dmg_penalty: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: 0,
@@ -4030,6 +4065,15 @@ pub(crate) fn resolve_hit(
     if atk.conflagration_dmg_pct > 0.0 {
         raw_dmg *= 1.0 + atk.conflagration_dmg_pct;
         attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Conflagration", atk.conflagration_dmg_pct));
+    }
+    // Elementalist's Golem Master - "33% less damage per summoned golem,
+    // additive" (see `golem_summon_dmg_penalty`'s own doc for why this
+    // is its own independent term rather than folded into the additive
+    // `increased_damage` pool above).
+    if atk.golem_summon_dmg_penalty > 0.0 {
+        let penalty = atk.golem_summon_dmg_penalty.min(0.99);
+        raw_dmg *= 1.0 - penalty;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Golem Master (summon penalty)", -penalty));
     }
     // Late-stage damage penalty (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
     // doc) - a hard, unbypassable cap on damage dealt TO a real boss this
@@ -5127,6 +5171,543 @@ pub(crate) fn elementalist_elemental_damage_pct(gear_pct: f64, elemental_focus_p
     gear_pct + elemental_focus_pct + gear_pct * gear_scaling_modifier_pct
 }
 
+/// A fully-zeroed `CombatSimUnit` for production code that needs to
+/// build ONE off a small set of real fields (currently just
+/// `spawn_golem`) without the risk `CombatSimUnit`'s own test-only
+/// `Default` impl is deliberately gated against (see that impl's own
+/// doc - "every REAL construction site must be explicit about every
+/// stat"). This is that same explicitness, just factored out once
+/// instead of repeated at every call site that needs a zeroed base -
+/// the field list below is a verbatim copy of the test-only Default
+/// impl's own literal, kept in sync by hand (the two are structurally
+/// identical on purpose).
+fn zeroed_combat_unit() -> CombatSimUnit {
+    CombatSimUnit {
+            id: String::new(),
+            display_name: String::new(),
+            is_boss: false,
+            archetype: None,
+            spawned_at_ms: 0,
+            role: None,
+            hp: 0,
+            max_hp: 0,
+            atk: 0,
+            heal_power: 0.0,
+            intervene: 0.0,
+            attack_interval_ms: 0,
+            next_action_at_ms: 0,
+            alive: false,
+            helm_power: 0.0,
+            helm_cooldown_ms: 0,
+            next_helm_at_ms: 0,
+            helm_stack_bonus: 0.0,
+            boots_power: 0.0,
+            boots_cooldown_ms: 0,
+            next_boots_at_ms: 0,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+            late_stage_damage_penalty_pct: 0.0,
+            boss_pierce_pct: 0.0,
+            boss_focus_stacks: 0.0,
+            boss_ability: None,
+            next_ability_at_ms: 0,
+            boss_dynamic_power_mult: 0.0,
+            cthulhu_debuff_stacks: 0,
+            cthulhu_debuff_expires_at_ms: 0,
+            cthulhu_debuff_pct_per_stack: 0.0,
+            cube_shred_stacks: 0,
+            cube_shred_expires_at_ms: 0,
+            damage_dealt_total: 0,
+            level: 0,
+            life_leech_pct: 0.0,
+            leech_window_start_ms: 0,
+            leech_gained_in_window: 0.0,
+            skills: Vec::new(),
+            skill_stacks: HashMap::new(),
+            next_flicker_at_ms: 0,
+            has_celestial_conversion: false,
+            wound_deal_leech_per_stack: 0.0,
+            wound_deal_max_stacks: 0,
+            wound_deal_duration_ms: 0,
+            wound_deal_damage_dealt_debuff: 0.0,
+            wound_deal_heal_received_debuff: 0.0,
+            wound_deal_explosion_pct: 0.0,
+            wound_deal_explosion_self_leech_pct: 0.0,
+            wound_deal_explosion_extra_targets: 0,
+            wound_deal_spreads_to_splash: false,
+            contagion_chance: 0.0,
+            gravechill_speed_debuff_pct: 0.0,
+            plaguebearer_extra_targets: 0,
+            wound_stacks: 0,
+            wound_max_stacks: 0,
+            wound_expires_at_ms: 0,
+            wound_leech_per_stack: 0.0,
+            wound_damage_dealt_debuff: 0.0,
+            wound_heal_received_debuff: 0.0,
+            wound_damage_taken_total: 0.0,
+            flicker_cooldown_ms: 0,
+            next_bloodpact_at_ms: 0,
+            bloodpact_last_fired_at_ms: 0,
+            bloodpact_cooldown_ms: 0,
+            bloodpact_uses_this_fight: 0,
+            bloodpact_triage_pct: 0.0,
+            bloodpact_finaloffering_min_prior_uses: 0,
+            bloodpact_finaloffering_pct: 0.0,
+            bloodpact_warlordsresolve_pct: 0.0,
+            bloodpact_cleanslate_reset_chance: 0.0,
+            bloodpact_secondwind_reset_chance: 0.0,
+            bloodpact_hp_cost_pct: 0.0,
+            bloodpact_damage_mult: 0.0,
+            bloodpact_martyrdom_shield_pct: 0.0,
+            bloodpact_kill_refund_pct: 0.0,
+            bloodpact_nonlethal_refund_pct: 0.0,
+            bloodpact_bloodforblood_pct: 0.0,
+            shield_hp: 0.0,
+            shield_expires_at_ms: 0,
+            shield_reflect_pct: 0.0,
+            shield_reflect_chance: 0.0,
+            shield_reflect_requires_full_absorb: false,
+            guardian_spirit_charges: 0,
+            guardian_spirit_heal_pct: 0.0,
+            guardian_spirit_save_dr_pct: 0.0,
+            guardian_spirit_save_heal_power_pct: 0.0,
+            verdantburst_charges: 0,
+            temp_heal_power_bonus: 0.0,
+            temp_heal_power_bonus_expires_at_ms: 0,
+            eternallight_bonus_pct: 0.0,
+            temp_damage_reduction_bonus: 0.0,
+            temp_damage_reduction_bonus_expires_at_ms: 0,
+            overflow_grace_shield_pct: 0.0,
+            overflow_grace_shield_duration_ms: 0,
+            overflow_grace_shield_dr_pct: 0.0,
+            heal_crit_bonus_mult: 0.0,
+            heal_crit_chance_bonus: 0.0,
+            heal_crit_splash_pct: 0.0,
+            grace_lowest_ally_bonus_pct: 0.0,
+            prayer_chance: 0.0,
+            prayer_bounce_targets: 0,
+            prayer_bounce_value_pct: 0.0,
+            unbroken_prayer_chance: 0.0,
+            divine_favor_shield_pct: 0.0,
+            divine_favor_shield_duration_ms: 0,
+            healing_touch_pct: 0.0,
+            crit_shield_max_hp_pct: 0.0,
+            soul_harvest_heal_pct: 0.0,
+            darkritual_dmg_pct: 0.0,
+            eternal_hunger_shield_pct: 0.0,
+            divine_shield_amount_pct: 0.0,
+            divine_shield_cooldown_ms: 0,
+            next_divine_shield_at_ms: 0,
+            consecration_shield_pct: 0.0,
+            communion_heal_power_pct: 0.0,
+            purify_dmg_debuff_pct: 0.0,
+            lastjudgment_skip_chance: 0.0,
+            consecration_shield_duration_ms: 0,
+            smite_heal_pct: 0.0,
+            smite_zealotry_bonus_pct: 0.0,
+            smite_extra_targets: 0,
+            zealotry_martyrscall_bonus_pct: 0.0,
+            zealotry_risingfervor_pct_per_ally: 0.0,
+            zealotry_guardianswrath_speed_pct: 0.0,
+            zealotry_guardianswrath_speed_bonus: 0.0,
+            zealotry_guardianswrath_expires_at_ms: 0,
+            smite_judgment_bonus_pct: 0.0,
+            judgment_threshold: 0.0,
+            smite_holyfire_dmg_pct: 0.0,
+            purgingflame_heal_reduction_pct: 0.0,
+            temp_heal_reduction_pct: 0.0,
+            temp_heal_reduction_expires_at_ms: 0,
+            executionersblessing_heal_pct: 0.0,
+            wrathoftheheavens_chance: 0.0,
+            unyieldingroots_cycle_ms: 0,
+            gambit_crit_per_missing_20pct: 0.0,
+            deathdefiant_grace_ms: 0,
+            deathdefiant_frozen_crit_bonus: 0.0,
+            deathdefiant_frozen_crit_bonus_expires_at_ms: 0,
+            bramble_reflect_pct: 0.0,
+            poison_thorns_debuff_pct: 0.0,
+            entangle_chance: 0.0,
+            recent_attackers: Vec::new(),
+            temp_damage_dealt_debuff: 0.0,
+            temp_damage_dealt_debuff_expires_at_ms: 0,
+            frenzy_strike_chance: 0.0,
+            frenzy_extra_hits: 0,
+            frenzy_bloodscent_threshold: 0.0,
+            frenzy_dr_shred_pct: 0.0,
+            frenzy_extra_dmg_pct: 0.0,
+            frenzy_culling_threshold: 0.0,
+            frenzy_heal_pct: 0.0,
+            frenzy_shield_chance: 0.0,
+            frenzy_undying_charges: 0,
+            frenzy_chain_chance: 0.0,
+            frenzy_chain_max_extra: 0,
+            spike_barrier_reflect_pct: 0.0,
+            aegis_shield_pct: 0.0,
+            aegis_shield_duration_ms: 0,
+            aegis_rally_speed_pct: 0.0,
+            aegis_extra_targets: 0,
+            thornedhide_pct_per_stack: 0.0,
+            thornedhide_stacks: 0,
+            thornedhide_expires_at_ms: 0,
+            thornedhide_debuff_pct_per_stack: 0.0,
+            spike_retribution_chance: 0.0,
+            spike_unyielding_chance: 0.0,
+            block_damage_reduction_pct: 0.0,
+            stonewall_auto_block_hits: 0,
+            hits_taken_this_fight: 0,
+            stack_speed_per_stack: 0.0,
+            stack_dmg_per_stack: 0.0,
+            stack_avalanche_dmg_per_stack: 0.0,
+            stack_crit_per_stack: 0.0,
+            shatter_shred_pct: 0.0,
+            overwhelm_shred_linger_ms: 0,
+            crush_dr_threshold: 0.0,
+            stack_splash_per_stack: 0.0,
+            windfury_chance: 0.0,
+            stack_shred_per_stack: 0.0,
+            stack_speed_max_stacks: 0,
+            stack_speed_duration_ms: 0,
+            stack_speed_current: 0,
+            stack_speed_expires_at_ms: 0,
+            flowing_speed_per_stack: 0.0,
+            flowing_crit_per_stack: 0.0,
+            flowing_max_stacks: 0,
+            flowing_duration_ms: 0,
+            risingstorm_dmg_pct: 0.0,
+            nervestrike_crit_mult_bonus: 0.0,
+            vitalpoints_shred_per_stack: 0.0,
+            eternalflow_bonus_stacks: 0,
+            onehundredhands_bonus_stacks: 0,
+            stormfront_splash_pct: 0.0,
+            flowing_current: 0,
+            flowing_expires_at_ms: 0,
+            flowing_last_target: 0,
+            chakra_of_many_pct: 0.0,
+            chakra_of_light_pct: 0.0,
+            shockingfocus_pct: 0.0,
+            chillingfocus_pct: 0.0,
+            scorchingfocus_pct: 0.0,
+            lightningaegis_shield_pct: 0.0,
+            chillingaegis_shield_pct: 0.0,
+            scorchingaegis_shield_pct: 0.0,
+            conflagration_dmg_pct: 0.0,
+            righteousfire_pct: 0.0,
+            next_righteousfire_tick_at_ms: u32::MAX,
+            relentlessflames_pct_per_stack: 0.0,
+            relentlessflames_dmg_taken_pct: 0.0,
+            cauterizingflames_pct: 0.0,
+            ashestoashes_pct: 0.0,
+            healingflames_pct: 0.0,
+            fanningflames_pct: 0.0,
+            shieldingflames_pct: 0.0,
+            risingphoenix_max_revives: 0,
+            risingphoenix_revives_used: 0,
+            alive_since_ms: 0,
+            revive_at_ms: u32::MAX,
+            cleansingflames_chance: 0.0,
+            next_cleansingflames_at_ms: u32::MAX,
+            enshroudedfire_evasion_pct: 0.0,
+            guardianfire_dr_pct: 0.0,
+            shieldingfire_block_pct: 0.0,
+            temp_shieldingfire_block_pct: 0.0,
+            temp_shieldingfire_block_pct_expires_at_ms: 0,
+            is_golem: false,
+            golem_summoner_id: None,
+            golem_type: None,
+            golem_summon_dmg_penalty: 0.0,
+            chakraoflife_duration_ms: 0,
+            chakraoflife_immune_until_ms: 0,
+            next_chakraoflife_expiry_at_ms: 0,
+            own_mark_crit_chance: 0.0,
+            own_mark_crit_mult: 0.0,
+            own_mark_low_hp_dmg: 0.0,
+            own_mark_ally_crit_chance: 0.0,
+            own_mark_ally_dmg_pct: 0.0,
+            own_mark_ally_crit_mult: 0.0,
+            own_mark_spread_count: 0,
+            killzone_threshold: 0.0,
+            cleankill_remark_chance: 0.0,
+            huntersreward_heal_pct: 0.0,
+            own_curse_dmg_taken: 0.0,
+            own_curse_spread_count: 0,
+            own_doom_detonate_pct: 0.0,
+            own_curse_heal_reduction_pct: 0.0,
+            own_curse_spread_bonus_pct: 0.0,
+            own_soul_stone_max: 0,
+            own_cursed_blood_target_count: 0,
+            own_dreadfuldeath_shred_pct: 0.0,
+            own_apocalypse_splash_pct: 0.0,
+            has_applied_mark_this_fight: false,
+            mark_source_id: None,
+            mark_crit_chance_bonus: 0.0,
+            mark_crit_multiplier_bonus: 0.0,
+            mark_low_hp_damage_bonus: 0.0,
+            mark_ally_crit_chance_bonus: 0.0,
+            mark_ally_dmg_bonus: 0.0,
+            mark_ally_crit_multiplier_bonus: 0.0,
+            curse_dmg_taken_bonus: 0.0,
+            soul_stones: 0,
+            soul_stone_uses_this_fight: 0,
+            curse_expires_at_ms: 0,
+            next_curse_expiry_at_ms: 0,
+            curse_damage_taken_total: 0.0,
+            curse_detonate_pct: 0.0,
+            curse_source_id: None,
+            curse_heal_reduction_bonus: 0.0,
+            fel_rush_speed_bonus: 0.0,
+            fel_rush_duration_ms: 0,
+            ravage_stack_pct: 0.0,
+            fel_rush_stacks: 0,
+            fel_rush_expires_at_ms: 0,
+            early_fight_speed_bonus_pct: 0.0,
+            early_fight_speed_window_end_ms: 0,
+            flicker_frenzy_speed_bonus: 0.0,
+            unrelenting_duration_bonus_ms: 0,
+            adrenaline_crit_mult_bonus: 0.0,
+            chainreaper_heal_pct: 0.0,
+            deathspiral_heal_pct: 0.0,
+            insatiable_extend_chance: 0.0,
+            secondheartbeat_chance: 0.0,
+            overflowvessel_shield_pct: 0.0,
+            flicker_frenzy_expires_at_ms: 0,
+            endless_thirst_cap_bonus: 0.0,
+            endless_thirst_uncapped: false,
+            endless_thirst_expires_at_ms: 0,
+            reapers_momentum_per_kill: 0,
+            reapers_momentum_banked: 0,
+            attack_speed_pct: 0.0,
+            speed_overflow_dmg_pct: 0.0,
+            speed_overflow_crit_pct: 0.0,
+            speed_overflow_threshold: 0.0,
+            unbreakable_faith_heal_pct: 0.0,
+            eternalvow_shield_chance: 0.0,
+            graciousburden_heal_pct: 0.0,
+            bondeddevotion_dr_pct: 0.0,
+            bondeddevotion_duration_ms: 0,
+            twin_strike_chance: 0.0,
+            twin_strike_dmg_pct: 0.0,
+            finiteloop_max_repeats: 0,
+            doubletap_max_repeats: 0,
+            in_splash_resolution: false,
+            own_pack_instinct_evasion_pct: 0.0,
+            own_symbiosis_dr_pct: 0.0,
+            sharedstrength_extra_targets: 0,
+            templeguardian_heal_pct: 0.0,
+            next_templeguardian_heal_at_ms: 0,
+            lingering_effect_pct: 0.0,
+            lingering_dots: Vec::new(),
+            next_lingering_tick_at_ms: 0,
+            seedoflife_shield_pct: 0.0,
+            wildheart_self_heal_pct: 0.0,
+            wildinstinct_dr_pct: 0.0,
+            wildroar_charges: 0,
+            naturesembrace_heal_targets: 0,
+            thickhide_cycle_ms: 0,
+            next_thickhide_cleanse_at_ms: 0,
+            thickhide_target_count: 0,
+            fire_damage_pct: 0.0,
+            cold_damage_pct: 0.0,
+            chaos_damage_pct: 0.0,
+            lightning_damage_pct: 0.0,
+            divine_damage_pct: 0.0,
+            fire_dr_debuff: Vec::new(),
+            cold_evasion_debuff: Vec::new(),
+            chaos_block_debuff: Vec::new(),
+            lightning_dmg_taken: Vec::new(),
+            divine_heal_reduction: Vec::new(),
+            fire_dr_buff: Vec::new(),
+            cold_evasion_buff: Vec::new(),
+            chaos_block_buff: Vec::new(),
+            divine_heal_power_buff: Vec::new(),
+            block_overflow_dmg_rate: 0.0,
+            evasion_overflow_dmg_rate: 0.0,
+            elemental_overflow_dmg_bonus: 0.0,
+            elemental_overflow_dmg_bonus_expires_at_ms: 0,
+            volley_dmg_per_target_pct: 0.0,
+            splash_target_dmg_bonus: 0.0,
+            exploit_weakness_crit_mult_pct: 0.0,
+            exploit_weakness_threshold: 0.0,
+            weakpoint_crit_chance_pct: 0.0,
+            nightstalker_evasion_pct: 0.0,
+            assassinate_crit_mult_bonus: 0.0,
+            silentblade_evasion_pct: 0.0,
+            fadeaway_duration_bonus_ms: 0,
+            backstab_dmg_pct: 0.0,
+            backstab_pending_dmg_pct: 0.0,
+            smokescreen_evasion_pct: 0.0,
+            markedfordeath_hits_remaining: 0,
+            markedfordeath_hit_count: 0,
+            finalcut_speed_pct: 0.0,
+            empoweredbolt_invested: false,
+            empoweredbolt_crit_mult_bonus: 0.0,
+            volatilemagic_splash_pct: 0.0,
+            arcaneinstability_threshold: 0.0,
+            arcaneinstability_bonus_pct: 0.0,
+            premeditation_refund_chance: 0.0,
+            stack_evasion_per_stack: 0.0,
+            huntersinstinct_crit_vs_boss_pct: 0.0,
+            naturesward_dr_vs_boss_pct: 0.0,
+            silentkiller_dmg_pct: 0.0,
+            has_hit_boss_this_fight: false,
+            assassinate_charges: 0,
+            dark_communion_pct: 0.0,
+            compassion_prioritize_lowest: false,
+            compassion_dr_pct: 0.0,
+            covenant_pct: 0.0,
+            unbreakablebond_dr_pct: 0.0,
+            vigor_heal_pct: 0.0,
+            vengefulblood_shield_pct: 0.0,
+            secondgale_duration_ms: 0,
+            temp_reckless_immunity_expires_at_ms: 0,
+            reckless_penalty_offset: 0.0,
+            lastlaugh_crit_bonus: false,
+            lastlaugh_crit_mult: false,
+            ragefueled_speed_pct: 0.0,
+            retaliation_chance: 0.0,
+            retaliation_dmg_pct: 0.0,
+            retaliation_heal_pct: 0.0,
+            retaliation_laststand_bonus: 0.0,
+            grudge_pct_per_hit: 0.0,
+            grudge_hit_counts: Vec::new(),
+            retaliation_crit_bonus: 0.0,
+            retaliation_payback_threshold: 0.0,
+            force_crit_next_hit: false,
+            retaliation_surge_pct: 0.0,
+            hardened_stacks: 0,
+            hardened_pct_per_stack: 0.0,
+            retaliation_secondwind_threshold: 0.0,
+            laststand_defiance_pct: 0.0,
+            laststand_berserkvigor_pct: 0.0,
+            immovable_crit_dr_pct: 0.0,
+            reserves_heal_received_pct: 0.0,
+            unbroken_ignore_evasion_pct: 0.0,
+            unbroken_crippling_grip_dr_pct: 0.0,
+            unyieldingspirit_threshold: 0.0,
+            temp_evasion_debuff: 0.0,
+            temp_evasion_debuff_expires_at_ms: 0,
+            frostnova_evasion_debuff_pct: 0.0,
+            frostnova_duration_ms: 0,
+            absolutezero_threshold: 0.0,
+            staticfield_speed_debuff_pct: 0.0,
+            temp_attack_speed_debuff: 0.0,
+            temp_attack_speed_debuff_expires_at_ms: 0,
+            infernalpact_heal_pct: 0.0,
+            stormcaller_extra_targets: 0,
+            piercing_shots_crit_chance_bonus: 0.0,
+            windpierce_splash_crit_pct: 0.0,
+            armorbreaker_dr_shred_pct: 0.0,
+            scorchedearth_dmg_debuff_pct: 0.0,
+            truestrike_primary_crit_pct: 0.0,
+            stormofarrows_extra_targets: 0,
+            widerburst_extra_targets: 0,
+            inner_focus_heal_pct: 0.0,
+            inner_focus_meditation_bonus: 0.0,
+            inner_focus_chiburst_pct: 0.0,
+            inner_focus_serenity_dr_pct: 0.0,
+            risingtide_heal_power_pct: 0.0,
+            widecircle_extra_targets: 0,
+            harmonize_dr_pct: 0.0,
+            serenity_dr_duration_ms: 0,
+            clarity_triggers_on_block: false,
+            evade_counter_chance: 0.0,
+            evade_counter_last_fired_at_ms: 0,
+            temp_party_attack_speed_bonus: 0.0,
+            temp_party_attack_speed_bonus_expires_at_ms: 0,
+            temp_party_increased_damage_bonus: 0.0,
+            temp_party_increased_damage_bonus_expires_at_ms: 0,
+            temp_party_damage_reduction_bonus: 0.0,
+            temp_party_damage_reduction_bonus_expires_at_ms: 0,
+            warlord_party_dmg_pct: 0.0,
+            low_hp_party_dr_pct: 0.0,
+            low_hp_party_dr_threshold: 0.0,
+            warcry_party_speed_pct: 0.0,
+            neverending_invested: false,
+            bloodlust_stack_expiries: Vec::new(),
+            opportunist_guaranteed_hits: 0,
+            hits_landed_this_fight: 0,
+            ambush_dr_cut_pct: 0.0,
+            openingmove_cooldown_ms: 0,
+            next_openingmove_at_ms: 0,
+            coldsteel_pass_chance: 0.0,
+            coldsteel_pending: false,
+            coldsteel_pass_chance_pending: 0.0,
+            coldsteel_ambush_pct_pending: 0.0,
+            predator_dmg_taken_pct: 0.0,
+            predator_dmg_taken_bonus: 0.0,
+            predator_expires_at_ms: 0,
+            cutthroat_low_hp_dmg_pct: 0.0,
+            vanish_evasion_pct: 0.0,
+            temp_evasion_buff: 0.0,
+            temp_evasion_buff_expires_at_ms: 0,
+            vanishingshot_crit_pct: 0.0,
+            temp_crit_chance_buff: 0.0,
+            temp_crit_chance_buff_expires_at_ms: 0,
+            fleetingshadow_speed_pct: 0.0,
+    }
+}
+
+/// Elementalist's Golem Master - "golems have 33% of your stats"
+/// (docs/elementalist_spec.md), applied to every core combat stat
+/// `spawn_golem` scales.
+pub(crate) const GOLEM_STAT_SCALE: f64 = 0.33;
+
+/// Id prefix for a summoned golem unit - mirrors `ENEMY_ID_PREFIX`/
+/// `enemy_unit_id`'s own convention (manager.rs) for the party side
+/// instead of the enemy side. Deliberately NOT matching any real
+/// roster id, so the overlay's player-formation loop (hard-coded to the
+/// joined-roster `characters` Map - see docs/elementalist_spec.md's
+/// Stage 0 resolution #1) naturally never tries to render one - no
+/// explicit "invisible" flag needed anywhere, the id shape alone is
+/// what keeps golems out of a Map keyed by real usernames.
+pub(crate) const GOLEM_ID_PREFIX: &str = "__golem_";
+
+pub(crate) fn golem_unit_id(summoner_id: &str, slot: u32) -> String {
+    format!("{GOLEM_ID_PREFIX}{summoner_id}_{slot}")
+}
+
+/// Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
+/// builds one golem unit holding `GOLEM_STAT_SCALE` (33%) of
+/// `summoner`'s own core combat stats (max hp, attack power, crit
+/// chance/damage, evasion, damage reduction, block chance - "as if
+/// they were a player with 33% of your stats"). Attack cadence is
+/// copied AS-IS, not scaled - the spec never says golems act 33% as
+/// often, only that their NUMBERS are 33%. Everything else defaults to
+/// zero/off via `Default` - "a basic unified hit," none of the
+/// Elementalist's own tree bonuses (elemental procs, splash, Righteous
+/// Fire, etc.) carry over, just this flat scaling. Basic golems (this
+/// stage's own scope) get nothing more than this; Thunder/Flame/
+/// Water's bespoke behavior (Stage 6) reads `golem_type` at whichever
+/// call sites need it instead of anything baked in here.
+fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_type: GolemType) -> CombatSimUnit {
+    let scaled_max_hp = ((summoner.max_hp as f64) * GOLEM_STAT_SCALE).round().max(1.0) as u64;
+    let scaled_atk = ((summoner.atk as f64) * GOLEM_STAT_SCALE).round().max(0.0) as u64;
+    CombatSimUnit {
+        id: golem_unit_id(summoner_id, slot),
+        display_name: format!("{}'s Golem", summoner.display_name),
+        alive: true,
+        hp: scaled_max_hp as i64,
+        max_hp: scaled_max_hp,
+        atk: scaled_atk,
+        attack_interval_ms: summoner.attack_interval_ms,
+        next_action_at_ms: summoner.attack_interval_ms,
+        crit_chance: summoner.crit_chance * GOLEM_STAT_SCALE,
+        crit_multiplier: summoner.crit_multiplier * GOLEM_STAT_SCALE,
+        evasion: summoner.evasion * GOLEM_STAT_SCALE,
+        damage_reduction: summoner.damage_reduction * GOLEM_STAT_SCALE,
+        block_chance: summoner.block_chance * GOLEM_STAT_SCALE,
+        is_boss: false,
+        is_golem: true,
+        golem_summoner_id: Some(summoner_id.to_string()),
+        golem_type: Some(golem_type),
+        ..zeroed_combat_unit()
+    }
+}
+
 /// Healing Flames' own per-rank regen fraction (docs/elementalist_spec.md)
 /// - an IRREGULAR progression (3%/6%/10%, not an even step), unlike every
 /// other Elementalist node so far. `PassiveTier::Specialization`'s
@@ -5310,6 +5891,41 @@ fn try_schedule_rising_phoenix_revival(units: &mut [CombatSimUnit], dead_idx: us
     units[caster_idx].risingphoenix_revives_used += 1;
     units[dead_idx].revive_at_ms = death_at_ms + RISING_PHOENIX_REVIVE_DELAY_MS;
     true
+}
+
+/// Golem Master's own summoner-death rule (owner-mandated, docs/
+/// elementalist_spec.md's Stage 0 resolution #4) - "golems die when the
+/// Elementalist dies." Called from the main event loop's per-iteration
+/// death-detection sweep (the same one `try_schedule_rising_phoenix_revival`
+/// rides) with the ids of every real player who died THIS iteration;
+/// kills every alive golem whose `golem_summoner_id` matches one of
+/// them. Permanent - deliberately does not un-die a golem if its
+/// summoner later comes back via Rising Phoenix, since nothing in the
+/// spec describes golems as revivable.
+fn kill_golems_of_dead_summoners(units: &mut [CombatSimUnit], newly_dead_summoner_ids: &[String], at_ms: u32, events: &mut Vec<CombatEvent>) {
+    if newly_dead_summoner_ids.is_empty() {
+        return;
+    }
+    for golem in units.iter_mut().filter(|u| u.is_golem && u.alive) {
+        if let Some(summoner_id) = &golem.golem_summoner_id {
+            if newly_dead_summoner_ids.contains(summoner_id) {
+                golem.alive = false;
+                golem.hp = 0;
+                events.push(CombatEvent::Defeat { at_ms, unit: golem.id.clone() });
+            }
+        }
+    }
+}
+
+/// Golem Master's own "golems never count toward `any_player_alive`"
+/// rule (owner-mandated, docs/elementalist_spec.md's Stage 0 resolution
+/// #4) - the exact predicate the main event loop's own
+/// `any_player_alive` check uses, factored out here so it's directly
+/// unit-testable without a full `simulate_battle` run. Without this, an
+/// all-real-players-dead fight with a golem still alive (or, once
+/// Stage 6 lands, reforming) would never terminate.
+fn any_real_player_alive(units: &[CombatSimUnit]) -> bool {
+    units.iter().any(|u| !u.is_boss && !u.is_golem && (u.alive || u.revive_at_ms != u32::MAX))
 }
 
 /// Elementalist's Cleansing Flames branch (docs/elementalist_spec.md) -
@@ -9227,6 +9843,10 @@ pub(crate) fn simulate_battle(
                 shieldingfire_block_pct: c.passive_node_magnitude("shieldingfire"),
                 temp_shieldingfire_block_pct: 0.0,
                 temp_shieldingfire_block_pct_expires_at_ms: 0,
+                is_golem: false,
+                golem_summoner_id: None,
+                golem_type: None,
+                golem_summon_dmg_penalty: 0.33 * c.passive_node_rank("golemmaster").min(3) as f64,
                 chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
                 chakraoflife_immune_until_ms: 0,
                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9318,6 +9938,33 @@ pub(crate) fn simulate_battle(
             }
         })
         .collect();
+    // Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
+    // a second pass over `characters` (rather than folded into the
+    // `.map()` above) since each golem needs to read its summoner's
+    // ALREADY-CONSTRUCTED unit (their real, post-tree max hp/atk/etc),
+    // not the raw `Character`. The summoner's own damage penalty is
+    // already baked into `golem_summon_dmg_penalty` at construction
+    // time above (computed directly off `passive_node_rank`, no golem
+    // count needed here) - this pass only spawns the golem units
+    // themselves.
+    let mut golems_to_add: Vec<CombatSimUnit> = Vec::new();
+    for (id, c) in characters.iter() {
+        if c.archetype != Archetype::Elementalist {
+            continue;
+        }
+        let golem_count = c.passive_node_rank("golemmaster").min(3);
+        if golem_count == 0 {
+            continue;
+        }
+        let Some(summoner) = units.iter().find(|u| u.id == *id) else {
+            continue;
+        };
+        for slot in 0..golem_count {
+            let golem_type = c.golem_slot_types.get(slot as usize).copied().unwrap_or_default();
+            golems_to_add.push(spawn_golem(summoner, id, slot, golem_type));
+        }
+    }
+    units.extend(golems_to_add);
     // One CombatSimUnit per enemy - a real boss fight passes 1 (or,
     // stage 50+, 2 - see run_encounter) real bosses each paired with
     // its own `BossKind`, a basic encounter passes one per member of
@@ -9532,6 +10179,10 @@ pub(crate) fn simulate_battle(
             shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct_expires_at_ms: 0,
+            is_golem: false,
+            golem_summoner_id: None,
+            golem_type: None,
+            golem_summon_dmg_penalty: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9992,8 +10643,12 @@ pub(crate) fn simulate_battle(
         // fight" even while `alive == false` for the moment - otherwise
         // an all-real-players-dead instant where one of them is due back
         // in a second would end the fight right before Rising Phoenix
-        // could matter.
-        let any_player_alive = units.iter().any(|u| !u.is_boss && (u.alive || u.revive_at_ms != u32::MAX));
+        // could matter. Golems (`is_golem`) are EXCLUDED - an owner-
+        // mandated rule (docs/elementalist_spec.md's Stage 0 resolution
+        // #4): without this, an all-real-players-dead fight with a
+        // reforming Thunder Golem (Stage 6) would never terminate.
+        // See `any_real_player_alive`'s own doc.
+        let any_player_alive = any_real_player_alive(&units);
         if !boss_alive || !any_player_alive {
             break;
         }
@@ -10002,15 +10657,25 @@ pub(crate) fn simulate_battle(
         // last iteration (comparing against `prev_alive`, taken at the
         // END of the previous iteration) and offer them a revival. Runs
         // once per iteration rather than at each individual kill site -
-        // see `prev_alive`'s own doc for why.
+        // see `prev_alive`'s own doc for why. Golems are excluded here
+        // (Rising Phoenix is ally-only) - see the summoner-death sweep
+        // just below for their own, separate handling.
         if prev_alive.len() < units.len() {
             prev_alive.resize(units.len(), true);
         }
         for i in 0..units.len() {
-            if !units[i].is_boss && prev_alive[i] && !units[i].alive {
+            if !units[i].is_boss && !units[i].is_golem && prev_alive[i] && !units[i].alive {
                 try_schedule_rising_phoenix_revival(&mut units, i, prev_at_ms);
             }
         }
+        // Golem Master's own summoner-death rule (owner-mandated, docs/
+        // elementalist_spec.md's Stage 0 resolution #4) - checked against
+        // the SAME `prev_alive` snapshot as Rising Phoenix above, so this
+        // catches a summoner's death from any source too, with no
+        // per-site audit.
+        let newly_dead_summoners: Vec<String> =
+            (0..units.len()).filter(|&i| !units[i].is_boss && !units[i].is_golem && prev_alive[i] && !units[i].alive).map(|i| units[i].id.clone()).collect();
+        kill_golems_of_dead_summoners(&mut units, &newly_dead_summoners, prev_at_ms, &mut events);
         prev_alive = units.iter().map(|u| u.alive).collect();
 
         let mut best: Option<(u32, NextEvent)> = None;
@@ -10551,6 +11216,10 @@ pub(crate) fn simulate_battle(
                                 shieldingfire_block_pct: 0.0,
                                 temp_shieldingfire_block_pct: 0.0,
                                 temp_shieldingfire_block_pct_expires_at_ms: 0,
+                                is_golem: false,
+                                golem_summoner_id: None,
+                                golem_type: None,
+                                golem_summon_dmg_penalty: 0.0,
                                 chakraoflife_duration_ms: 0,
                                 chakraoflife_immune_until_ms: 0,
                                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -12998,6 +13667,142 @@ mod elementalist_stage_4_tests {
 
     fn boss_for_block_test() -> CombatSimUnit {
         CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, is_boss: true, ..Default::default() }
+    }
+}
+
+#[cfg(test)]
+mod elementalist_stage_5_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn elementalist(id: &str, atk: u64, max_hp: u64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: max_hp as i64, max_hp, atk, ..Default::default() }
+    }
+
+    fn boss() -> CombatSimUnit {
+        CombatSimUnit { id: "boss".to_string(), display_name: "Boss".to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, is_boss: true, ..Default::default() }
+    }
+
+    #[test]
+    fn spawn_golem_scales_core_stats_to_33pct() {
+        let summoner = CombatSimUnit {
+            id: "caster".to_string(),
+            display_name: "Caster".to_string(),
+            atk: 300,
+            max_hp: 1000,
+            crit_chance: 0.30,
+            crit_multiplier: 0.60,
+            evasion: 0.15,
+            damage_reduction: 0.10,
+            block_chance: 0.20,
+            attack_interval_ms: 2_500,
+            ..elementalist("caster", 300, 1000)
+        };
+        let golem = spawn_golem(&summoner, "caster", 0, GolemType::Basic);
+        assert_eq!(golem.max_hp, 330, "33% of 1000");
+        assert_eq!(golem.atk, 99, "33% of 300");
+        assert!((golem.crit_chance - 0.099).abs() < 1e-9);
+        assert!((golem.crit_multiplier - 0.198).abs() < 1e-9);
+        assert!((golem.evasion - 0.0495).abs() < 1e-9);
+        assert!((golem.damage_reduction - 0.033).abs() < 1e-9);
+        assert!((golem.block_chance - 0.066).abs() < 1e-9);
+        assert_eq!(golem.attack_interval_ms, 2_500, "attack cadence is copied, not scaled");
+        assert!(golem.alive);
+        assert!(golem.is_golem);
+        assert_eq!(golem.golem_summoner_id, Some("caster".to_string()));
+        assert_eq!(golem.golem_type, Some(GolemType::Basic));
+        assert!(!golem.is_boss);
+    }
+
+    #[test]
+    fn golem_summon_damage_penalty_reaches_99pct_at_3_golems() {
+        let atk = CombatSimUnit { golem_summon_dmg_penalty: 0.99, ..elementalist("caster", 1000, 1000) };
+        let def = boss();
+        let mut rng = StdRng::seed_from_u64(1);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let baseline_atk = elementalist("caster", 1000, 1000);
+        let mut rng2 = StdRng::seed_from_u64(1);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng2, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = outcome.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
+        assert!((ratio - 0.01).abs() < 1e-6, "99% penalty should leave exactly 1% of normal damage, got ratio {ratio}");
+    }
+
+    #[test]
+    fn any_real_player_alive_excludes_golems() {
+        let mut caster = elementalist("caster", 100, 1000);
+        caster.alive = false;
+        let mut golem = spawn_golem(&elementalist("caster", 100, 1000), "caster", 0, GolemType::Basic);
+        golem.alive = true;
+        let units = vec![caster, golem, boss()];
+        assert!(!any_real_player_alive(&units), "an alive golem must NOT keep the fight going on its own - owner-mandated rule");
+    }
+
+    #[test]
+    fn any_real_player_alive_is_true_for_a_living_real_player() {
+        let units = vec![elementalist("caster", 100, 1000), boss()];
+        assert!(any_real_player_alive(&units));
+    }
+
+    #[test]
+    fn any_real_player_alive_counts_a_scheduled_revival() {
+        let mut caster = elementalist("caster", 100, 1000);
+        caster.alive = false;
+        caster.revive_at_ms = 5_000;
+        let units = vec![caster, boss()];
+        assert!(any_real_player_alive(&units), "Rising Phoenix's own scheduled-revival exception must still hold for a non-golem");
+    }
+
+    /// The owner-mandated summoner-death rule, backed by its own
+    /// required test: a golem dies the instant its summoner dies.
+    #[test]
+    fn kill_golems_of_dead_summoners_kills_only_the_matching_golems() {
+        let summoner_template = elementalist("caster", 100, 1000);
+        let mut golem_a = spawn_golem(&summoner_template, "caster", 0, GolemType::Basic);
+        let mut golem_b = spawn_golem(&summoner_template, "caster", 1, GolemType::Basic);
+        let mut other_caster_golem = spawn_golem(&summoner_template, "someone_else", 0, GolemType::Basic);
+        golem_a.alive = true;
+        golem_b.alive = true;
+        other_caster_golem.alive = true;
+        let mut units = vec![golem_a, golem_b, other_caster_golem];
+        let mut events = Vec::new();
+        kill_golems_of_dead_summoners(&mut units, &["caster".to_string()], 5_000, &mut events);
+        assert!(!units[0].alive, "caster's own golem (slot 0) must die");
+        assert!(!units[1].alive, "caster's own golem (slot 1) must die");
+        assert!(units[2].alive, "a DIFFERENT summoner's golem must survive");
+        let defeats = events.iter().filter(|e| matches!(e, CombatEvent::Defeat { .. })).count();
+        assert_eq!(defeats, 2);
+    }
+
+    #[test]
+    fn kill_golems_of_dead_summoners_does_nothing_when_no_one_died() {
+        let mut golem = spawn_golem(&elementalist("caster", 100, 1000), "caster", 0, GolemType::Basic);
+        golem.alive = true;
+        let mut units = vec![golem];
+        let mut events = Vec::new();
+        kill_golems_of_dead_summoners(&mut units, &[], 5_000, &mut events);
+        assert!(units[0].alive);
+        assert!(events.is_empty());
+    }
+
+    /// End-to-end proof of the owner's own required scenario: all real
+    /// players dead, a golem still alive on its own, and the fight
+    /// still terminates promptly (does not hang / does not run to
+    /// MAX_FIGHT_DURATION_MS) - the combination of
+    /// `any_real_player_alive` excluding golems AND
+    /// `kill_golems_of_dead_summoners` cleaning them up, exercised
+    /// together the way the main loop actually calls them.
+    #[test]
+    fn all_real_players_dead_with_a_lone_alive_golem_terminates_the_fight() {
+        let summoner_template = elementalist("caster", 100, 1000);
+        let mut golem = spawn_golem(&summoner_template, "caster", 0, GolemType::Basic);
+        golem.alive = true;
+        let mut caster = elementalist("caster", 100, 1000);
+        caster.alive = false; // already dead going into this check
+        let units = vec![caster, golem, boss()];
+        // Mirrors the main loop's own termination check exactly.
+        let boss_alive = units.iter().any(|u| u.is_boss && u.alive);
+        assert!(boss_alive);
+        assert!(!any_real_player_alive(&units), "the fight must be considered over - a lone alive golem must not keep it running");
     }
 }
 

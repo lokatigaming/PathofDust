@@ -36,9 +36,10 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, Item,
+    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, PassiveError, PassivePreview, PendingVeil,
-    PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate, VeilChosenOutcome,
+    PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
+    VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
     NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
 };
@@ -182,6 +183,7 @@ pub async fn start_adventure_web_server(
         .route("/passives/reset", post(do_reset_passive_preview))
         .route("/passives/respec", post(do_respec_passives))
         .route("/passives/set-secondary", post(do_set_secondary_archetype))
+        .route("/passives/set-golem-type", post(do_set_golem_slot_type))
         .route("/patch-notes", get(patch_notes))
         .route("/wiki", get(wiki::wiki_page))
         .route("/wiki/passives", get(wiki::wiki_passives_page))
@@ -894,6 +896,30 @@ async fn do_respec_passives(State(state): State<AppState>, headers: HeaderMap) -
     if let Some((login, _)) = current_session(&headers, &state).await {
         if let Err(err) = state.adventure.respec_passive_tree(&login).await {
             return Redirect::to(&passive_error_popup_url(&passive_error_text(err)));
+        }
+    }
+    Redirect::to("/passives")
+}
+
+#[derive(Deserialize)]
+struct SetGolemSlotTypeForm {
+    slot: usize,
+    golem_type: GolemType,
+}
+
+/// Elementalist's Golem Master slot-type dropdown submit (docs/
+/// elementalist_spec.md, Stage 5) - see
+/// `AdventureManager::set_golem_slot_type`. Same silent-redirect-with-
+/// popup-on-error shape as `do_set_secondary_archetype`.
+async fn do_set_golem_slot_type(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<SetGolemSlotTypeForm>) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        if let Err(err) = state.adventure.set_golem_slot_type(&login, form.slot, form.golem_type).await {
+            let reason = match err {
+                SetGolemSlotTypeError::NotJoined => "You haven't joined the adventure yet.",
+                SetGolemSlotTypeError::NotElementalist => "You need to be playing Elementalist to assign a golem type.",
+                SetGolemSlotTypeError::SlotNotUnlocked => "Invest another point in Golem Master to unlock that slot.",
+            };
+            return Redirect::to(&passive_error_popup_url(reason));
         }
     }
     Redirect::to("/passives")
@@ -3413,6 +3439,56 @@ fn render_passive_tree_page(display_name: &str, character: Option<&Character>, p
     };
     let preview_note = if dirty { "<p class=\"preview-note dirty\">Unsaved changes.</p>" } else { "<p class=\"preview-note\">No unsaved changes.</p>" };
 
+    // Elementalist's Golem Master slot-type picker (docs/
+    // elementalist_spec.md, Stage 5) - one dropdown per UNLOCKED slot
+    // (Golem Master's own current rank), kept minimal and localized to
+    // this page per the spec's own scoping. Entirely absent unless
+    // playing Elementalist with at least 1 point in Golem Master - same
+    // "hidden, not just disabled" reasoning as Split Personality's own
+    // section below.
+    let golem_slot_section = if c.archetype == Archetype::Elementalist {
+        let unlocked_slots = c.passive_node_rank("golemmaster");
+        if unlocked_slots == 0 {
+            String::new()
+        } else {
+            let all_types = [GolemType::Basic, GolemType::Thunder, GolemType::Flame, GolemType::Water];
+            let pickers: String = (0..unlocked_slots)
+                .map(|slot| {
+                    let current = c.golem_slot_types.get(slot as usize).copied().unwrap_or_default();
+                    let options: String = all_types
+                        .iter()
+                        .map(|&t| {
+                            let value = format!("{t:?}").to_lowercase();
+                            let selected = if t == current { " selected" } else { "" };
+                            format!("<option value=\"{value}\"{selected}>{t:?}</option>")
+                        })
+                        .collect();
+                    format!(
+                        "<form method=\"post\" action=\"/passives/set-golem-type\" class=\"golem-slot-picker\">\
+                          <input type=\"hidden\" name=\"slot\" value=\"{slot}\">\
+                          <label>Golem {slot_label}</label>\
+                          <select name=\"golem_type\">{options}</select>\
+                          <button class=\"btn-sm\" type=\"submit\">Set</button>\
+                        </form>",
+                        slot_label = slot + 1,
+                    )
+                })
+                .collect();
+            format!(
+                "<div class=\"golem-slots\">\
+                  <div class=\"masthead\">\
+                    <h1>Golem Slots</h1>\
+                    <p class=\"subhead\">Golem Master grants {unlocked_slots} summon slot{plural} - assign each one a type. Basic has no bonuses of its own.</p>\
+                  </div>\
+                  {pickers}\
+                </div>",
+                plural = if unlocked_slots == 1 { "" } else { "s" },
+            )
+        }
+    } else {
+        String::new()
+    };
+
     // Split Personality's 2nd-class section (2026-08-17) - the picker
     // stays available the whole time the unique is equipped (so it can be
     // changed freely, per the live decision that this is always free),
@@ -3493,6 +3569,7 @@ fn render_passive_tree_page(display_name: &str, character: Option<&Character>, p
           </div>\
           {primary_meta_legend}\
           {primary_body}\
+          {golem_slot_section}\
           {secondary_section}\
           <footer>\
             Root passive numbers mirror <code>Archetype::bonus()</code>'s real formula for {archetype:?} (hover \

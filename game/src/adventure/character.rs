@@ -50,6 +50,30 @@ pub enum Archetype {
     Elementalist,
 }
 
+/// Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
+/// the type assigned to one summon slot via `/passives`. `Basic` is an
+/// explicit, real choice (not "no type picked") - it has no sub-tree and
+/// no bonuses, just the standard 33%-of-caster-stats golem attack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GolemType {
+    Basic,
+    Thunder,
+    Flame,
+    Water,
+}
+
+impl Default for GolemType {
+    /// Serde default for a slot count that grew (more Golem Master rank
+    /// invested than `golem_slot_types` currently has entries for) -
+    /// same "additive, never lossy" spirit as every other passive schema
+    /// default in this file. A fresh, never-assigned slot defaults to
+    /// Basic rather than leaving it unusable.
+    fn default() -> Self {
+        GolemType::Basic
+    }
+}
+
 impl Default for Archetype {
     /// Serde's `default` for characters saved before archetypes existed
     /// (their old `"role"` field is simply ignored - unknown fields don't
@@ -554,6 +578,21 @@ pub struct Character {
     /// allocate-time.
     #[serde(default)]
     pub secondary_passive_allocations: HashMap<String, u32>,
+    /// Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
+    /// which `GolemType` is assigned to each summon slot, chosen via
+    /// `/passives`. A CHOICE, not a rank, so unlike every other
+    /// archetype's investment (which flows entirely through
+    /// `passive_allocations`) this needs its own field - same reasoning
+    /// Split Personality's `secondary_archetype` already established for
+    /// "a choice, not a magnitude." Index 0 = slot 1, etc. Shorter than
+    /// the invested Golem Master rank = the missing slots aren't
+    /// assigned yet (default to `GolemType::Basic` at spawn time, see
+    /// `GolemType`'s own `Default`); longer = harmless leftover from a
+    /// respec that lowered the rank (never trimmed - a respec back up
+    /// restores the prior choice for free, same spirit as every other
+    /// non-lossy respec in this codebase).
+    #[serde(default)]
+    pub golem_slot_types: Vec<GolemType>,
 }
 
 /// Bag size — see `Character::inventory`. Raised 50 -> 150 (2026-08-18, a
@@ -929,6 +968,7 @@ impl Character {
             free_passive_respecs: STARTING_FREE_PASSIVE_RESPECS,
             secondary_archetype: None,
             secondary_passive_allocations: HashMap::new(),
+            golem_slot_types: Vec::new(),
         }
     }
 
@@ -3608,6 +3648,34 @@ mod elementalist_tests {
         let restored: Character = serde_json::from_str(old_save_json).expect("a pre-archetype save must still deserialize");
         assert_eq!(restored.archetype, Archetype::Commoner);
     }
+
+    #[test]
+    fn golem_type_defaults_to_basic() {
+        assert_eq!(GolemType::default(), GolemType::Basic);
+    }
+
+    #[test]
+    fn golem_slot_types_round_trips_through_json() {
+        let mut character = Character::new("golem_tester".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.golem_slot_types = vec![GolemType::Thunder, GolemType::Water, GolemType::Basic];
+
+        let json = serde_json::to_string(&character).expect("must serialize");
+        let restored: Character = serde_json::from_str(&json).expect("must deserialize");
+        assert_eq!(restored.golem_slot_types, vec![GolemType::Thunder, GolemType::Water, GolemType::Basic]);
+    }
+
+    #[test]
+    fn a_character_saved_before_golem_master_existed_still_loads_with_no_slots_assigned() {
+        // Same additive-schema migration precedent as
+        // `a_character_saved_before_elementalist_existed_still_loads_as_commoner`
+        // - a save file predating `golem_slot_types` entirely must still
+        // deserialize, defaulting to an empty Vec (no slots pre-assigned),
+        // never failing.
+        let old_save_json = r#"{"display_name":"pre_golem","level":10,"xp":0,"wins":0,"losses":0,"archetype":"elementalist"}"#;
+        let restored: Character = serde_json::from_str(old_save_json).expect("a pre-golem-master save must still deserialize");
+        assert_eq!(restored.golem_slot_types, Vec::new());
+    }
 }
 
 /// Why a `change_archetype` attempt didn't go through.
@@ -3639,6 +3707,21 @@ pub enum SetSecondaryArchetypeError {
     /// Picked the same archetype already active as the PRIMARY class -
     /// investing in your own tree twice under two names is nonsensical.
     SameAsPrimary,
+}
+
+/// Why an `AdventureManager::set_golem_slot_type` attempt (Elementalist's
+/// Golem Master slot-type picker, docs/elementalist_spec.md Stage 5)
+/// didn't go through - see that method's own doc. Always free, same
+/// spirit as `SetSecondaryArchetypeError`.
+#[derive(Debug, Clone, Copy)]
+pub enum SetGolemSlotTypeError {
+    /// Hasn't `!join`ed the adventure yet.
+    NotJoined,
+    /// Not currently playing Elementalist.
+    NotElementalist,
+    /// `slot` is past the number of golem slots Golem Master's current
+    /// rank actually grants (0-indexed, so rank 1 only allows slot 0).
+    SlotNotUnlocked,
 }
 
 /// Why a passive-tree action (`preview_allocate_passive`/

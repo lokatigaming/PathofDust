@@ -2498,6 +2498,35 @@ impl AdventureManager {
         Ok(())
     }
 
+    /// Elementalist's Golem Master slot-type picker (docs/
+    /// elementalist_spec.md, Stage 5) - assigns `golem_type` to
+    /// `slot` (0-indexed) in `character.golem_slot_types`, growing the
+    /// vec (backfilling any earlier never-assigned slots with
+    /// `GolemType::Basic` - its own `Default`) if `slot` is past its
+    /// current length. Always free, same as `set_secondary_archetype`.
+    /// Takes effect on the character's NEXT fight - golems are spawned
+    /// fresh each `simulate_battle` call, there's no "already summoned"
+    /// state to migrate live.
+    pub async fn set_golem_slot_type(&self, username: &str, slot: usize, golem_type: GolemType) -> Result<(), SetGolemSlotTypeError> {
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&username.to_lowercase()).ok_or(SetGolemSlotTypeError::NotJoined)?;
+        if character.archetype != Archetype::Elementalist {
+            return Err(SetGolemSlotTypeError::NotElementalist);
+        }
+        let unlocked_slots = character.passive_node_rank("golemmaster") as usize;
+        if slot >= unlocked_slots {
+            return Err(SetGolemSlotTypeError::SlotNotUnlocked);
+        }
+        if character.golem_slot_types.len() <= slot {
+            character.golem_slot_types.resize(slot + 1, GolemType::default());
+        }
+        character.golem_slot_types[slot] = golem_type;
+        self.persist_characters(&characters);
+        drop(characters);
+        self.broadcast_state().await;
+        Ok(())
+    }
+
     /// Web dashboard: adjusts one passive-tree node's rank in `username`'s
     /// PREVIEW only - nothing is spent or saved to the real character
     /// until `save_passive_tree`, same "compare freely" idea
