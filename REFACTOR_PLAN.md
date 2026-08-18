@@ -1,17 +1,17 @@
 # Path of Dust — Architecture Refactor Plan
 
-**Status** (2026-08-19): Stages 0, 0.5, 1, 1.5, 2, and 3 done, on branch
+**Status** (2026-08-19): Stages 0 through 4 done, on branch
 `refactor/architecture` (pushed to origin as a backup — not merged to
 master, not deployed; the deploy procedure still applies to master
-exclusively). The standalone `game` binary is real and live-verified
-(see Stage 2's own note); the full `/api/*` seam (§4) is built and
-end-to-end tested (see Stage 3's own note) but not deployed anywhere -
-`twitch-bot-rs`'s existing in-process startup is still the only thing
-actually running in production, and nothing in main.rs/commands.rs
-calls the new seam yet. Stage 4 (the actual cutover) is next. This
-document is the durable record of the plan — written to the repo root
-so a fresh session can resume the project with full context, without
-needing the original Plan-mode transcript.
+exclusively). `bot` is now code-complete as a thin HTTP client of the
+standalone `game` process (see Stage 4's own note) - the actual
+two-process cutover, smoke-tested both directions - but this is STILL
+not what's running in production: that only happens after Stage 5's
+failure-isolation hardening, the required LIVE BAKE period, and a final
+merge to master. Stage 5 is next. This document is the durable record
+of the plan — written to the repo root so a fresh session can resume
+the project with full context, without needing the original Plan-mode
+transcript.
 
 **Scope escalation, mid-audit**: the original ask ("refactor into
 domain/persistence/web/ws") was superseded by an addendum: the adventure
@@ -188,6 +188,51 @@ the next chat activity, not a persistent queue.
 | Game down, Force Boss Fight redemption | REFUND + a chat line explaining why (always chat-announced today) |
 | Bot down, game running standalone | Game runs fully — announcements drop gracefully per §4b, no persistent queue |
 | Bot's `grant_activity_xp` call, game down/slow | Fire-and-forget — bot does NOT block/retry the chat loop |
+
+### 4d. Shared-secret credential handling (settled 2026-08-19)
+
+The `/api/*` seam's shared secret is a real credential from this point
+on, not just a mechanism detail - specified explicitly since Stage 4
+is what actually starts relying on it in both directions:
+
+- **Where it lives**: one env var, `ADVENTURE_API_SECRET`, read from
+  the repo-root `.env` file - the SAME file both binaries already read
+  (`bot` via `src/config.rs`'s `env_var()`, `game` via its own
+  `main.rs`'s identical `env_var()` helper - see that file's own doc:
+  "Reads the SAME `.env` file the bot does"). No config file, no
+  second copy to keep in sync while both binaries share one `.env`.
+  Stage 6's per-binary config split (each binary gets its own env
+  surface) must carry this key forward unchanged on BOTH sides when it
+  happens - flagging now so that stage doesn't silently drop it.
+- **How both binaries receive it**: automatically, today, by both
+  reading the same file - no handshake, no provisioning step. Setting
+  the key once and restarting both processes is the entire setup.
+- **Never enters git or logs**: `.env` is already gitignored (verified
+  - `.gitignore:2`). Neither `Config` (bot) nor the `game` binary's own
+  env-read struct derives `Debug` or is ever logged wholesale, so this
+  field is already exactly as safe as `TWITCH_CLIENT_SECRET`/
+  `PLAYLIST_SYNC_SECRET`, which follow the identical pattern today.
+  No request-logging middleware exists on either Axum server (checked
+  directly, `grep`-confirmed empty) - the header itself is never
+  written to any log. `require_shared_secret`'s own rejection log (see
+  next bullet) deliberately logs a bool (whether a header was even
+  present), never the presented value, wrong guesses included - a
+  wrong guess still isn't safe to persist verbatim, and it adds
+  nothing a human needs to fix the mismatch.
+- **On mismatch: reject loudly** - `game/src/adventure_web/api.rs`'s
+  `require_shared_secret` middleware now (2026-08-19) logs a
+  `tracing::warn!` (request path, whether a header was present at all)
+  on every rejected request, in addition to the 401 response - a
+  silent 401 nobody notices was the actual gap here, not the rejection
+  itself, which already existed since Stage 3. Detection is necessarily
+  per-request - the two processes have no way to compare secrets except
+  by a real request actually failing, there's no separate handshake to
+  add. On the bot side, a 401 from this endpoint is indistinguishable
+  from "game is down" using today's client alone (`AdventureApiClient`
+  just returns an `Err` either way) - Stage 5's failure-isolation work,
+  which already has to handle "game unreachable," covers a misconfigured
+  secret as a side effect of the same code path. Worth remembering
+  during Stage 5, not a gap to close separately.
 
 ---
 
@@ -672,10 +717,95 @@ proven, not before.
   `AdventureApiClient` when the seam is live is explicitly Stage 4's
   job, not this one's - this stage only had to prove the seam works,
   alongside the untouched original path.
-- **Stage 4**: cut over — `bot` switches to the HTTP-client seam, stops
-  starting AdventureManager/adventure_web/adventure_overlay in-process
-  at all. The actual "two separate processes" moment. Full smoke test
-  both directions.
+- **Stage 4** (done, 2026-08-19): cut over — `bot` switches to the
+  HTTP-client seam, stops starting AdventureManager/adventure_web/
+  adventure_overlay in-process at all. The actual "two separate
+  processes" moment, code-complete on `refactor/architecture` - still
+  not merged, not deployed; production stays on the pre-cutover
+  in-process build until the LIVE BAKE below and the final merge.
+  `commands.rs`'s `Services.adventure` is now `Arc<AdventureApiClient>`;
+  every §4a command handler routes through one new `adventure_reply()`
+  helper (`Ok(Some) -> that text`, `Ok(None) -> Reply::None`,
+  `Err -> the fixed §4c "restarting" line`) instead of matching a
+  manager enum directly. The 3 redemption handlers and
+  `reconcile_missed_redemptions` take `&AdventureApiClient` the same
+  way; `handle_reforge_redemption`/`handle_repair_redemption` REFUND
+  silently on a client `Err` (matching §4c's shared row for the two),
+  `handle_force_boss_redemption` REFUNDs + chat-announces (gated on
+  `announce`, matching its own already-always-announced tone).
+  Activity XP is genuinely fire-and-forget now (`tokio::spawn`, not
+  awaited inline in the chat-message loop) - the level-up line itself
+  moved server-side (`grant_activity_xp` pushes its own announcement).
+  **Second real finding, same shape as Stage 3's Celestial Shard one**:
+  a bot-side one-time "Wings of Flight" startup giveaway (main.rs) that
+  §0's audit missed - real game-state mutation living bot-side, moved
+  into `game/src/main.rs`'s own startup (`grant_random_wings` now
+  self-announces, matching `grant_activity_xp`'s pattern).
+  **A real regression, caught by actually wiring the seam rather than
+  just building it in isolation**: Stage 3's port of the encounter-result
+  announcement dropped the `700ms + display_duration_ms` delay
+  main.rs's old subscriber applied before ever announcing (so chat
+  wouldn't spoil a fight before the overlay's own charge-in/replay
+  caught up) - invisible while nothing consumed the SSE stream, surfaced
+  the moment `tests/api_seam.rs` exercised a real round trip end-to-end.
+  Fixed: the announcement is now pushed from a delayed spawned task
+  (cloning `EncounterResult`, since `encounter_tx`'s own broadcast to
+  the overlay must stay immediate - only the chat text waits) at both
+  real call sites. `combat::MIN_DISPLAY_MS` (6s) means this delay is
+  substantial, not a rounding error - confirmed by the test actually
+  needing a 10s timeout once the fix landed.
+  Config: `adventure_api_secret` is now REQUIRED (`String`, not
+  `Option`) on the bot side - the adventure game is always-on, so an
+  unset secret would leave every adventure command silently broken;
+  `Config::load()` now fails fast at startup instead, matching
+  TWITCH_CLIENT_ID's own treatment. New `adventure_api_base_url`
+  (default `http://127.0.0.1:4005`, matching `game`'s own
+  ADVENTURE_WEB_PORT default) tells the bot where to reach it. See §4d
+  for the full credential-handling writeup (where it lives, why it's
+  safe, what happens on mismatch - includes a fix landed alongside this
+  stage: `require_shared_secret` now logs a `tracing::warn!` on every
+  rejected request, not just the 401 itself).
+  **Deliberately NOT touched**: `adventure_web_port`/
+  `adventure_web_public_url`/`adventure_overlay_server_port` stay
+  declared (now dead) in the bot's `Config` - removing them is Stage 6's
+  already-scoped "split config.rs into per-binary" job, not this one's;
+  touching them now risked pre-empting how that stage wants to shape
+  the eventual split.
+  **Smoke matrix** (owner-required for this stage specifically):
+  - *Game alone*: live-verified again, same as Stage 2 - ran the actual
+    compiled `game.exe` standalone (scratch `GAME_DATA_DIR`, no bot
+    process anywhere) and drove its real `/api/*` endpoints with `curl`
+    (not just the test harness): wrong/missing secret both 401 (and
+    both logged - confirmed the loud-rejection fix live), correct
+    secret's `!join`/`!character`/`!party` all returned the exact
+    expected formatted strings.
+  - *Bot+game together*: `tests/api_seam.rs` IS this check at the
+    `AdventureApiClient` level (every §4a/§4c endpoint, over real HTTP,
+    against a real disposable game instance) - extended this stage with
+    the killed-game case below. The curl session above is the same
+    proof at the wire level, standing in for the bot's HTTP client.
+  - *Bot against a killed game*: `tests/api_seam.rs` now also binds a
+    fresh ephemeral listener and immediately drops it (guaranteed
+    connection-refused, the same failure shape a real killed `game`
+    process leaves), then confirms `AdventureApiClient` fails FAST with
+    a real `Err` - no panic, no hang past a 5s bound. Paired with 3 new
+    unit tests on `adventure_reply` itself (src/commands.rs) proving
+    that `Err` maps to the exact ratified §4c fallback text. Together
+    these cover the two halves of "bot against a killed game": the
+    network call fails cleanly, and the fallback text is right.
+  - **Honest gap, flagged rather than silently skipped**: neither check
+    exercises `handle_command`/`handle_builtin` calling all the way
+    through to a real `chat_client.say()` - `chat::ChatClient` has no
+    test-friendly constructor (its only path to an instance is a real
+    Twitch IRC connection via `chat::connect`), and actually starting
+    the bot against live Twitch to prove this was ruled out deliberately
+    (a real IRC connection + possible real chat/EventSub side effects,
+    not something to trigger just to verify a refactor). What's proven
+    covers the actual NEW risk this cutover introduced (the network call
+    can now fail, and the fallback logic that handles it); the
+    dispatch-to-chat-message wiring itself is unchanged from before this
+    stage and carries no new risk from it.
+  Full workspace suite: 147 passing (was 144), zero regressions.
 - **Stage 5**: failure-isolation behavior (§4c) + per-reward-type refund
   policy, tested against a deliberately-killed game process.
 - **LIVE BAKE** (owner-required, inserted here): run the two-process
