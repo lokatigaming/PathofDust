@@ -99,15 +99,23 @@ pub struct Config {
     /// separately) before expecting viewers to actually be able to log in.
     pub adventure_web_public_url: String,
 
-    /// Shared secret gating the internal `/api/*` seam (architecture
-    /// refactor Stage 3, see REFACTOR_PLAN.md §4) that lets a separate
-    /// `bot` process drive the `game` process's adventure commands over
-    /// HTTP instead of an in-process call. None disables the mount
-    /// entirely (today's default — the bot still calls AdventureManager
-    /// directly in-process; this seam exists only to be exercised by
-    /// tests until Stage 4's actual cutover). Must match between the two
-    /// processes once that cutover happens.
-    pub adventure_api_secret: Option<String>,
+    /// Base URL of the standalone `game` process's `/api/*` seam
+    /// (architecture refactor Stage 4, see REFACTOR_PLAN.md §4) - the bot
+    /// no longer runs the adventure game in-process at all, this is
+    /// where it reaches it instead. Same host/port `game`'s own
+    /// ADVENTURE_WEB_PORT binds by default (the seam is nested onto that
+    /// same Axum server, not a separate port - see §3's own ratified
+    /// text), so the default here matches that port's own default.
+    pub adventure_api_base_url: String,
+    /// Shared secret presented on every `/api/*` call above (see
+    /// game/src/adventure_web/api.rs's `require_shared_secret`) -
+    /// REQUIRED, unlike most other secrets in this file: the adventure
+    /// game is always-on (no config gate, same as it always has been),
+    /// so without this the bot has no way to reach it at all. Must
+    /// match the `game` process's own ADVENTURE_API_SECRET exactly (see
+    /// REFACTOR_PLAN.md §4d for the full credential-handling story -
+    /// where it lives, why it's safe, what happens on mismatch).
+    pub adventure_api_secret: String,
 
     /// Shared secret for pushing personal-playlist data to the Apps
     /// Script backend (see personal_playlists.rs) — must match the
@@ -224,6 +232,11 @@ impl Config {
             .ok_or_else(|| anyhow::anyhow!("Missing TWITCH_CLIENT_SECRET in .env"))?;
         let twitch_channel = env_var("TWITCH_CHANNEL")
             .ok_or_else(|| anyhow::anyhow!("Missing TWITCH_CHANNEL in .env"))?;
+        // Stage 4 cutover (REFACTOR_PLAN.md §4) - required, not optional,
+        // since the bot has no other way to reach the always-on adventure
+        // game anymore. See this field's own doc for the credential story.
+        let adventure_api_secret = env_var("ADVENTURE_API_SECRET")
+            .ok_or_else(|| anyhow::anyhow!("Missing ADVENTURE_API_SECRET in .env - required now that the bot talks to the game process over HTTP instead of in-process (see REFACTOR_PLAN.md §4d)"))?;
 
         let patreon = match (env_var("PATREON_CLIENT_ID"), env_var("PATREON_CLIENT_SECRET")) {
             (Some(client_id), Some(client_secret)) => Some(PatreonConfig {
@@ -263,7 +276,8 @@ impl Config {
             adventure_overlay_server_port: env_u16_or("ADVENTURE_OVERLAY_SERVER_PORT", 4004),
             adventure_web_port: env_u16_or("ADVENTURE_WEB_PORT", 4005),
             adventure_web_public_url: env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005"),
-            adventure_api_secret: env_var("ADVENTURE_API_SECRET"),
+            adventure_api_base_url: env_var_or("ADVENTURE_API_BASE_URL", "http://127.0.0.1:4005"),
+            adventure_api_secret,
             playlist_sync_secret: env_var("PLAYLIST_SYNC_SECRET"),
             channel_points_theme_reward_cost: env_u32_or("CHANNEL_POINTS_THEME_REWARD_COST", 5000),
             channel_points_interrupt_reward_cost: env_u32_or("CHANNEL_POINTS_INTERRUPT_REWARD_COST", 5000),

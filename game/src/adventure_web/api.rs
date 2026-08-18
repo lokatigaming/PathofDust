@@ -87,6 +87,14 @@ async fn require_shared_secret(State(state): State<ApiState>, req: axum::extract
     if presented == Some(state.shared_secret.as_ref()) {
         next.run(req).await
     } else {
+        // "Reject loudly" (REFACTOR_PLAN.md §4's credential-handling
+        // note) - a mismatch here means either a misconfigured/drifted
+        // secret between the two processes or something scanning the
+        // public dashboard port; either way it belongs in the logs, not
+        // just a silently-returned 401 nobody notices. Never log the
+        // presented value itself - a wrong guess still isn't safe to
+        // persist verbatim, and it adds nothing a human needs to fix this.
+        tracing::warn!(path = %req.uri().path(), presented_secret = presented.is_some(), "rejected /api/* request with a missing or invalid shared secret");
         (StatusCode::UNAUTHORIZED, "missing or invalid API secret").into_response()
     }
 }

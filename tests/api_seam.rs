@@ -123,9 +123,16 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     // SSE announcement) actually works, not just that each half compiles.
     // Collect a few messages rather than asserting on the very first one,
     // since which one-time giveaways fire first isn't this test's concern.
+    // Timeout is generous (not just "5s felt safe") because the
+    // announcement is genuinely delayed server-side, on purpose - see the
+    // Stage 4 fix in `run_encounter_inner`/`run_basic_encounter_inner`:
+    // `700ms + display_duration_ms`, and `display_duration_ms` alone has
+    // a hard floor of `combat::MIN_DISPLAY_MS` (6s) - so the very first
+    // message can legitimately take ~6.7s to arrive even for this small
+    // a fight.
     let mut seen = Vec::new();
     let found_outcome = loop {
-        let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(5), announcements.next()).await else {
+        let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(10), announcements.next()).await else {
             break false;
         };
         let is_outcome = msg.contains("⚔️");
@@ -139,6 +146,31 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     // Fire-and-forget activity XP (§4c) - just needs to succeed at the
     // HTTP layer; no reply body to check by design (see api.rs's own doc).
     client.activity_xp(TEST_USER).await.expect("POST /api/activity_xp failed");
+
+    // Smoke matrix item 3 (owner-requested at Stage 4): "bot against a
+    // killed game." Can't cleanly shut down the disposable server above
+    // (`start_adventure_web_server` returns just a `SocketAddr`, no
+    // shutdown handle) - instead, bind a fresh ephemeral listener and
+    // immediately drop it without ever serving on it, guaranteeing
+    // "connection refused" for anything that tries to talk to that port,
+    // the exact condition a real killed `game` process leaves behind.
+    // Proves `AdventureApiClient` fails CLEANLY (a real `Err`, not a
+    // panic or a hang) - the actual new risk this cutover introduced,
+    // since every command/redemption handler now has a real network call
+    // on its formerly-infallible path. `adventure_reply`'s own unit tests
+    // (src/commands.rs) cover the other half: that `Err` maps to the
+    // ratified §4c fallback text once it gets back to a command handler.
+    let dead_port = {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("failed to bind a throwaway listener");
+        listener.local_addr().expect("failed to read the throwaway listener's port").port()
+        // `listener` drops here, closing the socket - the port is now
+        // refusing connections, not just unresponsive.
+    };
+    let dead_client = AdventureApiClient::new(format!("http://127.0.0.1:{dead_port}"), TEST_SECRET);
+    let join_result = tokio::time::timeout(Duration::from_secs(5), dead_client.join(TEST_USER))
+        .await
+        .expect("a connection-refused call must fail fast, not hang for the full timeout");
+    assert!(join_result.is_err(), "a client pointed at a dead port must return Err, not Ok - got {join_result:?}");
 
     std::fs::remove_dir_all(&scratch).ok();
 }

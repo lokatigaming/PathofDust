@@ -94,6 +94,31 @@ async fn main() -> anyhow::Result<()> {
     adventure.clone().spawn_basic_encounter_loop();
     adventure.clone().spawn_rampage_loop();
 
+    // One-time giveaway: hands the "Wings of Flight" cosmetic to one
+    // random currently-joined character - per a live request, "while
+    // we're at it" alongside adding the cosmetic itself. Guarded by its
+    // own marker (same fire-once shape as every other one-off grant) so
+    // a restart never re-rolls it. Moved here from the bot's main.rs at
+    // Stage 4 (architecture refactor, 2026-08-19) - real game-state
+    // mutation belongs in the process that owns the state; the chat
+    // announcement itself now comes from `grant_random_wings` pushing
+    // straight onto `announcements_tx` (see its own doc), not from a
+    // `chat_client.say` this process no longer has anyway. Spawned
+    // rather than awaited inline - nothing else in startup depends on
+    // this having finished.
+    {
+        const WINGS_GIVEAWAY_MARKER_PATH: &str = "adventure-wings-giveaway-marker.json";
+        if game::state::load_json::<bool>(WINGS_GIVEAWAY_MARKER_PATH).is_none() {
+            let adventure = adventure.clone();
+            tokio::spawn(async move {
+                adventure.grant_random_wings().await;
+                if let Err(err) = game::state::save_json(WINGS_GIVEAWAY_MARKER_PATH, &true) {
+                    tracing::error!("Failed to persist wings giveaway marker to {WINGS_GIVEAWAY_MARKER_PATH}: {err}");
+                }
+            });
+        }
+    }
+
     game::adventure_overlay_server::start_adventure_overlay_server(adventure_overlay_server_port, PathBuf::from("public_adventure_overlay"), adventure.clone())
         .await?;
     game::adventure_web::start_adventure_web_server(

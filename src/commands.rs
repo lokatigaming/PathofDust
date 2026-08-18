@@ -15,7 +15,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::adventure::{pin_most_recent_fight, AdventureManager, BossKind, JoinOutcome, RampageVoteOutcome, TriggerEncounterOutcome, RAMPAGE_VOTE_THRESHOLD};
+use crate::adventure_client::AdventureApiClient;
 use crate::announcements::Announcements;
 use crate::build_feed;
 use crate::bug_reports::{BugReportManager, SubmitOutcome};
@@ -40,6 +40,7 @@ const PLAYLIST_QUEUE_SAMPLE_SIZE: usize = 5;
 
 pub const BUILTIN_COOLDOWN: Duration = Duration::from_secs(5);
 
+#[derive(Debug)]
 pub enum Reply {
     None,
     One(String),
@@ -83,7 +84,11 @@ pub struct Services {
     /// that source (OBS's fader applies after filters, unaffected by
     /// their fixed makeup gain the way the player's own volume was).
     pub obs_song_volume: Option<(Arc<ObsClient>, String)>,
-    pub adventure: Arc<AdventureManager>,
+    /// Stage 4 cutover (REFACTOR_PLAN.md, 2026-08-19) - the bot no longer
+    /// runs the adventure game in-process at all; every command below
+    /// talks to the standalone `game` process over the `/api/*` seam
+    /// instead of calling an in-process `AdventureManager` directly.
+    pub adventure: Arc<AdventureApiClient>,
     pub bug_reports: Arc<BugReportManager>,
 }
 
@@ -421,6 +426,28 @@ fn vessel_price_reply() -> Reply {
 /// hourly snapshotter.
 fn essence_price_reply() -> Reply {
     "Deafening Essence pricing (current + history): https://lokati.net/essence-pricing.html".into()
+}
+
+/// Stage 4 cutover (REFACTOR_PLAN.md §4c) - the fixed fallback for
+/// "game down, bot receives an adventure chat command." Every adventure
+/// command below is a `services.adventure.<method>(..).await` call that
+/// returns `anyhow::Result<Option<String>>` (`Ok(Some(reply))` is the
+/// normal case, `Ok(None)` is `!nextencounter`'s deliberate "no reply,
+/// the real result comes later via announcement" case) - this turns
+/// that into the `Reply` every command handler already returns,
+/// applying the one ratified policy uniformly instead of re-deriving it
+/// at each of the ~10 call sites.
+const ADVENTURE_DOWN_REPLY: &str = "The adventure is restarting — try again in a moment!";
+
+fn adventure_reply(result: anyhow::Result<Option<String>>) -> Reply {
+    match result {
+        Ok(Some(reply)) => reply.into(),
+        Ok(None) => Reply::None,
+        Err(err) => {
+            tracing::warn!("adventure API call failed (game down?): {err}");
+            ADVENTURE_DOWN_REPLY.into()
+        }
+    }
 }
 
 /// Returns Some(reply) if `name` matched a hand-written command (even if
@@ -1040,44 +1067,11 @@ async fn handle_builtin(
             Some(format!("{upcoming} — {recent_str}").into())
         }
 
-        "join" => Some(match services.adventure.join(user, user).await {
-            JoinOutcome::Joined => {
-                format!("{user} has joined the adventure! Chatting earns your character XP over time — check !character.").into()
-            }
-            JoinOutcome::AlreadyJoined { level } => format!("{user}, you're already on the adventure (level {level}).").into(),
-            JoinOutcome::Rejoined { level, gear_still_worn } => if gear_still_worn {
-                format!("{user} (level {level}) is back on the battlefield! Your gear's still worn though — repair it on the dashboard for full stats.").into()
-            } else {
-                format!("{user} (level {level}) is back on the battlefield, gear fully repaired!").into()
-            },
-        }),
+        "join" => Some(adventure_reply(services.adventure.join(user).await)),
 
-        "character" | "char" | "me" => Some(match services.adventure.character(user).await {
-            Some(c) => format!(
-                "{} — Level {} {:?} ({}/{} xp) — {}W/{}L — {} Thaumatergic Dust — Gear: {} — manage your character at https://adventure.lokati.net/",
-                c.display_name,
-                c.level,
-                c.archetype,
-                c.xp,
-                c.xp_needed(),
-                c.wins,
-                c.losses,
-                c.dust,
-                c.gear_summary()
-            )
-            .into(),
-            None => format!("{user}, you haven't joined the adventure yet — use !join to start!").into(),
-        }),
+        "character" | "char" | "me" => Some(adventure_reply(services.adventure.character(user).await)),
 
-        "party" | "adventure" => {
-            let (stage, active, total) = services.adventure.party_status().await;
-            Some(
-                format!(
-                    "The adventure is at stage {stage} with {active}/{total} hero(es) ready to fight (retreated/downed heroes don't count)! Use !join to add yours — https://adventure.lokati.net/"
-                )
-                .into(),
-            )
-        }
+        "party" | "adventure" => Some(adventure_reply(services.adventure.party().await)),
 
         "nextencounter" => {
             if !is_mod_or_broadcaster {
@@ -1086,18 +1080,12 @@ async fn handle_builtin(
             // Optional boss name (2026-08-15) - e.g. !nextencounter
             // bahamut forces a single Dragon fight with that specific
             // look, bypassing the normal random pick/rotation entirely.
-            // See BossKind::parse_forced for the full recognized list.
+            // See game-side `BossKind::parse_forced` for the full
+            // recognized list. The actual battle result gets announced
+            // separately over the SSE announcements relay (see main.rs),
+            // so a `None` reply here (Triggered) is expected, not a bug.
             let forced = args.first().map(|s| s.as_str());
-            match services.adventure.trigger_encounter_now(forced).await {
-                // The actual battle result gets announced separately by
-                // main.rs's encounter-broadcast subscriber, so nothing
-                // needed here on success.
-                TriggerEncounterOutcome::Triggered => Some(Reply::None),
-                TriggerEncounterOutcome::NobodyJoined => Some("Nobody's joined the adventure yet — chat needs to !join first!".into()),
-                TriggerEncounterOutcome::UnknownBoss => {
-                    Some("Unrecognized boss - try lich, firedemon, cthulhu, dragon, bahamut, purple, or cube.".into())
-                }
-            }
+            Some(adventure_reply(services.adventure.next_encounter(forced).await))
         }
 
         "event" => {
@@ -1108,46 +1096,28 @@ async fn handle_builtin(
         }
 
         "rampage" => {
-            if is_mod_or_broadcaster {
-                services.adventure.start_rampage().await;
-                return Some("🔥 RAMPAGE! The next 50 encounters are all boss fights, one every ~60s (or as soon as the last one finishes playing out) — everyone gets instantly revived between them too. Buckle up!".into());
-            }
             // !rampage vote (2026-08-17, a live request: "if 3 or more
             // players use !rampage it will start a rampage without a mod
             // activating the command, similar to a vote") - anyone else's
             // !rampage counts as a vote instead of being a silent no-op.
-            match services.adventure.register_rampage_vote(user).await {
-                RampageVoteOutcome::Triggered => {
-                    Some("🔥 RAMPAGE! The vote passed — the next 50 encounters are all boss fights, one every ~60s (or as soon as the last one finishes playing out) — everyone gets instantly revived between them too. Buckle up!".into())
-                }
-                RampageVoteOutcome::Counted(count) => {
-                    Some(format!("🗳️ Rampage vote: {count}/{RAMPAGE_VOTE_THRESHOLD} — {} more and it's on!", RAMPAGE_VOTE_THRESHOLD.saturating_sub(count)).into())
-                }
-            }
+            // Which of the two this is depends on `is_mod_or_broadcaster`,
+            // so it's passed straight through rather than branched here -
+            // the game-side handler owns that decision now (see api.rs).
+            Some(adventure_reply(services.adventure.rampage(user, is_mod_or_broadcaster).await))
         }
 
         "clearbattlefield" | "resetbattlefield" => {
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            let affected = services.adventure.clear_battlefield().await;
-            Some(if affected > 0 {
-                format!("🧹 Battlefield cleared — {affected} hero(es) were pulled from the field and need to !join again to rejoin!").into()
-            } else {
-                "Nobody was on the battlefield to clear.".into()
-            })
+            Some(adventure_reply(services.adventure.clear_battlefield().await))
         }
 
         "giveloot" | "gearall" => {
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            let count = services.adventure.grant_random_gear_to_all().await;
-            Some(if count > 0 {
-                format!("🎁 Dropped fresh gear into {count} heroes' bags! Equip it from the adventure dashboard.").into()
-            } else {
-                "Nobody's joined the adventure yet — chat needs to !join first!".into()
-            })
+            Some(adventure_reply(services.adventure.give_loot().await))
         }
 
         "giftdust" => {
@@ -1166,21 +1136,7 @@ async fn handle_builtin(
             if amount == 0 {
                 return Some("Amount has to be more than 0.".into());
             }
-            if target.eq_ignore_ascii_case("all") {
-                let count = services.adventure.grant_dust_to_all(amount).await;
-                Some(if count > 0 {
-                    format!("💰 Gave {amount} dust to all {count} heroes!").into()
-                } else {
-                    "Nobody's joined the adventure yet — chat needs to !join first!".into()
-                })
-            } else {
-                let username = target.trim_start_matches('@');
-                Some(if services.adventure.grant_dust(username, amount).await {
-                    format!("💰 Gave {amount} dust to {username}!").into()
-                } else {
-                    format!("{username} hasn't joined the adventure yet.").into()
-                })
-            }
+            Some(adventure_reply(services.adventure.gift_dust(target, amount).await))
         }
 
         "nowplaying" | "np" => {
@@ -1446,18 +1402,7 @@ async fn handle_builtin(
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            Some(match pin_most_recent_fight() {
-                None => "Nothing to pin yet — no fight has landed since the last restart.".into(),
-                Some(pinned) => {
-                    let id = pinned.sequence.map(|s| s.to_string()).unwrap_or_else(|| "?".to_string());
-                    match (pinned.coarse_pinned, pinned.detail_pinned) {
-                        (true, true) => format!("📌 Pinned fight #{id} (coarse + detail) — safe from pruning now.").into(),
-                        (true, false) => format!("📌 Pinned fight #{id} (coarse only — detail file was already gone).").into(),
-                        (false, true) => format!("📌 Pinned fight #{id} (detail only — coarse file was already gone).").into(),
-                        (false, false) => "Failed to pin — check the bot's logs.".into(),
-                    }
-                }
-            })
+            Some(adventure_reply(services.adventure.pin_fight().await))
         }
 
         _ => None,
@@ -1467,37 +1412,17 @@ async fn handle_builtin(
 /// `!event intro <boss name>` (2026-08-17, a live request: announce a new
 /// boss the moment it ships, and stay reusable for every future boss too)
 /// - forces a fight guaranteed to showcase the named boss at the current
-/// stage's normal boss COUNT (see `AdventureManager::trigger_boss_intro`),
-/// then posts a chat announcement linking to that boss's wiki writeup.
-/// Only `intro` exists today, but this is a `!command`-style dispatcher
-/// (sub-verb in `args[0]`) so future `!event` subcommands have somewhere
-/// to land without a new top-level command each time.
+/// stage's normal boss COUNT, then posts a chat announcement linking to
+/// that boss's wiki writeup. Only `intro` exists today, but this is a
+/// `!command`-style dispatcher (sub-verb in `args[0]`) so future `!event`
+/// subcommands have somewhere to land without a new top-level command
+/// each time. The usage-message/name-validation logic (unchanged from
+/// before Stage 4) now lives game-side (see api.rs's own `event_intro`
+/// handler) since it's the same "already-formatted reply string" this
+/// whole seam is built around - this wrapper just exists so `!event`'s
+/// OWN sub-verb dispatch (only "intro" recognized so far) stays bot-side.
 async fn handle_event_command(args: &[String], services: &Services) -> Reply {
-    let action = args.first().map(|s| s.to_lowercase()).unwrap_or_default();
-    if action != "intro" {
-        return "Usage: !event intro <boss name> - e.g. !event intro cube".into();
-    }
-    let Some(name) = args.get(1) else {
-        return "Usage: !event intro <boss name> - e.g. !event intro cube".into();
-    };
-    match services.adventure.trigger_boss_intro(name).await {
-        TriggerEncounterOutcome::Triggered => {
-            // Re-parse just to get the kind's display name/slug -
-            // trigger_boss_intro already validated the name, so this
-            // can't actually fail.
-            let Some((kind, _)) = BossKind::parse_forced(name) else {
-                return Reply::None;
-            };
-            format!(
-                "🆕 NEW BOSS ALERT: {} has entered the fray! Read up before the fight: https://adventure.lokati.net/wiki#{}",
-                kind.display_name(),
-                kind.wiki_slug(),
-            )
-            .into()
-        }
-        TriggerEncounterOutcome::NobodyJoined => "Nobody's joined the adventure yet — chat needs to !join first!".into(),
-        TriggerEncounterOutcome::UnknownBoss => "Unrecognized boss - try lich, firedemon, cthulhu, dragon, bahamut, purple, or cube.".into(),
-    }
+    adventure_reply(services.adventure.event_intro(args).await)
 }
 
 async fn handle_command_management(args: &[String], services: &Services) -> Reply {
@@ -1554,5 +1479,48 @@ async fn handle_command_management(args: &[String], services: &Services) -> Repl
         format!("Updated !{target}.").into()
     } else {
         format!("Added !{target}.").into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Stage 4 cutover (REFACTOR_PLAN.md, 2026-08-19) - `adventure_reply`
+    /// is the ONE place every §4a command's fallback policy is applied,
+    /// so it's the highest-value thing to unit test directly. The
+    /// integration-level "does the HTTP round trip actually work/fail
+    /// correctly" side of this is covered by tests/api_seam.rs
+    /// (live game) - what's missing there, and what these three cover,
+    /// is that `handle_builtin`'s call sites interpret the client's
+    /// `Result` correctly once it comes back.
+    #[test]
+    fn ok_some_becomes_the_reply_text_verbatim() {
+        match adventure_reply(Ok(Some("a real reply".to_string()))) {
+            Reply::One(text) => assert_eq!(text, "a real reply"),
+            other => panic!("expected Reply::One, got a different variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ok_none_becomes_reply_none() {
+        // The `!nextencounter`-Triggered case: deliberately no chat reply,
+        // the real result arrives later over the announcements relay.
+        match adventure_reply(Ok(None)) {
+            Reply::None => {}
+            other => panic!("expected Reply::None, got a different variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn err_becomes_the_fixed_game_down_reply() {
+        // §4c, "game down, bot receives an adventure chat command" -
+        // this is the ONE ratified fallback every adventure command
+        // shares, applied uniformly regardless of which HTTP call failed
+        // or why.
+        match adventure_reply(Err(anyhow::anyhow!("connection refused"))) {
+            Reply::One(text) => assert_eq!(text, ADVENTURE_DOWN_REPLY),
+            other => panic!("expected the fixed down-reply, got a different variant: {other:?}"),
+        }
     }
 }

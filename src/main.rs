@@ -5,13 +5,8 @@ use std::time::Duration;
 
 use tracing_subscriber::prelude::*;
 
-use rand::Rng;
-use twitch_bot_rs::adventure::{
-    affix_name, fight_summary_from_snapshot, AdventureManager, CraftAction, EncounterKind, ForceBossOutcome, GearCritSource, PlayerFightStats, PublishedConstants, ReceiveOutcome,
-    PUBLISHED_CONSTANTS_PATH,
-};
-use twitch_bot_rs::adventure_overlay_server;
-use twitch_bot_rs::adventure_web;
+use twitch_bot_rs::adventure::{PublishedConstants, PUBLISHED_CONSTANTS_PATH};
+use twitch_bot_rs::adventure_client::AdventureApiClient;
 use twitch_bot_rs::alerts;
 use twitch_bot_rs::announcements::Announcements;
 use twitch_bot_rs::bug_reports;
@@ -35,17 +30,6 @@ use twitch_bot_rs::twitch::eventsub::{self, TwitchEvent};
 use twitch_bot_rs::twitch::helix::HelixClient;
 use twitch_bot_rs::twitch::chat;
 use twitch_bot_rs::vessel_pricing;
-
-/// Joins up to `max` items with ", ", appending "+N more" if there were
-/// more than that - keeps a condensed encounter-summary chat line from
-/// growing unbounded when a big roster all loot/break/retreat at once.
-fn join_capped(items: &[String], max: usize) -> String {
-    if items.len() <= max {
-        items.join(", ")
-    } else {
-        format!("{}, +{} more", items[..max].join(", "), items.len() - max)
-    }
-}
 
 // Shared by both the EventSub listener and chat's USERNOTICE-based sub
 // detection, so an event is announced identically (chat message + alert
@@ -345,31 +329,25 @@ async fn handle_reforge_redemption(
     helix: &HelixClient,
     broadcaster_id: &str,
     chat_client: &chat::ChatClient,
-    adventure: &Arc<AdventureManager>,
+    adventure: &AdventureApiClient,
 ) {
-    if let Err(remaining_secs) = adventure.try_claim_reforge_cooldown(&user_name).await {
-        let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-        let mins = (remaining_secs + 59) / 60;
-        chat_client.say(format!("{user_name}, Reforge Gear is on cooldown for you for another ~{mins} min — refunded.")).await;
-        return;
-    }
-
-    match adventure.reforge_random_gear(&user_name).await {
-        Some(outcome) => {
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "FULFILLED").await;
-            chat_client
-                .say(format!(
-                    "🔥 {user_name} reforged their {:?} into a {} (tier {} → {})! Check !character for the new stats.",
-                    outcome.slot, outcome.item_name, outcome.old_tier, outcome.new_tier
-                ))
-                .await;
+    match adventure.redeem_reforge(&user_name).await {
+        Ok(resp) => {
+            let status = if resp.fulfilled { "FULFILLED" } else { "CANCELED" };
+            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, status).await;
+            if let Some(msg) = resp.chat_message {
+                chat_client.say(msg).await;
+            }
         }
-        None => {
-            adventure.release_reforge_cooldown(&user_name).await;
+        // Game down (§4c) - REFUND silently, matching Repair's own
+        // already-silent tone (the ratified policy table lumps these
+        // two together under one "REFUND silently" row) - this is a
+        // DIFFERENT refund reason than the cooldown/no-gear refunds
+        // above, which are handled entirely game-side and still chat-
+        // announce normally when the game is actually reachable.
+        Err(err) => {
+            tracing::warn!("reforge redemption for {user_name} failed (game down?): {err}");
             let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-            chat_client
-                .say(format!("{user_name}, you don't have any gear equipped yet to reforge — refunded. Fight some encounters first!"))
-                .await;
         }
     }
 }
@@ -381,22 +359,16 @@ async fn handle_reforge_redemption(
 /// (see adventure.rs's `repair_all_gear_free`). Silent in chat either
 /// way now (per request) - the redemption's own FULFILLED/CANCELED
 /// status on Twitch's side is confirmation enough.
-async fn handle_repair_redemption(
-    redemption_id: String,
-    reward_id: String,
-    user_name: String,
-    helix: &HelixClient,
-    broadcaster_id: &str,
-    adventure: &Arc<AdventureManager>,
-) {
-    match adventure.repair_all_gear_free(&user_name).await {
-        Some(()) => {
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "FULFILLED").await;
+async fn handle_repair_redemption(redemption_id: String, reward_id: String, user_name: String, helix: &HelixClient, broadcaster_id: &str, adventure: &AdventureApiClient) {
+    let fulfilled = match adventure.redeem_repair(&user_name).await {
+        Ok(resp) => resp.fulfilled,
+        Err(err) => {
+            tracing::warn!("repair redemption for {user_name} failed (game down?): {err}");
+            false // REFUND silently (§4c) - same as today's up-and-running behavior, already silent either way.
         }
-        None => {
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-        }
-    }
+    };
+    let status = if fulfilled { "FULFILLED" } else { "CANCELED" };
+    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, status).await;
 }
 
 /// Someone redeemed "Force Boss Fight" — no text input, no per-user
@@ -414,34 +386,30 @@ async fn handle_force_boss_redemption(
     helix: &HelixClient,
     broadcaster_id: &str,
     chat_client: &chat::ChatClient,
-    adventure: &Arc<AdventureManager>,
+    adventure: &AdventureApiClient,
     // See `handle_theme_redemption`'s matching parameter's doc - `false`
     // for a live redemption (Twitch's own UI is confirmation enough),
     // `true` only when `reconcile_missed_redemptions` is replaying a
     // backlog from while the bot was down.
     announce: bool,
 ) {
-    match adventure.try_force_encounter().await {
-        ForceBossOutcome::Triggered => {
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "FULFILLED").await;
-            if announce {
-                chat_client.say(format!("⚔️ {user_name} spent channel points to summon the boss early!")).await;
+    match adventure.redeem_force_boss(&user_name, announce).await {
+        Ok(resp) => {
+            let status = if resp.fulfilled { "FULFILLED" } else { "CANCELED" };
+            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, status).await;
+            if let Some(msg) = resp.chat_message {
+                chat_client.say(msg).await;
             }
         }
-        ForceBossOutcome::NobodyJoined => {
+        // Game down (§4c) - REFUND + a chat line explaining why, same
+        // as this redemption's already-always-chat-announced tone -
+        // still gated on `announce` so a replayed backlog stays quiet.
+        Err(err) => {
+            tracing::warn!("force-boss redemption for {user_name} failed (game down?): {err}");
             let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
             if announce {
-                chat_client.say(format!("{user_name}, nobody's currently joined the adventure — refunded. Get some heroes in with !join first!")).await;
+                chat_client.say(format!("{user_name}, Force Boss Fight couldn't be processed right now — refunded. Try again in a moment!")).await;
             }
-        }
-        ForceBossOutcome::CycleLimitReached => {
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-            // Always announced, live or not - a shared per-cycle cooldown,
-            // same "the redeemer needs to know why" reasoning as
-            // Interrupt/Reforge's cooldown messages.
-            chat_client
-                .say(format!("{user_name}, Force Boss Fight has already been used its 2 times this cycle — refunded. Try again after the next scheduled fight!"))
-                .await;
         }
     }
 }
@@ -462,7 +430,7 @@ async fn reconcile_missed_redemptions(
     chat_client: &Arc<chat::ChatClient>,
     entrance_themes: &Arc<EntranceThemeManager>,
     song_requests: &Option<Arc<SongRequestManager>>,
-    adventure: &Arc<AdventureManager>,
+    adventure: &AdventureApiClient,
     theme_reward_id: Option<&str>,
     interrupt_reward_id: Option<&str>,
     reforge_reward_id: Option<&str>,
@@ -768,42 +736,16 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Chat adventure game prototype — see adventure.rs. Always on (no
     // config gate — unlike song requests it needs no external API key).
-    // Created here (rather than down where spawn_encounter_loop/the
-    // overlay server start, further below) specifically so the
-    // "Reforge Gear" self-service reward's EventSub subscription/handler,
-    // set up just below, can capture it.
-    let adventure = AdventureManager::new(
-        PathBuf::from("adventure-characters.json"),
-        PathBuf::from("adventure-world.json"),
-        PathBuf::from("adventure-reforge-cooldown.json"),
-    );
-
-    // One-time giveaway: hands the "Wings of Flight" cosmetic to one
-    // random currently-joined character and announces it in chat - per a
-    // live request, "while we're at it" alongside adding the cosmetic
-    // itself. Guarded by its own marker (same fire-once shape as every
-    // other one-off grant in adventure.rs) so a restart never re-rolls
-    // it. Spawned rather than awaited inline - nothing else in startup
-    // depends on this having finished.
-    {
-        const WINGS_GIVEAWAY_MARKER_PATH: &str = "adventure-wings-giveaway-marker.json";
-        if twitch_bot_rs::state::load_json::<bool>(WINGS_GIVEAWAY_MARKER_PATH).is_none() {
-            let adventure = adventure.clone();
-            let chat_client = chat_client.clone();
-            tokio::spawn(async move {
-                if let Some(display_name) = adventure.grant_random_wings().await {
-                    chat_client
-                        .say(format!(
-                            "🕊️ {display_name} has been randomly gifted the ultra-rare Wings of Flight cosmetic! Check your dashboard to toggle it on."
-                        ))
-                        .await;
-                }
-                if let Err(err) = twitch_bot_rs::state::save_json(WINGS_GIVEAWAY_MARKER_PATH, &true) {
-                    tracing::error!("Failed to persist wings giveaway marker to {WINGS_GIVEAWAY_MARKER_PATH}: {err}");
-                }
-            });
-        }
-    }
+    // Stage 4 cutover (REFACTOR_PLAN.md, 2026-08-19) - the bot no longer
+    // runs the adventure game in-process (no `AdventureManager::new`, no
+    // spawn_*_loop, no adventure_web/adventure_overlay servers started
+    // here) - it's a thin HTTP client of the standalone `game` process
+    // now. The one-time "Wings of Flight" giveaway that used to live
+    // right here moved to game/src/main.rs's own startup for the same
+    // reason the Celestial-Shard/launch-giveaway logic moved into
+    // manager.rs at Stage 3: it's real game-state mutation, and this
+    // process no longer has the state to mutate.
+    let adventure = Arc::new(AdventureApiClient::new(config.adventure_api_base_url.clone(), config.adventure_api_secret.clone()));
 
     // Self-service theme redemptions need entrance_themes and
     // song_requests, both already available here — created (once ever;
@@ -1047,351 +989,42 @@ async fn async_main() -> anyhow::Result<()> {
         (obs, source_name.clone())
     });
 
-    // `adventure` itself was created earlier (see above the theme reward
-    // setup) so the reforge reward's EventSub handler could capture it.
-    adventure.clone().spawn_encounter_loop();
-    adventure.clone().spawn_basic_encounter_loop();
-    adventure.clone().spawn_rampage_loop();
-    adventure_overlay_server::start_adventure_overlay_server(
-        config.adventure_overlay_server_port,
-        PathBuf::from("public_adventure_overlay"),
-        adventure.clone(),
-    )
-    .await?;
-    adventure_web::start_adventure_web_server(
-        config.adventure_web_port,
-        config.adventure_web_public_url.clone(),
-        config.twitch_client_id.clone(),
-        config.twitch_client_secret.clone(),
-        adventure.clone(),
-        PathBuf::from("adventure-sessions.json"),
-        config.adventure_api_secret.clone(),
-    )
-    .await?;
+    // Stage 4 cutover (REFACTOR_PLAN.md §4b, 2026-08-19) - the standalone
+    // `game` process now owns starting itself (its own binary spawns the
+    // encounter/basic-encounter/rampage loops and the adventure_web/
+    // adventure_overlay servers - see game/src/main.rs), and every
+    // formerly-in-process broadcast subscriber below (encounter-result,
+    // gear-crit, rampage-complete, unique-shard-win) collapses into ONE
+    // relay loop reading `GET /api/announcements/stream` and passing each
+    // already-formatted string straight to `chat_client.say()` - no
+    // re-formatting here, per the seam's own "game owns all player-facing
+    // text" design principle. Reconnects with backoff on any stream error
+    // (including "game process restarted" or "game was never up yet at
+    // boot") - announcements simply pause during the gap and resume once
+    // reconnected, matching §4b's "drop gracefully" policy for the
+    // reverse direction (bot down) with a symmetric, self-healing
+    // treatment for THIS direction instead of ending the loop for good.
     {
         let chat_client = chat_client.clone();
         let adventure = adventure.clone();
-        let mut encounter_rx = adventure.subscribe_encounters();
         tokio::spawn(async move {
-            while let Ok(result) = encounter_rx.recv().await {
-                let chat_client = chat_client.clone();
-                let adventure = adventure.clone();
-                tokio::spawn(async move {
-                    // The overlay doesn't show the outcome the instant this
-                    // broadcast fires — it plays a charge-in animation
-                    // first, then the real fight's (compressed) length —
-                    // see public_adventure_overlay/overlay.html's CHARGE_MS
-                    // (700) and displayDurationMs. Without this delay chat
-                    // spoiled the result several seconds before the
-                    // animation got anywhere near it. Spawned per-result
-                    // (not awaited inline in the recv loop) so back-to-back
-                    // encounters don't serialize their delays.
-                    let delay_ms = 700 + result.display_duration_ms;
-                    tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
-
-                    let mut msg = match (result.kind, result.won) {
-                        (EncounterKind::Boss, true) => format!(
-                            "⚔️ Victory! The party ({} heroes) bested the stage {} enemy! Onward to stage {}!",
-                            result.participants.len(),
-                            result.stage,
-                            result.stage + 1
-                        ),
-                        (EncounterKind::Boss, false) => format!(
-                            "⚔️ The party ({} heroes) was defeated by the stage {} enemy... knocked back to stage {}!",
-                            result.participants.len(),
-                            result.stage,
-                            result.stage.saturating_sub(2).max(1)
-                        ),
-                        (EncounterKind::Basic, true) => format!(
-                            "⚔️ The party ({} heroes) fought off {} ({})!",
-                            result.participants.len(),
-                            result.enemy_name.as_deref().unwrap_or("a group of enemies"),
-                            result.enemy_count.map(|n| format!("{n} enemies")).unwrap_or_default()
-                        ),
-                        (EncounterKind::Basic, false) => format!(
-                            "⚔️ The party ({} heroes) was overwhelmed by {} ({})...",
-                            result.participants.len(),
-                            result.enemy_name.as_deref().unwrap_or("a group of enemies"),
-                            result.enemy_count.map(|n| format!("{n} enemies")).unwrap_or_default()
-                        ),
-                    };
-
-                    // Boss fights only (per-fight MVP breakdown isn't
-                    // interesting for a filler Basic encounter) - see
-                    // fight_summary_from_snapshot's doc. Appended to THIS
-                    // message (the fight outcome), not the loot one below - per
-                    // an earlier request, one message for the fight, one
-                    // for the loot, instead of everything crammed into a
-                    // single message. Each category lists its top 3
-                    // contributors' own individual amount (e.g.
-                    // "Lokati_Gaming (120.7K), xDaido (98.2K), Zolaries
-                    // (76.5K)") - per a live request to bring per-person
-                    // numbers back after a brief combined-total version.
-                    // Uses the same K/M/B/T abbreviation the character
-                    // sheet already relies on (`adventure_web::format_number`)
-                    // specifically to keep this within Twitch's ~500-char
-                    // limit despite the extra detail - raw digit strings
-                    // here were the actual reason this got collapsed to a
-                    // single combined total in the first place.
-                    if result.kind == EncounterKind::Boss {
-                        let summary = fight_summary_from_snapshot(&result.summary);
-                        let per_person = |entries: &[(String, u64)]| {
-                            entries.iter().map(|(name, amt)| format!("{name} ({})", adventure_web::format_number(*amt as f64))).collect::<Vec<_>>().join(", ")
-                        };
-                        let mut parts = Vec::new();
-                        if !summary.top_damage_dealt.is_empty() {
-                            parts.push(format!("🗡️ Top DPS: {}", per_person(&summary.top_damage_dealt)));
+            loop {
+                match adventure.announcements().await {
+                    Ok(mut stream) => {
+                        use futures_util::StreamExt;
+                        while let Some(msg) = stream.next().await {
+                            chat_client.say(msg).await;
                         }
-                        if !summary.top_damage_taken.is_empty() {
-                            parts.push(format!("🛡️ Top Tanks: {}", per_person(&summary.top_damage_taken)));
-                        }
-                        if !summary.top_healing_done.is_empty() {
-                            parts.push(format!("💚 Top Heals: {}", per_person(&summary.top_healing_done)));
-                        }
-                        if let Some(name) = &summary.first_to_die {
-                            parts.push(format!("💀 {name} first down"));
-                        }
-                        if !parts.is_empty() {
-                            msg.push_str(&format!(" | {}", parts.join(" · ")));
-                        }
-
-                        // One-time: the top healer of the first boss
-                        // fight after this launched gets a Celestial
-                        // Shard - "award the top healer of the next
-                        // fight" per the request. Reads `result.summary.players`
-                        // directly (not `summary` above, which only has
-                        // display names) since granting something needs
-                        // the actual character id - and, unlike walking
-                        // `result.events` directly, stays correct on a
-                        // big fight (see `EncounterResult::summary`'s own
-                        // doc: `events` has already been through
-                        // `thin_events_for_overlay` by the time this
-                        // broadcast subscriber sees it, `summary` hasn't).
-                        // If nobody healed this particular fight, the
-                        // marker is deliberately left unset so this
-                        // retries on the next one instead of awarding
-                        // nobody.
-                        const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
-                        if twitch_bot_rs::state::load_json::<bool>(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH).is_none() {
-                            if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
-                                if adventure.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
-                                    chat_client
-                                        .say(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name))
-                                        .await;
-                                }
-                                if let Err(err) = twitch_bot_rs::state::save_json(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH, &true) {
-                                    tracing::error!("Failed to persist celestial shard first award marker: {err}");
-                                }
-                            }
-                        }
-
-                        // Reusable one-time launch giveaways (2026-08-17) -
-                        // "award a shard randomly to one of the top 3
-                        // healers/dps/tanks following the first boss fight
-                        // after the shard is introduced. Same this event
-                        // for future giveaways with new items introduced."
-                        // Each entry is (marker path, the token to grant,
-                        // the name shown in the chat announcement) - adding
-                        // a future item's own launch giveaway is a single
-                        // new line here, nothing else. Fires on the first
-                        // boss fight (win or loss, same as the Celestial
-                        // Shard precedent above - a wipe still has real
-                        // damage/heal totals) after each entry's own marker
-                        // doesn't exist yet, independently of the others.
-                        const ITEM_LAUNCH_GIVEAWAYS: &[(&str, CraftAction, &str)] =
-                            &[("adventure-unique-shard-first-award-marker.json", CraftAction::UniqueShard, "Unique Shard")];
-                        for &(marker_path, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
-                            if twitch_bot_rs::state::load_json::<bool>(marker_path).is_some() {
-                                continue;
-                            }
-                            // Winner pool: this fight's top 3 by damage
-                            // dealt, top 3 by damage taken (tanking), and
-                            // top 3 by healing, unioned and deduplicated by
-                            // id (someone who tops two categories only gets
-                            // one entry, not better odds) - "one of the top
-                            // 3 healers/dps/tanks" per the request, picked
-                            // uniformly at random from that combined pool.
-                            // Read directly off `result.summary.players`,
-                            // same reasoning as the Celestial Shard block
-                            // above (`summary`'s own top-3 lists only
-                            // carry display names, not the ids granting
-                            // needs, and `result.events` under-counts on
-                            // a big fight post-thinning - see
-                            // `EncounterResult::summary`'s doc).
-                            // `damage_taken` there already uses
-                            // `unmitigated_damage`, matching
-                            // `summarize_fight`'s own "reflect the real
-                            // incoming threat, not what leaked through
-                            // DR" convention.
-                            let top3_by = |amount: fn(&PlayerFightStats) -> u64| -> Vec<String> {
-                                let mut ranked: Vec<&PlayerFightStats> = result.summary.players.iter().filter(|p| amount(p) > 0).collect();
-                                ranked.sort_by(|a, b| amount(b).cmp(&amount(a)));
-                                ranked.into_iter().take(3).map(|p| p.id.clone()).collect()
-                            };
-                            // lokati_gaming (the streamer/admin account -
-                            // same login `FIGHTS_PAGE_LOGIN`/
-                            // `ADMIN_TUNABLES_LOGIN` gate in adventure_web.rs
-                            // use) is deliberately excluded from EVERY
-                            // one-time launch giveaway, even when they'd
-                            // otherwise land in the top-3 pool - these are
-                            // meant for viewers, not the account running
-                            // the show. They can still win the SAME item
-                            // through the normal ongoing random drop roll
-                            // (`maybe_drop_unique_shard` et al.) - this
-                            // exclusion is scoped to this giveaway pool
-                            // only, per a live request.
-                            const LAUNCH_GIVEAWAY_EXCLUDED_WINNER: &str = "lokati_gaming";
-                            let mut winner_pool: Vec<String> = Vec::new();
-                            for id in top3_by(|p| p.damage_dealt).into_iter().chain(top3_by(|p| p.damage_taken)).chain(top3_by(|p| p.healing_done)) {
-                                if id != LAUNCH_GIVEAWAY_EXCLUDED_WINNER && !winner_pool.contains(&id) {
-                                    winner_pool.push(id);
-                                }
-                            }
-                            // Empty pool (nobody dealt/took/healed any
-                            // recorded damage, or the only eligible
-                            // performers were the excluded account -
-                            // shouldn't happen in a real boss fight, but
-                            // just in case) leaves the marker unset so
-                            // this retries next fight, same as the
-                            // Celestial Shard block above.
-                            if winner_pool.is_empty() {
-                                continue;
-                            }
-                            let winner_id = winner_pool[rand::thread_rng().gen_range(0..winner_pool.len())].clone();
-                            let display = result.units.iter().find(|u| u.id == winner_id).map(|u| u.display_name.clone()).unwrap_or_else(|| winner_id.clone());
-                            if adventure.grant_craft_token(&winner_id, action, 1).await {
-                                chat_client
-                                    .say(format!("🎁 {display} was randomly drawn from that fight's top performers and has been awarded a {item_label}!"))
-                                    .await;
-                            }
-                            if let Err(err) = twitch_bot_rs::state::save_json(marker_path, &true) {
-                                tracing::error!("Failed to persist {item_label} launch giveaway marker: {err}");
-                            }
-                        }
+                        tracing::warn!("Adventure announcements stream ended (game restarting?) - reconnecting in 5s.");
                     }
-                    chat_client.say(msg).await;
-
-                    // Loot/broken/retreated get their own separate
-                    // message - see the doc above the battle-report
-                    // block for why this is split out at all.
-                    let mut loot_msg = String::new();
-
-                    // Boss fights only skip the 🎁 loot list itself now
-                    // (2026-08-16, a live request: "it's just extra spam"
-                    // on top of the boss summary/MVP breakdown message
-                    // above) - a Basic encounter's loot line is still the
-                    // only loot feedback that fight gets in chat at all,
-                    // so it's untouched. Worn-out/retreated below stay
-                    // for both kinds regardless - only the loot list was
-                    // flagged as noise.
-                    if !result.loot.is_empty() && result.kind != EncounterKind::Boss {
-                        // Auto-disenchant is silent by request (2026-08-17) -
-                        // it's cleanup the player opted into, not a loot
-                        // event worth announcing in chat.
-                        let parts: Vec<String> = result
-                            .loot
-                            .iter()
-                            .filter_map(|loot| match loot.outcome {
-                                ReceiveOutcome::Equipped => {
-                                    Some(format!("{} equipped a {}", loot.display_name, loot.item_name))
-                                }
-                                ReceiveOutcome::AddedToBag => {
-                                    Some(format!("{} bagged a {}", loot.display_name, loot.item_name))
-                                }
-                                ReceiveOutcome::BagFull => {
-                                    Some(format!("{} lost a {} (bag full)", loot.display_name, loot.item_name))
-                                }
-                                ReceiveOutcome::AutoDisenchanted { .. } => None,
-                            })
-                            .collect();
-                        if !parts.is_empty() {
-                            loot_msg.push_str(&format!("🎁 {}", join_capped(&parts, 3)));
-                        }
+                    Err(err) => {
+                        tracing::warn!("Failed to open the adventure announcements stream (game down?): {err} - retrying in 5s.");
                     }
-
-                    if !result.broken.is_empty() {
-                        let parts: Vec<String> = result
-                            .broken
-                            .iter()
-                            .map(|item| format!("{}'s {}", item.display_name, item.item_name))
-                            .collect();
-                        if !loot_msg.is_empty() {
-                            loot_msg.push_str(" · ");
-                        }
-                        loot_msg.push_str(&format!("💔 Worn out: {}", join_capped(&parts, 3)));
-                    }
-
-                    if !result.retreated.is_empty() {
-                        if !loot_msg.is_empty() {
-                            loot_msg.push_str(" · ");
-                        }
-                        loot_msg.push_str(&format!("🏳️ Retreated (repair on the dashboard!): {}", join_capped(&result.retreated, 3)));
-                    }
-
-                    if !loot_msg.is_empty() {
-                        chat_client.say(loot_msg).await;
-                    }
-                });
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
     }
-
-    // Reforge's 1% and recombine's 5% "bonus modifier" rolls (see
-    // GearCritEvent) both funnel through this one subscriber - no delay
-    // needed here (unlike the encounter one above), since neither action
-    // is tied to any overlay animation to wait out.
-    {
-        let chat_client = chat_client.clone();
-        let mut gear_crit_rx = adventure.subscribe_gear_crits();
-        tokio::spawn(async move {
-            while let Ok(event) = gear_crit_rx.recv().await {
-                let verb = match event.source {
-                    GearCritSource::Reforge => "reforge",
-                    GearCritSource::Recombine => "recombination",
-                };
-                let msg = format!(
-                    "🎲✨ {}'s {verb} CRIT! Their new {} ({:?}, tier {}) rolled a bonus {} modifier!",
-                    event.display_name,
-                    event.item_name,
-                    event.slot,
-                    event.tier,
-                    affix_name(event.affix)
-                );
-                chat_client.say(msg).await;
-            }
-        });
-    }
-
-    // !rampage completion (2026-08-17, a live request: "there should also
-    // be an announcement when a rampage is complete") - fires only when a
-    // finite !rampage/vote-triggered countdown finishes naturally, not
-    // when Permanent Rampage is toggled off (see `rampage_complete_tx`'s
-    // own doc).
-    {
-        let chat_client = chat_client.clone();
-        let mut rampage_complete_rx = adventure.subscribe_rampage_complete();
-        tokio::spawn(async move {
-            while rampage_complete_rx.recv().await.is_ok() {
-                chat_client.say("🔥 Rampage complete! Things have settled back down... for now.".to_string()).await;
-            }
-        });
-    }
-
-    // Unique Shard wins from the normal ongoing random drop roll
-    // (2026-08-17, a live request: "make sure an announcement goes out
-    // anytime someone wins a unique shard as well") - separate from the
-    // ITEM_LAUNCH_GIVEAWAYS one-time launch announcement above, which
-    // already covers itself; this covers every win after that.
-    {
-        let chat_client = chat_client.clone();
-        let mut unique_shard_rx = adventure.subscribe_unique_shard_wins();
-        tokio::spawn(async move {
-            while let Ok(event) = unique_shard_rx.recv().await {
-                chat_client.say(format!("💎 {} just found a rare Unique Shard!", event.display_name)).await;
-            }
-        });
-    }
-
     let services = Arc::new(Services {
         helix,
         broadcaster_id,
@@ -1441,8 +1074,20 @@ async fn async_main() -> anyhow::Result<()> {
                 // Same "every message counts" reasoning as the entrance
                 // theme check above — passive XP shouldn't care whether
                 // this particular message happened to be a command.
-                if let Some(new_level) = services.adventure.grant_activity_xp(&msg.sender).await {
-                    chat_client.say(format!("{} leveled up to level {new_level}!", msg.sender)).await;
+                // Fire-and-forget (§4c) - spawned rather than awaited so
+                // a slow/down game process can never stall this loop for
+                // every other chat message. The level-up announcement
+                // itself now comes from the game side over the SSE relay
+                // above (see `AdventureManager::grant_activity_xp`'s own
+                // doc) - nothing to format or say here anymore.
+                {
+                    let adventure = services.adventure.clone();
+                    let sender = msg.sender.clone();
+                    tokio::spawn(async move {
+                        if let Err(err) = adventure.activity_xp(&sender).await {
+                            tracing::debug!("activity_xp call failed for {sender} (game down?): {err}");
+                        }
+                    });
                 }
 
                 let Some(rest) = msg.text.strip_prefix('!') else { continue };

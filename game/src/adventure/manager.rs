@@ -2720,6 +2720,14 @@ impl AdventureManager {
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
+        // Stage 4 cutover (2026-08-19) - this one-time launch giveaway
+        // used to live in the BOT's main.rs (its own `chat_client.say`
+        // right after this call), same real-game-state-mutation-in-the-
+        // wrong-process gap the Celestial Shard/launch-giveaway blocks
+        // had at Stage 3. Now game-owned end to end: the caller (see
+        // game/src/main.rs's own startup) no longer formats anything,
+        // it just fires this once and lets the announcement carry itself.
+        let _ = self.announcements_tx.send(format!("🕊️ {display_name} has been randomly gifted the ultra-rare Wings of Flight cosmetic! Check your dashboard to toggle it on."));
         Some(display_name)
     }
 
@@ -4247,7 +4255,29 @@ impl AdventureManager {
         // `newly_downed` already scanned it in full; only the copy going
         // out over the wire to the overlay gets thinned.
         result.events = thin_events_for_overlay(result.events, &result.units);
-        self.announce_encounter_result(&result).await;
+        // Stage 4 cutover fix (2026-08-19) - this announcement used to
+        // fire from a BOT-side subscriber that deliberately delayed by
+        // `700 + display_duration_ms` (see this fn's own downed-timer
+        // delay below, "same way main.rs already delays the chat result
+        // announcement") before ever calling chat_client.say(), so chat
+        // wouldn't spoil the result before the overlay's charge-in +
+        // fight replay caught up. Porting the FORMATTING to
+        // `announce_encounter_result` at Stage 3 didn't carry this delay
+        // over - it fired immediately - a real gap that stayed invisible
+        // until Stage 4 actually wired a live relay (SSE -> chat) on the
+        // other end. Cloning `result` rather than delaying the whole
+        // `encounter_tx` send: the overlay's own broadcast must stay
+        // immediate (it does its OWN charge-in animation timing off a
+        // fresh receive), only the chat text needs to wait.
+        {
+            let manager = Arc::clone(self);
+            let result_for_announce = result.clone();
+            let delay_ms = 700u64 + display_duration_ms as u64;
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                manager.announce_encounter_result(&result_for_announce).await;
+            });
+        }
         let _ = self.encounter_tx.send(result);
 
         // The fight above is resolved instantly, but the overlay spends
@@ -4525,7 +4555,29 @@ impl AdventureManager {
         // `newly_downed` already scanned it in full; only the copy going
         // out over the wire to the overlay gets thinned.
         result.events = thin_events_for_overlay(result.events, &result.units);
-        self.announce_encounter_result(&result).await;
+        // Stage 4 cutover fix (2026-08-19) - this announcement used to
+        // fire from a BOT-side subscriber that deliberately delayed by
+        // `700 + display_duration_ms` (see this fn's own downed-timer
+        // delay below, "same way main.rs already delays the chat result
+        // announcement") before ever calling chat_client.say(), so chat
+        // wouldn't spoil the result before the overlay's charge-in +
+        // fight replay caught up. Porting the FORMATTING to
+        // `announce_encounter_result` at Stage 3 didn't carry this delay
+        // over - it fired immediately - a real gap that stayed invisible
+        // until Stage 4 actually wired a live relay (SSE -> chat) on the
+        // other end. Cloning `result` rather than delaying the whole
+        // `encounter_tx` send: the overlay's own broadcast must stay
+        // immediate (it does its OWN charge-in animation timing off a
+        // fresh receive), only the chat text needs to wait.
+        {
+            let manager = Arc::clone(self);
+            let result_for_announce = result.clone();
+            let delay_ms = 700u64 + display_duration_ms as u64;
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                manager.announce_encounter_result(&result_for_announce).await;
+            });
+        }
         let _ = self.encounter_tx.send(result);
 
         // Same reasoning as run_encounter's identical block - delay
