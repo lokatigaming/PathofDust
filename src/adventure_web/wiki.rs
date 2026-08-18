@@ -17,6 +17,7 @@
 
 use super::*;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 
@@ -25,12 +26,13 @@ use std::time::SystemTime;
 /// `patch_notes` in adventure_web.rs) so it resolves the same way in dev
 /// and prod without an absolute path baked in. Passives are the deliberate
 /// exception - that section is fully code-generated (see
-/// `render_wiki_passives`) and has no .md file.
+/// `WIKI_PASSIVES_HTML`) and has no .md file.
 const WIKI_MD_DIR: &str = "wiki";
 
 struct CachedMdPage {
     mtime: SystemTime,
     rendered: String,
+    headings: Vec<WikiHeading>,
 }
 
 /// One cache slot per prose page, keyed by its markdown filename (no
@@ -44,20 +46,22 @@ struct CachedMdPage {
 static WIKI_MD_CACHE: LazyLock<Mutex<HashMap<String, CachedMdPage>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Loads, Markdown-renders, and placeholder-substitutes `wiki/{name}.md`,
-/// caching the rendered HTML until the file's mtime changes. `name` is
-/// validated by `is_valid_wiki_slug` before this is ever called with a
-/// request-derived value (see `wiki_dynamic_page`) - ASCII
-/// lowercase-alphanumeric-and-hyphen only, so there's no path-traversal
-/// surface despite building a filesystem path from it, and no way to
-/// reach a file outside `wiki/` or one without a `.md` extension.
-fn render_markdown_page(name: &str) -> String {
+/// caching the rendered HTML (and its extracted heading list, for the
+/// sidebar's in-page nav - see `extract_and_inject_heading_ids`) until the
+/// file's mtime changes. `name` is validated by `is_valid_wiki_slug` before
+/// this is ever called with a request-derived value (see
+/// `wiki_dynamic_page`) - ASCII lowercase-alphanumeric-and-hyphen only, so
+/// there's no path-traversal surface despite building a filesystem path
+/// from it, and no way to reach a file outside `wiki/` or one without a
+/// `.md` extension.
+fn render_markdown_page(name: &str) -> (String, Vec<WikiHeading>) {
     let path = format!("{WIKI_MD_DIR}/{name}.md");
     let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
 
     let mut cache = WIKI_MD_CACHE.lock().unwrap();
     if let Some(cached) = cache.get(name) {
         if cached.mtime == mtime {
-            return cached.rendered.clone();
+            return (cached.rendered.clone(), cached.headings.clone());
         }
     }
 
@@ -69,9 +73,100 @@ fn render_markdown_page(name: &str) -> String {
     let mut html_out = String::new();
     let parser = pulldown_cmark::Parser::new_ext(&substituted, pulldown_cmark::Options::ENABLE_TABLES);
     pulldown_cmark::html::push_html(&mut html_out, parser);
+    let (html_out, headings) = extract_and_inject_heading_ids(&html_out);
 
-    cache.insert(name.to_string(), CachedMdPage { mtime, rendered: html_out.clone() });
-    html_out
+    cache.insert(name.to_string(), CachedMdPage { mtime, rendered: html_out.clone(), headings: headings.clone() });
+    (html_out, headings)
+}
+
+/// One `<h2>`/`<h3>` found in a rendered wiki page - what the sidebar's
+/// per-page "on this page" sub-list is built from.
+#[derive(Clone)]
+struct WikiHeading {
+    level: u8,
+    id: String,
+    /// Tag-stripped inner text (emoji survive, since they aren't HTML
+    /// tags) - safe to drop straight into the sidebar link's text.
+    text: String,
+}
+
+/// Scans rendered HTML for `<h2>`/`<h3>` tags and returns (a) the same HTML
+/// with an `id="..."` added to any heading that didn't already have one,
+/// and (b) the ordered list of every heading found, existing-id or newly
+/// assigned. Existing ids (hand-authored for the legacy `/wiki#slug`
+/// redirect map - see `wiki_hash_redirect_script`) are never touched, only
+/// ever read - this only ever *adds* anchors, so old links can't break.
+///
+/// A page is assumed to use at most one `<h2>` (its own title) followed by
+/// any number of `<h3>`s - true of every page today - so processing `<h2>`
+/// then `<h3>` and concatenating is document-order-correct without needing
+/// a single combined pass (Rust's `regex` crate has no backreferences, so
+/// one pattern matching "some heading level, then the SAME level's closing
+/// tag" isn't expressible anyway - two simple per-level patterns sidestep
+/// that entirely).
+fn extract_and_inject_heading_ids(html: &str) -> (String, Vec<WikiHeading>) {
+    static H2_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"<h2(?:\s+id="([^"]*)")?>(.*?)</h2>"#).unwrap());
+    static H3_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"<h3(?:\s+id="([^"]*)")?>(.*?)</h3>"#).unwrap());
+
+    let mut used_ids: HashSet<String> = HashSet::new();
+    let mut headings: Vec<WikiHeading> = Vec::new();
+    let after_h2 = inject_heading_ids(html, 2, &H2_RE, &mut used_ids, &mut headings);
+    let after_h3 = inject_heading_ids(&after_h2, 3, &H3_RE, &mut used_ids, &mut headings);
+    (after_h3, headings)
+}
+
+fn inject_heading_ids(html: &str, level: u8, re: &Regex, used_ids: &mut HashSet<String>, headings: &mut Vec<WikiHeading>) -> String {
+    static TAG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
+    re.replace_all(html, |caps: &regex::Captures| {
+        let inner = &caps[2];
+        let text = TAG_RE.replace_all(inner, "").trim().to_string();
+        let id = match caps.get(1).map(|m| m.as_str()).filter(|s| !s.is_empty()) {
+            Some(existing) => {
+                used_ids.insert(existing.to_string());
+                existing.to_string()
+            }
+            None => {
+                let base = slugify(&text);
+                let mut candidate = base.clone();
+                let mut n = 2;
+                while used_ids.contains(&candidate) {
+                    candidate = format!("{base}-{n}");
+                    n += 1;
+                }
+                used_ids.insert(candidate.clone());
+                candidate
+            }
+        };
+        headings.push(WikiHeading { level, id: id.clone(), text: text.clone() });
+        format!("<h{level} id=\"{id}\">{inner}</h{level}>")
+    })
+    .into_owned()
+}
+
+/// Lowercase ASCII alphanumerics joined by single hyphens - deliberately
+/// the same shape as the hand-authored ids already scattered through
+/// `wiki/*.md` (`"dragon"`, `"fire-demon"`), so an auto-generated id looks
+/// no different from one an author typed by hand.
+fn slugify(text: &str) -> String {
+    let mut out = String::new();
+    let mut last_was_dash = true;
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            out.push('-');
+            last_was_dash = true;
+        }
+    }
+    if out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        "section".to_string()
+    } else {
+        out
+    }
 }
 
 /// Substitutes `{{CONSTANT_NAME}}` tokens against the real game constants
@@ -262,32 +357,26 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
 /// the page that now actually contains that anchor.
 pub(super) async fn wiki_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
+    let (content, headings) = render_markdown_page("landing");
     Html(render_page(&format!(
-        "{}{}{}{}{}",
+        "{}{}{}",
         top_nav(character.as_ref()),
-        wiki_crumb("/", "Back to your character"),
         wiki_hash_redirect_script(),
-        wiki_subnav("landing"),
-        render_wiki_toc(),
+        wiki_shell("landing", &headings, &content),
     )))
 }
 
 pub(super) async fn wiki_passives_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("passives"),
-        render_wiki_passives(),
-    )))
+    let (content, headings) = WIKI_PASSIVES_HTML.clone();
+    Html(render_page(&format!("{}{}", top_nav(character.as_ref()), wiki_shell("passives", &headings, &content))))
 }
 
 /// Serves any `wiki/{page}.md` that exists, for any `page` matching
 /// `is_valid_wiki_slug` - this is the whole reason a new wiki page no
 /// longer needs a route added and a rebuild deployed, only a new `.md`
 /// file (and, to actually show up in nav, a line in `wiki/nav.json` - see
-/// `wiki_subnav`). 404s on an invalid slug or a missing file, never 500s
+/// `wiki_sidebar`). 404s on an invalid slug or a missing file, never 500s
 /// or falls through to something else - `is_valid_wiki_slug`'s character
 /// restriction doubles as a guard against ever accidentally web-serving
 /// something in `wiki/` that isn't a lowercase-hyphenated page file (the
@@ -296,25 +385,12 @@ pub(super) async fn wiki_passives_page(State(state): State<AppState>, headers: H
 /// with no separate exclusion list to maintain).
 pub(super) async fn wiki_dynamic_page(State(state): State<AppState>, headers: HeaderMap, Path(page): Path<String>) -> (StatusCode, Html<String>) {
     if !is_valid_wiki_slug(&page) || !std::path::Path::new(&format!("{WIKI_MD_DIR}/{page}.md")).exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Html(render_page(&format!(
-                "{}<div class=\"card\"><p>That wiki page doesn't exist.</p><p class=\"muted\"><a href=\"/wiki\">&larr; All wiki sections</a></p></div>",
-                wiki_crumb("/wiki", "All wiki sections"),
-            ))),
-        );
+        let not_found = "<div class=\"card\"><h1>Wiki</h1><p>That wiki page doesn't exist.</p><p class=\"muted\"><a href=\"/wiki\">&larr; All wiki sections</a></p></div>";
+        return (StatusCode::NOT_FOUND, Html(render_page(&wiki_shell("", &[], not_found))));
     }
     let character = resolve_wiki_character(&headers, &state).await;
-    (
-        StatusCode::OK,
-        Html(render_page(&format!(
-            "{}{}{}{}",
-            top_nav(character.as_ref()),
-            wiki_crumb("/wiki", "All wiki sections"),
-            wiki_subnav(&page),
-            render_markdown_page(&page),
-        ))),
-    )
+    let (content, headings) = render_markdown_page(&page);
+    (StatusCode::OK, Html(render_page(&format!("{}{}", top_nav(character.as_ref()), wiki_shell(&page, &headings, &content)))))
 }
 
 /// ASCII lowercase letters, digits, and hyphens only - matches every real
@@ -333,50 +409,74 @@ async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option
     }
 }
 
-/// Shared "Wiki" breadcrumb card every wiki page (landing + sub-pages)
-/// opens with - `back_href`/`back_label` vary since the landing page
-/// backs out to `/` while every sub-page backs out to `/wiki`.
-fn wiki_crumb(back_href: &str, back_label: &str) -> String {
-    format!("<div class=\"card\"><h1>Wiki</h1><p class=\"muted\"><a href=\"{back_href}\">&larr; {back_label}</a></p></div>")
-}
-
 /// One nav entry, deserialized straight from `wiki/nav.json` - `label`
 /// carries its own emoji prefix (e.g. `"🚀 Getting Started"`) so the
-/// manifest is the one place both the icon and the text live.
+/// manifest is the one place both the icon and the text live. Sidebar
+/// order is manifest order - reordering pages is a `nav.json` edit, not a
+/// code change (requirement from the 2026-08-19 sidebar redesign: "order
+/// comes from nav.json so I can reorder by editing the file, no rebuild").
 #[derive(serde::Deserialize)]
 struct WikiNavEntry {
     slug: String,
     label: String,
 }
 
-/// Small nav shown on every wiki page (landing included, so it doubles as
-/// a shortcut past the ToC), driven by `wiki/nav.json` instead of a
-/// hardcoded list - adding a page to nav is a manifest edit, not a code
-/// change, same "no rebuild needed" property `render_markdown_page`
-/// already has for content. Missing/unparseable manifest just means an
-/// empty nav bar, not a 500 - `load_json` already logs a parse error.
-/// Reuses `top_nav`'s own `.top-nav-links`/`.top-nav-link` classes
-/// verbatim instead of introducing new CSS - the active page renders as
-/// plain bold text (no href) rather than a new "active link" style.
-fn wiki_subnav(active: &str) -> String {
+/// The persistent left-hand docs sidebar every wiki page shares - driven
+/// by `wiki/nav.json`, current page highlighted, with that page's own
+/// `<h2>`/`<h3>` headings (see `extract_and_inject_heading_ids`) rendered
+/// as a collapsible `<details>` sub-list right under its entry. Only the
+/// ACTIVE entry gets a heading sub-list - the other pages' headings aren't
+/// even computed for this request, only the one actually being rendered
+/// (see `wiki_dynamic_page`/`wiki_page`/`wiki_passives_page`, which each
+/// already have their own page's `(content, headings)` in hand).
+///
+/// Missing/unparseable manifest just means an empty nav list, not a 500 -
+/// `load_json` already logs a parse error. Includes the mobile hamburger
+/// toggle button and its backdrop - both `display: none` above the
+/// `.wiki-shell` mobile breakpoint (see `templates/base.html`), so they're
+/// inert dead weight on desktop rather than a second code path.
+fn wiki_sidebar(active: &str, headings: &[WikiHeading]) -> String {
     let entries: Vec<WikiNavEntry> = crate::state::load_json(format!("{WIKI_MD_DIR}/nav.json")).unwrap_or_default();
-    let html: String = entries
+    let items: String = entries
         .iter()
         .map(|e| {
             if e.slug == active {
-                format!("<strong class=\"top-nav-link\">{}</strong>", e.label)
+                let toc: String = headings
+                    .iter()
+                    .map(|h| {
+                        let class = if h.level == 2 { " class=\"wiki-toc-h2\"" } else { "" };
+                        format!("<li{class}><a href=\"#{}\">{}</a></li>", h.id, h.text)
+                    })
+                    .collect();
+                format!("<li><details class=\"wiki-toc\" open><summary>{}</summary><ul class=\"wiki-toc-list\">{toc}</ul></details></li>", e.label)
             } else {
-                format!("<a class=\"top-nav-link\" href=\"/wiki/{}\">{}</a>", e.slug, e.label)
+                format!("<li><a class=\"wiki-nav-link\" href=\"/wiki/{}\">{}</a></li>", e.slug, e.label)
             }
         })
         .collect();
-    format!("<div class=\"top-nav-links\">{html}</div>")
+    format!(
+        "<button type=\"button\" class=\"wiki-sidebar-toggle\" aria-label=\"Toggle wiki menu\" onclick=\"\
+          document.getElementById('wiki-sidebar').classList.toggle('wiki-sidebar--open');\
+          document.getElementById('wiki-sidebar-backdrop').classList.toggle('wiki-sidebar--open');\
+        \">&#9776; Wiki Menu</button>\
+        <div class=\"wiki-sidebar-backdrop\" id=\"wiki-sidebar-backdrop\" onclick=\"\
+          this.classList.remove('wiki-sidebar--open');\
+          document.getElementById('wiki-sidebar').classList.remove('wiki-sidebar--open');\
+        \"></div>\
+        <nav class=\"wiki-sidebar\" id=\"wiki-sidebar\">\
+          <div class=\"wiki-sidebar-home\"><a href=\"/wiki\">&#128214; Wiki</a> &middot; <a href=\"/\">&larr; Your character</a></div>\
+          <ul class=\"wiki-nav-list\">{items}</ul>\
+        </nav>"
+    )
 }
 
-/// `/wiki` landing page's table of contents - content lives in
-/// `wiki/landing.md` (see `render_markdown_page`).
-fn render_wiki_toc() -> String {
-    render_markdown_page("landing")
+/// Wraps a page's rendered content with the sidebar into the
+/// `.wiki-shell` two-column layout (see `templates/base.html` for the
+/// CSS) - every wiki page (landing, passives, and every dynamic `.md`
+/// page) goes through this one function, so the shell markup only exists
+/// in one place.
+fn wiki_shell(active: &str, headings: &[WikiHeading], content_html: &str) -> String {
+    format!("<div class=\"wiki-shell\">{}<div class=\"wiki-content\">{}</div></div>", wiki_sidebar(active, headings), content_html)
 }
 
 /// Forwards an old `/wiki#slug` fragment link to whichever page now owns
@@ -416,10 +516,14 @@ fn wiki_hash_redirect_script() -> String {
 /// are pure functions of compiled-in data, so the output is identical on
 /// every call for the life of the process. `WIKI_PASSIVES_HTML` builds it
 /// once, on first request, instead of recomputing 11 full tree layouts
-/// (SVG connectors and all) on every single visit to any wiki sub-page.
-static WIKI_PASSIVES_HTML: LazyLock<String> = LazyLock::new(|| {
+/// (SVG connectors and all) on every single visit to any wiki page - the
+/// heading extraction (for the sidebar's in-page nav, same as every
+/// markdown page gets) rides along in that same one-time cost, since
+/// archetype sections are `<details>`/`<summary>`, not headings, so the
+/// only real heading here is the card's own "Class Passive Trees" `<h2>`.
+static WIKI_PASSIVES_HTML: LazyLock<(String, Vec<WikiHeading>)> = LazyLock::new(|| {
     let sections: String = ALL_ARCHETYPES.iter().map(|&archetype| render_wiki_archetype_graph(archetype)).collect();
-    format!(
+    let html = format!(
         "<div class=\"card\">\
           <h2>Class Passive Trees</h2>\
           <p>Every class has its own tree: 1 root passive (always active, scales with level), 3 Skills you can rank up freely, \
@@ -429,15 +533,12 @@ static WIKI_PASSIVES_HTML: LazyLock<String> = LazyLock::new(|| {
           <span class=\"muted\">(inactive)</span> doesn't do anything yet, though points spent there are banked, not wasted, and \
           will start working the day that mechanic ships.</p>\
         </div>{sections}"
-    )
+    );
+    extract_and_inject_heading_ids(&html)
 });
 
-fn render_wiki_passives() -> String {
-    WIKI_PASSIVES_HTML.clone()
-}
-
 /// One class's full tree, drawn with the exact same graph renderer the
-/// interactive `/passives` page uses - see `render_wiki_passives`'s doc.
+/// interactive `/passives` page uses - see `WIKI_PASSIVES_HTML`'s doc.
 /// Since this has no real character behind it, `allocations` is a
 /// synthetic "every node maxed" map (every skill/spec/modifier's own
 /// `max_rank`) rather than anyone's real ranks - the ONLY purpose here is
