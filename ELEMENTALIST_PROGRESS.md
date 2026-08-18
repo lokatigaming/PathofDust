@@ -26,8 +26,8 @@ stage's "all existing tests still pass" check is protecting.
 - [x] Stage 1 — `docs/elementalist_spec.md` + tree skeleton (39 nodes,
       structurally real, `NotYetImplemented` effects) + `Elementalist`
       archetype/access (done 2026-08-19)
-- [ ] Stage 2 — Elemental Focus branch (proc-frequency, crit mods,
-      gear-scaled elemental damage)
+- [x] Stage 2 — Elemental Focus branch (proc-frequency, crit mods,
+      gear-scaled elemental damage) (done 2026-08-19)
 - [ ] Stage 3 — Righteous Fire part 1 (damage + self-burn, Scorching
       Flames, Relentless/Cauterizing Flames, Ashes to Ashes)
 - [ ] Stage 4 — Righteous Fire part 2 (regen clock, Fanning Flames,
@@ -99,9 +99,64 @@ listed here for completeness, not decisions made unattended):*
    hand (matching e.g. `WARRIOR_NODES`'s one-node-per-line-or-wrapped-
    when-long style) instead.
 
+7. **Elemental Focus's flat bonus AND Overshock/Polar Flux/Incinerate's
+   gear-scaled bonus both feed the SAME existing `fire_damage_pct`/
+   `cold_damage_pct`/`lightning_damage_pct` fields** (confirmed via
+   `Affix::ColdDamage`'s own doc in `affix.rs`: these fields are
+   PROC CHANCE only - "fire damage dealt" is literally labeled "dmg
+   reduction debuff chance" - there is no separate raw-damage stat for
+   this codebase's elemental system at all). "Scaling from X damage on
+   gear" read as the modifier's own magnitude times the unit's OWN gear
+   roll for that element (same "scaled off the attacker's own stat"
+   shape Chakra of Light already established for `increased_damage`),
+   not a second independent gear roll. Extracted into a new pure
+   function, `elementalist_elemental_damage_pct` (`combat.rs`), so this
+   formula is unit-testable without a full `Character`/`simulate_battle`
+   harness.
+8. **Shocking/Chilling/Scorching Focus ("apply debuffs X% more
+   frequently") implemented as a SEPARATE extra guaranteed-stack roll**
+   on top of each element's own primary proc, reusing
+   `roll_chakra_of_light_stacks` directly (Monk's own template for
+   exactly this "second independent trigger scaled off an own-stat"
+   shape) rather than inflating the primary proc chance itself - keeps
+   "more damage" (Elemental Focus) and "more frequently" (the Focus
+   specs) as genuinely separate, non-conflated mechanics.
+9. **Lightning/Chilling/Scorching Aegis gate on the PRIMARY proc landing
+   only**, not the Focus branch's own extra roll above - "every time you
+   apply a debuff" read as once per hit that lands one, not once per
+   extra stack an overflow roll might additionally push. One shared
+   `ELEMENTAL_AEGIS_SHIELD_DURATION_MS` constant (5s, matching
+   `ARCANE_SHIELD_DURATION_MS`'s own value/reasoning) covers all 3,
+   rather than 3 near-identical per-element constants.
+10. **Electrical Overload/Blizzard wired as ordinary `FlatStat` entries**
+   into the existing generic `CritMultiplier`/`CritChance` pool (exact
+   precedent: Mage's Arcane Mastery/Critical Mass/Overload/Cataclysm) -
+   zero `combat.rs` changes needed for either, unlike everything else
+   in this branch.
+11. **Conflagration implemented as its OWN independent multiplicative
+   damage layer** (`conflagration_dmg_pct`, applied as its own
+   `raw_dmg *= 1.0 + X` term right next to Rogue's Backstab/Silent
+   Killer), NOT folded into the shared additive `increased_damage` pool
+   - the spec's explicit "MULTIPLICATIVE increased damage" wording
+   (contrasted against Scorching Flames' explicit "ADDITIVE fire
+   damage" a few lines above it in the same spec) reads as a deliberate,
+   meaningful distinction, not incidental phrasing.
+12. **`CombatSimUnit` has 5 separate construction sites, not the 1 that
+   was obvious from a first read** (`impl Default`, the real
+   `simulate_battle`-embedded from-`Character` constructor, a
+   boss-construction site, and TWO further sites inside boss-adds
+   injection code with pre-existing, visibly inconsistent per-line
+   indentation within a single struct literal - not this branch's mess,
+   predates it). A find-and-replace across `chakra_of_light_pct: 0.0,`
+   as the anchor briefly produced a duplicate-field compile error from
+   two of these sites' insertions landing adjacently; caught immediately
+   by `cargo build` and fixed before the commit - noted here so a later
+   stage adding its own new `CombatSimUnit` field knows to check for all
+   5 sites, not assume 1.
+
 *(Everything above this line was decided without a check-in, during
 autonomous execution. Nothing further yet - this section grows as
-Stages 2-6 proceed.)*
+Stages 3-6 proceed.)*
 
 ---
 
@@ -133,6 +188,28 @@ Stages 2-6 proceed.)*
   structural tree validation this codebase has ever had, generic
   enough to protect every future archetype's tree too, not just this
   one). Full suite: **171 passing, 0 failed** (was 156).
+- Committed as `a14b5d4`, pushed.
+
+## Stage 2 summary (for the morning, or a fresh session)
+
+- Elemental Focus skill + Shocking/Chilling/Scorching Focus specs +
+  their 9 modifiers (13 of the tree's 39 nodes) wired to real effects -
+  see Decisions 7-12 above for the full mechanic-by-mechanic reasoning.
+  Everything outside this branch (Righteous Fire, Golem Master, and all
+  their children) is still `NotYetImplemented`.
+- New pure function `elementalist_elemental_damage_pct` (`combat.rs`)
+  and 7 new `CombatSimUnit` fields (`shockingfocus_pct`/
+  `chillingfocus_pct`/`scorchingfocus_pct`/`lightningaegis_shield_pct`/
+  `chillingaegis_shield_pct`/`scorchingaegis_shield_pct`/
+  `conflagration_dmg_pct`), each defaulted at all 5 construction sites
+  (see Decision 12).
+- 13 net new tests: `passive_tree.rs`'s `tree_shape_tests` gained 5 and
+  lost 1 (the old Stage-1-only blanket "every node is NotYetImplemented"
+  check, replaced by one that also asserts the Elemental Focus branch's
+  13 keys now have real effects), net +4; `combat.rs`'s new
+  `elementalist_stage_2_tests` module added 9 (4 pure-function cases for
+  `elementalist_elemental_damage_pct`, 2 Aegis, 1 Focus extra-roll, 2
+  Conflagration). Full suite: **184 passing, 0 failed** (was 171).
 - Commit is next.
 
 ---

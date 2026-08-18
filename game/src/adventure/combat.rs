@@ -180,6 +180,12 @@ pub(crate) const HEALING_TOUCH_DURATION_MS: u32 = 3_000;
 /// doesn't state a duration ("a crit grants you a shield worth..."), same
 /// first-pass-pick spirit as `OVERFLOW_GRACE_SHIELD_BASE_DURATION_MS`.
 pub(crate) const ARCANE_SHIELD_DURATION_MS: u32 = 5_000;
+/// How long Elementalist's Lightning/Chilling/Scorching Aegis's own
+/// elemental-proc-triggered shield lasts - one shared constant for all 3
+/// (identical mechanic, only the triggering element differs), same
+/// first-pass-pick spirit and value as `ARCANE_SHIELD_DURATION_MS` above
+/// (the design text only states the shield's size, not a duration).
+pub(crate) const ELEMENTAL_AEGIS_SHIELD_DURATION_MS: u32 = 5_000;
 /// How long Eternal Hunger's shield (off a Soul Harvest kill-heal) lasts -
 /// same first-pass-pick spirit, the design text only states the value
 /// ("a small shield worth 25% of the heal per rank"), not a duration.
@@ -1625,6 +1631,40 @@ pub(crate) struct CombatSimUnit {
     /// `increased_damage`, per `roll_chakra_of_light_stacks`'s doc. 0.0
     /// without it invested.
     chakra_of_light_pct: f64,
+    /// Elementalist's Shocking/Chilling/Scorching Focus (docs/
+    /// elementalist_spec.md) - "you apply lightning/cold/fire damage
+    /// debuffs X% more frequently". Same shape as `chakra_of_light_pct`
+    /// just above: a SEPARATE guaranteed-stack roll on top of the normal
+    /// `fire_damage_pct`/`cold_damage_pct`/`lightning_damage_pct` proc
+    /// (see those fields' own doc - each IS already the proc chance, not
+    /// a damage multiplier), scaled off this unit's OWN elemental % on
+    /// that same element rather than a second independent gear roll -
+    /// "more frequently" reads as more procs off what you already have,
+    /// not a flat unconditional chance. 0.0 without the matching Focus
+    /// spec invested.
+    shockingfocus_pct: f64,
+    chillingfocus_pct: f64,
+    scorchingfocus_pct: f64,
+    /// Elementalist's Lightning/Chilling/Scorching Aegis - grants THIS
+    /// unit a shield worth this fraction of their own max HP every time
+    /// they successfully apply the matching element's debuff (checked in
+    /// `apply_hit` right after that element's own proc roll, granted via
+    /// `grant_shield`) - same "shield on your own proc" shape as Mage's
+    /// `crit_shield_max_hp_pct` just triggered off an elemental proc
+    /// instead of a crit. 0.0 without the matching modifier invested.
+    lightningaegis_shield_pct: f64,
+    chillingaegis_shield_pct: f64,
+    scorchingaegis_shield_pct: f64,
+    /// Elementalist's Conflagration (Scorching Focus modifier, keyed
+    /// "pyroclasm" - see passive_tree.rs's own doc on the rename) -
+    /// "gain X% MULTIPLICATIVE increased damage", spec'd as distinct from
+    /// the ordinary additive `increased_damage` pool every other
+    /// archetype's tree-granted damage bonuses join. Applied as its own
+    /// independent `raw_dmg *= 1.0 + X` factor (see `resolve_hit`, same
+    /// site as Rogue's Cutthroat/Silent Killer/Backstab's own independent
+    /// multiplicative layers) rather than folded into `increased_damage`.
+    /// 0.0 without it invested.
+    conflagration_dmg_pct: f64,
     /// Chakra of Life - a hit that would kill this unit instead grants
     /// this many ms of full damage immunity (`chakraoflife_immune_until_ms`
     /// below), after which the unit dies unconditionally
@@ -2799,6 +2839,13 @@ impl Default for CombatSimUnit {
             flowing_last_target: 0,
             chakra_of_many_pct: 0.0,
             chakra_of_light_pct: 0.0,
+            shockingfocus_pct: 0.0,
+            chillingfocus_pct: 0.0,
+            scorchingfocus_pct: 0.0,
+            lightningaegis_shield_pct: 0.0,
+            chillingaegis_shield_pct: 0.0,
+            scorchingaegis_shield_pct: 0.0,
+            conflagration_dmg_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: 0,
@@ -3802,6 +3849,15 @@ pub(crate) fn resolve_hit(
     if atk.backstab_pending_dmg_pct > 0.0 {
         raw_dmg *= 1.0 + atk.backstab_pending_dmg_pct;
         attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Backstab", atk.backstab_pending_dmg_pct));
+    }
+    // Elementalist's Conflagration (docs/elementalist_spec.md) - spec'd as
+    // "MULTIPLICATIVE increased damage", distinct from the ordinary
+    // additive `increased_damage` pool (see `conflagration_dmg_pct`'s own
+    // doc) - its own independent layer, same shape as Backstab/Silent
+    // Killer just above.
+    if atk.conflagration_dmg_pct > 0.0 {
+        raw_dmg *= 1.0 + atk.conflagration_dmg_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Conflagration", atk.conflagration_dmg_pct));
     }
     // Late-stage damage penalty (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
     // doc) - a hard, unbypassable cap on damage dealt TO a real boss this
@@ -4873,6 +4929,23 @@ pub const ELEMENTAL_PROC_CHANCE_DIVISOR: f64 = 10.0;
 /// when nothing was rolled at all, i.e. `chance <= 0.0` or already at
 /// `max_stacks`)` - the second value feeds `apply_hit`'s `RollEvent`
 /// logging (2026-08-17, full-detail combat log, Wiring Phase 1).
+/// Elementalist's Elemental Focus + Overshock/Polar Flux/Incinerate
+/// (docs/elementalist_spec.md) - combines a unit's own gear-rolled
+/// elemental proc % for ONE element (`gear_pct` - see `fire_damage_pct`'s
+/// own doc for what this field actually is) with Elemental Focus's flat
+/// bonus (shared identically across all 3 elements) and that one
+/// element's own gear-scaled modifier ("X% more Y damage, SCALING FROM Y
+/// damage on gear" - read as X% of the unit's own gear roll for that
+/// element, same "scaled off the attacker's own stat" shape Chakra of
+/// Light already established for `increased_damage`, applied here to a
+/// gear stat instead). `elemental_focus_pct`/`gear_scaling_modifier_pct`
+/// are both 0.0 for any non-Elementalist or a not-yet-invested node, so
+/// this collapses to exactly `gear_pct` (today's existing behavior) for
+/// everyone else.
+pub(crate) fn elementalist_elemental_damage_pct(gear_pct: f64, elemental_focus_pct: f64, gear_scaling_modifier_pct: f64) -> f64 {
+    gear_pct + elemental_focus_pct + gear_pct * gear_scaling_modifier_pct
+}
+
 pub(crate) fn roll_elemental_proc(raw_pct: f64, stacks: &mut Vec<u32>, max_stacks: usize, at_ms: u32, rng: &mut impl Rng) -> (bool, Option<f64>) {
     let chance = raw_pct / ELEMENTAL_PROC_CHANCE_DIVISOR;
     if chance <= 0.0 || stacks.len() >= max_stacks {
@@ -5962,6 +6035,61 @@ pub(crate) fn apply_hit(
         let (lightning_proc, lightning_chance) = roll_elemental_proc(lightning_pct, &mut units[target_idx].lightning_dmg_taken, ELEMENTAL_LIGHTNING_MAX_STACKS, at_ms, rng);
         if let Some(chance) = lightning_chance {
             rolls.push(elemental_roll_event(hit_id, at_ms, "Lightning proc", &attacker_id_for_rolls, &target_id_for_rolls, chance, lightning_proc));
+        }
+        // Elementalist's Shocking/Chilling/Scorching Focus (docs/
+        // elementalist_spec.md) - "you apply lightning/cold/fire damage
+        // debuffs X% more frequently". Each is a SEPARATE extra roll on
+        // top of that element's own primary proc just above, scaled off
+        // the unit's OWN already-rolled elemental % for that element
+        // (gear + Elemental Focus) rather than a second independent gear
+        // roll - same "second independent trigger, scaled off an own-stat"
+        // shape Chakra of Light established for Lightning specifically
+        // (see `roll_chakra_of_light_stacks`'s doc), just applied here to
+        // all 3 elements uniformly.
+        // Lightning/Chilling/Scorching Aegis ride along here too - a
+        // shield on the ATTACKER worth a fraction of their own max HP,
+        // same shape as Mage's crit-triggered `crit_shield_max_hp_pct`
+        // (see that field's own construction-site doc), just triggered
+        // off a landed elemental proc instead of a crit. Judgment call:
+        // gated on the PRIMARY proc landing only, not this stage's own
+        // extra Focus roll - "every time you apply a debuff" reads as
+        // once per hit that lands one, not once per extra stack an
+        // overflow roll might additionally push.
+        let scorchingfocus_pct = units[attacker_idx].scorchingfocus_pct;
+        if scorchingfocus_pct > 0.0 {
+            let raw_pct = fire_pct * scorchingfocus_pct;
+            roll_chakra_of_light_stacks(raw_pct, &mut units[target_idx].fire_dr_debuff, usize::MAX, at_ms, rng);
+        }
+        if fire_proc {
+            let scorchingaegis_pct = units[attacker_idx].scorchingaegis_shield_pct;
+            if scorchingaegis_pct > 0.0 {
+                let shield_amount = units[attacker_idx].max_hp as f64 * scorchingaegis_pct;
+                grant_shield(units, attacker_idx, attacker_idx, shield_amount, at_ms, ELEMENTAL_AEGIS_SHIELD_DURATION_MS, events);
+            }
+        }
+        let chillingfocus_pct = units[attacker_idx].chillingfocus_pct;
+        if chillingfocus_pct > 0.0 {
+            let raw_pct = cold_pct * chillingfocus_pct;
+            roll_chakra_of_light_stacks(raw_pct, &mut units[target_idx].cold_evasion_debuff, usize::MAX, at_ms, rng);
+        }
+        if cold_proc {
+            let chillingaegis_pct = units[attacker_idx].chillingaegis_shield_pct;
+            if chillingaegis_pct > 0.0 {
+                let shield_amount = units[attacker_idx].max_hp as f64 * chillingaegis_pct;
+                grant_shield(units, attacker_idx, attacker_idx, shield_amount, at_ms, ELEMENTAL_AEGIS_SHIELD_DURATION_MS, events);
+            }
+        }
+        let shockingfocus_pct = units[attacker_idx].shockingfocus_pct;
+        if shockingfocus_pct > 0.0 {
+            let raw_pct = lightning_pct * shockingfocus_pct;
+            roll_chakra_of_light_stacks(raw_pct, &mut units[target_idx].lightning_dmg_taken, ELEMENTAL_LIGHTNING_MAX_STACKS, at_ms, rng);
+        }
+        if lightning_proc {
+            let lightningaegis_pct = units[attacker_idx].lightningaegis_shield_pct;
+            if lightningaegis_pct > 0.0 {
+                let shield_amount = units[attacker_idx].max_hp as f64 * lightningaegis_pct;
+                grant_shield(units, attacker_idx, attacker_idx, shield_amount, at_ms, ELEMENTAL_AEGIS_SHIELD_DURATION_MS, events);
+            }
         }
         // Monk's Chakra of Light - a SEPARATE trigger onto the same real
         // Lightning Damage debuff stack above, scaled off the attacker's
@@ -8011,11 +8139,15 @@ pub(crate) fn simulate_battle(
                 } else {
                     0
                 },
-                // Elemental damage rework (2026-08-15).
-                fire_damage_pct: c.sum_affix(Affix::FireDamage),
-                cold_damage_pct: c.sum_affix(Affix::ColdDamage),
+                // Elemental damage rework (2026-08-15). Elementalist's
+                // Elemental Focus/Overshock/Polar Flux/Incinerate folded
+                // in via `elementalist_elemental_damage_pct` (see its own
+                // doc) - collapses to exactly the plain gear roll for
+                // every non-Elementalist.
+                fire_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::FireDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("incinerate")),
+                cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("polarflux")),
                 chaos_damage_pct: c.sum_affix(Affix::ChaosDamage),
-                lightning_damage_pct: c.sum_affix(Affix::LightningDamage),
+                lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("overshock")),
                 divine_damage_pct: c.sum_affix(Affix::DivineDamage),
                 fire_dr_debuff: Vec::new(),
                 cold_evasion_debuff: Vec::new(),
@@ -8617,6 +8749,13 @@ pub(crate) fn simulate_battle(
                 flowing_last_target: usize::MAX,
                 chakra_of_many_pct: c.passive_node_magnitude("chakraofmany"),
                 chakra_of_light_pct: c.passive_node_magnitude("chakraoflight"),
+                shockingfocus_pct: c.passive_node_magnitude("shockingfocus"),
+                chillingfocus_pct: c.passive_node_magnitude("chillingfocus"),
+                scorchingfocus_pct: c.passive_node_magnitude("scorchingfocus"),
+                lightningaegis_shield_pct: c.passive_node_magnitude("lightningaegis"),
+                chillingaegis_shield_pct: c.passive_node_magnitude("chillingaegis"),
+                scorchingaegis_shield_pct: c.passive_node_magnitude("scorchingaegis"),
+                conflagration_dmg_pct: c.passive_node_magnitude("pyroclasm"),
                 chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
                 chakraoflife_immune_until_ms: 0,
                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -8895,6 +9034,13 @@ pub(crate) fn simulate_battle(
             flowing_last_target: usize::MAX,
             chakra_of_many_pct: 0.0,
             chakra_of_light_pct: 0.0,
+            shockingfocus_pct: 0.0,
+            chillingfocus_pct: 0.0,
+            scorchingfocus_pct: 0.0,
+            lightningaegis_shield_pct: 0.0,
+            chillingaegis_shield_pct: 0.0,
+            scorchingaegis_shield_pct: 0.0,
+            conflagration_dmg_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9813,6 +9959,13 @@ pub(crate) fn simulate_battle(
                                 flowing_last_target: usize::MAX,
                                 chakra_of_many_pct: 0.0,
                                 chakra_of_light_pct: 0.0,
+                                shockingfocus_pct: 0.0,
+                                chillingfocus_pct: 0.0,
+                                scorchingfocus_pct: 0.0,
+                                lightningaegis_shield_pct: 0.0,
+                                chillingaegis_shield_pct: 0.0,
+                                scorchingaegis_shield_pct: 0.0,
+                                conflagration_dmg_pct: 0.0,
                                 chakraoflife_duration_ms: 0,
                                 chakraoflife_immune_until_ms: 0,
                                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -11782,6 +11935,142 @@ mod chakra_of_light_tests {
         // Would push 9 guaranteed stacks uncapped - only 2 slots remain.
         roll_chakra_of_light_stacks(9.0, &mut stacks, 200, 0, &mut rng);
         assert_eq!(stacks.len(), 200, "must stop exactly at the cap, never exceed it");
+    }
+}
+
+#[cfg(test)]
+mod elementalist_stage_2_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn elemental_damage_pct_collapses_to_the_plain_gear_roll_when_uninvested() {
+        // Every non-Elementalist passes 0.0 for both tree inputs - must
+        // be byte-identical to today's existing behavior (just the gear
+        // roll, nothing added).
+        assert_eq!(elementalist_elemental_damage_pct(0.05, 0.0, 0.0), 0.05);
+        assert_eq!(elementalist_elemental_damage_pct(0.0, 0.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn elemental_focus_adds_flat_on_top_of_the_gear_roll() {
+        assert_eq!(elementalist_elemental_damage_pct(0.05, 0.15, 0.0), 0.20);
+    }
+
+    #[test]
+    fn gear_scaling_modifier_is_a_fraction_of_the_gear_roll_not_a_flat_add() {
+        // Incinerate/Overshock/Polar Flux at 3/3 (45%) against a 0.20
+        // gear roll should add 0.20 * 0.45 = 0.09, not a flat 0.45.
+        assert_eq!(elementalist_elemental_damage_pct(0.20, 0.0, 0.45), 0.20 + 0.09);
+    }
+
+    #[test]
+    fn all_three_sources_combine_additively() {
+        let gear = 0.10;
+        let focus = 0.15;
+        let modifier = 0.45;
+        let expected = gear + focus + gear * modifier;
+        assert_eq!(elementalist_elemental_damage_pct(gear, focus, modifier), expected);
+    }
+
+    /// Scorching Aegis - a fire proc landing grants the attacker a shield
+    /// worth a fraction of their own max HP. `fire_damage_pct: 20.0`
+    /// forces the primary fire proc chance to its 1.0 clamp (20.0 / 10.0
+    /// = 2.0, clamped) so this is deterministic regardless of seed.
+    #[test]
+    fn scorching_aegis_shields_the_attacker_on_a_landed_fire_proc() {
+        let attacker = CombatSimUnit {
+            id: "attacker".to_string(),
+            display_name: "Attacker".to_string(),
+            alive: true,
+            hp: 100,
+            max_hp: 100,
+            fire_damage_pct: 20.0,
+            scorchingaegis_shield_pct: 0.03,
+            ..Default::default()
+        };
+        let target =
+            CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(units[1].fire_dr_debuff.len(), 1, "the guaranteed proc should have landed on the target");
+        assert!((units[0].shield_hp - 3.0).abs() < 1e-9, "3% of 100 max hp = 3.0 shield, got {}", units[0].shield_hp);
+    }
+
+    /// Aegis must NOT fire without the modifier invested - `shield_hp`
+    /// stays untouched even though the fire proc still lands.
+    #[test]
+    fn no_aegis_shield_without_the_modifier_invested() {
+        let attacker =
+            CombatSimUnit { id: "attacker".to_string(), display_name: "Attacker".to_string(), alive: true, hp: 100, max_hp: 100, fire_damage_pct: 20.0, ..Default::default() };
+        let target =
+            CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(units[0].shield_hp, 0.0);
+    }
+
+    /// Scorching Focus - "apply fire debuffs more frequently", a SEPARATE
+    /// extra roll on top of the primary proc, scaled off the unit's own
+    /// `fire_damage_pct`. `scorchingfocus_pct: 1.0` (beyond the real 1.0
+    /// cap, but the pure math doesn't care) against `fire_damage_pct:
+    /// 10.0` forces exactly 10 extra guaranteed stacks, on top of the 1
+    /// the primary (guaranteed, chance=1.0) proc itself pushes.
+    #[test]
+    fn scorching_focus_pushes_extra_guaranteed_stacks_on_top_of_the_primary_proc() {
+        let attacker = CombatSimUnit {
+            id: "attacker".to_string(),
+            display_name: "Attacker".to_string(),
+            alive: true,
+            hp: 100,
+            max_hp: 100,
+            fire_damage_pct: 10.0,
+            scorchingfocus_pct: 1.0,
+            ..Default::default()
+        };
+        let target =
+            CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(units[1].fire_dr_debuff.len(), 11, "1 from the primary proc + 10 guaranteed from the Focus extra roll");
+    }
+
+    /// Conflagration - spec'd as its own independent multiplicative
+    /// layer, distinct from the ordinary additive `increased_damage`
+    /// pool. Same assertion shape as the existing late-stage-penalty
+    /// test just above this module.
+    #[test]
+    fn conflagration_logs_as_its_own_independent_multiplicative_source() {
+        let atk = CombatSimUnit { conflagration_dmg_pct: 0.10, ..Default::default() };
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let mut rng = StdRng::seed_from_u64(4);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Conflagration");
+        let (category, _, magnitude) = entry.expect("Conflagration must be logged when invested");
+        assert_eq!(*category, RollCategory::IncreasedDamage);
+        assert!((*magnitude - 0.10).abs() < 1e-9);
+    }
+
+    #[test]
+    fn conflagration_actually_scales_unmitigated_damage_independently() {
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let baseline_atk = CombatSimUnit { ..Default::default() };
+        let mut rng_a = StdRng::seed_from_u64(5);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted_atk = CombatSimUnit { conflagration_dmg_pct: 0.30, ..Default::default() };
+        let mut rng_b = StdRng::seed_from_u64(5);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
+        assert!((ratio - 1.30).abs() < 1e-6, "30% Conflagration should scale unmitigated damage by exactly 1.30x, got {ratio}");
     }
 }
 

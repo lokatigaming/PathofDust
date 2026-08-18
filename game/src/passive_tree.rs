@@ -1791,15 +1791,18 @@ static SLAYER_NODES: &[PassiveNode] = &[
 ];
 
 // ---------------------------------------------------------------------
-// ELEMENTALIST (root: splash, see `Archetype::bonus`) - Stage 1 of the
-// staged build (see ELEMENTALIST_PROGRESS.md at repo root): structure
+// ELEMENTALIST (root: splash, see `Archetype::bonus`) - staged build (see
+// ELEMENTALIST_PROGRESS.md at repo root). Stage 1 built the structure
 // only, every node `PassiveEffect::NotYetImplemented`, matching this
 // file's own established "structure first, wire in effects across
 // passes" precedent (see this file's own top-of-file doc for the
-// original 11-archetype build history). Real effects land in Stages
-// 2-6 per docs/elementalist_spec.md's staged plan - do not treat a
-// NotYetImplemented node here as "not coming," every one of these 39
-// nodes gets a real mechanic in a later stage.
+// original 11-archetype build history). Stage 2 wired in the Elemental
+// Focus branch for real (the skill itself + Shocking/Chilling/Scorching
+// Focus + their 9 modifiers - see `combat.rs`'s own doc on
+// `shockingfocus_pct`/`conflagration_dmg_pct`/etc for the mechanic).
+// Remaining branches (Righteous Fire, Golem Master) still land in
+// Stages 3-6 per docs/elementalist_spec.md's staged plan - do not treat
+// a NotYetImplemented node here as "not coming."
 //
 // Two node KEYS were renamed from their spec display name to avoid a
 // collision with an existing archetype's key (global key uniqueness is
@@ -1834,7 +1837,7 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "elementalfocus",
         "Elemental Focus",
         "Gain 5% additive elemental damage (lightning/cold/fire) per level, at rank 1 - +5% per additional rank (15% at 3/3).",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.05, per_additional_rank: 0.05 },
     ),
     skill(
         "golemmaster",
@@ -1868,21 +1871,21 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "elementalfocus",
         "Shocking Focus",
         "You apply lightning damage debuffs 33% more frequently at rank 1, 66% at rank 2, 100% at rank 3.",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
     ),
     spec(
         "chillingfocus",
         "elementalfocus",
         "Chilling Focus",
         "You apply cold damage debuffs 33% more frequently at rank 1, 66% at rank 2, 100% at rank 3.",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
     ),
     spec(
         "scorchingfocus",
         "elementalfocus",
         "Scorching Focus",
         "You apply fire damage debuffs 33% more frequently at rank 1, 66% at rank 2, 100% at rank 3.",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
     ),
     spec(
         "thundergolem",
@@ -1939,20 +1942,20 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "Ashes to Ashes, Dust to Dust",
         "Any enemy in range, including bosses, instantly bursts into flame and dies when its health drops below 100% of your health at rank 1 - +100% per additional rank (300% at 3/3).",
     ),
-    modifier("overshock", "shockingfocus", "Overshock", "15% more lightning damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from lightning damage on your gear."),
-    modifier("electricaloverload", "shockingfocus", "Electrical Overload", "Gain 10% more critical strike damage at rank 1 - +10% per additional rank (30% at 3/3)."),
-    modifier("lightningaegis", "shockingfocus", "Lightning Aegis", "Gain 1% of your health as shield every time you apply a lightning debuff at rank 1 - +1% per additional rank (3% at 3/3)."),
-    modifier("polarflux", "chillingfocus", "Polar Flux", "15% more cold damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from cold damage on your gear."),
+    modifier_with_effect("overshock", "shockingfocus", "Overshock", "15% more lightning damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from lightning damage on your gear.", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
+    modifier_with_effect("electricaloverload", "shockingfocus", "Electrical Overload", "Gain 10% more critical strike damage at rank 1 - +10% per additional rank (30% at 3/3).", FlatStat { stat: CritMultiplier, at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    modifier_with_effect("lightningaegis", "shockingfocus", "Lightning Aegis", "Gain 1% of your health as shield every time you apply a lightning debuff at rank 1 - +1% per additional rank (3% at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
+    modifier_with_effect("polarflux", "chillingfocus", "Polar Flux", "15% more cold damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from cold damage on your gear.", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     // Key "hoarfrost", not "blizzard" - see this file's own top-of-section
     // note on the rename (an existing "blizzard" key collides).
-    modifier("hoarfrost", "chillingfocus", "Blizzard", "Gain 10% more critical strike chance at rank 1 - +10% per additional rank (30% at 3/3)."),
-    modifier("chillingaegis", "chillingfocus", "Chilling Aegis", "Gain 1% of your health as shield every time you apply a cold debuff at rank 1 - +1% per additional rank (3% at 3/3)."),
-    modifier("incinerate", "scorchingfocus", "Incinerate", "15% more fire damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from fire damage on your gear."),
+    modifier_with_effect("hoarfrost", "chillingfocus", "Blizzard", "Gain 10% more critical strike chance at rank 1 - +10% per additional rank (30% at 3/3).", FlatStat { stat: CritChance, at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    modifier_with_effect("chillingaegis", "chillingfocus", "Chilling Aegis", "Gain 1% of your health as shield every time you apply a cold debuff at rank 1 - +1% per additional rank (3% at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
+    modifier_with_effect("incinerate", "scorchingfocus", "Incinerate", "15% more fire damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from fire damage on your gear.", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     // Key "pyroclasm", not "conflagration" - see this file's own
     // top-of-section note on the rename (an existing "conflagration" key
     // collides).
-    modifier("pyroclasm", "scorchingfocus", "Conflagration", "Gain 10% multiplicative increased damage at rank 1 - +10% per additional rank (30% at 3/3)."),
-    modifier("scorchingaegis", "scorchingfocus", "Scorching Aegis", "Gain 1% of your health as shield every time you apply a fire debuff at rank 1 - +1% per additional rank (3% at 3/3)."),
+    modifier_with_effect("pyroclasm", "scorchingfocus", "Conflagration", "Gain 10% multiplicative increased damage at rank 1 - +10% per additional rank (30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    modifier_with_effect("scorchingaegis", "scorchingfocus", "Scorching Aegis", "Gain 1% of your health as shield every time you apply a fire debuff at rank 1 - +1% per additional rank (3% at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
     modifier(
         "gigantify",
         "thundergolem",
@@ -2098,19 +2101,74 @@ mod tree_shape_tests {
         }
     }
 
-    /// Stage 1's nodes are all deliberately `NotYetImplemented` (see this
-    /// section's own doc above the array) - this test exists so whichever
-    /// later stage wires a node's real effect in remembers to flip this
-    /// assertion's expectation for that specific key, rather than the
-    /// change going unnoticed. When Stage 2 lands, this test should be
-    /// updated to assert the Elemental Focus branch's keys are no longer
-    /// NotYetImplemented while the rest still are, and so on through
-    /// Stage 6.
+    /// Every node outside the Elemental Focus branch is still deliberately
+    /// `NotYetImplemented` (see this section's own doc above the array) -
+    /// this test exists so whichever later stage wires a node's real
+    /// effect in remembers to add that key to `IMPLEMENTED_BY_STAGE_2`
+    /// below (or otherwise update this test), rather than the change
+    /// going unnoticed.
+    const IMPLEMENTED_BY_STAGE_2: &[&str] = &[
+        "elementalfocus",
+        "shockingfocus",
+        "chillingfocus",
+        "scorchingfocus",
+        "overshock",
+        "electricaloverload",
+        "lightningaegis",
+        "polarflux",
+        "hoarfrost",
+        "chillingaegis",
+        "incinerate",
+        "pyroclasm",
+        "scorchingaegis",
+    ];
     #[test]
-    fn elementalist_stage_1_every_node_is_not_yet_implemented() {
+    fn elementalist_stage_2_elemental_focus_branch_implemented_rest_not_yet() {
         let nodes = Archetype::Elementalist.passive_nodes();
         for node in nodes {
-            assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should be NotYetImplemented until its own stage wires it in", node.key);
+            if IMPLEMENTED_BY_STAGE_2.contains(&node.key) {
+                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect as of Stage 2", node.key);
+            } else {
+                assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should still be NotYetImplemented until its own stage wires it in", node.key);
+            }
         }
+    }
+
+    #[test]
+    fn elementalist_elemental_focus_grants_5pct_per_rank_read_via_special() {
+        assert_eq!(node_by_key(Archetype::Elementalist, "elementalfocus").magnitude_at_rank(1), 0.05);
+        assert!((node_by_key(Archetype::Elementalist, "elementalfocus").magnitude_at_rank(3) - 0.15).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_focus_specs_reach_100pct_at_max_rank() {
+        for key in ["shockingfocus", "chillingfocus", "scorchingfocus"] {
+            let node = node_by_key(Archetype::Elementalist, key);
+            assert_eq!(node.magnitude_at_rank(1), 0.33, "{key} rank 1");
+            // Specialization tier caps effective rank at 3 for magnitude
+            // purposes (the 4th point only unlocks children) - see
+            // `magnitude_at_rank`'s own doc.
+            assert!((node.magnitude_at_rank(4) - 1.0).abs() < 1e-9, "{key} at 4/4 should read as 3/3 (1.0)");
+        }
+    }
+
+    #[test]
+    fn elementalist_crit_modifiers_feed_the_generic_crit_pool() {
+        let electrical_overload = node_by_key(Archetype::Elementalist, "electricaloverload");
+        assert!(matches!(electrical_overload.effect, PassiveEffect::FlatStat { stat: PassiveStat::CritMultiplier, .. }));
+        let blizzard = node_by_key(Archetype::Elementalist, "hoarfrost");
+        assert!(matches!(blizzard.effect, PassiveEffect::FlatStat { stat: PassiveStat::CritChance, .. }));
+    }
+
+    #[test]
+    fn elementalist_aegis_modifiers_reach_3pct_shield_at_max_rank() {
+        for key in ["lightningaegis", "chillingaegis", "scorchingaegis"] {
+            let node = node_by_key(Archetype::Elementalist, key);
+            assert!((node.magnitude_at_rank(3) - 0.03).abs() < 1e-9, "{key} at 3/3");
+        }
+    }
+
+    fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {
+        archetype.passive_nodes().iter().find(|n| n.key == key).unwrap_or_else(|| panic!("no node with key {key:?}"))
     }
 }
