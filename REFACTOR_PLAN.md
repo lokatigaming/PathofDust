@@ -1,11 +1,13 @@
 # Path of Dust — Architecture Refactor Plan
 
-**Status**: Stage 0 (audit + seam map) complete and approved. Stage 0
-execution (baseline/fixture capture) and Stage 0.5 (reusable test
-harnesses) in progress on branch `refactor/architecture`. This document
-is the durable record of the plan — written to the repo root so a fresh
-session can resume the project with full context, without needing the
-original Plan-mode transcript.
+**Status** (2026-08-18): Stages 0, 0.5, and 1 done, on branch
+`refactor/architecture` (pushed to origin as a backup — not merged to
+master, not deployed; the deploy procedure still applies to master
+exclusively). Stage 1.5 (harness #3 + POST-route baselines, now
+unblocked by Stage 1's configurable persistence paths) is next. This
+document is the durable record of the plan — written to the repo root
+so a fresh session can resume the project with full context, without
+needing the original Plan-mode transcript.
 
 **Scope escalation, mid-audit**: the original ask ("refactor into
 domain/persistence/web/ws") was superseded by an addendum: the adventure
@@ -456,23 +458,63 @@ decomposition (combat.rs/manager.rs) is sequenced AFTER the split is
 proven, not before.
 
 - **Stage 0** (done): audit + seam map + this document.
-- **Stage 0.5** (in progress): build the 3 reusable test harnesses (§8)
-  before any code moves.
-- **Stage 1**: introduce the Cargo workspace shape — `game` as a
-  LIBRARY crate (not yet its own binary) containing the moved adventure
-  module; `twitch-bot-rs` depends on it, calls it exactly as today,
-  in-process. Mechanical move + path updates only, zero behavior change.
-  **Configurable persistence paths are an explicit design input to this
-  stage** (owner-directed, 2026-08-18) — the library boundary being
-  created here is the natural place to inject WHERE
-  `AdventureManager::new` reads/writes its files (today hardcoded
-  relative to CWD, see §6), rather than leaving that as a someday-later
-  gap. Doesn't have to be a fully general config system - even a single
-  `data_dir: PathBuf` (or similar) threaded through construction is
-  enough to unblock Stage 1.5 and the deferred POST-route baselines
-  below. Getting this right here also serves the standalone-game
-  addendum directly: `game`'s own future `main()` (Stage 2) needs to
-  know where its data lives regardless of testing concerns.
+- **Stage 0.5** (done): build the 3 reusable test harnesses (§8) before
+  any code moves.
+- **Stage 1** (done, 2026-08-18, two commits): introduced the Cargo
+  workspace shape — `game` as a LIBRARY crate (not yet its own binary),
+  `twitch-bot-rs` depends on it, calls it exactly as today, in-process.
+  **Scope came out narrower than originally written here, for a real
+  reason found mid-execution, not a shortcut**: only `adventure.rs`+
+  `adventure/*`+`passive_tree.rs`+`state.rs` moved — NOT `adventure_web.rs`/
+  `adventure_overlay_server.rs` (those are Stage 2's own move, per that
+  stage's existing wording below, so this was already the plan, just
+  confirmed against the dependency graph rather than assumed). A full
+  audit found this trio's only external coupling is `state.rs` (a tiny
+  generic JSON helper, zero bot-specific logic) — so `twitch-bot-rs`'s
+  `lib.rs` re-exports all three under their ORIGINAL names
+  (`pub use game::adventure;` etc.) instead of declaring them as its
+  own modules, and every existing `crate::adventure::X`/
+  `crate::passive_tree::X`/`crate::state::X` reference anywhere in the
+  bot codebase - including wiki.rs, untouched per CLAUDE.md - keeps
+  resolving with zero edits. ~64 items widened `pub(crate)` → `pub`
+  (the real, unavoidable cost of an actual crate boundary vs. the
+  internal-module reorganization this section originally assumed before
+  the standalone-game addendum) - purely visibility, zero behavior
+  change. Also fixed a real bug the move itself introduced: `cargo
+  test`'s working directory is the PACKAGE root, not the workspace
+  root, so `golden_corpus.rs`'s fixtures needed to move to
+  `game/tests/fixtures/` (from the repo-root `tests/`) to keep being
+  found — caught because a "compiles ⇒ still correct" assumption would
+  have missed it; only re-running the harness surfaced it silently
+  writing fresh "first capture" baselines instead of comparing against
+  the committed ones.
+  **A significant finding for Stage 2, not resolved here**: wiki.rs
+  reads BOTH `crate::adventure::X` AND bot-side constants
+  (`crate::commands::BUILTIN_COOLDOWN`, `crate::bug_reports::PER_USER_COOLDOWN`,
+  `crate::song_requests::X` - see §7) in the SAME file. Since `game`
+  can't depend back on `bot` (that's the whole point of the split),
+  wiki.rs cannot ever move into `game` while it still reads bot-side
+  constants directly — this isn't "wiki.rs moves last" (§5/§10's
+  original framing) so much as "wiki.rs may need to stay in `bot`
+  permanently, reading `game::adventure::X` via the same re-export
+  facade, unless/until its bot-side constant reads get replaced with
+  something that can flow through the API seam (§4) instead." Whoever
+  reaches Stage 2 (which moves `adventure_web.rs`, wiki.rs's literal
+  parent module) needs to actually decide this, not assume the original
+  wording still holds - flagging loudly rather than letting Stage 2
+  quietly hit the same wall this stage did.
+  **Configurable persistence paths** (owner-directed, 2026-08-18): done
+  as its own commit — `game::adventure::set_data_dir(PathBuf)` +
+  `paths::data_path`, threaded through every persisted file
+  (fight_storage.rs/manager.rs/tunables.rs/balance.rs/migrations.rs),
+  deliberately NOT added to `state.rs` itself (shared with unrelated
+  bot-side files - see that module's own doc). Never calling
+  `set_data_dir` (true today) resolves byte-identical to the bare
+  literal it replaces - confirmed both by inspection and a real,
+  written-then-removed functional smoke test (see `paths.rs`'s own doc
+  for why the automated version couldn't safely stay in the suite -
+  a genuine cross-test race with item generation, not a flaw in the
+  mechanism itself). Unblocks Stage 1.5 below.
 - **Stage 1.5** (owner-directed, 2026-08-18, its own small stage right
   after Stage 1 lands): build harness #3 (the HTTP golden-response
   harness, deferred at Stage 0.5 execution time — see §9's execution
