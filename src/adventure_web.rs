@@ -182,6 +182,7 @@ pub async fn start_adventure_web_server(
         .route("/wiki/getting-started", get(wiki::wiki_getting_started_page))
         .route("/wiki/items", get(wiki::wiki_items_page))
         .route("/wiki/classes", get(wiki::wiki_classes_page))
+        .route("/wiki/dashboard", get(wiki::wiki_dashboard_page))
         .route("/characters", get(character_list))
         .route("/characters/:login", get(character_detail))
         .route("/characters/:login/passives", get(character_passives_readonly))

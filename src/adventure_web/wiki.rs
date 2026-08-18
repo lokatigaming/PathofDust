@@ -359,6 +359,17 @@ pub(super) async fn wiki_classes_page(State(state): State<AppState>, headers: He
     )))
 }
 
+pub(super) async fn wiki_dashboard_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("dashboard"),
+        render_markdown_page("dashboard"),
+    )))
+}
+
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
     match current_session(headers, state).await {
         Some((login, _)) => state.adventure.character(&login).await,
@@ -387,7 +398,7 @@ fn wiki_subnav(active: &str) -> String {
         }
     };
     format!(
-        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}{}{}</div>",
+        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}{}{}{}</div>",
         entry("/wiki/getting-started", "🚀 Getting Started", "getting-started"),
         entry("/wiki/combat", "⚔️ Combat", "combat"),
         entry("/wiki/bosses", "🐲 Bosses", "bosses"),
@@ -397,6 +408,7 @@ fn wiki_subnav(active: &str) -> String {
         entry("/wiki/classes", "🎭 Classes", "classes"),
         entry("/wiki/passives", "🌳 Passives", "passives"),
         entry("/wiki/commands", "💬 Commands", "commands"),
+        entry("/wiki/dashboard", "🖥️ Dashboard", "dashboard"),
     )
 }
 

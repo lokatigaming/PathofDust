@@ -11,5 +11,6 @@
 - [🎭 Classes &amp; Passives](/wiki/classes) - the 11 classes, how passive points work, Split Personality
 - [🌳 Passives](/wiki/passives) - every class's full passive tree, node by node
 - [💬 Commands](/wiki/commands) - every chat command, cooldown, and cost
+- [🖥️ Dashboard](/wiki/dashboard) - the web dashboard, passive-tree page, fight history, and OBS overlay
 
 </div>
