@@ -1803,11 +1803,18 @@ static SLAYER_NODES: &[PassiveNode] = &[
 // Stage 3 wired in Righteous Fire part 1: the skill's own
 // damage/self-burn tick, Scorching Flames' fire-damage-pct
 // contribution, and its Relentless Flames/Cauterizing Flames/Ashes to
-// Ashes modifiers - see `combat.rs`'s `tick_righteous_fire` doc.
-// Healing Flames/Cleansing Flames and their children, plus Golem
-// Master's whole branch, still land in Stages 4-6 per
-// docs/elementalist_spec.md's staged plan - do not treat a
-// NotYetImplemented node here as "not coming."
+// Ashes modifiers - see `combat.rs`'s `tick_righteous_fire` doc. Stage
+// 4 completed the rest of the Righteous Fire branch (Healing Flames/
+// Cleansing Flames families). Stage 5 built Golem Master's foundation
+// (summon count/damage penalty, Basic golem, the summoner-death rule).
+// Stage 6 wired in Thunder/Flame/Water Golem's own 9 modifiers plus
+// Thunder Golem's own base behavior (damage redirect/no heal-shield/
+// reform) - see `combat.rs`'s `thunder_golem_redirect`/
+// `tick_righteous_fire`-adjacent golem-tick docs. Flame Golem/Water
+// Golem's own SPEC nodes intentionally stay `NotYetImplemented`
+// forever (per the spec's own text, they have no base effect beyond
+// unlocking their 3 modifiers) - every other node in this tree is now
+// real. All 6 stages complete.
 //
 // Two node KEYS were renamed from their spec display name to avoid a
 // collision with an existing archetype's key (global key uniqueness is
@@ -1848,7 +1855,10 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "golemmaster",
         "Golem Master",
         "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems have 33% of your stats; you deal 33% less damage per summoned golem, additive (1% of normal damage at 3 golems).",
-        PassiveEffect::NotYetImplemented,
+        // A COUNT (1/2/3), not a magnitude - read via `passive_node_rank`
+        // directly (`spawn_golem`'s own call site), same
+        // `onehundredhands_bonus_stacks`-style precedent as Rising Phoenix.
+        PassiveEffect::Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     spec(
         "healingflames",
@@ -1903,7 +1913,11 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "golemmaster",
         "Thunder Golem",
         "Absorbs all externally-sourced damage the party would take until it dies (cannot be shielded or healed by any means) - reforms 4 seconds after dying at rank 1, 3 seconds at rank 2, 2 seconds at rank 3, then rejoins combat.",
-        PassiveEffect::NotYetImplemented,
+        // Reform delay counts DOWN (4/3/2s) but is still perfectly linear
+        // (at_rank_1=4.0, per_additional_rank=-1.0) - the Special formula
+        // fits directly, in SECONDS (multiplied by 1000 at the real call
+        // site to get ms, same convention as `chakraoflife_duration_ms`).
+        PassiveEffect::Special { at_rank_1: 4.0, per_additional_rank: -1.0 },
     ),
     spec(
         "flamegolem",
@@ -1919,6 +1933,11 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "Base golem behavior - this golem type's real identity is its 3 modifiers below.",
         PassiveEffect::NotYetImplemented,
     ),
+    // Both Flame Golem and Water Golem stay NotYetImplemented - the spec
+    // itself says "base behavior is the standard golem attack; the
+    // sub-passives are its identity," i.e. these two specs have no
+    // effect of their own beyond unlocking their 3 modifiers (unlike
+    // Thunder Golem, which has its own real base behavior above).
     modifier_with_effect(
         "fanningflames",
         "healingflames",
@@ -1999,29 +2018,74 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
     // collides).
     modifier_with_effect("pyroclasm", "scorchingfocus", "Conflagration", "Gain 10% multiplicative increased damage at rank 1 - +10% per additional rank (30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("scorchingaegis", "scorchingfocus", "Scorching Aegis", "Gain 1% of your health as shield every time you apply a fire debuff at rank 1 - +1% per additional rank (3% at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
-    modifier(
+    modifier_with_effect(
         "gigantify",
         "thundergolem",
         "Gigantify",
         "Thunder Golems get 100% more contribution from your health pool at rank 1 - +100% per additional rank (300% at 3/3) - base 33% of your health becomes 66/99/132%.",
+        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
-    modifier("growing", "thundergolem", "Growing", "Thunder Golems gain 33% more maximum health each time they reform at rank 1, 66% at rank 2, 100% at rank 3 - stacking within a combat."),
-    modifier("terrifying", "thundergolem", "Terrifying", "When a Thunder Golem dies, it explodes dealing 33% of its health as damage to enemies at rank 1, 66% at rank 2, 100% at rank 3."),
-    modifier("volcanicash", "flamegolem", "Volcanic Ash", "Flame Golems inherit 33% of your multiplicative increased fire damage at rank 1, 66% at rank 2, 100% at rank 3."),
-    modifier("blazing", "flamegolem", "Blazing", "Flame Golems gain 6% multiplicative attack speed at rank 1, 9% at rank 2, 18% at rank 3 (irregular scaling - see this file's own note above)."),
-    modifier("surging", "flamegolem", "Surging", "Flame Golems deal 10% multiplicative damage at rank 1 - +10% per additional rank (30% at 3/3)."),
-    modifier(
+    modifier_with_effect(
+        "growing",
+        "thundergolem",
+        "Growing",
+        "Thunder Golems gain 33% more maximum health each time they reform at rank 1, 66% at rank 2, 100% at rank 3 - stacking within a combat.",
+        Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
+    ),
+    modifier_with_effect(
+        "terrifying",
+        "thundergolem",
+        "Terrifying",
+        "When a Thunder Golem dies, it explodes dealing 33% of its health as damage to enemies at rank 1, 66% at rank 2, 100% at rank 3.",
+        Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
+    ),
+    modifier_with_effect(
+        "volcanicash",
+        "flamegolem",
+        "Volcanic Ash",
+        "Flame Golems inherit 33% of your multiplicative increased fire damage at rank 1, 66% at rank 2, 100% at rank 3.",
+        Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
+    ),
+    modifier_with_effect(
+        "blazing",
+        "flamegolem",
+        "Blazing",
+        "Flame Golems gain 6% multiplicative attack speed at rank 1, 9% at rank 2, 18% at rank 3 (irregular scaling - see this file's own note above).",
+        // Irregular 6/9/18% - same "Special is decorative, real value is
+        // a small local lookup" pattern as Healing Flames - see
+        // `blazing_attack_speed_pct`'s own doc in combat.rs.
+        Special { at_rank_1: 0.06, per_additional_rank: 0.06 },
+    ),
+    modifier_with_effect(
+        "surging",
+        "flamegolem",
+        "Surging",
+        "Flame Golems deal 10% multiplicative damage at rank 1 - +10% per additional rank (30% at 3/3).",
+        Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
+    ),
+    modifier_with_effect(
         "replenishing",
         "watergolem",
         "Replenishing",
         "Water Golems convert all damage they deal into healing for the party at a 100% rate at rank 1 - +100% per additional rank (300% at 3/3).",
+        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
-    modifier("singing", "watergolem", "Singing", "All allies gain 10% more effect from shields and heals applied to them at rank 1 - +10% per additional rank (30% at 3/3)."),
-    modifier(
+    modifier_with_effect(
+        "singing",
+        "watergolem",
+        "Singing",
+        "All allies gain 10% more effect from shields and heals applied to them at rank 1 - +10% per additional rank (30% at 3/3).",
+        Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
+    ),
+    modifier_with_effect(
         "shattering",
         "watergolem",
         "Shattering",
         "When an enemy dies in the Water Golem's presence, it explodes, sending icicles at (splash + 1) nearby enemies at rank 1 - +1 per additional rank (splash + 3 at 3/3), each dealing damage equal to 1% of the dead enemy's health.",
+        // A COUNT (1/2/3, added to splash's own target count), not a
+        // magnitude - read via `passive_node_rank` directly at the real
+        // call site.
+        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
 ];
 
@@ -2144,13 +2208,13 @@ mod tree_shape_tests {
         }
     }
 
-    /// Every node outside the branches wired so far is still deliberately
-    /// `NotYetImplemented` (see this section's own doc above the array) -
-    /// this test exists so whichever later stage wires a node's real
-    /// effect in remembers to add that key to `IMPLEMENTED_BY_STAGE_4`
-    /// below (or otherwise update this test), rather than the change
-    /// going unnoticed.
-    const IMPLEMENTED_BY_STAGE_4: &[&str] = &[
+    /// Every node in this list has a real effect by Stage 6 (the final
+    /// stage) - everything else stays `NotYetImplemented` FOREVER by
+    /// design: "flamegolem"/"watergolem" have no base effect of their
+    /// own per the spec's own text ("base behavior is the standard golem
+    /// attack; the sub-passives are its identity") - only their 3
+    /// modifiers each carry real effects, which this list does include.
+    const IMPLEMENTED_BY_STAGE_6: &[&str] = &[
         // Stage 2 - Elemental Focus branch.
         "elementalfocus",
         "shockingfocus",
@@ -2180,15 +2244,31 @@ mod tree_shape_tests {
         "enshroudedfire",
         "guardianfire",
         "shieldingfire",
+        // Stage 5/6 - Golem Master branch.
+        "golemmaster",
+        "thundergolem",
+        "gigantify",
+        "growing",
+        "terrifying",
+        "volcanicash",
+        "blazing",
+        "surging",
+        "replenishing",
+        "singing",
+        "shattering",
     ];
     #[test]
-    fn elementalist_stage_4_implemented_rest_not_yet() {
+    fn elementalist_stage_6_implemented_rest_not_yet_forever() {
         let nodes = Archetype::Elementalist.passive_nodes();
         for node in nodes {
-            if IMPLEMENTED_BY_STAGE_4.contains(&node.key) {
-                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect by Stage 4", node.key);
+            if IMPLEMENTED_BY_STAGE_6.contains(&node.key) {
+                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect by Stage 6", node.key);
             } else {
-                assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should still be NotYetImplemented until its own stage wires it in", node.key);
+                assert!(
+                    matches!(node.effect, PassiveEffect::NotYetImplemented),
+                    "{:?} should be NotYetImplemented - either not yet wired, or (flamegolem/watergolem) intentionally has no base effect of its own",
+                    node.key
+                );
             }
         }
     }
@@ -2289,6 +2369,55 @@ mod tree_shape_tests {
         let node = node_by_key(Archetype::Elementalist, "shieldingfire");
         assert_eq!(node.magnitude_at_rank(1), 0.55);
         assert!((node.magnitude_at_rank(3) - 0.65).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_golem_master_reaches_3_golems_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "golemmaster");
+        assert_eq!(node.magnitude_at_rank(1), 1.0);
+        assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_thunder_golem_reform_delay_counts_down_4_3_2_seconds() {
+        let node = node_by_key(Archetype::Elementalist, "thundergolem");
+        assert_eq!(node.magnitude_at_rank(1), 4.0);
+        assert!((node.magnitude_at_rank(2) - 3.0).abs() < 1e-9);
+        assert!((node.magnitude_at_rank(3) - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_gigantify_reaches_300pct_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "gigantify");
+        assert_eq!(node.magnitude_at_rank(1), 1.0);
+        assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_growing_and_terrifying_and_volcanicash_reach_100pct_at_max_rank() {
+        for key in ["growing", "terrifying", "volcanicash"] {
+            let node = node_by_key(Archetype::Elementalist, key);
+            assert_eq!(node.magnitude_at_rank(1), 0.33, "{key} rank 1");
+            assert!((node.magnitude_at_rank(3) - 1.0).abs() < 1e-9, "{key} at 3/3");
+        }
+    }
+
+    #[test]
+    fn elementalist_surging_and_replenishing_and_singing_reach_30_or_300pct_at_max_rank() {
+        let surging = node_by_key(Archetype::Elementalist, "surging");
+        assert!((surging.magnitude_at_rank(3) - 0.30).abs() < 1e-9);
+        let singing = node_by_key(Archetype::Elementalist, "singing");
+        assert!((singing.magnitude_at_rank(3) - 0.30).abs() < 1e-9);
+        let replenishing = node_by_key(Archetype::Elementalist, "replenishing");
+        assert_eq!(replenishing.magnitude_at_rank(1), 1.0);
+        assert!((replenishing.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_shattering_reaches_3_extra_targets_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "shattering");
+        assert_eq!(node.magnitude_at_rank(1), 1.0);
+        assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
     }
 
     fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {

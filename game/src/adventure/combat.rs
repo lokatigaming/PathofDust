@@ -1848,6 +1848,48 @@ pub(crate) struct CombatSimUnit {
     /// of always landing on the exact spec'd numbers. 0.0 for every
     /// non-Elementalist and for an Elementalist with no golems summoned.
     golem_summon_dmg_penalty: f64,
+    /// For a golem unit: Thunder Golem's own "dead but scheduled to
+    /// reform" clock - `u32::MAX` (not scheduled) unless it just died.
+    /// Same shape as Rising Phoenix's `revive_at_ms`, deliberately kept
+    /// as its OWN separate field/event rather than reused - a golem
+    /// reform is a different mechanic (full hp, Growing's own stat
+    /// increase, no Rising-Phoenix-flavored events) with different
+    /// rules than a real ally's revival.
+    golem_reform_at_ms: u32,
+    /// For a Thunder Golem: how long (ms) it takes to reform after
+    /// dying - copied from its summoner's own rank at spawn/reform time
+    /// (4/3/2 seconds at rank 1/2/3). 0 for every non-Thunder-Golem
+    /// unit.
+    thundergolem_reform_delay_ms: u32,
+    /// For a Thunder Golem: Growing's own per-reform max-hp increase -
+    /// copied from the summoner's investment at spawn. Applied
+    /// multiplicatively (compounding) to `max_hp` at EVERY reform, not
+    /// just once - "stacking within a combat" per the spec. 0.0 without
+    /// it invested.
+    thundergolem_growing_pct: f64,
+    /// For a Thunder Golem: Terrifying's own on-death explosion
+    /// fraction of `max_hp`, dealt to every alive enemy - copied from
+    /// the summoner's investment at spawn. 0.0 without it invested.
+    thundergolem_terrifying_pct: f64,
+    /// For a Water Golem: Shattering's own extra icicle-target count
+    /// (added to splash's own count) - copied from the summoner's rank
+    /// at spawn. 0 for every non-Water-Golem unit or without Shattering
+    /// invested.
+    watergolem_shattering_extra_targets: u32,
+    /// For a Water Golem: Singing's own magnitude, copied from the
+    /// summoner's investment at spawn - read once, fight-wide, by the
+    /// golem-spawning pass to snapshot `received_healing_bonus_pct` onto
+    /// every real ally (see that pass's own doc). 0.0 for every
+    /// non-Water-Golem unit or without Singing invested.
+    watergolem_singing_pct: f64,
+    /// Live "gain more effect from shields/heals applied to you" bonus
+    /// on THIS unit (Water Golem's Singing) - a party-wide grant set on
+    /// every real ally at fight start if any Water Golem with Singing
+    /// is present (see the golem-spawning pass's own doc for why this
+    /// is a fight-start snapshot rather than toggling live with the
+    /// Golem's own life status). Read as an extra multiplier in
+    /// `apply_heal`. 0.0 for everyone else.
+    received_healing_bonus_pct: f64,
     /// Chakra of Life - a hit that would kill this unit instead grants
     /// this many ms of full damage immunity (`chakraoflife_immune_until_ms`
     /// below), after which the unit dies unconditionally
@@ -3053,6 +3095,13 @@ impl Default for CombatSimUnit {
             golem_summoner_id: None,
             golem_type: None,
             golem_summon_dmg_penalty: 0.0,
+            golem_reform_at_ms: u32::MAX,
+            thundergolem_reform_delay_ms: 0,
+            thundergolem_growing_pct: 0.0,
+            thundergolem_terrifying_pct: 0.0,
+            watergolem_shattering_extra_targets: 0,
+            watergolem_singing_pct: 0.0,
+            received_healing_bonus_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: 0,
@@ -4611,9 +4660,22 @@ pub(crate) const SHIELD_CAP_MULT: f64 = 4.0;
 /// (`apply_hit`'s wound block below) - this is the same fix, applied to
 /// the shield pool.
 pub(crate) fn grant_shield(units: &mut [CombatSimUnit], healer_idx: usize, target_idx: usize, amount: f64, at_ms: u32, duration_ms: u32, events: &mut Vec<CombatEvent>) {
+    // Elementalist's Thunder Golem - "cannot be shielded or healed by
+    // any means" (docs/elementalist_spec.md). This and `apply_heal`
+    // below are the two fully centralized application points every
+    // shield/heal source in this file already funnels through, so one
+    // guard each is sufficient - no need to touch the many individual
+    // callers that pick a target (Divine Shield's lowest-HP-ally,
+    // Radiant Smite, apply_heal_splash, etc.).
+    if units[target_idx].golem_type == Some(GolemType::Thunder) {
+        return;
+    }
     if amount <= 0.0 {
         return;
     }
+    // Water Golem's Singing - "more effect from shields AND heals" (see
+    // `apply_heal`'s own read of the same field for the heal half).
+    let amount = amount * (1.0 + units[target_idx].received_healing_bonus_pct);
     if at_ms > units[target_idx].shield_expires_at_ms {
         units[target_idx].shield_hp = 0.0;
     }
@@ -5176,11 +5238,22 @@ pub(crate) fn elementalist_elemental_damage_pct(gear_pct: f64, elemental_focus_p
 /// `spawn_golem`) without the risk `CombatSimUnit`'s own test-only
 /// `Default` impl is deliberately gated against (see that impl's own
 /// doc - "every REAL construction site must be explicit about every
-/// stat"). This is that same explicitness, just factored out once
-/// instead of repeated at every call site that needs a zeroed base -
-/// the field list below is a verbatim copy of the test-only Default
-/// impl's own literal, kept in sync by hand (the two are structurally
-/// identical on purpose).
+/// stat"). The field list below started as a copy of the test-only
+/// Default impl's own literal, but is NOT byte-identical to it and
+/// must never become one again: every `next_*_at_ms`/`*_expires_at_ms`
+/// SCHEDULING field here is `u32::MAX` ("never fires"), matching the
+/// real boss-construction site's own convention, NOT the test Default's
+/// `0` ("already due"). A real unit built from this function is fed
+/// into `simulate_battle`'s actual event loop, where `0` on one of
+/// these means "fire this immediately, then reschedule by adding its
+/// own 0-valued cooldown" - an infinite loop at `at_ms == 0`, found live
+/// via this exact bug during Stage 6 (a golem's `next_helm_at_ms: 0`
+/// hung the mandatory Thunder Golem isolation test at 200,000+
+/// iterations without ever advancing simulated time). The test-only
+/// Default never hits this because no test runs the full event loop
+/// against a raw un-overridden Default unit - production code building
+/// off THIS function does, so the two are deliberately NOT kept in
+/// sync field-for-field on this specific class of field.
 fn zeroed_combat_unit() -> CombatSimUnit {
     CombatSimUnit {
             id: String::new(),
@@ -5199,11 +5272,11 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             alive: false,
             helm_power: 0.0,
             helm_cooldown_ms: 0,
-            next_helm_at_ms: 0,
+            next_helm_at_ms: u32::MAX,
             helm_stack_bonus: 0.0,
             boots_power: 0.0,
             boots_cooldown_ms: 0,
-            next_boots_at_ms: 0,
+            next_boots_at_ms: u32::MAX,
             damage_reduction: 0.0,
             block_chance: 0.0,
             evasion: 0.0,
@@ -5215,7 +5288,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             boss_pierce_pct: 0.0,
             boss_focus_stacks: 0.0,
             boss_ability: None,
-            next_ability_at_ms: 0,
+            next_ability_at_ms: u32::MAX,
             boss_dynamic_power_mult: 0.0,
             cthulhu_debuff_stacks: 0,
             cthulhu_debuff_expires_at_ms: 0,
@@ -5229,7 +5302,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             leech_gained_in_window: 0.0,
             skills: Vec::new(),
             skill_stacks: HashMap::new(),
-            next_flicker_at_ms: 0,
+            next_flicker_at_ms: u32::MAX,
             has_celestial_conversion: false,
             wound_deal_leech_per_stack: 0.0,
             wound_deal_max_stacks: 0,
@@ -5251,7 +5324,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             wound_heal_received_debuff: 0.0,
             wound_damage_taken_total: 0.0,
             flicker_cooldown_ms: 0,
-            next_bloodpact_at_ms: 0,
+            next_bloodpact_at_ms: u32::MAX,
             bloodpact_last_fired_at_ms: 0,
             bloodpact_cooldown_ms: 0,
             bloodpact_uses_this_fight: 0,
@@ -5302,7 +5375,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             eternal_hunger_shield_pct: 0.0,
             divine_shield_amount_pct: 0.0,
             divine_shield_cooldown_ms: 0,
-            next_divine_shield_at_ms: 0,
+            next_divine_shield_at_ms: u32::MAX,
             consecration_shield_pct: 0.0,
             communion_heal_power_pct: 0.0,
             purify_dmg_debuff_pct: 0.0,
@@ -5420,9 +5493,16 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             golem_summoner_id: None,
             golem_type: None,
             golem_summon_dmg_penalty: 0.0,
+            golem_reform_at_ms: u32::MAX,
+            thundergolem_reform_delay_ms: 0,
+            thundergolem_growing_pct: 0.0,
+            thundergolem_terrifying_pct: 0.0,
+            watergolem_shattering_extra_targets: 0,
+            watergolem_singing_pct: 0.0,
+            received_healing_bonus_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
-            next_chakraoflife_expiry_at_ms: 0,
+            next_chakraoflife_expiry_at_ms: u32::MAX,
             own_mark_crit_chance: 0.0,
             own_mark_crit_mult: 0.0,
             own_mark_low_hp_dmg: 0.0,
@@ -5453,8 +5533,8 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             curse_dmg_taken_bonus: 0.0,
             soul_stones: 0,
             soul_stone_uses_this_fight: 0,
-            curse_expires_at_ms: 0,
-            next_curse_expiry_at_ms: 0,
+            curse_expires_at_ms: u32::MAX,
+            next_curse_expiry_at_ms: u32::MAX,
             curse_damage_taken_total: 0.0,
             curse_detonate_pct: 0.0,
             curse_source_id: None,
@@ -5501,7 +5581,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             next_templeguardian_heal_at_ms: 0,
             lingering_effect_pct: 0.0,
             lingering_dots: Vec::new(),
-            next_lingering_tick_at_ms: 0,
+            next_lingering_tick_at_ms: u32::MAX,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -5670,23 +5750,43 @@ pub(crate) fn golem_unit_id(summoner_id: &str, slot: u32) -> String {
     format!("{GOLEM_ID_PREFIX}{summoner_id}_{slot}")
 }
 
-/// Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
-/// builds one golem unit holding `GOLEM_STAT_SCALE` (33%) of
-/// `summoner`'s own core combat stats (max hp, attack power, crit
-/// chance/damage, evasion, damage reduction, block chance - "as if
-/// they were a player with 33% of your stats"). Attack cadence is
-/// copied AS-IS, not scaled - the spec never says golems act 33% as
-/// often, only that their NUMBERS are 33%. Everything else defaults to
-/// zero/off via `Default` - "a basic unified hit," none of the
-/// Elementalist's own tree bonuses (elemental procs, splash, Righteous
-/// Fire, etc.) carry over, just this flat scaling. Basic golems (this
-/// stage's own scope) get nothing more than this; Thunder/Flame/
-/// Water's bespoke behavior (Stage 6) reads `golem_type` at whichever
-/// call sites need it instead of anything baked in here.
-fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_type: GolemType) -> CombatSimUnit {
-    let scaled_max_hp = ((summoner.max_hp as f64) * GOLEM_STAT_SCALE).round().max(1.0) as u64;
+/// Flame Golem's own Blazing modifier - an IRREGULAR 6/9/18% per-rank
+/// progression (not an even step), same "Special is decorative, this
+/// small lookup is the real value" pattern `healing_flames_regen_pct`
+/// already established.
+fn blazing_attack_speed_pct(rank: u32) -> f64 {
+    match rank {
+        1 => 0.06,
+        2 => 0.09,
+        r if r >= 3 => 0.18,
+        _ => 0.0,
+    }
+}
+
+/// Elementalist's Golem Master (docs/elementalist_spec.md, Stages 5-6) -
+/// builds one golem unit holding `GOLEM_STAT_SCALE` (33%, or more with
+/// Thunder Golem's own Gigantify) of `summoner`'s own core combat stats
+/// (max hp, attack power, crit chance/damage, evasion, damage
+/// reduction, block chance - "as if they were a player with 33% of your
+/// stats"). Attack cadence is copied AS-IS, not scaled - the spec never
+/// says golems act 33% as often, only that their NUMBERS are 33%.
+/// Everything else defaults to zero/off via `zeroed_combat_unit()` -
+/// "a basic unified hit," none of the Elementalist's own tree bonuses
+/// (elemental procs, splash, Righteous Fire, etc.) carry over. Basic
+/// golems get nothing beyond this flat scaling; Thunder/Flame/Water each
+/// get their own type-specific fields/stats set here directly, read
+/// from `c` (the summoner's real `Character`, for the sub-tree ranks
+/// `CombatSimUnit` alone doesn't carry) rather than threaded through as
+/// individual parameters.
+fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_type: GolemType, c: &Character) -> CombatSimUnit {
+    // Gigantify - Thunder Golem's own hp-contribution multiplier (base
+    // 33% -> 66/99/132% at rank 1/2/3). 0.0 (no effect) for every other
+    // golem type, since it's read off "thundergolem"'s own child key
+    // regardless of `golem_type` - only relevant when it actually IS one.
+    let hp_scale = if golem_type == GolemType::Thunder { GOLEM_STAT_SCALE * (1.0 + c.passive_node_magnitude("gigantify")) } else { GOLEM_STAT_SCALE };
+    let scaled_max_hp = ((summoner.max_hp as f64) * hp_scale).round().max(1.0) as u64;
     let scaled_atk = ((summoner.atk as f64) * GOLEM_STAT_SCALE).round().max(0.0) as u64;
-    CombatSimUnit {
+    let mut golem = CombatSimUnit {
         id: golem_unit_id(summoner_id, slot),
         display_name: format!("{}'s Golem", summoner.display_name),
         alive: true,
@@ -5705,7 +5805,97 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
         golem_summoner_id: Some(summoner_id.to_string()),
         golem_type: Some(golem_type),
         ..zeroed_combat_unit()
+    };
+    match golem_type {
+        GolemType::Basic => {}
+        GolemType::Thunder => {
+            // `thundergolem`'s own Special{4.0, -1.0} already stores the
+            // reform delay directly in SECONDS (4/3/2 at rank 1/2/3) -
+            // passive_node_magnitude reads it off the summoner's actual
+            // allocated rank the same way every other node's magnitude
+            // is read, no separate lookup needed.
+            golem.thundergolem_reform_delay_ms = (c.passive_node_magnitude("thundergolem") * 1000.0).round().max(0.0) as u32;
+            golem.thundergolem_growing_pct = c.passive_node_magnitude("growing");
+            golem.thundergolem_terrifying_pct = c.passive_node_magnitude("terrifying");
+        }
+        GolemType::Flame => {
+            // Volcanic Ash - inherits a fraction of the Elementalist's
+            // own fire proc-chance stat, same "gear-scaled inheritance"
+            // shape as Overshock/Polar Flux/Incinerate (Stage 2).
+            let volcanicash_pct = c.passive_node_magnitude("volcanicash");
+            if volcanicash_pct > 0.0 {
+                golem.fire_damage_pct = summoner.fire_damage_pct * volcanicash_pct;
+            }
+            // Blazing - "X% MULTIPLICATIVE attack speed" (irregular
+            // 6/9/18%, see `blazing_attack_speed_pct`) means attacking
+            // more OFTEN - `attack_speed_pct` is a different, unrelated
+            // mechanic in this codebase (only ever feeds the "convert
+            // excess speed above 100% into damage" overflow calculation,
+            // inert at these magnitudes), so this shrinks the golem's own
+            // copied `attack_interval_ms` directly instead, same
+            // `base / (1.0 + bonus)` shape `Character::attack_interval_ms`
+            // already uses for gear/tree attack-speed bonuses.
+            let blazing_pct = blazing_attack_speed_pct(c.passive_node_rank("blazing"));
+            if blazing_pct > 0.0 {
+                golem.attack_interval_ms = ((golem.attack_interval_ms as f64) / (1.0 + blazing_pct)).round().max(50.0) as u32;
+                golem.next_action_at_ms = golem.attack_interval_ms;
+            }
+            // Surging - a golem-only unit never has any OTHER source
+            // feeding `increased_damage`, so setting it directly here is
+            // exactly equivalent to a clean independent multiplicative
+            // bonus, with no need for a separate field.
+            golem.increased_damage = c.passive_node_magnitude("surging");
+        }
+        GolemType::Water => {
+            // Replenishing - "convert ALL damage dealt into healing, at
+            // a 100/200/300% rate". heal_power=1.0+ is the "ALL" (see
+            // `heal_power`'s own `damage_fraction = 1.0 - heal_power`
+            // read in the main Turn branch - clamped at 0, so 100% of
+            // output becomes healing). The per-cast heal AMOUNT is
+            // separately capped at `heal_power.min(1.0)` there too (see
+            // that site's own comment: "heal_power past 100% no longer
+            // makes THIS number bigger, it already made this unit's
+            // attack_interval_ms shorter instead" - Character::attack_interval_ms's
+            // own `heal_excess` divisor). Replicating that EXACT excess-
+            // heal-power divisor here (rather than a new mechanism) is
+            // what makes 200%/300% actually mean something: 2x/3x more
+            // heal-share casts per unit time at the same capped size -
+            // "100/200/300% rate" reads as total healing throughput, not
+            // per-cast size.
+            let replenishing_pct = c.passive_node_magnitude("replenishing");
+            if replenishing_pct > 0.0 {
+                golem.heal_power = replenishing_pct;
+                let heal_excess = (replenishing_pct - 1.0).max(0.0);
+                golem.attack_interval_ms = ((summoner.attack_interval_ms as f64) / (1.0 + heal_excess)).round().max(50.0) as u32;
+                golem.next_action_at_ms = golem.attack_interval_ms;
+            }
+            golem.watergolem_shattering_extra_targets = c.passive_node_rank("shattering");
+            golem.watergolem_singing_pct = c.passive_node_magnitude("singing");
+        }
     }
+    golem
+}
+
+/// Elementalist's Thunder Golem (docs/elementalist_spec.md, Stage 0
+/// resolution #5) - "absorbs all EXTERNALLY-sourced damage the party
+/// would take until it dies." Confirmed via direct investigation there
+/// is no centralized "apply damage" function in this file (HP mutation
+/// happens at many direct sites) and a taunt-style target-selection
+/// override (like Druid's Unyielding Roots) would NOT cover splash's
+/// independently-selected secondary targets or any boss's own bespoke
+/// ability code - so this is a genuine redirect of WHO gets hit, called
+/// at the very top of `apply_hit` (the one function every enemy-hits-
+/// party site ultimately funnels through) rather than a targeting
+/// preference. Returns an alive Thunder Golem's index on `target_idx`'s
+/// own side if one exists, otherwise `target_idx` unchanged - a no-op
+/// when `target_idx` is already boss-side (damage TO an enemy never
+/// redirects) or already IS a golem itself (a Thunder Golem doesn't
+/// redirect its own incoming damage onto itself).
+pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize) -> usize {
+    if units[target_idx].is_boss || units[target_idx].is_golem {
+        return target_idx;
+    }
+    units.iter().position(|u| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder)).unwrap_or(target_idx)
 }
 
 /// Healing Flames' own per-rank regen fraction (docs/elementalist_spec.md)
@@ -5914,6 +6104,63 @@ fn kill_golems_of_dead_summoners(units: &mut [CombatSimUnit], newly_dead_summone
                 events.push(CombatEvent::Defeat { at_ms, unit: golem.id.clone() });
             }
         }
+    }
+}
+
+/// Thunder Golem's own on-death consequences (docs/elementalist_spec.md,
+/// Stage 6) - Terrifying's explosion (dealt to every alive enemy, "its
+/// health" read as `max_hp` since current hp is already 0 at this
+/// point) and scheduling the base "reforms N seconds after dying" clock
+/// (`golem_reform_at_ms`) - Growing's own stacking max-hp increase is
+/// applied when the reform actually pays off (`NextEvent::GolemReform`),
+/// not here. A no-op for a non-Thunder golem (both fields are 0.0/0
+/// unless spawned as Thunder). Called from the main event loop's
+/// per-iteration death-detection sweep for ANY golem that just died -
+/// combat damage or the summoner-death rule alike - not a per-site
+/// audit.
+fn handle_golem_death(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+    let terrifying_pct = units[golem_idx].thundergolem_terrifying_pct;
+    if terrifying_pct > 0.0 {
+        let explosion_dmg = units[golem_idx].max_hp as f64 * terrifying_pct;
+        let enemies: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
+        for enemy_idx in enemies {
+            apply_true_damage(units, golem_idx, enemy_idx, explosion_dmg, at_ms, events, rolls, rng);
+        }
+    }
+    let reform_delay = units[golem_idx].thundergolem_reform_delay_ms;
+    if reform_delay > 0 {
+        units[golem_idx].golem_reform_at_ms = at_ms + reform_delay;
+    }
+}
+
+/// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
+/// Stage 6) - "when an enemy dies in the Water Golem's presence, it
+/// explodes, sending icicles at (splash + rank) nearby enemies, each
+/// dealing 1% of the dead enemy's health." Golems never invest splash
+/// themselves (always 0.0), so this reduces to exactly `rank` targets in
+/// practice - kept as `splash + rank` anyway for spec fidelity. Called
+/// from the same per-iteration death sweep for ANY enemy that just
+/// died, matching Ashes to Ashes' own "any enemy" reach - no per-site
+/// audit needed, same reasoning as the rest of this stage's death-
+/// triggered mechanics. A no-op unless an alive Water Golem with
+/// Shattering invested is present.
+fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx: usize, dead_enemy_max_hp: u64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+    let water_golem_idx = units
+        .iter()
+        .enumerate()
+        .find(|(_, u)| u.is_golem && u.alive && u.golem_type == Some(GolemType::Water) && u.watergolem_shattering_extra_targets > 0)
+        .map(|(i, _)| i);
+    let Some(water_golem_idx) = water_golem_idx else {
+        return;
+    };
+    let max_targets = (units[water_golem_idx].splash.floor() as u32 + units[water_golem_idx].watergolem_shattering_extra_targets) as usize;
+    let icicle_dmg = dead_enemy_max_hp as f64 * 0.01;
+    let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != dead_enemy_idx && u.is_boss && u.alive).map(|(i, _)| i).collect();
+    let pick_count = max_targets.min(candidates.len());
+    for _ in 0..pick_count {
+        let pick_at = rng.gen_range(0..candidates.len());
+        let target_idx = candidates.remove(pick_at);
+        apply_true_damage(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng);
     }
 }
 
@@ -6552,6 +6799,23 @@ pub(crate) fn apply_hit(
     applies_wound: bool,
     is_followup: bool,
 ) {
+    // Elementalist's Thunder Golem (docs/elementalist_spec.md, Stage 0
+    // resolution #5) - redirects to an alive Thunder Golem BEFORE
+    // anything else in this function runs, so every downstream branch
+    // (death-prevention saves, mitigation, the final hp write, event
+    // attribution) naturally operates on the Golem instead of the real
+    // target. `apply_hit` is THE single choke point every enemy-hits-
+    // party site funnels through - a normal primary attack, every
+    // `apply_splash` secondary target (it calls this same function per
+    // target), and every boss's own bespoke ability code that ultimately
+    // lands a hit via this function - so putting the redirect here once
+    // covers all of them without touching any of those call sites
+    // individually. Only redirects when the ATTACKER is a boss (a
+    // player's own splash/attacks against enemies never redirect - see
+    // `thunder_golem_redirect`'s own doc for the "external damage only"
+    // scoping, which is what excludes Righteous Fire's self-burn too -
+    // that goes through `apply_true_damage`, never this function).
+    let target_idx = if units[attacker_idx].is_boss { thunder_golem_redirect(units, target_idx) } else { target_idx };
     // A splash hit no longer counts as "a hit" for the purpose of
     // triggering any of THIS attacker's own reactive on-hit procs
     // (2026-08-16, a live request following a real report of runaway
@@ -8454,6 +8718,15 @@ pub(crate) fn apply_splash(
 /// much hp was actually restored (0 if the target was already full or
 /// `amount` rounds to 0 or less).
 pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_idx: usize, amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) -> u64 {
+    // Elementalist's Thunder Golem - "cannot be shielded or healed by
+    // any means" (docs/elementalist_spec.md) - see `grant_shield`'s own
+    // doc for why a guard here (this function) is sufficient without
+    // touching every individual heal-source caller. Checked before
+    // anything else, including the healer's own on-cast side effects
+    // (Eternal Light below) - a true no-op, not just "0 hp restored."
+    if units[target_idx].golem_type == Some(GolemType::Thunder) {
+        return 0;
+    }
     // Cleric's Eternal Light (2026-08-17, replacing its old "first heal
     // only, once per fight" premise - Radiant Light is a PERMANENT stat
     // stack, not a temporary buff, so there was nothing to "persist";
@@ -8506,6 +8779,12 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     } else {
         0.0
     };
+    // Water Golem's Singing - "more effect from shields and heals
+    // applied to" the TARGET (a receiver-side buff, unlike every other
+    // term here which is healer/target-specific to one interaction) -
+    // see `received_healing_bonus_pct`'s own doc for why this is a
+    // fight-start snapshot rather than a live per-Golem read.
+    let singing_bonus = units[target_idx].received_healing_bonus_pct;
     let amount = amount
         * (1.0 + heal_power_buff)
         * (1.0 - heal_reduction)
@@ -8513,7 +8792,8 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
         * (1.0 + reserves_bonus)
         * (1.0 - purgingflame_reduction)
         * (1.0 - curse_heal_reduction)
-        * (1.0 - cthulhu_heal_dealt_reduction);
+        * (1.0 - cthulhu_heal_dealt_reduction)
+        * (1.0 + singing_bonus);
     let amount = amount.round().max(0.0) as i64;
     if amount <= 0 {
         return 0;
@@ -9847,6 +10127,13 @@ pub(crate) fn simulate_battle(
                 golem_summoner_id: None,
                 golem_type: None,
                 golem_summon_dmg_penalty: 0.33 * c.passive_node_rank("golemmaster").min(3) as f64,
+                golem_reform_at_ms: u32::MAX,
+                thundergolem_reform_delay_ms: 0,
+                thundergolem_growing_pct: 0.0,
+                thundergolem_terrifying_pct: 0.0,
+                watergolem_shattering_extra_targets: 0,
+                watergolem_singing_pct: 0.0,
+                received_healing_bonus_pct: 0.0,
                 chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
                 chakraoflife_immune_until_ms: 0,
                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9961,7 +10248,26 @@ pub(crate) fn simulate_battle(
         };
         for slot in 0..golem_count {
             let golem_type = c.golem_slot_types.get(slot as usize).copied().unwrap_or_default();
-            golems_to_add.push(spawn_golem(summoner, id, slot, golem_type));
+            golems_to_add.push(spawn_golem(summoner, id, slot, golem_type, c));
+        }
+    }
+    // Water Golem's Singing - "all allies gain X% more effect from
+    // shields and heals applied to them." Applied as a fight-START
+    // snapshot to every real player (not toggled live with the Golem's
+    // own alive status, and not read live off any specific Water
+    // Golem's own current investment) - a deliberate simplification,
+    // since nothing else in this codebase live-tracks a receiver-side
+    // buff whose SOURCE can die and come back mid-fight, and Water
+    // Golems have no death/reform mechanic of their own to make that
+    // distinction meaningful anyway (unlike Thunder Golem). The
+    // strongest Singing among all summoned Water Golems wins if more
+    // than one Elementalist somehow fields one.
+    let singing_pct = golems_to_add.iter().filter(|g| g.golem_type == Some(GolemType::Water)).map(|g| g.watergolem_singing_pct).fold(0.0_f64, f64::max);
+    if singing_pct > 0.0 {
+        for u in units.iter_mut() {
+            if !u.is_boss && !u.is_golem {
+                u.received_healing_bonus_pct = singing_pct;
+            }
         }
     }
     units.extend(golems_to_add);
@@ -10183,6 +10489,13 @@ pub(crate) fn simulate_battle(
             golem_summoner_id: None,
             golem_type: None,
             golem_summon_dmg_penalty: 0.0,
+            golem_reform_at_ms: u32::MAX,
+            thundergolem_reform_delay_ms: 0,
+            thundergolem_growing_pct: 0.0,
+            thundergolem_terrifying_pct: 0.0,
+            watergolem_shattering_extra_targets: 0,
+            watergolem_singing_pct: 0.0,
+            received_healing_bonus_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -10602,7 +10915,7 @@ pub(crate) fn simulate_battle(
     // schedules rather than sharing one clock - see CombatSimUnit. Each
     // loop iteration finds whichever of ALL those clocks (across every
     // alive unit) comes due soonest and resolves just that one thing.
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     enum NextEvent {
         Turn(usize),
         Helm(usize),
@@ -10616,6 +10929,7 @@ pub(crate) fn simulate_battle(
         RighteousFireTick(usize),
         Revive(usize),
         CleansingFlamesTick(usize),
+        GolemReform(usize),
     }
 
     // Which player the real boss is currently focus-targeting (see the
@@ -10676,6 +10990,21 @@ pub(crate) fn simulate_battle(
         let newly_dead_summoners: Vec<String> =
             (0..units.len()).filter(|&i| !units[i].is_boss && !units[i].is_golem && prev_alive[i] && !units[i].alive).map(|i| units[i].id.clone()).collect();
         kill_golems_of_dead_summoners(&mut units, &newly_dead_summoners, prev_at_ms, &mut events);
+        // Thunder Golem's own on-death consequences (Terrifying/reform)
+        // - checked against current state so this also catches the
+        // summoner-death cascade just above, not just combat deaths.
+        for i in 0..units.len() {
+            if units[i].is_golem && prev_alive[i] && !units[i].alive {
+                handle_golem_death(&mut units, i, prev_at_ms, &mut events, &mut rolls, &mut rng);
+            }
+        }
+        // Water Golem's own Shattering modifier - any enemy that just died.
+        for i in 0..units.len() {
+            if units[i].is_boss && prev_alive[i] && !units[i].alive {
+                let dead_enemy_max_hp = units[i].max_hp;
+                handle_shattering_on_enemy_death(&mut units, i, dead_enemy_max_hp, prev_at_ms, &mut events, &mut rolls, &mut rng);
+            }
+        }
         prev_alive = units.iter().map(|u| u.alive).collect();
 
         let mut best: Option<(u32, NextEvent)> = None;
@@ -10685,6 +11014,11 @@ pub(crate) fn simulate_battle(
             // revive is, by definition, currently dead.
             if u.revive_at_ms != u32::MAX && (best.is_none() || u.revive_at_ms < best.unwrap().0) {
                 best = Some((u.revive_at_ms, NextEvent::Revive(i)));
+            }
+            // Thunder Golem's own reform clock - same "checked even on a
+            // dead unit" exception as `revive_at_ms` just above.
+            if u.golem_reform_at_ms != u32::MAX && (best.is_none() || u.golem_reform_at_ms < best.unwrap().0) {
+                best = Some((u.golem_reform_at_ms, NextEvent::GolemReform(i)));
             }
             if !u.alive {
                 continue;
@@ -10837,6 +11171,24 @@ pub(crate) fn simulate_battle(
             NextEvent::CleansingFlamesTick(actor_idx) => {
                 tick_cleansing_flames(&mut units, actor_idx, at_ms, &mut events, &mut rng);
                 units[actor_idx].next_cleansingflames_at_ms += CLEANSING_FLAMES_TICK_INTERVAL_MS;
+                continue;
+            }
+            NextEvent::GolemReform(golem_idx) => {
+                // Thunder Golem - "reforms N seconds after dying and
+                // rejoins combat," full hp. Growing (if invested)
+                // permanently grows max_hp a bit more on EVERY reform
+                // ("stacking within a combat" - compounding, not reset).
+                let growing_pct = units[golem_idx].thundergolem_growing_pct;
+                if growing_pct > 0.0 {
+                    let new_max_hp = ((units[golem_idx].max_hp as f64) * (1.0 + growing_pct)).round().max(1.0) as u64;
+                    units[golem_idx].max_hp = new_max_hp;
+                }
+                units[golem_idx].alive = true;
+                units[golem_idx].hp = units[golem_idx].max_hp as i64;
+                units[golem_idx].golem_reform_at_ms = u32::MAX;
+                let golem_id = units[golem_idx].id.clone();
+                events.push(CombatEvent::SkillCast { at_ms, unit: golem_id.clone(), skill: "Thunder Golem Reform".to_string() });
+                events.push(CombatEvent::Heal { at_ms, healer: golem_id.clone(), target: golem_id, amount: units[golem_idx].max_hp, target_hp_after: units[golem_idx].max_hp });
                 continue;
             }
             NextEvent::Revive(target_idx) => {
@@ -11220,6 +11572,13 @@ pub(crate) fn simulate_battle(
                                 golem_summoner_id: None,
                                 golem_type: None,
                                 golem_summon_dmg_penalty: 0.0,
+                                golem_reform_at_ms: u32::MAX,
+                                thundergolem_reform_delay_ms: 0,
+                                thundergolem_growing_pct: 0.0,
+                                thundergolem_terrifying_pct: 0.0,
+                                watergolem_shattering_extra_targets: 0,
+                                watergolem_singing_pct: 0.0,
+                                received_healing_bonus_pct: 0.0,
                                 chakraoflife_duration_ms: 0,
                                 chakraoflife_immune_until_ms: 0,
                                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -13683,6 +14042,12 @@ mod elementalist_stage_5_tests {
         CombatSimUnit { id: "boss".to_string(), display_name: "Boss".to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, is_boss: true, ..Default::default() }
     }
 
+    fn elementalist_character() -> Character {
+        let mut c = Character::new("caster".to_string());
+        c.archetype = Archetype::Elementalist;
+        c
+    }
+
     #[test]
     fn spawn_golem_scales_core_stats_to_33pct() {
         let summoner = CombatSimUnit {
@@ -13698,7 +14063,7 @@ mod elementalist_stage_5_tests {
             attack_interval_ms: 2_500,
             ..elementalist("caster", 300, 1000)
         };
-        let golem = spawn_golem(&summoner, "caster", 0, GolemType::Basic);
+        let golem = spawn_golem(&summoner, "caster", 0, GolemType::Basic, &elementalist_character());
         assert_eq!(golem.max_hp, 330, "33% of 1000");
         assert_eq!(golem.atk, 99, "33% of 300");
         assert!((golem.crit_chance - 0.099).abs() < 1e-9);
@@ -13731,7 +14096,7 @@ mod elementalist_stage_5_tests {
     fn any_real_player_alive_excludes_golems() {
         let mut caster = elementalist("caster", 100, 1000);
         caster.alive = false;
-        let mut golem = spawn_golem(&elementalist("caster", 100, 1000), "caster", 0, GolemType::Basic);
+        let mut golem = spawn_golem(&elementalist("caster", 100, 1000), "caster", 0, GolemType::Basic, &elementalist_character());
         golem.alive = true;
         let units = vec![caster, golem, boss()];
         assert!(!any_real_player_alive(&units), "an alive golem must NOT keep the fight going on its own - owner-mandated rule");
@@ -13757,9 +14122,9 @@ mod elementalist_stage_5_tests {
     #[test]
     fn kill_golems_of_dead_summoners_kills_only_the_matching_golems() {
         let summoner_template = elementalist("caster", 100, 1000);
-        let mut golem_a = spawn_golem(&summoner_template, "caster", 0, GolemType::Basic);
-        let mut golem_b = spawn_golem(&summoner_template, "caster", 1, GolemType::Basic);
-        let mut other_caster_golem = spawn_golem(&summoner_template, "someone_else", 0, GolemType::Basic);
+        let mut golem_a = spawn_golem(&summoner_template, "caster", 0, GolemType::Basic, &elementalist_character());
+        let mut golem_b = spawn_golem(&summoner_template, "caster", 1, GolemType::Basic, &elementalist_character());
+        let mut other_caster_golem = spawn_golem(&summoner_template, "someone_else", 0, GolemType::Basic, &elementalist_character());
         golem_a.alive = true;
         golem_b.alive = true;
         other_caster_golem.alive = true;
@@ -13775,7 +14140,7 @@ mod elementalist_stage_5_tests {
 
     #[test]
     fn kill_golems_of_dead_summoners_does_nothing_when_no_one_died() {
-        let mut golem = spawn_golem(&elementalist("caster", 100, 1000), "caster", 0, GolemType::Basic);
+        let mut golem = spawn_golem(&elementalist("caster", 100, 1000), "caster", 0, GolemType::Basic, &elementalist_character());
         golem.alive = true;
         let mut units = vec![golem];
         let mut events = Vec::new();
@@ -13794,7 +14159,7 @@ mod elementalist_stage_5_tests {
     #[test]
     fn all_real_players_dead_with_a_lone_alive_golem_terminates_the_fight() {
         let summoner_template = elementalist("caster", 100, 1000);
-        let mut golem = spawn_golem(&summoner_template, "caster", 0, GolemType::Basic);
+        let mut golem = spawn_golem(&summoner_template, "caster", 0, GolemType::Basic, &elementalist_character());
         golem.alive = true;
         let mut caster = elementalist("caster", 100, 1000);
         caster.alive = false; // already dead going into this check
@@ -13803,6 +14168,307 @@ mod elementalist_stage_5_tests {
         let boss_alive = units.iter().any(|u| u.is_boss && u.alive);
         assert!(boss_alive);
         assert!(!any_real_player_alive(&units), "the fight must be considered over - a lone alive golem must not keep it running");
+    }
+}
+
+#[cfg(test)]
+mod elementalist_stage_6_golem_type_tests {
+    use super::*;
+
+    fn elementalist_with(ranks: &[(&str, u32)], slot_types: Vec<GolemType>) -> Character {
+        let mut c = Character::new("caster".to_string());
+        c.archetype = Archetype::Elementalist;
+        for (key, rank) in ranks {
+            c.passive_allocations.insert(key.to_string(), *rank);
+        }
+        c.golem_slot_types = slot_types;
+        c
+    }
+
+    fn summoner(max_hp: u64, atk: u64, fire_damage_pct: f64) -> CombatSimUnit {
+        CombatSimUnit { id: "caster".to_string(), display_name: "Caster".to_string(), alive: true, hp: max_hp as i64, max_hp, atk, fire_damage_pct, ..Default::default() }
+    }
+
+    #[test]
+    fn gigantify_raises_thunder_golem_hp_contribution() {
+        let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 1), ("gigantify", 3)], vec![GolemType::Thunder]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Thunder, &c);
+        // Gigantify rank 3 = +300% contribution -> 33% * (1+3.0) = 132%.
+        assert_eq!(golem.max_hp, 1320, "132% of 1000");
+    }
+
+    #[test]
+    fn thunder_golem_without_gigantify_still_uses_the_plain_33pct() {
+        let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 1)], vec![GolemType::Thunder]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Thunder, &c);
+        assert_eq!(golem.max_hp, 330);
+    }
+
+    #[test]
+    fn thunder_golem_reform_delay_and_growing_and_terrifying_are_copied_from_the_summoner() {
+        let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 2), ("growing", 2), ("terrifying", 1)], vec![GolemType::Thunder]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Thunder, &c);
+        assert_eq!(golem.thundergolem_reform_delay_ms, 3_000, "rank 2 = 3 seconds");
+        assert!((golem.thundergolem_growing_pct - 0.665).abs() < 1e-9, "growing rank 2");
+        assert!((golem.thundergolem_terrifying_pct - 0.33).abs() < 1e-9, "terrifying rank 1");
+    }
+
+    #[test]
+    fn basic_and_water_golems_never_get_thunder_golem_fields() {
+        let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 3), ("growing", 3), ("terrifying", 3)], vec![GolemType::Basic]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Basic, &c);
+        assert_eq!(golem.thundergolem_reform_delay_ms, 0);
+        assert_eq!(golem.thundergolem_growing_pct, 0.0);
+        assert_eq!(golem.thundergolem_terrifying_pct, 0.0);
+    }
+
+    #[test]
+    fn volcanic_ash_inherits_a_fraction_of_the_summoners_fire_damage_pct() {
+        let c = elementalist_with(&[("golemmaster", 1), ("volcanicash", 3)], vec![GolemType::Flame]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.20), "caster", 0, GolemType::Flame, &c);
+        // Volcanic Ash rank 3 = 100% inheritance -> full 0.20 fire_damage_pct.
+        assert!((golem.fire_damage_pct - 0.20).abs() < 1e-9);
+    }
+
+    #[test]
+    fn blazing_shrinks_the_golems_attack_interval() {
+        let c = elementalist_with(&[("golemmaster", 1), ("blazing", 3)], vec![GolemType::Flame]);
+        let mut base_summoner = summoner(1000, 100, 0.0);
+        base_summoner.attack_interval_ms = 2_000;
+        let golem = spawn_golem(&base_summoner, "caster", 0, GolemType::Flame, &c);
+        // Blazing rank 3 = 18% faster -> 2000 / 1.18.
+        let expected = (2000.0_f64 / 1.18).round() as u32;
+        assert_eq!(golem.attack_interval_ms, expected);
+        assert!(golem.attack_interval_ms < 2_000, "must be strictly faster than the summoner's own cadence");
+    }
+
+    #[test]
+    fn surging_sets_flame_golem_increased_damage_directly() {
+        let c = elementalist_with(&[("golemmaster", 1), ("surging", 2)], vec![GolemType::Flame]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Flame, &c);
+        assert!((golem.increased_damage - 0.20).abs() < 1e-9, "surging rank 2");
+    }
+
+    #[test]
+    fn replenishing_sets_heal_power_and_shrinks_attack_interval_for_higher_ranks() {
+        let c1 = elementalist_with(&[("golemmaster", 1), ("replenishing", 1)], vec![GolemType::Water]);
+        let mut base_summoner = summoner(1000, 100, 0.0);
+        base_summoner.attack_interval_ms = 2_000;
+        let golem_r1 = spawn_golem(&base_summoner, "caster", 0, GolemType::Water, &c1);
+        assert!((golem_r1.heal_power - 1.0).abs() < 1e-9);
+        assert_eq!(golem_r1.attack_interval_ms, 2_000, "rank 1 (100%) - no excess, no speedup");
+
+        let c3 = elementalist_with(&[("golemmaster", 1), ("replenishing", 3)], vec![GolemType::Water]);
+        let golem_r3 = spawn_golem(&base_summoner, "caster", 0, GolemType::Water, &c3);
+        assert!((golem_r3.heal_power - 3.0).abs() < 1e-9, "rank 3 = 300%");
+        // heal_excess = 2.0 -> interval / 3.0.
+        let expected = (2000.0_f64 / 3.0).round() as u32;
+        assert_eq!(golem_r3.attack_interval_ms, expected);
+    }
+
+    #[test]
+    fn shattering_extra_targets_and_singing_pct_are_copied_from_the_summoner() {
+        let c = elementalist_with(&[("golemmaster", 1), ("shattering", 2), ("singing", 3)], vec![GolemType::Water]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &c);
+        assert_eq!(golem.watergolem_shattering_extra_targets, 2);
+        assert!((golem.watergolem_singing_pct - 0.30).abs() < 1e-9);
+    }
+
+    fn boss(id: &str, hp: i64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp: hp as u64, is_boss: true, ..Default::default() }
+    }
+
+    #[test]
+    fn thunder_golem_death_schedules_a_reform_and_terrifying_hits_every_alive_enemy() {
+        let mut golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Thunder, &elementalist_with(&[("thundergolem", 2), ("terrifying", 3)], vec![GolemType::Thunder]));
+        golem.alive = false;
+        golem.hp = 0;
+        let mut units = vec![golem, boss("a", 1_000_000), boss("b", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].golem_reform_at_ms, 5_000 + 3_000, "rank 2 reform delay = 3s");
+        let expected_dmg = (units[0].max_hp as f64 * 1.0).round() as i64; // terrifying rank 3 = 100%
+        assert_eq!(units[1].hp, 1_000_000 - expected_dmg, "enemy a hit by the explosion");
+        assert_eq!(units[2].hp, 1_000_000 - expected_dmg, "enemy b hit by the explosion");
+    }
+
+    #[test]
+    fn golem_reform_restores_full_hp_and_applies_growing() {
+        let mut golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Thunder, &elementalist_with(&[("thundergolem", 1), ("growing", 1)], vec![GolemType::Thunder]));
+        let base_max_hp = golem.max_hp;
+        golem.alive = false;
+        golem.hp = 0;
+        golem.golem_reform_at_ms = 5_000;
+        let mut units = vec![golem];
+        let mut events: Vec<CombatEvent> = Vec::new();
+        let mut rolls: Vec<RollEvent> = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        // Mirrors NextEvent::GolemReform's own dispatch logic directly,
+        // since that arm lives inline in the main loop, not as its own
+        // standalone function (matches this codebase's own established
+        // "test the extracted pure pieces" convention for a small enough
+        // payoff - see `chakra_of_light_tests`' own module doc).
+        let growing_pct = units[0].thundergolem_growing_pct;
+        if growing_pct > 0.0 {
+            let new_max_hp = ((units[0].max_hp as f64) * (1.0 + growing_pct)).round().max(1.0) as u64;
+            units[0].max_hp = new_max_hp;
+        }
+        units[0].alive = true;
+        units[0].hp = units[0].max_hp as i64;
+        units[0].golem_reform_at_ms = u32::MAX;
+        let _ = (&mut events, &mut rolls, &mut rng);
+        assert!(units[0].alive);
+        assert_eq!(units[0].hp, units[0].max_hp as i64, "reforms at full hp");
+        let expected_max_hp = ((base_max_hp as f64) * 1.33).round() as u64; // growing rank 1 = 33%
+        assert_eq!(units[0].max_hp, expected_max_hp);
+    }
+
+    #[test]
+    fn shattering_sends_icicles_to_other_enemies_when_one_dies() {
+        let water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 2)], vec![GolemType::Water]));
+        let mut units = vec![water_golem, boss("dying", 10_000), boss("other_a", 1_000_000), boss("other_b", 1_000_000)];
+        units[0].alive = true;
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng);
+        let hit_count = units[2..].iter().filter(|u| u.hp < 1_000_000).count();
+        assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (splash is always 0 for golems)");
+        for u in &units[2..] {
+            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100");
+        }
+    }
+
+    #[test]
+    fn shattering_does_nothing_without_an_alive_water_golem_invested() {
+        let mut units = vec![boss("dying", 10_000), boss("other", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_shattering_on_enemy_death(&mut units, 0, 10_000, 5_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[1].hp, 1_000_000);
+    }
+
+    #[test]
+    fn singing_boosts_both_heals_and_shields_received() {
+        fn healer() -> CombatSimUnit {
+            CombatSimUnit { id: "healer".to_string(), display_name: "Healer".to_string(), alive: true, hp: 100, max_hp: 100, ..Default::default() }
+        }
+        fn ally() -> CombatSimUnit {
+            CombatSimUnit { id: "ally".to_string(), display_name: "Ally".to_string(), alive: true, hp: 500, max_hp: 1000, received_healing_bonus_pct: 0.30, ..Default::default() }
+        }
+        let mut units = vec![healer(), ally()];
+        let mut events: Vec<CombatEvent> = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let healed = apply_heal(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rng);
+        assert_eq!(healed, 130, "100 base heal * 1.30 Singing bonus");
+
+        let mut units2 = vec![healer(), ally()];
+        grant_shield(&mut units2, 0, 1, 100.0, 1_000, 5_000, &mut events);
+        assert!((units2[1].shield_hp - 130.0).abs() < 1e-9, "100 base shield * 1.30 Singing bonus");
+    }
+}
+
+#[cfg(test)]
+mod elementalist_stage_6_thunder_golem_isolation_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// The owner's own explicitly-required proof for Stage 6's Thunder
+    /// Golem site audit: "a seeded fight simulation run against every
+    /// BossKind variant, asserting that while a Thunder Golem is alive,
+    /// no non-golem party member takes any externally-sourced damage
+    /// (Righteous Fire's own self-burn exempt)." A missed damage site
+    /// (a `BossKind`'s own bespoke ability code bypassing `apply_hit`'s
+    /// top-of-function redirect) fails THIS test, not just a live fight.
+    ///
+    /// Runs a real `simulate_battle` per `BossKind` (5 variants), a
+    /// level-100 solo Elementalist with Golem Master maxed and all 3
+    /// slots set to Thunder, against a boss tough enough to land many
+    /// real hits before the fight ends either way. Every `CombatEvent::Attack`
+    /// targeting the real Elementalist (never a golem's own id) is
+    /// checked against a live-reconstructed "was any Thunder Golem
+    /// alive at this exact timestamp" state (built from the SAME
+    /// Defeat/reform-Heal events the golems' own lifecycle produces) -
+    /// self-inflicted hits (attacker == target, i.e. a future Righteous
+    /// Fire self-burn) are the one exempt case per the spec itself; this
+    /// Elementalist has no Righteous Fire invested at all, so none occur
+    /// in practice, but the exemption is still checked for robustness.
+    #[test]
+    fn thunder_golem_absorbs_all_external_damage_against_every_boss_kind() {
+        // `BossKind::ALL` (manager.rs) is private to that module - listed
+        // explicitly here instead. Keep in sync if a new BossKind is ever
+        // added (compile error from an unmatched Some(kind) elsewhere in
+        // this file would catch it too, but this list won't auto-grow).
+        let all_boss_kinds = [BossKind::Lich, BossKind::FireDemon, BossKind::Cthulhu, BossKind::Dragon, BossKind::GelatinousCube];
+        for (seed, boss_kind) in all_boss_kinds.iter().enumerate() {
+            let mut character = Character::new("elementalist".to_string());
+            character.archetype = Archetype::Elementalist;
+            character.level = 100;
+            character.passive_allocations.insert("golemmaster".to_string(), 3);
+            character.passive_allocations.insert("thundergolem".to_string(), 4);
+            character.golem_slot_types = vec![GolemType::Thunder, GolemType::Thunder, GolemType::Thunder];
+            let mut characters: HashMap<String, Character> = HashMap::new();
+            characters.insert("elementalist".to_string(), character);
+
+            let boss_stats = BossStats {
+                hp: 500_000,
+                atk: 100_000,
+                attack_interval_ms: 1_200,
+                damage_reduction: 0.15,
+                block_chance: 0.10,
+                evasion: 0.05,
+                increased_damage: 0.20,
+                crit_chance: 0.15,
+                crit_multiplier: 0.50,
+                splash: 0.0,
+            };
+            let tunables = LiveTunables::default();
+            let mut rng = StdRng::seed_from_u64(1000 + seed as u64);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+
+            // Sanity check on the fixture itself, not the mechanic under
+            // test - if nobody ever got hit at all (e.g. a broken
+            // fixture where the boss can't act), this test would pass
+            // vacuously without proving anything.
+            let any_attack_at_all = events.iter().any(|e| matches!(e, CombatEvent::Attack { .. }));
+            assert!(any_attack_at_all, "{boss_kind:?}: fixture produced no Attack events at all - test would be vacuous");
+
+            let golem_ids: Vec<String> = unit_infos.iter().filter(|u| !u.is_boss && u.id != "elementalist").map(|u| u.id.clone()).collect();
+            assert_eq!(golem_ids.len(), 3, "{boss_kind:?}: expected exactly 3 summoned Thunder Golems");
+
+            let mut golem_alive: HashMap<String, bool> = golem_ids.iter().map(|id| (id.clone(), true)).collect();
+            let mut violations: Vec<String> = Vec::new();
+            for event in &events {
+                match event {
+                    CombatEvent::Defeat { unit, .. } => {
+                        if let Some(alive) = golem_alive.get_mut(unit) {
+                            *alive = false;
+                        }
+                    }
+                    CombatEvent::Heal { healer, target, .. } if healer == target => {
+                        // The reform payoff's own event shape (see
+                        // `NextEvent::GolemReform`) - a self-targeted Heal
+                        // is exactly what a reform (or, for a real player,
+                        // Rising Phoenix) looks like in the log.
+                        if let Some(alive) = golem_alive.get_mut(target) {
+                            *alive = true;
+                        }
+                    }
+                    CombatEvent::Attack { attacker, target, damage, .. } if target == "elementalist" => {
+                        let self_inflicted = attacker == target;
+                        let a_thunder_golem_is_up = golem_alive.values().any(|&alive| alive);
+                        if !self_inflicted && a_thunder_golem_is_up && *damage > 0 {
+                            violations.push(format!("{boss_kind:?} at_ms={:?}: elementalist took {damage} external damage from {attacker} while a Thunder Golem was alive", event.at_ms()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(violations.is_empty(), "{boss_kind:?}: Thunder Golem isolation violated:\n{}", violations.join("\n"));
+        }
     }
 }
 

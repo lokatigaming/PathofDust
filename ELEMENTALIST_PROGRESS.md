@@ -43,8 +43,12 @@ stage's "all existing tests still pass" check is protecting.
       "dead but scheduled" state and on-death hook wrapper both turned
       out to already exist from Stage 4's Rising Phoenix work, reused
       directly rather than rebuilt (see Decision 30)
-- [ ] Stage 6 — Golem types (Thunder/Flame/Water) + the mandatory
-      Thunder Golem all-`BossKind` damage-isolation test
+- [x] Stage 6 — Golem types (Thunder/Flame/Water) + the mandatory
+      Thunder Golem all-`BossKind` damage-isolation test (done
+      2026-08-19). **ALL 6 STAGES COMPLETE.** feature/elementalist is
+      ready for the owner's review per the plan's own deploy gate - no
+      merge, no deploy, nothing further happens on this branch without
+      explicit go-ahead.
 
 (Stage numbering/order per the approved plan at
 `C:\Users\Administrator\.claude\plans\jaunty-pondering-waterfall.md` —
@@ -404,9 +408,80 @@ listed here for completeness, not decisions made unattended):*
    `spawn_golem`/anywhere else, correctly deferred to Stage 6 per the
    original plan.
 
+37. **`thunder_golem_redirect` is called from exactly ONE place: the
+   very top of `apply_hit`.** Confirmed via a full audit of every
+   `.hp = `/`.hp -= `/`.hp += ` mutation site in combat.rs (grep, then
+   manually classified every hit) that `apply_hit` is the single choke
+   point every enemy-hits-party site in this file funnels through
+   (`apply_splash` calls it per target; every `BossKind`'s own bespoke
+   ability code ultimately lands its damage through it too - no boss
+   writes `.hp` directly). Every OTHER `.hp` mutation site was traced to
+   one of: damage TO an enemy (player abilities, `apply_late_stage_penalty`
+   confirms the target side), self-inflicted damage (Bloodpact, Righteous
+   Fire's own `apply_true_damage`), or healing (never damage). One line
+   (`let target_idx = if units[attacker_idx].is_boss { thunder_golem_redirect(units, target_idx) } else { target_idx };`)
+   at the top of `apply_hit`, before any other branching, correctly
+   covers all of them - proven empirically by Decision 40's own test,
+   not just this audit.
+38. **"Cannot be shielded or healed by any means" is enforced with 2
+   guards, not a site audit** - `apply_heal`/`grant_shield` are BOTH
+   already fully centralized (every heal/shield source in this file
+   already funnels through them, same "one choke point" shape as
+   Decision 37), so one early-return guard in each (checking
+   `golem_type == Some(GolemType::Thunder)`) is sufficient.
+39. **Golem type-specific mechanics reuse EXISTING generic stats
+   wherever the underlying math actually matches**, rather than adding
+   new mechanisms: Volcanic Ash inherits a fraction of the summoner's
+   own `fire_damage_pct` (same "gear-scaled inheritance" shape Stage
+   2's Overshock/Polar Flux/Incinerate already established); Surging
+   sets a Flame Golem's `increased_damage` directly (safe - a golem has
+   no OTHER source ever feeding that field, so it's equivalent to a
+   clean independent multiplicative bonus with no new field needed);
+   Replenishing/Blazing both shrink the golem's own `attack_interval_ms`
+   directly using the EXACT `base / (1.0 + excess)` shape
+   `Character::attack_interval_ms` already uses for gear/tree attack-
+   speed and for heal_power's own "excess past 100% speeds up casts
+   instead of enlarging them" rule - discovered by reading that real
+   heal-share code path, which explicitly documents `heal_power.min(1.0)`
+   capping the PER-CAST size, meaning 200%/300% Replenishing can ONLY
+   mean faster casts, not bigger ones. `attack_speed_pct` (a
+   similarly-named but semantically DIFFERENT field, only feeding the
+   "convert excess speed above 100% into damage" overflow calc) was
+   initially and INCORRECTLY used for Blazing before this was caught
+   and fixed during this same stage.
+40. **CRITICAL BUG found and fixed during this stage's own mandatory
+   test**: `zeroed_combat_unit()` (Stage 5's new production "zeroed
+   base" helper) was built as a byte-for-byte copy of the test-only
+   `Default` impl's literal - including that impl's `0` values for 10
+   `next_*_at_ms`/`*_expires_at_ms` SCHEDULING fields (helm/boots/
+   ability/flicker/bloodpact/divine-shield/chakra-of-life/curse/
+   lingering-tick timers). `0` is a safe "already due, but nothing ever
+   reads it" value in a test that never runs the real event loop - fed
+   into `simulate_battle`'s ACTUAL loop (via `spawn_golem`, in every
+   real fight with a golem summoned), `0` means "this event is due
+   RIGHT NOW," and its own dispatch arm reschedules by ADDING the
+   matching 0-valued cooldown field - `next_at_ms += 0` forever, an
+   infinite loop stuck at `at_ms == 0`. Found live by the mandatory
+   Thunder Golem isolation test itself (a temporary debug iteration
+   counter pinned it to `NextEvent::Helm` on a freshly-spawned golem,
+   stuck at iteration 200,000+ with `at_ms` never advancing). Fixed by
+   changing all 10 fields in `zeroed_combat_unit()` to `u32::MAX`
+   ("never fires"), matching the REAL boss-construction site's own
+   established convention for these exact fields - confirmed via a
+   systematic diff between the two construction sites' full field
+   lists, not just the one field that happened to be hit first.
+   `zeroed_combat_unit()`'s own doc comment now explicitly warns against
+   ever re-syncing it byte-for-byte with the test Default again. This
+   is exactly the kind of bug the owner's own mandatory-test requirement
+   was designed to catch before it could ever reach a live stream - it
+   would have hung (or come extremely close to hanging) any REAL fight
+   where a player summoned a golem, not just this test.
+
 *(Everything above this line was decided without a check-in, during
-autonomous execution. Nothing further yet - this section grows as
-Stage 6 proceeds.)*
+autonomous execution. All 6 stages are now complete - this file's job
+for the implementation phase is done. Whatever picks up next (deploy
+review, Golem overlay visualization, etc.) is a new phase, not a
+continuation of these stages.)*
 
 ---
 
@@ -568,7 +643,50 @@ Stage 6 proceeds.)*
   (Stages 1-5), since CLAUDE.md's standing rule applies regardless of
   this branch not being merged/deployed yet. Full suite: **227
   passing, 0 failed** (was 216).
+- Committed as `923fba7`, pushed.
+
+## Stage 6 summary (final stage - for the morning, or a fresh session)
+
+- Every remaining `NotYetImplemented` node is now real: Thunder Golem's
+  own base behavior (damage redirect via `thunder_golem_redirect`, no
+  heal/shield, reform-after-N-seconds) plus its 3 modifiers (Gigantify/
+  Growing/Terrifying); Flame Golem's 3 modifiers (Volcanic Ash/Blazing/
+  Surging); Water Golem's 3 modifiers (Replenishing/Singing/Shattering).
+  `flamegolem`/`watergolem` themselves stay `NotYetImplemented` FOREVER
+  by design (no base effect of their own per the spec's own text) -
+  every other node in the 39-node tree has a real effect. See Decisions
+  37-40 for the full mechanic-by-mechanic reasoning.
+- The mandatory Thunder Golem isolation test
+  (`thunder_golem_absorbs_all_external_damage_against_every_boss_kind`)
+  runs a real seeded `simulate_battle` per `BossKind` (all 5) and
+  proves no non-golem party member ever takes external damage while a
+  Thunder Golem is alive, by reconstructing golem alive-state live off
+  the event log. It passes.
+- **Found and fixed a real infinite-loop bug live, via this exact
+  test** - Decision 40 has the full story. `zeroed_combat_unit()`
+  (Stage 5) had 10 scheduling fields wrong (`0` instead of `u32::MAX`),
+  which would have hung any REAL fight with a golem summoned. This is
+  precisely the failure mode the owner's mandatory-test requirement
+  existed to catch.
+- 26 new tests (9 magnitude checks in `passive_tree.rs`; 15 in
+  `combat.rs`'s new `elementalist_stage_6_golem_type_tests` module
+  covering every modifier's own spawn-time/on-death/on-heal behavior;
+  1 mandatory integration test; 1 renamed structural test covering the
+  now-complete tree). Full suite: **248 passing, 0 failed** (was 227).
 - Commit is next.
+
+---
+
+## Post-completion note
+
+All 6 stages are done. `feature/elementalist` is pushed and waiting for
+the owner's explicit go-ahead before any merge or deploy, per the
+original instructions. Known follow-ups NOT part of this branch's own
+scope (left for whenever the owner picks this up):
+- Golem overlay visualization (Stage 0 resolution #1 - golems are
+  mechanically real but invisible in OBS today, by design).
+- The `/admin/tunables` auth baseline the owner separately owes (see
+  memory - unrelated to this feature, just a standing reminder).
 
 ---
 
