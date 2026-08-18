@@ -186,6 +186,25 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ),
         ("MAX_FIGHT_DURATION_S", (crate::adventure::MAX_FIGHT_DURATION_MS / 1000).to_string()),
         ("REVIVE_DURATION_S", crate::adventure::REVIVE_DURATION.as_secs().to_string()),
+        // Character lifecycle & progression (wiki/getting-started.md).
+        ("ACTIVITY_XP_COOLDOWN_S", crate::adventure::ACTIVITY_XP_COOLDOWN.as_secs().to_string()),
+        ("ACTIVITY_XP_AMOUNT", crate::adventure::ACTIVITY_XP_AMOUNT.to_string()),
+        ("XP_TO_LEVEL_2", Character::xp_to_next_level(1).to_string()),
+        ("XP_TO_LEVEL_11", Character::xp_to_next_level(10).to_string()),
+        ("XP_TO_LEVEL_26", Character::xp_to_next_level(25).to_string()),
+        ("XP_TO_LEVEL_51", Character::xp_to_next_level(50).to_string()),
+        ("RETREAT_REPAIR_DURATION_MIN", (crate::adventure::RETREAT_REPAIR_DURATION.as_secs() / 60).to_string()),
+        ("ARCHETYPE_CHANGE_COST", crate::adventure::ARCHETYPE_CHANGE_COST.to_string()),
+        ("PASSIVE_RESPEC_COST", crate::adventure::PASSIVE_RESPEC_COST.to_string()),
+        ("MODEL_CHANGE_COST", crate::adventure::MODEL_CHANGE_COST.to_string()),
+        ("MODEL_CHANGES_FREE_FOR_ALL", if crate::adventure::MODEL_CHANGES_FREE_FOR_ALL { "currently free for everyone" } else { "not currently free" }.to_string()),
+        ("WINGS_COST", crate::adventure::WINGS_COST.to_string()),
+        ("INVENTORY_CAPACITY", crate::adventure::INVENTORY_CAPACITY.to_string()),
+        ("ENCOUNTER_INTERVAL_MIN", (crate::adventure::ENCOUNTER_INTERVAL.as_secs() / 60).to_string()),
+        ("BASIC_ENCOUNTER_INTERVAL_MIN", (crate::adventure::BASIC_ENCOUNTER_INTERVAL.as_secs() / 60).to_string()),
+        ("FORCE_BOSS_MAX_PER_CYCLE", crate::adventure::FORCE_BOSS_MAX_PER_CYCLE.to_string()),
+        ("RAMPAGE_ENCOUNTER_COUNT", crate::adventure::RAMPAGE_ENCOUNTER_COUNT.to_string()),
+        ("RAMPAGE_MIN_INTERVAL_S", crate::adventure::RAMPAGE_MIN_INTERVAL.as_secs().to_string()),
     ])
 }
 
@@ -284,6 +303,17 @@ pub(super) async fn wiki_combat_page(State(state): State<AppState>, headers: Hea
     )))
 }
 
+pub(super) async fn wiki_getting_started_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("getting-started"),
+        render_markdown_page("getting-started"),
+    )))
+}
+
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
     match current_session(headers, state).await {
         Some((login, _)) => state.adventure.character(&login).await,
@@ -312,13 +342,14 @@ fn wiki_subnav(active: &str) -> String {
         }
     };
     format!(
-        "<div class=\"top-nav-links\">{}{}{}{}{}{}</div>",
+        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}</div>",
+        entry("/wiki/getting-started", "🚀 Getting Started", "getting-started"),
+        entry("/wiki/combat", "⚔️ Combat", "combat"),
         entry("/wiki/bosses", "🐲 Bosses", "bosses"),
         entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
         entry("/wiki/healing", "✨ Healing", "healing"),
         entry("/wiki/passives", "🌳 Passives", "passives"),
         entry("/wiki/commands", "💬 Commands", "commands"),
-        entry("/wiki/combat", "⚔️ Combat", "combat"),
     )
 }
 
