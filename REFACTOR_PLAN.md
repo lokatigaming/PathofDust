@@ -1,15 +1,17 @@
 # Path of Dust — Architecture Refactor Plan
 
-**Status** (2026-08-19): Stages 0 through 4 done, on branch
+**Status** (2026-08-19): Stages 0 through 5 done, on branch
 `refactor/architecture` (pushed to origin as a backup — not merged to
 master, not deployed; the deploy procedure still applies to master
-exclusively). `bot` is now code-complete as a thin HTTP client of the
-standalone `game` process (see Stage 4's own note) - the actual
-two-process cutover, smoke-tested both directions - but this is STILL
-not what's running in production: that only happens after Stage 5's
-failure-isolation hardening, the required LIVE BAKE period, and a final
-merge to master. Stage 5 is next. This document is the durable record
-of the plan — written to the repo root so a fresh session can resume
+exclusively). `bot` is code-complete as a thin HTTP client of the
+standalone `game` process, failure-isolation hardened and tested against
+a genuinely killed process (see Stage 5's own note) - but this is STILL
+not what's running in production: that only happens after the required
+LIVE BAKE period and a final merge to master. A bake deployment proposal
+(what changes on the machine, rollback, what to watch) has been written
+up separately as a stop-and-wait for owner approval - not yet actioned.
+This document is the durable record of the plan — written to the repo
+root so a fresh session can resume
 the project with full context, without needing the original Plan-mode
 transcript.
 
@@ -806,12 +808,83 @@ proven, not before.
     dispatch-to-chat-message wiring itself is unchanged from before this
     stage and carries no new risk from it.
   Full workspace suite: 147 passing (was 144), zero regressions.
-- **Stage 5**: failure-isolation behavior (§4c) + per-reward-type refund
-  policy, tested against a deliberately-killed game process.
+- **Stage 5** (done, 2026-08-19): failure-isolation behavior (§4c) + per-
+  reward-type refund policy, tested against a deliberately-killed game
+  process. §4c's policies were already IMPLEMENTED at Stage 4 (the code
+  had to handle the `Err` case somehow to compile at all); this stage is
+  about hardening and genuinely testing that, plus two real crash-safety
+  gaps this cutover exposed:
+  - **Redemption decision logic factored into pure functions**
+    (`reforge_redemption_action`/`repair_redemption_action`/
+    `force_boss_redemption_action` in main.rs) - separates "what status/
+    chat-message does this outcome produce" from the actual
+    `helix.update_redemption_status`/`chat_client.say` I/O, mirroring
+    `adventure_reply`'s Stage 4 split. 8 new unit tests cover every row
+    of §4c's redemption table directly (reforge/repair refund silently
+    on game-down; force-boss refunds + announces when live, stays quiet
+    replaying a backlog) without needing the real `HelixClient`/
+    `ChatClient` neither has a test-friendly constructor for (see Stage
+    4's "honest gap" note - still applies, this is how it's worked
+    around for the parts that CAN be pure functions).
+  - **`game/tests/killed_process_smoke.rs`** (new) - a genuinely killed
+    process, not Stage 4's synthetic dead-port stand-in: spawns the
+    REAL compiled `game` binary as a child process (`env!("CARGO_BIN_EXE_game")`,
+    which is why this test lives in `game/tests/` and not the bot
+    crate's), confirms it answers normally, hard-kills it
+    (`Child::kill()` - `TerminateProcess` on Windows, not a graceful
+    shutdown), confirms the wire-level failure is clean, then confirms a
+    FRESH process on the same port/data-dir recovers and serves
+    normally again - the game-side half of "bot down, game restarts,
+    everything just works."
+  - **"Bot down, announcements drop gracefully" direction**: verified
+    by code inspection rather than a dedicated test - every one of the 7
+    `announcements_tx.send(...)` call sites (grep-confirmed) discards
+    the `Result` via `let _ = ...`, and `tokio::sync::broadcast`'s own
+    documented behavior for zero receivers is an immediate `Err` with
+    the value simply dropped, never buffered - the same guarantee 4
+    other broadcast channels in this file (`encounter_tx`, `gear_crit_tx`,
+    `rampage_complete_tx`, `unique_shard_tx`) already relied on before
+    this refactor touched any of it. A dedicated runtime test here would
+    mostly be re-proving a Tokio library guarantee already exercised
+    elsewhere in this exact codebase, not new risk this cutover added.
+  - **Two real crash-safety gaps found and fixed, not just documented**:
+    (1) `game/src/main.rs` was still on plain `#[tokio::main]` with
+    Tokio's 2MiB default worker stack size - the bot's own `main.rs`
+    abandoned that specifically because `simulate_battle`/`apply_hit`
+    caused repeat real `STATUS_STACK_OVERFLOW` crashes (see
+    watchdog.ps1's own doc). That fix was never mirrored here because it
+    never needed to be: Stage 2's live-verification never ran a real
+    fight, and Stages 1-4 only ever exercised this binary in a
+    foreground terminal. Stage 4 changed that - `game` is now the ONLY
+    process that ever calls `run_encounter_inner` for real once a bot is
+    pointed at it, so shipping this into a real-traffic bake without the
+    same 32MB stack fix would have risked reproducing the exact crash
+    class that motivated building a dedicated watchdog in the first
+    place. Fixed to match `bot`'s pattern exactly. (2) `game`'s own
+    logging was stdout-only (`tracing_subscriber::fmt()`, no file
+    appender) - invisible the moment this runs headless under a
+    Scheduled Task with no attached console, same problem `bot`'s
+    `main.rs` already solved for itself. Added the identical
+    `tracing-appender` daily-rolling-file setup (`logs/game.log.<date>`,
+    new Cargo.toml dependency, no other bot-side changes needed).
+  Full workspace suite: 156 passing (was 147), zero regressions.
 - **LIVE BAKE** (owner-required, inserted here): run the two-process
   shape in production for at least a day of real stream traffic — real
   fights, real redemptions, a real bot-restart under it — before
-  proceeding to Stage 6+.
+  proceeding to Stage 6+. **Deployment plan for this proposed separately
+  (not in this document) as a stop-and-wait for owner approval** -
+  covers exactly what changes on the machine, the rollback procedure,
+  and what gets watched during the bake day. Two live findings from that
+  investigation, unrelated to this refactor but directly relevant to
+  trusting the bake: the existing `TwitchBotRS-Watchdog` scheduled
+  task's action points at a path that no longer exists
+  (`C:\Users\Administrator\Downloads\twitch-bot-rs\watchdog.ps1`) and has
+  been silently failing every ~2 minutes since roughly 2026-08-18 13:00 -
+  the bot's crash auto-recovery has had no confirmed-working safety net
+  for over half a day, independent of anything in this refactor. Flagged
+  to the owner directly, not fixed unilaterally (touches live Task
+  Scheduler configuration) - recommended as a bake prerequisite either
+  way.
 - **Stage 6**: split `bot`'s Cargo.toml/config.rs into per-binary
   config; formalize the workspace's final `[[bin]]`/crate layout.
 - **Stage 7**: two-binary deploy/watchdog/scheduled-task updates —
