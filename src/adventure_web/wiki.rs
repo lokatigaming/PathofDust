@@ -5,18 +5,27 @@
 // passive_archetype_icon_role, ...) is shared with other pages and
 // deliberately stayed in the parent - reached here through `use super::*`,
 // the same convention src/adventure/*.rs already uses to see adventure.rs.
+//
+// 2026-08-19: routing went from one registered route per page to a single
+// `/wiki/:page` dynamic route (`wiki_dynamic_page`) that serves any
+// `wiki/{page}.md` that exists on disk - adding a new prose page no longer
+// needs a rebuild, matching how *editing* a page already worked. `/wiki`
+// (the landing ToC) and `/wiki/passives` (code-generated, no .md file)
+// stay their own explicit routes since axum's router always prefers a
+// literal path segment over a `:param` one, regardless of registration
+// order - no ambiguity between the two.
 
 use super::*;
 use regex::Regex;
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 
-/// Base directory the prose sections (bosses/crafting/healing/landing)
-/// are authored in as real Markdown - relative to CWD, same convention
-/// `patch-notes.json` already uses (see `patch_notes` in adventure_web.rs)
-/// so it resolves the same way in dev and prod without an absolute path
-/// baked in. Passives are the deliberate exception - that section is
-/// fully code-generated (see `render_wiki_passives`) and has no .md file.
+/// Base directory the prose pages are authored in as real Markdown -
+/// relative to CWD, same convention `patch-notes.json` already uses (see
+/// `patch_notes` in adventure_web.rs) so it resolves the same way in dev
+/// and prod without an absolute path baked in. Passives are the deliberate
+/// exception - that section is fully code-generated (see
+/// `render_wiki_passives`) and has no .md file.
 const WIKI_MD_DIR: &str = "wiki";
 
 struct CachedMdPage {
@@ -25,19 +34,23 @@ struct CachedMdPage {
 }
 
 /// One cache slot per prose page, keyed by its markdown filename (no
-/// extension). Guarded by mtime, not a TTL: editing a .md file on disk
+/// extension) - a plain `String` key now rather than `&'static str`, since
+/// `wiki_dynamic_page` hands this a request-derived page name that can't
+/// be `'static`. Guarded by mtime, not a TTL: editing a .md file on disk
 /// takes effect on the very next request that notices the new mtime, no
 /// rebuild or restart - the whole point of moving this content out of
 /// Rust string literals. Reset for free on process restart along with
 /// everything else, so there's no explicit invalidation path to maintain.
-static WIKI_MD_CACHE: LazyLock<Mutex<HashMap<&'static str, CachedMdPage>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static WIKI_MD_CACHE: LazyLock<Mutex<HashMap<String, CachedMdPage>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Loads, Markdown-renders, and placeholder-substitutes `wiki/{name}.md`,
-/// caching the rendered HTML until the file's mtime changes. `name` has
-/// no path separators or extension (e.g. `"bosses"`) - always a literal
-/// from this module, never anything request-derived, so there's no path
-/// traversal surface here despite building a filesystem path from it.
-fn render_markdown_page(name: &'static str) -> String {
+/// caching the rendered HTML until the file's mtime changes. `name` is
+/// validated by `is_valid_wiki_slug` before this is ever called with a
+/// request-derived value (see `wiki_dynamic_page`) - ASCII
+/// lowercase-alphanumeric-and-hyphen only, so there's no path-traversal
+/// surface despite building a filesystem path from it, and no way to
+/// reach a file outside `wiki/` or one without a `.md` extension.
+fn render_markdown_page(name: &str) -> String {
     let path = format!("{WIKI_MD_DIR}/{name}.md");
     let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
 
@@ -57,7 +70,7 @@ fn render_markdown_page(name: &'static str) -> String {
     let parser = pulldown_cmark::Parser::new_ext(&substituted, pulldown_cmark::Options::ENABLE_TABLES);
     pulldown_cmark::html::push_html(&mut html_out, parser);
 
-    cache.insert(name, CachedMdPage { mtime, rendered: html_out.clone() });
+    cache.insert(name.to_string(), CachedMdPage { mtime, rendered: html_out.clone() });
     html_out
 }
 
@@ -234,20 +247,19 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
 /// Public - no login needed, same "pure reference content, same for
 /// everyone" reasoning as patch-notes above (the two deliberate
 /// exceptions to this dashboard's usual login gate). `/wiki` itself is
-/// now just a landing page/table of contents - the actual sections live
-/// at `/wiki/bosses`, `/wiki/crafting`, `/wiki/healing`, `/wiki/passives`
-/// (see the handlers below), split out so the passives section (which
-/// draws all 11 classes' full trees) doesn't have to render on every
-/// visit to any other section. Still resolves the session (if any) now,
-/// purely so `top_nav`'s stat summary can show for a logged-in visitor -
-/// the page itself stays fully viewable logged out; every sub-page below
-/// does the same for the same reason.
+/// just a landing page/table of contents - every prose section lives at
+/// `/wiki/{page}`, served by `wiki_dynamic_page` below, and Passives lives
+/// at `/wiki/passives`, its own route since it's code-generated rather
+/// than a `.md` file. Still resolves the session (if any) now, purely so
+/// `top_nav`'s stat summary can show for a logged-in visitor - the page
+/// itself stays fully viewable logged out; every page below does the same
+/// for the same reason.
 ///
 /// Old links used `/wiki#slug` fragments (chat's boss-alert links still
 /// send these - see `BossKind::wiki_slug`, manager.rs). Since a fragment
 /// never reaches the server, this page carries a small inline script
 /// (`wiki_hash_redirect_script`) that forwards a recognized `#slug` to
-/// the sub-page that now actually contains that anchor.
+/// the page that now actually contains that anchor.
 pub(super) async fn wiki_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
     Html(render_page(&format!(
@@ -257,39 +269,6 @@ pub(super) async fn wiki_page(State(state): State<AppState>, headers: HeaderMap)
         wiki_hash_redirect_script(),
         wiki_subnav("landing"),
         render_wiki_toc(),
-    )))
-}
-
-pub(super) async fn wiki_bosses_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("bosses"),
-        render_wiki_bosses(),
-    )))
-}
-
-pub(super) async fn wiki_crafting_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("crafting"),
-        render_wiki_crafting(),
-    )))
-}
-
-pub(super) async fn wiki_healing_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("healing"),
-        render_wiki_healing(),
     )))
 }
 
@@ -304,70 +283,47 @@ pub(super) async fn wiki_passives_page(State(state): State<AppState>, headers: H
     )))
 }
 
-pub(super) async fn wiki_commands_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+/// Serves any `wiki/{page}.md` that exists, for any `page` matching
+/// `is_valid_wiki_slug` - this is the whole reason a new wiki page no
+/// longer needs a route added and a rebuild deployed, only a new `.md`
+/// file (and, to actually show up in nav, a line in `wiki/nav.json` - see
+/// `wiki_subnav`). 404s on an invalid slug or a missing file, never 500s
+/// or falls through to something else - `is_valid_wiki_slug`'s character
+/// restriction doubles as a guard against ever accidentally web-serving
+/// something in `wiki/` that isn't a lowercase-hyphenated page file (the
+/// dev-facing `WIKI_SYSTEM.md`/`QUESTIONS_FOR_OWNER.md` docs, for
+/// instance, fail the slug check on their own uppercase/underscore names,
+/// with no separate exclusion list to maintain).
+pub(super) async fn wiki_dynamic_page(State(state): State<AppState>, headers: HeaderMap, Path(page): Path<String>) -> (StatusCode, Html<String>) {
+    if !is_valid_wiki_slug(&page) || !std::path::Path::new(&format!("{WIKI_MD_DIR}/{page}.md")).exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            Html(render_page(&format!(
+                "{}<div class=\"card\"><p>That wiki page doesn't exist.</p><p class=\"muted\"><a href=\"/wiki\">&larr; All wiki sections</a></p></div>",
+                wiki_crumb("/wiki", "All wiki sections"),
+            ))),
+        );
+    }
     let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("commands"),
-        render_markdown_page("commands"),
-    )))
+    (
+        StatusCode::OK,
+        Html(render_page(&format!(
+            "{}{}{}{}",
+            top_nav(character.as_ref()),
+            wiki_crumb("/wiki", "All wiki sections"),
+            wiki_subnav(&page),
+            render_markdown_page(&page),
+        ))),
+    )
 }
 
-pub(super) async fn wiki_combat_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("combat"),
-        render_markdown_page("combat"),
-    )))
-}
-
-pub(super) async fn wiki_getting_started_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("getting-started"),
-        render_markdown_page("getting-started"),
-    )))
-}
-
-pub(super) async fn wiki_items_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("items"),
-        render_markdown_page("items"),
-    )))
-}
-
-pub(super) async fn wiki_classes_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("classes"),
-        render_markdown_page("classes"),
-    )))
-}
-
-pub(super) async fn wiki_dashboard_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!(
-        "{}{}{}{}",
-        top_nav(character.as_ref()),
-        wiki_crumb("/wiki", "All wiki sections"),
-        wiki_subnav("dashboard"),
-        render_markdown_page("dashboard"),
-    )))
+/// ASCII lowercase letters, digits, and hyphens only - matches every real
+/// page filename in `wiki/` (`getting-started`, `bosses`, ...) and nothing
+/// else. No `.`/`/`/`\` means no path traversal is expressible at all,
+/// not just "checked for" - `format!("{WIKI_MD_DIR}/{name}.md")` in
+/// `render_markdown_page` can only ever resolve inside `wiki/`.
+fn is_valid_wiki_slug(slug: &str) -> bool {
+    !slug.is_empty() && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
@@ -384,32 +340,37 @@ fn wiki_crumb(back_href: &str, back_label: &str) -> String {
     format!("<div class=\"card\"><h1>Wiki</h1><p class=\"muted\"><a href=\"{back_href}\">&larr; {back_label}</a></p></div>")
 }
 
-/// Small nav between the 4 wiki sections, shown on every wiki page
-/// (landing included, so it doubles as a shortcut past the ToC). Reuses
-/// `top_nav`'s own `.top-nav-links`/`.top-nav-link` classes verbatim
-/// instead of introducing new CSS - the active page renders as plain
-/// bold text (no href) rather than a new "active link" style.
+/// One nav entry, deserialized straight from `wiki/nav.json` - `label`
+/// carries its own emoji prefix (e.g. `"🚀 Getting Started"`) so the
+/// manifest is the one place both the icon and the text live.
+#[derive(serde::Deserialize)]
+struct WikiNavEntry {
+    slug: String,
+    label: String,
+}
+
+/// Small nav shown on every wiki page (landing included, so it doubles as
+/// a shortcut past the ToC), driven by `wiki/nav.json` instead of a
+/// hardcoded list - adding a page to nav is a manifest edit, not a code
+/// change, same "no rebuild needed" property `render_markdown_page`
+/// already has for content. Missing/unparseable manifest just means an
+/// empty nav bar, not a 500 - `load_json` already logs a parse error.
+/// Reuses `top_nav`'s own `.top-nav-links`/`.top-nav-link` classes
+/// verbatim instead of introducing new CSS - the active page renders as
+/// plain bold text (no href) rather than a new "active link" style.
 fn wiki_subnav(active: &str) -> String {
-    let entry = |path: &str, label: &str, key: &str| -> String {
-        if key == active {
-            format!("<strong class=\"top-nav-link\">{label}</strong>")
-        } else {
-            format!("<a class=\"top-nav-link\" href=\"{path}\">{label}</a>")
-        }
-    };
-    format!(
-        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}{}{}{}</div>",
-        entry("/wiki/getting-started", "🚀 Getting Started", "getting-started"),
-        entry("/wiki/combat", "⚔️ Combat", "combat"),
-        entry("/wiki/bosses", "🐲 Bosses", "bosses"),
-        entry("/wiki/items", "🗡️ Items", "items"),
-        entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
-        entry("/wiki/healing", "✨ Healing", "healing"),
-        entry("/wiki/classes", "🎭 Classes", "classes"),
-        entry("/wiki/passives", "🌳 Passives", "passives"),
-        entry("/wiki/commands", "💬 Commands", "commands"),
-        entry("/wiki/dashboard", "🖥️ Dashboard", "dashboard"),
-    )
+    let entries: Vec<WikiNavEntry> = crate::state::load_json(format!("{WIKI_MD_DIR}/nav.json")).unwrap_or_default();
+    let html: String = entries
+        .iter()
+        .map(|e| {
+            if e.slug == active {
+                format!("<strong class=\"top-nav-link\">{}</strong>", e.label)
+            } else {
+                format!("<a class=\"top-nav-link\" href=\"/wiki/{}\">{}</a>", e.slug, e.label)
+            }
+        })
+        .collect();
+    format!("<div class=\"top-nav-links\">{html}</div>")
 }
 
 /// `/wiki` landing page's table of contents - content lives in
@@ -418,11 +379,11 @@ fn render_wiki_toc() -> String {
     render_markdown_page("landing")
 }
 
-/// Forwards an old `/wiki#slug` fragment link to whichever sub-page now
-/// owns that anchor. The map's keys are exactly the `id=\"...\"` values
-/// `render_wiki_bosses`/`render_wiki_crafting`/`render_wiki_healing`
-/// define - keep in sync if a section ever adds/renames an anchor.
-/// Fragments never reach the server, so this has to run client-side.
+/// Forwards an old `/wiki#slug` fragment link to whichever page now owns
+/// that anchor. The map's keys are exactly the `id="..."` values
+/// `wiki/bosses.md`/`wiki/crafting.md`/`wiki/healing.md` define - keep in
+/// sync if a page ever adds/renames an anchor. Fragments never reach the
+/// server, so this has to run client-side.
 fn wiki_hash_redirect_script() -> String {
     "<script>(function(){\
       var slug = location.hash.slice(1);\
@@ -551,36 +512,3 @@ fn render_wiki_archetype_graph(archetype: Archetype) -> String {
     )
 }
 
-/// Hand-written, deliberately non-technical - a curious viewer or a
-/// player deciding whether to !join should be able to read this without
-/// knowing anything about how the game's actually coded. Content lives
-/// in `wiki/bosses.md` (see `render_markdown_page`); numbers there
-/// (thresholds, add counts, percentages) are pulled from adventure.rs's
-/// own constants (TWO_BOSS_STAGE/THREE_BOSS_STAGE, LICH_MAX_ADDS, the
-/// Fire Demon/Dragon aura magnitudes, Cthulhu's -90%) - keep the .md in
-/// sync if any of those ever change (`{{PLACEHOLDER}}`s aside).
-fn render_wiki_bosses() -> String {
-    render_markdown_page("bosses")
-}
-
-/// Second wiki section - the crafting/item system, ported from the
-/// standalone "Crafting Codex" reference doc into the in-game wiki so
-/// players don't need a separate link to find it. Content lives in
-/// `wiki/crafting.md` (see `render_markdown_page`); numbers there (dust
-/// costs, crit chances, disenchant multipliers) are transcribed from the
-/// actual constants/formulas in `item.rs`/`character.rs`/`manager.rs`,
-/// same maintenance contract as the boss section above, except where
-/// they're wired up as `{{PLACEHOLDER}}`s instead.
-fn render_wiki_crafting() -> String {
-    render_markdown_page("crafting")
-}
-
-/// Third wiki section - general combat mechanics that apply across every
-/// archetype, positioned right before Passives so a reader hits the
-/// shared rules before running into each archetype's own shield-granting
-/// skills (Divine Shield, Overflowing Grace, Arcane Shield, Consecration,
-/// Seed of Life) down there. Content lives in `wiki/healing.md` (see
-/// `render_markdown_page`).
-fn render_wiki_healing() -> String {
-    render_markdown_page("healing")
-}

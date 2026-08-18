@@ -1,0 +1,12 @@
+[
+  {"slug": "getting-started", "label": "🚀 Getting Started"},
+  {"slug": "combat", "label": "⚔️ Combat"},
+  {"slug": "bosses", "label": "🐲 Bosses"},
+  {"slug": "items", "label": "🗡️ Items"},
+  {"slug": "crafting", "label": "⚒️ Crafting"},
+  {"slug": "healing", "label": "✨ Healing"},
+  {"slug": "classes", "label": "🎭 Classes"},
+  {"slug": "passives", "label": "🌳 Passives"},
+  {"slug": "commands", "label": "💬 Commands"},
+  {"slug": "dashboard", "label": "🖥️ Dashboard"}
+]
