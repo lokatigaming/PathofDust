@@ -1328,18 +1328,23 @@ async fn do_choose_veil(State(state): State<AppState>, headers: HeaderMap, Form(
 struct PatchNoteSection {
     heading: String,
     items: Vec<String>,
-    /// Optional illustrative image for a section (2026-08-18, a live
-    /// request: "so players can see the adjustment" on a crit-curve
-    /// rebalance) - a path served by an already-mounted static route
-    /// (e.g. `/sprites/patch-notes/crit-curve.svg`, under the existing
-    /// `/sprites` `ServeDir` mount), NOT raw HTML - `items` stays plain
-    /// text run through `escape_html` same as always, this is the one
-    /// deliberate, narrow way to add real visuals to a patch note without
-    /// opening item text up to arbitrary HTML injection. Absent
+    /// Optional illustrative image for a section - a path served by an
+    /// already-mounted static route, NOT raw HTML - `items` stays plain
+    /// text run through `escape_html` same as always. Absent
     /// (`#[serde(default)]`) on every existing entry, so old entries
     /// parse unchanged.
     #[serde(default)]
     image: Option<String>,
+    /// Optional embedded interactive chart (2026-08-18, a live request -
+    /// the crit-curve rebalance needed the SAME chart shown as an
+    /// Artifact for review, not a hand-redrawn static approximation of
+    /// it) - a path to a self-contained static HTML file served by the
+    /// existing `/sprites` `ServeDir` mount, rendered as a sandboxed
+    /// `<iframe>`. Only ever set by hand-edited entries in
+    /// `patch-notes.json` (not user input), same trust boundary as
+    /// `image` above - the src attribute is still escaped defensively.
+    #[serde(default)]
+    iframe: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -2034,7 +2039,18 @@ fn render_patch_notes(entries: &[PatchNoteEntry], character: Option<&Character>)
                         .as_deref()
                         .map(|src| format!("<img src=\"{}\" alt=\"{}\" style=\"max-width:100%;height:auto;margin:8px 0;\">", escape_html(src), escape_html(&section.heading)))
                         .unwrap_or_default();
-                    format!("<h3>{}</h3>{image}<ul>{items}</ul>", escape_html(&section.heading))
+                    let iframe = section
+                        .iframe
+                        .as_deref()
+                        .map(|src| {
+                            format!(
+                                "<iframe src=\"{}\" title=\"{}\" style=\"width:100%;max-width:800px;height:900px;border:none;border-radius:12px;margin:8px 0;display:block;\" sandbox=\"allow-scripts\" loading=\"lazy\"></iframe>",
+                                escape_html(src),
+                                escape_html(&section.heading)
+                            )
+                        })
+                        .unwrap_or_default();
+                    format!("<h3>{}</h3>{image}{iframe}<ul>{items}</ul>", escape_html(&section.heading))
                 })
                 .collect();
             format!("<div class=\"card\"><h2>{}</h2>{sections}</div>", escape_html(&entry.date))

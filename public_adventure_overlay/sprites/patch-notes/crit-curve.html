@@ -1,0 +1,387 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Crit Damage Curve</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-before: #eb6834;
+    --series-after: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-before: #d95926;
+      --series-after: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --series-before: #d95926;
+    --series-after: #3987e5;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); }
+  .viz-root {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--text-primary);
+    min-height: 100vh;
+    padding: 40px 20px 64px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 650; margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+  .subtitle { color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5; margin: 0 0 28px; max-width: 62ch; }
+  .subtitle code { background: var(--grid); padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.88em; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 24px 16px;
+    margin-bottom: 20px;
+  }
+
+  .legend { display: flex; gap: 20px; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-secondary); flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-key { width: 20px; height: 0; border-top: 3px solid; border-radius: 2px; }
+  .legend-item strong { color: var(--text-primary); font-weight: 600; }
+
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .axis-line { stroke: var(--axis); stroke-width: 1; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .tick-label { fill: var(--text-muted); font-size: 11px; }
+  .axis-title { fill: var(--text-secondary); font-size: 12px; }
+  .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .series-before { stroke: var(--series-before); }
+  .series-after { stroke: var(--series-after); }
+  .end-dot { r: 4; stroke: var(--surface-1); stroke-width: 2; }
+  .end-label { font-size: 12px; font-weight: 600; }
+
+  .crosshair-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3,3; opacity: 0; pointer-events: none; }
+  .hover-dot { r: 4.5; stroke: var(--surface-1); stroke-width: 2; opacity: 0; pointer-events: none; }
+  .hit-layer { fill: transparent; cursor: crosshair; }
+
+  .tooltip {
+    position: absolute;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.08s;
+    min-width: 150px;
+    z-index: 10;
+  }
+  .tooltip-x { color: var(--text-muted); font-size: 11px; margin-bottom: 6px; }
+  .tooltip-row { display: flex; align-items: center; gap: 7px; justify-content: space-between; padding: 2px 0; }
+  .tooltip-row .k { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+  .tooltip-key { width: 12px; height: 0; border-top: 2.5px solid; border-radius: 2px; flex-shrink: 0; }
+  .tooltip-row .v { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--text-primary); }
+
+  .chart-wrap { position: relative; }
+
+  .foot-row { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+  .caption { color: var(--text-muted); font-size: 0.78rem; }
+  .table-toggle {
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .table-toggle:hover { color: var(--text-primary); border-color: var(--axis); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-top: 16px; display: none; }
+  table.shown { display: table; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.02em; }
+  td { color: var(--text-primary); }
+
+  .formula-card { font-size: 0.83rem; color: var(--text-secondary); line-height: 1.7; }
+  .formula-card strong { color: var(--text-primary); }
+  .formula-card .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
+  .formula-card .row span:last-child { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <div class="wrap">
+    <h1>Crit Damage: Before vs. After the Overcrit Curve</h1>
+    <p class="subtitle">
+      Crit damage multiplier as crit chance climbs from 0% to 400%, for a character with
+      <strong style="color:var(--text-primary)">5000% crit damage</strong> (crit multiplier 50x).
+      <strong style="color:var(--text-primary)">Before</strong> grew linearly with no ceiling &mdash;
+      <strong style="color:var(--text-primary)">after</strong>, only your first 100% crit chance pays the full rate;
+      everything past that follows a curve that approaches a cap instead of climbing forever.
+    </p>
+
+    <div class="card">
+      <div class="legend">
+        <div class="legend-item"><span class="legend-key" style="border-color:var(--series-before)"></span><strong>Before</strong>&nbsp;— unbounded linear</div>
+        <div class="legend-item"><span class="legend-key" style="border-color:var(--series-after)"></span><strong>After</strong>&nbsp;— saturating curve</div>
+      </div>
+      <div class="chart-wrap">
+        <svg id="chart" viewBox="0 0 720 420" role="img" aria-label="Line chart comparing crit damage multiplier before and after the overcrit curve, from 0% to 400% crit chance, at 5000% crit damage.">
+          <g id="gridlines"></g>
+          <g id="axes"></g>
+          <line id="crosshair" class="crosshair-line" x1="0" y1="20" x2="0" y2="360"></line>
+          <path id="line-before" class="series-line series-before"></path>
+          <path id="line-after" class="series-line series-after"></path>
+          <circle id="dot-before" class="end-dot series-before" fill="var(--series-before)"></circle>
+          <circle id="dot-after" class="end-dot series-after" fill="var(--series-after)"></circle>
+          <circle id="hover-before" class="hover-dot" fill="var(--series-before)"></circle>
+          <circle id="hover-after" class="hover-dot" fill="var(--series-after)"></circle>
+          <rect id="hit-layer" class="hit-layer" x="56" y="20" width="620" height="340"></rect>
+        </svg>
+        <div id="tooltip" class="tooltip"></div>
+      </div>
+      <div class="foot-row">
+        <span class="caption">Hover or focus the chart to inspect a specific crit chance.</span>
+        <button class="table-toggle" id="tableToggle" type="button" aria-expanded="false">Show data table</button>
+      </div>
+      <table id="dataTable">
+        <thead><tr><th>Crit chance</th><th>Before (×)</th><th>After (×)</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card formula-card">
+      <div class="row"><span><strong>Overcrit curve</strong> &mdash; applies to crit stacks past your first 100%</span><span></span></div>
+      <div class="row"><span>overcritCurve(x) = A · x / (x + h)</span><span>A = 1.5, h = 1.0</span></div>
+      <div class="row"><span>Ceiling as crit chance → ∞ (at 5000% crit damage)</span><span>~62.25×</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const CRIT_BONUS_MULT = 0.5;
+  const OVERCRIT_A = 1.5;
+  const OVERCRIT_H = 1.0;
+  const CRIT_MULTIPLIER = 50.0; // 5000% crit damage
+
+  function overcritCurve(x) { return OVERCRIT_A * x / (x + OVERCRIT_H); }
+  function critStackBonus(stacks, critMult) {
+    const overcrit = Math.max(0, stacks - 1.0);
+    return (Math.min(stacks, 1.0) + overcritCurve(overcrit)) * (critMult - 1.0) * CRIT_BONUS_MULT;
+  }
+  function afterMultiplier(critChance) {
+    const guaranteed = Math.floor(critChance);
+    const remainder = critChance - guaranteed;
+    return 1.0
+      + (1 - remainder) * critStackBonus(guaranteed, CRIT_MULTIPLIER)
+      + remainder * critStackBonus(guaranteed + 1, CRIT_MULTIPLIER);
+  }
+  function beforeMultiplier(critChance) {
+    return 1.0 + critChance * (CRIT_MULTIPLIER - 1.0) * CRIT_BONUS_MULT;
+  }
+
+  const MAX_CRIT_CHANCE = 4.0; // 400%, as a fraction
+  const N = 161; // fine-grained sampling across the narrower 0%-400% range
+  const data = [];
+  for (let i = 0; i < N; i++) {
+    const critChance = (i / (N - 1)) * MAX_CRIT_CHANCE;
+    data.push({ x: critChance, before: beforeMultiplier(critChance), after: afterMultiplier(critChance) });
+  }
+
+  const maxY = Math.ceil(data[data.length - 1].before / 10) * 10; // headroom above the "before" max
+  const padL = 56, padR = 20, padT = 20, padB = 40;
+  const plotW = 720 - padL - padR;
+  const plotH = 420 - padT - padB;
+
+  function px(x) { return padL + (x / MAX_CRIT_CHANCE) * plotW; }
+  function py(y) { return padT + plotH - (y / maxY) * plotH; }
+
+  function pathFor(key) {
+    return data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${px(d.x).toFixed(2)} ${py(d[key]).toFixed(2)}`).join(' ');
+  }
+
+  document.getElementById('line-before').setAttribute('d', pathFor('before'));
+  document.getElementById('line-after').setAttribute('d', pathFor('after'));
+
+  const last = data[data.length - 1];
+  const dotBefore = document.getElementById('dot-before');
+  dotBefore.setAttribute('cx', px(last.x)); dotBefore.setAttribute('cy', py(last.before));
+  const dotAfter = document.getElementById('dot-after');
+  dotAfter.setAttribute('cx', px(last.x)); dotAfter.setAttribute('cy', py(last.after));
+
+  // Gridlines + Y axis ticks (clean round numbers)
+  const gridlines = document.getElementById('gridlines');
+  const axes = document.getElementById('axes');
+  const yStep = maxY / 5;
+  for (let i = 0; i <= 5; i++) {
+    const yVal = Math.round((i * yStep) / 10) * 10;
+    const yPix = py(yVal);
+    const gl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    gl.setAttribute('class', 'gridline');
+    gl.setAttribute('x1', padL); gl.setAttribute('x2', 720 - padR);
+    gl.setAttribute('y1', yPix); gl.setAttribute('y2', yPix);
+    gridlines.appendChild(gl);
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('class', 'tick-label');
+    label.setAttribute('x', padL - 10); label.setAttribute('y', yPix + 4);
+    label.setAttribute('text-anchor', 'end');
+    label.textContent = yVal.toLocaleString() + '×';
+    axes.appendChild(label);
+  }
+  // X axis ticks
+  [0, 100, 200, 300, 400].forEach((pct) => {
+    const xPix = px(pct / 100);
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('class', 'tick-label');
+    label.setAttribute('x', xPix); label.setAttribute('y', padT + plotH + 22);
+    label.setAttribute('text-anchor', 'middle');
+    label.textContent = pct + '%';
+    axes.appendChild(label);
+  });
+  const axisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisLine.setAttribute('class', 'axis-line');
+  axisLine.setAttribute('x1', padL); axisLine.setAttribute('x2', 720 - padR);
+  axisLine.setAttribute('y1', padT + plotH); axisLine.setAttribute('y2', padT + plotH);
+  axes.appendChild(axisLine);
+
+  const xTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  xTitle.setAttribute('class', 'axis-title');
+  xTitle.setAttribute('x', padL + plotW / 2); xTitle.setAttribute('y', 412);
+  xTitle.setAttribute('text-anchor', 'middle');
+  xTitle.textContent = 'Crit chance';
+  axes.appendChild(xTitle);
+
+  const yTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  yTitle.setAttribute('class', 'axis-title');
+  yTitle.setAttribute('x', -(padT + plotH / 2)); yTitle.setAttribute('y', 16);
+  yTitle.setAttribute('text-anchor', 'middle');
+  yTitle.setAttribute('transform', 'rotate(-90)');
+  yTitle.textContent = 'Crit damage multiplier';
+  axes.appendChild(yTitle);
+
+  // Hover interaction
+  const svg = document.getElementById('chart');
+  const hitLayer = document.getElementById('hit-layer');
+  const crosshair = document.getElementById('crosshair');
+  const hoverBefore = document.getElementById('hover-before');
+  const hoverAfter = document.getElementById('hover-after');
+  const tooltip = document.getElementById('tooltip');
+  const cardEl = hitLayer.closest('.chart-wrap');
+
+  function nearestIndex(critChance) {
+    let idx = Math.round((critChance / MAX_CRIT_CHANCE) * (N - 1));
+    return Math.max(0, Math.min(N - 1, idx));
+  }
+
+  function showAt(clientX, clientY) {
+    const rect = svg.getBoundingClientRect();
+    const scale = 720 / rect.width;
+    const svgX = (clientX - rect.left) * scale;
+    const critChance = Math.max(0, Math.min(MAX_CRIT_CHANCE, ((svgX - padL) / plotW) * MAX_CRIT_CHANCE));
+    const idx = nearestIndex(critChance);
+    const d = data[idx];
+
+    crosshair.setAttribute('x1', px(d.x)); crosshair.setAttribute('x2', px(d.x));
+    crosshair.style.opacity = 1;
+    hoverBefore.setAttribute('cx', px(d.x)); hoverBefore.setAttribute('cy', py(d.before)); hoverBefore.style.opacity = 1;
+    hoverAfter.setAttribute('cx', px(d.x)); hoverAfter.setAttribute('cy', py(d.after)); hoverAfter.style.opacity = 1;
+
+    tooltip.innerHTML = '';
+    const xLine = document.createElement('div');
+    xLine.className = 'tooltip-x';
+    xLine.textContent = Math.round(d.x * 100) + '% crit chance';
+    tooltip.appendChild(xLine);
+
+    [['Before', 'var(--series-before)', d.before], ['After', 'var(--series-after)', d.after]].forEach(([label, color, val]) => {
+      const row = document.createElement('div');
+      row.className = 'tooltip-row';
+      const k = document.createElement('div'); k.className = 'k';
+      const key = document.createElement('span'); key.className = 'tooltip-key'; key.style.borderColor = color;
+      const kLabel = document.createElement('span'); kLabel.textContent = label;
+      k.appendChild(key); k.appendChild(kLabel);
+      const v = document.createElement('span'); v.className = 'v';
+      v.textContent = (Math.round(val * 10) / 10).toLocaleString() + '×';
+      row.appendChild(k); row.appendChild(v);
+      tooltip.appendChild(row);
+    });
+
+    const cardRect = cardEl.getBoundingClientRect();
+    const px2 = ((px(d.x) / 720) * rect.width) + (rect.left - cardRect.left);
+    tooltip.style.left = Math.min(Math.max(px2 + 14, 0), cardRect.width - 170) + 'px';
+    tooltip.style.top = '8px';
+    tooltip.style.opacity = 1;
+  }
+
+  function hide() {
+    crosshair.style.opacity = 0;
+    hoverBefore.style.opacity = 0;
+    hoverAfter.style.opacity = 0;
+    tooltip.style.opacity = 0;
+  }
+
+  hitLayer.addEventListener('pointermove', (e) => showAt(e.clientX, e.clientY));
+  hitLayer.addEventListener('pointerleave', hide);
+  hitLayer.setAttribute('tabindex', '0');
+  hitLayer.addEventListener('focus', () => showAt(svg.getBoundingClientRect().left + 300, 0));
+  hitLayer.addEventListener('blur', hide);
+  hitLayer.addEventListener('keydown', (e) => {
+    const rect = svg.getBoundingClientRect();
+    let current = parseFloat(crosshair.getAttribute('x1'));
+    if (isNaN(current)) current = px(0);
+    if (e.key === 'ArrowRight') { showAt(rect.left + ((Math.min(720, current + 30)) / 720) * rect.width, 0); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { showAt(rect.left + ((Math.max(0, current - 30)) / 720) * rect.width, 0); e.preventDefault(); }
+  });
+
+  // Table view (accessibility: every value also reachable without hover)
+  const tableBody = document.getElementById('tableBody');
+  [0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400].forEach((pct) => {
+    const idx = nearestIndex(pct / 100);
+    const d = data[idx];
+    const tr = document.createElement('tr');
+    const tdX = document.createElement('td'); tdX.textContent = pct + '%';
+    const tdB = document.createElement('td'); tdB.textContent = (Math.round(d.before * 10) / 10).toLocaleString() + '×';
+    const tdA = document.createElement('td'); tdA.textContent = (Math.round(d.after * 10) / 10).toLocaleString() + '×';
+    tr.appendChild(tdX); tr.appendChild(tdB); tr.appendChild(tdA);
+    tableBody.appendChild(tr);
+  });
+  const tableToggle = document.getElementById('tableToggle');
+  const dataTable = document.getElementById('dataTable');
+  tableToggle.addEventListener('click', () => {
+    const shown = dataTable.classList.toggle('shown');
+    tableToggle.setAttribute('aria-expanded', String(shown));
+    tableToggle.textContent = shown ? 'Hide data table' : 'Show data table';
+  });
+})();
+</script>
+</body>
+</html>
