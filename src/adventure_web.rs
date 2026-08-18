@@ -623,7 +623,7 @@ struct CraftForm {
     /// simply absent) deserialize as `None` instead of a hard 422.
     #[serde(default)]
     veiled: Option<String>,
-    /// x5/x10 batch repeat count for Polishing/Reforge only (see the
+    /// x5/x10/x50 batch repeat count for Polishing/Reforge only (see the
     /// hidden `times` input in the Polish/Reforge section of
     /// `render_crafting_card`) - every other action ignores this
     /// entirely, even if a stale value is still sitting in the field
@@ -1156,12 +1156,12 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
         } else if form.action == "hideout warrior" {
             return do_hideout_warrior(&state, &login, &form.item_a, form.hideout_krangle.is_some()).await;
         } else if let Some(action) = parse_craft_action(&form.action) {
-            // Only Polishing/Reforge get the x5/x10 batch treatment (see
-            // the dedicated section in render_crafting_card) - every
+            // Only Polishing/Reforge get the x5/x10/x50 batch treatment
+            // (see the dedicated section in render_crafting_card) - every
             // other action ignores `times` even if the hidden input still
             // carries a stale value from a prior checkbox selection.
             let times = if matches!(action, CraftAction::Polishing | CraftAction::Reforge) {
-                form.times.unwrap_or(1).clamp(1, 10)
+                form.times.unwrap_or(1).clamp(1, 50)
             } else {
                 1
             };
@@ -1186,7 +1186,7 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
 }
 
 /// Repeats a Polishing or Reforge craft against the same item `times` in
-/// a row in one click (the x5/x10 checkboxes) - never veiled (neither
+/// a row in one click (the x5/x10/x50 checkboxes) - never veiled (neither
 /// action is veilable in the first place). Stops as soon as one
 /// iteration errors (out of sand/dust, item vanished, etc.) rather than
 /// silently eating the failure, and the popup reports how many of the
@@ -1267,7 +1267,7 @@ const HIDEOUT_WARRIOR_STEPS: [CraftAction; 5] = [CraftAction::Transmute, CraftAc
 /// already are that check. Running out of dust mid-chain
 /// (`InsufficientDust`) stops the whole run early; whatever already
 /// landed stays applied (not transactional across the 5 steps, same as
-/// `do_craft_batch`'s existing x5/x10 behavior). `include_krangle` (a
+/// `do_craft_batch`'s existing x5/x10/x50 behavior). `include_krangle` (a
 /// checkbox next to the button, checked by default - 2026-08-17, a live
 /// request to make the permanent lock optional) drops the final Krangle
 /// step from the chain entirely when false, so the run stops after Exalt
@@ -3792,6 +3792,7 @@ fn render_crafting_card(c: &Character) -> String {
               <span class=\"muted\">Polish / Reforge:</span>\
               <label class=\"batch-check\"><input type=\"checkbox\" data-times=\"5\"> x5</label>\
               <label class=\"batch-check\"><input type=\"checkbox\" data-times=\"10\"> x10</label>\
+              <label class=\"batch-check\"><input type=\"checkbox\" data-times=\"50\"> x50</label>\
               <input type=\"hidden\" name=\"times\" value=\"1\">\
               {polish_btn}{reforge_btn}\
             </div>\
@@ -4775,7 +4776,7 @@ fn render_page(body: &str) -> String {
     // computed here instead of server-side.
     var polishBtn = document.querySelector('.craft-actions button[data-polish], .polish-reforge-actions button[data-polish]');
     var reforgeBtn = document.querySelector('.craft-actions button[data-reforge], .polish-reforge-actions button[data-reforge]');
-    // x5/x10 batch checkboxes for Polish/Reforge only (see the hidden
+    // x5/x10/x50 batch checkboxes for Polish/Reforge only (see the hidden
     // `times` input do_craft reads server-side) - mutually exclusive
     // (checking one clears the other), unchecked-both means times=1, the
     // normal single-craft behavior every other button already has.
