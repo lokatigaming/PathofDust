@@ -22,7 +22,20 @@ use minijinja_autoreload::AutoReloader;
 use serde::Serialize;
 use std::sync::LazyLock;
 
+// Bare relative literal in production - resolves against the real
+// process's own CWD, which is always the repo/workspace root at deploy
+// time, exactly as it always has been. `cargo test`'s working directory
+// is the PACKAGE root instead (`game/`, since this file lives in the
+// `game` crate as of Stage 2) - not something to "fix" in production
+// code, so tests resolve an ABSOLUTE path back to the real
+// `templates/` at the workspace root instead (this exact class of bug -
+// a bare relative literal silently resolving to the wrong place once
+// code moved crates - already bit `golden_corpus.rs`'s fixtures in
+// Stage 1, see that commit).
+#[cfg(not(test))]
 const TEMPLATE_DIR: &str = "templates";
+#[cfg(test)]
+const TEMPLATE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../templates");
 
 fn build_env() -> Environment<'static> {
     let mut env = Environment::new();

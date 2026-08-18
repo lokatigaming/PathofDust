@@ -1,16 +1,21 @@
-// Architecture refactor Stage 1 (2026-08-18) - `adventure`/`passive_tree`/
-// `state` now physically live in the `game` library crate (see its own
-// `lib.rs`). Re-exported here under their ORIGINAL names so every
-// existing `crate::adventure::X`/`crate::passive_tree::X`/`crate::state::X`
-// reference throughout this crate - main.rs, commands.rs,
-// adventure_web.rs, and (deliberately left completely untouched, per
-// CLAUDE.md's multi-session coordination rules) wiki.rs - keeps resolving
-// with zero changes. A mechanical move, not a behavior change.
+// Architecture refactor Stage 1-2 (2026-08-18) - `adventure`/
+// `passive_tree`/`state` (Stage 1), then `adventure_web`/
+// `adventure_overlay_server` including wiki.rs (Stage 2) physically live
+// in the `game` library crate now (see its own `lib.rs`). Re-exported
+// here under their ORIGINAL names so every existing
+// `crate::adventure::X`/`crate::adventure_web::X`-style reference
+// throughout this crate - main.rs, commands.rs - keeps resolving with
+// zero changes. `twitch-bot-rs` still calls `adventure_web::
+// start_adventure_web_server`/`adventure_overlay_server`'s own start fn
+// directly, in-process, exactly as before ("dual-mode transitional
+// state," per REFACTOR_PLAN.md's Stage 2 - the standalone `game` binary
+// this stage adds is a SECOND, independent way to start the same code,
+// not a replacement for this one yet).
 pub use game::adventure;
+pub use game::adventure_overlay_server;
+pub use game::adventure_web;
 pub use game::passive_tree;
 pub use game::state;
-pub mod adventure_overlay_server;
-pub mod adventure_web;
 pub mod alerts;
 pub mod announcements;
 pub mod build_feed;

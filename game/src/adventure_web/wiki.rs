@@ -209,6 +209,18 @@ fn substitute_wiki_placeholders(source: &str) -> String {
 fn wiki_placeholder_map() -> HashMap<&'static str, String> {
     let pct = |fraction: f64| -> String { format!("{}", (fraction * 100.0).round() as i64) };
     let crit_pct = |quality: f64, perfect: bool| -> String { format!("{:.1}", crate::adventure::reforge_crit_chance(quality, perfect) * 100.0) };
+    // Bot->game published constants (2026-08-18, architecture refactor
+    // Stage 2 - the owner's ruling on wiki.rs's crate placement: game-
+    // side, full stop, so these 5 - the only bot-side reads this file
+    // ever had - invert into a small published file instead of blocking
+    // the move. See `crate::adventure::PublishedConstants`'s own doc for
+    // the full mechanism. `None` (file missing/unparseable - the bot has
+    // never run since this deploy, or hasn't started yet in whatever
+    // order the two processes come up in) renders "varies" rather than a
+    // real number - a stale-but-plausible cooldown would be worse than
+    // an honest "we don't know right now."
+    let published = crate::state::load_json::<crate::adventure::PublishedConstants>(crate::adventure::PUBLISHED_CONSTANTS_PATH);
+    let varies = || "varies".to_string();
 
     HashMap::from([
         // Currency-crafting dust costs - live, override-aware.
@@ -259,16 +271,14 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         // not a separate constant, so it stays correct if the divisor
         // above ever changes.
         ("POLISH_MAX_SAND_COST", ((100.0 / crate::adventure::POLISH_SAND_COST_PER_QUALITY_PCT).ceil() as u64).to_string()),
-        // Chat-command cooldowns/thresholds - these three were private
-        // consts in their own top-level modules (not adventure::) until
-        // this pass flipped them to pub(crate) specifically so they could
-        // be wired here; `song_requests`'s vote-volume bounds were already
-        // pub in a pub mod, so no visibility change was needed for those.
-        ("BUILTIN_COOLDOWN_S", crate::commands::BUILTIN_COOLDOWN.as_secs().to_string()),
-        ("BUGREPORT_COOLDOWN_S", crate::bug_reports::PER_USER_COOLDOWN.as_secs().to_string()),
-        ("VOTESKIP_COOLDOWN_S", crate::song_requests::SKIP_ACTION_COOLDOWN.as_secs().to_string()),
-        ("MIN_VOTE_VOLUME", crate::song_requests::MIN_VOTE_VOLUME.to_string()),
-        ("MAX_VOTE_VOLUME", crate::song_requests::MAX_VOTE_VOLUME.to_string()),
+        // Chat-command cooldowns/thresholds - bot-side values, read from
+        // `published` above rather than directly (see that binding's own
+        // comment) since Stage 2 moved this file game-side.
+        ("BUILTIN_COOLDOWN_S", published.as_ref().map(|p| p.builtin_cooldown_secs.to_string()).unwrap_or_else(varies)),
+        ("BUGREPORT_COOLDOWN_S", published.as_ref().map(|p| p.bug_report_cooldown_secs.to_string()).unwrap_or_else(varies)),
+        ("VOTESKIP_COOLDOWN_S", published.as_ref().map(|p| p.song_skip_cooldown_secs.to_string()).unwrap_or_else(varies)),
+        ("MIN_VOTE_VOLUME", published.as_ref().map(|p| p.min_vote_volume.to_string()).unwrap_or_else(varies)),
+        ("MAX_VOTE_VOLUME", published.as_ref().map(|p| p.max_vote_volume.to_string()).unwrap_or_else(varies)),
         ("RAMPAGE_VOTE_THRESHOLD", crate::adventure::RAMPAGE_VOTE_THRESHOLD.to_string()),
         // Core combat mechanics (wiki/combat.md).
         ("CRIT_BONUS_MULT_PCT", pct(crate::adventure::CRIT_BONUS_MULT)),

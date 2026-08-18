@@ -498,12 +498,25 @@ name = "game"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "minijinja",
+ "minijinja-autoreload",
+ "pulldown-cmark",
  "rand",
+ "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
  "toml",
+ "tower-http 0.5.2",
  "tracing",
+ "url",
+ "urlencoding",
 ]
 
 [[package]]
