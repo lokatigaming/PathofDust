@@ -205,6 +205,24 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("FORCE_BOSS_MAX_PER_CYCLE", crate::adventure::FORCE_BOSS_MAX_PER_CYCLE.to_string()),
         ("RAMPAGE_ENCOUNTER_COUNT", crate::adventure::RAMPAGE_ENCOUNTER_COUNT.to_string()),
         ("RAMPAGE_MIN_INTERVAL_S", crate::adventure::RAMPAGE_MIN_INTERVAL.as_secs().to_string()),
+        // Items & loot (wiki/items.md).
+        ("EQUIP_SLOTS_COUNT", crate::adventure::EQUIP_SLOTS.len().to_string()),
+        ("POWER_ROLL_MIN_PCT", pct(crate::adventure::POWER_ROLL_RANGE.start)),
+        ("POWER_ROLL_MAX_PCT", pct(crate::adventure::POWER_ROLL_RANGE.end)),
+        ("WEAPON_BASE_POWER", crate::adventure::base_power_for_slot(EquipSlot::Weapon).to_string()),
+        ("HELM_BASE_POWER", crate::adventure::base_power_for_slot(EquipSlot::Helm).to_string()),
+        ("BODY_BASE_POWER", crate::adventure::base_power_for_slot(EquipSlot::Body).to_string()),
+        ("GLOVES_BASE_POWER", crate::adventure::base_power_for_slot(EquipSlot::Gloves).to_string()),
+        ("BOOTS_BASE_POWER", crate::adventure::base_power_for_slot(EquipSlot::Boots).to_string()),
+        ("ALL_AFFIXES_COUNT", crate::adventure::ALL_AFFIXES.len().to_string()),
+        (
+            "LEECH_RARITY_DIVISOR",
+            (crate::adventure::affix_weight(Affix::DamageReduction) / crate::adventure::affix_weight(Affix::Leech)).round().to_string(),
+        ),
+        ("BOSS_ITEM_PITY_GAIN_PCT", pct(crate::adventure::BOSS_ITEM_PITY_GAIN)),
+        ("BASIC_ITEM_PITY_GAIN_PCT", pct(crate::adventure::BASIC_ITEM_PITY_GAIN)),
+        ("BOSS_CRAFT_PITY_GAIN_PCT", pct(crate::adventure::BOSS_CRAFT_PITY_GAIN)),
+        ("BASIC_CRAFT_PITY_GAIN_PCT", pct(crate::adventure::BASIC_CRAFT_PITY_GAIN)),
     ])
 }
 
@@ -314,6 +332,17 @@ pub(super) async fn wiki_getting_started_page(State(state): State<AppState>, hea
     )))
 }
 
+pub(super) async fn wiki_items_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("items"),
+        render_markdown_page("items"),
+    )))
+}
+
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
     match current_session(headers, state).await {
         Some((login, _)) => state.adventure.character(&login).await,
@@ -342,10 +371,11 @@ fn wiki_subnav(active: &str) -> String {
         }
     };
     format!(
-        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}</div>",
+        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}{}</div>",
         entry("/wiki/getting-started", "🚀 Getting Started", "getting-started"),
         entry("/wiki/combat", "⚔️ Combat", "combat"),
         entry("/wiki/bosses", "🐲 Bosses", "bosses"),
+        entry("/wiki/items", "🗡️ Items", "items"),
         entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
         entry("/wiki/healing", "✨ Healing", "healing"),
         entry("/wiki/passives", "🌳 Passives", "passives"),

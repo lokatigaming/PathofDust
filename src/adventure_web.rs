@@ -180,6 +180,7 @@ pub async fn start_adventure_web_server(
         .route("/wiki/commands", get(wiki::wiki_commands_page))
         .route("/wiki/combat", get(wiki::wiki_combat_page))
         .route("/wiki/getting-started", get(wiki::wiki_getting_started_page))
+        .route("/wiki/items", get(wiki::wiki_items_page))
         .route("/characters", get(character_list))
         .route("/characters/:login", get(character_detail))
         .route("/characters/:login/passives", get(character_passives_readonly))
