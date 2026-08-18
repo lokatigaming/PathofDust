@@ -855,6 +855,55 @@
       el.addEventListener('blur', hide);
     });
   })();
+
+  (function() {
+    // Scroll-position preservation across a craft/inventory form's POST-
+    // redirect-GET round trip (2026-08-18, a live request) - every action
+    // on /inventory (craft, equip, disenchant, veil-choose, ...) posts and
+    // reloads the same page, which previously dumped the player back at
+    // the very top instead of wherever they were scrolled to when they
+    // acted. Scoped to just / and /inventory (the only pages this was
+    // reported on) rather than site-wide, even though this script is
+    // shared with every page including /wiki/*.
+    var path = location.pathname;
+    if (path !== '/' && path !== '/inventory') return;
+    var key = 'scrollPos:' + path;
+    document.addEventListener('submit', function(e) {
+      // A cancelled confirm() (Krangle/Scour/etc, see the data-confirm
+      // handler above) already called preventDefault() on this same
+      // event before it bubbled here - nothing actually submitted, so
+      // there's no reload coming and the CURRENT position (not a stale
+      // save from the last real submit) should stay in effect.
+      if (e.defaultPrevented) return;
+      try {
+        sessionStorage.setItem(key, String(window.scrollY));
+      } catch (err) {
+        // Storage can throw in a locked-down/private-browsing context -
+        // losing the scroll-restore is harmless, so just skip it.
+      }
+    });
+    var saved;
+    try {
+      saved = sessionStorage.getItem(key);
+      sessionStorage.removeItem(key);
+    } catch (err) {
+      saved = null;
+    }
+    // Only ever a ONE-TIME restore right after the reload that follows a
+    // real submit - removed immediately above so a later plain refresh
+    // (F5) or a fresh visit doesn't keep re-applying a stale position.
+    // The result popups (#craft-modal etc) are `position: fixed` overlays
+    // (see .modal-backdrop), so they render centered on screen regardless
+    // of where the underlying page is scrolled to - nothing here needs to
+    // account for them separately, and the veil-choose flow is just
+    // another plain form on this same page, already covered above.
+    if (saved !== null) {
+      var y = parseInt(saved, 10);
+      if (!isNaN(y)) {
+        window.scrollTo(0, y);
+      }
+    }
+  })();
 </script>
 </body>
 </html>
