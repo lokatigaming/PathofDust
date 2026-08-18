@@ -1,19 +1,19 @@
 # Path of Dust — Architecture Refactor Plan
 
-**Status** (2026-08-19): Stages 0 through 5 done, on branch
-`refactor/architecture` (pushed to origin as a backup — not merged to
-master, not deployed; the deploy procedure still applies to master
-exclusively). `bot` is code-complete as a thin HTTP client of the
-standalone `game` process, failure-isolation hardened and tested against
-a genuinely killed process (see Stage 5's own note) - but this is STILL
-not what's running in production: that only happens after the required
-LIVE BAKE period and a final merge to master. A bake deployment proposal
-(what changes on the machine, rollback, what to watch) has been written
-up separately as a stop-and-wait for owner approval - not yet actioned.
-This document is the durable record of the plan — written to the repo
-root so a fresh session can resume
-the project with full context, without needing the original Plan-mode
-transcript.
+**PHASE 1 (this document's whole scope, the architecture refactor —
+bot/game process split) is COMPLETE as of 2026-08-19.** Stages 0-5 done,
+the LIVE BAKE ran on real production traffic with no incident, the owner
+declared it passed, and the same-day wrap-up merged `refactor/architecture`
+into `master` (clean fast-forward, pushed, pod-qa synced and verified)
+and rebuilt production from `master` directly - the two-process shape is
+now simply what `master` describes and what's actually running, no
+lingering branch/backup-build dependency. See the LIVE BAKE entry in §10
+for the full evidence trail (kill-test, cutover, rebuild, cleanup).
+**Phase 2 (frontend) is a separate, not-yet-started effort** - starts as
+its own conversation, out of scope for this document until it does. This
+document remains the durable record of Phase 1 — written to the repo
+root so a fresh session can look up how the split was done and why,
+without needing the original Plan-mode transcript.
 
 **Scope escalation, mid-audit**: the original ask ("refactor into
 domain/persistence/web/ws") was superseded by an addendum: the adventure
@@ -896,15 +896,28 @@ proven, not before.
   landed during the ~7-minute cutover window, correctly caught up
   through the new `AdventureApiClient` path on restart, no fallback
   warnings anywhere in either process's log. Both processes and all 4
-  scheduled tasks confirmed healthy immediately after. The bake clock
-  starts now - see this section's own "what to watch" list from the
-  original deployment proposal.
+  scheduled tasks confirmed healthy immediately after.
+  **BAKE RESULT (2026-08-19): PASSED - owner declared it complete and
+  satisfied.** Real stream traffic ran on the two-process shape for the
+  bake period with no incident requiring rollback. Post-bake wrap-up,
+  same day: `refactor/architecture` fast-forward-merged into `master`
+  (clean - `master` had not moved since branching, no conflicts) and
+  pushed; the normal deploy procedure's pod-qa sync ran and verified
+  (`78d7925` matched on both sides). Production was then rebuilt from
+  `master` directly into `target\release` (tasks/watchdogs stopped and
+  restarted around it with the same care as the cutover itself) so it no
+  longer depends on the `target-bake` scratch build - that directory has
+  been removed. `backup-pre-bake/` (the pre-cutover binary + data
+  snapshot) is being kept for one more week (until ~2026-08-26) as a
+  final safety margin, then it can go too. **This closes out Phase 1
+  (the architecture refactor) end to end** - see the top status line.
   **Deployment plan proposed separately
   (not in this document) as a stop-and-wait for owner approval** - covers
   exactly what changes on the machine, the rollback procedure, and what
-  gets watched during the bake day. Owner sign-off on the cutover itself
-  is still pending as of 2026-08-19; the items below are pre-cutover
-  conditions the owner set, resolved with evidence before any go-ahead.
+  gets watched during the bake day. Owner (confirmed to be the channel
+  owner directly) signed off 2026-08-19 before the cutover executed; the
+  items below are pre-cutover conditions the owner set, resolved with
+  evidence before that go-ahead.
   - **Rollback data compatibility - VERIFIED (2026-08-19): rollback
     keeps bake-day progress.** The open question was whether `master`'s
     (pre-refactor) binary can load an `adventure-characters.json` file
