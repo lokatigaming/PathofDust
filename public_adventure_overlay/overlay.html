@@ -1122,56 +1122,49 @@
     return { name: 'resolve', progress: (elapsed - CHARGE_MS - encounter.displayDurationMs) / RESOLVE_MS };
   }
 
-  // ---- Background: simple line-art parallax (placeholder for real art)
-  // ---- Two hill/mountain layers at different speeds/heights for depth,
-  // plus an occasional simple bridge silhouette — all thin translucent
-  // strokes rather than filled shapes, so the transparent Browser Source
-  // still reads as an overlay and not an opaque backdrop. Scroll is
-  // continuous and time-based, just there to sell "always traveling
-  // forward" even at idle.
+  // ---- Background: real art, continuous horizontal scroll (2026-08-18,
+  // replaces the old procedural line-art placeholder - see this repo's
+  // history for that version if it's ever needed again). A single wide
+  // "continuous landscape" image (50000x400 source) is drawn as two
+  // side-by-side copies that scroll left together and wrap seamlessly -
+  // standard infinite-tile technique, since the image's own right/left
+  // edges are designed to line up. Full opacity - this is now a real
+  // solid backdrop, not a translucent accent. `bgScrollX` is the same
+  // continuous, time-based clock the old placeholder used, so the
+  // world's established sense of forward motion carries over unchanged.
   let bgScrollX = 0;
   const BG_SPEED_PX_S = 34;
+  // Tune here if the framing needs adjusting once actually seen on
+  // stream - BG_SPEED_MUL scales this layer's own scroll rate relative
+  // to bgScrollX's base pace (1.0 = same pace the rest of the world
+  // already established). Display height full-bleeds to the canvas's
+  // own height (see drawScrollingBackground) - change that computation
+  // directly if a shorter band anchored near groundY reads better.
+  const BG_IMAGE_SRC = 'sprites/backgrounds/dustbowl.png';
+  const BG_SPEED_MUL = 1.0;
+  const bgImage = new Image();
+  bgImage.src = BG_IMAGE_SRC;
+  // ?bgOpacity=<0-1> (2026-08-18, same "?highlight=" URL-param convention
+  // this file already uses) - defaults to 1 (full opacity, today's
+  // behavior) when absent or unparseable, so a typo'd/missing param never
+  // hides the background. Clamped so an out-of-range value (negative,
+  // >1) can't produce a nonsensical draw.
+  const bgOpacityParam = parseFloat(new URLSearchParams(location.search).get('bgOpacity'));
+  const BG_OPACITY = Number.isFinite(bgOpacityParam) ? Math.min(1, Math.max(0, bgOpacityParam)) : 1;
 
-  function drawRidgeLayer(groundY, baseHeight, amplitude, wavelength, speedMul, color, lineWidth) {
-    const offset = bgScrollX * speedMul;
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    for (let x = 0; x <= canvas.width; x += 6) {
-      const worldX = x + offset;
-      const y =
-        groundY - baseHeight -
-        Math.sin(worldX / wavelength * Math.PI * 2) * amplitude -
-        Math.sin(worldX / (wavelength * 0.4) + 1.7) * amplitude * 0.35;
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+  function drawScrollingBackground() {
+    if (!bgImage.complete || !bgImage.naturalWidth) return;
+    const displayHeight = canvas.height;
+    const displayWidth = displayHeight * (bgImage.naturalWidth / bgImage.naturalHeight);
+    const offset = (bgScrollX * BG_SPEED_MUL) % displayWidth;
+    ctx.save();
+    ctx.globalAlpha = BG_OPACITY;
+    let x = -offset;
+    while (x < canvas.width) {
+      ctx.drawImage(bgImage, x, 0, displayWidth, displayHeight);
+      x += displayWidth;
     }
-    ctx.stroke();
-  }
-
-  function drawBridges(groundY, speedMul) {
-    const spacing = 620;
-    const width = 150;
-    const offset = (bgScrollX * speedMul) % spacing;
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = 2;
-    for (let cx = -offset; cx < canvas.width + spacing; cx += spacing) {
-      const deckY = groundY - 8;
-      ctx.beginPath();
-      ctx.moveTo(cx - width / 2, deckY);
-      ctx.lineTo(cx + width / 2, deckY);
-      ctx.stroke();
-      for (const dx of [-width / 2 + 14, 0, width / 2 - 14]) {
-        ctx.beginPath();
-        ctx.moveTo(cx + dx, deckY);
-        ctx.lineTo(cx + dx, deckY + 20);
-        ctx.stroke();
-      }
-      ctx.beginPath();
-      ctx.moveTo(cx - width / 2, deckY);
-      ctx.quadraticCurveTo(cx, deckY - 30, cx + width / 2, deckY);
-      ctx.stroke();
-    }
+    ctx.restore();
   }
 
   // ---- Drawing ----
@@ -1610,9 +1603,7 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const groundY = canvas.height - 60;
 
-    drawRidgeLayer(groundY, 90, 26, 340, 0.22, 'rgba(255,255,255,0.14)', 2);
-    drawRidgeLayer(groundY, 34, 14, 190, 0.5, 'rgba(255,255,255,0.22)', 2);
-    drawBridges(groundY, 0.78);
+    drawScrollingBackground();
 
     ctx.strokeStyle = 'rgba(255,255,255,0.25)';
     ctx.lineWidth = 2;
