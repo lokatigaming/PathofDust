@@ -1,15 +1,17 @@
 # Path of Dust — Architecture Refactor Plan
 
-**Status** (2026-08-18): Stages 0, 0.5, 1, 1.5, and 2 done, on branch
+**Status** (2026-08-19): Stages 0, 0.5, 1, 1.5, 2, and 3 done, on branch
 `refactor/architecture` (pushed to origin as a backup — not merged to
 master, not deployed; the deploy procedure still applies to master
 exclusively). The standalone `game` binary is real and live-verified
-(see Stage 2's own note) but not deployed anywhere - `twitch-bot-rs`'s
-existing in-process startup is still the only thing actually running in
-production. Stage 3 (the API seam) is next. This document is the
-durable record of the plan — written to the repo root so a fresh
-session can resume the project with full context, without needing the
-original Plan-mode transcript.
+(see Stage 2's own note); the full `/api/*` seam (§4) is built and
+end-to-end tested (see Stage 3's own note) but not deployed anywhere -
+`twitch-bot-rs`'s existing in-process startup is still the only thing
+actually running in production, and nothing in main.rs/commands.rs
+calls the new seam yet. Stage 4 (the actual cutover) is next. This
+document is the durable record of the plan — written to the repo root
+so a fresh session can resume the project with full context, without
+needing the original Plan-mode transcript.
 
 **Scope escalation, mid-audit**: the original ask ("refactor into
 domain/persistence/web/ws") was superseded by an addendum: the adventure
@@ -584,17 +586,92 @@ proven, not before.
   merged, not deployed - exists on `refactor/architecture` only;
   `twitch-bot-rs`'s own in-process startup is completely unchanged and
   still the only thing actually running in production.
-- **Stage 3**: build the API seam per §4 (game-side `/api/` endpoints
-  returning pre-formatted reply strings; the SSE announcements stream;
-  the bot-side HTTP client module) ALONGSIDE the existing direct
+- **Stage 3** (done, 2026-08-19): build the API seam per §4 (game-side `/api/`
+  endpoints returning pre-formatted reply strings; the SSE announcements
+  stream; the bot-side HTTP client module) ALONGSIDE the existing direct
   in-process calls. **Includes the small bot→game published-constants
   publish** (owner's ruling, 2026-08-18, see Stage 2's own note above) -
   `BUILTIN_COOLDOWN`/`PER_USER_COOLDOWN`/`SKIP_ACTION_COOLDOWN`/
   `MIN_VOTE_VOLUME`/`MAX_VOTE_VOLUME`, with a graceful stale/"varies"
   fallback on the game side for whenever the bot hasn't connected yet -
-  whether this narrow piece needs to land BEFORE the rest of this stage
-  (pulled forward to unblock Stage 2's wiki.rs move) is the open
-  sequencing question flagged at Stage 2.
+  this piece landed already, in Stage 2 (see Stage 2's own note above),
+  since the wiki.rs move needed it immediately.
+  **§4b groundwork done (2026-08-19)**: `AdventureManager` gained an
+  `announcements_tx: broadcast::Sender<String>` (subscribe via
+  `subscribe_announcements()`), fed by a new pure-formatting module
+  (`game/src/adventure/announcements.rs` - `format_encounter_outcome`,
+  `format_loot_line`, `format_gear_crit`, `format_unique_shard_win`,
+  `RAMPAGE_COMPLETE_MESSAGE`; 9 unit tests, the first tests this
+  previously closure-embedded logic has ever had) plus a new
+  `announce_encounter_result` async method on the manager that ports
+  the Celestial-Shard-first-award and item-launch-giveaway state
+  mutation (previously living in main.rs's subscriber closure - see
+  §4b's own "real finding" note) using `data_path()` for its marker
+  files, a deliberate, documented behavior change now that this state
+  is genuinely game-owned. Wired at all the real send sites: the two
+  `encounter_tx.send(result)` call sites (`run_encounter_inner`,
+  `run_basic_encounter_inner`) now call `announce_encounter_result`
+  first; the pre-existing single `announce_gear_crit` hook (shared by
+  reforge's 1% and recombine's 5% crit rolls) now also pushes a
+  formatted announcement alongside its existing `gear_crit_tx` send;
+  `rampage_complete_tx`'s one call site and `unique_shard_tx`'s four
+  scattered call sites (neither had an existing centralizing wrapper,
+  unlike gear-crit) now go through two new thin wrapper methods,
+  `announce_rampage_complete`/`announce_unique_shard_win`, introduced
+  specifically to give them the same single-hook-point shape gear-crit
+  already had. Workspace compiles clean; full suite at 143 passing (the
+  134 pre-Stage-3 baseline + these 9 new tests), zero regressions. This
+  is all still "new, parallel code" per the stage's own scoping rule -
+  main.rs's own 4 broadcast subscribers are completely untouched and
+  remain the only thing actually announcing in production.
+  **`/api/*` HTTP layer done (2026-08-19)**: built
+  `game/src/adventure_web/api.rs`, nested onto the SAME Axum server
+  `start_adventure_web_server` already runs (`.nest("/api", ...)`) - per
+  §3's own already-ratified text ("a real API on the game's existing
+  Axum server"), NOT a separate port. Resolves the port/bind-separation
+  question flagged as possibly needing to be raised - re-reading §3
+  found it was already decided, not an open question, so no owner
+  check-in was needed there. Security mechanism: a shared-secret header
+  (`x-adventure-api-secret`), not a peer-IP/localhost check - my own
+  call between the plan's two pre-authorized options, since this router
+  shares a port with the public, reverse-proxied dashboard, where a
+  peer-IP check would see every proxied request as loopback-adjacent
+  and couldn't tell "the bot" apart from "the public internet" the way
+  it could on a genuinely separate, unproxied bind. The secret is a new
+  `Option<String>` config field (`ADVENTURE_API_SECRET`, both
+  `src/config.rs` and `game/src/main.rs`'s own env read) - `None` (the
+  default, unchanged in production) skips mounting `/api/*` at all, so
+  today's real deploy gets the EXACT route table it had before this
+  landed. All ~12 §4a/§4c rows are implemented (10 command endpoints +
+  3 redemption endpoints + fire-and-forget activity-XP, the last of
+  which now also pushes its level-up line onto `announcements_tx`
+  itself - a genuinely new one-line addition to `grant_activity_xp`,
+  harmless in production today since nothing subscribes yet) plus the
+  `GET /api/announcements/stream` SSE handler (`tokio_stream`'s already-
+  dependency `BroadcastStream`, no new crate). Every handler is a
+  byte-for-byte port of its commands.rs/main.rs original - permission
+  gating (`is_mod_or_broadcaster`) deliberately stays OUT of this
+  module, since only the bot knows Twitch roles; the one endpoint whose
+  BEHAVIOR (not just permission) depends on role (`rampage`) takes that
+  role as an explicit request field instead. Mirror bot-side client
+  built at `src/adventure_client.rs` (`AdventureApiClient`, one method
+  per endpoint, plus a hand-rolled minimal SSE line-parser for
+  `announcements()` rather than pulling in an SSE-client crate - this
+  whole module is test-only for now) - reqwest gained the `"stream"`
+  Cargo feature for this, no new dependency. **New end-to-end harness**
+  `tests/api_seam.rs`: a disposable game instance, real HTTP calls
+  through `AdventureApiClient` covering every endpoint, INCLUDING one
+  real round trip through §4b (Force Boss Fight redemption -> a genuine
+  boss fight actually runs -> its outcome is read back off the live SSE
+  stream) - proves the whole seam works together, not just that each
+  half compiles. Full workspace suite: 144 passing (was 143), zero
+  regressions. Still "new, parallel code" throughout - nothing in
+  src/main.rs or src/commands.rs calls through this seam yet.
+  **Still open for this stage**: actually wiring `commands.rs`'s
+  dispatch and main.rs's redemption handlers to CALL through
+  `AdventureApiClient` when the seam is live is explicitly Stage 4's
+  job, not this one's - this stage only had to prove the seam works,
+  alongside the untouched original path.
 - **Stage 4**: cut over — `bot` switches to the HTTP-client seam, stops
   starting AdventureManager/adventure_web/adventure_overlay in-process
   at all. The actual "two separate processes" moment. Full smoke test
