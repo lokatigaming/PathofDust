@@ -780,19 +780,22 @@ pub(crate) struct CombatSimUnit {
     /// originally-tuned stage range a fight has gone, independent of
     /// whatever integer width `BossStats.hp`/`atk` happen to be.
     late_stage_damage_penalty_pct: f64,
-    /// Boss pierce (2026-08-18, a live design call) - 0.0 for everyone
-    /// except a REAL boss (never players, never a basic-encounter mob),
-    /// set once at construction from `simulate_battle`'s `stage`/
-    /// `tunables` params: `pierce_cap * stage^2 / (stage^2 + pierce_h^2)`,
-    /// a quadratic-then-asymptotic ramp reaching half of `pierce_cap` at
-    /// stage `pierce_h` and climbing toward, but never reaching,
-    /// `pierce_cap` itself. Applied in `apply_hit`, upstream of
-    /// `resolve_hit` - this fraction of the swing's raw base damage is
-    /// carved off BEFORE evasion/block/DR/crit ever roll, resolves as
-    /// true damage (still respects shields and death-prevention saves),
-    /// and the remaining `1.0 - boss_pierce_pct` fraction is what
-    /// actually gets fed through the normal mitigation pipeline - see
-    /// `apply_hit`'s own doc for the exact split.
+    /// Boss pierce (2026-08-18, a live design call; split-point bugfix
+    /// same day) - 0.0 for everyone except a REAL boss (never players,
+    /// never a basic-encounter mob), set once at construction from
+    /// `simulate_battle`'s `stage`/`tunables` params:
+    /// `pierce_cap * stage^2 / (stage^2 + pierce_h^2)`, a quadratic-then-
+    /// asymptotic ramp reaching half of `pierce_cap` at stage `pierce_h`
+    /// and climbing toward, but never reaching, `pierce_cap` itself.
+    /// Passed straight through to `resolve_hit`, which splits it off the
+    /// FULLY-ROLLED hit (after crit/increased-damage/every other
+    /// attacker-side modifier) rather than the raw pre-roll base damage -
+    /// see `resolve_hit`'s own doc for why splitting pre-roll was a real
+    /// bug (it made pierce ignore boss_power_mult/increased-damage/crit
+    /// almost entirely at live scaling). This fraction resolves as true
+    /// damage (still respects shields and death-prevention saves), the
+    /// remaining `1.0 - boss_pierce_pct` fraction is what actually gets
+    /// fed through the normal evasion/block/DR mitigation pipeline.
     boss_pierce_pct: f64,
     /// A REAL boss fight (not a basic-encounter filler mob) always
     /// targets whichever alive player currently has the highest
@@ -3563,14 +3566,36 @@ pub(crate) fn roll_attacker_damage(
 }
 
 /// Resolves one hit's actual damage from a base roll, running it through
-/// the full offense/defense pipeline in order: evasion (all-or-nothing
-/// miss, checked first since a dodged hit skips everything else) →
-/// attacker-side crit/increased damage (see `roll_attacker_damage`) →
-/// block (a flat halving if triggered) → damage reduction (one more
-/// flat multiplicative layer on whatever's left). Every damage instance
-/// in the fight - normal attacks either direction, and splash hits -
-/// goes through this one function (via `apply_hit`) so they all behave
-/// identically.
+/// the full offense/defense pipeline in order: attacker-side crit/
+/// increased damage (see `roll_attacker_damage`) → boss pierce split (see
+/// `boss_pierce_pct` below) → evasion (all-or-nothing miss on the
+/// MITIGABLE remainder only, checked first since a dodged hit skips
+/// everything else) → block (a flat halving if triggered) → damage
+/// reduction (one more flat multiplicative layer on whatever's left).
+/// Every damage instance in the fight - normal attacks either direction,
+/// and splash hits - goes through this one function (via `apply_hit`) so
+/// they all behave identically.
+/// `boss_pierce_pct` (2026-08-18, fixed the same day it shipped - see
+/// `CombatSimUnit::boss_pierce_pct`'s own doc) is a stage-scaled fraction
+/// of the FULLY-ROLLED hit (after crit/increased-damage/every other
+/// attacker-side modifier below, including the late-stage penalty) that's
+/// carved off as unavoidable/unmitigable true damage, landing regardless
+/// of what the mitigable remainder's own evasion/block/DR rolls do.
+/// Splitting the raw, PRE-roll `base_damage` instead (the original,
+/// buggy version of this) silently made pierce ignore boss_power_mult/
+/// increased-damage/crit entirely, since none of that scaling has
+/// happened yet at that point - at live stage scaling the pierce chunk
+/// was a rounding error and the mitigable remainder carried effectively
+/// all the real damage. Splitting AFTER the roll instead means: with a
+/// target that has zero evasion/block/DR, total damage taken is
+/// byte-identical to the pre-pierce/pierce_cap==0.0 case (pierce only
+/// ever redistributes WHERE the already-determined damage total is
+/// unavoidable, never how big that total is). 0.0 for every non-real-boss
+/// attacker, so this is a true no-op for players and basic-encounter
+/// mobs. Chakra of Life's immunity window (checked further below, before
+/// the split even happens) still blocks pierce too, same as every other
+/// death-prevention passive - only evasion/block/DR/intervene are
+/// actually bypassed.
 /// `pack_instinct_evasion_bonus`/`symbiosis_dr_bonus` are Druid's Pack
 /// Instinct/Symbiosis - live, computed by `apply_hit` (which has the full
 /// `units` slice needed to find "the party's current lowest-HP ally",
@@ -3648,6 +3673,7 @@ pub(crate) fn resolve_hit(
     target_chaos_debuff: f64,
     target_chaos_buff: f64,
     target_lightning_dmg_taken: f64,
+    boss_pierce_pct: f64,
 ) -> HitOutcome {
     // Ranger's Hunter's Mark - `def.mark_source_id` names whoever marked
     // this defender (if anyone). Predator's Eye/Kill Zone are PERSONAL
@@ -3957,6 +3983,20 @@ pub(crate) fn resolve_hit(
                 .collect(),
         };
     }
+    // Boss pierce split (see this fn's own doc for the full "why here"
+    // reasoning) - AFTER the Chakra of Life check above (that death-
+    // prevention passive still blocks pierce too, same as the other 4),
+    // but on the true fully-rolled `raw_dmg` (every attacker-side
+    // modifier above, crit/increased-damage/late-stage-penalty included,
+    // has already applied) rather than the pre-roll `base_damage` this
+    // used to split on. `pierce_amount` lands unconditionally below
+    // (both the evaded-return just past this and the final landed-hit
+    // return add it in), `mitigable_raw_dmg` is what evasion/block/DR
+    // actually get to act on. 0.0 for every non-real-boss attacker, so
+    // `mitigable_raw_dmg` is bit-for-bit `raw_dmg` and this is a true
+    // no-op for players and basic-encounter mobs.
+    let pierce_amount = raw_dmg * boss_pierce_pct;
+    let mitigable_raw_dmg = raw_dmg - pierce_amount;
     // Druid's Pack Instinct - +evasion while THIS unit is the party's
     // current lowest-HP ally (see `apply_hit`'s live computation).
     if !opportunist_guaranteed {
@@ -3965,7 +4005,7 @@ pub(crate) fn resolve_hit(
         probabilistic_rolls.push((RollCategory::Evasion, "Evasion", Some(chance), evaded));
         if evaded {
             return HitOutcome {
-                damage: 0,
+                damage: pierce_amount.round().max(0.0) as u64,
                 unmitigated_damage,
                 is_crit: false,
                 evaded: true,
@@ -4220,10 +4260,14 @@ pub(crate) fn resolve_hit(
     // if they naturally had at least that much, never raises it if they
     // didn't.
     let dr_combined = combine_reduction_sources(&source_values).min(DEFENSIVE_STAT_HARD_CAP).max(dr_pre_boss.min(0.25));
-    let mut dmg = raw_dmg * (1.0 - dr_combined);
+    // `mitigable_raw_dmg` (not `raw_dmg`) - the pierce portion already
+    // carved off above never runs through DR at all, by design.
+    let mut dmg = mitigable_raw_dmg * (1.0 - dr_combined);
     // The real boss's survivability-focus debuff (see
     // `boss_focus_stacks`) - a target-side vulnerability, applied last,
-    // after every other mitigation has already taken its cut.
+    // after every other mitigation has already taken its cut. Same as
+    // before pierce existed - only the mitigable portion is scaled by
+    // this, `pierce_amount` is added in untouched below.
     dmg *= 1.0 + def.boss_focus_stacks;
     // Curse of Weakness family (2026-08-16, see `HitOutcome::curse_bonus_damage`'s
     // doc) - the marginal damage that ONLY exists because the curse's own
@@ -4236,7 +4280,7 @@ pub(crate) fn resolve_hit(
     // each other.
     let curse_bonus_damage = if let Some(idx) = curse_source_idx {
         let source_values_without_curse: Vec<f64> = source_values.iter().enumerate().filter(|(i, _)| *i != idx).map(|(_, &v)| v).collect();
-        let dmg_without_curse = raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse)) * (1.0 + def.boss_focus_stacks);
+        let dmg_without_curse = mitigable_raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse)) * (1.0 + def.boss_focus_stacks);
         (dmg - dmg_without_curse).max(0.0)
     } else {
         0.0
@@ -4251,7 +4295,10 @@ pub(crate) fn resolve_hit(
     deterministic_sources.extend(attacker_roll.deterministic_sources);
     deterministic_sources.extend(attacker_side_debuffs);
     HitOutcome {
-        damage: dmg.round().max(0.0) as u64,
+        // `pierce_amount` lands unconditionally on top of whatever the
+        // mitigable portion's own evasion/block/DR pipeline left of
+        // `dmg` - see this fn's own doc.
+        damage: (dmg + pierce_amount).round().max(0.0) as u64,
         unmitigated_damage,
         is_crit,
         evaded: false,
@@ -5461,18 +5508,22 @@ pub(crate) fn apply_hit(
     let target_chaos_debuff = prune_and_count(&mut units[target_idx].chaos_block_debuff, at_ms) as f64 * 0.01;
     let target_chaos_buff = prune_and_count(&mut units[target_idx].chaos_block_buff, at_ms) as f64 * 0.01;
     let target_lightning_dmg_taken = prune_and_count(&mut units[target_idx].lightning_dmg_taken, at_ms) as f64 * 0.01;
-    // Boss pierce (see `CombatSimUnit::boss_pierce_pct`'s doc) - carved off
-    // the TOP of this swing's raw base damage, before resolve_hit ever
-    // rolls anything, so it can never crit and never gets touched by
-    // evasion/block/DR - only the REMAINING `mitigable_damage` fraction is
-    // handed to resolve_hit and can still evade/block/reduce/crit exactly
-    // as before. 0.0 for every non-real-boss attacker, so `mitigable_damage`
-    // is bit-for-bit `base_damage` and this is a true no-op for players and
-    // basic-encounter mobs.
-    let pierce_amount = base_damage * units[attacker_idx].boss_pierce_pct;
-    let mitigable_damage = base_damage - pierce_amount;
+    // Boss pierce (see `CombatSimUnit::boss_pierce_pct`'s doc and
+    // `resolve_hit`'s own doc for the full "split point" reasoning,
+    // fixed 2026-08-18 the same day it shipped - the original version
+    // split `base_damage` HERE, before any attacker-side scaling, which
+    // silently made pierce ignore boss_power_mult/increased-damage/crit
+    // entirely) - `resolve_hit` now takes the pierce fraction directly
+    // and performs the split itself, AFTER rolling the full hit, so the
+    // split reflects every attacker-side modifier. `unmitigated_damage`
+    // is NOT separately adjusted here anymore either - `resolve_hit`
+    // already folds pierce into both `damage` and `unmitigated_damage`
+    // internally (pierce is part of the single rolled hit, not a second
+    // hit bolted on afterward), so the "cancels out of every downstream
+    // reflect calculation" property from the original design still
+    // holds, just computed on the correct numbers now.
     let outcome = resolve_hit(
-        mitigable_damage,
+        base_damage,
         &units[attacker_idx],
         &units[target_idx],
         at_ms,
@@ -5487,27 +5538,8 @@ pub(crate) fn apply_hit(
         target_chaos_debuff,
         target_chaos_buff,
         target_lightning_dmg_taken,
+        units[attacker_idx].boss_pierce_pct,
     );
-    // Pierce rides back in immediately, folded into BOTH `damage` and
-    // `unmitigated_damage` equally (true damage was never mitigated, so
-    // its "before" and "after" values are identical) - every downstream
-    // consumer of `outcome.damage`/`outcome.unmitigated_damage` below
-    // (shield absorption, the 5 death-prevention branches, the curse-
-    // credit split, the final Attack event, and Bramblegrowth/Spike
-    // Barrier/Unyielding's own `unmitigated_damage - damage` "how much
-    // was reduced" reflect math) sees the combined total automatically,
-    // and since pierce contributes equally to both sides of that
-    // subtraction it cancels out of the reflect calculations exactly as
-    // it should - reflecting mitigation that was never actually applied
-    // would be wrong. is_crit/evaded/is_blocked/probabilistic_rolls/
-    // deterministic_sources all stay exactly what resolve_hit reported
-    // for the mitigable portion - pierce is flat, unrolled true damage,
-    // not a second hit with its own outcome.
-    let outcome = HitOutcome {
-        damage: outcome.damage + pierce_amount.round() as u64,
-        unmitigated_damage: outcome.unmitigated_damage + pierce_amount.round() as u64,
-        ..outcome
-    };
     // Allocated once for this hit's resolution, shared by every branch
     // below that can end up pushing this hit's `Attack` event(s) (only
     // one branch fires per call) - lets every `RollEvent` a later phase
@@ -11032,7 +11064,7 @@ mod full_detail_combat_log_tests {
         let atk = neutral_attacker();
         let def = CombatSimUnit { hardened_stacks: 3, hardened_pct_per_stack: 0.05, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(1);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.evaded, "zero evasion must never dodge");
         let mitigation: Vec<_> = outcome.deterministic_sources.iter().filter(|(cat, ..)| *cat == RollCategory::Mitigation).collect();
         assert_eq!(mitigation.len(), 1, "only Hardened is invested - expected exactly 1 Mitigation source, got {mitigation:?}");
@@ -11046,7 +11078,7 @@ mod full_detail_combat_log_tests {
         let atk = neutral_attacker();
         let def = neutral_defender();
         let mut rng = StdRng::seed_from_u64(2);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let mitigation_or_evasion: Vec<_> =
             outcome.deterministic_sources.iter().filter(|(cat, ..)| matches!(cat, RollCategory::Mitigation | RollCategory::Evasion)).collect();
         assert!(mitigation_or_evasion.is_empty(), "a fully zeroed defender should log nothing - got {mitigation_or_evasion:?}");
@@ -11061,7 +11093,7 @@ mod full_detail_combat_log_tests {
         let atk = neutral_attacker();
         let def = CombatSimUnit { late_stage_damage_penalty_pct: 0.1939, is_boss: true, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(3);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let penalty = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Late-stage damage penalty");
         let (category, _, magnitude) = penalty.expect("late-stage penalty must be logged when non-zero");
         assert_eq!(*category, RollCategory::IncreasedDamage);
@@ -11087,7 +11119,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { crit_chance: 0.5, ..neutral_attacker() };
         let def = neutral_defender();
         let mut rng = StdRng::seed_from_u64(4);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let crit_sources: Vec<_> = outcome.deterministic_sources.iter().filter(|(cat, ..)| *cat == RollCategory::Crit).collect();
         let chance_source = crit_sources.iter().find(|(_, name, _)| *name == "Crit chance");
         assert!(chance_source.is_some(), "a real crit_chance investment must be logged");
@@ -11109,7 +11141,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { crit_chance: 0.5, ..neutral_attacker() };
         let def = CombatSimUnit { damage_reduction: 0.1, evasion: 0.1, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(5);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.probabilistic_rolls.is_empty(), "evasion/block/crit-remainder rolls should all fire with these inputs");
         assert!(!outcome.deterministic_sources.is_empty(), "DR/evasion/crit-chance sources should all be non-empty with these inputs");
     }
@@ -11147,7 +11179,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { evasion: 0.50, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(6);
-        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
         assert!((chance.expect("evasion roll must be logged") - 0.25).abs() < 1e-9, "must floor at exactly 25%, got {chance:?}");
     }
@@ -11159,7 +11191,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { evasion: 0.10, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(7);
-        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
         assert!((chance.expect("evasion roll must be logged") - 0.10).abs() < 1e-9, "must stay at the defender's own natural 10%, not be raised - got {chance:?}");
     }
@@ -11169,7 +11201,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { block_chance: 0.60, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(8);
-        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Block && *name == "Block chance").and_then(|(_, _, p, _)| *p);
         assert!((chance.expect("block roll must be logged") - 0.25).abs() < 1e-9, "must floor at exactly 25%, got {chance:?}");
     }
@@ -11179,7 +11211,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { damage_reduction: 0.50, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(9);
-        let outcome = resolve_hit(100.0, &atk, &def, 10_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 10_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         // "Boss Pressure" is logged in BOTH the evasion and DR source
         // lists now (this test's boss ignores evasion too) - filter by
         // category to find the DR (Mitigation) one specifically.
@@ -11195,7 +11227,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { damage_reduction: 0.50, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(10);
-        let outcome = resolve_hit(1000.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         // 1000 * (1 - 0.25) = 750 is the floor; boss pressure must never
         // push the real damage taken ABOVE that (i.e. DR below 25%).
         assert!(outcome.damage <= 750, "DR must never be floored below 25% by boss pressure alone - got damage {}", outcome.damage);
@@ -11209,7 +11241,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, ..neutral_attacker() };
         let def = CombatSimUnit { evasion: 0.75, nightstalker_evasion_pct: 0.75, temp_evasion_buff: 0.75, temp_evasion_buff_expires_at_ms: 10_000, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(11);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
         assert!(chance.expect("evasion roll must be logged") <= 0.95 + 1e-9, "combined evasion must never exceed 95%, got {chance:?}");
     }
@@ -11228,7 +11260,7 @@ mod full_detail_combat_log_tests {
             ..neutral_defender()
         };
         let mut rng = StdRng::seed_from_u64(12);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.evaded, "zero evasion must never dodge");
         assert!(outcome.damage >= 50, "at least 5% of 1000 raw damage (50) must always land on a non-evaded hit - got {}", outcome.damage);
     }
@@ -11544,6 +11576,139 @@ mod full_detail_combat_log_tests {
             })
             .expect("an Attack event must have been logged");
         assert_eq!(damage, 500, "a basic-encounter mob's hit must be identical to the zero-pierce case - 1000 * (1 - 0.5 DR)");
+    }
+
+    // Split-point bugfix (2026-08-18, same day as the feature) - the
+    // above 4 tests all passed unchanged both before and after this fix
+    // because none of them give the attacker any crit/increased-damage
+    // stat, so `raw_dmg == base_damage` in every one of them and the two
+    // possible split points coincide by coincidence. The two tests below
+    // specifically exercise attacker-side scaling, the exact case the
+    // original (buggy) pre-roll split point silently got wrong - it
+    // carved pierce off `base_damage` before boss_power_mult (baked into
+    // that same `base_damage` via the boss's own attack stat, so this
+    // part happened to still be reflected)/crit/increased-damage had
+    // rolled, so pierce ended up a rounding error relative to the real
+    // hit at live stage scaling, with the mitigable remainder silently
+    // carrying almost all of the real damage.
+
+    #[test]
+    fn zero_defense_target_takes_byte_identical_total_damage_with_or_without_pierce() {
+        // The core invariant a correct split point must satisfy: pierce
+        // only ever redistributes WHERE the already-determined damage
+        // total is unavoidable, never how big that total is. Against a
+        // target with zero evasion/block/DR, total damage taken must be
+        // identical whether boss_pierce_pct is 0.5 or 0.0 - and must
+        // equal the fully-rolled `unmitigated_damage` exactly. Real
+        // crit/increased-damage stats on the attacker specifically so
+        // `raw_dmg != base_damage`.
+        for seed in 0..20u64 {
+            let make_attacker = |pierce_pct: f64| CombatSimUnit {
+                is_boss: true,
+                boss_pierce_pct: pierce_pct,
+                crit_chance: 0.5,
+                crit_multiplier: 1.5,
+                increased_damage: 0.3,
+                spawned_at_ms: 1,
+                hp: 100_000,
+                max_hp: 100_000,
+                ..neutral_attacker()
+            };
+            let make_target = || CombatSimUnit { hp: 1_000_000, max_hp: 1_000_000, ..neutral_defender() };
+
+            let mut units_pierce = vec![make_attacker(0.5), make_target()];
+            let mut events_pierce = Vec::new();
+            let mut rolls_pierce = Vec::new();
+            let mut rng_pierce = StdRng::seed_from_u64(seed);
+            apply_hit(&mut units_pierce, 0, 1, 1000.0, 1, &mut events_pierce, &mut rolls_pierce, &mut rng_pierce, true, false);
+            let (damage_pierce, unmitigated_pierce) = events_pierce
+                .iter()
+                .find_map(|e| match e {
+                    CombatEvent::Attack { damage, unmitigated_damage, .. } => Some((*damage, *unmitigated_damage)),
+                    _ => None,
+                })
+                .expect("an Attack event must have been logged");
+
+            let mut units_no_pierce = vec![make_attacker(0.0), make_target()];
+            let mut events_no_pierce = Vec::new();
+            let mut rolls_no_pierce = Vec::new();
+            let mut rng_no_pierce = StdRng::seed_from_u64(seed);
+            apply_hit(&mut units_no_pierce, 0, 1, 1000.0, 1, &mut events_no_pierce, &mut rolls_no_pierce, &mut rng_no_pierce, true, false);
+            let damage_no_pierce = events_no_pierce
+                .iter()
+                .find_map(|e| match e {
+                    CombatEvent::Attack { damage, .. } => Some(*damage),
+                    _ => None,
+                })
+                .expect("an Attack event must have been logged");
+
+            assert_eq!(damage_pierce, damage_no_pierce, "seed {seed}: with zero target defenses, pierce must not change the total damage taken");
+            assert_eq!(damage_pierce, unmitigated_pierce, "seed {seed}: with zero target defenses, damage must equal the fully-rolled unmitigated amount");
+        }
+    }
+
+    #[test]
+    fn pierce_floor_scales_with_the_attackers_own_rolled_damage_not_just_pierce_pct() {
+        // `boss_power_mult` is baked straight into a real boss's own
+        // attack stat at construction time (see
+        // `WorldState::boss_power_mult`'s own doc), i.e. into
+        // `base_damage` itself, BEFORE `apply_hit` is ever called - so
+        // doubling `base_damage` here is exactly how a live fight's
+        // power-mult scaling shows up at this call site. Zero crit/
+        // increased-damage on the attacker keeps this test's arithmetic
+        // exact (raw_dmg == base_damage), isolating the power-mult-style
+        // scaling specifically from the crit/increased-damage case the
+        // test above already covers.
+        const PIERCE_PCT: f64 = 0.4;
+        const LOW_POWER_BASE_DAMAGE: f64 = 1000.0;
+        const HIGH_POWER_BASE_DAMAGE: f64 = 2000.0;
+        for seed in 0..20u64 {
+            let make_attacker = || CombatSimUnit {
+                is_boss: true,
+                boss_pierce_pct: PIERCE_PCT,
+                spawned_at_ms: 1,
+                hp: 100_000,
+                max_hp: 100_000,
+                ..neutral_attacker()
+            };
+            // High evasion AND high DR - the OLD split point would have
+            // let almost the entire hit disappear into these; a correct
+            // split point still guarantees the pierce floor lands
+            // regardless.
+            let make_target = || CombatSimUnit { evasion: 0.95, damage_reduction: 0.75, hp: 1_000_000, max_hp: 1_000_000, ..neutral_defender() };
+
+            let mut units_low = vec![make_attacker(), make_target()];
+            let mut events_low = Vec::new();
+            let mut rolls_low = Vec::new();
+            let mut rng_low = StdRng::seed_from_u64(seed);
+            apply_hit(&mut units_low, 0, 1, LOW_POWER_BASE_DAMAGE, 1, &mut events_low, &mut rolls_low, &mut rng_low, true, false);
+            let damage_low = events_low
+                .iter()
+                .find_map(|e| match e { CombatEvent::Attack { damage, .. } => Some(*damage), _ => None })
+                .expect("an Attack event must have been logged");
+
+            // Same seed, same attacker/target stats, ONLY base_damage
+            // doubled.
+            let mut units_high = vec![make_attacker(), make_target()];
+            let mut events_high = Vec::new();
+            let mut rolls_high = Vec::new();
+            let mut rng_high = StdRng::seed_from_u64(seed);
+            apply_hit(&mut units_high, 0, 1, HIGH_POWER_BASE_DAMAGE, 1, &mut events_high, &mut rolls_high, &mut rng_high, true, false);
+            let damage_high = events_high
+                .iter()
+                .find_map(|e| match e { CombatEvent::Attack { damage, .. } => Some(*damage), _ => None })
+                .expect("an Attack event must have been logged");
+
+            let expected_floor_low = (LOW_POWER_BASE_DAMAGE * PIERCE_PCT).round() as u64;
+            let expected_floor_high = (HIGH_POWER_BASE_DAMAGE * PIERCE_PCT).round() as u64;
+            assert!(damage_low >= expected_floor_low, "seed {seed}: low-power pierce floor violated - got {damage_low}, floor {expected_floor_low}");
+            assert!(damage_high >= expected_floor_high, "seed {seed}: high-power pierce floor violated - got {damage_high}, floor {expected_floor_high}");
+            // The floor itself must double when the attacker's own rolled
+            // damage doubles - exactly the bug: the old pre-roll split
+            // point produced the SAME ~negligible pierce amount at any
+            // power level, since it never saw this scaling at all.
+            assert_eq!(expected_floor_high, expected_floor_low * 2, "the pierce floor must scale with the attacker's own base damage, not stay fixed");
+        }
     }
 }
 
