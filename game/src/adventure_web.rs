@@ -3053,6 +3053,7 @@ fn passive_archetype_icon_role(a: Archetype) -> (&'static str, &'static str) {
         Archetype::Warlock => "💀",
         Archetype::Cleric => "✨",
         Archetype::Druid => "🍃",
+        Archetype::Elementalist => "🔥",
         Archetype::Commoner => "❔",
     };
     (icon, role)

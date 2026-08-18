@@ -9,6 +9,10 @@ patreon-tokens.json
 # new binaries while the currently-running one still holds a file lock
 # on /target/release) - see REFACTOR_PLAN.md's bake deployment proposal.
 /target-bake
+# Separate build output dir for feature/elementalist's own verification
+# builds - production's target/release binaries are live-running
+# processes and must never be touched by this branch's work.
+/target-elementalist
 # Pre-cutover rollback backups (real player data + a binary) - never tracked.
 /backup-pre-bake
 

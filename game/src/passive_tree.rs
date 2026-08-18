@@ -521,6 +521,7 @@ impl Archetype {
             Archetype::Cleric => CLERIC_NODES,
             Archetype::Druid => DRUID_NODES,
             Archetype::Slayer => SLAYER_NODES,
+            Archetype::Elementalist => ELEMENTALIST_NODES,
         }
     }
 
@@ -1789,6 +1790,195 @@ static SLAYER_NODES: &[PassiveNode] = &[
     modifier_with_effect("lastrites", "martyrdom", "Last Rites", "A 33% chance per rank (up to 100% at 3/3) to prevent a downed ally's death once per fight.", Special { at_rank_1: 0.33, per_additional_rank: 0.335 }),
 ];
 
+// ---------------------------------------------------------------------
+// ELEMENTALIST (root: splash, see `Archetype::bonus`) - Stage 1 of the
+// staged build (see ELEMENTALIST_PROGRESS.md at repo root): structure
+// only, every node `PassiveEffect::NotYetImplemented`, matching this
+// file's own established "structure first, wire in effects across
+// passes" precedent (see this file's own top-of-file doc for the
+// original 11-archetype build history). Real effects land in Stages
+// 2-6 per docs/elementalist_spec.md's staged plan - do not treat a
+// NotYetImplemented node here as "not coming," every one of these 39
+// nodes gets a real mechanic in a later stage.
+//
+// Two node KEYS were renamed from their spec display name to avoid a
+// collision with an existing archetype's key (global key uniqueness is
+// required - see Split Personality's own doc on why): "Blizzard"
+// (Chilling Focus's crit-chance modifier) is keyed `hoarfrost` instead
+// (an existing "blizzard" key belongs to another archetype), and
+// "Conflagration" (Scorching Focus's increased-damage modifier) is
+// keyed `pyroclasm` instead (an existing "conflagration" key likewise
+// collides) - both display NAMES stay exactly as spec'd, only the
+// internal key differs, same precedent as Warrior's own
+// "overwhelmingforce" (display "Overwhelming Force") avoiding
+// Berserker's "overwhelm".
+//
+// Several passives have SPEC-GIVEN irregular (non-linear) per-rank
+// progressions - Healing Flames (3/6/10%, not an even step) and
+// Blazing (6/9/18%, not an even step) - flagged in their own
+// descriptions below. Since every node here is still
+// NotYetImplemented, the `at_rank_1`/`per_additional_rank` numeric
+// fields aren't consumed yet (the variant carries none); whichever
+// later stage wires each of these two real will need a per-rank
+// lookup rather than forcing `FlatStat`'s linear formula through the
+// irregular ranks - noted here so that stage doesn't have to
+// re-discover it.
+static ELEMENTALIST_NODES: &[PassiveNode] = &[
+    skill(
+        "righteousfire",
+        "Righteous Fire",
+        "Deals damage equal to 10% of your maximum health to a number of enemies based on splash, at rank 1 - +10% per additional rank (30% at 3/3). While active, you take 10% of your health as damage per second at rank 1 - +10% per additional rank (30% at 3/3).",
+        PassiveEffect::NotYetImplemented,
+    ),
+    skill(
+        "elementalfocus",
+        "Elemental Focus",
+        "Gain 5% additive elemental damage (lightning/cold/fire) per level, at rank 1 - +5% per additional rank (15% at 3/3).",
+        PassiveEffect::NotYetImplemented,
+    ),
+    skill(
+        "golemmaster",
+        "Golem Master",
+        "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems have 33% of your stats; you deal 33% less damage per summoned golem, additive (1% of normal damage at 3 golems).",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "healingflames",
+        "righteousfire",
+        "Healing Flames",
+        "Regenerate 3% of your health per second at rank 1, 6% at rank 2, 10% at rank 3 (irregular scaling - see this file's own note above).",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "cleansingflames",
+        "righteousfire",
+        "Cleansing Flames",
+        "33% chance every 4 seconds to remove all debuffs from yourself and nearby allies at rank 1, 66% at rank 2, 100% at rank 3 - target count based on splash.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "scorchingflames",
+        "righteousfire",
+        "Scorching Flames",
+        "Gain 10% additive fire damage per level at rank 1 - +10% per additional rank (30% at 3/3).",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "shockingfocus",
+        "elementalfocus",
+        "Shocking Focus",
+        "You apply lightning damage debuffs 33% more frequently at rank 1, 66% at rank 2, 100% at rank 3.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "chillingfocus",
+        "elementalfocus",
+        "Chilling Focus",
+        "You apply cold damage debuffs 33% more frequently at rank 1, 66% at rank 2, 100% at rank 3.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "scorchingfocus",
+        "elementalfocus",
+        "Scorching Focus",
+        "You apply fire damage debuffs 33% more frequently at rank 1, 66% at rank 2, 100% at rank 3.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "thundergolem",
+        "golemmaster",
+        "Thunder Golem",
+        "Absorbs all externally-sourced damage the party would take until it dies (cannot be shielded or healed by any means) - reforms 4 seconds after dying at rank 1, 3 seconds at rank 2, 2 seconds at rank 3, then rejoins combat.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "flamegolem",
+        "golemmaster",
+        "Flame Golem",
+        "Base golem behavior - this golem type's real identity is its 3 modifiers below.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    spec(
+        "watergolem",
+        "golemmaster",
+        "Water Golem",
+        "Base golem behavior - this golem type's real identity is its 3 modifiers below.",
+        PassiveEffect::NotYetImplemented,
+    ),
+    modifier("fanningflames", "healingflames", "Fanning Flames", "Share 33% of your Healing Flames regeneration with nearby allies at rank 1, 66% at rank 2, 100% at rank 3 - target count based on splash."),
+    modifier(
+        "risingphoenix",
+        "healingflames",
+        "Rising Phoenix",
+        "When nearby allies die, up to 1 of them revives and rejoins the battle 1 second after death at rank 1 - +1 per additional rank (3 at 3/3, a per-combat limit). Only applies to allies that had survived at least 3 seconds.",
+    ),
+    modifier(
+        "shieldingflames",
+        "healingflames",
+        "Shielding Flames",
+        "33% of your Healing Flames regeneration is also added as a shield on you at rank 1, 66% at rank 2, 100% at rank 3 - in addition to the healing.",
+    ),
+    modifier("enshroudedfire", "cleansingflames", "Enshrouded Fire", "Grants a number of allies (based on splash) 3% multiplicative evasion at rank 1 - +3% per additional rank (9% at 3/3)."),
+    modifier("guardianfire", "cleansingflames", "Guardian Fire", "Grants a number of allies (based on splash) 3% multiplicative reduced damage taken at rank 1 - +3% per additional rank (9% at 3/3)."),
+    modifier(
+        "shieldingfire",
+        "cleansingflames",
+        "Shielding Fire",
+        "Grants a number of allies (based on splash) improved block: blocked attacks reduce damage by 55% at rank 1, 60% at rank 2, 65% at rank 3, instead of the standard 50%.",
+    ),
+    modifier(
+        "relentlessflames",
+        "scorchingflames",
+        "Relentless Flames",
+        "A number of nearby enemies (based on splash) take 1% increased damage per second for every second they remain in your presence at rank 1 - +1% per additional rank (3% at 3/3), stacking.",
+    ),
+    modifier("cauterizingflames", "scorchingflames", "Cauterizing Flames", "A number of nearby enemies (based on splash) receive 5% multiplicative reduced healing at rank 1 - +5% per additional rank (15% at 3/3)."),
+    modifier(
+        "ashestoashes",
+        "scorchingflames",
+        "Ashes to Ashes, Dust to Dust",
+        "Any enemy in range, including bosses, instantly bursts into flame and dies when its health drops below 100% of your health at rank 1 - +100% per additional rank (300% at 3/3).",
+    ),
+    modifier("overshock", "shockingfocus", "Overshock", "15% more lightning damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from lightning damage on your gear."),
+    modifier("electricaloverload", "shockingfocus", "Electrical Overload", "Gain 10% more critical strike damage at rank 1 - +10% per additional rank (30% at 3/3)."),
+    modifier("lightningaegis", "shockingfocus", "Lightning Aegis", "Gain 1% of your health as shield every time you apply a lightning debuff at rank 1 - +1% per additional rank (3% at 3/3)."),
+    modifier("polarflux", "chillingfocus", "Polar Flux", "15% more cold damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from cold damage on your gear."),
+    // Key "hoarfrost", not "blizzard" - see this file's own top-of-section
+    // note on the rename (an existing "blizzard" key collides).
+    modifier("hoarfrost", "chillingfocus", "Blizzard", "Gain 10% more critical strike chance at rank 1 - +10% per additional rank (30% at 3/3)."),
+    modifier("chillingaegis", "chillingfocus", "Chilling Aegis", "Gain 1% of your health as shield every time you apply a cold debuff at rank 1 - +1% per additional rank (3% at 3/3)."),
+    modifier("incinerate", "scorchingfocus", "Incinerate", "15% more fire damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from fire damage on your gear."),
+    // Key "pyroclasm", not "conflagration" - see this file's own
+    // top-of-section note on the rename (an existing "conflagration" key
+    // collides).
+    modifier("pyroclasm", "scorchingfocus", "Conflagration", "Gain 10% multiplicative increased damage at rank 1 - +10% per additional rank (30% at 3/3)."),
+    modifier("scorchingaegis", "scorchingfocus", "Scorching Aegis", "Gain 1% of your health as shield every time you apply a fire debuff at rank 1 - +1% per additional rank (3% at 3/3)."),
+    modifier(
+        "gigantify",
+        "thundergolem",
+        "Gigantify",
+        "Thunder Golems get 100% more contribution from your health pool at rank 1 - +100% per additional rank (300% at 3/3) - base 33% of your health becomes 66/99/132%.",
+    ),
+    modifier("growing", "thundergolem", "Growing", "Thunder Golems gain 33% more maximum health each time they reform at rank 1, 66% at rank 2, 100% at rank 3 - stacking within a combat."),
+    modifier("terrifying", "thundergolem", "Terrifying", "When a Thunder Golem dies, it explodes dealing 33% of its health as damage to enemies at rank 1, 66% at rank 2, 100% at rank 3."),
+    modifier("volcanicash", "flamegolem", "Volcanic Ash", "Flame Golems inherit 33% of your multiplicative increased fire damage at rank 1, 66% at rank 2, 100% at rank 3."),
+    modifier("blazing", "flamegolem", "Blazing", "Flame Golems gain 6% multiplicative attack speed at rank 1, 9% at rank 2, 18% at rank 3 (irregular scaling - see this file's own note above)."),
+    modifier("surging", "flamegolem", "Surging", "Flame Golems deal 10% multiplicative damage at rank 1 - +10% per additional rank (30% at 3/3)."),
+    modifier(
+        "replenishing",
+        "watergolem",
+        "Replenishing",
+        "Water Golems convert all damage they deal into healing for the party at a 100% rate at rank 1 - +100% per additional rank (300% at 3/3).",
+    ),
+    modifier("singing", "watergolem", "Singing", "All allies gain 10% more effect from shields and heals applied to them at rank 1 - +10% per additional rank (30% at 3/3)."),
+    modifier(
+        "shattering",
+        "watergolem",
+        "Shattering",
+        "When an enemy dies in the Water Golem's presence, it explodes, sending icicles at (splash + 1) nearby enemies at rank 1 - +1 per additional rank (splash + 3 at 3/3), each dealing damage equal to 1% of the dead enemy's health.",
+    ),
+];
+
 /// Points-per-level formula - 1 point from the start, +1 every 4 levels
 /// (2026-08-16, tightened from every 5 per a live request). Originally
 /// had a level-10 delay before the first point at all, dropped 2026-08-15
@@ -1796,4 +1986,131 @@ static SLAYER_NODES: &[PassiveNode] = &[
 /// waiting.
 pub fn points_for_level(level: u32) -> u32 {
     1 + level / 4
+}
+
+/// Stage 1 of the Elementalist build (docs/elementalist_spec.md,
+/// ELEMENTALIST_PROGRESS.md) - the first structural validation this file
+/// has ever had for ANY archetype's tree, not just the new one. Written
+/// generically over `ALL_ARCHETYPES` on purpose: it protects every
+/// existing archetype's tree from a future mistake too, not just
+/// Elementalist's.
+#[cfg(test)]
+mod tree_shape_tests {
+    use super::*;
+    use crate::adventure::ALL_ARCHETYPES;
+    use std::collections::HashSet;
+
+    /// Every archetype's own node list, plus Commoner's (always empty) -
+    /// `ALL_ARCHETYPES` itself deliberately excludes Commoner (see its
+    /// own doc: "never a manual target"), but its tree is still part of
+    /// `Archetype::passive_nodes`'s exhaustive match and worth including
+    /// here for completeness.
+    fn every_archetype_nodes() -> Vec<(Archetype, &'static [PassiveNode])> {
+        let mut all: Vec<Archetype> = ALL_ARCHETYPES.to_vec();
+        all.push(Archetype::Commoner);
+        all.into_iter().map(|a| (a, a.passive_nodes())).collect()
+    }
+
+    #[test]
+    fn every_node_key_is_globally_unique_across_every_archetype() {
+        let mut seen: HashSet<&'static str> = HashSet::new();
+        for (archetype, nodes) in every_archetype_nodes() {
+            for node in nodes {
+                assert!(seen.insert(node.key), "duplicate key {:?} - first collision found while checking {archetype:?}", node.key);
+            }
+        }
+    }
+
+    // The three tests below are scoped to `Archetype::Elementalist`
+    // specifically, NOT every archetype - an earlier draft checked all
+    // 12 and found a pre-existing exception in Monk's tree (the
+    // "windwalker" modifier is parented directly to the "flowingstrikes"
+    // SKILL, not to one of its 3 Specialization children - see
+    // `MONK_NODES`'s own Flowing Strikes redesign history above). That's
+    // unrelated, already-shipped, live content this feature has no
+    // business touching - fixing or working around it is out of scope
+    // for adding a new class. Asserting a general invariant that's
+    // already known not to hold everywhere would just be a test that's
+    // wrong about the codebase it's testing, so these stay scoped to the
+    // one tree this stage actually owns. Key uniqueness above still
+    // checks all 12, since that check doesn't assume anything about
+    // another archetype's internal shape.
+
+    #[test]
+    fn elementalist_every_skill_has_no_parent_and_max_rank_3() {
+        for node in Archetype::Elementalist.passive_nodes().iter().filter(|n| matches!(n.tier, PassiveTier::Skill)) {
+            assert!(node.parent.is_none(), "skill {:?} must have no parent", node.key);
+            assert_eq!(node.max_rank, 3, "skill {:?} must cap at rank 3", node.key);
+            assert!(node.unlock_at.is_none(), "skill {:?} must have no unlock_at - it's never gated", node.key);
+        }
+    }
+
+    #[test]
+    fn elementalist_every_specialization_has_a_skill_parent_and_max_rank_4() {
+        let nodes = Archetype::Elementalist.passive_nodes();
+        for node in nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Specialization)) {
+            let parent_key = node.parent.unwrap_or_else(|| panic!("spec {:?} must have a parent", node.key));
+            let parent = nodes.iter().find(|n| n.key == parent_key).unwrap_or_else(|| panic!("spec {:?} points at missing parent {parent_key:?}", node.key));
+            assert!(matches!(parent.tier, PassiveTier::Skill), "spec {:?}'s parent {parent_key:?} must be a Skill", node.key);
+            assert_eq!(node.max_rank, 4, "spec {:?} must cap at rank 4 (3 real + 1 unlock-only)", node.key);
+        }
+    }
+
+    #[test]
+    fn elementalist_every_modifier_has_a_specialization_parent_gated_at_4_and_max_rank_3() {
+        let nodes = Archetype::Elementalist.passive_nodes();
+        for node in nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Modifier)) {
+            let parent_key = node.parent.unwrap_or_else(|| panic!("modifier {:?} must have a parent", node.key));
+            let parent = nodes.iter().find(|n| n.key == parent_key).unwrap_or_else(|| panic!("modifier {:?} points at missing parent {parent_key:?}", node.key));
+            assert!(matches!(parent.tier, PassiveTier::Specialization), "modifier {:?}'s parent {parent_key:?} must be a Specialization", node.key);
+            assert_eq!(node.max_rank, 3, "modifier {:?} must cap at rank 3", node.key);
+            assert_eq!(node.unlock_at, Some(4), "modifier {:?} must be gated on its parent hitting 4/4", node.key);
+        }
+    }
+
+    #[test]
+    fn elementalist_tree_has_exactly_3_skills_9_specs_27_modifiers() {
+        let nodes = Archetype::Elementalist.passive_nodes();
+        let skills = nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Skill)).count();
+        let specs = nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Specialization)).count();
+        let modifiers = nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Modifier)).count();
+        assert_eq!(skills, 3, "3 base passives");
+        assert_eq!(specs, 9, "3 specializations per base passive");
+        assert_eq!(modifiers, 27, "3 modifiers per specialization");
+        assert_eq!(nodes.len(), 39);
+    }
+
+    #[test]
+    fn elementalist_every_specialization_has_exactly_3_modifier_children() {
+        let nodes = Archetype::Elementalist.passive_nodes();
+        for spec in nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Specialization)) {
+            let child_count = nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Modifier) && n.parent == Some(spec.key)).count();
+            assert_eq!(child_count, 3, "specialization {:?} must have exactly 3 modifier children", spec.key);
+        }
+    }
+
+    #[test]
+    fn elementalist_every_skill_has_exactly_3_specialization_children() {
+        let nodes = Archetype::Elementalist.passive_nodes();
+        for skill in nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Skill)) {
+            let child_count = nodes.iter().filter(|n| matches!(n.tier, PassiveTier::Specialization) && n.parent == Some(skill.key)).count();
+            assert_eq!(child_count, 3, "skill {:?} must have exactly 3 specialization children", skill.key);
+        }
+    }
+
+    /// Stage 1's nodes are all deliberately `NotYetImplemented` (see this
+    /// section's own doc above the array) - this test exists so whichever
+    /// later stage wires a node's real effect in remembers to flip this
+    /// assertion's expectation for that specific key, rather than the
+    /// change going unnoticed. When Stage 2 lands, this test should be
+    /// updated to assert the Elemental Focus branch's keys are no longer
+    /// NotYetImplemented while the rest still are, and so on through
+    /// Stage 6.
+    #[test]
+    fn elementalist_stage_1_every_node_is_not_yet_implemented() {
+        let nodes = Archetype::Elementalist.passive_nodes();
+        for node in nodes {
+            assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should be NotYetImplemented until its own stage wires it in", node.key);
+        }
+    }
 }
