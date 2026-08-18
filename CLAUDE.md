@@ -19,7 +19,15 @@ After every deploy, in order:
    pod-qa's state yourself (a mismatch can mean the push failed, the
    pull failed, or - confirmed live 2026-08-18 - pod-qa has untracked
    local files colliding with newly-pushed ones; the fix is the owner's
-   call in every case, not an AI session's).
+   call in every case, not an AI session's). Specifically for an
+   untracked-file collision (git's own error names them - "The
+   following untracked working tree files would be overwritten by
+   merge: ..."): report the exact filenames and stop there. The fix is
+   owner-side deletion in C:\pod-qa (confirmed live 2026-08-18 - one
+   was a CLAUDE.md hand-created during initial setup, before that file
+   existed in the repo) - never a forced pull (`git pull --force`/`-f`,
+   `git checkout -- .`, or similar) from an AI session, which would
+   silently discard whatever those files were protecting.
 4. If it errors, report to me.
 
 Context: C:\pod-qa is an intentionally READ-ONLY mirror of this repo,
