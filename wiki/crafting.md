@@ -10,7 +10,8 @@ Every currency, every action, and the one rule that governs them all: no item ca
   <div class="wiki-currency-card"><h4>Dust</h4><p>Earned from wins and boss kills. Pays for every currency-crafting action, Reforge, and Recombine.</p></div>
   <div class="wiki-currency-card"><h4>Sand</h4><p>Earned from wins and disenchanting. Spent exclusively on Polishing.</p></div>
   <div class="wiki-currency-card"><h4>Craft Tokens</h4><p>One kind per action (Transmute, Scour, Augment, Regal, Exalt, Krangle, Annulment, Chancing). Spending a token skips that action's dust cost entirely.</p></div>
-  <div class="wiki-currency-card"><h4>Celestial Shard</h4><p>A rare token, separate from every other currency. The only way to grant a Unique Affix.</p></div>
+  <div class="wiki-currency-card"><h4>Celestial Shard</h4><p>A rare token, separate from every other currency. Grants the Celestial Conversion Unique Affix.</p></div>
+  <div class="wiki-currency-card"><h4>Unique Shard</h4><p>A second, separate rare token. Grants the Split Personality Unique Affix - unlocks a second class's passive tree. See <a href="/wiki/classes#split-personality">Classes &amp; Passives</a>.</p></div>
 </div>
 
 <h3 id="ceiling">The Modifier Ceiling</h3>
@@ -56,6 +57,13 @@ Eight actions in total. Six are gated by exactly how many modifiers the target i
 </div>
 
 <p class="muted">Every action above also costs <code>{{TIER_CRAFT_DUST_COST}}&times;tier</code> extra dust on top of its base price &mdash; unless you spend that action's own Craft Token instead, which skips the dust entirely. A locked (Krangled) item is permanently excluded from all eight.</p>
+
+**Hideout Warrior** is a one-click macro on the dashboard's crafting card
+that runs Transmute → Augment → Regal → Exalt → (optionally Krangle, via a
+checkbox) against one item in sequence - skipping any step whose
+precondition doesn't currently match, and always paying full dust per step
+rather than spending a banked token. It stops early if you run out of dust
+partway through.
 
 <h3 id="reforge">Reforge</h3>
 
