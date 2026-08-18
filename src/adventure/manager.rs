@@ -1144,6 +1144,53 @@ impl AdventureManager {
         // `ITEM_MIGRATIONS`'s doc for what each does and why order matters.
         run_item_migrations(&characters_path, &mut characters);
 
+        // One-time equipped-item repair (2026-08-18, following the same
+        // live report as `migrate_crit_flag_to_affix_tracking` above,
+        // which just ran as part of `run_item_migrations`): for every
+        // currently-EQUIPPED item where `legacy_reforge_crit_used` was
+        // `true` but that migration found nothing to point the new
+        // tracking at (no surviving legacy-named affix, not over cap
+        // either) - i.e. the item's own state insists it already won a
+        // reforge crit, yet nothing on it shows for it - grants a fresh
+        // random bonus affix right now and tags it, same as if the crit
+        // had just landed for real. Deliberately EQUIPPED-ONLY, not every
+        // item a character owns: this is a visible, one-time make-good
+        // grant for gear players are actively using, not a silent
+        // bag-wide backfill. Guarded by its own marker, same "not
+        // naturally idempotent" reasoning as every other one-off grant
+        // here.
+        {
+            const CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH: &str = "adventure-crit-reforge-equipped-backfill-marker.json";
+            if crate::state::load_json::<bool>(CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH).is_none() {
+                let mut rng = rand::thread_rng();
+                let mut changed = false;
+                for character in characters.values_mut() {
+                    for slot in EQUIP_SLOTS {
+                        let Some(item) = character.equipped_mut(slot) else { continue };
+                        if !item.legacy_reforge_crit_used || item.reforge_crit_used() {
+                            continue;
+                        }
+                        let present: Vec<Affix> = item.affixes.iter().map(|(a, _)| *a).collect();
+                        let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
+                        let Some(&affix) = weighted_affix_pick(&candidates, 1, &mut rng).first() else { continue };
+                        let jitter = rng.gen_range(0.85..1.15);
+                        let mult = if item.perfect { PERFECT_QUALITY_MULT } else { 1.0 };
+                        item.affixes.push((affix, affix_base_value(affix, item.tier) * jitter * mult));
+                        item.record_reforge_crit(affix);
+                        changed = true;
+                    }
+                }
+                if changed {
+                    if let Err(err) = crate::state::save_json(&characters_path, &characters) {
+                        tracing::error!("Failed to persist crit-reforge equipped backfill to {}: {err}", characters_path.display());
+                    }
+                }
+                if let Err(err) = crate::state::save_json(CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH, &true) {
+                    tracing::error!("Failed to persist crit-reforge equipped backfill marker to {CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH}: {err}");
+                }
+            }
+        }
+
         // One-time character-field corrections (currently: the Flow like
         // Water / Hundred Fists tier swap's allocation move) - see
         // `CHARACTER_MIGRATIONS`'s doc.
@@ -2853,20 +2900,16 @@ impl AdventureManager {
         // "Reforge Now" use, the exact bug class a live report already
         // caught for unique_affix.
         let sacred_affix = existing.sacred_affix;
-        // Once-per-lineage crit tracking (see `Item::reforge_crit_used`'s
+        // Once-per-lineage crit tracking (see `Item::crit_bonus_affixes`'s
         // doc) MUST carry forward here too - this fn rebuilds a brand new
         // `Item` every call (unlike `Character::reforge_item`, which
         // mutates in place), so without this, every single reforge would
         // silently reset the gate back to "never crit yet", defeating the
-        // entire point of the flag for this specific path.
-        let reforge_crit_used = existing.reforge_crit_used;
-        let recombine_crit_used = existing.recombine_crit_used;
-        // See Item::crit_bonus_affixes' doc - same "must carry forward,
-        // this fn rebuilds a brand new Item every call" reasoning as
-        // reforge_crit_used/recombine_crit_used just above. carried_affixes
-        // below is a straight 1:1 type-preserving copy of existing.affixes
-        // (just rescaled), so no filtering is needed here the way
-        // roll_recombine needs it when merging two different sources.
+        // entire point of the tracking for this specific path.
+        // carried_affixes below is a straight 1:1 type-preserving copy of
+        // existing.affixes (just rescaled), so no filtering is needed here
+        // the way roll_recombine needs it when merging two different
+        // sources - every crit-tagged type that was present stays present.
         let crit_bonus_affixes = existing.crit_bonus_affixes.clone();
         // Captured from `existing` (the item BEING reforged), same as
         // `was_perfect` above - see `reforge_crit_chance`'s doc for why
@@ -2892,8 +2935,6 @@ impl AdventureManager {
         item.affixes = carried_affixes;
         item.unique_affix = unique_affix;
         item.sacred_affix = sacred_affix;
-        item.reforge_crit_used = reforge_crit_used;
-        item.recombine_crit_used = recombine_crit_used;
         item.crit_bonus_affixes = crit_bonus_affixes;
         if was_perfect {
             // `carried_affixes` above already preserves the 20% boost on
@@ -2908,8 +2949,8 @@ impl AdventureManager {
             item.perfect = true;
         }
         // Once-per-lineage gate - see Character::reforge_item's identical
-        // check/Item::reforge_crit_used's doc.
-        let bonus_affix = if !item.reforge_crit_used && rng.gen_bool(reforge_crit_chance(quality_percent, was_perfect)) {
+        // check/Item::crit_bonus_affixes's doc.
+        let bonus_affix = if !item.reforge_crit_used() && rng.gen_bool(reforge_crit_chance(quality_percent, was_perfect)) {
             let present: Vec<Affix> = item.affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             // Same Perfect-Quality-aware roll as `roll_craft_affix_value` -
@@ -2920,8 +2961,7 @@ impl AdventureManager {
             weighted_affix_pick(&candidates, 1, &mut rng).first().copied().map(|affix| {
                 let jitter = rng.gen_range(0.85..1.15);
                 item.affixes.push((affix, affix_base_value(affix, new_tier) * jitter * mult));
-                item.reforge_crit_used = true;
-                item.crit_bonus_affixes.push(affix);
+                item.record_reforge_crit(affix);
                 affix
             })
         } else {

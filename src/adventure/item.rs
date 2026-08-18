@@ -147,6 +147,15 @@ impl UniqueAffix {
     }
 }
 
+/// Which crit source tagged a `crit_bonus_affixes` entry - see that
+/// field's doc. Only ever compared, never displayed differently per
+/// variant (both render identically in `gear_stat_line`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CritSource {
+    Reforge,
+    Recombine,
+}
+
 /// One dropped/equipped item. What `power` means depends on `slot` — see
 /// `Character`'s combat-stat getters (weapon/body/gloves) and
 /// `simulate_battle`'s helm/boots skill handling. Boots are "a periodic
@@ -272,39 +281,46 @@ pub struct Item {
     /// `apply_recombine_roll`, so the child item just never has it set.
     #[serde(default)]
     pub sacred_affix: Option<(Affix, f64)>,
-    /// Whether this item (or an ancestor it was Recombined from) has ever
-    /// landed Reforge's rare bonus-affix crit (2026-08-16, a live report:
-    /// an item had crit more than once, ending up with far more than the
-    /// intended max). The designed ceiling is 4 base affixes (normal
-    /// currency crafting) + at most 1 EACH from Reforge's crit,
-    /// Recombine's own crit, and Krangle (7 total) - Krangle already
-    /// self-limits via `locked` (a Krangled item can never be crafted on
-    /// again at all), but Reforge/Recombine's crits had no equivalent
-    /// "only once" tracking at all, so a repeatedly-reforged (or
-    /// repeatedly-recombined) item could keep stacking bonus affixes
-    /// without limit. UNLIKE `perfect`/`sacred_affix`, this DOES carry
-    /// forward through Recombine (see `roll_recombine`) - `true` if
-    /// EITHER source already had it set, since the 1-per-lineage rule
-    /// would otherwise be trivially bypassed by recombining a
-    /// just-crit'd item with a fresh one to "reset" its shot at another.
-    #[serde(default)]
-    pub reforge_crit_used: bool,
-    /// Same "once per lineage, carries through Recombine" tracking as
-    /// `reforge_crit_used`, for Recombine's own separate 5% bonus-affix
-    /// crit (see `roll_recombine`) instead of Reforge's.
-    #[serde(default)]
-    pub recombine_crit_used: bool,
-    /// WHICH `affixes` entries (by type) were granted by a Reforge or
-    /// Recombine crit, rather than a normal currency craft - 2026-08-17, a
-    /// live request to color that specific bullet green in the item card
-    /// (see `gear_stat_line`). Separate from `reforge_crit_used`/
-    /// `recombine_crit_used` (those are once-per-lineage GATES, this is
-    /// "which one" for display) - carries through Recombine same as those
-    /// two, but only for whichever affix types actually survive into the
-    /// recombined result's own `affixes` (see `roll_recombine`); an affix
-    /// type is always unique per item, so a type is an unambiguous key.
-    #[serde(default)]
-    pub crit_bonus_affixes: Vec<Affix>,
+    /// LEGACY (2026-08-16 to 2026-08-18) sticky item-level "used" gate -
+    /// permanently `true` forever from the moment Reforge's crit first
+    /// fired, even after the affix it granted was later removed by
+    /// Annulment (or anything else) - see
+    /// `migrations::migrate_crit_flag_to_affix_tracking`'s doc for the
+    /// live report this caused (a tier-374 item, genuinely crit once,
+    /// permanently soft-locked out of ever crit-ing again after that one
+    /// bonus affix was Annulled away) and the fix. Kept ONLY so that
+    /// migration can read existing save data once; nothing else may read
+    /// this. `skip_serializing` so freshly-saved JSON stops carrying the
+    /// old key forward once converted.
+    #[serde(default, rename = "reforge_crit_used", skip_serializing)]
+    pub(crate) legacy_reforge_crit_used: bool,
+    /// Same legacy/migration-only role as `legacy_reforge_crit_used`, for
+    /// Recombine's own separate crit.
+    #[serde(default, rename = "recombine_crit_used", skip_serializing)]
+    pub(crate) legacy_recombine_crit_used: bool,
+    /// Legacy pre-2026-08-18 shape of `crit_bonus_affixes` (a plain list
+    /// of types, no source tag) - migration-only, see
+    /// `legacy_reforge_crit_used`'s doc.
+    #[serde(default, rename = "crit_bonus_affixes", skip_serializing)]
+    pub(crate) legacy_crit_bonus_affixes: Vec<Affix>,
+    /// WHICH `affixes` entries were granted by a Reforge or Recombine
+    /// crit, rather than a normal currency craft, and which source
+    /// granted each one. This is now the ONLY source of truth for the
+    /// once-per-lineage crit gates too (see `reforge_crit_used`/
+    /// `recombine_crit_used` below) - unlike the old sticky bools, a gate
+    /// reads as "used" only while a matching entry here still points at
+    /// an affix that's ACTUALLY present in `affixes`. That means removing
+    /// the affix - by Annulment, or by any future crafting method that
+    /// doesn't even know this field exists - automatically re-opens the
+    /// gate, with zero bookkeeping required at the removal site. (Contrast
+    /// `chance_all_affixes`/`apply_chancing_reroll`, which DO need to
+    /// explicitly migrate an entry here when a slot's TYPE changes in
+    /// place - that's a deliberate "same slot, new flavor, still spent"
+    /// case, not a removal.) At most one entry per source in practice
+    /// (each source's own once-per-lineage nature), but Recombine can
+    /// carry across up to one from EACH parent - see `roll_recombine`.
+    #[serde(default, rename = "crit_bonus_affixes_v2")]
+    pub crit_bonus_affixes: Vec<(Affix, CritSource)>,
 }
 
 impl Item {
@@ -317,6 +333,45 @@ impl Item {
             Some(nickname) if !nickname.is_empty() => format!("{} \"{nickname}\"", self.name),
             _ => self.name.clone(),
         }
+    }
+
+    /// Whether Reforge's rare bonus-affix crit is still "spent" for this
+    /// item's lineage - see `crit_bonus_affixes`'s doc for why this is a
+    /// derived check (present-in-`affixes`) rather than a stored flag.
+    pub(crate) fn reforge_crit_used(&self) -> bool {
+        self.crit_bonus_affixes.iter().any(|&(a, src)| src == CritSource::Reforge && self.affixes.iter().any(|&(ax, _)| ax == a))
+    }
+
+    /// Same derived-from-presence check as `reforge_crit_used`, for
+    /// Recombine's own separate crit.
+    pub(crate) fn recombine_crit_used(&self) -> bool {
+        self.crit_bonus_affixes.iter().any(|&(a, src)| src == CritSource::Recombine && self.affixes.iter().any(|&(ax, _)| ax == a))
+    }
+
+    /// Whether `affix` is one of this item's crit-granted modifiers,
+    /// regardless of which source granted it - `gear_stat_line` uses this
+    /// to color that bullet, `craftable_affix_pool` uses it to exclude
+    /// crit-bonus affixes from the normal-affix-count precondition.
+    pub(crate) fn is_crit_bonus_affix(&self, affix: Affix) -> bool {
+        self.crit_bonus_affixes.iter().any(|&(a, _)| a == affix)
+    }
+
+    /// Records that Reforge's crit just fired, tagging `affix` (already
+    /// pushed onto `affixes` by the caller) as the crit-granted one.
+    /// Drops any stale prior Reforge-tagged entry first - only reachable
+    /// when `reforge_crit_used()` was false, i.e. either this item never
+    /// crit before, or it did and that affix has since been removed, in
+    /// which case the old dead entry would otherwise linger here forever.
+    pub(crate) fn record_reforge_crit(&mut self, affix: Affix) {
+        self.crit_bonus_affixes.retain(|&(_, src)| src != CritSource::Reforge);
+        self.crit_bonus_affixes.push((affix, CritSource::Reforge));
+    }
+
+    /// Same "drop stale, tag fresh" bookkeeping as `record_reforge_crit`,
+    /// for Recombine's own crit.
+    pub(crate) fn record_recombine_crit(&mut self, affix: Affix) {
+        self.crit_bonus_affixes.retain(|&(_, src)| src != CritSource::Recombine);
+        self.crit_bonus_affixes.push((affix, CritSource::Recombine));
     }
 
     /// Where this item's fixed `power_roll` landed within
@@ -656,18 +711,21 @@ pub struct RecombineRoll {
     /// re-rolling it" principle as reforge, just with two candidates
     /// instead of one.
     pub power_roll: f64,
-    /// Whether either source had already landed Reforge's crit - carries
-    /// forward unconditionally (see `Item::reforge_crit_used`'s doc);
-    /// Recombine doesn't grant or roll for this one, only inherits it.
-    pub reforge_crit_used: bool,
-    /// Whether either source had already landed Recombine's OWN crit, OR
-    /// this roll's own attempt (gated by that same prior state - see
-    /// `Item::recombine_crit_used`'s doc) succeeded.
-    pub recombine_crit_used: bool,
     /// See `Item::crit_bonus_affixes` - carried over from either source
     /// (filtered down to whichever types actually made it into `affixes`
-    /// above), plus this roll's own `bonus_affix` if it fired.
-    pub crit_bonus_affixes: Vec<Affix>,
+    /// above, same "must still be present" rule `Item::reforge_crit_used`/
+    /// `recombine_crit_used` derive from), plus this roll's own
+    /// `bonus_affix` if it fired. `reforge_crit_used()`/
+    /// `recombine_crit_used()` below read this the same way `Item`'s own
+    /// methods do - Recombine never grants a fresh Reforge-crit itself,
+    /// only inherits whichever of that type survives the merge.
+    pub crit_bonus_affixes: Vec<(Affix, CritSource)>,
+}
+
+impl RecombineRoll {
+    pub(crate) fn reforge_crit_used(&self) -> bool {
+        self.crit_bonus_affixes.iter().any(|&(a, src)| src == CritSource::Reforge && self.affixes.iter().any(|&(ax, _)| ax == a))
+    }
 }
 
 /// Result of a successful recombination - see `Character::recombine`.
@@ -977,8 +1035,9 @@ pub(crate) fn generate_item_at_tier_with_roll(slot: EquipSlot, tier: u32, power_
         unique_affix: None,
         perfect: false,
         sacred_affix: None,
-        reforge_crit_used: false,
-        recombine_crit_used: false,
+        legacy_reforge_crit_used: false,
+        legacy_recombine_crit_used: false,
+        legacy_crit_bonus_affixes: Vec::new(),
         crit_bonus_affixes: Vec::new(),
     }
 }

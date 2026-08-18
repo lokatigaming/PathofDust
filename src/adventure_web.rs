@@ -4182,7 +4182,7 @@ fn gear_stat_line(item: &Item) -> String {
             // Item::crit_bonus_affixes) get their own bullet color
             // (2026-08-17, a live request) so they stand out from the
             // item's normal, guaranteed modifiers at a glance.
-            let class = if item.crit_bonus_affixes.contains(a) { "mod-roll mod-roll-crit" } else { "mod-roll" };
+            let class = if item.is_crit_bonus_affix(*a) { "mod-roll mod-roll-crit" } else { "mod-roll" };
             format!(
                 "<li class=\"{class}\" data-tip=\"Roll: {roll_pct:.0}%\">{}</li>",
                 escape_html(&affix_display(*a, *v))

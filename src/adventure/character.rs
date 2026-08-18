@@ -1153,15 +1153,14 @@ impl Character {
         // airtight as the reasoning suggested, so this stays as a hard
         // backstop regardless of root cause.
         let mut affixes = dedup_affixes(affixes);
-        // Once-per-lineage gates (2026-08-16, a live report - see
-        // `Item::reforge_crit_used`'s doc). `reforge_crit_used` carries
-        // forward unconditionally - Recombine doesn't touch that slot at
-        // all, it's purely inherited from either source. `recombine_crit_used`
-        // gates THIS roll (a source that already crit on a past recombine
-        // gets no further chance here either) and then also carries
-        // forward if either source already had it OR this roll succeeds.
-        let reforge_crit_used = item_a.reforge_crit_used || item_b.reforge_crit_used;
-        let already_recombine_crit = item_a.recombine_crit_used || item_b.recombine_crit_used;
+        // Once-per-lineage gate (2026-08-16, a live report - see
+        // `Item::crit_bonus_affixes`'s doc) for Recombine's OWN crit: a
+        // source that already crit on a past recombine (and still has
+        // that bonus affix - see `Item::recombine_crit_used`) gets no
+        // further chance here either. Reforge's own crit isn't gated by
+        // anything in this fn at all - Recombine doesn't grant or roll for
+        // it, only ever inherits whichever of it survives the merge below.
+        let already_recombine_crit = item_a.recombine_crit_used() || item_b.recombine_crit_used();
         let bonus_affix = if !already_recombine_crit && rng.gen_bool(0.05) {
             let present: Vec<Affix> = affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
@@ -1173,23 +1172,23 @@ impl Character {
         } else {
             None
         };
-        let recombine_crit_used = already_recombine_crit || bonus_affix.is_some();
 
         // See Item::crit_bonus_affixes' doc - carry forward whichever
-        // crit-granted types from either source actually survived into
-        // the final `affixes` pool above, plus this roll's own crit if it
-        // fired.
-        let mut crit_bonus_affixes: Vec<Affix> = Vec::new();
-        for &affix in item_a.crit_bonus_affixes.iter().chain(item_b.crit_bonus_affixes.iter()) {
-            if affixes.iter().any(|&(t, _)| t == affix) && !crit_bonus_affixes.contains(&affix) {
-                crit_bonus_affixes.push(affix);
+        // crit-granted (types, source) pairs from either source actually
+        // survived into the final `affixes` pool above, plus this roll's
+        // own crit if it fired.
+        let mut crit_bonus_affixes: Vec<(Affix, CritSource)> = Vec::new();
+        for &(affix, source) in item_a.crit_bonus_affixes.iter().chain(item_b.crit_bonus_affixes.iter()) {
+            if affixes.iter().any(|&(t, _)| t == affix) && !crit_bonus_affixes.iter().any(|&(a, _)| a == affix) {
+                crit_bonus_affixes.push((affix, source));
             }
         }
         if let Some(affix) = bonus_affix {
-            crit_bonus_affixes.push(affix);
+            crit_bonus_affixes.retain(|&(_, src)| src != CritSource::Recombine);
+            crit_bonus_affixes.push((affix, CritSource::Recombine));
         }
 
-        Ok(RecombineRoll { slot, new_tier, was_indestructible, unique_affix, affixes, bonus_affix, power_roll, reforge_crit_used, recombine_crit_used, crit_bonus_affixes })
+        Ok(RecombineRoll { slot, new_tier, was_indestructible, unique_affix, affixes, bonus_affix, power_roll, crit_bonus_affixes })
     }
 
     /// Commits a `RecombineRoll` decided earlier by `roll_recombine` -
@@ -1212,8 +1211,6 @@ impl Character {
             new_item.max_uses = None;
         }
         new_item.unique_affix = roll.unique_affix;
-        new_item.reforge_crit_used = roll.reforge_crit_used;
-        new_item.recombine_crit_used = roll.recombine_crit_used;
         new_item.crit_bonus_affixes = roll.crit_bonus_affixes;
         let item_name = new_item.name.clone();
         let item_id = new_item.id.clone();
@@ -1346,7 +1343,7 @@ impl Character {
             // exact-count gate, not "4" - otherwise a crit-bonus affix
             // silently eats into the normal-crafting progression it was
             // never meant to count against.
-            let normal_affix_count = item.affixes.iter().filter(|(a, _)| !item.crit_bonus_affixes.contains(a)).count();
+            let normal_affix_count = item.affixes.iter().filter(|(a, _)| !item.is_crit_bonus_affix(*a)).count();
             if normal_affix_count != required {
                 return Err(CraftError::PreconditionNotMet);
             }
@@ -1426,7 +1423,11 @@ impl Character {
     /// weighting (rarer affixes drawn less often) only applies when
     /// drawing a fresh type from `ALL_AFFIXES`; this samples over the
     /// item's OWN present modifiers, where every one of them is equally
-    /// "real" and equally eligible to go.
+    /// "real" and equally eligible to go. Deliberately does NOT touch
+    /// `Item::crit_bonus_affixes` even if the removed modifier was a
+    /// crit-granted one - nothing needs to: `reforge_crit_used`/
+    /// `recombine_crit_used` are derived from presence in `affixes`, so
+    /// removing the entry here already re-opens that gate on its own.
     pub(crate) fn annul_random_affix(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
         let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
         if item.locked {
@@ -1530,8 +1531,8 @@ impl Character {
             if let Some(slot_entry) = item.affixes.iter_mut().find(|(a, _)| *a == old_affix) {
                 *slot_entry = (new_affix, new_value);
             }
-            if let Some(pos) = item.crit_bonus_affixes.iter().position(|&a| a == old_affix) {
-                item.crit_bonus_affixes[pos] = new_affix;
+            if let Some(pos) = item.crit_bonus_affixes.iter().position(|&(a, _)| a == old_affix) {
+                item.crit_bonus_affixes[pos].0 = new_affix;
             }
             chancing_previous.push(old_affix);
             polished_affixes.push((new_affix, new_value));
@@ -1565,8 +1566,8 @@ impl Character {
         let item = self.find_item_by_id_mut(item_id)?;
         let entry = item.affixes.iter_mut().find(|(a, _)| *a == old_affix)?;
         *entry = (new_affix, new_value);
-        if let Some(pos) = item.crit_bonus_affixes.iter().position(|&a| a == old_affix) {
-            item.crit_bonus_affixes[pos] = new_affix;
+        if let Some(pos) = item.crit_bonus_affixes.iter().position(|&(a, _)| a == old_affix) {
+            item.crit_bonus_affixes[pos].0 = new_affix;
         }
         Some(())
     }
@@ -1698,19 +1699,18 @@ impl Character {
         let quality_percent = item.quality_percent();
         item.sync_tier_to(new_tier);
         // Once-per-lineage gate (2026-08-16, a live report - see
-        // `Item::reforge_crit_used`'s doc for the full reasoning): a
-        // reforge that's already crit before, ever, gets no further
-        // chance - `rng.gen_bool` isn't even called, so this doesn't cost
-        // the roll sequence anything either.
-        let bonus_affix = if !item.reforge_crit_used && rng.gen_bool(reforge_crit_chance(quality_percent, was_perfect)) {
+        // `Item::crit_bonus_affixes`'s doc for the full reasoning): a
+        // reforge whose crit-granted affix is still on the item gets no
+        // further chance - `rng.gen_bool` isn't even called, so this
+        // doesn't cost the roll sequence anything either.
+        let bonus_affix = if !item.reforge_crit_used() && rng.gen_bool(reforge_crit_chance(quality_percent, was_perfect)) {
             let present: Vec<Affix> = item.affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             let mult = if was_perfect { PERFECT_QUALITY_MULT } else { 1.0 };
             weighted_affix_pick(&candidates, 1, rng).first().copied().map(|affix| {
                 let jitter = rng.gen_range(0.85..1.15);
                 item.affixes.push((affix, affix_base_value(affix, new_tier) * jitter * mult));
-                item.reforge_crit_used = true;
-                item.crit_bonus_affixes.push(affix);
+                item.record_reforge_crit(affix);
                 affix
             })
         } else {
@@ -3033,10 +3033,11 @@ mod crit_lineage_tests {
     }
 
     #[test]
-    fn reforge_item_never_crits_once_already_used() {
+    fn reforge_item_never_crits_while_its_crit_affix_is_still_present() {
         let mut character = Character::new("test".to_string());
         let mut item = perfect_weapon(1);
-        item.reforge_crit_used = true; // deterministic: simulate "already crit once"
+        item.affixes = vec![(Affix::Evasion, 1.0)];
+        item.record_reforge_crit(Affix::Evasion); // deterministic: simulate "already crit once, still there"
         let item_id = item.id.clone();
         character.equip(item);
 
@@ -3046,15 +3047,15 @@ mod crit_lineage_tests {
         let mut rng = StdRng::seed_from_u64(2);
         for _ in 0..500 {
             let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
-            assert!(outcome.bonus_affix.is_none(), "a reforge crit fired despite reforge_crit_used already being true");
-            assert!(character.find_item_by_id(&item_id).unwrap().reforge_crit_used, "the gate flag must stay true");
+            assert!(outcome.bonus_affix.is_none(), "a reforge crit fired despite its crit-granted affix still being present");
+            assert!(character.find_item_by_id(&item_id).unwrap().reforge_crit_used(), "the gate must stay locked while Evasion is still on the item");
         }
     }
 
     #[test]
     fn reforge_item_crit_fires_at_most_once_across_many_reforges() {
         let mut character = Character::new("test".to_string());
-        let item = perfect_weapon(1); // reforge_crit_used starts false
+        let item = perfect_weapon(1); // reforge_crit_used() starts false
         let item_id = item.id.clone();
         character.equip(item);
 
@@ -3067,7 +3068,37 @@ mod crit_lineage_tests {
             }
         }
         assert_eq!(crit_count, 1, "expected exactly one crit across 500 reforges at a ~2.2% chance with the once-ever gate, got {crit_count}");
-        assert!(character.find_item_by_id(&item_id).unwrap().reforge_crit_used);
+        assert!(character.find_item_by_id(&item_id).unwrap().reforge_crit_used());
+    }
+
+    #[test]
+    fn reforge_item_can_crit_again_once_its_earlier_crit_affix_was_removed() {
+        // The exact live-reported bug this replaces the old sticky bool
+        // for: a tier-374 item genuinely crit once, then had that exact
+        // bonus affix Annulled away - under the old design its gate
+        // stayed permanently locked forever after with zero visible
+        // trace of ever having crit. Now the gate is derived from actual
+        // presence, so removing the affix (simulated here the same way
+        // `annul_random_affix` would - just deleting it from `affixes`,
+        // with no crit-tracking cleanup at all) re-opens it.
+        let mut character = Character::new("test".to_string());
+        let mut item = perfect_weapon(1);
+        item.affixes = vec![(Affix::Evasion, 1.0)];
+        item.record_reforge_crit(Affix::Evasion);
+        item.affixes.retain(|&(a, _)| a != Affix::Evasion); // simulate an Annulment removing it
+        assert!(!item.reforge_crit_used(), "removing the crit-granted affix must immediately free the gate");
+        let item_id = item.id.clone();
+        character.equip(item);
+
+        let mut rng = StdRng::seed_from_u64(6);
+        let mut crit_count = 0;
+        for _ in 0..500 {
+            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            if outcome.bonus_affix.is_some() {
+                crit_count += 1;
+            }
+        }
+        assert_eq!(crit_count, 1, "a freed gate must behave exactly like a never-crit item: exactly one crit across 500 reforges");
     }
 
     #[test]
@@ -3078,7 +3109,7 @@ mod crit_lineage_tests {
         let mut character = Character::new("test".to_string());
         let mut item_a = perfect_weapon(10);
         item_a.affixes = vec![(Affix::Evasion, 1.0)];
-        item_a.recombine_crit_used = true; // simulate an already-crit'd source
+        item_a.record_recombine_crit(Affix::Evasion); // simulate an already-crit'd source, affix still present
         let mut item_b = perfect_weapon(11);
         item_b.affixes = vec![(Affix::Splash, 1.0)];
         let id_a = item_a.id.clone();
@@ -3088,16 +3119,15 @@ mod crit_lineage_tests {
 
         let mut rng = StdRng::seed_from_u64(4);
         let roll = character.roll_recombine(&id_a, &id_b, false, &mut rng).expect("roll should succeed");
-        assert!(roll.bonus_affix.is_none(), "recombine must never roll a crit when a source already has recombine_crit_used=true");
-        assert!(roll.recombine_crit_used, "the used-state must still carry forward from the source even with no fresh crit");
+        assert!(roll.bonus_affix.is_none(), "recombine must never roll a crit when a source's recombine_crit_used() is still true");
     }
 
     #[test]
-    fn recombine_result_inherits_reforge_crit_used_from_either_source() {
+    fn recombine_result_inherits_reforge_crit_used_when_the_affix_survives_the_merge() {
         let mut character = Character::new("test".to_string());
         let mut item_a = perfect_weapon(20);
         item_a.affixes = vec![(Affix::Evasion, 1.0)];
-        item_a.reforge_crit_used = true; // simulate item_a having crit on a past reforge
+        item_a.record_reforge_crit(Affix::Evasion); // item_a crit on a past reforge, affix still present
         let mut item_b = perfect_weapon(21);
         item_b.affixes = vec![(Affix::Splash, 1.0)];
         let id_a = item_a.id.clone();
@@ -3105,9 +3135,38 @@ mod crit_lineage_tests {
         character.add_to_inventory(item_a);
         character.add_to_inventory(item_b);
 
+        // guaranteed=true forces every non-shared source affix into the
+        // merge (see `roll_recombine`) - with only 2 total, both survive
+        // deterministically, so Evasion (and its crit tag) is guaranteed
+        // to carry into the result.
         let mut rng = StdRng::seed_from_u64(5);
-        let roll = character.roll_recombine(&id_a, &id_b, false, &mut rng).expect("roll should succeed");
-        assert!(roll.reforge_crit_used, "reforge_crit_used must inherit true if EITHER source already had it, preventing the merged item from getting a fresh reforge-crit shot");
+        let roll = character.roll_recombine(&id_a, &id_b, true, &mut rng).expect("roll should succeed");
+        assert!(roll.affixes.iter().any(|&(a, _)| a == Affix::Evasion), "test setup sanity: Evasion must have survived the merge");
+        assert!(roll.reforge_crit_used(), "reforge_crit_used must inherit true when the crit-granted affix actually survives the merge");
+    }
+
+    #[test]
+    fn recombine_result_does_not_inherit_a_dead_reforge_crit_tag() {
+        // Companion to the test above: if the affix a source's earlier
+        // reforge crit granted is ALREADY gone (Annulled off before this
+        // recombine ever happened - the exact same live-reported bug
+        // pattern), nothing survives to tag, so the merged item's gate
+        // must come back open instead of dragging a dead lock through.
+        let mut character = Character::new("test".to_string());
+        let mut item_a = perfect_weapon(22);
+        item_a.affixes = vec![(Affix::Evasion, 1.0)];
+        item_a.record_reforge_crit(Affix::Splash); // tagged affix that ISN'T present on item_a at all
+        assert!(!item_a.reforge_crit_used(), "test setup sanity: the tag alone, with no matching affix present, must not read as used");
+        let mut item_b = perfect_weapon(23);
+        item_b.affixes = vec![(Affix::IncreasedLife, 1.0)];
+        let id_a = item_a.id.clone();
+        let id_b = item_b.id.clone();
+        character.add_to_inventory(item_a);
+        character.add_to_inventory(item_b);
+
+        let mut rng = StdRng::seed_from_u64(7);
+        let roll = character.roll_recombine(&id_a, &id_b, true, &mut rng).expect("roll should succeed");
+        assert!(!roll.reforge_crit_used(), "a dead crit tag with no surviving affix must not lock the merged item's gate");
     }
 
     #[test]
@@ -3121,7 +3180,7 @@ mod crit_lineage_tests {
         let mut character = Character::new("test".to_string());
         let mut item = perfect_weapon(30);
         item.affixes = vec![(Affix::Evasion, 1.0), (Affix::Splash, 1.0), (Affix::IncreasedLife, 1.0), (Affix::CritChance, 1.0)];
-        item.crit_bonus_affixes = vec![Affix::CritChance];
+        item.record_reforge_crit(Affix::CritChance);
         let item_id = item.id.clone();
         character.equip(item);
 

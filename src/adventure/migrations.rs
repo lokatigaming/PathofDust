@@ -109,24 +109,85 @@ pub(crate) fn migrate_gloves_speed_rebalance(item: &mut Item) {
 
 /// Reforge/Recombine crit lineage-tracking retrofit (2026-08-16, a live
 /// report: an item had been reforged/recombined enough times to end up
-/// with far more affixes than intended - see `Item::reforge_crit_used`'s
-/// doc for the full bug and the designed 4-base+1-each-from-Reforge/
-/// Recombine/Krangle=7 ceiling this establishes going forward).
-/// `reforge_crit_used`/`recombine_crit_used` default to `false` on every
-/// existing item (plain serde default), but an item that ALREADY has
-/// more than 4 affixes is unambiguous proof at least one of the 3 bonus
-/// sources already fired on it at some point - marks BOTH crit flags
-/// used defensively (the affix count alone can't tell us which
-/// specific source(s) contributed the extras, or how many times), so an
+/// with far more affixes than intended - see the (now legacy)
+/// `Item::legacy_reforge_crit_used`'s doc for the full bug and the
+/// designed 4-base+1-each-from-Reforge/Recombine/Krangle=7 ceiling this
+/// establishes going forward). `legacy_reforge_crit_used`/
+/// `legacy_recombine_crit_used` default to `false` on every existing
+/// item (plain serde default), but an item that ALREADY has more than 4
+/// affixes is unambiguous proof at least one of the 3 bonus sources
+/// already fired on it at some point - marks BOTH legacy crit flags used
+/// defensively (the affix count alone can't tell us which specific
+/// source(s) contributed the extras, or how many times), so an
 /// already-over-cap item can't keep compounding further via either crit
 /// path from here on. Deliberately does NOT remove any of the item's
 /// existing extra affixes - only stops future growth, same "never take
 /// away what a player already has, only stop it from getting worse"
 /// principle as every other accuracy-pass migration here.
+///
+/// Superseded by `migrate_crit_flag_to_affix_tracking` below, which reads
+/// these same legacy flags (including whatever this migration itself
+/// wrote) to seed the new affix-attached tracking - kept declared here
+/// unchanged (rather than removed) since its own marker already ran in
+/// production; every migration in `ITEM_MIGRATIONS` stays a permanent
+/// historical record, never removed once shipped.
 pub(crate) fn migrate_crit_lineage_backfill(item: &mut Item) {
     if item.affixes.len() > 4 {
-        item.reforge_crit_used = true;
-        item.recombine_crit_used = true;
+        item.legacy_reforge_crit_used = true;
+        item.legacy_recombine_crit_used = true;
+    }
+}
+
+/// Retrofits the old sticky-bool crit-lineage tracking onto the new
+/// affix-attached tracking (`Item::crit_bonus_affixes`) - 2026-08-18, a
+/// live report: a tier-374 item had genuinely landed Reforge's crit
+/// once, then had that exact bonus affix Annulled away later, and was
+/// left permanently unable to crit again forever after - because the
+/// old bool was sticky-forever, independent of whether the affix it
+/// granted still existed on the item at all. See
+/// `Item::crit_bonus_affixes`'s own doc for the new design (the "used"
+/// gate is now derived by checking whether a crit-tagged affix is STILL
+/// actually present, so removing it - by Annulment, or by anything else,
+/// including crafting methods that don't even know this tracking exists
+/// - naturally re-opens the gate with zero extra bookkeeping anywhere
+/// else).
+///
+/// For each of the two legacy flags that was `true`: looks for a type in
+/// `legacy_crit_bonus_affixes` that's both still present in `affixes`
+/// and not already claimed by the other source, and tags it. Falls back
+/// to defensively tagging one of the item's affixes beyond the normal
+/// 4-affix cap (same "an over-cap item is unambiguous proof some bonus
+/// source fired, even if we can't tell which affix it was" reasoning
+/// `migrate_crit_lineage_backfill` already used) if no informative match
+/// exists, so an over-cap legacy item stays defensively locked instead
+/// of silently getting a free extra crit shot. If neither applies - the
+/// flag was true but the item is at/under the normal cap with no
+/// evidence of which affix it was - the gate is simply left open, which
+/// is the exact fix for the reported bug: there's nothing left on the
+/// item to lock it shut on.
+pub(crate) fn migrate_crit_flag_to_affix_tracking(item: &mut Item) {
+    if item.legacy_reforge_crit_used {
+        assign_legacy_crit_source(item, CritSource::Reforge);
+    }
+    if item.legacy_recombine_crit_used {
+        assign_legacy_crit_source(item, CritSource::Recombine);
+    }
+}
+
+fn assign_legacy_crit_source(item: &mut Item, source: CritSource) {
+    if item.crit_bonus_affixes.iter().any(|&(_, s)| s == source) {
+        return; // already tagged - idempotent re-run safety
+    }
+    let claimed: Vec<Affix> = item.crit_bonus_affixes.iter().map(|&(a, _)| a).collect();
+    let present: Vec<Affix> = item.affixes.iter().map(|&(a, _)| a).collect();
+    if let Some(&affix) = item.legacy_crit_bonus_affixes.iter().find(|a| present.contains(a) && !claimed.contains(a)) {
+        item.crit_bonus_affixes.push((affix, source));
+        return;
+    }
+    if item.affixes.len() > 4 {
+        if let Some(&(affix, _)) = item.affixes.iter().skip(4).find(|(a, _)| !claimed.contains(a)) {
+            item.crit_bonus_affixes.push((affix, source));
+        }
     }
 }
 
@@ -137,8 +198,12 @@ pub(crate) fn migrate_crit_lineage_backfill(item: &mut Item) {
 /// `migrate_power_roll_backfill` is what makes trustworthy in the first
 /// place - it must run first. `migrate_crit_lineage_backfill` reads
 /// `item.affixes.len()` directly (not tier/power_roll-derived), so its
-/// own position relative to the others doesn't matter - listed last
-/// simply because it's the newest. Add a new balance-patch migration
+/// own position relative to the others doesn't matter.
+/// `migrate_crit_flag_to_affix_tracking` reads `legacy_reforge_crit_used`/
+/// `legacy_recombine_crit_used` - including whatever
+/// `migrate_crit_lineage_backfill` itself wrote there - so it must run
+/// AFTER that one; both are independent of every tier/power_roll-based
+/// migration above them either way. Add a new balance-patch migration
 /// here as one line: (marker filename, the mutation), inserted at
 /// whatever sequence position it needs relative to the existing ones.
 pub(crate) const ITEM_MIGRATIONS: &[(&str, fn(&mut Item))] = &[
@@ -149,6 +214,7 @@ pub(crate) const ITEM_MIGRATIONS: &[(&str, fn(&mut Item))] = &[
     ("adventure-crit-value-nerf-marker.json", migrate_crit_value_nerf),
     ("adventure-gloves-speed-rebalance-marker.json", migrate_gloves_speed_rebalance),
     ("adventure-crit-lineage-backfill-marker.json", migrate_crit_lineage_backfill),
+    ("adventure-crit-flag-to-affix-tracking-marker.json", migrate_crit_flag_to_affix_tracking),
 ];
 
 /// Runs each pending entry of `ITEM_MIGRATIONS` in array order, over
@@ -267,8 +333,9 @@ mod gloves_speed_rebalance_tests {
             unique_affix: None,
             perfect,
             sacred_affix: None,
-            reforge_crit_used: false,
-            recombine_crit_used: false,
+            legacy_reforge_crit_used: false,
+            legacy_recombine_crit_used: false,
+            legacy_crit_bonus_affixes: vec![],
             crit_bonus_affixes: vec![],
         }
     }
@@ -350,8 +417,9 @@ mod crit_lineage_backfill_tests {
             unique_affix: None,
             perfect: false,
             sacred_affix: None,
-            reforge_crit_used: false,
-            recombine_crit_used: false,
+            legacy_reforge_crit_used: false,
+            legacy_recombine_crit_used: false,
+            legacy_crit_bonus_affixes: vec![],
             crit_bonus_affixes: vec![],
         }
     }
@@ -360,8 +428,8 @@ mod crit_lineage_backfill_tests {
     fn marks_both_flags_used_for_an_over_cap_item() {
         let mut item = item_with_n_affixes(7); // lokati's exact reported count
         migrate_crit_lineage_backfill(&mut item);
-        assert!(item.reforge_crit_used, "an over-cap item must be defensively marked as having used its reforge crit");
-        assert!(item.recombine_crit_used, "an over-cap item must be defensively marked as having used its recombine crit");
+        assert!(item.legacy_reforge_crit_used, "an over-cap item must be defensively marked as having used its reforge crit");
+        assert!(item.legacy_recombine_crit_used, "an over-cap item must be defensively marked as having used its recombine crit");
     }
 
     #[test]
@@ -371,17 +439,104 @@ mod crit_lineage_backfill_tests {
         // crit source ever fired, so this must NOT be touched.
         let mut item = item_with_n_affixes(4);
         migrate_crit_lineage_backfill(&mut item);
-        assert!(!item.reforge_crit_used);
-        assert!(!item.recombine_crit_used);
+        assert!(!item.legacy_reforge_crit_used);
+        assert!(!item.legacy_recombine_crit_used);
     }
 
     #[test]
     fn leaves_a_5_affix_item_flagged_but_removes_nothing() {
         let mut item = item_with_n_affixes(5);
         migrate_crit_lineage_backfill(&mut item);
-        assert!(item.reforge_crit_used);
-        assert!(item.recombine_crit_used);
+        assert!(item.legacy_reforge_crit_used);
+        assert!(item.legacy_recombine_crit_used);
         assert_eq!(item.affixes.len(), 5, "the migration must never remove any of the player's existing affixes, only stop further growth");
+    }
+}
+
+#[cfg(test)]
+mod crit_flag_to_affix_tracking_tests {
+    use super::*;
+
+    fn item_with(affixes: Vec<(Affix, f64)>) -> Item {
+        Item {
+            id: "x".into(),
+            name: "x".into(),
+            slot: EquipSlot::Boots,
+            tier: 374,
+            power: 100.0,
+            power_roll: 1.0,
+            max_uses: None,
+            uses: 0,
+            affixes,
+            locked: false,
+            nickname: None,
+            disenchant_protected: false,
+            unique_affix: None,
+            perfect: true,
+            sacred_affix: None,
+            legacy_reforge_crit_used: false,
+            legacy_recombine_crit_used: false,
+            legacy_crit_bonus_affixes: vec![],
+            crit_bonus_affixes: vec![],
+        }
+    }
+
+    #[test]
+    fn maps_a_present_legacy_bonus_affix_to_the_new_tracking() {
+        // The exact reported shape: reforge_crit_used=true,
+        // crit_bonus_affixes=["splash"], and "splash" IS still present.
+        let mut item = item_with(vec![(Affix::FlatLife, 1.0), (Affix::Splash, 1.0)]);
+        item.legacy_reforge_crit_used = true;
+        item.legacy_crit_bonus_affixes = vec![Affix::Splash];
+        migrate_crit_flag_to_affix_tracking(&mut item);
+        assert!(item.reforge_crit_used(), "a present, informative legacy entry must translate into a locked gate");
+        assert!(item.is_crit_bonus_affix(Affix::Splash));
+    }
+
+    #[test]
+    fn frees_the_gate_when_the_legacy_bonus_affix_is_already_gone() {
+        // The exact reported bug: reforge_crit_used=true, crit_bonus_affixes
+        // names "splash", but "splash" is NOT in the current affix list
+        // (Annulled away at some point before this migration ever ran).
+        let mut item = item_with(vec![(Affix::FlatLife, 1.0), (Affix::CritMultiplier, 1.0)]);
+        item.legacy_reforge_crit_used = true;
+        item.legacy_crit_bonus_affixes = vec![Affix::Splash];
+        migrate_crit_flag_to_affix_tracking(&mut item);
+        assert!(!item.reforge_crit_used(), "with no trace of the crit-granted affix left on the item, the gate must come back open");
+    }
+
+    #[test]
+    fn defensively_locks_an_over_cap_item_with_no_informative_entry() {
+        // No legacy_crit_bonus_affixes evidence at all (e.g. this item was
+        // only ever touched by the defensive migrate_crit_lineage_backfill,
+        // which sets the bools but never populates that list) - falls back
+        // to tagging one of the affixes past the normal 4-cap.
+        let mut item = item_with((0..6).map(|i| (ALL_AFFIXES[i % ALL_AFFIXES.len()], 1.0)).collect());
+        item.legacy_reforge_crit_used = true;
+        item.legacy_recombine_crit_used = true;
+        migrate_crit_flag_to_affix_tracking(&mut item);
+        assert!(item.reforge_crit_used(), "an over-cap item with no other evidence must stay defensively locked");
+        assert!(item.recombine_crit_used());
+    }
+
+    #[test]
+    fn leaves_the_gate_open_when_the_flag_was_never_set() {
+        let mut item = item_with(vec![(Affix::FlatLife, 1.0)]);
+        migrate_crit_flag_to_affix_tracking(&mut item);
+        assert!(!item.reforge_crit_used());
+        assert!(!item.recombine_crit_used());
+        assert!(item.crit_bonus_affixes.is_empty());
+    }
+
+    #[test]
+    fn is_idempotent() {
+        let mut item = item_with(vec![(Affix::FlatLife, 1.0), (Affix::Splash, 1.0)]);
+        item.legacy_reforge_crit_used = true;
+        item.legacy_crit_bonus_affixes = vec![Affix::Splash];
+        migrate_crit_flag_to_affix_tracking(&mut item);
+        let once = item.crit_bonus_affixes.clone();
+        migrate_crit_flag_to_affix_tracking(&mut item);
+        assert_eq!(item.crit_bonus_affixes, once, "a second application must not add a duplicate entry");
     }
 }
 
