@@ -31,7 +31,7 @@ use axum::response::{Html, IntoResponse, Json, Redirect};
 use axum::routing::{get, post};
 use base64::Engine;
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::adventure::{
@@ -44,6 +44,7 @@ use crate::adventure::{
 };
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
+mod render;
 mod wiki;
 
 const SESSION_COOKIE: &str = "adv_session";
@@ -1926,41 +1927,90 @@ fn render_combat_stats_card(c: &Character) -> String {
     )
 }
 
+/// One roster card's worth of context for `templates/characters.html` -
+/// every field is already fully computed/escaped in Rust (game logic and
+/// data stay in code per this project's own boundary; the template only
+/// arranges already-final values into HTML structure).
+#[derive(Serialize)]
+struct RosterCardCtx {
+    login_enc: String,
+    sprite: String,
+    name: String,
+    level: u32,
+    archetype: String,
+    wins: String,
+    losses: String,
+    winrate: String,
+}
+
 /// Card grid for `/characters` - every character that's ever `!join`ed,
 /// sorted by level desc (wins desc as a tiebreaker) so the roster reads
 /// like a leaderboard. Each card links to `/characters/{login}` (see
 /// `render_character_detail`). Empty state can't really happen on a live
-/// server, but costs nothing to handle.
+/// server, but costs nothing to handle. Page STRUCTURE lives in
+/// `templates/characters.html` (2026-08-18, Phase 1 pilot migration) -
+/// see `render::render_template`'s doc for why `top_nav` is still a
+/// Rust-rendered raw HTML string rather than a template partial.
 fn render_character_list(characters: &[(String, Character)], viewer: Option<&Character>) -> String {
-    let header = format!("{}<div class=\"card\"><h1>Adventure Roster</h1></div>", top_nav(viewer));
-    if characters.is_empty() {
-        return format!("{header}<div class=\"card\"><p class=\"muted\">Nobody's joined the adventure yet.</p></div>");
-    }
     let mut sorted: Vec<&(String, Character)> = characters.iter().collect();
     sorted.sort_by(|(_, a), (_, b)| b.level.cmp(&a.level).then(b.wins.cmp(&a.wins)));
-    let cards: String = sorted
+    let cards: Vec<RosterCardCtx> = sorted
         .iter()
         .map(|(login, c)| {
             let sprite = c.effective_sprite(login);
             let games = c.wins + c.losses;
             let winrate = if games > 0 { format!("{:.0}%", c.wins as f64 / games as f64 * 100.0) } else { "—".to_string() };
-            format!(
-                "<a class=\"roster-card\" href=\"/characters/{login_enc}\">\
-                  <img class=\"roster-sprite\" src=\"/sprites/{sprite}.png\" onerror=\"this.onerror=null;this.src='/sprites/{sprite}.gif'\" alt=\"\">\
-                  <div class=\"roster-name\">{name}</div>\
-                  <div class=\"roster-meta\">Level {level} {archetype:?}</div>\
-                  <div class=\"roster-meta\">{wins}W / {losses}L ({winrate})</div>\
-                </a>",
-                login_enc = urlencoding::encode(login),
-                name = escape_html(&c.display_name),
-                level = c.level,
-                archetype = c.archetype,
-                wins = format_number(c.wins as f64),
-                losses = format_number(c.losses as f64),
-            )
+            RosterCardCtx {
+                login_enc: urlencoding::encode(login).into_owned(),
+                sprite,
+                name: escape_html(&c.display_name),
+                level: c.level,
+                archetype: format!("{:?}", c.archetype),
+                wins: format_number(c.wins as f64),
+                losses: format_number(c.losses as f64),
+                winrate,
+            }
         })
         .collect();
-    format!("{header}<div class=\"roster-grid\">{cards}</div>")
+    render::render_template("characters.html", minijinja::context! { top_nav => top_nav(viewer), empty => characters.is_empty(), cards => cards })
+}
+
+#[cfg(test)]
+mod character_list_render_tests {
+    use super::*;
+
+    /// Characterization test - the exact byte-for-byte output of the
+    /// pre-2026-08-18 `format!`-based `render_character_list`, captured
+    /// before its Phase 1 template migration (see `templates/characters.html`)
+    /// so the migration itself can be diff-verified against real output
+    /// instead of by inspection alone. Must keep passing unchanged
+    /// through the migration - any difference here is a real rendering
+    /// regression.
+    #[test]
+    fn matches_pre_migration_baseline() {
+        let mut alpha = Character::new("Alpha".to_string());
+        alpha.level = 5;
+        alpha.wins = 10;
+        alpha.losses = 3;
+        let mut bravo = Character::new("Bravo".to_string());
+        bravo.level = 12;
+        bravo.wins = 0;
+        bravo.losses = 0;
+        let characters = vec![("alpha".to_string(), alpha), ("bravo".to_string(), bravo)];
+        let output = render_character_list(&characters, None);
+        let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"roster-grid\"><a class=\"roster-card\" href=\"/characters/bravo\"><img class=\"roster-sprite\" src=\"/sprites/sprite-26.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-26.gif'\" alt=\"\"><div class=\"roster-name\">Bravo</div><div class=\"roster-meta\">Level 12 Commoner</div><div class=\"roster-meta\">0W / 0L (\u{2014})</div></a><a class=\"roster-card\" href=\"/characters/alpha\"><img class=\"roster-sprite\" src=\"/sprites/sprite-06.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-06.gif'\" alt=\"\"><div class=\"roster-name\">Alpha</div><div class=\"roster-meta\">Level 5 Commoner</div><div class=\"roster-meta\">10W / 3L (77%)</div></a></div>";
+        assert_eq!(output, expected, "render_character_list output must be byte-for-byte identical to the pre-migration baseline");
+    }
+
+    /// Same baseline-lock reasoning as `matches_pre_migration_baseline`,
+    /// for the empty-roster branch (a separate early-return in the
+    /// function, not just a zero-iteration loop).
+    #[test]
+    fn matches_pre_migration_empty_baseline() {
+        let output = render_character_list(&[], None);
+        let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"card\"><p class=\"muted\">Nobody's joined the adventure yet.</p></div>";
+        assert_eq!(output, expected, "empty-roster render_character_list output must be byte-for-byte identical to the pre-migration baseline");
+    }
 }
 
 /// The inner block every item card renders identically - name, quality
