@@ -3252,8 +3252,8 @@ pub(crate) const CRIT_BONUS_MULT: f64 = 0.5;
 /// hit without bound (part of what caused Hemorrhage's own
 /// trillions-of-damage incident earlier this session, on the other half
 /// of that same formula).
-const OVERCRIT_CURVE_A: f64 = 1.5;
-const OVERCRIT_CURVE_H: f64 = 1.0;
+pub(crate) const OVERCRIT_CURVE_A: f64 = 1.5;
+pub(crate) const OVERCRIT_CURVE_H: f64 = 1.0;
 
 fn overcrit_curve(x: f64) -> f64 {
     OVERCRIT_CURVE_A * x / (x + OVERCRIT_CURVE_H)

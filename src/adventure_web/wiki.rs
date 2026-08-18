@@ -162,6 +162,30 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("MIN_VOTE_VOLUME", crate::song_requests::MIN_VOTE_VOLUME.to_string()),
         ("MAX_VOTE_VOLUME", crate::song_requests::MAX_VOTE_VOLUME.to_string()),
         ("RAMPAGE_VOTE_THRESHOLD", crate::adventure::RAMPAGE_VOTE_THRESHOLD.to_string()),
+        // Core combat mechanics (wiki/combat.md).
+        ("CRIT_BONUS_MULT_PCT", pct(crate::adventure::CRIT_BONUS_MULT)),
+        ("OVERCRIT_CURVE_A", format!("{}", crate::adventure::OVERCRIT_CURVE_A)),
+        ("CRIT_CHANCE_CAP_PCT", pct(crate::adventure::CRIT_CHANCE_CAP)),
+        ("BLOCK_DAMAGE_REDUCTION_PCT", pct(crate::adventure::BLOCK_DAMAGE_REDUCTION)),
+        ("LIFE_LEECH_CAP_PER_SEC_PCT", pct(crate::adventure::LIFE_LEECH_CAP_PER_SEC)),
+        ("PLAYER_SPLASH_MAX_TARGETS", crate::adventure::PLAYER_SPLASH_MAX_TARGETS.to_string()),
+        ("ENEMY_SPLASH_MAX_TARGETS", crate::adventure::ENEMY_SPLASH_MAX_TARGETS.to_string()),
+        ("SPLASH_OVERFLOW_BONUS_TARGETS", crate::adventure::SPLASH_OVERFLOW_BONUS_TARGETS.to_string()),
+        ("HEAL_SPLASH_MAX_TARGETS", crate::adventure::HEAL_SPLASH_MAX_TARGETS.to_string()),
+        ("ELEMENTAL_PROC_CHANCE_DIVISOR", (crate::adventure::ELEMENTAL_PROC_CHANCE_DIVISOR as i64).to_string()),
+        ("ELEMENTAL_PROC_DURATION_S", (crate::adventure::ELEMENTAL_PROC_DURATION_MS / 1000).to_string()),
+        ("ELEMENTAL_DEFENSE_FLOOR_PCT", pct(crate::adventure::ELEMENTAL_DEFENSE_FLOOR)),
+        ("ELEMENTAL_DEFENSE_CEILING_PCT", pct(crate::adventure::ELEMENTAL_DEFENSE_CEILING)),
+        ("ELEMENTAL_LIGHTNING_MAX_STACKS", crate::adventure::ELEMENTAL_LIGHTNING_MAX_STACKS.to_string()),
+        ("ELEMENTAL_DIVINE_ENEMY_MAX_STACKS", crate::adventure::ELEMENTAL_DIVINE_ENEMY_MAX_STACKS.to_string()),
+        ("LINGERING_EFFECT_TICK_INTERVAL_MS", crate::adventure::LINGERING_EFFECT_TICK_INTERVAL_MS.to_string()),
+        ("LINGERING_EFFECT_TICKS", crate::adventure::LINGERING_EFFECT_TICKS.to_string()),
+        (
+            "LINGERING_EFFECT_DURATION_S",
+            ((crate::adventure::LINGERING_EFFECT_TICK_INTERVAL_MS * crate::adventure::LINGERING_EFFECT_TICKS) / 1000).to_string(),
+        ),
+        ("MAX_FIGHT_DURATION_S", (crate::adventure::MAX_FIGHT_DURATION_MS / 1000).to_string()),
+        ("REVIVE_DURATION_S", crate::adventure::REVIVE_DURATION.as_secs().to_string()),
     ])
 }
 
@@ -249,6 +273,17 @@ pub(super) async fn wiki_commands_page(State(state): State<AppState>, headers: H
     )))
 }
 
+pub(super) async fn wiki_combat_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("combat"),
+        render_markdown_page("combat"),
+    )))
+}
+
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
     match current_session(headers, state).await {
         Some((login, _)) => state.adventure.character(&login).await,
@@ -277,12 +312,13 @@ fn wiki_subnav(active: &str) -> String {
         }
     };
     format!(
-        "<div class=\"top-nav-links\">{}{}{}{}{}</div>",
+        "<div class=\"top-nav-links\">{}{}{}{}{}{}</div>",
         entry("/wiki/bosses", "🐲 Bosses", "bosses"),
         entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
         entry("/wiki/healing", "✨ Healing", "healing"),
         entry("/wiki/passives", "🌳 Passives", "passives"),
         entry("/wiki/commands", "💬 Commands", "commands"),
+        entry("/wiki/combat", "⚔️ Combat", "combat"),
     )
 }
 
