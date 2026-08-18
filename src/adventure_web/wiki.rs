@@ -185,7 +185,15 @@ fn wiki_hash_redirect_script() -> String {
 /// `root_node_html`, the exact boxes-and-SVG-connectors tree `/passives`
 /// itself draws) per class, one collapsible section each - not a
 /// hand-duplicated text summary, so the two views can never drift apart.
-fn render_wiki_passives() -> String {
+///
+/// Unlike the prose sections (which live in `wiki/*.md` and are re-read
+/// per request, see `render_markdown_page`), this has no external input
+/// at all - every class's `passive_nodes()` and `compute_passive_layout`
+/// are pure functions of compiled-in data, so the output is identical on
+/// every call for the life of the process. `WIKI_PASSIVES_HTML` builds it
+/// once, on first request, instead of recomputing 11 full tree layouts
+/// (SVG connectors and all) on every single visit to any wiki sub-page.
+static WIKI_PASSIVES_HTML: LazyLock<String> = LazyLock::new(|| {
     let sections: String = ALL_ARCHETYPES.iter().map(|&archetype| render_wiki_archetype_graph(archetype)).collect();
     format!(
         "<div class=\"card\">\
@@ -198,6 +206,10 @@ fn render_wiki_passives() -> String {
           will start working the day that mechanic ships.</p>\
         </div>{sections}"
     )
+});
+
+fn render_wiki_passives() -> String {
+    WIKI_PASSIVES_HTML.clone()
 }
 
 /// One class's full tree, drawn with the exact same graph renderer the
