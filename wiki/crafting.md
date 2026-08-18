@@ -9,13 +9,13 @@ Every currency, every action, and the one rule that governs them all: no item ca
 <div class="wiki-currency-grid">
   <div class="wiki-currency-card"><h4>Dust</h4><p>Earned from wins and boss kills. Pays for every currency-crafting action, Reforge, and Recombine.</p></div>
   <div class="wiki-currency-card"><h4>Sand</h4><p>Earned from wins and disenchanting. Spent exclusively on Polishing.</p></div>
-  <div class="wiki-currency-card"><h4>Craft Tokens</h4><p>One kind per action (Transmute, Scour, Augment, Regal, Exalt, Krangle). Spending a token skips that action's dust cost entirely.</p></div>
+  <div class="wiki-currency-card"><h4>Craft Tokens</h4><p>One kind per action (Transmute, Scour, Augment, Regal, Exalt, Krangle, Annulment, Chancing). Spending a token skips that action's dust cost entirely.</p></div>
   <div class="wiki-currency-card"><h4>Celestial Shard</h4><p>A rare token, separate from every other currency. The only way to grant a Unique Affix.</p></div>
 </div>
 
 <h3 id="ceiling">The Modifier Ceiling</h3>
 
-The single rule worth memorizing before anything else here: **four base modifiers, plus at most one each from three independent bonus sources.** Seven, and never more — on any single item, for its entire life, no matter how many times it gets reforged or recombined.
+The single rule worth memorizing before anything else here: **four base modifiers, plus at most one each from three independent bonus sources.** Seven, and never more — on any single item, for its entire life, no matter how many times it gets reforged or recombined. Annulment and Chancing (below) only ever touch modifiers that already exist - removing or rerolling them never raises this ceiling.
 
 <div class="wiki-ceiling">
   <div class="wiki-ceiling-row">
@@ -38,28 +38,30 @@ A Unique Affix (from a Celestial Shard) and Sacred's implicit affix live entirel
 
 <h3 id="currency-crafting">Currency Crafting</h3>
 
-Six actions, each gated by exactly how many modifiers the target item currently has. Every one of them also bumps the item's tier as a side effect — `+3` below tier 25, `+2` below tier 50, `+1` beyond that.
+Eight actions in total. Six are gated by exactly how many modifiers the target item currently has; Annulment and Chancing just need at least one modifier to work with. Every one of them also bumps the item's tier as a side effect — `{{TIER_CRAFT_DUST_COST}}` dust × tier, on top of the base cost below.
 
 <div class="wiki-table-wrap">
 
 | Action | Effect | Requires | Dust | Veilable |
 |---|---|---|---|---|
-| Transmute | Adds a random modifier to a bare item. | 0 modifiers | 250 | Yes |
-| Augment | Adds a 2nd modifier. | 1 modifier | 500 | Yes |
-| Regal | Adds a 3rd modifier. | 2 modifiers | 750 | Yes |
-| Exalt | Adds a 4th modifier. | 3 modifiers | 1,250 | Yes |
-| Scour | Strips every modifier back to none. | 1+ modifiers | 250 | No |
-| Krangle | Adds one final modifier beyond the normal 4, then permanently locks the item — no further crafting of any kind, ever. | Any unlocked item | 2,500 | Yes |
+| Transmute | Adds a random modifier to a bare item. | 0 modifiers | {{TRANSMUTE_COST}} | Yes |
+| Augment | Adds a 2nd modifier. | 1 modifier | {{AUGMENT_COST}} | Yes |
+| Regal | Adds a 3rd modifier. | 2 modifiers | {{REGAL_COST}} | Yes |
+| Exalt | Adds a 4th modifier. | 3 modifiers | {{EXALT_COST}} | Yes |
+| Scour | Strips every modifier back to none. | 1+ modifiers | {{SCOUR_COST}} | No |
+| Krangle | Adds one final modifier beyond the normal 4, then permanently locks the item — no further crafting of any kind, ever. | Any unlocked item | {{KRANGLE_COST}} | Yes |
+| Annulment Orb | Removes one modifier. Unveiled: a random one goes. Veiled: rolls up to 2 candidates and you pick which leaves. | 1+ modifiers | {{ANNULMENT_COST}} | Yes |
+| Chancing | Rerolls every existing modifier to a brand-new *type* (not just a new value), each at a fresh roll range. Veiled: walks them one at a time with 3 candidates each. | 1+ modifiers | {{CHANCING_COST}} | Yes |
 
 </div>
 
-<p class="muted">Every action above also costs <code>3&times;tier</code> extra dust on top of its base price &mdash; unless you spend that action's own Craft Token instead, which skips the dust entirely. A locked (Krangled) item is permanently excluded from all six.</p>
+<p class="muted">Every action above also costs <code>{{TIER_CRAFT_DUST_COST}}&times;tier</code> extra dust on top of its base price &mdash; unless you spend that action's own Craft Token instead, which skips the dust entirely. A locked (Krangled) item is permanently excluded from all eight.</p>
 
 <h3 id="reforge">Reforge</h3>
 
 Raises an item's tier and rescales everything it already has to match — the closest thing to a straightforward power-up. Comes in two forms.
 
-**Reforge Now** — a free action (via the dashboard button or its matching channel-points redemption), or `1,000` dust on demand. Always targets a random unlocked equipped item, replacing it with a freshly reforged version at the same slot.
+**Reforge Now** — a free action (via the dashboard button or its matching channel-points redemption), or `{{WEB_REFORGE_DUST_COST}}` dust on demand. Always targets a random unlocked equipped item, replacing it with a freshly reforged version at the same slot.
 
 **Crafting-Panel Reforge** — costs `30×tier` dust and lets you pick the exact item, equipped or bagged, rather than leaving it to chance. No cooldown, unlike the free button.
 
@@ -71,10 +73,10 @@ Every reforge also has a chance to add a bonus modifier on top of the tier incre
 
 | Item quality | Crit chance |
 |---|---|
-| 0% quality | 1.0% |
-| 50% quality | 1.5% |
-| 100% quality | 2.0% |
-| <span class="gear-unique">Perfect</span> | 2.2% |
+| 0% quality | {{REFORGE_CRIT_AT_0}}% |
+| 50% quality | {{REFORGE_CRIT_AT_50}}% |
+| 100% quality | {{REFORGE_CRIT_AT_100}}% |
+| <span class="gear-unique">Perfect</span> | {{REFORGE_CRIT_AT_PERFECT}}% |
 
 </div>
 
@@ -90,9 +92,7 @@ Forges two items of the same slot into one, consuming both. The result inherits 
 - **Unique Affix & durability:** either source's Unique Affix carries over; the result is indestructible if either source was.
 - **Perfect & Sacred never carry over.** The result is always an ordinary item, regardless of what went in.
 
-Costs `{{RECOMBINE_DUST_COST}}` dust, or one of your free recombines if you have one banked. A rare **5% crit** can add a bonus modifier on top — the "C" slot from the ceiling, tracked and gated exactly like Reforge's own crit, independently.
-
-<p class="muted">Veiled Recombine guarantees the higher of the two power rolls and the certain transfer of every shared modifier &mdash; see Veiling below for the cost.</p>
+Free to recombine unveiled - no dust cost at all, blind result. **Veiling** it (or spending one of your banked free recombines, which always veils too) rolls 3 full candidate outcomes and lets you pick, and guarantees the higher power roll plus every shared modifier's transfer - costs `{{VEIL_EXTRA_COST}}` dust flat, plus `500` per modifier across *both* source items combined. A rare **5% crit** can add a bonus modifier on top of any recombine, veiled or not — the "C" slot from the ceiling, tracked and gated exactly like Reforge's own crit, independently.
 
 <h3 id="polishing">Polishing</h3>
 
@@ -108,8 +108,8 @@ The only way to grant a Unique Affix — a permanent, implicit bonus that lives 
 
 Consumes a Celestial Shard token (never dust) to grant **Celestial Conversion**, whose effect depends on the wielder's role:
 
-- **Healers** convert 10% of every heal into bonus damage against a random enemy.
-- **Every other archetype** instead lands a follow-up hit on whatever they just struck, for 10% of that hit's damage — a real second hit that can trigger Leech, elemental procs, and anything else an on-hit effect would.
+- **Healers** convert {{CELESTIAL_CONVERSION_PCT}}% of every heal into bonus damage against a random enemy.
+- **Every other archetype** instead lands a follow-up hit on whatever they just struck, for {{CELESTIAL_CONVERSION_PCT}}% of that hit's damage — a real second hit that can trigger Leech, elemental procs, and anything else an on-hit effect would.
 
 <p class="muted">Mutually exclusive with Krangle: an item carrying a Unique Affix can never be Krangled, and vice versa.</p>
 
@@ -119,17 +119,17 @@ Beyond the normal 0–100% quality roll, two rarer tiers exist — both earned f
 
 <div class="wiki-tier-grid">
   <div class="wiki-tier-card"><h4>Normal</h4><p>Rolls somewhere in the standard quality band. What every drop starts as.</p></div>
-  <div class="wiki-tier-card"><h4><span class="gear-unique">Perfect Quality</span></h4><p>Primary stat pinned to its maximum roll, plus a flat 20% bonus to that stat <em>and</em> every modifier. Guaranteed on stage-100+ boss kills &mdash; once per kill, and once more the first time each character personally takes part in one. Once Sacred also starts dropping (stage 300+), that per-kill guarantee only fires half as often.</p></div>
-  <div class="wiki-tier-card"><h4><span class="gear-sacred">Sacred</span></h4><p>Everything Perfect Quality gets, plus one further modifier &mdash; drawn from the full affix pool regardless of slot, rolled at its own maximum, shown as its own implicit line. Outside the 4-modifier pool entirely; no crafting action can ever touch it. Same drop mechanism as Perfect, gated to stage 300+.</p></div>
+  <div class="wiki-tier-card"><h4><span class="gear-unique">Perfect Quality</span></h4><p>Primary stat pinned to its maximum roll, plus a flat {{PERFECT_QUALITY_BONUS_PCT}}% bonus to that stat <em>and</em> every modifier. Guaranteed on stage-100+ boss kills &mdash; once per kill, and once more the first time each character personally takes part in one. Once Sacred also starts dropping (stage {{SACRED_STAGE_THRESHOLD}}+), that per-kill guarantee only fires half as often.</p></div>
+  <div class="wiki-tier-card"><h4><span class="gear-sacred">Sacred</span></h4><p>Everything Perfect Quality gets, plus one further modifier &mdash; drawn from the full affix pool regardless of slot, rolled at its own maximum, shown as its own implicit line. Outside the 4-modifier pool entirely; no crafting action can ever touch it. Same drop mechanism as Perfect, gated to stage {{SACRED_STAGE_THRESHOLD}}+.</p></div>
 </div>
 
 <h3 id="veiling">Veiling</h3>
 
 Most crafts are a blind gamble — you commit, then see what you got. Veiling flips that: pay extra to see the exact result first, and choose whether to keep it.
 
-Available on Transmute, Augment, Regal, Exalt, Krangle, and Recombine. **Not** available on Scour (nothing to choose — it's fully deterministic), Celestial Shard (always the same grant), Polishing (bypasses this system entirely), or Reforge.
+Available on Transmute, Augment, Regal, Exalt, Krangle, Annulment, Chancing, and Recombine. **Not** available on Scour (nothing to choose — it's fully deterministic), Celestial Shard (always the same grant), Polishing (bypasses this system entirely), or Reforge.
 
-<p class="muted">A veiled Recombine costs an extra <code>500</code> dust flat, plus <code>500</code> per modifier in the guaranteed-transfer pool.</p>
+<p class="muted">Veiling any currency-craft action other than Recombine adds a flat <code>{{VEIL_EXTRA_COST}}</code> dust surcharge on top of its base + per-tier cost. Recombine's own veil cost works differently &mdash; see Recombine above.</p>
 
 <h3 id="disenchanting">Disenchanting</h3>
 
@@ -159,16 +159,18 @@ Toggle **Keep** on any item to protect it from both single and bulk disenchantin
 
 | Action | Currency | Base cost | Notable rule |
 |---|---|---|---|
-| Transmute | Dust | 250 + 3/tier | Bare items only |
-| Augment | Dust | 500 + 3/tier | 1 modifier only |
-| Regal | Dust | 750 + 3/tier | 2 modifiers only |
-| Exalt | Dust | 1,250 + 3/tier | 3 modifiers only |
-| Scour | Dust | 250 + 3/tier | Not veilable |
-| Krangle | Dust | 2,500 + 3/tier | Locks the item forever |
+| Transmute | Dust | {{TRANSMUTE_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Bare items only |
+| Augment | Dust | {{AUGMENT_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | 1 modifier only |
+| Regal | Dust | {{REGAL_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | 2 modifiers only |
+| Exalt | Dust | {{EXALT_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | 3 modifiers only |
+| Scour | Dust | {{SCOUR_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Not veilable |
+| Krangle | Dust | {{KRANGLE_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Locks the item forever |
+| Annulment Orb | Dust | {{ANNULMENT_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Needs 1+ modifiers |
+| Chancing | Dust | {{CHANCING_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Needs 1+ modifiers |
 | Reforge (free) | — | 0 | Random equipped item |
-| Reforge (on demand) | Dust | 1,000 | Random equipped item |
+| Reforge (on demand) | Dust | {{WEB_REFORGE_DUST_COST}} | Random equipped item |
 | Reforge (crafting panel) | Dust | 30/tier | Choose the exact item |
-| Recombine | Dust | 500 | +500 veil, +500/modifier |
+| Recombine | Dust | Free unveiled | Veiled: +{{VEIL_EXTRA_COST}}, +500/combined modifier |
 | Polishing | Sand | 1–10, or 12 flat if Perfect | Not veilable |
 | Celestial Shard | Shard token | 1 token | Excludes Krangle |
 

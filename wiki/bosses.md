@@ -6,11 +6,11 @@ Every world boss fight pits the party against one or more of five named bosses. 
 
 <h3 id="dragon">🐲 The Dragon</h3>
 
-Hovers above the battlefield instead of standing on the ground, sweeping from one side to the other. Every 5 seconds it rears back and breathes fire across the **whole party at once** - unlike a normal attack, which only hits one hero, nobody is safe from this one. It also radiates a passive aura for the entire fight that slows everyone's attack speed. Two looks can show up in a Dragon fight - the classic purple dragon, or the rarer, fully-animated Bahamut - purely cosmetic, same fight either way.
+Flies back and forth across the battlefield instead of standing on the ground, breathing fire with **every attack** it lands - unlike a normal attack, which only hits one hero, this sweeps the **whole party at once**, so nobody is safe. It also radiates a passive aura for the entire fight that slows everyone's attack speed by 50%. Two looks can show up in a Dragon fight - the classic purple dragon, or the rarer, fully-animated Bahamut - purely cosmetic, same fight either way.
 
 <h3 id="cthulhu">🐙 Cthulhu</h3>
 
-Every 5 seconds, a purple bubble locks onto whoever's currently dealt the most damage this fight and permanently crushes THEIR damage output by 90% for the rest of it. The instant someone else takes the damage lead, the bubble follows them instead - no single hero can carry a Cthulhu fight alone; the whole party has to pull their weight.
+Every {{CTHULHU_DEBUFF_CADENCE_S}} seconds, a purple bubble locks onto roughly half the party at random and stacks a debuff that cuts both damage AND healing from anyone it lands on, capped at a brutal 90% reduction - no single hero can carry a Cthulhu fight alone, and hanging back doesn't save you either: sooner or later the bubble finds everyone.
 
 <h3 id="lich">💀 The Lich</h3>
 
@@ -22,7 +22,7 @@ No flashy abilities - just relentless heat. Its aura cuts the entire party's hea
 
 <h3 id="gelatinous-cube">🧊 The Gelatinous Cube</h3>
 
-Crawls across the field absorbing party members into its body - every few seconds it rotates a fresh batch of heroes into itself (scaled to how many are still standing), and while trapped they can't act, though allies can still damage or heal them normally. It also lashes out with a wide splash attack hitting several heroes at once, and every hit it lands stacks a shred on that hero's defenses, up to a steep cap - the longer a fight against the Cube drags on, the softer the party gets.
+Crawls across the field absorbing party members into its body - every {{CUBE_CAPTURE_CADENCE_S}} seconds it rotates a fresh {{CUBE_CAPTURE_PCT}}% of whoever's still standing into itself, and while trapped they can't act, though allies can still damage or heal them normally. It also lashes out with a splash attack hitting {{CUBE_SPLASH_TOTAL_TARGETS}} heroes at once, and every hit it lands stacks a {{CUBE_SHRED_PCT_PER_STACK}}% defense shred on that hero (up to {{CUBE_SHRED_MAX_STACKS}} stacks, {{CUBE_SHRED_MAX_PCT}}% total, each stack lasting {{CUBE_SHRED_DURATION_S}}s) - the longer a fight against the Cube drags on, the softer the party gets.
 
 ### Multiple bosses at once
 

@@ -79,12 +79,66 @@ fn substitute_wiki_placeholders(source: &str) -> String {
 
 /// The single source of truth every `{{PLACEHOLDER}}` in `wiki/*.md`
 /// resolves against - real constants from the game's own code, not
-/// numbers transcribed by hand. Phase 4 of the wiki rewrite is where the
-/// full set of hardcoded boss/crafting numbers gets audited and wired in
-/// here; `RECOMBINE_DUST_COST` below is an initial smoke test proving the
-/// substitution path works end-to-end.
+/// numbers transcribed by hand. Every entry here is either a named
+/// constant/`pub` accessor already reachable from this module (all of
+/// `combat.rs`/`item.rs`/`craft.rs`'s `pub(crate)` items come along for
+/// free via `adventure.rs`'s `pub use {combat,item,craft}::*;`, so none
+/// of this needed any visibility changes), or a small derived value
+/// (seconds instead of ms, a percentage instead of a fraction) computed
+/// from one. `CraftAction::X.base_cost()` is deliberately used instead of
+/// `craft_action_def(X).default_cost` for the six token-craft costs -
+/// `base_cost()` is the one that actually applies
+/// `adventure-item-balance.toml` overrides, so the wiki tracks whatever
+/// price is really live, not just the compiled-in default.
+///
+/// A handful of numbers this same audit verified accurate (Dragon's 50%
+/// slow, Lich's 5-per-wave/2s cadence/20 cap, Fire Demon's 50% heal cut,
+/// Cthulhu's 90% cap, Recombine's 5% crit, Crafting-Panel Reforge's
+/// `30×tier`, Polishing's `12`/`10`) are NOT wired here - they're bare
+/// literals in combat.rs/manager.rs/character.rs with no name to import,
+/// and `LICH_MAX_ADDS` specifically is a block-local const inside
+/// `simulate_battle`, not a module item at all. Promoting any of those to
+/// real named constants is a combat.rs/manager.rs code change outside
+/// the wiki module's own boundary - left as verified-correct hardcoded
+/// text in the .md files for now rather than done unilaterally.
 fn wiki_placeholder_map() -> HashMap<&'static str, String> {
-    HashMap::from([("RECOMBINE_DUST_COST", crate::adventure::RECOMBINE_DUST_COST.to_string())])
+    let pct = |fraction: f64| -> String { format!("{}", (fraction * 100.0).round() as i64) };
+    let crit_pct = |quality: f64, perfect: bool| -> String { format!("{:.1}", crate::adventure::reforge_crit_chance(quality, perfect) * 100.0) };
+
+    HashMap::from([
+        // Currency-crafting dust costs - live, override-aware.
+        ("TRANSMUTE_COST", CraftAction::Transmute.base_cost().to_string()),
+        ("AUGMENT_COST", CraftAction::Augment.base_cost().to_string()),
+        ("REGAL_COST", CraftAction::Regal.base_cost().to_string()),
+        ("EXALT_COST", CraftAction::Exalt.base_cost().to_string()),
+        ("SCOUR_COST", CraftAction::Scour.base_cost().to_string()),
+        ("KRANGLE_COST", CraftAction::Krangle.base_cost().to_string()),
+        ("ANNULMENT_COST", CraftAction::Annulment.base_cost().to_string()),
+        ("CHANCING_COST", CraftAction::Chancing.base_cost().to_string()),
+        ("TIER_CRAFT_DUST_COST", crate::adventure::TIER_CRAFT_DUST_COST.to_string()),
+        ("WEB_REFORGE_DUST_COST", crate::adventure::WEB_REFORGE_DUST_COST.to_string()),
+        ("VEIL_EXTRA_COST", crate::adventure::VEIL_EXTRA_COST.to_string()),
+        // Reforge's quality-scaled bonus-affix crit chance - computed at
+        // the same four sample points the wiki's table shows, straight
+        // from the real formula instead of hand-copied numbers.
+        ("REFORGE_CRIT_AT_0", crit_pct(0.0, false)),
+        ("REFORGE_CRIT_AT_50", crit_pct(50.0, false)),
+        ("REFORGE_CRIT_AT_100", crit_pct(100.0, false)),
+        ("REFORGE_CRIT_AT_PERFECT", crit_pct(100.0, true)),
+        ("PERFECT_QUALITY_BONUS_PCT", pct(crate::adventure::PERFECT_QUALITY_MULT - 1.0)),
+        ("SACRED_STAGE_THRESHOLD", crate::adventure::SACRED_STAGE_THRESHOLD.to_string()),
+        ("CELESTIAL_CONVERSION_PCT", pct(crate::adventure::CELESTIAL_CONVERSION_PCT)),
+        // Cthulhu's Bubble.
+        ("CTHULHU_DEBUFF_CADENCE_S", (crate::adventure::CTHULHU_DEBUFF_CADENCE_MS / 1000).to_string()),
+        // Gelatinous Cube.
+        ("CUBE_CAPTURE_CADENCE_S", (crate::adventure::CUBE_CAPTURE_CADENCE_MS / 1000).to_string()),
+        ("CUBE_CAPTURE_PCT", pct(crate::adventure::CUBE_CAPTURE_PCT)),
+        ("CUBE_SHRED_PCT_PER_STACK", pct(crate::adventure::CUBE_SHRED_PCT_PER_STACK)),
+        ("CUBE_SHRED_MAX_STACKS", crate::adventure::CUBE_SHRED_MAX_STACKS.to_string()),
+        ("CUBE_SHRED_MAX_PCT", pct(crate::adventure::CUBE_SHRED_PCT_PER_STACK * crate::adventure::CUBE_SHRED_MAX_STACKS as f64)),
+        ("CUBE_SHRED_DURATION_S", (crate::adventure::CUBE_SHRED_DURATION_MS / 1000).to_string()),
+        ("CUBE_SPLASH_TOTAL_TARGETS", (crate::adventure::CUBE_SPLASH_MAX_TARGETS + 1).to_string()),
+    ])
 }
 
 /// Public - no login needed, same "pure reference content, same for
