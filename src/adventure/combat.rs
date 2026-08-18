@@ -304,6 +304,40 @@ pub(crate) const CTHULHU_DEBUFF_DURATION_MS: u32 = 2_000;
 /// How often Cthulhu recasts Bubble on a fresh, independently-rolled half
 /// of the party.
 pub(crate) const CTHULHU_DEBUFF_CADENCE_MS: u32 = 3_000;
+/// Hard floor on Cthulhu's Bubble - the combined per-target damage/
+/// healing reduction can never exceed this, regardless of stacks or
+/// `boss_dynamic_power_mult` (see `CTHULHU_DEBUFF_BASE_PCT_PER_STACK`'s
+/// doc). Named 2026-08-18 so the wiki's constant audit can wire it - was
+/// a bare `0.9` at both `resolve_hit`'s and `apply_heal`'s Cthulhu reads.
+/// Thornedhide/Soul Stone/Bloodpact Triage each independently cap their
+/// own unrelated debuff at the same 0.9 value by their own convention -
+/// this constant only feeds Cthulhu's own two read sites, not those.
+pub(crate) const CTHULHU_DEBUFF_CAP: f64 = 0.9;
+/// Dragon's aura - how much slower (as an `attack_interval_ms`
+/// multiplier) every non-boss unit attacks for the whole fight. Named
+/// 2026-08-18 for the wiki's constant audit - see the aura's own
+/// application site in `simulate_battle`.
+pub(crate) const DRAGON_SLOW_MULT: f64 = 1.5;
+/// Fire Demon's aura - multiplier applied to every heal amount,
+/// fight-wide (0.5 = -50%). Named 2026-08-18 for the wiki's constant
+/// audit, same as `DRAGON_SLOW_MULT` above.
+pub(crate) const FIRE_DEMON_HEAL_MULT: f64 = 0.5;
+/// How often the Lich casts Raise Dead (see the `BossAbility::Lich`
+/// handling in `simulate_battle`) - both the initial per-fight seed and
+/// the recast interval after each cast. Named 2026-08-18 for the wiki's
+/// constant audit.
+pub(crate) const LICH_SUMMON_CADENCE_MS: u32 = 2_000;
+/// How many adds one Raise Dead cast summons, before `LICH_MAX_ADDS`
+/// clamps the total. Named 2026-08-18 for the wiki's constant audit.
+pub(crate) const LICH_ADDS_PER_SUMMON: u32 = 5;
+/// How many adds the Lich can summon in total across a fight, however
+/// long it runs - without this, "5 more every 2 seconds" could spiral
+/// into hundreds of units on an extended fight. Hoisted out of
+/// `simulate_battle`'s own function body to module level (2026-08-18) so
+/// the wiki's constant audit can see and wire it - it was already a
+/// `const` there, just function-local and therefore invisible outside
+/// `simulate_battle`; behavior is unchanged.
+pub(crate) const LICH_MAX_ADDS: u32 = 20;
 /// Gelatinous Cube's capture ability - how often it rotates a fresh batch
 /// of players into its body (see the `BossAbility::GelatinousCube` arm's
 /// own doc). Also the exact window each captured player is locked out for
@@ -3639,7 +3673,7 @@ pub(crate) fn resolve_hit(
     // attacker's own reduced output). Same lazy-expiry + floor shape as
     // Thornedhide just below.
     if atk.cthulhu_debuff_stacks > 0 && at_ms <= atk.cthulhu_debuff_expires_at_ms {
-        let mult = (atk.cthulhu_debuff_stacks as f64 * atk.cthulhu_debuff_pct_per_stack).min(0.9);
+        let mult = (atk.cthulhu_debuff_stacks as f64 * atk.cthulhu_debuff_pct_per_stack).min(CTHULHU_DEBUFF_CAP);
         raw_dmg *= 1.0 - mult;
         attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Cthulhu's debuff", -mult));
     }
@@ -7124,7 +7158,7 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     // damage-dealt counterpart in `resolve_hit`, just read off
     // `healer_idx` here instead of an attacker.
     let cthulhu_heal_dealt_reduction = if units[healer_idx].cthulhu_debuff_stacks > 0 && at_ms <= units[healer_idx].cthulhu_debuff_expires_at_ms {
-        (units[healer_idx].cthulhu_debuff_stacks as f64 * units[healer_idx].cthulhu_debuff_pct_per_stack).min(0.9)
+        (units[healer_idx].cthulhu_debuff_stacks as f64 * units[healer_idx].cthulhu_debuff_pct_per_stack).min(CTHULHU_DEBUFF_CAP)
     } else {
         0.0
     };
@@ -8521,7 +8555,7 @@ pub(crate) fn simulate_battle(
         // below) - so Dragon gets no separate ability timer either.
         let next_ability_at_ms = match this_unit_kind {
             Some(BossKind::Cthulhu) => CTHULHU_DEBUFF_CADENCE_MS,
-            Some(BossKind::Lich) => 2_000,
+            Some(BossKind::Lich) => LICH_SUMMON_CADENCE_MS,
             Some(BossKind::GelatinousCube) => CUBE_CAPTURE_CADENCE_MS,
             _ => u32::MAX,
         };
@@ -8977,7 +9011,7 @@ pub(crate) fn simulate_battle(
     if units.iter().any(|u| u.boss_ability == Some(BossKind::Dragon)) {
         for u in units.iter_mut() {
             if !u.is_boss {
-                u.attack_interval_ms = (u.attack_interval_ms as f64 * 1.5).round() as u32;
+                u.attack_interval_ms = (u.attack_interval_ms as f64 * DRAGON_SLOW_MULT).round() as u32;
             }
         }
     }
@@ -8987,7 +9021,7 @@ pub(crate) fn simulate_battle(
     // Boots' self-heal), not a per-unit stat, since it's the SAME aura
     // over the whole battlefield regardless of who's healing. Same
     // any-boss check as Dragon's aura above.
-    let heal_mult = if units.iter().any(|u| u.boss_ability == Some(BossKind::FireDemon)) { 0.5 } else { 1.0 };
+    let heal_mult = if units.iter().any(|u| u.boss_ability == Some(BossKind::FireDemon)) { FIRE_DEMON_HEAL_MULT } else { 1.0 };
 
     // Cleric's Blessed Resilience/Sanctuary/Radiant Aegis (party-wide
     // grants) - `combat_*` getters are strictly per-character with no
@@ -9125,12 +9159,9 @@ pub(crate) fn simulate_battle(
     // the boss's first attack, and permanently for a basic encounter
     // (which never sets it, so its targeting stays the old random pick).
     let mut boss_focus_target: Option<usize> = None;
-    // How many adds Lich has summoned so far - capped (see the
-    // BossAbility::Lich handling below) so "5 more every 2 seconds" for
-    // the whole length of a long fight can't spiral into hundreds of
-    // units.
+    // How many adds Lich has summoned so far this fight - see
+    // `LICH_MAX_ADDS`'s own doc for the cap this counts against.
     let mut lich_summon_count: u32 = 0;
-    const LICH_MAX_ADDS: u32 = 20;
 
     loop {
         let boss_alive = units.iter().any(|u| u.is_boss && u.alive);
@@ -9440,7 +9471,7 @@ pub(crate) fn simulate_battle(
                         // so "every 2 seconds" for a long fight can't
                         // spiral into hundreds of units.
                         events.push(CombatEvent::SkillCast { at_ms, unit: units[actor_idx].id.clone(), skill: "Raise Dead".to_string() });
-                        let to_summon = 5.min(LICH_MAX_ADDS.saturating_sub(lich_summon_count));
+                        let to_summon = LICH_ADDS_PER_SUMMON.min(LICH_MAX_ADDS.saturating_sub(lich_summon_count));
                         let boss_id = units[actor_idx].id.clone();
                         let boss_max_hp = units[actor_idx].max_hp;
                         let boss_atk = units[actor_idx].atk;
@@ -9885,7 +9916,7 @@ pub(crate) fn simulate_battle(
                             });
                         }
                         lich_summon_count += to_summon;
-                        units[actor_idx].next_ability_at_ms += 2_000;
+                        units[actor_idx].next_ability_at_ms += LICH_SUMMON_CADENCE_MS;
                     }
                     Some(BossKind::GelatinousCube) => {
                         // Rotating capture, scaled to party size (a live

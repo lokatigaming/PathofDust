@@ -148,6 +148,26 @@ pub(crate) const RAMPAGE_STATE_PATH: &str = "adventure-rampage-state.json";
 /// comment) - the overlay just reuses the boss art pool for now.
 pub(crate) const BASIC_ENEMY_NAMES: &[&str] = &["a pack of Goblin Raiders", "a band of Bandits", "a horde of Skeleton Warriors", "a Dark Wizard's cultists", "a pack of Wild Wolves", "a pair of Cave Trolls"];
 
+/// Flat sand cost of Polishing an already-Perfect-Quality item (see
+/// `craft_item_ex`'s Polishing branch and `Character::polish`'s
+/// Perfect-vs-normal split) - a Perfect item has no `power_roll` room
+/// left to climb, only its 2 raised affixes, so its cost doesn't scale
+/// with quality the way a normal item's does. Named 2026-08-18 for the
+/// wiki's constant audit - was a bare `12`.
+pub(crate) const POLISH_PERFECT_SAND_COST: u64 = 12;
+/// Divisor for a non-Perfect item's Polishing cost: `ceil(quality% /
+/// this)` sand (see `craft_item_ex`'s Polishing branch) - a 0% item
+/// costs 0 (well, `ceil(0/10)` = 0, effectively free the very first
+/// time), a 100% item costs 10. Named 2026-08-18 for the wiki's
+/// constant audit - was a bare `10.0`.
+pub(crate) const POLISH_SAND_COST_PER_QUALITY_PCT: f64 = 10.0;
+/// Dust-per-tier rate for the crafting-panel Reforge action (see
+/// `craft_item_ex`'s Reforge branch and `Character::reforge_item`'s own
+/// doc for why this bypasses the generic base_cost/tier-surcharge
+/// formula entirely) - cost is `tier * this`. Named 2026-08-18 for the
+/// wiki's constant audit - was a bare `30`.
+pub(crate) const PANEL_REFORGE_DUST_PER_TIER: u64 = 30;
+
 /// How long a knocked-out character sits out after their party's fight
 /// ends before they're eligible to fight again. If the next encounter
 /// (timer or !nextencounter) fires before this elapses, they're excluded
@@ -2523,7 +2543,7 @@ impl AdventureManager {
         // CelestialShard bypasses it for its own reasons.
         if action == CraftAction::Polishing {
             let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            let cost = if item.perfect { 12 } else { (item.quality_percent() / 10.0).ceil() as u64 };
+            let cost = if item.perfect { POLISH_PERFECT_SAND_COST } else { (item.quality_percent() / POLISH_SAND_COST_PER_QUALITY_PCT).ceil() as u64 };
             if character.sand < cost {
                 return Err(CraftError::InsufficientSand(cost));
             }
@@ -2540,7 +2560,7 @@ impl AdventureManager {
         }
         if action == CraftAction::Reforge {
             let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            let cost = item.tier as u64 * 30;
+            let cost = item.tier as u64 * PANEL_REFORGE_DUST_PER_TIER;
             if character.dust < cost {
                 return Err(CraftError::InsufficientDust(cost));
             }

@@ -795,6 +795,12 @@ pub(crate) fn combine_reduction_sources(sources: &[f64]) -> f64 {
     1.0 - sources.iter().map(|s| 1.0 - s.clamp(-0.75, 1.0)).product::<f64>()
 }
 
+/// Recombine's own rare bonus-affix crit chance (see `roll_recombine`) -
+/// unlike Reforge's quality-scaled `reforge_crit_chance`, this is a flat
+/// rate regardless of the sources' quality. Named 2026-08-18 for the
+/// wiki's constant audit - was a bare `0.05` at its one call site.
+pub(crate) const RECOMBINE_CRIT_CHANCE: f64 = 0.05;
+
 /// Result of `Character::capped_stat_breakdown` - `sources` is
 /// (label, value) per contributor, in fraction form same as every other
 /// combat stat here (0.20 = 20%), not yet multiplied by 100.
@@ -1161,7 +1167,7 @@ impl Character {
         // anything in this fn at all - Recombine doesn't grant or roll for
         // it, only ever inherits whichever of it survives the merge below.
         let already_recombine_crit = item_a.recombine_crit_used() || item_b.recombine_crit_used();
-        let bonus_affix = if !already_recombine_crit && rng.gen_bool(0.05) {
+        let bonus_affix = if !already_recombine_crit && rng.gen_bool(RECOMBINE_CRIT_CHANCE) {
             let present: Vec<Affix> = affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             weighted_affix_pick(&candidates, 1, rng).first().copied().map(|affix| {
