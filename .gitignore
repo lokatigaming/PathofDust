@@ -24,6 +24,7 @@ adventure-fights-summary-seq.json
 adventure-fights-coarse/
 adventure-fights-detail/
 adventure-fights-summary/
+adventure-fights-pinned/
 adventure-*-marker.json
 announcements.json
 bugreports.json

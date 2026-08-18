@@ -15,7 +15,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::adventure::{AdventureManager, BossKind, JoinOutcome, RampageVoteOutcome, TriggerEncounterOutcome, RAMPAGE_VOTE_THRESHOLD};
+use crate::adventure::{pin_most_recent_fight, AdventureManager, BossKind, JoinOutcome, RampageVoteOutcome, TriggerEncounterOutcome, RAMPAGE_VOTE_THRESHOLD};
 use crate::announcements::Announcements;
 use crate::build_feed;
 use crate::bug_reports::{BugReportManager, SubmitOutcome};
@@ -166,6 +166,7 @@ fn hand_written_public_entries() -> Vec<PublicCommandEntry> {
         ("giftdust", "Mod tool: !giftdust <all|username> <amount> grants that much dust to everyone who's joined, or to one specific hero.", true),
         ("bugreport", "Send a bug report for Lokati to review. Usage: !bugreport <what happened>.", false),
         ("bugreports", "Mod tool: lists the 5 most recent bug reports in chat.", true),
+        ("pinfight", "Mod tool: copies the most recent coarse-tier and detail-tier fight-log files to a pinned/ folder that pruning never touches, so a bug report's evidence survives past the normal 3-5 file rolling window. Announces the pinned fight's id in chat.", true),
         ("rampage", "Mods trigger it instantly; anyone else's !rampage counts as a vote — 3 distinct voters starts it too. Turns the next 50 encounters into boss fights, one every ~60s (or as soon as the last finishes playing out), with everyone instantly revived between them.", false),
     ];
 
@@ -1441,6 +1442,24 @@ async fn handle_builtin(
             Some(Reply::Many(recent.iter().map(|r| format!("#{} {}: {}", r.id, r.user, r.text)).collect()))
         }
 
+        "pinfight" => {
+            if !is_mod_or_broadcaster {
+                return Some(Reply::None);
+            }
+            Some(match pin_most_recent_fight() {
+                None => "Nothing to pin yet — no fight has landed since the last restart.".into(),
+                Some(pinned) => {
+                    let id = pinned.sequence.map(|s| s.to_string()).unwrap_or_else(|| "?".to_string());
+                    match (pinned.coarse_pinned, pinned.detail_pinned) {
+                        (true, true) => format!("📌 Pinned fight #{id} (coarse + detail) — safe from pruning now.").into(),
+                        (true, false) => format!("📌 Pinned fight #{id} (coarse only — detail file was already gone).").into(),
+                        (false, true) => format!("📌 Pinned fight #{id} (detail only — coarse file was already gone).").into(),
+                        (false, false) => "Failed to pin — check the bot's logs.".into(),
+                    }
+                }
+            })
+        }
+
         _ => None,
     }
 }
@@ -1503,7 +1522,7 @@ async fn handle_command_management(args: &[String], services: &Services) -> Repl
         "forceplay", "modpause", "modstart", "modresume", "modvolume", "modvv", "songinsert", "si",
         "essenceprofit", "ep", "ritualprofit", "rp", "vesselprice", "vp", "price", "settheme", "resetgreeted", "theme", "themes", "playlist", "playrandom",
         "join", "character", "char", "me", "party", "adventure", "nextencounter", "event", "giveloot", "gearall", "giftdust",
-        "bugreport", "bugreports", "rampage",
+        "bugreport", "bugreports", "rampage", "pinfight",
     ];
     if BUILTIN_NAMES.contains(&target.as_str()) {
         return format!("!{target} is a built-in command and can't be managed this way.").into();

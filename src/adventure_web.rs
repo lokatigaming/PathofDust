@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::adventure::{
-    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, recent_fights, recent_summary_fights, summarize_fight, AdventureManager, Affix, Archetype,
+    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_fights, recent_summary_fights, summarize_fight, AdventureManager, Affix, Archetype,
     AutoDisenchantTier, Character, CombatEvent, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, Item, LastFightSnapshot,
     LiveTunables, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate, VeilChosenOutcome,
@@ -2366,6 +2366,17 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
     } else {
         ""
     };
+    // !pinfight (2026-08-18) - dashboard-visible confirmation that a pin
+    // actually landed, so a mod doesn't have to spelunk the filesystem to
+    // check. Pure read of PINNED_FIGHTS_DIR's current contents - nothing
+    // here can accidentally trigger a pin.
+    let pinned_fights = list_pinned_fights();
+    let pinned_fights_html = if pinned_fights.is_empty() {
+        "<p class=\"muted\">Nothing pinned yet — use !pinfight in chat to preserve a fight's evidence before the normal rolling window ages it out.</p>".to_string()
+    } else {
+        let items: String = pinned_fights.iter().map(|f| format!("<li>{}</li>", escape_html(f))).collect();
+        format!("<ul>{items}</ul>")
+    };
     format!(
         "{nav}\
         <div class=\"card\">\
@@ -2435,6 +2446,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
+        </div>\
+        <div class=\"card\">\
+          <h2>📌 Pinned Fights</h2>\
+          <p class=\"muted\">Mod tool <code>!pinfight</code> copies the most recent coarse-tier and detail-tier fight files here, immune to the normal rolling-window pruning — bug-report evidence that survives past the 3-5 file window until someone deletes it by hand.</p>\
+          {pinned_fights_html}\
         </div>",
         loot_mult = t.loot_mult,
         sand_mult = t.sand_mult,

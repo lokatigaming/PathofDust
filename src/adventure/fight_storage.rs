@@ -159,6 +159,94 @@ pub(crate) fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
     read_recent(SUMMARY_FIGHTS_DIR, limit)
 }
 
+/// Preserved evidence for a bug report (2026-08-18, `!pinfight`) -
+/// COPIES (never moves - the originals stay right where they are and
+/// keep aging out on the tiers' own normal schedule) the current most
+/// recent coarse-tier and detail-tier fight files here. `write_and_prune`
+/// only ever looks inside `COARSE_FIGHTS_DIR`/`DETAIL_FIGHTS_DIR`
+/// themselves for `.json` files to prune (see `list_fight_files`), so a
+/// SEPARATE directory nothing ever prunes from is enough on its own -
+/// no allowlist/exclusion logic needed anywhere else. Disk only grows
+/// here when a mod deliberately chooses to pin something, not on a
+/// schedule.
+pub(crate) const PINNED_FIGHTS_DIR: &str = "adventure-fights-pinned";
+
+/// What `pin_most_recent_fight` actually managed to preserve - either
+/// tier can independently be empty very early after a restart, before
+/// that tier has saved its first fight yet, so this is reported rather
+/// than assumed.
+pub(crate) struct PinnedFight {
+    /// The shared per-fight sequence number (`save_last_fight` bumps
+    /// both tiers' counters together for every fight, so a fight's
+    /// coarse and detail files always carry the same number) - `None`
+    /// only if the filename itself didn't parse as `fight-<seq>.json`,
+    /// which shouldn't happen for anything `fight_file_path` wrote.
+    pub sequence: Option<u64>,
+    pub coarse_pinned: bool,
+    pub detail_pinned: bool,
+}
+
+/// Pulls the sequence number back out of a `fight-<seq>.json` path (see
+/// `fight_file_path`) - just string parsing, not a stored value, since
+/// nothing before this needed to go the other direction.
+fn fight_seq_from_path(path: &Path) -> Option<u64> {
+    path.file_stem()?.to_str()?.strip_prefix("fight-")?.parse().ok()
+}
+
+/// Copies `source` into `PINNED_FIGHTS_DIR`, prefixed with `tier` (e.g.
+/// `coarse-fight-0000000123.json`) so a mod (or a future !pinfight run)
+/// can tell at a glance which tier a pinned file came from without
+/// opening it - the two tiers' own sequence counters aren't shared, so
+/// without the prefix a coarse and a detail file from the SAME fight
+/// would otherwise land under the exact same name.
+fn copy_pinned(tier: &str, source: &Path) -> bool {
+    let Some(file_name) = source.file_name() else { return false };
+    let dest = Path::new(PINNED_FIGHTS_DIR).join(format!("{tier}-{}", file_name.to_string_lossy()));
+    match std::fs::copy(source, &dest) {
+        Ok(_) => true,
+        Err(err) => {
+            tracing::error!("Failed to pin fight file {} -> {}: {err}", source.display(), dest.display());
+            false
+        }
+    }
+}
+
+/// `!pinfight`'s whole implementation - see `PINNED_FIGHTS_DIR`'s doc for
+/// why a plain copy into its own directory is sufficient protection from
+/// pruning. `None` if NEITHER tier has any file at all yet (nothing to
+/// pin - a fresh install/restart before the first fight has landed).
+pub(crate) fn pin_most_recent_fight() -> Option<PinnedFight> {
+    if let Err(err) = std::fs::create_dir_all(PINNED_FIGHTS_DIR) {
+        tracing::error!("Failed to create pinned-fights directory {PINNED_FIGHTS_DIR}: {err}");
+        return None;
+    }
+    let coarse = list_fight_files(COARSE_FIGHTS_DIR).pop();
+    let detail = list_fight_files(DETAIL_FIGHTS_DIR).pop();
+    if coarse.is_none() && detail.is_none() {
+        return None;
+    }
+    let sequence = coarse.as_deref().and_then(fight_seq_from_path).or_else(|| detail.as_deref().and_then(fight_seq_from_path));
+    let coarse_pinned = coarse.as_deref().is_some_and(|p| copy_pinned("coarse", p));
+    let detail_pinned = detail.as_deref().is_some_and(|p| copy_pinned("detail", p));
+    tracing::info!(
+        "!pinfight: pinned fight #{} (coarse: {coarse_pinned}, detail: {detail_pinned}) to {PINNED_FIGHTS_DIR}",
+        sequence.map(|s| s.to_string()).unwrap_or_else(|| "?".to_string())
+    );
+    Some(PinnedFight { sequence, coarse_pinned, detail_pinned })
+}
+
+/// Every file currently sitting in `PINNED_FIGHTS_DIR`, newest first -
+/// what the admin page's "Pinned Fights" section shows (see
+/// `render_tunables_page`) so a mod can confirm a `!pinfight` actually
+/// landed without spelunking the filesystem.
+pub(crate) fn list_pinned_fights() -> Vec<String> {
+    let Ok(read_dir) = std::fs::read_dir(PINNED_FIGHTS_DIR) else { return Vec::new() };
+    let mut names: Vec<String> = read_dir.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).collect();
+    names.sort();
+    names.reverse();
+    names
+}
+
 const STORAGE_MIGRATION_MARKER_PATH: &str = "adventure-fights-storage-migration-marker.json";
 
 /// One-time migration (2026-08-17, full-detail combat log storage
@@ -191,5 +279,34 @@ pub(crate) fn run_storage_migration() {
     }
     if let Err(err) = crate::state::save_json(STORAGE_MIGRATION_MARKER_PATH, &true) {
         tracing::error!("Failed to persist fight storage migration marker to {STORAGE_MIGRATION_MARKER_PATH}: {err}");
+    }
+}
+
+#[cfg(test)]
+mod pin_most_recent_fight_tests {
+    use super::*;
+
+    // Only `fight_seq_from_path` is unit-tested here - it's the one pure
+    // piece of `!pinfight`'s logic. Every other fn in this module reads/
+    // writes the real, fixed-path COARSE_FIGHTS_DIR/DETAIL_FIGHTS_DIR/
+    // PINNED_FIGHTS_DIR constants directly (no injectable directory
+    // param), same as every other fn in this file - there's no existing
+    // precedent anywhere in fight_storage.rs for sandboxing that against
+    // a temp dir, so this doesn't invent one just for the new code.
+    // Verified live instead: post-deploy, run !pinfight for real and
+    // check both the chat reply and the /admin/tunables dashboard
+    // section.
+
+    #[test]
+    fn parses_the_sequence_number_out_of_a_real_fight_filename() {
+        let path = Path::new("adventure-fights-coarse").join("fight-0000000123.json");
+        assert_eq!(fight_seq_from_path(&path), Some(123));
+    }
+
+    #[test]
+    fn rejects_anything_that_is_not_the_fight_dash_number_shape() {
+        assert_eq!(fight_seq_from_path(Path::new("not-a-fight-file.json")), None);
+        assert_eq!(fight_seq_from_path(Path::new("fight-not-a-number.json")), None);
+        assert_eq!(fight_seq_from_path(Path::new("fight-.json")), None);
     }
 }
