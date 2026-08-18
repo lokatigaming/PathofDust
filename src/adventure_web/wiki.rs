@@ -10,32 +10,99 @@ use super::*;
 
 /// Public - no login needed, same "pure reference content, same for
 /// everyone" reasoning as patch-notes above (the two deliberate
-/// exceptions to this dashboard's usual login gate). First section:
-/// what each world boss actually does, so chat knows what it's walking
-/// into before a fight - see `render_wiki_bosses`. Content is hand-
-/// written prose baked into the binary (unlike patch-notes' JSON file),
-/// since unlike a changelog this doesn't change fight-to-fight - editing
-/// it is a real code change/redeploy, which is fine for how rarely boss
-/// mechanics themselves change. Still resolves the session (if any) now,
+/// exceptions to this dashboard's usual login gate). `/wiki` itself is
+/// now just a landing page/table of contents - the actual sections live
+/// at `/wiki/bosses`, `/wiki/crafting`, `/wiki/healing`, `/wiki/passives`
+/// (see the handlers below), split out so the passives section (which
+/// draws all 11 classes' full trees) doesn't have to render on every
+/// visit to any other section. Still resolves the session (if any) now,
 /// purely so `top_nav`'s stat summary can show for a logged-in visitor -
-/// the page itself stays fully viewable logged out.
+/// the page itself stays fully viewable logged out; every sub-page below
+/// does the same for the same reason.
+///
+/// Old links used `/wiki#slug` fragments (chat's boss-alert links still
+/// send these - see `BossKind::wiki_slug`, manager.rs). Since a fragment
+/// never reaches the server, this page carries a small inline script
+/// (`wiki_hash_redirect_script`) that forwards a recognized `#slug` to
+/// the sub-page that now actually contains that anchor.
 pub(super) async fn wiki_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let character = match current_session(&headers, &state).await {
-        Some((login, _)) => state.adventure.character(&login).await,
-        None => None,
-    };
-    Html(render_page(&render_wiki(character.as_ref())))
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/", "Back to your character"),
+        wiki_hash_redirect_script(),
+        render_wiki_toc(),
+    )))
 }
 
-fn render_wiki(character: Option<&Character>) -> String {
-    format!(
-        "{}{}{}{}{}",
-        top_nav(character),
-        render_wiki_bosses(),
-        render_wiki_crafting(),
-        render_wiki_healing(),
-        render_wiki_passives()
-    )
+pub(super) async fn wiki_bosses_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_bosses())))
+}
+
+pub(super) async fn wiki_crafting_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_crafting())))
+}
+
+pub(super) async fn wiki_healing_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_healing())))
+}
+
+pub(super) async fn wiki_passives_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_passives())))
+}
+
+async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
+    match current_session(headers, state).await {
+        Some((login, _)) => state.adventure.character(&login).await,
+        None => None,
+    }
+}
+
+/// Shared "Wiki" breadcrumb card every wiki page (landing + sub-pages)
+/// opens with - `back_href`/`back_label` vary since the landing page
+/// backs out to `/` while every sub-page backs out to `/wiki`.
+fn wiki_crumb(back_href: &str, back_label: &str) -> String {
+    format!("<div class=\"card\"><h1>Wiki</h1><p class=\"muted\"><a href=\"{back_href}\">&larr; {back_label}</a></p></div>")
+}
+
+/// `/wiki` landing page's table of contents - one line per sub-page.
+fn render_wiki_toc() -> String {
+    "<div class=\"card\">\
+      <h2>Sections</h2>\
+      <ul class=\"wiki-toc\">\
+        <li><a href=\"/wiki/bosses\">🐲 Bosses</a> - what each world boss actually does</li>\
+        <li><a href=\"/wiki/crafting\">⚒️ Crafting</a> - currencies, actions, and the modifier ceiling</li>\
+        <li><a href=\"/wiki/healing\">✨ Healing</a> - shield stacking and duration rules</li>\
+        <li><a href=\"/wiki/passives\">🌳 Passives</a> - every class's full passive tree</li>\
+      </ul>\
+    </div>"
+        .to_string()
+}
+
+/// Forwards an old `/wiki#slug` fragment link to whichever sub-page now
+/// owns that anchor. The map's keys are exactly the `id=\"...\"` values
+/// `render_wiki_bosses`/`render_wiki_crafting`/`render_wiki_healing`
+/// define - keep in sync if a section ever adds/renames an anchor.
+/// Fragments never reach the server, so this has to run client-side.
+fn wiki_hash_redirect_script() -> String {
+    "<script>(function(){\
+      var slug = location.hash.slice(1);\
+      if (!slug) return;\
+      var section = ({\
+        dragon:'bosses',cthulhu:'bosses',lich:'bosses','fire-demon':'bosses','gelatinous-cube':'bosses',\
+        currencies:'crafting',ceiling:'crafting','currency-crafting':'crafting',reforge:'crafting',recombine:'crafting',\
+        polishing:'crafting','celestial-shard':'crafting','item-tiers':'crafting',veiling:'crafting',\
+        disenchanting:'crafting','quick-reference':'crafting',\
+        shields:'healing'\
+      })[slug];\
+      if (section) location.replace('/wiki/' + section + location.hash);\
+    })();</script>"
+        .to_string()
 }
 
 /// Public, read-only reference for every class's full passive tree - the
@@ -146,8 +213,7 @@ fn render_wiki_archetype_graph(archetype: Archetype) -> String {
 /// LICH_MAX_ADDS, the Fire Demon/Dragon aura magnitudes, Cthulhu's -90%)
 /// - keep this in sync if any of those ever change.
 fn render_wiki_bosses() -> String {
-    "<div class=\"card\"><h1>Wiki</h1><p class=\"muted\"><a href=\"/\">&larr; Back to your character</a></p></div>\
-    <div class=\"card\">\
+    "<div class=\"card\">\
       <h2>Bosses</h2>\
       <p>Every world boss fight pits the party against one or more of five named bosses. Each one plays completely differently - here's what to watch for.</p>\
       <h3 id=\"dragon\">🐲 The Dragon</h3>\
