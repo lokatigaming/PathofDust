@@ -223,6 +223,11 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("BASIC_ITEM_PITY_GAIN_PCT", pct(crate::adventure::BASIC_ITEM_PITY_GAIN)),
         ("BOSS_CRAFT_PITY_GAIN_PCT", pct(crate::adventure::BOSS_CRAFT_PITY_GAIN)),
         ("BASIC_CRAFT_PITY_GAIN_PCT", pct(crate::adventure::BASIC_CRAFT_PITY_GAIN)),
+        // Classes & Passives (wiki/classes.md).
+        ("ARCHETYPE_COUNT", ALL_ARCHETYPES.len().to_string()),
+        ("POINTS_AT_LEVEL_1", crate::passive_tree::points_for_level(1).to_string()),
+        ("POINTS_AT_LEVEL_20", crate::passive_tree::points_for_level(20).to_string()),
+        ("POINTS_AT_LEVEL_50", crate::passive_tree::points_for_level(50).to_string()),
     ])
 }
 
@@ -343,6 +348,17 @@ pub(super) async fn wiki_items_page(State(state): State<AppState>, headers: Head
     )))
 }
 
+pub(super) async fn wiki_classes_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("classes"),
+        render_markdown_page("classes"),
+    )))
+}
+
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
     match current_session(headers, state).await {
         Some((login, _)) => state.adventure.character(&login).await,
@@ -371,13 +387,14 @@ fn wiki_subnav(active: &str) -> String {
         }
     };
     format!(
-        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}{}</div>",
+        "<div class=\"top-nav-links\">{}{}{}{}{}{}{}{}{}</div>",
         entry("/wiki/getting-started", "🚀 Getting Started", "getting-started"),
         entry("/wiki/combat", "⚔️ Combat", "combat"),
         entry("/wiki/bosses", "🐲 Bosses", "bosses"),
         entry("/wiki/items", "🗡️ Items", "items"),
         entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
         entry("/wiki/healing", "✨ Healing", "healing"),
+        entry("/wiki/classes", "🎭 Classes", "classes"),
         entry("/wiki/passives", "🌳 Passives", "passives"),
         entry("/wiki/commands", "💬 Commands", "commands"),
     )
