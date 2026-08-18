@@ -1609,7 +1609,7 @@ pub(crate) struct CombatSimUnit {
     /// get cursed (full value, not a fraction) the moment this unit's
     /// curse first applies. 0 without it invested.
     own_curse_spread_count: u32,
-    /// Warlock's Doom - THIS unit's own detonation efficiency (20%/rank of
+    /// Warlock's Doom - THIS unit's own detonation efficiency (3%/rank of
     /// damage dealt to the cursed target while Doom-tracked). 0.0 without
     /// it invested. Copied onto the cursed target as `curse_detonate_pct`
     /// at apply time (see that field's doc).
