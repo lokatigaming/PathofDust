@@ -53,6 +53,8 @@ mod character;
 mod combat;
 mod craft;
 mod fight_storage;
+#[cfg(test)]
+mod golden_corpus;
 mod item;
 mod manager;
 mod migrations;

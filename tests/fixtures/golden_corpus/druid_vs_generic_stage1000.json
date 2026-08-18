@@ -1,0 +1,1838 @@
+{
+  "won": true,
+  "units": [
+    {
+      "id": "druid_vs_generic_stage1000",
+      "displayName": "druid_vs_generic_stage1000",
+      "isBoss": false,
+      "archetype": "druid",
+      "role": "support",
+      "maxHp": 2782
+    },
+    {
+      "id": "__enemy_0__",
+      "displayName": "Boss",
+      "isBoss": true,
+      "archetype": null,
+      "role": null,
+      "maxHp": 500000
+    }
+  ],
+  "events": [
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 0,
+      "unmitigatedDamage": 30218,
+      "targetHpAfter": 500000,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3761,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 2156,
+      "targetHpAfter": 2782,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3765,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 593,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "divine_heal_reduction_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 593,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 31884,
+      "unmitigatedDamage": 31884,
+      "targetHpAfter": 468116,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3767,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1100,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "divine_heal_reduction_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 1841,
+      "targetHpAfter": 2782,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3775,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1186,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 1186,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 32373,
+      "unmitigatedDamage": 32373,
+      "targetHpAfter": 435743,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3779,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1779,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          2.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 1779,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 31251,
+      "unmitigatedDamage": 31251,
+      "targetHpAfter": 404492,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3787,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2200,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          2.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 2200,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 2267,
+      "targetHpAfter": 2782,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3795,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2372,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          3.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 2372,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 36806,
+      "unmitigatedDamage": 36806,
+      "targetHpAfter": 367686,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3799,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2965,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 2965,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 55287,
+      "unmitigatedDamage": 55287,
+      "targetHpAfter": 312399,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 3807,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 1774,
+      "targetHpAfter": 2782,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3816,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3558,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          3.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3558,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 38177,
+      "unmitigatedDamage": 38177,
+      "targetHpAfter": 274222,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3820,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4151,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 4151,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 46188,
+      "unmitigatedDamage": 46188,
+      "targetHpAfter": 228034,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3828,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4400,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 4400,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 1958,
+      "unmitigatedDamage": 1958,
+      "targetHpAfter": 824,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3836,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4744,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          5.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          3.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 4744,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 41314,
+      "unmitigatedDamage": 41314,
+      "targetHpAfter": 186720,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3842,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 4744,
+      "healer": "druid_vs_generic_stage1000",
+      "target": "druid_vs_generic_stage1000",
+      "amount": 1958,
+      "targetHpAfter": 2782
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4744,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4744,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5337,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5337,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 5337,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 49307,
+      "unmitigatedDamage": 49307,
+      "targetHpAfter": 137413,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3850,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5500,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          4.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5500,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 5500,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 1858,
+      "targetHpAfter": 2782,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3858,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5930,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5930,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          3.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 5930,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 51873,
+      "unmitigatedDamage": 51873,
+      "targetHpAfter": 85540,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3862,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6523,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6523,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          2.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6523,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 48519,
+      "unmitigatedDamage": 48519,
+      "targetHpAfter": 37021,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3870,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          2.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6600,
+      "attacker": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 1870,
+      "targetHpAfter": 2782,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 3878,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7116,
+      "unit": "druid_vs_generic_stage1000",
+      "buffs": [
+        [
+          "chaos_block_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7116,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "chaos_block_debuff_stacks",
+          2.0
+        ],
+        [
+          "divine_heal_reduction_stacks",
+          5.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 7116,
+      "attacker": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "damage": 52388,
+      "unmitigatedDamage": 52388,
+      "targetHpAfter": 0,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 3882,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 7116,
+      "unit": "__enemy_0__"
+    }
+  ],
+  "rolls": [
+    {
+      "eventId": 3762,
+      "hitId": 3761,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3763,
+      "hitId": 3761,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3764,
+      "hitId": 3761,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3766,
+      "hitId": 3765,
+      "atMs": 0,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3768,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3769,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3770,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3771,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3772,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3773,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": false
+    },
+    {
+      "eventId": 3774,
+      "hitId": 3767,
+      "atMs": 593,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3776,
+      "hitId": 3775,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.728,
+      "succeeded": true
+    },
+    {
+      "eventId": 3777,
+      "hitId": 3775,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3778,
+      "hitId": 3775,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 3780,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3781,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3782,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3783,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3784,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3785,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": true
+    },
+    {
+      "eventId": 3786,
+      "hitId": 3779,
+      "atMs": 1186,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": false
+    },
+    {
+      "eventId": 3788,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3789,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3790,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3791,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3792,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3793,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": true
+    },
+    {
+      "eventId": 3794,
+      "hitId": 3787,
+      "atMs": 1779,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3796,
+      "hitId": 3795,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.706,
+      "succeeded": true
+    },
+    {
+      "eventId": 3797,
+      "hitId": 3795,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3798,
+      "hitId": 3795,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 3800,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3801,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3802,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3803,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3804,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3805,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": true
+    },
+    {
+      "eventId": 3806,
+      "hitId": 3799,
+      "atMs": 2372,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": false
+    },
+    {
+      "eventId": 3808,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": true
+    },
+    {
+      "eventId": 3809,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3810,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3811,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3812,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 3813,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3814,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": true
+    },
+    {
+      "eventId": 3815,
+      "hitId": 3807,
+      "atMs": 2965,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": false
+    },
+    {
+      "eventId": 3817,
+      "hitId": 3816,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.6839999999999999,
+      "succeeded": true
+    },
+    {
+      "eventId": 3818,
+      "hitId": 3816,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3819,
+      "hitId": 3816,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 3821,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3822,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3823,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3824,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3825,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3826,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": false
+    },
+    {
+      "eventId": 3827,
+      "hitId": 3820,
+      "atMs": 3558,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3829,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3830,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3831,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3832,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3833,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3834,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": false
+    },
+    {
+      "eventId": 3835,
+      "hitId": 3828,
+      "atMs": 4151,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3837,
+      "hitId": 3836,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.662,
+      "succeeded": false
+    },
+    {
+      "eventId": 3838,
+      "hitId": 3836,
+      "atMs": 4400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3839,
+      "hitId": 3836,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3840,
+      "hitId": 3836,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 3841,
+      "hitId": 3836,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 3843,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3844,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3845,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3846,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3847,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3848,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": true
+    },
+    {
+      "eventId": 3849,
+      "hitId": 3842,
+      "atMs": 4744,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": false
+    },
+    {
+      "eventId": 3851,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3852,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3853,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3854,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3855,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3856,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": false
+    },
+    {
+      "eventId": 3857,
+      "hitId": 3850,
+      "atMs": 5337,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3859,
+      "hitId": 3858,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.64,
+      "succeeded": true
+    },
+    {
+      "eventId": 3860,
+      "hitId": 3858,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3861,
+      "hitId": 3858,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 3863,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3864,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3865,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3866,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3867,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3868,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": false
+    },
+    {
+      "eventId": 3869,
+      "hitId": 3862,
+      "atMs": 5930,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3871,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3872,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3873,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3874,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3875,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3876,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": false
+    },
+    {
+      "eventId": 3877,
+      "hitId": 3870,
+      "atMs": 6523,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": true
+    },
+    {
+      "eventId": 3879,
+      "hitId": 3878,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.618,
+      "succeeded": true
+    },
+    {
+      "eventId": 3880,
+      "hitId": 3878,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 3881,
+      "hitId": 3878,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 3883,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 3884,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3885,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "druid_vs_generic_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 3886,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 3887,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 21.997469350621188
+    },
+    {
+      "eventId": 3888,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5003465488731555,
+      "succeeded": true
+    },
+    {
+      "eventId": 3889,
+      "hitId": 3882,
+      "atMs": 7116,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "druid_vs_generic_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.47177320551047774,
+      "succeeded": false
+    }
+  ]
+}

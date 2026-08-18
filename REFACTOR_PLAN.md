@@ -396,6 +396,52 @@ reads — worth a specific check during the wiki.rs move stage.
 See `tests/fixtures/` for the generated artifacts and
 `src/bin/pseudonymize_characters.rs` for the script.
 
+**Execution log (2026-08-18, against `54f7c67`)**:
+- GET-route baselines captured for `/`, `/inventory`, `/passives`,
+  `/fights`, `/fights.json` against the live production instance
+  (anonymous, no session cookie) - `/`, `/inventory`, `/passives`, and
+  `/fights` all rendered byte-identical output for this logged-out
+  visitor state (same "Adventure Character Dashboard" shell/landing
+  content); `/fights.json` returned `[]` (no boss fight had landed
+  since the process's most recent restart at capture time - boss
+  encounters fire on a 10-minute timer with the first post-restart tick
+  deliberately skipped, see `spawn_encounter_loop`'s own doc). Worth a
+  human look during whichever future stage actually touches these
+  routes: is the 4-way identical-shell result intentional (a shared
+  logged-out empty state) or a route-gating bug nobody's noticed yet -
+  not investigated further here since diagnosing it isn't a Stage 0.5
+  harness-building task.
+- A `/ws` sample captured (1 `type: "state"` broadcast frame, full
+  character roster).
+- **Not committed to git**: both contain real player logins/display
+  names (the WS state broadcast especially - the full live roster).
+  Kept in the session's local scratchpad instead, same "real player
+  data never enters git history" principle as the pseudonymized
+  character fixture - these are quick to recapture (`curl`/a short
+  WebSocket client) against any live instance whenever a future stage
+  actually needs to diff against them, so nothing is lost by not
+  committing them.
+- **Admin-authenticated (`lokati_gaming`) baseline capture**: still not
+  done - needs the owner's help (a session cookie, or they capture it
+  themselves) per §11's open item.
+- **POST-route baselines against an isolated local instance**: not
+  captured this pass. `start_adventure_web_server` needs a fully
+  constructed `Arc<AdventureManager>`, which reads/writes several
+  hardcoded file paths at the process's CWD (`adventure-characters.json`
+  and friends - see §6) - there's no path-injection point today to
+  safely point a second, disposable instance at copies/fixtures instead
+  of the real files. Building that injection point is real production
+  surface (touching `AdventureManager::new`'s construction, not just
+  test scaffolding) and was judged out of scope for this pass rather
+  than rushed - deferred to whichever Stage 8+ sub-stage first touches
+  `AdventureManager::new`'s hardcoded paths, which was already an
+  acknowledged gap in §6 before this note.
+- **Harness #3 (HTTP golden-response harness) itself**: also deferred
+  for the same reason - a genuinely reusable ephemeral-port harness
+  needs that same path-injection point to run a disposable, isolated
+  server instance repeatably in a test. The captures above stand in as
+  the Stage 0 baseline reference in the meantime.
+
 ---
 
 ## 10. Proposed stage sequence

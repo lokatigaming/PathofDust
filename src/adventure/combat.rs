@@ -7667,11 +7667,18 @@ pub(crate) fn apply_heal_bounce(units: &mut [CombatSimUnit], healer_idx: usize, 
 /// valve trips). Returns whether the party won, each unit's starting
 /// info, and the full ordered event log (real timestamps — see
 /// `compress_events` for what actually gets broadcast).
+/// `rng` (2026-08-18, threaded in for the refactor's Stage 0.5 golden-
+/// corpus harness) - every production call site passes
+/// `&mut rand::thread_rng()`, identical to this function constructing
+/// its own before this change; a test can instead pass a seeded
+/// `StdRng` for a genuinely reproducible fight, which the un-injectable
+/// `thread_rng()` this used to build internally could never give.
 pub(crate) fn simulate_battle(
     characters: &HashMap<String, Character>,
     enemies: Vec<(BossStats, Option<BossKind>, f64)>,
     stage: u32,
     tunables: &LiveTunables,
+    mut rng: &mut impl Rng,
 ) -> (bool, Vec<CombatUnitInfo>, Vec<CombatEvent>, Vec<RollEvent>) {
     // Fixed for the whole fight (not recomputed as players die) - see
     // `prioritize_above_median`'s doc.
@@ -9263,7 +9270,6 @@ pub(crate) fn simulate_battle(
 
     let mut events = Vec::new();
     let mut rolls: Vec<RollEvent> = Vec::new();
-    let mut rng = rand::thread_rng();
 
     // Warlock's Cursed Blood (2026-08-17, repurposed) - immediately curses
     // N random enemies the instant a fight starts, at ms 0, before any hit
