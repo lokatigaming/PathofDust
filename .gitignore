@@ -20,8 +20,10 @@ adventure-item-balance.toml
 adventure-live-tunables.toml
 adventure-fights-coarse-seq.json
 adventure-fights-detail-seq.json
+adventure-fights-summary-seq.json
 adventure-fights-coarse/
 adventure-fights-detail/
+adventure-fights-summary/
 adventure-*-marker.json
 announcements.json
 bugreports.json

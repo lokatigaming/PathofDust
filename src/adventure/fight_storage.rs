@@ -30,20 +30,23 @@ const COARSE_SEQ_PATH: &str = "adventure-fights-coarse-seq.json";
 const DETAIL_SEQ_PATH: &str = "adventure-fights-detail-seq.json";
 const SUMMARY_SEQ_PATH: &str = "adventure-fights-summary-seq.json";
 
-/// Lowered from the original 100 (2026-08-17, Phase 2) once real
-/// detail-tier file sizes were actually measured - a single heavily-
-/// built, multi-boss late-game fight's detail file already reached
-/// 49MB with Phase 1's rolls alone, before Phase 2's extra sources.
-/// "We don't need long logs, just efficient ones" - a live decision to
-/// keep both tiers small rather than retain a long history.
-pub(crate) const COARSE_FIGHTS_CAPACITY: usize = 10;
+/// Lowered 100 -> 10 -> 5 (2026-08-17 Phase 2, then again 2026-08-18)
+/// as real on-disk sizes kept outrunning the estimates: the Phase 2 cut
+/// was made against 49MB detail files, but by the next day a single
+/// heavily-built multi-boss late-game fight was producing ~245MB coarse
+/// / ~620MB detail, so the 10/5 caps were still holding ~5.5GB between
+/// them. "We don't need long logs, just efficient ones" - a live
+/// decision to keep both tiers small rather than retain a long history.
+/// The summary tier below is what actually serves player-facing fight
+/// history, so shrinking these two costs nothing a player can see.
+pub(crate) const COARSE_FIGHTS_CAPACITY: usize = 5;
 /// Full roll-level detail is expensive relative to the coarse tier (see
 /// `RollEvent`'s own doc) - retained for a much smaller recent window,
 /// "what just happened" rather than the full coarse-tier history.
-/// Lowered from 15 alongside `COARSE_FIGHTS_CAPACITY` above, same
-/// reasoning - real fights already ran up to 49MB on this tier with
-/// Phase 1 alone.
-pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 5;
+/// Always kept BELOW `COARSE_FIGHTS_CAPACITY` (15 -> 5 -> 3, lowered
+/// alongside it each time) since a detail file runs several times the
+/// size of the coarse file for the same fight.
+pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 3;
 /// A summary is just per-player aggregates + loot/broken - a few KB
 /// regardless of how many events the real fight generated (2026-08-18,
 /// the `/fights.json` size/latency fix) - roughly 100-1000x smaller than
