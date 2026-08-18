@@ -868,23 +868,72 @@ proven, not before.
     `tracing-appender` daily-rolling-file setup (`logs/game.log.<date>`,
     new Cargo.toml dependency, no other bot-side changes needed).
   Full workspace suite: 156 passing (was 147), zero regressions.
-- **LIVE BAKE** (owner-required, inserted here): run the two-process
-  shape in production for at least a day of real stream traffic — real
-  fights, real redemptions, a real bot-restart under it — before
-  proceeding to Stage 6+. **Deployment plan for this proposed separately
-  (not in this document) as a stop-and-wait for owner approval** -
-  covers exactly what changes on the machine, the rollback procedure,
-  and what gets watched during the bake day. Two live findings from that
-  investigation, unrelated to this refactor but directly relevant to
-  trusting the bake: the existing `TwitchBotRS-Watchdog` scheduled
-  task's action points at a path that no longer exists
-  (`C:\Users\Administrator\Downloads\twitch-bot-rs\watchdog.ps1`) and has
-  been silently failing every ~2 minutes since roughly 2026-08-18 13:00 -
-  the bot's crash auto-recovery has had no confirmed-working safety net
-  for over half a day, independent of anything in this refactor. Flagged
-  to the owner directly, not fixed unilaterally (touches live Task
-  Scheduler configuration) - recommended as a bake prerequisite either
-  way.
+- **LIVE BAKE** (owner-approval pending, prep underway): run the
+  two-process shape in production for at least a day of real stream
+  traffic — real fights, real redemptions, a real bot-restart under it —
+  before proceeding to Stage 6+. **Deployment plan proposed separately
+  (not in this document) as a stop-and-wait for owner approval** - covers
+  exactly what changes on the machine, the rollback procedure, and what
+  gets watched during the bake day. Owner sign-off on the cutover itself
+  is still pending as of 2026-08-19; the items below are pre-cutover
+  conditions the owner set, resolved with evidence before any go-ahead.
+  - **Rollback data compatibility - VERIFIED (2026-08-19): rollback
+    keeps bake-day progress.** The open question was whether `master`'s
+    (pre-refactor) binary can load an `adventure-characters.json` file
+    written by the NEW binary, since a bad-bake rollback needs to read
+    whatever the bake actually wrote, not just the pre-cutover backup.
+    Two-part evidence: (1) a structural diff of every persisted type
+    (`Character`, `Item`, `WorldState`) between `master` and
+    `refactor/architecture` shows ZERO differences beyond
+    `pub(crate)`→`pub` visibility promotions - no field added, removed,
+    renamed, or reshaped anywhere in the persistence surface across the
+    whole refactor to date. (2) An executed round trip: the real
+    `game.exe` (built from `refactor/architecture`) created a character,
+    granted dust, and reforged its weapon in a scratch dir; a `git
+    worktree` checked out to `master` (network-free - `AdventureManager::new`
+    is a plain, synchronous, file-only constructor, no Twitch connection
+    needed) loaded that exact file directly and confirmed every mutated
+    field round-tripped (`dust: 777`, reforged weapon name/tier both
+    exact). Worktree and scratch files were thrown away after - nothing
+    from this test landed in the repo. **Decided now, not something to
+    re-verify mid-incident**: if a rollback is ever needed during or
+    after the bake, the pre-cutover `adventure-characters.json` backup is
+    a fallback of last resort, not a requirement - `master`'s binary can
+    read whatever `game` actually wrote.
+  - **Watchdog - the existing `TwitchBotRS-Watchdog` task was found
+    broken and has been fixed.** Its action pointed at a path that no
+    longer exists (`C:\Users\Administrator\Downloads\twitch-bot-rs\watchdog.ps1`)
+    and had been silently failing every ~2 minutes since roughly
+    2026-08-18 13:00 - the bot's crash auto-recovery had no
+    confirmed-working safety net for over half a day, independent of
+    anything in this refactor. Repointed to `C:\PathofDust\watchdog.ps1`
+    (trigger/settings/principal preserved exactly); manually fired once
+    and confirmed a clean success (`LastTaskResult: 0`, correct no-op
+    since the bot was alive). The actual kill-and-restart half still
+    needs a live test before it counts as a real safety net - scheduled
+    for the next window where no boss fight is imminent (an active
+    rampage, 50 fights at ~60s cadence, was in progress as of this
+    writing). `game-watchdog.ps1` (repo root, new) mirrors the pattern
+    for the standalone `game` process - written and committed, not yet
+    registered as a scheduled task (that's a cutover-time step, done
+    BEFORE `game.exe` itself starts, per the owner's explicit ordering:
+    no window where it runs unprotected).
+  - **Build-lock prep**: `cargo build --release --workspace --target-dir
+    target-bake` builds both new binaries into a separate directory
+    without touching (or needing to stop) the currently-running
+    `target\release\twitch-bot-rs.exe`, which the live process holds a
+    file lock on. `--workspace` is required - a plain `cargo build
+    --release` from the root only builds the root package in this
+    workspace shape (root `Cargo.toml` is both the workspace definition
+    and its own package), silently skipping `game`'s binary. `/target-bake`
+    added to `.gitignore` (wasn't covered by the existing `/target`
+    pattern).
+  - `.env` now has a real `ADVENTURE_API_SECRET` (both binaries read the
+    same file, so `game.exe` will see it once it starts) - generated via
+    `/dev/urandom` after a first attempt using a PowerShell RNG API that
+    doesn't exist on this system failed silently and produced 32 zero
+    bytes instead; caught before use, `.env` confirmed holding the real
+    regenerated value.
 - **Stage 6**: split `bot`'s Cargo.toml/config.rs into per-binary
   config; formalize the workspace's final `[[bin]]`/crate layout.
 - **Stage 7**: two-binary deploy/watchdog/scheduled-task updates —
