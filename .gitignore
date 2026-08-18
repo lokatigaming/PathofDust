@@ -9,6 +9,8 @@ patreon-tokens.json
 # new binaries while the currently-running one still holds a file lock
 # on /target/release) - see REFACTOR_PLAN.md's bake deployment proposal.
 /target-bake
+# Pre-cutover rollback backups (real player data + a binary) - never tracked.
+/backup-pre-bake
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
@@ -17,6 +19,10 @@ adventure-last-fight.json
 adventure-last-fights.json.bak
 adventure-world.json
 adventure-rampage-state.json
+# Bot->game published constants (see PublishedConstants' own doc) -
+# written fresh by the bot at every startup, never existed on disk until
+# the Stage 5 cutover's first real bot startup surfaced this gap.
+bot-published-constants.json
 adventure-reforge-cooldown.json
 adventure-sessions.json
 adventure-sprite-count.json

@@ -868,10 +868,38 @@ proven, not before.
     `tracing-appender` daily-rolling-file setup (`logs/game.log.<date>`,
     new Cargo.toml dependency, no other bot-side changes needed).
   Full workspace suite: 156 passing (was 147), zero regressions.
-- **LIVE BAKE** (owner-approval pending, prep underway): run the
-  two-process shape in production for at least a day of real stream
-  traffic — real fights, real redemptions, a real bot-restart under it —
-  before proceeding to Stage 6+. **Deployment plan proposed separately
+- **LIVE BAKE** (owner-approved, cutover complete 2026-08-19 ~03:01):
+  the two-process shape is now what's actually running in production.
+  **Kill-test evidence** (the last pre-cutover condition): killed the
+  then-live bot (PID 33580) at 02:53:27 local; the fixed
+  `TwitchBotRS-Watchdog` restarted it at 02:54:19 (~52s, well inside its
+  2-minute window, confirmed by both the new `watchdog.log` entry and
+  the new process's own StartTime matching) with a fully clean
+  restart - chat reconnected, EventSub resubscribed to all 5 redemption
+  types, every watcher back up, zero errors. **Cutover sequence** (all
+  11 checklist steps, backup-before-overwrite as required): backed up
+  the running `twitch-bot-rs.exe` and both data files to
+  `backup-pre-bake/` (gitignored); briefly disabled
+  `TwitchBotRS-Watchdog` (an added safety measure beyond the original
+  checklist, to prevent it firing mid-swap) around stopping
+  `TwitchBotRS` and copying both new binaries from `target-bake/`
+  (SHA-256-verified identical to the build) into `target/release/`;
+  registered `GameProcess` and `GameProcess-Watchdog` (both mirroring
+  `TwitchBotRS`'s own trigger/settings/principal exactly) BEFORE
+  starting `game.exe`, per the owner's ordering requirement; verified
+  `game.exe` healthy over real HTTP (served real production state - stage
+  981, 38/53 heroes - through the authenticated `/api/*` seam) before
+  re-enabling `TwitchBotRS-Watchdog` and starting the new bot. **First
+  real production proof the seam actually works**: the new bot's very
+  first startup log shows `Reconciling 2 missed "Reforge Gear"
+  redemption(s) from while the bot was down` - two real redemptions that
+  landed during the ~7-minute cutover window, correctly caught up
+  through the new `AdventureApiClient` path on restart, no fallback
+  warnings anywhere in either process's log. Both processes and all 4
+  scheduled tasks confirmed healthy immediately after. The bake clock
+  starts now - see this section's own "what to watch" list from the
+  original deployment proposal.
+  **Deployment plan proposed separately
   (not in this document) as a stop-and-wait for owner approval** - covers
   exactly what changes on the machine, the rollback procedure, and what
   gets watched during the bake day. Owner sign-off on the cutover itself
