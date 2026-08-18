@@ -180,26 +180,40 @@ pub(crate) fn run_item_migrations(characters_path: &PathBuf, characters: &mut Ha
     }
 }
 
-/// Moves any `hundredfists` rank onto `onehundredhands` (renamed "Flow
-/// like Water") - the 2026-08-18 swap exchanged those two nodes' tiers,
-/// so the three Chakra modifiers now hang off `onehundredhands` instead.
-/// Without this, a Monk who had invested in the old Hundred Fists spec
-/// would find their Chakras suddenly parented to a node they have no
-/// points in, stranding every point spent below it. Moving the rank
-/// across (rather than granting a respec) keeps their total points spent
-/// identical and keeps those Chakras unlocked.
+/// Repairs Monk allocations after the 2026-08-18 tier swap that exchanged
+/// `hundredfists` (Specialization -> Modifier) and `onehundredhands`
+/// (Modifier -> Specialization, renamed "Flow like Water").
 ///
-/// Guarded on `onehundredhands` being unallocated so it can never fuse
-/// two real investments into one over-ranked node, and clamped to the
-/// Specialization `max_rank` of 4 for the same reason `passive_node_rank`
-/// callers can't rely on stored ranks being in range.
+/// Two distinct cases, because a player can hold either or both:
+///
+/// 1. `hundredfists` is now a Modifier, whose `max_rank` is 3 rather than
+///    a Specialization's 4. A stored rank of 4 would survive as-is (no
+///    caller clamps stored ranks - see `passive_node_rank`) and read as
+///    `magnitude_at_rank(4)` = +8 max stacks, i.e. 13 instead of the
+///    documented 11. Clamped down to 3.
+/// 2. Only when `onehundredhands` is genuinely unallocated does the old
+///    `hundredfists` rank MOVE across to it. That is the "they invested in
+///    the old spec slot and their Chakras hang off it" case, where leaving
+///    it behind would strand every point spent below. When BOTH are
+///    allocated the move is deliberately skipped and both are kept: the
+///    two nodes now sit at different tiers under different parents, so
+///    they are separate legitimate investments, and merging them would
+///    silently destroy the smaller one.
+///
+/// Never removes a node outright - the worst case is the single over-cap
+/// 4th point in case 1, which the new tier simply cannot hold.
 pub(crate) fn migrate_flowlikewater_swap(character: &mut Character) {
     for tree in [&mut character.passive_allocations, &mut character.secondary_passive_allocations] {
         // Both trees, since Split Personality can run Monk as a secondary.
-        if let Some(rank) = tree.remove("hundredfists") {
-            if rank > 0 && tree.get("onehundredhands").copied().unwrap_or(0) == 0 {
-                tree.insert("onehundredhands".to_string(), rank.min(4));
-            }
+        let hundredfists = tree.get("hundredfists").copied().unwrap_or(0);
+        if hundredfists == 0 {
+            continue;
+        }
+        if tree.get("onehundredhands").copied().unwrap_or(0) == 0 {
+            tree.remove("hundredfists");
+            tree.insert("onehundredhands".to_string(), hundredfists.min(4));
+        } else {
+            tree.insert("hundredfists".to_string(), hundredfists.min(3));
         }
     }
 }
@@ -398,13 +412,33 @@ mod flowlikewater_swap_tests {
     }
 
     #[test]
-    fn does_not_fuse_two_real_investments() {
-        // Nobody live has both, but if they did, silently summing them
-        // into one over-ranked node would be worse than dropping the move.
-        let mut c = monk_with(&[("hundredfists", 3), ("onehundredhands", 2)], &[]);
+    fn keeps_both_and_clamps_when_both_are_allocated() {
+        // The real live case as of deploy: yo_pony respec'd into BOTH
+        // (onehundredhands=3, hundredfists=4). Post-swap these are two
+        // different tiers under two different parents, so both are
+        // legitimate - merging them would silently destroy one. The only
+        // correction owed is the over-cap 4th point, which a Modifier
+        // (max_rank 3) cannot hold.
+        let mut c = monk_with(&[("onehundredhands", 3), ("hundredfists", 4), ("chakraofmany", 1)], &[]);
         migrate_flowlikewater_swap(&mut c);
-        assert_eq!(c.passive_allocations.get("onehundredhands").copied(), Some(2), "an existing allocation must win, not be overwritten or added to");
-        assert!(!c.passive_allocations.contains_key("hundredfists"));
+        assert_eq!(c.passive_allocations.get("onehundredhands").copied(), Some(3), "an existing Flow like Water investment must be left exactly as-is");
+        assert_eq!(c.passive_allocations.get("hundredfists").copied(), Some(3), "Hundred Fists must survive, clamped to its new Modifier max_rank");
+        assert_eq!(c.passive_allocations.get("chakraofmany").copied(), Some(1), "points below must never be silently dropped");
+    }
+
+    #[test]
+    fn never_deletes_hundredfists_outright() {
+        // Regression guard for the bug caught at deploy time: an earlier
+        // version removed hundredfists unconditionally and only re-inserted
+        // it when onehundredhands was 0, so a player holding both lost
+        // every point in it.
+        for existing in [0u32, 1, 2, 3] {
+            let mut c = monk_with(&[("onehundredhands", existing), ("hundredfists", 3)], &[]);
+            migrate_flowlikewater_swap(&mut c);
+            let moved = c.passive_allocations.get("onehundredhands").copied().unwrap_or(0);
+            let kept = c.passive_allocations.get("hundredfists").copied().unwrap_or(0);
+            assert!(moved > 0 || kept > 0, "with onehundredhands={existing}, the 3 points in hundredfists vanished entirely");
+        }
     }
 
     #[test]
