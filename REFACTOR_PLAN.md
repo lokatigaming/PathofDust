@@ -488,21 +488,49 @@ proven, not before.
   have missed it; only re-running the harness surfaced it silently
   writing fresh "first capture" baselines instead of comparing against
   the committed ones.
-  **A significant finding for Stage 2, not resolved here**: wiki.rs
-  reads BOTH `crate::adventure::X` AND bot-side constants
-  (`crate::commands::BUILTIN_COOLDOWN`, `crate::bug_reports::PER_USER_COOLDOWN`,
-  `crate::song_requests::X` - see §7) in the SAME file. Since `game`
-  can't depend back on `bot` (that's the whole point of the split),
-  wiki.rs cannot ever move into `game` while it still reads bot-side
-  constants directly — this isn't "wiki.rs moves last" (§5/§10's
-  original framing) so much as "wiki.rs may need to stay in `bot`
-  permanently, reading `game::adventure::X` via the same re-export
-  facade, unless/until its bot-side constant reads get replaced with
-  something that can flow through the API seam (§4) instead." Whoever
-  reaches Stage 2 (which moves `adventure_web.rs`, wiki.rs's literal
-  parent module) needs to actually decide this, not assume the original
-  wording still holds - flagging loudly rather than letting Stage 2
-  quietly hit the same wall this stage did.
+  **A significant finding for Stage 2 — RULED ON by the owner,
+  2026-08-18, see below**: wiki.rs reads BOTH `crate::adventure::X` AND
+  bot-side constants (`crate::commands::BUILTIN_COOLDOWN`,
+  `crate::bug_reports::PER_USER_COOLDOWN`, `crate::song_requests::X` -
+  see §7) in the SAME file. Since `game` can't depend back on `bot`
+  (that's the whole point of the split), wiki.rs can't move into `game`
+  while it still reads bot-side constants directly.
+
+  **Owner's ruling**: wiki.rs goes GAME-side, full stop - the
+  standalone deliverable explicitly includes the game serving its full
+  web UI (wiki included) with no bot process running at all, so wiki.rs
+  staying bot-side would violate that core requirement over three
+  trivial cooldown/volume constants. The dependency inverts instead:
+  `BUILTIN_COOLDOWN`/`PER_USER_COOLDOWN`/`SKIP_ACTION_COOLDOWN`/
+  `MIN_VOTE_VOLUME`/`MAX_VOTE_VOLUME` become "published constants" the
+  BOT supplies to the GAME across the API seam (§4) - mechanism left to
+  whoever designs Stage 3 (a small POST at bot startup, or a shared
+  config file, are both reasonable), with a graceful fallback for
+  wiki.rs to render when the bot has never connected (render "varies,"
+  or hold the last-known value) - a slightly stale chat cooldown shown
+  on a wiki page is an acceptable cost; the wiki depending on the bot
+  process being up is not. **Fold this into Stage 3's own seam design
+  explicitly** (a small bot→game publish, alongside the chat-command/
+  redemption/announcements seam §4 already covers) - noted again at
+  Stage 3's own bullet below.
+
+  **Open sequencing question, not resolved here either**: Stage 2 (next)
+  is what physically moves `adventure_web.rs` - wiki.rs's literal
+  parent module - into `game`, but the published-constants mechanism
+  that replaces its bot-side reads is designed as part of Stage 3,
+  which comes AFTER Stage 2 in the sequence below. Whoever executes
+  Stage 2 needs to actually resolve this ordering - either pull just
+  this narrow publish-mechanism piece forward (build it before/within
+  Stage 2, ahead of the rest of Stage 3's seam), or resequence so
+  wiki.rs's own move waits until that piece exists. Don't silently pick
+  one without noting it here; decide when Stage 2 actually reaches the
+  wiki.rs move, same "flag it, don't let it slip" spirit as the
+  `apply_hit` gate above.
+
+  A WIKI_IMPACT.md line is owed once this actually ships (not yet - no
+  code has changed for this decision yet, only the design) - the wiki
+  session should know these 5 placeholders' data source changed from a
+  direct compile-time-ish read to a published, sometimes-stale value.
   **Configurable persistence paths** (owner-directed, 2026-08-18): done
   as its own commit — `game::adventure::set_data_dir(PathBuf)` +
   `paths::data_path`, threaded through every persisted file
@@ -534,7 +562,14 @@ proven, not before.
 - **Stage 3**: build the API seam per §4 (game-side `/api/` endpoints
   returning pre-formatted reply strings; the SSE announcements stream;
   the bot-side HTTP client module) ALONGSIDE the existing direct
-  in-process calls.
+  in-process calls. **Includes the small bot→game published-constants
+  publish** (owner's ruling, 2026-08-18, see Stage 2's own note above) -
+  `BUILTIN_COOLDOWN`/`PER_USER_COOLDOWN`/`SKIP_ACTION_COOLDOWN`/
+  `MIN_VOTE_VOLUME`/`MAX_VOTE_VOLUME`, with a graceful stale/"varies"
+  fallback on the game side for whenever the bot hasn't connected yet -
+  whether this narrow piece needs to land BEFORE the rest of this stage
+  (pulled forward to unblock Stage 2's wiki.rs move) is the open
+  sequencing question flagged at Stage 2.
 - **Stage 4**: cut over — `bot` switches to the HTTP-client seam, stops
   starting AdventureManager/adventure_web/adventure_overlay in-process
   at all. The actual "two separate processes" moment. Full smoke test
