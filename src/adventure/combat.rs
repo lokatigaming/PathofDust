@@ -843,14 +843,20 @@ pub(crate) struct CombatSimUnit {
     /// 0.0 for every enemy/boss/add unit and for a player with no leech
     /// investment (currently Slayer-only).
     life_leech_pct: f64,
-    /// Start of this unit's current 1-second leech-cap window (see
-    /// `LIFE_LEECH_CAP_PER_SEC`) - a fresh window opens, resetting
-    /// `leech_gained_in_window` to 0, the moment 1000ms has passed since
-    /// this was last set. 0 (harmless) for a unit with no leech.
+    /// When `leech_gained_in_window` was last drained (see
+    /// `LIFE_LEECH_CAP_PER_SEC`) - every leech attempt bleeds it down by
+    /// `cap * (elapsed_ms / 1000.0)` first, a genuine leaky-bucket rolling
+    /// window rather than a lump-sum reset once 1000ms has passed (a
+    /// reset-based window let a leech build burst to ~2x the per-second
+    /// cap by timing hits across the reset boundary). Despite the name
+    /// (kept to avoid a struct/constructor-wide rename), this is a "last
+    /// updated" timestamp, not a window's start. 0 (harmless) for a unit
+    /// with no leech.
     leech_window_start_ms: u32,
-    /// How much this unit has already leeched back within the CURRENT
-    /// window started at `leech_window_start_ms` - caps further leech
-    /// once it hits `max_hp * LIFE_LEECH_CAP_PER_SEC`.
+    /// How much of this unit's rolling per-second leech budget is
+    /// currently "spent" - drained continuously (see
+    /// `leech_window_start_ms`), topped up by each leech landed, caps
+    /// further leech once it hits `max_hp * LIFE_LEECH_CAP_PER_SEC`.
     leech_gained_in_window: f64,
     /// This unit's active archetype skills (see `ArchetypeSkill`) - from
     /// `Archetype::skills()` for a player, always empty for an enemy/
@@ -5295,6 +5301,22 @@ pub(crate) fn next_hit_id() -> u64 {
 /// `outcome.is_crit` back out to every one of this function's 11 other
 /// call sites (which would mean changing its return type instead of just
 /// adding one parameter).
+/// Leaky-bucket drain for the life-leech per-second cap (see
+/// `CombatSimUnit::leech_window_start_ms`'s doc - 2026-08-18, wiki audit
+/// finding #3). Bleeds `gained` down by `cap` per elapsed second since
+/// `last_update_ms`, floored at 0 - a genuine rolling window, unlike the
+/// lump-sum reset this replaced (which let a leech build burst to ~2x
+/// `LIFE_LEECH_CAP_PER_SEC` by timing hits across the reset boundary: a
+/// full window's worth right before the reset, then another full
+/// window's worth right after). Pure function so the drain math itself
+/// is unit-testable without going through the whole `apply_hit`
+/// pipeline.
+fn drain_leech_window(gained: f64, cap: f64, last_update_ms: u32, at_ms: u32) -> f64 {
+    let elapsed_ms = at_ms.saturating_sub(last_update_ms);
+    let drained = cap * (elapsed_ms as f64 / 1000.0);
+    (gained - drained).max(0.0)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_hit(
     units: &mut [CombatSimUnit],
@@ -6540,14 +6562,18 @@ pub(crate) fn apply_hit(
         };
     let effective_leech_pct = units[attacker_idx].life_leech_pct + wound_leech_bonus;
     if effective_leech_pct > 0.0 && final_damage > 0 && units[attacker_idx].alive {
-        if at_ms.saturating_sub(units[attacker_idx].leech_window_start_ms) >= 1000 {
-            units[attacker_idx].leech_window_start_ms = at_ms;
-            units[attacker_idx].leech_gained_in_window = 0.0;
-        }
         // Slayer's Endless Thirst - a recent FlickerStrike dash can raise
         // (ranks 1-2) or remove entirely (rank 3) the cap below.
         let (thirst_cap_bonus, thirst_uncapped) = endless_thirst_bonus(&units[attacker_idx], at_ms);
         let cap = units[attacker_idx].max_hp as f64 * (LIFE_LEECH_CAP_PER_SEC + thirst_cap_bonus);
+        // Leaky-bucket drain (2026-08-18, wiki audit finding #3) - see
+        // `drain_leech_window`'s own doc for why this replaced a
+        // lump-sum reset. `leech_window_start_ms` is repurposed as "last
+        // drain time" here rather than a window's start - same field, so
+        // no struct/constructor changes were needed.
+        units[attacker_idx].leech_gained_in_window =
+            drain_leech_window(units[attacker_idx].leech_gained_in_window, cap, units[attacker_idx].leech_window_start_ms, at_ms);
+        units[attacker_idx].leech_window_start_ms = at_ms;
         let room_left = if thirst_uncapped { f64::MAX } else { (cap - units[attacker_idx].leech_gained_in_window).max(0.0) };
         let raw_leech_potential = final_damage as f64 * effective_leech_pct;
         let leech_amount = raw_leech_potential.min(room_left);
@@ -11232,5 +11258,53 @@ mod chakra_of_light_tests {
         // Would push 9 guaranteed stacks uncapped - only 2 slots remain.
         roll_chakra_of_light_stacks(9.0, &mut stacks, 200, 0, &mut rng);
         assert_eq!(stacks.len(), 200, "must stop exactly at the cap, never exceed it");
+    }
+}
+
+#[cfg(test)]
+mod leech_leaky_bucket_tests {
+    use super::*;
+
+    #[test]
+    fn no_time_elapsed_drains_nothing() {
+        assert_eq!(drain_leech_window(50.0, 100.0, 1_000, 1_000), 50.0);
+    }
+
+    #[test]
+    fn a_full_second_drains_the_entire_cap_worth() {
+        assert_eq!(drain_leech_window(80.0, 100.0, 0, 1_000), 0.0);
+    }
+
+    #[test]
+    fn a_half_second_drains_half_the_cap() {
+        assert_eq!(drain_leech_window(80.0, 100.0, 0, 500), 30.0);
+    }
+
+    #[test]
+    fn never_drains_below_zero() {
+        assert_eq!(drain_leech_window(10.0, 100.0, 0, 5_000), 0.0);
+    }
+
+    /// The actual regression this whole refactor was for (wiki audit
+    /// finding #3): under the OLD reset-based window, a leech hit at
+    /// t=999ms (filling the cap right before a reset) followed by
+    /// another at t=1000ms (the instant a fresh window opens) let a
+    /// build gain ~2x LIFE_LEECH_CAP_PER_SEC within a single real-time
+    /// millisecond. The leaky bucket must not allow that: only ~1ms of
+    /// real time separates the two hits, so only ~1ms worth of the cap
+    /// (a tiny fraction) should have drained between them.
+    #[test]
+    fn hits_straddling_the_old_1000ms_reset_boundary_cannot_double_the_cap() {
+        let cap = 100.0;
+        // First hit at t=999ms fills the bucket to the cap.
+        let mut gained = drain_leech_window(0.0, cap, 0, 999);
+        assert_eq!(gained, 0.0, "nothing drains from an empty bucket over 999ms");
+        gained = cap; // simulates that hit's leech filling the bucket to the cap
+
+        // Second hit at t=1000ms - only 1ms later.
+        let after = drain_leech_window(gained, cap, 999, 1_000);
+        // Only 1/1000th of the cap (0.1) should have drained - nowhere
+        // close to the full reset-to-zero the old bug effectively granted.
+        assert!(after >= cap - 1.0, "only ~1ms of drain should have occurred between hits 1ms apart, got room for {} more", cap - after);
     }
 }
