@@ -543,17 +543,21 @@ proven, not before.
   for why the automated version couldn't safely stay in the suite -
   a genuine cross-test race with item generation, not a flaw in the
   mechanism itself). Unblocks Stage 1.5 below.
-- **Stage 1.5** (owner-directed, 2026-08-18, its own small stage right
-  after Stage 1 lands): build harness #3 (the HTTP golden-response
-  harness, deferred at Stage 0.5 execution time — see §9's execution
-  log) now that Stage 1's path-injection point exists. Spin up a real,
-  disposable `AdventureManager`/Axum server on an ephemeral port,
-  pointed at copies of the pseudonymized fixture data, and capture the
-  POST-route baselines (`/craft`, `/join`, `/equip`, etc.) that Stage 0
-  execution couldn't safely capture against production. Also worth
-  reattempting the GET-route baselines through this harness once it
-  exists, for a fully reproducible (not just live-instance-observed)
-  reference.
+- **Stage 1.5** (done, 2026-08-18): built harness #3
+  (`tests/http_golden_responses.rs`) - a real, disposable
+  `AdventureManager`/`adventure_web` Axum server on an OS-assigned
+  ephemeral port, seeded from the pseudonymized fixture via Stage 1's
+  `set_data_dir`. `start_adventure_web_server` gained a real return
+  value (the bound `SocketAddr`, was `()`) so an ephemeral-port caller
+  can actually reach it - `main.rs`'s own call site needed zero changes.
+  Covers the same GET routes Stage 0 captured against live production
+  plus one representative authenticated POST (`/join`, verified with a
+  real state-change check through the manager, not just a status code).
+  Not yet exhaustive across all ~40 routes/every POST action (`/craft`,
+  `/equip`, etc.) - scoped to proving the mechanism and the highest-
+  value routes rather than full coverage in one pass; extending it to
+  more routes as later stages touch them is straightforward from here,
+  the hard part (a working disposable instance) is done.
 - **Stage 2**: give `game` its OWN `main()` (a second binary) that can
   start the adventure_web + adventure_overlay servers standalone, zero
   Twitch dependency. Smoke-test: game-only startup, full web UI works
