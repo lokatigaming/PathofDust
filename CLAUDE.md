@@ -1,6 +1,26 @@
 ## Deploy procedure
-After every deploy: powershell -File C:\sync-pod-qa.ps1
-If it errors, report to me.
+After every deploy, in order:
+1. `git push origin master` — the sync pulls from GitHub, not from this
+   local repo directly, so pod-qa cannot pick up anything that hasn't
+   been pushed. A deploy that skips this step silently leaves pod-qa
+   stale while everything LOOKS deployed (confirmed live 2026-08-18: an
+   entire session's worth of commits sat unpushed while every sync in
+   between reported "Already up to date" — accurate against origin, and
+   completely misleading about pod-qa's actual staleness).
+2. `powershell -File C:\sync-pod-qa.ps1`
+3. Verify the sync actually landed: compare pod-qa's HEAD against local
+   HEAD -
+   `git -C C:\pod-qa rev-parse HEAD` vs `git rev-parse HEAD`.
+   The sync script itself does not do this check and must not be edited
+   to add it (see Rules below) - perform it yourself as a separate step
+   every time and report the two hashes. MATCH: say so briefly. MISMATCH:
+   report loudly (don't bury it) - state both hashes and that pod-qa is
+   NOT current, and stop for instructions rather than trying to fix
+   pod-qa's state yourself (a mismatch can mean the push failed, the
+   pull failed, or - confirmed live 2026-08-18 - pod-qa has untracked
+   local files colliding with newly-pushed ones; the fix is the owner's
+   call in every case, not an AI session's).
+4. If it errors, report to me.
 
 Context: C:\pod-qa is an intentionally READ-ONLY mirror of this repo,
 used by a separate public-facing Q&A session that answers player
