@@ -7,7 +7,7 @@ use tracing_subscriber::prelude::*;
 
 use rand::Rng;
 use twitch_bot_rs::adventure::{
-    affix_name, summarize_fight, AdventureManager, CombatEvent, CraftAction, EncounterKind, ForceBossOutcome, GearCritSource, ReceiveOutcome,
+    affix_name, fight_summary_from_snapshot, AdventureManager, CraftAction, EncounterKind, ForceBossOutcome, GearCritSource, PlayerFightStats, ReceiveOutcome,
 };
 use twitch_bot_rs::adventure_overlay_server;
 use twitch_bot_rs::adventure_web;
@@ -1096,8 +1096,8 @@ async fn async_main() -> anyhow::Result<()> {
 
                     // Boss fights only (per-fight MVP breakdown isn't
                     // interesting for a filler Basic encounter) - see
-                    // summarize_fight's doc. Appended to THIS message
-                    // (the fight outcome), not the loot one below - per
+                    // fight_summary_from_snapshot's doc. Appended to THIS
+                    // message (the fight outcome), not the loot one below - per
                     // an earlier request, one message for the fight, one
                     // for the loot, instead of everything crammed into a
                     // single message. Each category lists its top 3
@@ -1112,7 +1112,7 @@ async fn async_main() -> anyhow::Result<()> {
                     // here were the actual reason this got collapsed to a
                     // single combined total in the first place.
                     if result.kind == EncounterKind::Boss {
-                        let summary = summarize_fight(&result.units, &result.events);
+                        let summary = fight_summary_from_snapshot(&result.summary);
                         let per_person = |entries: &[(String, u64)]| {
                             entries.iter().map(|(name, amt)| format!("{name} ({})", adventure_web::format_number(*amt as f64))).collect::<Vec<_>>().join(", ")
                         };
@@ -1136,30 +1136,25 @@ async fn async_main() -> anyhow::Result<()> {
                         // One-time: the top healer of the first boss
                         // fight after this launched gets a Celestial
                         // Shard - "award the top healer of the next
-                        // fight" per the request. Computed from the raw
-                        // events' real ids (not `summary` above, which
-                        // only has display names) since granting
-                        // something needs the actual character id. If
-                        // nobody healed this particular fight, the
+                        // fight" per the request. Reads `result.summary.players`
+                        // directly (not `summary` above, which only has
+                        // display names) since granting something needs
+                        // the actual character id - and, unlike walking
+                        // `result.events` directly, stays correct on a
+                        // big fight (see `EncounterResult::summary`'s own
+                        // doc: `events` has already been through
+                        // `thin_events_for_overlay` by the time this
+                        // broadcast subscriber sees it, `summary` hasn't).
+                        // If nobody healed this particular fight, the
                         // marker is deliberately left unset so this
                         // retries on the next one instead of awarding
                         // nobody.
                         const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
                         if twitch_bot_rs::state::load_json::<bool>(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH).is_none() {
-                            let is_player = |id: &str| result.units.iter().find(|u| u.id == id).map(|u| !u.is_boss).unwrap_or(false);
-                            let mut healing: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-                            for event in &result.events {
-                                if let CombatEvent::Heal { healer, amount, .. } = event {
-                                    if is_player(healer) {
-                                        *healing.entry(healer.clone()).or_insert(0) += *amount as u64;
-                                    }
-                                }
-                            }
-                            if let Some((top_healer_id, _)) = healing.into_iter().max_by_key(|(_, v)| *v) {
-                                let display = result.units.iter().find(|u| u.id == top_healer_id).map(|u| u.display_name.clone()).unwrap_or_else(|| top_healer_id.clone());
-                                if adventure.grant_craft_token(&top_healer_id, CraftAction::CelestialShard, 1).await {
+                            if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
+                                if adventure.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
                                     chat_client
-                                        .say(format!("✨ {display} was the top healer of that fight and has been awarded a rare Celestial Shard!"))
+                                        .say(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name))
                                         .await;
                                 }
                                 if let Err(err) = twitch_bot_rs::state::save_json(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH, &true) {
@@ -1194,40 +1189,22 @@ async fn async_main() -> anyhow::Result<()> {
                             // one entry, not better odds) - "one of the top
                             // 3 healers/dps/tanks" per the request, picked
                             // uniformly at random from that combined pool.
-                            // Computed from the raw events' real ids, same
-                            // reasoning as the Celestial Shard block above
-                            // (`summary`'s own top-3 lists only carry
-                            // display names, not the ids granting needs).
-                            // Damage-taken totals use `unmitigated_damage`,
-                            // matching `summarize_fight`'s own "reflect the
-                            // real incoming threat, not what leaked through
+                            // Read directly off `result.summary.players`,
+                            // same reasoning as the Celestial Shard block
+                            // above (`summary`'s own top-3 lists only
+                            // carry display names, not the ids granting
+                            // needs, and `result.events` under-counts on
+                            // a big fight post-thinning - see
+                            // `EncounterResult::summary`'s doc).
+                            // `damage_taken` there already uses
+                            // `unmitigated_damage`, matching
+                            // `summarize_fight`'s own "reflect the real
+                            // incoming threat, not what leaked through
                             // DR" convention.
-                            let is_player = |id: &str| result.units.iter().find(|u| u.id == id).map(|u| !u.is_boss).unwrap_or(false);
-                            let mut damage_dealt: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-                            let mut damage_taken: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-                            let mut healing: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-                            for event in &result.events {
-                                match event {
-                                    CombatEvent::Attack { attacker, target, damage, unmitigated_damage, .. } => {
-                                        if is_player(attacker) {
-                                            *damage_dealt.entry(attacker.clone()).or_insert(0) += *damage as u64;
-                                        }
-                                        if is_player(target) {
-                                            *damage_taken.entry(target.clone()).or_insert(0) += *unmitigated_damage as u64;
-                                        }
-                                    }
-                                    CombatEvent::Heal { healer, amount, .. } => {
-                                        if is_player(healer) {
-                                            *healing.entry(healer.clone()).or_insert(0) += *amount as u64;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            let top3 = |totals: &std::collections::HashMap<String, u64>| -> Vec<String> {
-                                let mut sorted: Vec<(&String, &u64)> = totals.iter().collect();
-                                sorted.sort_by(|a, b| b.1.cmp(a.1));
-                                sorted.into_iter().take(3).map(|(id, _)| id.clone()).collect()
+                            let top3_by = |amount: fn(&PlayerFightStats) -> u64| -> Vec<String> {
+                                let mut ranked: Vec<&PlayerFightStats> = result.summary.players.iter().filter(|p| amount(p) > 0).collect();
+                                ranked.sort_by(|a, b| amount(b).cmp(&amount(a)));
+                                ranked.into_iter().take(3).map(|p| p.id.clone()).collect()
                             };
                             // lokati_gaming (the streamer/admin account -
                             // same login `FIGHTS_PAGE_LOGIN`/
@@ -1243,7 +1220,7 @@ async fn async_main() -> anyhow::Result<()> {
                             // only, per a live request.
                             const LAUNCH_GIVEAWAY_EXCLUDED_WINNER: &str = "lokati_gaming";
                             let mut winner_pool: Vec<String> = Vec::new();
-                            for id in top3(&damage_dealt).into_iter().chain(top3(&damage_taken)).chain(top3(&healing)) {
+                            for id in top3_by(|p| p.damage_dealt).into_iter().chain(top3_by(|p| p.damage_taken)).chain(top3_by(|p| p.healing_done)) {
                                 if id != LAUNCH_GIVEAWAY_EXCLUDED_WINNER && !winner_pool.contains(&id) {
                                     winner_pool.push(id);
                                 }

@@ -1776,19 +1776,24 @@ impl Character {
         Some(DisenchantOutcome { item_name: item.name.clone(), dust, dust_max: 6 * multiplier })
     }
 
-    /// Web dashboard: disenchants EVERY bag item at once, except
-    /// anything Krangled (`locked`) or individually disenchant-protected
-    /// (see `Item::disenchant_protected`) - "clean out the bag" without
-    /// having to click through one at a time, while still never touching
-    /// anything the player's marked as worth keeping. Returns how many
-    /// items were actually disenchanted and the total dust granted (both
-    /// 0 if nothing was eligible).
+    /// Web dashboard: disenchants EVERY bag item at once, except anything
+    /// individually disenchant-protected (see `Item::disenchant_protected`)
+    /// - "clean out the bag" without having to click through one at a
+    /// time, while still never touching anything the player's marked as
+    /// worth keeping. Krangled (`locked`) items ARE included (2026-08-18,
+    /// a live request) - `locked` normally blocks further CRAFTING
+    /// (there's nothing left to craft on a Krangled item anyway), but
+    /// that's a separate concern from disenchanting a bag clean; a player
+    /// who wants a Krangled item kept safe from a bulk disenchant still
+    /// has `disenchant_protected` for that. Returns how many items were
+    /// actually disenchanted and the total dust granted (both 0 if
+    /// nothing was eligible).
     pub fn disenchant_all_from_inventory(&mut self, rng: &mut impl Rng, sand_mult: f64) -> (usize, u64) {
         let mut count = 0usize;
         let mut total_dust = 0u64;
         let mut total_sand = 0u64;
         self.inventory.retain(|item| {
-            if item.locked || item.disenchant_protected {
+            if item.disenchant_protected {
                 return true;
             }
             total_dust += (rng.gen_range(1..=6) * item.tier * item.disenchant_multiplier()) as u64;
@@ -2875,7 +2880,26 @@ impl Character {
     /// build without pretending the fight never ends.
     pub(crate) fn combat_total_output_per_sec(&self) -> f64 {
         let hits_per_sec = 1000.0 / self.attack_interval_ms() as f64;
-        let crit_ev = 1.0 + self.combat_crit_chance() * (self.combat_crit_multiplier() - 1.0);
+        // `crit_ev` must match real combat's `crit_bonus_mult` exactly
+        // (2026-08-18, a live bug report - this used to omit
+        // `CRIT_BONUS_MULT`/the overcrit curve entirely, overstating
+        // DPS/HPS for any crit-heavy build). `crit_stacks` on any real
+        // roll is always exactly `floor(crit_chance)` or
+        // `floor(crit_chance) + 1` - a genuine two-point distribution (see
+        // `roll_attacker_damage`'s own guaranteed_stacks/remainder_roll) -
+        // so `E[crit_stack_bonus(crit_stacks, ...)]` is the probability-
+        // weighted average of that (nonlinear, since the overcrit curve
+        // fix) function at those two whole values, NOT
+        // `crit_stack_bonus(E[crit_stacks], ...)` (Jensen's inequality) -
+        // still closed-form and exact, just needs both terms instead of
+        // one.
+        let crit_chance = self.combat_crit_chance();
+        let crit_multiplier = self.combat_crit_multiplier();
+        let guaranteed_stacks = crit_chance.floor();
+        let remainder = crit_chance - guaranteed_stacks;
+        let crit_ev = 1.0
+            + (1.0 - remainder) * crit_stack_bonus(guaranteed_stacks, crit_multiplier)
+            + remainder * crit_stack_bonus(guaranteed_stacks + 1.0, crit_multiplier);
         let increased_dmg_mult = 1.0 + self.combat_increased_damage();
         let primary = self.combat_atk() as f64 * hits_per_sec * crit_ev * increased_dmg_mult;
         let helm = match self.helm_skill() {
@@ -3110,6 +3134,45 @@ mod crit_lineage_tests {
         // normal ones.
         let augment_pool = character.craftable_affix_pool(&item_id, CraftAction::Augment);
         assert!(matches!(augment_pool, Err(CraftError::PreconditionNotMet)));
+    }
+}
+
+#[cfg(test)]
+mod crit_ev_tests {
+    use super::*;
+
+    #[test]
+    fn combat_dps_crit_ev_matches_the_two_point_mixture_of_crit_stack_bonus() {
+        // 2026-08-18, a live bug report: combat_dps()'s crit EV term used
+        // to just be `1.0 + crit_chance * (crit_multiplier - 1.0)`,
+        // omitting CRIT_BONUS_MULT/the overcrit curve real combat applies
+        // - overstating DPS/HPS for any crit-heavy build. A bare fresh
+        // character (no gear, no helm) isolates the crit_ev factor
+        // cleanly: combat_dps() == combat_atk() * hits_per_sec * crit_ev
+        // * increased_dmg_mult, with nothing else (helm, heal split) in
+        // the way.
+        let mut character = Character::new("test".to_string());
+        // Character::new starts everyone with a random tier-1 helm
+        // equipped (helm_skill() returns Some for ANY equipped helm,
+        // regardless of its affixes) - unequip it so this test's
+        // simplified expected-value formula (which doesn't model the
+        // helm's own separate ramp-up term) stays valid.
+        character.unequip(EquipSlot::Helm);
+        assert_eq!(character.combat_heal_power(), 0.0, "a non-healer with zero tree investment must have zero heal power, or this test's dps-equals-total-output assumption breaks");
+        assert!(character.helm_skill().is_none(), "helm should be unequipped by now");
+
+        let crit_chance = character.combat_crit_chance();
+        let crit_multiplier = character.combat_crit_multiplier();
+        let guaranteed_stacks = crit_chance.floor();
+        let remainder = crit_chance - guaranteed_stacks;
+        let expected_crit_ev =
+            1.0 + (1.0 - remainder) * crit_stack_bonus(guaranteed_stacks, crit_multiplier) + remainder * crit_stack_bonus(guaranteed_stacks + 1.0, crit_multiplier);
+
+        let hits_per_sec = 1000.0 / character.attack_interval_ms() as f64;
+        let increased_dmg_mult = 1.0 + character.combat_increased_damage();
+        let expected_dps = character.combat_atk() as f64 * hits_per_sec * expected_crit_ev * increased_dmg_mult;
+
+        assert!((character.combat_dps() - expected_dps).abs() < 0.01, "expected combat_dps() ~= {expected_dps}, got {}", character.combat_dps());
     }
 }
 

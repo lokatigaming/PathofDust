@@ -594,6 +594,31 @@ pub fn summarize_fight(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Figh
     }
 }
 
+/// Same top-3-per-category shape `summarize_fight` produces, built from
+/// an already-accurate `FightSummarySnapshot` instead of re-walking a
+/// fight's own event log (2026-08-18, a live bug report) - for a
+/// consumer (main.rs's chat report) that receives `EncounterResult` off
+/// the broadcast AFTER `thin_events_for_overlay` has already run on its
+/// `events`, where `summarize_fight(&result.units, &result.events)`
+/// would silently under-count on a big fight. `summary` was computed
+/// from the FULL untouched log before thinning (see `save_last_fight`),
+/// so this always reflects the real totals. The `> 0` filters preserve
+/// `summarize_fight`'s own documented "empty, not padded with fabricated
+/// zeros" behavior for a category nobody contributed to.
+pub fn fight_summary_from_snapshot(summary: &FightSummarySnapshot) -> FightSummary {
+    let top = |mut entries: Vec<(String, u64)>| -> Vec<(String, u64)> {
+        entries.sort_by(|a, b| b.1.cmp(&a.1));
+        entries.truncate(FIGHT_SUMMARY_TOP_N);
+        entries
+    };
+    FightSummary {
+        top_damage_dealt: top(summary.players.iter().filter(|p| p.damage_dealt > 0).map(|p| (p.display_name.clone(), p.damage_dealt)).collect()),
+        top_damage_taken: top(summary.players.iter().filter(|p| p.damage_taken > 0).map(|p| (p.display_name.clone(), p.damage_taken)).collect()),
+        top_healing_done: top(summary.players.iter().filter(|p| p.healing_done > 0).map(|p| (p.display_name.clone(), p.healing_done)).collect()),
+        first_to_die: summary.first_to_die.clone(),
+    }
+}
+
 /// The display name of whichever player died first in this fight (by
 /// `Defeat` event `at_ms`), if anyone did - the same logic
 /// `summarize_fight` tracks inline, kept as its own standalone pass here
@@ -4696,6 +4721,37 @@ mod fight_summary_tests {
     fn first_player_to_die_is_none_when_nobody_died() {
         let units = vec![player("alice"), boss("__enemy_0")];
         assert_eq!(first_player_to_die(&units, &[]), None);
+    }
+
+    fn player_stats(id: &str, damage_dealt: u64, damage_taken: u64, healing_done: u64) -> PlayerFightStats {
+        PlayerFightStats { id: id.to_string(), display_name: id.to_string(), damage_dealt, damage_taken, healing_done, hits: 0, crits: 0, evaded: 0 }
+    }
+
+    #[test]
+    fn fight_summary_from_snapshot_ranks_and_truncates_to_top_3() {
+        let snapshot = FightSummarySnapshot {
+            players: vec![
+                player_stats("alice", 500, 100, 0),
+                player_stats("bob", 300, 200, 0),
+                player_stats("carol", 700, 50, 0),
+                player_stats("dave", 100, 400, 0),
+            ],
+            ..Default::default()
+        };
+        let summary = fight_summary_from_snapshot(&snapshot);
+        assert_eq!(summary.top_damage_dealt, vec![("carol".to_string(), 700), ("alice".to_string(), 500), ("bob".to_string(), 300)]);
+        assert_eq!(summary.top_damage_taken, vec![("dave".to_string(), 400), ("bob".to_string(), 200), ("alice".to_string(), 100)]);
+    }
+
+    #[test]
+    fn fight_summary_from_snapshot_does_not_pad_empty_categories_with_fabricated_zeros() {
+        // A zero-contribution player (present in `players`, per
+        // full_player_fight_stats' own "every non-boss unit gets a row"
+        // rule) must NOT show up as a fabricated "0 healing" entry -
+        // matches summarize_fight's own documented behavior.
+        let snapshot = FightSummarySnapshot { players: vec![player_stats("alice", 500, 100, 0), player_stats("bob", 300, 200, 0)], ..Default::default() };
+        let summary = fight_summary_from_snapshot(&snapshot);
+        assert!(summary.top_healing_done.is_empty(), "nobody healed - the list must be empty, not padded with 0-value entries");
     }
 }
 

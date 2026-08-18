@@ -3191,6 +3191,43 @@ pub(crate) fn attacker_base_damage(unit: &CombatSimUnit, rng: &mut impl Rng) -> 
 /// case.
 pub(crate) const CRIT_BONUS_MULT: f64 = 0.5;
 
+/// Overcrit saturation curve (2026-08-18, a live request: "give better
+/// control over how far crit stacking can run away at very high crit
+/// chance") - a rectangular-hyperbola curve, `A * x / (x + h)`, that
+/// asymptotically approaches `A` as `x` grows without ever reaching it:
+/// `overcrit_curve(OVERCRIT_CURVE_H) == OVERCRIT_CURVE_A / 2` by
+/// construction (`h` is literally "the input at which you've earned half
+/// of `A`"). Used by `crit_stack_bonus` below to cap how much bonus crit
+/// stacks PAST the first can ever contribute, instead of the old flat
+/// linear growth that let very high crit chance compound an already-huge
+/// hit without bound (part of what caused Hemorrhage's own
+/// trillions-of-damage incident earlier this session, on the other half
+/// of that same formula).
+const OVERCRIT_CURVE_A: f64 = 1.5;
+const OVERCRIT_CURVE_H: f64 = 1.0;
+
+fn overcrit_curve(x: f64) -> f64 {
+    OVERCRIT_CURVE_A * x / (x + OVERCRIT_CURVE_H)
+}
+
+/// The crit-stacking bonus TERM (everything `crit_bonus_mult` below adds
+/// on top of its leading `1.0`) for a given whole number of crit stacks -
+/// shared by `roll_attacker_damage` (real combat, `crit_stacks` from one
+/// actual per-hit roll) and `Character::combat_total_output_per_sec` (the
+/// dashboard's DPS/HPS EV estimate, evaluated at `crit_chance`'s two
+/// possible whole-stack outcomes - see that function's own doc for why
+/// that stays an EXACT expectation, not an approximation, despite this
+/// being nonlinear in `crit_stacks`). The first stack (up to a real 100%
+/// crit chance) still pays the flat `CRIT_BONUS_MULT` rate exactly like
+/// before this change - only stacks PAST the first ("overcrit") run
+/// through `overcrit_curve` instead of growing linearly forever, so the
+/// total achievable bonus caps out at `(1.0 + OVERCRIT_CURVE_A) * (crit_multiplier - 1.0) * CRIT_BONUS_MULT` no matter how high crit chance
+/// climbs.
+pub(crate) fn crit_stack_bonus(crit_stacks: f64, crit_multiplier: f64) -> f64 {
+    let overcrit = (crit_stacks - 1.0).max(0.0);
+    (crit_stacks.min(1.0) + overcrit_curve(overcrit)) * (crit_multiplier - 1.0) * CRIT_BONUS_MULT
+}
+
 /// Named return for `roll_attacker_damage` (2026-08-17, Phase 2 -
 /// replaces the old plain `(f64, bool, f64, bool)` tuple now that a 5th,
 /// heap-allocated value is joining it). `deterministic_sources` carries
@@ -3369,7 +3406,7 @@ pub(crate) fn roll_attacker_damage(
             deterministic_sources.push((RollCategory::Crit, "Arcane Instability", atk.arcaneinstability_bonus_pct));
         }
     }
-    let crit_bonus_mult = 1.0 + crit_stacks * (crit_multiplier - 1.0) * CRIT_BONUS_MULT;
+    let crit_bonus_mult = 1.0 + crit_stack_bonus(crit_stacks, crit_multiplier);
     let mut dmg = base_damage * crit_bonus_mult;
     // Mage's Temporal Rift / Warlock's Unstable Power - baseline attack
     // speed above 100% converts excess into increased damage (see
@@ -10566,6 +10603,34 @@ mod full_detail_combat_log_tests {
     // the `#[cfg(test)] impl Default for CombatSimUnit` above, added in
     // Phase 2, which is what the `resolve_hit`-level tests further down
     // this module build on instead).
+
+    #[test]
+    fn crit_stack_bonus_is_zero_at_zero_stacks() {
+        assert_eq!(crit_stack_bonus(0.0, 3.0), 0.0);
+    }
+
+    #[test]
+    fn crit_stack_bonus_at_exactly_one_stack_matches_the_old_linear_formula() {
+        // At/below a real 100% crit chance, this must be byte-identical
+        // to the pre-overcrit-curve formula: 1.0 * (crit_multiplier - 1.0)
+        // * CRIT_BONUS_MULT - the curve only ever applies to stacks PAST
+        // the first.
+        let crit_multiplier = 3.0;
+        let expected = 1.0 * (crit_multiplier - 1.0) * CRIT_BONUS_MULT;
+        assert_eq!(crit_stack_bonus(1.0, crit_multiplier), expected);
+    }
+
+    #[test]
+    fn crit_stack_bonus_approaches_but_never_reaches_its_asymptote() {
+        let crit_multiplier = 3.0;
+        let asymptote = (1.0 + OVERCRIT_CURVE_A) * (crit_multiplier - 1.0) * CRIT_BONUS_MULT;
+        let at_10_stacks = crit_stack_bonus(10.0, crit_multiplier);
+        let at_10_000_stacks = crit_stack_bonus(10_000.0, crit_multiplier);
+        assert!(at_10_stacks < asymptote, "10 stacks should still be under the asymptote");
+        assert!(at_10_000_stacks < asymptote, "even 10,000 stacks should never reach the asymptote");
+        assert!(at_10_000_stacks > at_10_stacks, "more overcrit stacks should still mean strictly more bonus, just with diminishing returns");
+        assert!((asymptote - at_10_000_stacks) < 0.001, "10,000 stacks should be within a hair of the asymptote");
+    }
 
     #[test]
     fn elemental_proc_does_not_roll_at_all_below_zero_chance() {

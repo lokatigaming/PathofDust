@@ -670,8 +670,9 @@ async fn do_disenchant(State(state): State<AppState>, headers: HeaderMap, Form(f
 
 /// Silent (no popup), same as every other web-only action here - the
 /// now-empty(er) Bag and updated dust total on the next page load are
-/// confirmation enough. Skips Krangled and disenchant-protected items
-/// entirely - see `Character::disenchant_all_from_inventory`.
+/// confirmation enough. Skips disenchant-protected items only (Krangled
+/// items ARE included, 2026-08-18) - see
+/// `Character::disenchant_all_from_inventory`.
 async fn do_disenchant_all(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
         state.adventure.disenchant_all(&login).await;
@@ -1327,6 +1328,18 @@ async fn do_choose_veil(State(state): State<AppState>, headers: HeaderMap, Form(
 struct PatchNoteSection {
     heading: String,
     items: Vec<String>,
+    /// Optional illustrative image for a section (2026-08-18, a live
+    /// request: "so players can see the adjustment" on a crit-curve
+    /// rebalance) - a path served by an already-mounted static route
+    /// (e.g. `/sprites/patch-notes/crit-curve.svg`, under the existing
+    /// `/sprites` `ServeDir` mount), NOT raw HTML - `items` stays plain
+    /// text run through `escape_html` same as always, this is the one
+    /// deliberate, narrow way to add real visuals to a patch note without
+    /// opening item text up to arbitrary HTML injection. Absent
+    /// (`#[serde(default)]`) on every existing entry, so old entries
+    /// parse unchanged.
+    #[serde(default)]
+    image: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -2016,7 +2029,12 @@ fn render_patch_notes(entries: &[PatchNoteEntry], character: Option<&Character>)
                 .iter()
                 .map(|section| {
                     let items: String = section.items.iter().map(|item| format!("<li>{}</li>", escape_html(item))).collect();
-                    format!("<h3>{}</h3><ul>{items}</ul>", escape_html(&section.heading))
+                    let image = section
+                        .image
+                        .as_deref()
+                        .map(|src| format!("<img src=\"{}\" alt=\"{}\" style=\"max-width:100%;height:auto;margin:8px 0;\">", escape_html(src), escape_html(&section.heading)))
+                        .unwrap_or_default();
+                    format!("<h3>{}</h3>{image}<ul>{items}</ul>", escape_html(&section.heading))
                 })
                 .collect();
             format!("<div class=\"card\"><h2>{}</h2>{sections}</div>", escape_html(&entry.date))
@@ -2867,15 +2885,17 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
     };
 
     // Only shown when there's actually something it would touch -
-    // Krangled and disenchant-protected items don't count (see
-    // Character::disenchant_all_from_inventory), so an all-precious bag
-    // doesn't get a button that would just do nothing.
-    let disenchantable_count = c.inventory.iter().filter(|i| !i.locked && !i.disenchant_protected).count();
+    // disenchant-protected items don't count (see
+    // Character::disenchant_all_from_inventory; Krangled items DO count,
+    // 2026-08-18 - Krangle's lock only ever blocked further crafting,
+    // never disenchanting), so an all-"Keep"-marked bag doesn't get a
+    // button that would just do nothing.
+    let disenchantable_count = c.inventory.iter().filter(|i| !i.disenchant_protected).count();
     let disenchant_all_html = if disenchantable_count == 0 {
         String::new()
     } else {
         format!(
-            "<form method=\"post\" action=\"/disenchant-all\" onsubmit=\"return confirm('Disenchant all {disenchantable_count} eligible item(s) for dust? Krangled and \\'Keep\\'-marked items are skipped. This can\\'t be undone.');\">\
+            "<form method=\"post\" action=\"/disenchant-all\" onsubmit=\"return confirm('Disenchant all {disenchantable_count} eligible item(s) for dust? \\'Keep\\'-marked items are skipped. This can\\'t be undone.');\">\
               <button class=\"btn-sm btn-danger\" type=\"submit\">Disenchant All ({disenchantable_count})</button>\
             </form>"
         )
