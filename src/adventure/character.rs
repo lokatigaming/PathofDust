@@ -2783,7 +2783,16 @@ impl Character {
         let raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct;
         let gear_capped = capped_stat_with_overflow(raw, 0.0, 0.5).0;
         let tree_capped = capped_stat_with_overflow(self.passive_bonus().intervene_pct + self.passive_overflow_bonus().intervene_pct, 0.0, 0.5).0;
-        combine_reduction_sources(&[gear_capped, tree_capped])
+        // Wiki audit finding #2 (2026-08-18): each SOURCE was already
+        // capped at 50%, but two 50%-capped sources still combine
+        // multiplicatively to 1-(0.5*0.5) = 75% - the same combine-past-
+        // the-documented-ceiling bug class evasion/DR/block already had
+        // fixed (see resolve_hit's own 95% hard cap). Unlike those,
+        // Intervene has no live combat-time source (no equivalent of
+        // Vanish's temp buff) feeding into it, so the cap belongs right
+        // here rather than deferred to a combat.rs call site - this IS
+        // the complete per-character combine.
+        combine_reduction_sources(&[gear_capped, tree_capped]).min(0.5)
     }
 
     /// Fraction of a hit's actual damage this character leeches back as
@@ -3238,6 +3247,33 @@ mod crit_ev_tests {
         let expected_dps = character.combat_atk() as f64 * hits_per_sec * expected_crit_ev * increased_dmg_mult;
 
         assert!((character.combat_dps() - expected_dps).abs() < 0.01, "expected combat_dps() ~= {expected_dps}, got {}", character.combat_dps());
+    }
+}
+
+#[cfg(test)]
+mod combat_intervene_tests {
+    use super::*;
+
+    /// Wiki audit finding #2 (2026-08-18): gear and tree Intervene were
+    /// each independently capped at 50%, but `combine_reduction_sources`
+    /// combines them multiplicatively, not additively - two 50%-capped
+    /// sources reach 1-(0.5*0.5) = 75%, despite the doc directly above
+    /// `combat_intervene` stating a 50% per-character ceiling. Realistic
+    /// too, not just a synthetic extreme: maxed gear investment (any
+    /// single Intervene affix at or above 1.0 raw already saturates the
+    /// gear-side 50% cap on its own) plus "oath" at 3/3 (a real, easily
+    /// reachable 10% tree investment) alone combine to 55% - already over
+    /// the documented cap with zero exotic setup.
+    #[test]
+    fn combined_gear_and_tree_never_exceeds_the_documented_50_percent_cap() {
+        let mut character = Character::new("test".to_string());
+        let mut item = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
+        item.affixes = vec![(Affix::Intervene, 1.0)]; // raw 100% - saturates the 50% gear-side cap alone
+        character.equip(item);
+        character.passive_allocations.insert("oath".to_string(), 3); // a real, easily reachable 10% tree investment
+
+        let intervene = character.combat_intervene();
+        assert!(intervene <= 0.5 + 1e-9, "combined gear+tree Intervene must never exceed the documented 50% per-character cap, got {intervene}");
     }
 }
 
