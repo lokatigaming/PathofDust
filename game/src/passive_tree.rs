@@ -1800,9 +1800,14 @@ static SLAYER_NODES: &[PassiveNode] = &[
 // Focus branch for real (the skill itself + Shocking/Chilling/Scorching
 // Focus + their 9 modifiers - see `combat.rs`'s own doc on
 // `shockingfocus_pct`/`conflagration_dmg_pct`/etc for the mechanic).
-// Remaining branches (Righteous Fire, Golem Master) still land in
-// Stages 3-6 per docs/elementalist_spec.md's staged plan - do not treat
-// a NotYetImplemented node here as "not coming."
+// Stage 3 wired in Righteous Fire part 1: the skill's own
+// damage/self-burn tick, Scorching Flames' fire-damage-pct
+// contribution, and its Relentless Flames/Cauterizing Flames/Ashes to
+// Ashes modifiers - see `combat.rs`'s `tick_righteous_fire` doc.
+// Healing Flames/Cleansing Flames and their children, plus Golem
+// Master's whole branch, still land in Stages 4-6 per
+// docs/elementalist_spec.md's staged plan - do not treat a
+// NotYetImplemented node here as "not coming."
 //
 // Two node KEYS were renamed from their spec display name to avoid a
 // collision with an existing archetype's key (global key uniqueness is
@@ -1831,7 +1836,7 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "righteousfire",
         "Righteous Fire",
         "Deals damage equal to 10% of your maximum health to a number of enemies based on splash, at rank 1 - +10% per additional rank (30% at 3/3). While active, you take 10% of your health as damage per second at rank 1 - +10% per additional rank (30% at 3/3).",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
     ),
     skill(
         "elementalfocus",
@@ -1864,7 +1869,7 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "righteousfire",
         "Scorching Flames",
         "Gain 10% additive fire damage per level at rank 1 - +10% per additional rank (30% at 3/3).",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
     ),
     spec(
         "shockingfocus",
@@ -1929,18 +1934,26 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "Shielding Fire",
         "Grants a number of allies (based on splash) improved block: blocked attacks reduce damage by 55% at rank 1, 60% at rank 2, 65% at rank 3, instead of the standard 50%.",
     ),
-    modifier(
+    modifier_with_effect(
         "relentlessflames",
         "scorchingflames",
         "Relentless Flames",
         "A number of nearby enemies (based on splash) take 1% increased damage per second for every second they remain in your presence at rank 1 - +1% per additional rank (3% at 3/3), stacking.",
+        Special { at_rank_1: 0.01, per_additional_rank: 0.01 },
     ),
-    modifier("cauterizingflames", "scorchingflames", "Cauterizing Flames", "A number of nearby enemies (based on splash) receive 5% multiplicative reduced healing at rank 1 - +5% per additional rank (15% at 3/3)."),
-    modifier(
+    modifier_with_effect(
+        "cauterizingflames",
+        "scorchingflames",
+        "Cauterizing Flames",
+        "A number of nearby enemies (based on splash) receive 5% multiplicative reduced healing at rank 1 - +5% per additional rank (15% at 3/3).",
+        Special { at_rank_1: 0.05, per_additional_rank: 0.05 },
+    ),
+    modifier_with_effect(
         "ashestoashes",
         "scorchingflames",
         "Ashes to Ashes, Dust to Dust",
         "Any enemy in range, including bosses, instantly bursts into flame and dies when its health drops below 100% of your health at rank 1 - +100% per additional rank (300% at 3/3).",
+        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     modifier_with_effect("overshock", "shockingfocus", "Overshock", "15% more lightning damage at rank 1 - +15% per additional rank (45% at 3/3), scaling from lightning damage on your gear.", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("electricaloverload", "shockingfocus", "Electrical Overload", "Gain 10% more critical strike damage at rank 1 - +10% per additional rank (30% at 3/3).", FlatStat { stat: CritMultiplier, at_rank_1: 0.10, per_additional_rank: 0.10 }),
@@ -2101,13 +2114,14 @@ mod tree_shape_tests {
         }
     }
 
-    /// Every node outside the Elemental Focus branch is still deliberately
+    /// Every node outside the branches wired so far is still deliberately
     /// `NotYetImplemented` (see this section's own doc above the array) -
     /// this test exists so whichever later stage wires a node's real
-    /// effect in remembers to add that key to `IMPLEMENTED_BY_STAGE_2`
+    /// effect in remembers to add that key to `IMPLEMENTED_BY_STAGE_3`
     /// below (or otherwise update this test), rather than the change
     /// going unnoticed.
-    const IMPLEMENTED_BY_STAGE_2: &[&str] = &[
+    const IMPLEMENTED_BY_STAGE_3: &[&str] = &[
+        // Stage 2 - Elemental Focus branch.
         "elementalfocus",
         "shockingfocus",
         "chillingfocus",
@@ -2121,13 +2135,19 @@ mod tree_shape_tests {
         "incinerate",
         "pyroclasm",
         "scorchingaegis",
+        // Stage 3 - Righteous Fire part 1.
+        "righteousfire",
+        "scorchingflames",
+        "relentlessflames",
+        "cauterizingflames",
+        "ashestoashes",
     ];
     #[test]
-    fn elementalist_stage_2_elemental_focus_branch_implemented_rest_not_yet() {
+    fn elementalist_stage_3_implemented_rest_not_yet() {
         let nodes = Archetype::Elementalist.passive_nodes();
         for node in nodes {
-            if IMPLEMENTED_BY_STAGE_2.contains(&node.key) {
-                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect as of Stage 2", node.key);
+            if IMPLEMENTED_BY_STAGE_3.contains(&node.key) {
+                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect by Stage 3", node.key);
             } else {
                 assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should still be NotYetImplemented until its own stage wires it in", node.key);
             }
@@ -2166,6 +2186,39 @@ mod tree_shape_tests {
             let node = node_by_key(Archetype::Elementalist, key);
             assert!((node.magnitude_at_rank(3) - 0.03).abs() < 1e-9, "{key} at 3/3");
         }
+    }
+
+    #[test]
+    fn elementalist_righteous_fire_reaches_30pct_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "righteousfire");
+        assert_eq!(node.magnitude_at_rank(1), 0.10);
+        assert!((node.magnitude_at_rank(3) - 0.30).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_scorching_flames_reaches_30pct_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "scorchingflames");
+        assert_eq!(node.magnitude_at_rank(1), 0.10);
+        assert!((node.magnitude_at_rank(3) - 0.30).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_relentless_flames_reaches_3pct_per_stack_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "relentlessflames");
+        assert!((node.magnitude_at_rank(3) - 0.03).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_cauterizing_flames_reaches_15pct_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "cauterizingflames");
+        assert!((node.magnitude_at_rank(3) - 0.15).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_ashes_to_ashes_reaches_300pct_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "ashestoashes");
+        assert_eq!(node.magnitude_at_rank(1), 1.0);
+        assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
     }
 
     fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {

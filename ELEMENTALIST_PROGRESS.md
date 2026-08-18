@@ -28,8 +28,9 @@ stage's "all existing tests still pass" check is protecting.
       archetype/access (done 2026-08-19)
 - [x] Stage 2 — Elemental Focus branch (proc-frequency, crit mods,
       gear-scaled elemental damage) (done 2026-08-19)
-- [ ] Stage 3 — Righteous Fire part 1 (damage + self-burn, Scorching
-      Flames, Relentless/Cauterizing Flames, Ashes to Ashes)
+- [x] Stage 3 — Righteous Fire part 1 (damage + self-burn, Scorching
+      Flames, Relentless/Cauterizing Flames, Ashes to Ashes) (done
+      2026-08-19)
 - [ ] Stage 4 — Righteous Fire part 2 (regen clock, Fanning Flames,
       Rising Phoenix, Shielding Flames, Cleansing Flames)
 - [ ] Stage 5 — Golem foundation (summoner-death rule, dead-but-
@@ -141,22 +142,81 @@ listed here for completeness, not decisions made unattended):*
    (contrasted against Scorching Flames' explicit "ADDITIVE fire
    damage" a few lines above it in the same spec) reads as a deliberate,
    meaningful distinction, not incidental phrasing.
-12. **`CombatSimUnit` has 5 separate construction sites, not the 1 that
+12. **`CombatSimUnit` has 4 separate construction sites, not the 1 that
    was obvious from a first read** (`impl Default`, the real
    `simulate_battle`-embedded from-`Character` constructor, a
-   boss-construction site, and TWO further sites inside boss-adds
+   boss-construction site, and one further site inside boss-adds
    injection code with pre-existing, visibly inconsistent per-line
    indentation within a single struct literal - not this branch's mess,
    predates it). A find-and-replace across `chakra_of_light_pct: 0.0,`
-   as the anchor briefly produced a duplicate-field compile error from
-   two of these sites' insertions landing adjacently; caught immediately
-   by `cargo build` and fixed before the commit - noted here so a later
-   stage adding its own new `CombatSimUnit` field knows to check for all
-   5 sites, not assume 1.
+   as the anchor briefly produced a duplicate-field compile error - a
+   sloppy `replace_all` matched the same literal twice under two
+   different accidental indentations, not a genuine 5th site; caught
+   immediately by `cargo build` and fixed before the commit (this entry
+   originally over-corrected to "5 sites" - corrected here after
+   `grep -c` confirmed 4 is the real, stable count going into Stage 3).
+   Noted so a later stage adding its own new `CombatSimUnit` field
+   checks all 4, not assumes 1.
+
+13. **Righteous Fire's own tick plugs into the main event loop as a new
+   `NextEvent::RighteousFireTick` variant** (once-a-second cadence,
+   scheduled/gated exactly like Divine Shield - player-only), dispatching
+   to a new standalone `tick_righteous_fire` function - same
+   "`NextEvent` arm is a one-line call to a real function" shape
+   `LingeringTick`/`tick_lingering_dots` already established, NOT the
+   fully-inlined shape `CurseExpiry`/Doom uses - chosen specifically so
+   this stage's genuinely new logic is unit-testable in isolation with a
+   crafted `units` slice, matching the "pure functions... same style as
+   adventure_reply's" verification requirement.
+14. **All of Righteous Fire's damage (self-burn AND enemy) is TRUE
+   damage** - no crit/evasion/mitigation roll, same "a detonation, not
+   an attack" convention Warlock's Doom/Apocalypse already established.
+   New shared helper `apply_true_damage` (used for both halves) does NOT
+   run `apply_late_stage_penalty` - that penalty is specifically "damage
+   a player deals TO a boss," and applying it to Righteous Fire's own
+   self-burn would be wrong. It also skips `fire_on_kill` when
+   `source_idx == target_idx` (self-burn killing the caster must never
+   trigger the caster's own on-kill rewards).
+15. **Relentless Flames/Cauterizing Flames ride the SAME randomly-chosen
+   enemy subset Righteous Fire's own damage half already picked this
+   tick**, rather than rolling their own independent splash selection -
+   both are spec'd with the identical "nearby enemies based on splash"
+   language, read as the same aura's own reach. **Ashes to Ashes is the
+   deliberate exception**: spec'd as "ANY enemy in range" (not "a
+   number... based on splash"), so it sweeps every alive enemy each
+   tick unconditionally, backed by its own test proving it still
+   executes enemies beyond the splash-selected subset's cap.
+16. **Relentless Flames' debuff (`relentlessflames_dmg_taken_pct`) rides
+   the SAME target-side vulnerability slot `boss_focus_stacks` already
+   established** in `resolve_hit` (`dmg *= 1.0 + def.boss_focus_stacks +
+   def.relentlessflames_dmg_taken_pct` - also mirrored into the
+   curse-attribution hypothetical calc just below it, to keep that
+   marginal-damage logging accurate when both are present). Unlike every
+   elemental debuff, it does NOT decay - the spec's own "stacking," no
+   expiry stated.
+17. **Cauterizing Flames reuses the existing shared
+   `temp_heal_reduction_pct`/`temp_heal_reduction_expires_at_ms` slot**
+   Purging Flame (Cleric) already writes to, rather than adding a new
+   field - accepts the same "last write wins, doesn't stack with a
+   different source" limitation every other `temp_*` debuff slot in
+   this codebase already has (a Cleric and an Elementalist debuffing the
+   same enemy's healing simultaneously would overwrite, not combine -
+   pre-existing codebase-wide behavior for this whole family of fields,
+   not something this stage introduces).
+18. **Scorching Flames' fire-damage-pct bonus is folded into the SAME
+   `elementalist_elemental_damage_pct` call Elemental Focus already
+   uses** (added into its `elemental_focus_pct` argument, fire-channel
+   only) rather than a separate addition - both are flat, additive,
+   feeding the identical field.
+19. Corrected Decision 12 above: re-verified via `grep -c` going into
+   this stage that `CombatSimUnit` has exactly 4 construction sites, not
+   the 5 that entry originally claimed (the "5th" was a duplicate from a
+   sloppy `replace_all` match, not a genuine site). Left the correction
+   inline in place rather than rewriting history.
 
 *(Everything above this line was decided without a check-in, during
 autonomous execution. Nothing further yet - this section grows as
-Stages 3-6 proceed.)*
+Stages 4-6 proceed.)*
 
 ---
 
@@ -210,6 +270,40 @@ Stages 3-6 proceed.)*
   `elementalist_stage_2_tests` module added 9 (4 pure-function cases for
   `elementalist_elemental_damage_pct`, 2 Aegis, 1 Focus extra-roll, 2
   Conflagration). Full suite: **184 passing, 0 failed** (was 171).
+- Committed as `f61fd22`, pushed.
+
+## Stage 3 summary (for the morning, or a fresh session)
+
+- Righteous Fire (skill), Scorching Flames (spec, fire-damage-pct only -
+  its own modifiers Relentless/Cauterizing/Ashes to Ashes are the other
+  4 nodes this stage wires) - 5 of the tree's 39 nodes now real. Healing
+  Flames/Cleansing Flames and their children, plus all of Golem Master,
+  remain `NotYetImplemented` for Stages 4-6.
+- New once-a-second tick (`NextEvent::RighteousFireTick` ->
+  `tick_righteous_fire`, a standalone testable function, NOT inlined
+  into the match arm) drives: self-burn (true damage, can kill the
+  caster), enemy damage to up to `PLAYER_SPLASH_MAX_TARGETS` (+overflow)
+  randomly-chosen enemies, Relentless Flames' non-decaying stacking
+  vulnerability on that same subset, Cauterizing Flames' reduced-healing
+  debuff on that same subset, and Ashes to Ashes' unconditional
+  every-alive-enemy execute sweep. New shared `apply_true_damage` helper
+  (no crit/evasion/mitigation, no late-stage penalty, no self-kill
+  on-kill trigger) backs both damage halves. Full mechanic-by-mechanic
+  reasoning in Decisions 13-19 above.
+- 6 new `CombatSimUnit` fields (`righteousfire_pct`,
+  `next_righteousfire_tick_at_ms`, `relentlessflames_pct_per_stack`,
+  `relentlessflames_dmg_taken_pct`, `cauterizingflames_pct`,
+  `ashestoashes_pct`), each defaulted at all 4 real construction sites
+  (verified count - see Decision 19's correction to Stage 2's log).
+- 13 new tests (5 magnitude checks in `passive_tree.rs`, 8 in
+  `combat.rs`'s new `elementalist_stage_3_tests` module covering
+  self-burn, self-burn death, enemy-damage target cap, Relentless
+  Flames accumulation + its real `resolve_hit` scaling, Cauterizing
+  Flames' debuff application, and Ashes to Ashes' unconditional sweep
+  both with and without the splash cap in play). Full suite: **197
+  passing, 0 failed** (was 184).
+- One correction made to Stage 2's own Decision 12 (see Decision 19) -
+  "5 construction sites" was wrong, corrected to the verified 4.
 - Commit is next.
 
 ---

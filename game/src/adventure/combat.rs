@@ -186,6 +186,19 @@ pub(crate) const ARCANE_SHIELD_DURATION_MS: u32 = 5_000;
 /// first-pass-pick spirit and value as `ARCANE_SHIELD_DURATION_MS` above
 /// (the design text only states the shield's size, not a duration).
 pub(crate) const ELEMENTAL_AEGIS_SHIELD_DURATION_MS: u32 = 5_000;
+/// Righteous Fire's own tick cadence - the spec states both halves
+/// (self-burn, enemy damage) as "per second," so this fires once a
+/// second for the whole fight once invested (see
+/// `next_righteousfire_tick_at_ms`'s own doc).
+pub(crate) const RIGHTEOUS_FIRE_TICK_INTERVAL_MS: u32 = 1_000;
+/// How long Cauterizing Flames' reduced-healing debuff lasts before it
+/// lazily expires - refreshed every Righteous Fire tick that re-applies
+/// it (once a second), so this only matters for the ~1s gap right after
+/// the aura stops reaching a given enemy. First-pass-pick spirit as
+/// `ARCANE_SHIELD_DURATION_MS`'s own doc (the design text doesn't state
+/// a duration), rounded up slightly past the 1s tick interval so a
+/// steady RF beam never has a visible gap between applications.
+pub(crate) const CAUTERIZING_FLAMES_DEBUFF_DURATION_MS: u32 = 1_500;
 /// How long Eternal Hunger's shield (off a Soul Harvest kill-heal) lasts -
 /// same first-pass-pick spirit, the design text only states the value
 /// ("a small shield worth 25% of the heal per rank"), not a duration.
@@ -1665,6 +1678,42 @@ pub(crate) struct CombatSimUnit {
     /// multiplicative layers) rather than folded into `increased_damage`.
     /// 0.0 without it invested.
     conflagration_dmg_pct: f64,
+    /// Elementalist's Righteous Fire (docs/elementalist_spec.md) - the
+    /// SAME rank magnitude drives both halves of the skill: self-burn
+    /// (true damage to THIS unit, once per second) and the damage dealt
+    /// to each enemy it reaches (see `tick_righteous_fire`'s own doc).
+    /// 0.0 without it invested, which also makes `next_righteousfire_tick_at_ms`
+    /// stay `u32::MAX` (never scheduled) at construction.
+    righteousfire_pct: f64,
+    /// Righteous Fire's own once-a-second clock - `u32::MAX` (never
+    /// fires) without the skill invested, same "sentinel means inert"
+    /// convention `next_divine_shield_at_ms`/etc already use.
+    next_righteousfire_tick_at_ms: u32,
+    /// Elementalist's Relentless Flames - THIS unit's own investment (as
+    /// a caster), how much `relentlessflames_dmg_taken_pct` an enemy
+    /// Righteous Fire reaches gains per tick. 0.0 without it invested.
+    relentlessflames_pct_per_stack: f64,
+    /// Relentless Flames' debuff on THIS unit (as an enemy) - accumulates
+    /// every Righteous Fire tick that reaches this unit, never decays
+    /// (the spec's own "stacking," no expiry stated, unlike the
+    /// elemental procs). Read the same way `boss_focus_stacks` already
+    /// is - see `resolve_hit`'s own `1.0 + def.boss_focus_stacks` line.
+    relentlessflames_dmg_taken_pct: f64,
+    /// Elementalist's Cauterizing Flames - THIS unit's own investment (as
+    /// a caster). Applied to an enemy via the existing shared
+    /// `temp_heal_reduction_pct`/`temp_heal_reduction_expires_at_ms`
+    /// slot Purging Flame already uses (see `tick_righteous_fire`'s own
+    /// doc for the "last write wins, doesn't stack with a different
+    /// source" judgment call this implies). 0.0 without it invested.
+    cauterizingflames_pct: f64,
+    /// Elementalist's Ashes to Ashes, Dust to Dust - THIS unit's own
+    /// investment (as a caster). An enemy with current HP below
+    /// `ashestoashes_pct` of THIS unit's own max HP is instantly
+    /// executed on Righteous Fire's tick, unconditionally across every
+    /// alive enemy (not limited to the tick's own splash-selected
+    /// subset - see `tick_righteous_fire`'s own doc). 0.0 without it
+    /// invested.
+    ashestoashes_pct: f64,
     /// Chakra of Life - a hit that would kill this unit instead grants
     /// this many ms of full damage immunity (`chakraoflife_immune_until_ms`
     /// below), after which the unit dies unconditionally
@@ -2846,6 +2895,12 @@ impl Default for CombatSimUnit {
             chillingaegis_shield_pct: 0.0,
             scorchingaegis_shield_pct: 0.0,
             conflagration_dmg_pct: 0.0,
+            righteousfire_pct: 0.0,
+            next_righteousfire_tick_at_ms: u32::MAX,
+            relentlessflames_pct_per_stack: 0.0,
+            relentlessflames_dmg_taken_pct: 0.0,
+            cauterizingflames_pct: 0.0,
+            ashestoashes_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: 0,
@@ -4323,8 +4378,11 @@ pub(crate) fn resolve_hit(
     // `boss_focus_stacks`) - a target-side vulnerability, applied last,
     // after every other mitigation has already taken its cut. Same as
     // before pierce existed - only the mitigable portion is scaled by
-    // this, `pierce_amount` is added in untouched below.
-    dmg *= 1.0 + def.boss_focus_stacks;
+    // this, `pierce_amount` is added in untouched below. Elementalist's
+    // Relentless Flames (`relentlessflames_dmg_taken_pct`) rides the
+    // same target-side vulnerability slot - non-decaying, unlike every
+    // other elemental debuff (see that field's own doc).
+    dmg *= 1.0 + def.boss_focus_stacks + def.relentlessflames_dmg_taken_pct;
     // Curse of Weakness family (2026-08-16, see `HitOutcome::curse_bonus_damage`'s
     // doc) - the marginal damage that ONLY exists because the curse's own
     // negative source was in the mitigation combine above. Recomputed by
@@ -4336,7 +4394,7 @@ pub(crate) fn resolve_hit(
     // each other.
     let curse_bonus_damage = if let Some(idx) = curse_source_idx {
         let source_values_without_curse: Vec<f64> = source_values.iter().enumerate().filter(|(i, _)| *i != idx).map(|(_, &v)| v).collect();
-        let dmg_without_curse = mitigable_raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse)) * (1.0 + def.boss_focus_stacks);
+        let dmg_without_curse = mitigable_raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse)) * (1.0 + def.boss_focus_stacks + def.relentlessflames_dmg_taken_pct);
         (dmg - dmg_without_curse).max(0.0)
     } else {
         0.0
@@ -4944,6 +5002,123 @@ pub const ELEMENTAL_PROC_CHANCE_DIVISOR: f64 = 10.0;
 /// everyone else.
 pub(crate) fn elementalist_elemental_damage_pct(gear_pct: f64, elemental_focus_pct: f64, gear_scaling_modifier_pct: f64) -> f64 {
     gear_pct + elemental_focus_pct + gear_pct * gear_scaling_modifier_pct
+}
+
+/// Applies `amount` of true (unmitigated - no crit/evasion/mitigation
+/// roll) damage to `units[target_idx]`, same "a detonation, not an
+/// attack" shape Warlock's Doom/Apocalypse already established (see
+/// `NextEvent::CurseExpiry`'s own doc) - reused here for Righteous
+/// Fire's tick, which needs the identical shape for BOTH the
+/// self-burn (`source_idx == target_idx`) and the enemy-damage half.
+/// Deliberately does NOT run `apply_late_stage_penalty` - that penalty
+/// is specifically "damage a player deals TO a boss," and applying it
+/// to Righteous Fire's own self-burn would be wrong. Handles death
+/// (Defeat event) but only fires `fire_on_kill` for a REAL kill
+/// (`source_idx != target_idx`) - Righteous Fire killing its OWN caster
+/// via self-burn must never trigger that caster's own on-kill rewards.
+/// Returns whether the target died from this hit.
+fn apply_true_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) -> bool {
+    if amount <= 0.0 || !units[target_idx].alive || at_ms <= units[target_idx].chakraoflife_immune_until_ms {
+        return false;
+    }
+    let final_damage = amount.round().max(0.0) as i64;
+    if final_damage <= 0 {
+        return false;
+    }
+    let new_hp = (units[target_idx].hp - final_damage).max(0);
+    units[target_idx].hp = new_hp;
+    let source_id = units[source_idx].id.clone();
+    let target_id = units[target_idx].id.clone();
+    let hit_id = next_hit_id();
+    events.push(CombatEvent::Attack {
+        at_ms,
+        attacker: source_id,
+        target: target_id.clone(),
+        damage: final_damage.max(0) as u64,
+        unmitigated_damage: final_damage.max(0) as u64,
+        target_hp_after: new_hp as u64,
+        is_crit: false,
+        evaded: false,
+        hit_id,
+        source_kind: AttackSourceKind::Direct,
+    });
+    if new_hp != 0 {
+        return false;
+    }
+    units[target_idx].alive = false;
+    events.push(CombatEvent::Defeat { at_ms, unit: target_id });
+    if source_idx != target_idx {
+        fire_on_kill(units, source_idx, at_ms, events, rolls, rng);
+    }
+    true
+}
+
+/// Righteous Fire's own periodic tick (docs/elementalist_spec.md) - once
+/// per second for the whole fight once invested. Self-burn always fires
+/// first (true damage, can kill the caster like any other damage
+/// source - checked before doing anything else). The enemy-damage half
+/// then hits up to `PLAYER_SPLASH_MAX_TARGETS` (+ overflow past 100%
+/// splash) enemies chosen at random, same target-count convention
+/// `apply_splash` itself uses for "a number of enemies based on
+/// splash." Relentless Flames/Cauterizing Flames ride that SAME
+/// randomly-chosen subset each tick rather than rolling their own
+/// independent splash selection - both are spec'd with the identical
+/// "nearby enemies based on splash" language, read here as the same
+/// aura's own reach rather than 3 separate triggers. Ashes to Ashes is
+/// the one exception: "ANY enemy in range" (not "a number... based on
+/// splash") reads as unconditional, so it sweeps every alive enemy
+/// regardless of this tick's random splash picks.
+pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+    if !units[actor_idx].alive {
+        return;
+    }
+    let pct = units[actor_idx].righteousfire_pct;
+    let max_hp = units[actor_idx].max_hp as f64;
+    apply_true_damage(units, actor_idx, actor_idx, max_hp * pct, at_ms, events, rolls, rng);
+    if !units[actor_idx].alive {
+        return;
+    }
+    let splash = units[actor_idx].splash;
+    let max_targets = if splash > 1.0 { PLAYER_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { PLAYER_SPLASH_MAX_TARGETS };
+    let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
+    let pick_count = max_targets.min(candidates.len());
+    let relentless_pct = units[actor_idx].relentlessflames_pct_per_stack;
+    let cauterizing_pct = units[actor_idx].cauterizingflames_pct;
+    let enemy_dmg = max_hp * pct;
+    for _ in 0..pick_count {
+        let pick_at = rng.gen_range(0..candidates.len());
+        let target_idx = candidates.remove(pick_at);
+        apply_true_damage(units, actor_idx, target_idx, enemy_dmg, at_ms, events, rolls, rng);
+        if !units[target_idx].alive {
+            continue;
+        }
+        if relentless_pct > 0.0 {
+            units[target_idx].relentlessflames_dmg_taken_pct += relentless_pct;
+        }
+        if cauterizing_pct > 0.0 {
+            units[target_idx].temp_heal_reduction_pct = cauterizing_pct;
+            units[target_idx].temp_heal_reduction_expires_at_ms = at_ms + CAUTERIZING_FLAMES_DEBUFF_DURATION_MS;
+        }
+    }
+    // Ashes to Ashes, Dust to Dust - unconditional across every alive
+    // enemy (see this function's own doc for why this doesn't reuse the
+    // splash-limited subset above).
+    let ashes_pct = units[actor_idx].ashestoashes_pct;
+    if ashes_pct <= 0.0 {
+        return;
+    }
+    let threshold = units[actor_idx].max_hp as f64 * ashes_pct;
+    let doomed: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive && (u.hp as f64) < threshold).map(|(i, _)| i).collect();
+    for target_idx in doomed {
+        if !units[target_idx].alive {
+            continue;
+        }
+        let target_id = units[target_idx].id.clone();
+        units[target_idx].hp = 0;
+        units[target_idx].alive = false;
+        events.push(CombatEvent::Defeat { at_ms, unit: target_id });
+        fire_on_kill(units, actor_idx, at_ms, events, rolls, rng);
+    }
 }
 
 pub(crate) fn roll_elemental_proc(raw_pct: f64, stacks: &mut Vec<u32>, max_stacks: usize, at_ms: u32, rng: &mut impl Rng) -> (bool, Option<f64>) {
@@ -8144,7 +8319,11 @@ pub(crate) fn simulate_battle(
                 // in via `elementalist_elemental_damage_pct` (see its own
                 // doc) - collapses to exactly the plain gear roll for
                 // every non-Elementalist.
-                fire_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::FireDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("incinerate")),
+                fire_damage_pct: elementalist_elemental_damage_pct(
+                    c.sum_affix(Affix::FireDamage),
+                    c.passive_node_magnitude("elementalfocus") + c.passive_node_magnitude("scorchingflames"),
+                    c.passive_node_magnitude("incinerate"),
+                ),
                 cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("polarflux")),
                 chaos_damage_pct: c.sum_affix(Affix::ChaosDamage),
                 lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("overshock")),
@@ -8756,6 +8935,12 @@ pub(crate) fn simulate_battle(
                 chillingaegis_shield_pct: c.passive_node_magnitude("chillingaegis"),
                 scorchingaegis_shield_pct: c.passive_node_magnitude("scorchingaegis"),
                 conflagration_dmg_pct: c.passive_node_magnitude("pyroclasm"),
+                righteousfire_pct: c.passive_node_magnitude("righteousfire"),
+                next_righteousfire_tick_at_ms: if c.passive_node_rank("righteousfire") > 0 { RIGHTEOUS_FIRE_TICK_INTERVAL_MS } else { u32::MAX },
+                relentlessflames_pct_per_stack: c.passive_node_magnitude("relentlessflames"),
+                relentlessflames_dmg_taken_pct: 0.0,
+                cauterizingflames_pct: c.passive_node_magnitude("cauterizingflames"),
+                ashestoashes_pct: c.passive_node_magnitude("ashestoashes"),
                 chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
                 chakraoflife_immune_until_ms: 0,
                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9041,6 +9226,12 @@ pub(crate) fn simulate_battle(
             chillingaegis_shield_pct: 0.0,
             scorchingaegis_shield_pct: 0.0,
             conflagration_dmg_pct: 0.0,
+            righteousfire_pct: 0.0,
+            next_righteousfire_tick_at_ms: u32::MAX,
+            relentlessflames_pct_per_stack: 0.0,
+            relentlessflames_dmg_taken_pct: 0.0,
+            cauterizingflames_pct: 0.0,
+            ashestoashes_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9471,6 +9662,7 @@ pub(crate) fn simulate_battle(
         LingeringTick(usize),
         CurseExpiry(usize),
         ChakraOfLifeExpiry(usize),
+        RighteousFireTick(usize),
     }
 
     // Which player the real boss is currently focus-targeting (see the
@@ -9511,6 +9703,9 @@ pub(crate) fn simulate_battle(
                 }
                 if u.next_divine_shield_at_ms < best.unwrap().0 {
                     best = Some((u.next_divine_shield_at_ms, NextEvent::DivineShield(i)));
+                }
+                if u.next_righteousfire_tick_at_ms < best.unwrap().0 {
+                    best = Some((u.next_righteousfire_tick_at_ms, NextEvent::RighteousFireTick(i)));
                 }
             } else if u.next_ability_at_ms < best.unwrap().0 {
                 best = Some((u.next_ability_at_ms, NextEvent::BossAbility(i)));
@@ -9627,6 +9822,11 @@ pub(crate) fn simulate_battle(
             }
             NextEvent::LingeringTick(target_idx) => {
                 tick_lingering_dots(&mut units, target_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                continue;
+            }
+            NextEvent::RighteousFireTick(actor_idx) => {
+                tick_righteous_fire(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                units[actor_idx].next_righteousfire_tick_at_ms += RIGHTEOUS_FIRE_TICK_INTERVAL_MS;
                 continue;
             }
             NextEvent::CurseExpiry(target_idx) => {
@@ -9966,6 +10166,12 @@ pub(crate) fn simulate_battle(
                                 chillingaegis_shield_pct: 0.0,
                                 scorchingaegis_shield_pct: 0.0,
                                 conflagration_dmg_pct: 0.0,
+                                righteousfire_pct: 0.0,
+                                next_righteousfire_tick_at_ms: u32::MAX,
+                                relentlessflames_pct_per_stack: 0.0,
+                                relentlessflames_dmg_taken_pct: 0.0,
+                                cauterizingflames_pct: 0.0,
+                                ashestoashes_pct: 0.0,
                                 chakraoflife_duration_ms: 0,
                                 chakraoflife_immune_until_ms: 0,
                                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -12071,6 +12277,146 @@ mod elementalist_stage_2_tests {
         let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
         assert!((ratio - 1.30).abs() < 1e-6, "30% Conflagration should scale unmitigated damage by exactly 1.30x, got {ratio}");
+    }
+}
+
+#[cfg(test)]
+mod elementalist_stage_3_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn elementalist(righteousfire_pct: f64) -> CombatSimUnit {
+        CombatSimUnit {
+            id: "elementalist".to_string(),
+            display_name: "Elementalist".to_string(),
+            alive: true,
+            hp: 1000,
+            max_hp: 1000,
+            righteousfire_pct,
+            ..Default::default()
+        }
+    }
+
+    fn boss(id: &str, hp: i64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp: hp as u64, is_boss: true, ..Default::default() }
+    }
+
+    #[test]
+    fn self_burn_deals_a_flat_10pct_true_damage_tick() {
+        let mut units = vec![elementalist(0.10)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 900, "10% of 1000 max hp = 100 self-burn");
+        assert!(units[0].alive);
+    }
+
+    #[test]
+    fn self_burn_can_kill_the_caster_and_logs_exactly_one_defeat() {
+        let mut atk = elementalist(0.10);
+        atk.hp = 50; // burn (100) exceeds current hp
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 0);
+        assert!(!units[0].alive);
+        let defeats = events.iter().filter(|e| matches!(e, CombatEvent::Defeat { unit, .. } if unit == "elementalist")).count();
+        assert_eq!(defeats, 1, "self-burn death must log exactly one Defeat, not double-fire");
+    }
+
+    #[test]
+    fn enemy_damage_hits_at_most_player_splash_max_targets_enemies() {
+        let mut units = vec![elementalist(0.10), boss("a", 1_000_000), boss("b", 1_000_000), boss("c", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(7);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        let hit_count = units[1..].iter().filter(|u| u.hp < 1_000_000).count();
+        assert_eq!(hit_count, PLAYER_SPLASH_MAX_TARGETS, "exactly PLAYER_SPLASH_MAX_TARGETS enemies should take the 100-damage tick");
+        for u in &units[1..] {
+            assert!(u.hp == 1_000_000 || u.hp == 1_000_000 - 100, "every enemy should be either untouched or hit for exactly 100");
+        }
+    }
+
+    #[test]
+    fn relentless_flames_accumulates_without_decaying_across_ticks() {
+        let mut atk = elementalist(0.10);
+        atk.relentlessflames_pct_per_stack = 0.01;
+        let mut units = vec![atk, boss("only", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert!((units[1].relentlessflames_dmg_taken_pct - 0.01).abs() < 1e-9, "one tick = one stack");
+        tick_righteous_fire(&mut units, 0, 2_000, &mut events, &mut rolls, &mut rng);
+        assert!((units[1].relentlessflames_dmg_taken_pct - 0.02).abs() < 1e-9, "must keep accumulating, never reset between ticks");
+    }
+
+    #[test]
+    fn relentless_flames_debuff_actually_scales_damage_taken_in_resolve_hit() {
+        let atk = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let baseline_def = boss("baseline", 1_000_000);
+        let stacked_def = CombatSimUnit { relentlessflames_dmg_taken_pct: 0.10, ..boss("stacked", 1_000_000) };
+        let mut rng_a = StdRng::seed_from_u64(9);
+        let baseline = resolve_hit(1000.0, &atk, &baseline_def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut rng_b = StdRng::seed_from_u64(9);
+        let stacked = resolve_hit(1000.0, &atk, &stacked_def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        // `damage` (post-mitigation), not `unmitigated_damage` -
+        // `boss_focus_stacks`/`relentlessflames_dmg_taken_pct` are
+        // DEFENDER-side vulnerability multipliers applied during
+        // mitigation, downstream of `unmitigated_damage` (which is
+        // captured purely from the ATTACKER's own roll, before any
+        // defender-side reduction/vulnerability is considered - see
+        // `unmitigated_damage`'s own construction site).
+        let ratio = stacked.damage as f64 / baseline.damage as f64;
+        assert!((ratio - 1.10).abs() < 1e-6, "10% Relentless Flames stacking should scale damage taken by exactly 1.10x, got {ratio}");
+    }
+
+    #[test]
+    fn cauterizing_flames_applies_reduced_healing_to_a_hit_enemy() {
+        let mut atk = elementalist(0.10);
+        atk.cauterizingflames_pct = 0.05;
+        let mut units = vec![atk, boss("only", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng);
+        assert!((units[1].temp_heal_reduction_pct - 0.05).abs() < 1e-9);
+        assert_eq!(units[1].temp_heal_reduction_expires_at_ms, 5_000 + CAUTERIZING_FLAMES_DEBUFF_DURATION_MS);
+    }
+
+    #[test]
+    fn ashes_to_ashes_executes_every_low_health_enemy_regardless_of_the_splash_cap() {
+        // 5 enemies alive (more than PLAYER_SPLASH_MAX_TARGETS=2) - Ashes
+        // to Ashes must still sweep and execute every single one below
+        // threshold, not just the (at most 2) the enemy-damage half of
+        // this same tick happened to randomly pick.
+        let mut atk = elementalist(0.0); // isolate the execute check
+        atk.ashestoashes_pct = 1.0; // threshold = 100% of 1000 max hp = 1000
+        let mut units = vec![atk, boss("low_a", 500), boss("low_b", 999), boss("high_a", 2_000), boss("high_b", 5_000), boss("high_c", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(3);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert!(!units[1].alive, "500 < 1000 threshold - must be executed");
+        assert!(!units[2].alive, "999 < 1000 threshold - must be executed");
+        assert!(units[3].alive && units[3].hp == 2_000, "2000 >= threshold - untouched");
+        assert!(units[4].alive && units[4].hp == 5_000, "5000 >= threshold - untouched");
+        assert!(units[5].alive && units[5].hp == 1_000_000, "1,000,000 >= threshold - untouched");
+    }
+
+    #[test]
+    fn ashes_to_ashes_does_nothing_when_uninvested() {
+        let atk = elementalist(0.0);
+        let mut units = vec![atk, boss("almost_dead", 1)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert!(units[1].alive, "0.0 ashestoashes_pct must never execute anyone");
     }
 }
 
