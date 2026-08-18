@@ -48,6 +48,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, Mutex, Notify};
 
 mod affix;
+mod announcements;
 mod balance;
 mod character;
 mod combat;
@@ -63,6 +64,7 @@ mod published_constants;
 mod tunables;
 
 pub use affix::*;
+pub(crate) use announcements::*;
 pub(crate) use balance::*;
 pub use character::*;
 pub use combat::*;

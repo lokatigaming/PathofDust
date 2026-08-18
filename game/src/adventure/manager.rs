@@ -1312,6 +1312,19 @@ pub struct AdventureManager {
     /// giveaway (main.rs's own `ITEM_LAUNCH_GIVEAWAYS`), which already
     /// announces on its own - this covers every win after that.
     unique_shard_tx: broadcast::Sender<UniqueShardEvent>,
+    /// Stage 3 (2026-08-19, architecture refactor API seam) - already-
+    /// formatted, ready-to-say chat lines, game-initiated (no request
+    /// preceded them) - what `GET /api/announcements/stream` (an SSE
+    /// endpoint) streams to the bot. A bounded broadcast channel with
+    /// zero subscribers (no SSE client currently connected - the bot is
+    /// down, or hasn't connected yet) just lets sends fall on the floor,
+    /// same as `tokio::sync::broadcast`'s own lagging-receiver behavior -
+    /// exactly the owner-ratified "drop gracefully" policy (§4b), no
+    /// separate persistent queue needed. Fed by `announce_*` methods
+    /// below, which PORT (not yet replace - see REFACTOR_PLAN.md's
+    /// Stage 3 "coexist, no cutover" instruction) the exact formatting
+    /// main.rs's own broadcast subscribers still do today.
+    announcements_tx: broadcast::Sender<String>,
     /// Lowercased username -> an in-progress veiled craft awaiting a
     /// choice (see `PendingVeil`/`choose_veil_outcome`) - purely
     /// in-memory, same tradeoff as `last_activity_xp`/`downed_until` (a
@@ -1690,6 +1703,7 @@ impl AdventureManager {
         let (gear_crit_tx, _rx) = broadcast::channel(16);
         let (rampage_complete_tx, _rx) = broadcast::channel(16);
         let (unique_shard_tx, _rx) = broadcast::channel(16);
+        let (announcements_tx, _rx) = broadcast::channel(16);
         let rampage_remaining: u32 = crate::state::load_json(data_path(RAMPAGE_STATE_PATH)).unwrap_or(0);
         Arc::new(Self {
             characters: Mutex::new(characters),
@@ -1706,6 +1720,7 @@ impl AdventureManager {
             gear_crit_tx,
             rampage_complete_tx,
             unique_shard_tx,
+            announcements_tx,
             pending_veils: Mutex::new(HashMap::new()),
             pending_passive_previews: Mutex::new(HashMap::new()),
             forced_boss_count: Mutex::new(0),
@@ -1786,6 +1801,125 @@ impl AdventureManager {
         self.unique_shard_tx.subscribe()
     }
 
+    /// Stage 3 API seam - see `announcements_tx`'s own doc. What the SSE
+    /// endpoint subscribes to.
+    pub fn subscribe_announcements(&self) -> broadcast::Receiver<String> {
+        self.announcements_tx.subscribe()
+    }
+
+    /// Stage 3 API seam - ports main.rs's own encounter-result broadcast
+    /// subscriber (formatting AND the Celestial Shard/launch-giveaway
+    /// state mutation it does) to run here instead, closing the real
+    /// architecture gap the Stage 0 audit flagged: a bot-side process
+    /// was mutating core game state (granting craft tokens) on its own
+    /// broadcast subscriber. Called from `run_encounter_inner`/
+    /// `run_basic_encounter_inner` right before `result` is broadcast on
+    /// `encounter_tx` (still `&EncounterResult`, not yet moved). Per
+    /// REFACTOR_PLAN.md's Stage 3 instruction this is NEW, PARALLEL code -
+    /// main.rs's own subscriber is untouched and still the only thing
+    /// actually announcing in production until Stage 4's cutover.
+    ///
+    /// One real, deliberate behavior difference from the ported logic:
+    /// the marker files below now resolve through `data_path` (this is
+    /// genuinely game-owned persisted state, unlike when it lived in
+    /// main.rs) - a fresh `game`-side data directory starts these
+    /// giveaways over from scratch, independent of whatever a bot-side
+    /// copy of the old markers already recorded. Not a concern in
+    /// practice: both markers are ONE-TIME, already-fired-in-production
+    /// launch events (see WIKI_IMPACT.md) - this path only matters again
+    /// if a marker is ever reset deliberately or a wholly fresh instance
+    /// (e.g. a test) exercises it.
+    async fn announce_encounter_result(self: &Arc<Self>, result: &EncounterResult) {
+        if result.kind == EncounterKind::Boss {
+            // One-time: the top healer of the first boss fight after this
+            // launched gets a Celestial Shard - reads `result.summary.players`
+            // directly (not the top-3-only `fight_summary_from_snapshot`
+            // view), since granting needs the actual character id.
+            const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
+            if crate::state::load_json::<bool>(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
+                if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
+                    if self.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
+                        let _ = self
+                            .announcements_tx
+                            .send(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name));
+                    }
+                    if let Err(err) = crate::state::save_json(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH), &true) {
+                        tracing::error!("Failed to persist celestial shard first award marker: {err}");
+                    }
+                }
+            }
+
+            // Reusable one-time launch giveaways (see main.rs's own
+            // ITEM_LAUNCH_GIVEAWAYS for the full history/reasoning) -
+            // (marker path, the token to grant, the name shown in chat).
+            const ITEM_LAUNCH_GIVEAWAYS: &[(&str, CraftAction, &str)] =
+                &[("adventure-unique-shard-first-award-marker.json", CraftAction::UniqueShard, "Unique Shard")];
+            for &(marker_path, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
+                if crate::state::load_json::<bool>(data_path(marker_path)).is_some() {
+                    continue;
+                }
+                let top3_by = |amount: fn(&PlayerFightStats) -> u64| -> Vec<String> {
+                    let mut ranked: Vec<&PlayerFightStats> = result.summary.players.iter().filter(|p| amount(p) > 0).collect();
+                    ranked.sort_by(|a, b| amount(b).cmp(&amount(a)));
+                    ranked.into_iter().take(3).map(|p| p.id.clone()).collect()
+                };
+                // lokati_gaming is excluded from every one-time launch
+                // giveaway, even if they'd otherwise land in the top-3
+                // pool - meant for viewers, not the account running the
+                // show (they can still win the same item through the
+                // normal ongoing random drop roll).
+                const LAUNCH_GIVEAWAY_EXCLUDED_WINNER: &str = "lokati_gaming";
+                let mut winner_pool: Vec<String> = Vec::new();
+                for id in top3_by(|p| p.damage_dealt).into_iter().chain(top3_by(|p| p.damage_taken)).chain(top3_by(|p| p.healing_done)) {
+                    if id != LAUNCH_GIVEAWAY_EXCLUDED_WINNER && !winner_pool.contains(&id) {
+                        winner_pool.push(id);
+                    }
+                }
+                if winner_pool.is_empty() {
+                    continue;
+                }
+                let winner_id = winner_pool[rand::thread_rng().gen_range(0..winner_pool.len())].clone();
+                let display = result.units.iter().find(|u| u.id == winner_id).map(|u| u.display_name.clone()).unwrap_or_else(|| winner_id.clone());
+                if self.grant_craft_token(&winner_id, action, 1).await {
+                    let _ = self
+                        .announcements_tx
+                        .send(format!("🎁 {display} was randomly drawn from that fight's top performers and has been awarded a {item_label}!"));
+                }
+                if let Err(err) = crate::state::save_json(data_path(marker_path), &true) {
+                    tracing::error!("Failed to persist {item_label} launch giveaway marker: {err}");
+                }
+            }
+        }
+
+        let _ = self.announcements_tx.send(format_encounter_outcome(result));
+
+        if let Some(loot_msg) = format_loot_line(result) {
+            let _ = self.announcements_tx.send(loot_msg);
+        }
+    }
+
+    /// Stage 3 API seam - see `announce_encounter_result`'s own doc for
+    /// the "new, parallel code" scoping note. Simple ports for the 3
+    /// other broadcast-subscriber messages main.rs already sends -
+    /// unlike the encounter-result one, none of these do any state
+    /// mutation, so there's nothing to port beyond the formatting. The
+    /// gear-crit case has no wrapper of its own (see `announce_gear_crit`
+    /// below, the pre-existing single hook point both reforge and
+    /// recombine funnel through); rampage-complete and unique-shard-win
+    /// don't have an equivalent existing hook, so these thin wrappers
+    /// ARE that hook - call them from each scattered send site instead
+    /// of raw `rampage_complete_tx.send(())`/`unique_shard_tx.send(...)`.
+    fn announce_rampage_complete(&self) {
+        let _ = self.rampage_complete_tx.send(());
+        let _ = self.announcements_tx.send(RAMPAGE_COMPLETE_MESSAGE.to_string());
+    }
+
+    fn announce_unique_shard_win(&self, display_name: String) {
+        let event = UniqueShardEvent { display_name };
+        let _ = self.announcements_tx.send(format_unique_shard_win(&event));
+        let _ = self.unique_shard_tx.send(event);
+    }
+
     /// Current roster + world stage — pushed to a freshly (re)connected
     /// overlay immediately, so it doesn't sit blank until the next change.
     pub async fn snapshot(&self) -> AdventureSnapshot {
@@ -1832,7 +1966,9 @@ impl AdventureManager {
     /// recombine's 5% roll so both funnel through one announcement path.
     pub(crate) fn announce_gear_crit(&self, display_name: String, source: GearCritSource, item_name: &str, slot: EquipSlot, tier: u32, affix: Option<Affix>) {
         if let Some(affix) = affix {
-            let _ = self.gear_crit_tx.send(GearCritEvent { display_name, source, item_name: item_name.to_string(), slot, tier, affix });
+            let event = GearCritEvent { display_name, source, item_name: item_name.to_string(), slot, tier, affix };
+            let _ = self.announcements_tx.send(format_gear_crit(&event));
+            let _ = self.gear_crit_tx.send(event);
         }
     }
 
@@ -3266,6 +3402,15 @@ impl AdventureManager {
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&key) else { return None };
         let leveled = character.add_xp(ACTIVITY_XP_AMOUNT);
+        // Stage 3 API seam (2026-08-19) - pushed here rather than left
+        // for a caller to format, matching the "game owns all
+        // player-facing text" design principle. Harmless alongside the
+        // still-untouched in-process path (src/main.rs's own chat_client.say
+        // for this exact message) since nothing subscribes to
+        // `announcements_tx` in production yet - see its own doc.
+        if let Some(new_level) = leveled {
+            let _ = self.announcements_tx.send(format!("{} leveled up to level {new_level}!", character.display_name));
+        }
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -3377,7 +3522,7 @@ impl AdventureManager {
                         };
                         self.persist_rampage_remaining(new_remaining);
                         if new_remaining == 0 {
-                            let _ = self.rampage_complete_tx.send(());
+                            self.announce_rampage_complete();
                         }
                     }
                     let playback_ms = 700u64 + duration_ms.unwrap_or(0) as u64 + 1800;
@@ -3910,7 +4055,7 @@ impl AdventureManager {
                     maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
                     maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                     if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                        let _ = self.unique_shard_tx.send(UniqueShardEvent { display_name: character.display_name.clone() });
+                        self.announce_unique_shard_win(character.display_name.clone());
                     }
                     loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     item_recipients.insert(recipient_id.clone());
@@ -3978,7 +4123,7 @@ impl AdventureManager {
                         maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
                         maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                         if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                            let _ = self.unique_shard_tx.send(UniqueShardEvent { display_name: character.display_name.clone() });
+                            self.announce_unique_shard_win(character.display_name.clone());
                         }
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     }
@@ -4102,6 +4247,7 @@ impl AdventureManager {
         // `newly_downed` already scanned it in full; only the copy going
         // out over the wire to the overlay gets thinned.
         result.events = thin_events_for_overlay(result.events, &result.units);
+        self.announce_encounter_result(&result).await;
         let _ = self.encounter_tx.send(result);
 
         // The fight above is resolved instantly, but the overlay spends
@@ -4286,7 +4432,7 @@ impl AdventureManager {
                     maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
                     maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                     if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                        let _ = self.unique_shard_tx.send(UniqueShardEvent { display_name: character.display_name.clone() });
+                        self.announce_unique_shard_win(character.display_name.clone());
                     }
                     loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     item_recipients.insert(recipient_id.clone());
@@ -4330,7 +4476,7 @@ impl AdventureManager {
                         maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
                         maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                         if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                            let _ = self.unique_shard_tx.send(UniqueShardEvent { display_name: character.display_name.clone() });
+                            self.announce_unique_shard_win(character.display_name.clone());
                         }
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     }
@@ -4379,6 +4525,7 @@ impl AdventureManager {
         // `newly_downed` already scanned it in full; only the copy going
         // out over the wire to the overlay gets thinned.
         result.events = thin_events_for_overlay(result.events, &result.units);
+        self.announce_encounter_result(&result).await;
         let _ = self.encounter_tx.send(result);
 
         // Same reasoning as run_encounter's identical block - delay
