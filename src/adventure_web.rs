@@ -402,7 +402,7 @@ fn render_craft_popup(params: &IndexParams) -> String {
             <h2>Crafted!</h2>\
             <p>Your {slot} is now a <strong>{item}</strong> (Tier {tier})</p>\
             <p class=\"modal-tier\">{change}</p>\
-            <button class=\"btn\" onclick=\"document.getElementById('craft-modal').remove(); history.replaceState(null, '', '/'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
+            <button class=\"btn\" onclick=\"document.getElementById('craft-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
           </div>\
         </div>"
     )
@@ -443,7 +443,7 @@ fn render_craft_error_popup(params: &IndexParams) -> String {
             <div class=\"modal-icon\">⚠️</div>\
             <h2>Nothing Happened</h2>\
             <p>{reason}</p>\
-            <button class=\"btn\" onclick=\"document.getElementById('craft-error-modal').remove(); history.replaceState(null, '', '/'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">OK</button>\
+            <button class=\"btn\" onclick=\"document.getElementById('craft-error-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">OK</button>\
           </div>\
         </div>"
     )
