@@ -256,6 +256,34 @@ pub enum JoinOutcome {
     Rejoined { level: u32, gear_still_worn: bool },
 }
 
+/// Where an `Attack` event's damage actually came from - lets a consumer
+/// (`full_player_fight_stats`) tell a real swing from a side-effect
+/// without re-deriving it from `hit_id`'s presence/absence in the detail
+/// tier (2026-08-18, the DoT-attribution fix - see `PlayerFightStats::hits`'
+/// doc). `Direct` covers every roll-based hit `apply_hit` itself resolves
+/// (including its lethal-save branches, the Hemorrhage explosion, and the
+/// curse-split's attacker-share/no-split events) and the Frenzy Culling
+/// Strike execute; `Splash` is Volatile Magic's true-damage splash;
+/// `Dot` is a Lingering Effect tick; `Reflect` is `apply_reflect_damage`;
+/// `CurseShare` is the Warlock-credited duplicate half of the Curse of
+/// Weakness credit-split (`CURSE_CREDITS_WARLOCK_DAMAGE`) - latent today
+/// since that flag is off, tagged now so enabling it later can't
+/// reintroduce the same double-counted-hit distortion DoT ticks had.
+/// `#[serde(default)]` on the `Attack` field below defaults every event
+/// already on disk (and every hand-built test event) to `Direct` - the
+/// correct reading, since that's what all of them were before this field
+/// existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttackSourceKind {
+    #[default]
+    Direct,
+    Splash,
+    Dot,
+    Reflect,
+    CurseShare,
+}
+
 /// One thing that happened during a simulated fight, with the timestamp
 /// (ms from fight start, before display compression — see
 /// `compress_events`) it happened at. `attacker`/`healer`/`target`/`unit`
@@ -297,6 +325,11 @@ pub enum CombatEvent {
         /// real hit) gives both halves the SAME `hit_id` - it's one hit.
         #[serde(default)]
         hit_id: u64,
+        /// See `AttackSourceKind`'s own doc. `#[serde(default)]` so every
+        /// event saved before this field existed still parses, reading as
+        /// `Direct` - correct, since that's what all of them were.
+        #[serde(default)]
+        source_kind: AttackSourceKind,
     },
     #[serde(rename_all = "camelCase")]
     Heal { at_ms: u32, healer: String, target: String, amount: u64, target_hp_after: u64 },
@@ -377,8 +410,8 @@ impl CombatEvent {
     /// by `compress_events` to rescale a whole log at once.
     pub(crate) fn with_at_ms(self, at_ms: u32) -> Self {
         match self {
-            CombatEvent::Attack { attacker, target, damage, unmitigated_damage, target_hp_after, is_crit, evaded, hit_id, .. } => {
-                CombatEvent::Attack { at_ms, attacker, target, damage, unmitigated_damage, target_hp_after, is_crit, evaded, hit_id }
+            CombatEvent::Attack { attacker, target, damage, unmitigated_damage, target_hp_after, is_crit, evaded, hit_id, source_kind, .. } => {
+                CombatEvent::Attack { at_ms, attacker, target, damage, unmitigated_damage, target_hp_after, is_crit, evaded, hit_id, source_kind }
             }
             CombatEvent::Heal { healer, target, amount, target_hp_after, .. } => {
                 CombatEvent::Heal { at_ms, healer, target, amount, target_hp_after }
@@ -671,8 +704,17 @@ fn first_player_to_die(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Opti
 /// leaderboards) - the lightweight data `FightSummarySnapshot` persists
 /// and `/fights.json` serves (2026-08-18, the `/fights.json` size/latency
 /// fix). `hits`/`crits`/`evaded` are about this player's own outgoing
-/// attacks: `hits` = landed (non-evaded) attacks, `crits` a subset of
-/// those, `evaded` = attacks this player threw that the target dodged.
+/// `Direct`/`Splash` attacks ONLY (2026-08-18, the DoT-attribution fix -
+/// see `AttackSourceKind`'s own doc): `hits` = landed (non-evaded) such
+/// attacks, `crits` a subset of those, `evaded` = ones the target dodged.
+/// A Lingering Effect DoT tick is emitted as an `Attack` event too (same
+/// `hit_id`-less shape, `is_crit`/`evaded` always false) but is EXCLUDED
+/// from all three - previously counted as an indistinguishable extra
+/// "hit," which could inflate a heavy-DoT build's apparent hit/attack
+/// volume by orders of magnitude while making its TRUE crit rate (rolled
+/// only on real swings) look artificially tiny. See `dot_ticks`/
+/// `dot_damage` for where that excluded activity actually went -
+/// `damage_dealt` still includes it, unchanged.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerFightStats {
@@ -687,12 +729,33 @@ pub struct PlayerFightStats {
     /// this field existed still deserialize, as `None`.
     #[serde(default)]
     pub archetype: Option<Archetype>,
+    /// Every source (`AttackSourceKind::Direct`/`Splash`/`Dot`/`Reflect`/
+    /// `CurseShare`, plus `Heal`/`Shield`) - unlike `hits`/`crits`/
+    /// `evaded` below, this was never restricted to real swings, and
+    /// still isn't; a heavy-DoT build's damage total is exactly as real
+    /// as anyone else's (see `dot_damage`'s doc for why excluding DoT
+    /// from HIT COUNTS must never mean excluding it from damage too).
     pub damage_dealt: u64,
     pub damage_taken: u64,
     pub healing_done: u64,
     pub hits: u32,
     pub crits: u32,
     pub evaded: u32,
+    /// Lingering Effect ticks this player's own DoT sources landed this
+    /// fight (2026-08-18, the DoT-attribution fix) - `#[serde(default)]`
+    /// (via the derived `Default` above) so fight records already on disk
+    /// deserialize as 0, the correct reading (every tick they recorded is
+    /// already folded into the old undifferentiated `hits` instead).
+    #[serde(default)]
+    pub dot_ticks: u32,
+    /// Total damage those same ticks dealt - a SUBSET of `damage_dealt`,
+    /// not additional to it. Can be the large majority of a build's total
+    /// damage (a Warlock leaning on Lingering Effect can clear 99%+) even
+    /// though `dot_ticks` contributes nothing to `hits`/`crits` - the
+    /// point of tracking both is so excluding DoT from "how often did you
+    /// swing" never reads as "you barely contributed."
+    #[serde(default)]
+    pub dot_damage: u64,
 }
 
 /// Builds a full (never truncated) per-player breakdown for one fight -
@@ -704,7 +767,9 @@ pub struct PlayerFightStats {
 /// event data happens to mention. `damage_taken` counts each hit's
 /// `unmitigated_damage` regardless of `evaded` - same "real incoming
 /// threat, not just what leaked through" semantic `summarize_fight`'s own
-/// damage_taken already uses.
+/// damage_taken already uses. `source_kind` decides where an `Attack`
+/// event's damage lands (2026-08-18, the DoT-attribution fix) - see
+/// `PlayerFightStats`'s own doc for exactly which fields each kind feeds.
 pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Vec<PlayerFightStats> {
     let mut stats: HashMap<String, PlayerFightStats> = units
         .iter()
@@ -718,15 +783,27 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
         .collect();
     for event in events {
         match event {
-            CombatEvent::Attack { attacker, target, damage, unmitigated_damage, is_crit, evaded, .. } => {
+            CombatEvent::Attack { attacker, target, damage, unmitigated_damage, is_crit, evaded, source_kind, .. } => {
                 if let Some(s) = stats.get_mut(attacker) {
-                    if *evaded {
-                        s.evaded += 1;
-                    } else {
-                        s.hits += 1;
-                        s.damage_dealt += *damage as u64;
-                        if *is_crit {
-                            s.crits += 1;
+                    match source_kind {
+                        AttackSourceKind::Direct | AttackSourceKind::Splash => {
+                            if *evaded {
+                                s.evaded += 1;
+                            } else {
+                                s.hits += 1;
+                                s.damage_dealt += *damage as u64;
+                                if *is_crit {
+                                    s.crits += 1;
+                                }
+                            }
+                        }
+                        AttackSourceKind::Dot => {
+                            s.dot_ticks += 1;
+                            s.dot_damage += *damage as u64;
+                            s.damage_dealt += *damage as u64;
+                        }
+                        AttackSourceKind::Reflect | AttackSourceKind::CurseShare => {
+                            s.damage_dealt += *damage as u64;
                         }
                     }
                 }
@@ -4717,6 +4794,20 @@ mod fight_summary_tests {
     }
 
     fn attack(at_ms: u32, attacker: &str, target: &str, damage: u64, unmitigated_damage: u64, is_crit: bool, evaded: bool) -> CombatEvent {
+        attack_with_kind(at_ms, attacker, target, damage, unmitigated_damage, is_crit, evaded, AttackSourceKind::Direct)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn attack_with_kind(
+        at_ms: u32,
+        attacker: &str,
+        target: &str,
+        damage: u64,
+        unmitigated_damage: u64,
+        is_crit: bool,
+        evaded: bool,
+        source_kind: AttackSourceKind,
+    ) -> CombatEvent {
         CombatEvent::Attack {
             at_ms,
             attacker: attacker.to_string(),
@@ -4727,6 +4818,7 @@ mod fight_summary_tests {
             is_crit,
             evaded,
             hit_id: 0,
+            source_kind,
         }
     }
 
@@ -4773,6 +4865,66 @@ mod fight_summary_tests {
         assert_eq!(alice.crits, 1);
         assert_eq!(alice.evaded, 1);
         assert_eq!(alice.damage_dealt, 400);
+    }
+
+    #[test]
+    fn dot_ticks_are_excluded_from_hits_crits_and_evaded_but_still_counted_as_damage() {
+        // 2026-08-18, the DoT-attribution fix: a Lingering Effect tick is
+        // still an `Attack` event under the hood (same shape a real swing
+        // uses), but it never rolled crit/evasion and was never a genuine
+        // "you took an action" moment - counting it into `hits` is what
+        // made a heavy-DoT build's reported crit rate read as ~1% instead
+        // of its true ~98%+ (see the plan's `yo_pony` worked example).
+        let units = vec![player("alice"), boss("__enemy_0")];
+        let events = vec![
+            attack(0, "alice", "__enemy_0", 100, 100, false, false),
+            attack_with_kind(50, "alice", "__enemy_0", 5, 5, false, false, AttackSourceKind::Dot),
+            attack_with_kind(100, "alice", "__enemy_0", 5, 5, false, false, AttackSourceKind::Dot),
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let alice = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice.hits, 1, "only the real swing counts as a hit");
+        assert_eq!(alice.crits, 0);
+        assert_eq!(alice.evaded, 0);
+        assert_eq!(alice.dot_ticks, 2);
+        assert_eq!(alice.dot_damage, 10);
+        assert_eq!(alice.damage_dealt, 110, "dot_damage is a SUBSET of damage_dealt, not excluded from it");
+    }
+
+    #[test]
+    fn reflect_and_curse_share_damage_counts_but_never_as_a_hit() {
+        // Same principle as DoT ticks (see the test just above) applied
+        // to the other two non-swing sources `AttackSourceKind` covers -
+        // neither is a roll-based action the attacker took, so neither
+        // should inflate `hits`, but both are still real damage this
+        // attacker's build is responsible for.
+        let units = vec![player("alice"), boss("__enemy_0")];
+        let events = vec![
+            attack_with_kind(0, "alice", "__enemy_0", 40, 40, false, false, AttackSourceKind::Reflect),
+            attack_with_kind(1, "alice", "__enemy_0", 15, 0, false, false, AttackSourceKind::CurseShare),
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let alice = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice.hits, 0);
+        assert_eq!(alice.crits, 0);
+        assert_eq!(alice.evaded, 0);
+        assert_eq!(alice.dot_ticks, 0);
+        assert_eq!(alice.dot_damage, 0);
+        assert_eq!(alice.damage_dealt, 55);
+    }
+
+    #[test]
+    fn splash_damage_counts_toward_hits_the_same_as_a_direct_swing() {
+        // `Splash` (Mage's Volatile Magic) is grouped with `Direct` for
+        // hit-counting purposes per the plan - unlike a DoT tick, it's
+        // still a real, in-the-moment consequence of the attacker's own
+        // action this fight, just not against the primary target.
+        let units = vec![player("alice"), boss("__enemy_0")];
+        let events = vec![attack_with_kind(0, "alice", "__enemy_0", 20, 20, false, false, AttackSourceKind::Splash)];
+        let stats = full_player_fight_stats(&units, &events);
+        let alice = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice.hits, 1);
+        assert_eq!(alice.damage_dealt, 20);
     }
 
     #[test]
@@ -4830,7 +4982,19 @@ mod fight_summary_tests {
     }
 
     fn player_stats(id: &str, damage_dealt: u64, damage_taken: u64, healing_done: u64) -> PlayerFightStats {
-        PlayerFightStats { id: id.to_string(), display_name: id.to_string(), archetype: None, damage_dealt, damage_taken, healing_done, hits: 0, crits: 0, evaded: 0 }
+        PlayerFightStats {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            archetype: None,
+            damage_dealt,
+            damage_taken,
+            healing_done,
+            hits: 0,
+            crits: 0,
+            evaded: 0,
+            dot_ticks: 0,
+            dot_damage: 0,
+        }
     }
 
     #[test]

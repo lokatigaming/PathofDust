@@ -670,6 +670,7 @@ pub(crate) fn trigger_doom_on_death(units: &mut [CombatSimUnit], victim_idx: usi
                     is_crit: false,
                     evaded: false,
                     hit_id,
+                    source_kind: AttackSourceKind::Direct,
                 });
                 if other_new_hp == 0 {
                     units[other_idx].alive = false;
@@ -4332,6 +4333,7 @@ pub(crate) fn apply_reflect_damage(units: &mut [CombatSimUnit], source_idx: usiz
         is_crit: false,
         evaded: false,
         hit_id,
+        source_kind: AttackSourceKind::Reflect,
     });
     if new_hp == 0 {
         units[target_idx].alive = false;
@@ -4399,6 +4401,7 @@ pub(crate) fn apply_volatile_magic_splash(
             is_crit: false,
             evaded: false,
             hit_id,
+            source_kind: AttackSourceKind::Splash,
         });
         if new_hp == 0 {
             units[target_idx].alive = false;
@@ -4549,6 +4552,7 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
             is_crit: false,
             evaded: false,
             hit_id,
+            source_kind: AttackSourceKind::Dot,
         });
         for (name, mag) in &sources {
             rolls.push(RollEvent {
@@ -6199,6 +6203,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
+                source_kind: AttackSourceKind::Direct,
             });
             let saver_id = units[saver_idx].id.clone();
             events.push(CombatEvent::Heal { at_ms, healer: saver_id, target: target_id, amount: new_hp as u64, target_hp_after: new_hp as u64 });
@@ -6240,6 +6245,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
+                source_kind: AttackSourceKind::Direct,
             });
             return;
         } else if let Some(druid_idx) =
@@ -6266,6 +6272,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
+                source_kind: AttackSourceKind::Direct,
             });
             return;
         } else if units[target_idx].soul_stones > 0 {
@@ -6297,6 +6304,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
+                source_kind: AttackSourceKind::Direct,
             });
             events.push(CombatEvent::Heal { at_ms, healer: target_id.clone(), target: target_id, amount: healed as u64, target_hp_after: max_hp as u64 });
             return;
@@ -6329,6 +6337,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
+                source_kind: AttackSourceKind::Direct,
             });
             return;
         }
@@ -6545,6 +6554,7 @@ pub(crate) fn apply_hit(
                     is_crit: false,
                     evaded: false,
                     hit_id,
+                    source_kind: AttackSourceKind::Direct,
                 });
                 if self_leech_pct > 0.0 && final_damage > 0 {
                     let self_heal = (final_damage as f64 * self_leech_pct).round().max(0.0) as i64;
@@ -6664,7 +6674,15 @@ pub(crate) fn apply_hit(
             is_crit: outcome.is_crit,
             evaded: outcome.evaded,
             hit_id,
+            source_kind: AttackSourceKind::Direct,
         });
+        // The Warlock's credited half of the SAME hit (see this block's
+        // own doc above) - `CurseShare`, not `Direct`, so it's never
+        // double-counted into `hits`/`crits` alongside the attacker's own
+        // share just above (2026-08-18, DoT-attribution fix, §2b - this
+        // path is latent today since `CURSE_CREDITS_WARLOCK_DAMAGE` is
+        // false, but tagged now so enabling it later can't reintroduce
+        // the same distortion DoT ticks had).
         events.push(CombatEvent::Attack {
             at_ms,
             attacker: curse_credit_id.clone().unwrap_or_default(),
@@ -6675,6 +6693,7 @@ pub(crate) fn apply_hit(
             is_crit: false,
             evaded: false,
             hit_id,
+            source_kind: AttackSourceKind::CurseShare,
         });
     } else {
         events.push(CombatEvent::Attack {
@@ -6687,6 +6706,7 @@ pub(crate) fn apply_hit(
             is_crit: outcome.is_crit,
             evaded: outcome.evaded,
             hit_id,
+            source_kind: AttackSourceKind::Direct,
         });
     }
     // Mage's Arcane Shield - a crit grants the ATTACKER (not the target)
@@ -6981,6 +7001,7 @@ pub(crate) fn fire_frenzy(
                     is_crit: false,
                     evaded: false,
                     hit_id: next_hit_id(),
+                    source_kind: AttackSourceKind::Direct,
                 });
                 units[target_idx].hp = 0;
                 events.push(CombatEvent::Defeat { at_ms, unit: target_id });
@@ -9398,6 +9419,7 @@ pub(crate) fn simulate_battle(
                                 is_crit: false,
                                 evaded: false,
                                 hit_id,
+                                source_kind: AttackSourceKind::Direct,
                             });
                             if new_hp == 0 {
                                 units[target_idx].alive = false;
@@ -9449,6 +9471,7 @@ pub(crate) fn simulate_battle(
                                             is_crit: false,
                                             evaded: false,
                                             hit_id: other_hit_id,
+                                            source_kind: AttackSourceKind::Direct,
                                         });
                                         if other_new_hp == 0 {
                                             units[other_idx].alive = false;
@@ -10720,6 +10743,7 @@ mod overlay_event_thinning_tests {
             is_crit: false,
             evaded: false,
             hit_id: 0,
+            source_kind: AttackSourceKind::Direct,
         }
     }
 
@@ -11211,6 +11235,123 @@ mod full_detail_combat_log_tests {
         assert_eq!(penalty_roll.magnitude, Some(-0.25));
         assert_eq!(penalty_roll.actor, "attacker");
         assert_eq!(penalty_roll.target.as_deref(), Some("boss"));
+    }
+
+    // DoT-attribution fix (2026-08-18) - the plan's central worked
+    // example (`yo_pony`): a real fight's own generic `hits`/`crits`
+    // stats were silently dominated by Lingering Effect ticks emitted as
+    // indistinguishable `CombatEvent::Attack`s, making a heavy-DoT
+    // build's TRUE crit rate (rolled only on real swings) read as ~1%
+    // instead of its real ~98%+. `AttackSourceKind` fixes this by
+    // tagging every emit site; these tests cover the two riskiest
+    // failure modes - real-pipeline attribution (not just hand-built
+    // test events) and `compress_events` silently dropping the new field
+    // (see `CombatEvent::with_at_ms`'s own doc).
+
+    #[test]
+    fn one_real_hit_with_lingering_effect_counts_as_one_hit_not_one_plus_the_ticks() {
+        let attacker = CombatSimUnit {
+            id: "attacker".to_string(),
+            display_name: "Attacker".to_string(),
+            alive: true,
+            hp: 100,
+            max_hp: 100,
+            lingering_effect_pct: 0.5,
+            ..Default::default()
+        };
+        let target =
+            CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(units[1].lingering_dots.len(), 1, "the hit should have queued exactly one lingering DoT instance");
+        // Each `tick_lingering_dots` call only resolves one due tick per
+        // instance (see its own "advance/drop" comment) - a fixed number
+        // of calls, not a single call with a far-future `at_ms`.
+        for _ in 0..LINGERING_EFFECT_TICKS {
+            tick_lingering_dots(&mut units, 1, 1_000_000, &mut events, &mut rolls, &mut rng);
+        }
+        assert!(units[1].lingering_dots.is_empty(), "all ticks should have resolved and the instance dropped");
+        let unit_infos = vec![
+            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 },
+            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000 },
+        ];
+        let stats = full_player_fight_stats(&unit_infos, &events);
+        let attacker_stats = stats.iter().find(|s| s.id == "attacker").unwrap();
+        assert_eq!(attacker_stats.hits, 1, "only the real swing counts as a hit, not the DoT ticks it queued");
+        assert_eq!(attacker_stats.dot_ticks, LINGERING_EFFECT_TICKS);
+        assert_eq!(
+            attacker_stats.damage_dealt,
+            attacker_stats.dot_damage + 100,
+            "the real swing's own 100 damage plus every tick's damage - dot_damage is a subset, never excluded from the total"
+        );
+    }
+
+    #[test]
+    fn compress_events_never_drops_source_kind() {
+        // The highest-risk detail in the whole fix: `with_at_ms`
+        // rebuilds `Attack` field-by-field, so a new field left out of
+        // BOTH its destructure and reconstruction compiles fine and
+        // silently resets to `Default` on every event `compress_events`
+        // touches - which is EVERY event in EVERY real fight (both
+        // `run_encounter`/`run_basic_encounter` call it right after
+        // `simulate_battle`). A test that only calls
+        // `full_player_fight_stats` on a hand-built vector (like the test
+        // just above) would still pass even if this were broken - it has
+        // to go through `compress_events` itself to catch it.
+        let events = vec![
+            CombatEvent::Attack {
+                at_ms: 500,
+                attacker: "attacker".to_string(),
+                target: "target".to_string(),
+                damage: 10,
+                unmitigated_damage: 10,
+                target_hp_after: 90,
+                is_crit: false,
+                evaded: false,
+                hit_id: 1,
+                source_kind: AttackSourceKind::Dot,
+            },
+            CombatEvent::Attack {
+                at_ms: 1_000,
+                attacker: "attacker".to_string(),
+                target: "target".to_string(),
+                damage: 50,
+                unmitigated_damage: 50,
+                target_hp_after: 40,
+                is_crit: true,
+                evaded: false,
+                hit_id: 2,
+                source_kind: AttackSourceKind::Direct,
+            },
+        ];
+        let (compressed, _display_duration_ms) = compress_events(events);
+        assert_eq!(compressed.len(), 2);
+        let kinds: Vec<AttackSourceKind> = compressed
+            .iter()
+            .map(|e| match e {
+                CombatEvent::Attack { source_kind, .. } => *source_kind,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(kinds, vec![AttackSourceKind::Dot, AttackSourceKind::Direct], "source_kind must survive compress_events' rescale, not reset to Direct");
+    }
+
+    #[test]
+    fn attack_event_without_a_source_kind_key_deserializes_as_direct() {
+        // Back-compat: every event already on disk (all three tiers) and
+        // every in-flight file mid-write when this field was added has no
+        // `sourceKind` key at all - `#[serde(default)]` must read that as
+        // `Direct`, the correct historical meaning (every one of them WAS
+        // a real swing before this field existed to say otherwise).
+        let json = r#"{"kind":"attack","atMs":100,"attacker":"a","target":"b","damage":10,"unmitigatedDamage":10,"targetHpAfter":90,"isCrit":false,"evaded":false}"#;
+        let event: CombatEvent = serde_json::from_str(json).expect("an Attack event with no sourceKind key must still deserialize");
+        match event {
+            CombatEvent::Attack { source_kind, .. } => assert_eq!(source_kind, AttackSourceKind::Direct),
+            _ => panic!("expected an Attack event"),
+        }
     }
 }
 
