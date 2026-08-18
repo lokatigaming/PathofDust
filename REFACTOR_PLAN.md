@@ -462,6 +462,28 @@ proven, not before.
   LIBRARY crate (not yet its own binary) containing the moved adventure
   module; `twitch-bot-rs` depends on it, calls it exactly as today,
   in-process. Mechanical move + path updates only, zero behavior change.
+  **Configurable persistence paths are an explicit design input to this
+  stage** (owner-directed, 2026-08-18) — the library boundary being
+  created here is the natural place to inject WHERE
+  `AdventureManager::new` reads/writes its files (today hardcoded
+  relative to CWD, see §6), rather than leaving that as a someday-later
+  gap. Doesn't have to be a fully general config system - even a single
+  `data_dir: PathBuf` (or similar) threaded through construction is
+  enough to unblock Stage 1.5 and the deferred POST-route baselines
+  below. Getting this right here also serves the standalone-game
+  addendum directly: `game`'s own future `main()` (Stage 2) needs to
+  know where its data lives regardless of testing concerns.
+- **Stage 1.5** (owner-directed, 2026-08-18, its own small stage right
+  after Stage 1 lands): build harness #3 (the HTTP golden-response
+  harness, deferred at Stage 0.5 execution time — see §9's execution
+  log) now that Stage 1's path-injection point exists. Spin up a real,
+  disposable `AdventureManager`/Axum server on an ephemeral port,
+  pointed at copies of the pseudonymized fixture data, and capture the
+  POST-route baselines (`/craft`, `/join`, `/equip`, etc.) that Stage 0
+  execution couldn't safely capture against production. Also worth
+  reattempting the GET-route baselines through this harness once it
+  exists, for a fully reproducible (not just live-instance-observed)
+  reference.
 - **Stage 2**: give `game` its OWN `main()` (a second binary) that can
   start the adventure_web + adventure_overlay servers standalone, zero
   Twitch dependency. Smoke-test: game-only startup, full web UI works
@@ -496,7 +518,17 @@ proven, not before.
   — player-unit construction, enemy/boss construction, boss-ability
   match arms + cadence-table unification, `apply_hit`'s inlined blocks
   last as the highest-risk sub-stage — **now including the pierce
-  split's own load-bearing position mid-pipeline, see §12**), then
+  split's own load-bearing position mid-pipeline, see §12**. **Gate,
+  owner-directed 2026-08-18: this specific sub-stage must NOT begin
+  until either (a) the golden corpus gains real multi-player scenario
+  coverage (Intervene, party-heal-lowest-ally targeting, Pack Instinct/
+  Symbiosis, curse-splitting across several targets — all explicitly
+  out of scope at Stage 0.5, see `golden_corpus.rs`'s own doc) or (b)
+  the owner explicitly accepts running `apply_hit`'s decomposition
+  without that coverage. Decide this when the stage actually
+  approaches — don't let it slip through silently just because Stage
+  0.5's solo-only corpus technically exists and looks like "coverage."**),
+  then
   `app/` (moved as-is, characterization tests added for the previously-
   untested async methods BEFORE decomposing them, then the god-function
   decomposition + loot/pity duplication unification), then `ws/`, then
@@ -512,10 +544,10 @@ proven, not before.
 ## 11. Open items — resolutions
 
 - ~~Admin-page baseline capture needs an authenticated session~~ — best-
-  effort logged-out baselines captured at Stage 0 execution time; an
-  authenticated (`lokati_gaming`) capture needs the owner's help
-  (session cookie, or they capture it themselves) — still open, ask when
-  convenient.
+  effort logged-out baselines captured at Stage 0 execution time; the
+  owner will capture the authenticated (`lokati_gaming`) baseline
+  themselves and hand over the file (2026-08-18) — still open until
+  that file arrives.
 - ~~Announcements-channel transport~~ — **RESOLVED**: SSE + drop-
   gracefully, approved as proposed.
 - ~~§4c failure policies~~ — **RESOLVED**: approved as proposed (see §4c
