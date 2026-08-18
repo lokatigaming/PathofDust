@@ -501,6 +501,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "dotenvy",
  "futures-util",
  "minijinja",
  "minijinja-autoreload",
@@ -515,6 +516,7 @@ dependencies = [
  "toml",
  "tower-http 0.5.2",
  "tracing",
+ "tracing-subscriber",
  "url",
  "urlencoding",
 ]
