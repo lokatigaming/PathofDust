@@ -437,11 +437,13 @@ impl SongRequestManager {
         }
     }
 
-    /// !recentsongs — the last `n` songs that actually finished playing
-    /// through the regular queue (same history !playrandom already keeps
-    /// for genre matching — see `Inner::history`), most recently played
-    /// first. Inserts/entrance themes never end up in here, same as
-    /// !playrandom's genre derivation — see `advance`'s doc comment.
+    /// The last `n` songs that actually finished playing through the
+    /// regular queue (same history !playrandom already keeps for genre
+    /// matching — see `Inner::history`), most recently played first. Not
+    /// its own command — this is what !queue's own reply feeds into its
+    /// "Last played: ..." line (see commands.rs). Inserts/entrance themes
+    /// never end up in here, same as !playrandom's genre derivation — see
+    /// `advance`'s doc comment.
     pub fn recent_songs(&self, n: usize) -> Vec<Song> {
         let state = self.state.lock().unwrap();
         state.history.iter().rev().take(n).cloned().collect()

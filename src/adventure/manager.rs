@@ -1855,7 +1855,7 @@ impl AdventureManager {
     /// other drop (see `Character::add_to_inventory`), not auto-equipped;
     /// they equip it themselves from the web dashboard. Returns how many
     /// characters actually got gear (0 if nobody's joined; a character
-    /// whose bag is already full at the 50-item cap just doesn't get one).
+    /// whose bag is already full at the 150-item cap just doesn't get one).
     pub async fn grant_random_gear_to_all(&self) -> usize {
         let stage = self.world.lock().await.stage;
         let sand_mult = self.live_tunables().sand_mult;
@@ -3540,8 +3540,8 @@ impl AdventureManager {
                     }
                     // Sacred's own per-character milestone (2026-08-16, a
                     // live request) - same shape as Perfect's above, just
-                    // gated on `SACRED_STAGE_THRESHOLD` (200) instead of
-                    // `late_content_stage` (90) and tracked independently
+                    // gated on `SACRED_STAGE_THRESHOLD` (300) instead of
+                    // `late_content_stage` (100) and tracked independently
                     // (see `received_first_sacred`'s doc - not either/or
                     // with the Perfect milestone, a character can and
                     // usually will earn both, at different stages).
@@ -3654,12 +3654,12 @@ impl AdventureManager {
                     let mut item = generate_item(slot, stage, &mut rng);
                     // Sacred (2026-08-16, a live request) - same "exactly
                     // one guaranteed per qualifying kill" shape as Perfect
-                    // below, just gated at `SACRED_STAGE_THRESHOLD` (200).
+                    // below, just gated at `SACRED_STAGE_THRESHOLD` (300).
                     // Takes priority over the plain-Perfect guarantee on
-                    // THIS drop (a stage-200+ kill's first drop becomes
+                    // THIS drop (a stage-300+ kill's first drop becomes
                     // Sacred, not merely Perfect) - but doesn't consume
                     // the separate Perfect guarantee, so a multi-drop
-                    // stage-200+ fight can still also guarantee a second,
+                    // stage-300+ fight can still also guarantee a second,
                     // ordinary Perfect item among its other drops.
                     if stage >= SACRED_STAGE_THRESHOLD && !sacred_awarded {
                         item = make_item_sacred(item, &mut rng);

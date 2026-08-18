@@ -1,7 +1,9 @@
 ﻿use super::*;
 
-/// The five gear slots — one item each, auto-equipped on drop (see
-/// `run_encounter`'s loot roll), no inventory/manual !equip for now.
+/// The five gear slots — one item each. A drop auto-equips into an empty
+/// slot (see `run_encounter`'s loot roll) or lands in the bag otherwise;
+/// a player can also manually equip/unequip/swap any bag item from the
+/// web dashboard's `/inventory` page (see `Character::equip_from_inventory`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum EquipSlot {
@@ -617,7 +619,7 @@ pub enum ReceiveOutcome {
     Equipped,
     /// The slot was already occupied, so it's sitting in the bag instead.
     AddedToBag,
-    /// The slot was occupied AND the bag was already full (50/50) - lost.
+    /// The slot was occupied AND the bag was already full (150/150) - lost.
     BagFull,
     /// Auto-disenchant (2026-08-16, a live request) intercepted it before
     /// it could be equipped OR bagged - see

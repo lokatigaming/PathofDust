@@ -437,7 +437,7 @@ pub struct Character {
     pub received_first_perfect: bool,
     /// Same one-shot-per-character milestone as `received_first_perfect`,
     /// for Sacred instead of Perfect (2026-08-16, a live request) - a
-    /// STRICTLY higher threshold (stage 200 vs 90), so a character who's
+    /// STRICTLY higher threshold (stage 300 vs 100), so a character who's
     /// already earned their guaranteed Perfect long since will also
     /// eventually earn a guaranteed Sacred once the party reaches the
     /// later stage - the two milestones are independent, not
@@ -2772,13 +2772,16 @@ impl Character {
     /// mechanism as damage reduction/block/evasion, just at a 50%
     /// ceiling instead of 75% - see `defensive_overflow`, which folds
     /// this cap's overflow into bonus damage same as the other three) -
-    /// a live report caught this NOT actually capping/overflowing
-    /// despite being documented as a capped stat. The party-level 50%
-    /// pool cap above is a SEPARATE, additional property on top of this
-    /// one - two different ceilings for two different reasons (this one
-    /// says "your own investment past 50% stops helping YOU", that one
-    /// says "the group can never redirect more than half of any hit no
-    /// matter how many Paladins are stacked").
+    /// each SOURCE is capped individually below, and the combined result
+    /// gets its own explicit `.min(0.5)` on top (wiki audit finding #2,
+    /// 2026-08-18: two 50%-capped sources still combined multiplicatively
+    /// past 50%, the same combine-past-the-cap bug class evasion/DR/block
+    /// already had fixed). The party-level 50% pool cap above is a
+    /// SEPARATE, additional property on top of this one - two different
+    /// ceilings for two different reasons (this one says "your own
+    /// investment past 50% stops helping YOU", that one says "the group
+    /// can never redirect more than half of any hit no matter how many
+    /// Paladins are stacked").
     pub fn combat_intervene(&self) -> f64 {
         let raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct;
         let gear_capped = capped_stat_with_overflow(raw, 0.0, 0.5).0;

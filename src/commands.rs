@@ -1522,7 +1522,7 @@ async fn handle_command_management(args: &[String], services: &Services) -> Repl
         "forceplay", "modpause", "modstart", "modresume", "modvolume", "modvv", "songinsert", "si",
         "essenceprofit", "ep", "ritualprofit", "rp", "vesselprice", "vp", "price", "settheme", "resetgreeted", "theme", "themes", "playlist", "playrandom",
         "join", "character", "char", "me", "party", "adventure", "nextencounter", "event", "giveloot", "gearall", "giftdust",
-        "bugreport", "bugreports", "rampage", "pinfight",
+        "bugreport", "bugreports", "rampage", "pinfight", "clearbattlefield", "resetbattlefield",
     ];
     if BUILTIN_NAMES.contains(&target.as_str()) {
         return format!("!{target} is a built-in command and can't be managed this way.").into();
