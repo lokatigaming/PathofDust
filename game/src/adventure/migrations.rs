@@ -231,7 +231,7 @@ pub(crate) const ITEM_MIGRATIONS: &[(&str, fn(&mut Item))] = &[
 /// copy-pasted guard/save/error-log boilerplate around it.
 pub(crate) fn run_item_migrations(characters_path: &PathBuf, characters: &mut HashMap<String, Character>) {
     for (marker, f) in ITEM_MIGRATIONS.iter().copied() {
-        if crate::state::load_json::<bool>(marker).is_some() {
+        if crate::state::load_json::<bool>(data_path(marker)).is_some() {
             continue;
         }
         for character in characters.values_mut() {
@@ -240,7 +240,7 @@ pub(crate) fn run_item_migrations(characters_path: &PathBuf, characters: &mut Ha
         if let Err(err) = crate::state::save_json(characters_path, characters) {
             tracing::error!("Failed to persist item migration '{marker}' to {}: {err}", characters_path.display());
         }
-        if let Err(err) = crate::state::save_json(marker, &true) {
+        if let Err(err) = crate::state::save_json(data_path(marker), &true) {
             tracing::error!("Failed to persist item migration marker to {marker}: {err}");
         }
     }
@@ -297,7 +297,7 @@ pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[("adven
 /// data).
 pub(crate) fn run_character_migrations(characters_path: &PathBuf, characters: &mut HashMap<String, Character>) {
     for (marker, f) in CHARACTER_MIGRATIONS.iter().copied() {
-        if crate::state::load_json::<bool>(marker).is_some() {
+        if crate::state::load_json::<bool>(data_path(marker)).is_some() {
             continue;
         }
         for character in characters.values_mut() {
@@ -306,7 +306,7 @@ pub(crate) fn run_character_migrations(characters_path: &PathBuf, characters: &m
         if let Err(err) = crate::state::save_json(characters_path, characters) {
             tracing::error!("Failed to persist character migration '{marker}' to {}: {err}", characters_path.display());
         }
-        if let Err(err) = crate::state::save_json(marker, &true) {
+        if let Err(err) = crate::state::save_json(data_path(marker), &true) {
             tracing::error!("Failed to persist character migration marker to {marker}: {err}");
         }
     }

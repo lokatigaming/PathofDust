@@ -58,6 +58,7 @@ mod golden_corpus;
 mod item;
 mod manager;
 mod migrations;
+mod paths;
 mod tunables;
 
 pub use affix::*;
@@ -69,4 +70,6 @@ pub use fight_storage::*;
 pub use item::*;
 pub use manager::*;
 pub(crate) use migrations::*;
+pub use paths::set_data_dir;
+pub(crate) use paths::data_path;
 pub use tunables::*;

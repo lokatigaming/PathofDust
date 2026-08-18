@@ -23,6 +23,19 @@ use super::*;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 
+/// Resolves a fight-storage directory/file NAME constant against the
+/// configured data directory (see `paths::data_path`) - every raw
+/// directory/path constant in this file goes through this before
+/// touching the filesystem (the plumbing fns below - `next_seq`,
+/// `fight_file_path`, `list_fight_files`, `write_and_prune`,
+/// `read_recent`, `count_fight_files` - stay taking a plain `&str`
+/// unchanged; their small set of OUTER callers each resolve once here
+/// instead), so `set_data_dir` genuinely redirects ALL of fight-
+/// storage's on-disk footprint.
+fn resolved(name: &str) -> String {
+    data_path(name).to_string_lossy().into_owned()
+}
+
 pub(crate) const COARSE_FIGHTS_DIR: &str = "adventure-fights-coarse";
 pub(crate) const DETAIL_FIGHTS_DIR: &str = "adventure-fights-detail";
 pub(crate) const SUMMARY_FIGHTS_DIR: &str = "adventure-fights-summary";
@@ -132,11 +145,11 @@ pub(crate) fn count_fight_files(dir: &str) -> usize {
 }
 
 pub(crate) fn save_coarse_fight(snapshot: &LastFightSnapshot) {
-    write_and_prune(COARSE_FIGHTS_DIR, COARSE_SEQ_PATH, COARSE_FIGHTS_CAPACITY, snapshot);
+    write_and_prune(&resolved(COARSE_FIGHTS_DIR), &resolved(COARSE_SEQ_PATH), COARSE_FIGHTS_CAPACITY, snapshot);
 }
 
 pub(crate) fn save_detail_fight(detail: &DetailFightSnapshot) {
-    write_and_prune(DETAIL_FIGHTS_DIR, DETAIL_SEQ_PATH, DETAIL_FIGHTS_CAPACITY, detail);
+    write_and_prune(&resolved(DETAIL_FIGHTS_DIR), &resolved(DETAIL_SEQ_PATH), DETAIL_FIGHTS_CAPACITY, detail);
 }
 
 /// Reads up to `limit` most recent coarse-tier fights, newest first -
@@ -145,18 +158,18 @@ pub(crate) fn save_detail_fight(detail: &DetailFightSnapshot) {
 /// (up to `COARSE_FIGHTS_CAPACITY`) - the fix for the old single-blob
 /// log's whole-file read on every request.
 pub(crate) fn recent_coarse_fights(limit: usize) -> Vec<LastFightSnapshot> {
-    read_recent(COARSE_FIGHTS_DIR, limit)
+    read_recent(&resolved(COARSE_FIGHTS_DIR), limit)
 }
 
 pub(crate) fn save_summary_fight(summary: &FightSummarySnapshot) {
-    write_and_prune(SUMMARY_FIGHTS_DIR, SUMMARY_SEQ_PATH, SUMMARY_FIGHTS_CAPACITY, summary);
+    write_and_prune(&resolved(SUMMARY_FIGHTS_DIR), &resolved(SUMMARY_SEQ_PATH), SUMMARY_FIGHTS_CAPACITY, summary);
 }
 
 /// Reads up to `limit` most recent fight summaries, newest first - what
 /// `/fights.json` reads instead of the full coarse-tier snapshot (see
 /// `fight_summaries_for_viewer` in `adventure_web.rs`).
 pub fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
-    read_recent(SUMMARY_FIGHTS_DIR, limit)
+    read_recent(&resolved(SUMMARY_FIGHTS_DIR), limit)
 }
 
 /// Preserved evidence for a bug report (2026-08-18, `!pinfight`) -
@@ -201,7 +214,7 @@ fn fight_seq_from_path(path: &Path) -> Option<u64> {
 /// would otherwise land under the exact same name.
 fn copy_pinned(tier: &str, source: &Path) -> bool {
     let Some(file_name) = source.file_name() else { return false };
-    let dest = Path::new(PINNED_FIGHTS_DIR).join(format!("{tier}-{}", file_name.to_string_lossy()));
+    let dest = data_path(PINNED_FIGHTS_DIR).join(format!("{tier}-{}", file_name.to_string_lossy()));
     match std::fs::copy(source, &dest) {
         Ok(_) => true,
         Err(err) => {
@@ -216,12 +229,12 @@ fn copy_pinned(tier: &str, source: &Path) -> bool {
 /// pruning. `None` if NEITHER tier has any file at all yet (nothing to
 /// pin - a fresh install/restart before the first fight has landed).
 pub fn pin_most_recent_fight() -> Option<PinnedFight> {
-    if let Err(err) = std::fs::create_dir_all(PINNED_FIGHTS_DIR) {
+    if let Err(err) = std::fs::create_dir_all(data_path(PINNED_FIGHTS_DIR)) {
         tracing::error!("Failed to create pinned-fights directory {PINNED_FIGHTS_DIR}: {err}");
         return None;
     }
-    let coarse = list_fight_files(COARSE_FIGHTS_DIR).pop();
-    let detail = list_fight_files(DETAIL_FIGHTS_DIR).pop();
+    let coarse = list_fight_files(&resolved(COARSE_FIGHTS_DIR)).pop();
+    let detail = list_fight_files(&resolved(DETAIL_FIGHTS_DIR)).pop();
     if coarse.is_none() && detail.is_none() {
         return None;
     }
@@ -240,7 +253,7 @@ pub fn pin_most_recent_fight() -> Option<PinnedFight> {
 /// `render_tunables_page`) so a mod can confirm a `!pinfight` actually
 /// landed without spelunking the filesystem.
 pub fn list_pinned_fights() -> Vec<String> {
-    let Ok(read_dir) = std::fs::read_dir(PINNED_FIGHTS_DIR) else { return Vec::new() };
+    let Ok(read_dir) = std::fs::read_dir(data_path(PINNED_FIGHTS_DIR)) else { return Vec::new() };
     let mut names: Vec<String> = read_dir.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).collect();
     names.sort();
     names.reverse();
@@ -263,21 +276,22 @@ const STORAGE_MIGRATION_MARKER_PATH: &str = "adventure-fights-storage-migration-
 /// outright. Marker-gated, same fire-once shape as every other
 /// migration in this codebase (see `migrations.rs`).
 pub(crate) fn run_storage_migration() {
-    if crate::state::load_json::<bool>(STORAGE_MIGRATION_MARKER_PATH).is_some() {
+    if crate::state::load_json::<bool>(data_path(STORAGE_MIGRATION_MARKER_PATH)).is_some() {
         return;
     }
-    if let Some(old_log) = crate::state::load_json::<Vec<LastFightSnapshot>>(LAST_FIGHTS_LOG_PATH) {
+    if let Some(old_log) = crate::state::load_json::<Vec<LastFightSnapshot>>(data_path(LAST_FIGHTS_LOG_PATH)) {
         for snapshot in old_log.into_iter().rev() {
             save_coarse_fight(&snapshot);
         }
-        let migrated = count_fight_files(COARSE_FIGHTS_DIR);
+        let migrated = count_fight_files(&resolved(COARSE_FIGHTS_DIR));
         tracing::info!("Fight storage migration: split {LAST_FIGHTS_LOG_PATH} into {migrated} coarse-tier files");
-        let backup_path = format!("{LAST_FIGHTS_LOG_PATH}.bak");
-        if let Err(err) = std::fs::rename(LAST_FIGHTS_LOG_PATH, &backup_path) {
-            tracing::error!("Fight storage migration: failed to rename {LAST_FIGHTS_LOG_PATH} to {backup_path}: {err}");
+        let old_log_path = data_path(LAST_FIGHTS_LOG_PATH);
+        let backup_path = data_path(&format!("{LAST_FIGHTS_LOG_PATH}.bak"));
+        if let Err(err) = std::fs::rename(&old_log_path, &backup_path) {
+            tracing::error!("Fight storage migration: failed to rename {} to {}: {err}", old_log_path.display(), backup_path.display());
         }
     }
-    if let Err(err) = crate::state::save_json(STORAGE_MIGRATION_MARKER_PATH, &true) {
+    if let Err(err) = crate::state::save_json(data_path(STORAGE_MIGRATION_MARKER_PATH), &true) {
         tracing::error!("Failed to persist fight storage migration marker to {STORAGE_MIGRATION_MARKER_PATH}: {err}");
     }
 }
@@ -287,15 +301,17 @@ mod pin_most_recent_fight_tests {
     use super::*;
 
     // Only `fight_seq_from_path` is unit-tested here - it's the one pure
-    // piece of `!pinfight`'s logic. Every other fn in this module reads/
-    // writes the real, fixed-path COARSE_FIGHTS_DIR/DETAIL_FIGHTS_DIR/
-    // PINNED_FIGHTS_DIR constants directly (no injectable directory
-    // param), same as every other fn in this file - there's no existing
-    // precedent anywhere in fight_storage.rs for sandboxing that against
-    // a temp dir, so this doesn't invent one just for the new code.
-    // Verified live instead: post-deploy, run !pinfight for real and
-    // check both the chat reply and the /admin/tunables dashboard
-    // section.
+    // piece of `!pinfight`'s logic. Every other fn in this module now
+    // resolves COARSE_FIGHTS_DIR/DETAIL_FIGHTS_DIR/PINNED_FIGHTS_DIR
+    // through `resolved`/`data_path` (2026-08-18, architecture refactor
+    // Stage 1's configurable-persistence-paths work - see `paths.rs`),
+    // so a test COULD sandbox this against a temp dir via `set_data_dir`
+    // now, in principle - not done here, since exercising real
+    // filesystem I/O still isn't this test's job (see
+    // `character_fixture_roundtrip.rs`/`golden_corpus.rs` for where that
+    // kind of harness lives instead). Verified live instead: post-
+    // deploy, run !pinfight for real and check both the chat reply and
+    // the /admin/tunables dashboard section.
 
     #[test]
     fn parses_the_sequence_number_out_of_a_real_fight_filename() {

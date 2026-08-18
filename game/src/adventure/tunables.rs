@@ -131,7 +131,7 @@ pub(crate) const TUNABLES_PATH: &str = "adventure-live-tunables.toml";
 /// unparseable just means "use the shipped defaults above," logged, never
 /// a boot failure.
 pub(crate) fn load_live_tunables() -> LiveTunables {
-    match std::fs::read_to_string(TUNABLES_PATH) {
+    match std::fs::read_to_string(data_path(TUNABLES_PATH)) {
         Ok(contents) => match toml::from_str::<LiveTunables>(&contents) {
             Ok(parsed) => parsed,
             Err(err) => {
@@ -147,5 +147,5 @@ pub(crate) fn load_live_tunables() -> LiveTunables {
 /// of updating the live in-memory copy (see `AdventureManager::save_live_tunables`).
 pub(crate) fn save_live_tunables_file(tunables: &LiveTunables) -> std::io::Result<()> {
     let contents = toml::to_string_pretty(tunables).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
-    std::fs::write(TUNABLES_PATH, contents)
+    std::fs::write(data_path(TUNABLES_PATH), contents)
 }

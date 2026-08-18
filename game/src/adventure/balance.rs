@@ -57,7 +57,7 @@ pub(crate) const ITEM_BALANCE_PATH: &str = "adventure-item-balance.toml";
 /// just means "no overrides," logged, never a boot failure. A live
 /// Twitch bot should never fail to start over a balance-file typo.
 pub(crate) fn load_item_balance_file() -> ItemBalanceFile {
-    match std::fs::read_to_string(ITEM_BALANCE_PATH) {
+    match std::fs::read_to_string(data_path(ITEM_BALANCE_PATH)) {
         Ok(contents) => match toml::from_str::<ItemBalanceFile>(&contents) {
             Ok(parsed) => parsed,
             Err(err) => {
