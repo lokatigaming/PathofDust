@@ -4990,6 +4990,24 @@ pub(crate) fn scale_by_power_mult(stats: BossStats, power_mult: f64) -> BossStat
     }
 }
 
+/// Base (1-player) boss attack interval before the party-size scaling
+/// below shortens it - see `boss_stats_for`'s own `attack_interval_ms`
+/// computation. Named 2026-08-18 for the wiki's constant audit - was a
+/// bare `1100.0`.
+pub(crate) const BOSS_ATTACK_INTERVAL_BASE_MS: f64 = 1100.0;
+/// How much faster the boss attacks per additional party member beyond
+/// the first (see `boss_stats_for`) - same formula shape as
+/// `boss_stats_for`'s unrelated HP `stage_mult` scaling, which happens
+/// to also use 0.15 but for a completely different reason (stage, not
+/// party size) - kept as its own separately-named constant rather than
+/// shared, so changing one can never accidentally change the other.
+pub(crate) const BOSS_ATTACK_INTERVAL_PARTY_SCALING: f64 = 0.15;
+/// Halves the party-scaled interval (2026-08-16, a live request: attack
+/// twice as often at half the per-hit damage, same total damage dealt
+/// over time delivered in smaller, more frequent hits) - see
+/// `boss_stats_for`. Named 2026-08-18 for the wiki's constant audit -
+/// was a bare `2.0`.
+pub(crate) const BOSS_ATTACK_INTERVAL_FREQUENCY_DIVISOR: f64 = 2.0;
 pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, power_mult: f64, tunables: &LiveTunables) -> BossStats {
     let party_size = party_size.max(1) as f64;
     // Tripled 0.05 -> 0.15 (2026-08-18, a live request) - HP now scales
@@ -5016,7 +5034,7 @@ pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, powe
     // Halved again on 2026-08-16 (attack twice as often, at half the
     // per-hit damage below) - same total damage dealt over time, just
     // delivered in smaller, more frequent hits instead of fewer big ones.
-    let attack_interval_ms = (1100.0 / (1.0 + (party_size - 1.0) * 0.15) / 2.0).round() as u32;
+    let attack_interval_ms = (BOSS_ATTACK_INTERVAL_BASE_MS / (1.0 + (party_size - 1.0) * BOSS_ATTACK_INTERVAL_PARTY_SCALING) / BOSS_ATTACK_INTERVAL_FREQUENCY_DIVISOR).round() as u32;
 
     // A real boss's secondary stats scale off stage alone ("more as
     // monster power scales" per the request), not party size/level like

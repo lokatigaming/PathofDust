@@ -428,14 +428,28 @@ pub(crate) fn weighted_affix_pick(pool: &[Affix], count: usize, rng: &mut impl R
     picked
 }
 
+/// Cumulative roll cutoff for 4 affixes (a flat 1% chance) - see
+/// `roll_affixes`. Named 2026-08-18 for the wiki's constant audit - was
+/// a bare `0.01`.
+pub(crate) const AFFIX_COUNT_4_CUMULATIVE_THRESHOLD: f64 = 0.01;
+/// Cumulative cutoff for 3+ affixes (a further 5% on top of the 4-affix
+/// slice above, 6% cumulative) - see `roll_affixes`. Named 2026-08-18
+/// for the wiki's constant audit - was a bare `0.06`.
+pub(crate) const AFFIX_COUNT_3_CUMULATIVE_THRESHOLD: f64 = 0.06;
+/// Cumulative cutoff for 2+ affixes (a further 10% on top of the above,
+/// 16% cumulative; the remaining 84% gets exactly 1 affix) - see
+/// `roll_affixes`. Named 2026-08-18 for the wiki's constant audit - was
+/// a bare `0.16`.
+pub(crate) const AFFIX_COUNT_2_CUMULATIVE_THRESHOLD: f64 = 0.16;
+
 pub(crate) fn roll_affixes(slot: EquipSlot, tier: u32, rng: &mut impl Rng) -> Vec<(Affix, f64)> {
     let eligible: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| a.is_eligible_for_slot(slot)).collect();
     let roll: f64 = rng.gen_range(0.0..1.0);
-    let count = (if roll < 0.01 {
+    let count = (if roll < AFFIX_COUNT_4_CUMULATIVE_THRESHOLD {
         4
-    } else if roll < 0.06 {
+    } else if roll < AFFIX_COUNT_3_CUMULATIVE_THRESHOLD {
         3
-    } else if roll < 0.16 {
+    } else if roll < AFFIX_COUNT_2_CUMULATIVE_THRESHOLD {
         2
     } else {
         1

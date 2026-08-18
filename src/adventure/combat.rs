@@ -338,6 +338,20 @@ pub(crate) const LICH_ADDS_PER_SUMMON: u32 = 5;
 /// `const` there, just function-local and therefore invisible outside
 /// `simulate_battle`; behavior is unchanged.
 pub(crate) const LICH_MAX_ADDS: u32 = 20;
+/// Hard ceiling on combined Evasion, and separately on combined Block+DR
+/// (see the three call sites: `resolve_hit`'s evasion combine and its
+/// two DR/block combines) - each individual source is already capped on
+/// its own (75% for evasion/DR/block via `capped_stat_with_overflow`),
+/// but multiple 75%-capped sources still combine multiplicatively past
+/// that (two alone already reach 93.75%). Named 2026-08-18 for the
+/// wiki's constant audit - was three separate bare `0.95` literals.
+pub(crate) const DEFENSIVE_STAT_HARD_CAP: f64 = 0.95;
+/// Stage-offset in the late-stage damage penalty's `stage / (stage +
+/// this)` hyperbolic decay (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
+/// doc) - reaches 50% at `stage == this`, climbing toward but never
+/// reaching 100% beyond it. Named 2026-08-18 for the wiki's constant
+/// audit - was a bare `2000.0` at the formula's one computation site.
+pub(crate) const LATE_STAGE_PENALTY_STAGE_OFFSET: f64 = 2000.0;
 /// Gelatinous Cube's capture ability - how often it rotates a fresh batch
 /// of players into its body (see the `BossAbility::GelatinousCube` arm's
 /// own doc). Also the exact window each captured player is locked out for
@@ -756,8 +770,8 @@ pub(crate) struct CombatSimUnit {
     /// live request following a real HP-overflow incident - see
     /// `BossStats.hp`'s doc) - 0.0 for everyone except a REAL boss (never
     /// players, never a basic-encounter mob), set once at construction from
-    /// `simulate_battle`'s `stage` param: `stage / (stage + 2000)`, a
-    /// hyperbolic decay reaching 50% at stage 2000 and climbing toward, but
+    /// `simulate_battle`'s `stage` param: `stage / (stage + LATE_STAGE_PENALTY_STAGE_OFFSET)`,
+    /// a hyperbolic decay reaching 50% at stage `LATE_STAGE_PENALTY_STAGE_OFFSET` and climbing toward, but
     /// never reaching, 100%. Applied in `resolve_hit` upstream of
     /// `combine_reduction_sources`'s whole mitigation pipeline, so nothing
     /// (evasion-ignore, DR-shred, any of it) can bypass it - a permanent
@@ -3837,7 +3851,7 @@ pub(crate) fn resolve_hit(
     // two 75% sources alone already combine to 93.75%. This is a real
     // ceiling on the COMBINED result specifically, not a change to any
     // individual source's own cap.
-    let pre_boss_evasion = combine_reduction_sources(&evasion_combine_values).min(0.95) - unbroken_ignore - frostnova_debuff;
+    let pre_boss_evasion = combine_reduction_sources(&evasion_combine_values).min(DEFENSIVE_STAT_HARD_CAP) - unbroken_ignore - frostnova_debuff;
     // Base boss buff - see `boss_defense_ignore`'s own doc. Floored
     // relative to this defender's OWN pre-boss value: never pushed below
     // 25% by the boss's ignore effect specifically if they naturally had
@@ -4167,7 +4181,7 @@ pub(crate) fn resolve_hit(
     // mitigation" is just capping this one combined value - a landed
     // (non-evaded) hit always deals at least 5% of its raw damage,
     // however stacked a defender's block+DR sources get.
-    let dr_pre_boss = combine_reduction_sources(&sources.iter().map(|(_, v)| *v).collect::<Vec<_>>()).min(0.95);
+    let dr_pre_boss = combine_reduction_sources(&sources.iter().map(|(_, v)| *v).collect::<Vec<_>>()).min(DEFENSIVE_STAT_HARD_CAP);
     let boss_ignore_dr = boss_defense_ignore(atk, at_ms);
     if boss_ignore_dr > 0.0 {
         sources.push(("Boss Pressure", -boss_ignore_dr));
@@ -4189,7 +4203,7 @@ pub(crate) fn resolve_hit(
     // OWN pressure can never push this defender's effective DR below 25%
     // if they naturally had at least that much, never raises it if they
     // didn't.
-    let dr_combined = combine_reduction_sources(&source_values).min(0.95).max(dr_pre_boss.min(0.25));
+    let dr_combined = combine_reduction_sources(&source_values).min(DEFENSIVE_STAT_HARD_CAP).max(dr_pre_boss.min(0.25));
     let mut dmg = raw_dmg * (1.0 - dr_combined);
     // The real boss's survivability-focus debuff (see
     // `boss_focus_stacks`) - a target-side vulnerability, applied last,
@@ -4233,6 +4247,12 @@ pub(crate) fn resolve_hit(
     }
 }
 
+/// Shield cap as a multiplier of the target's own max hp - see
+/// `grant_shield`'s doc for the value's own history. Named 2026-08-18
+/// for the wiki's constant audit (already published on wiki/healing.md
+/// from before this stricter no-bare-literals rule existed) - was a
+/// bare `4.0`.
+pub(crate) const SHIELD_CAP_MULT: f64 = 4.0;
 /// Grants (or tops up) `units[target_idx]`'s shield - the single place
 /// every shield source (Martyrdom, Overflowing Grace, Divine Favor)
 /// should go through, rather than each hand-rolling `shield_hp += ...`
@@ -4253,18 +4273,18 @@ pub(crate) fn grant_shield(units: &mut [CombatSimUnit], healer_idx: usize, targe
     if at_ms > units[target_idx].shield_expires_at_ms {
         units[target_idx].shield_hp = 0.0;
     }
-    // Clamped to 400% of the target's own max hp (raised from 100% ->
-    // 300% -> 400% across a series of live requests on 2026-08-16) - a
-    // single shared cap here covers every grant site at once (Divine
-    // Shield, Overflowing Grace, Seed of Life, Arcane Shield,
-    // Consecration, etc.), same "one shared formula" principle as
-    // `Item::disenchant_multiplier`'s own doc. Logs only the amount that
-    // ACTUALLY landed (post-clamp), not the raw requested amount - an
-    // already-capped target grants nothing further and logs no event at
-    // all, so `summarize_fight`'s "healing done" stat never overstates
-    // what a shield genuinely contributed.
+    // Clamped to SHIELD_CAP_MULT (400%) of the target's own max hp
+    // (raised from 100% -> 300% -> 400% across a series of live requests
+    // on 2026-08-16) - a single shared cap here covers every grant site
+    // at once (Divine Shield, Overflowing Grace, Seed of Life, Arcane
+    // Shield, Consecration, etc.), same "one shared formula" principle
+    // as `Item::disenchant_multiplier`'s own doc. Logs only the amount
+    // that ACTUALLY landed (post-clamp), not the raw requested amount -
+    // an already-capped target grants nothing further and logs no event
+    // at all, so `summarize_fight`'s "healing done" stat never
+    // overstates what a shield genuinely contributed.
     let before = units[target_idx].shield_hp;
-    let cap = units[target_idx].max_hp as f64 * 4.0;
+    let cap = units[target_idx].max_hp as f64 * SHIELD_CAP_MULT;
     units[target_idx].shield_hp = (before + amount).min(cap.max(0.0));
     units[target_idx].shield_expires_at_ms = at_ms + duration_ms;
     let applied = units[target_idx].shield_hp - before;
@@ -7561,7 +7581,7 @@ pub(crate) fn simulate_battle(
     // doc) - only ever applied to a REAL boss (kind.is_some() below), never
     // players or a basic-encounter mob, so this is computed once here
     // regardless of what kind of fight it turns out to be.
-    let late_stage_penalty = stage as f64 / (stage as f64 + 2000.0);
+    let late_stage_penalty = stage as f64 / (stage as f64 + LATE_STAGE_PENALTY_STAGE_OFFSET);
     let mut units: Vec<CombatSimUnit> = characters
         .iter()
         .map(|(id, c)| {

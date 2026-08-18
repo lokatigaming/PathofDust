@@ -357,35 +357,37 @@ pub struct Character {
     #[serde(default)]
     pub model: Option<String>,
     /// Free `change_model` uses banked - see `AdventureManager::
-    /// change_model`, consumed instead of dust. `#[serde(default = "default_one_u32")]`
+    /// change_model`, consumed instead of dust. `#[serde(default = "default_free_model_changes")]`
     /// is doing double duty as a migration: it gives every
     /// already-saved character (whether they'd picked a model before or
-    /// not) exactly 1 free change on this deploy - their original
-    /// first-pick entitlement if they'd never picked, or a bonus change
-    /// if they had, which happens to be exactly the "anyone with an old
-    /// sprite gets an additional free change" the request asked for
-    /// whenever new sprites are added (see `ALL_SPRITES`'s
-    /// growth-tracking in `AdventureManager::new` for every future
-    /// addition after this one).
-    #[serde(default = "default_one_u32")]
+    /// not) exactly `STARTING_FREE_MODEL_CHANGES` free change(s) on this
+    /// deploy - their original first-pick entitlement if they'd never
+    /// picked, or a bonus change if they had, which happens to be
+    /// exactly the "anyone with an old sprite gets an additional free
+    /// change" the request asked for whenever new sprites are added (see
+    /// `ALL_SPRITES`'s growth-tracking in `AdventureManager::new` for
+    /// every future addition after this one).
+    #[serde(default = "default_free_model_changes")]
     pub free_model_changes: u32,
     /// Free `Character::recombine` uses banked - see
     /// `AdventureManager::recombine_gear`, consumed instead of dust.
     /// Same default-as-migration trick as `free_model_changes` - every
-    /// already-saved character gets 1 on this deploy too.
-    #[serde(default = "default_one_u32")]
+    /// already-saved character gets `STARTING_FREE_RECOMBINES` on this
+    /// deploy too.
+    #[serde(default = "default_free_recombines")]
     pub free_recombines: u32,
     /// Free `change_archetype` uses banked - see `AdventureManager::
-    /// change_archetype`, consumed instead of dust. Starts at 2 (not 1
-    /// like the other free-* counters) - "give everyone 2 free class
-    /// changes so they can play around with different archetypes" -
-    /// replaces the old binary "free only while still Commoner" rule
-    /// (a Commoner's first pick and one respec after that are both
-    /// covered by this before dust ever gets involved). Same
-    /// default-as-migration trick as `free_model_changes`/
-    /// `free_recombines` - every already-saved character gets 2 on this
-    /// deploy too, regardless of their current archetype.
-    #[serde(default = "default_two_u32")]
+    /// change_archetype`, consumed instead of dust. Starts at
+    /// `STARTING_FREE_ARCHETYPE_CHANGES` (2, not 1 like the other free-*
+    /// counters) - "give everyone 2 free class changes so they can play
+    /// around with different archetypes" - replaces the old binary "free
+    /// only while still Commoner" rule (a Commoner's first pick and one
+    /// respec after that are both covered by this before dust ever gets
+    /// involved). Same default-as-migration trick as
+    /// `free_model_changes`/`free_recombines` - every already-saved
+    /// character gets the same amount on this deploy too, regardless of
+    /// their current archetype.
+    #[serde(default = "default_free_archetype_changes")]
     pub free_archetype_changes: u32,
     /// Free craft-action tokens banked - see `AdventureManager::
     /// craft_item`'s free-if-tokened check (consumed instead of dust,
@@ -504,9 +506,10 @@ pub struct Character {
     pub passive_allocations: HashMap<String, u32>,
     /// Free `AdventureManager::respec_passive_tree` uses banked - same
     /// migration-grant idiom as `free_archetype_changes`/
-    /// `free_recombines` (`default_one_u32`), giving every already-saved
-    /// character one free respec the moment this deploys.
-    #[serde(default = "default_one_u32")]
+    /// `free_recombines`, giving every already-saved character
+    /// `STARTING_FREE_PASSIVE_RESPECS` free respec(s) the moment this
+    /// deploys.
+    #[serde(default = "default_free_passive_respecs")]
     pub free_passive_respecs: u32,
     /// Split Personality (`UniqueAffix::SplitPersonality`) - the second
     /// class chosen via the `/passives` dropdown, if any. Read this
@@ -811,6 +814,55 @@ pub struct StatBreakdown {
     pub overflow: f64,
 }
 
+/// Base attack cadence per `CombatFunction` role, before gear/tree speed
+/// and Healing-Power-past-100% (see `Character::attack_interval_ms`'s
+/// doc) shorten it further - Melee's own base. Named 2026-08-18 for the
+/// wiki's constant audit - was a bare match-arm literal.
+pub(crate) const MELEE_BASE_ATTACK_INTERVAL_MS: u32 = 1400;
+/// Same as `MELEE_BASE_ATTACK_INTERVAL_MS`, for Ranged.
+pub(crate) const RANGED_BASE_ATTACK_INTERVAL_MS: u32 = 900;
+/// Same as `MELEE_BASE_ATTACK_INTERVAL_MS`, for Heal.
+pub(crate) const HEAL_BASE_ATTACK_INTERVAL_MS: u32 = 1700;
+/// Flat crit chance every character starts with, before gear/archetype/
+/// tree (see `Character::combat_crit_chance`). Named 2026-08-18 for the
+/// wiki's constant audit - was a bare `0.05`.
+pub(crate) const BASE_CRIT_CHANCE: f64 = 0.05;
+/// Flat crit damage multiplier every character starts with, before gear/
+/// archetype/tree (see `Character::combat_crit_multiplier`). Named
+/// 2026-08-18 for the wiki's constant audit - was a bare `2.0`.
+pub(crate) const BASE_CRIT_MULTIPLIER: f64 = 2.0;
+
+/// Starting bank for `Character::free_model_changes` - `Character::new`
+/// and `default_free_model_changes` (the serde-default/migration-grant
+/// path, see that field's own doc) both read this SAME constant, so a
+/// fresh character's starting bank and what an old save gets migrated to
+/// can never drift apart from each other by construction. Named
+/// 2026-08-18 for the wiki's constant audit - was two separate bare `1`
+/// literals (one per path) that happened to agree.
+pub(crate) const STARTING_FREE_MODEL_CHANGES: u32 = 1;
+pub(crate) fn default_free_model_changes() -> u32 {
+    STARTING_FREE_MODEL_CHANGES
+}
+/// Same "one constant, both paths" reasoning as
+/// `STARTING_FREE_MODEL_CHANGES`, for `Character::free_recombines`.
+pub(crate) const STARTING_FREE_RECOMBINES: u32 = 1;
+pub(crate) fn default_free_recombines() -> u32 {
+    STARTING_FREE_RECOMBINES
+}
+/// Same reasoning, for `Character::free_archetype_changes` - "give
+/// everyone 2 free class changes... so they can play around with
+/// different archetypes" is both the starting grant and the migration
+/// grant for already-saved characters.
+pub(crate) const STARTING_FREE_ARCHETYPE_CHANGES: u32 = 2;
+pub(crate) fn default_free_archetype_changes() -> u32 {
+    STARTING_FREE_ARCHETYPE_CHANGES
+}
+/// Same reasoning, for `Character::free_passive_respecs`.
+pub(crate) const STARTING_FREE_PASSIVE_RESPECS: u32 = 1;
+pub(crate) fn default_free_passive_respecs() -> u32 {
+    STARTING_FREE_PASSIVE_RESPECS
+}
+
 impl Character {
     /// New characters start fully kitted out (a basic tier-1 item in
     /// every slot) rather than naked — see `AdventureManager::new`'s
@@ -834,9 +886,9 @@ impl Character {
             sand: 0,
             retreated_since: None,
             model: None,
-            free_model_changes: 1,
-            free_recombines: 1,
-            free_archetype_changes: 2,
+            free_model_changes: STARTING_FREE_MODEL_CHANGES,
+            free_recombines: STARTING_FREE_RECOMBINES,
+            free_archetype_changes: STARTING_FREE_ARCHETYPE_CHANGES,
             craft_tokens: ALL_CRAFT_ACTIONS.iter().map(|&a| (a, 1)).collect(),
             item_pity: 0.0,
             craft_pity: 0.0,
@@ -850,7 +902,7 @@ impl Character {
             auto_disenchant_min_percent: default_auto_disenchant_min_percent(),
             last_crafted_item_id: None,
             passive_allocations: HashMap::new(),
-            free_passive_respecs: 1,
+            free_passive_respecs: STARTING_FREE_PASSIVE_RESPECS,
             secondary_archetype: None,
             secondary_passive_allocations: HashMap::new(),
         }
@@ -2041,7 +2093,8 @@ impl Character {
     /// passive tree's own `attack_speed` investment shortens it FURTHER
     /// as an independent multiplicative layer - `rate = (1/base) *
     /// (1+gear_bonus) * (1+tree_bonus)`, e.g. 100% gear + 50% tree off a
-    /// 1700ms base gives 1.76 attacks/sec (~568ms), not the old flat-sum
+    /// `HEAL_BASE_ATTACK_INTERVAL_MS` (1700ms) base gives 1.76 attacks/sec
+    /// (~568ms), not the old flat-sum
     /// behavior. Same "character sheet vs. passive tree, two independent
     /// compounding sources" principle as `combine_reduction_sources`
     /// uses for the capped defensive stats - this is that same principle
@@ -2063,9 +2116,9 @@ impl Character {
     /// someone already past 100% heal power - it can't push it back up.
     pub(crate) fn attack_interval_ms(&self) -> u32 {
         let base = match self.archetype.combat_function() {
-            CombatFunction::Melee => 1400,
-            CombatFunction::Ranged => 900,
-            CombatFunction::Heal => 1700,
+            CombatFunction::Melee => MELEE_BASE_ATTACK_INTERVAL_MS,
+            CombatFunction::Ranged => RANGED_BASE_ATTACK_INTERVAL_MS,
+            CombatFunction::Heal => HEAL_BASE_ATTACK_INTERVAL_MS,
         };
         let gloves_bonus = self.gloves.as_ref().map(|i| i.effective_power()).unwrap_or(0.0);
         let gear_bonus = gloves_bonus + self.archetype.bonus(self.level).attack_speed;
@@ -2703,14 +2756,14 @@ impl Character {
     /// stack. Only floored at 0 - a stat this can never meaningfully
     /// go negative.
     pub fn combat_crit_chance(&self) -> f64 {
-        // Character sheet (the 5% baseline + gear + archetype - i.e.
+        // Character sheet (BASE_CRIT_CHANCE + gear + archetype - i.e.
         // everything this stat would be with zero tree investment) is
         // the base the tree then multiplies, not a 4th term summed in
         // alongside it - "20% from gear, a tree node worth 30% more"
         // lands at 20% * 1.30 = 26%, not 20% + 30% = 50%. Same principle
         // as every other stat here; gear's own values are never
         // reinterpreted, only how the tree stacks on top of them.
-        let gear_total = 0.05 + self.sum_affix(Affix::CritChance) + self.archetype.bonus(self.level).crit_chance;
+        let gear_total = BASE_CRIT_CHANCE + self.sum_affix(Affix::CritChance) + self.archetype.bonus(self.level).crit_chance;
         // Ranger's Deadeye (2026-08-16, moved off its old splash-only
         // override - a live design call that it should boost the main hit
         // directly, same as Chain Shot, with splash inheriting passively
@@ -2727,7 +2780,7 @@ impl Character {
     /// archetype's own bonus (e.g. Mage's), floored so it can never drop
     /// below a normal hit.
     pub fn combat_crit_multiplier(&self) -> f64 {
-        let gear_total = 2.0 + self.sum_affix(Affix::CritMultiplier) + self.archetype.bonus(self.level).crit_multiplier;
+        let gear_total = BASE_CRIT_MULTIPLIER + self.sum_affix(Affix::CritMultiplier) + self.archetype.bonus(self.level).crit_multiplier;
         let tree_total = self.passive_bonus().crit_multiplier + self.passive_overflow_bonus().crit_multiplier;
         (gear_total * (1.0 + tree_total)).max(1.0)
     }

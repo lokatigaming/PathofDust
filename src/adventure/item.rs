@@ -21,19 +21,6 @@ pub(crate) fn default_max_uses() -> Option<u32> {
     Some(10)
 }
 
-/// Shared serde default for any `u32` field that should start pre-loaded
-/// at 1 rather than 0 - see `Character::free_model_changes`/
-/// `free_recombines`, where this doubles as a one-time migration grant.
-pub(crate) fn default_one_u32() -> u32 {
-    1
-}
-
-/// Same idea as `default_one_u32`, for `Character::free_archetype_changes` -
-/// "give everyone 2 free class changes... so they can play around with
-/// different archetypes" doubles as this deploy's migration grant too.
-pub(crate) fn default_two_u32() -> u32 {
-    2
-}
 
 /// The range a brand-new item's `power_roll` (see `Item::power_roll`) is
 /// drawn from - fixed for that item's whole lifetime once rolled (a
@@ -996,6 +983,19 @@ pub(crate) fn generate_item_at_tier(slot: EquipSlot, tier: u32, rng: &mut impl R
 /// Same as `generate_item_at_tier`, but with an explicit `power_roll`
 /// instead of drawing a fresh one - see that field's doc for why
 /// `reforge_equipped_item` needs this instead of the plain version.
+/// Chance a freshly-generated item rolls indestructible (never decays,
+/// never auto-replaced - `max_uses: None`) instead of a finite lifespan.
+/// Named 2026-08-18 for the wiki's constant audit - was a bare `0.01`.
+pub(crate) const INDESTRUCTIBLE_ITEM_CHANCE: f64 = 0.01;
+/// Lower bound of a non-indestructible item's `max_uses` roll (see
+/// `INDESTRUCTIBLE_ITEM_CHANCE`) - uniform across
+/// `ITEM_DURABILITY_MIN_USES..=ITEM_DURABILITY_MAX_USES`, averaging
+/// exactly 10. Named 2026-08-18 for the wiki's constant audit - was a
+/// bare `7`.
+pub(crate) const ITEM_DURABILITY_MIN_USES: u32 = 7;
+/// Upper bound of the same roll - see `ITEM_DURABILITY_MIN_USES`. Named
+/// 2026-08-18 for the wiki's constant audit - was a bare `13`.
+pub(crate) const ITEM_DURABILITY_MAX_USES: u32 = 13;
 pub(crate) fn generate_item_at_tier_with_roll(slot: EquipSlot, tier: u32, power_roll: f64, rng: &mut impl Rng) -> Item {
     let noun_pool: &[&str] = match slot {
         EquipSlot::Weapon => &["Sword", "Axe", "Blade", "Hammer", "Dagger"],
@@ -1017,7 +1017,7 @@ pub(crate) fn generate_item_at_tier_with_roll(slot: EquipSlot, tier: u32, power_
     // 1% indestructible (never decays, never auto-replaced); otherwise a
     // lifespan drawn uniformly from 7-13 fights of use, averaging exactly
     // the requested 10.
-    let max_uses = if rng.gen_bool(0.01) { None } else { Some(rng.gen_range(7..=13)) };
+    let max_uses = if rng.gen_bool(INDESTRUCTIBLE_ITEM_CHANCE) { None } else { Some(rng.gen_range(ITEM_DURABILITY_MIN_USES..=ITEM_DURABILITY_MAX_USES)) };
     let id = format!("{:016x}", rng.gen::<u64>());
     let affixes = roll_affixes(slot, tier, rng);
 
