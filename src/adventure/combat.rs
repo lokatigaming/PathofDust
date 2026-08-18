@@ -599,9 +599,14 @@ pub(crate) fn trigger_doom_on_death(units: &mut [CombatSimUnit], victim_idx: usi
             let others: Vec<usize> =
                 units.iter().enumerate().filter(|(i, u)| *i != victim_idx && u.is_boss == target_is_boss && u.alive).map(|(i, _)| i).collect();
             for other_idx in others {
-                let other_final = splash_damage.round().max(0.0) as i64;
                 // Monk's Chakra of Life - true damage still respects full immunity.
-                if other_final <= 0 || at_ms <= units[other_idx].chakraoflife_immune_until_ms {
+                if splash_damage <= 0.0 || at_ms <= units[other_idx].chakraoflife_immune_until_ms {
+                    continue;
+                }
+                let hit_id = next_hit_id();
+                let penalized = apply_late_stage_penalty(units, other_idx, splash_damage, at_ms, hit_id, &source_id, rolls);
+                let other_final = penalized.round().max(0.0) as i64;
+                if other_final <= 0 {
                     continue;
                 }
                 let other_new_hp = (units[other_idx].hp - other_final).max(0);
@@ -616,7 +621,7 @@ pub(crate) fn trigger_doom_on_death(units: &mut [CombatSimUnit], victim_idx: usi
                     target_hp_after: other_new_hp as u64,
                     is_crit: false,
                     evaded: false,
-                    hit_id: next_hit_id(),
+                    hit_id,
                 });
                 if other_new_hp == 0 {
                     units[other_idx].alive = false;
@@ -3505,6 +3510,48 @@ pub(crate) fn roll_attacker_damage(
 /// `pack_instinct_evasion_bonus`/`symbiosis_dr_bonus` above (this
 /// function's own `def: &CombatSimUnit` can't prune anything itself,
 /// it's not `&mut`).
+/// The same universal "damage to a real boss is capped by how far past
+/// its tuned stage range the fight now is" cut `resolve_hit` applies to
+/// every real attack (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
+/// doc) - a no-op for anyone but a real boss. Every true-damage path that
+/// bypasses `resolve_hit` (reflect, Volatile Magic splash, Lingering
+/// Effect ticks, Hemorrhage explosions, Doom's detonation + Apocalypse
+/// splash) runs its raw amount through this before applying it, so the
+/// penalty really is unbypassable per the live "nothing can bypass it"
+/// design directive - not just something `resolve_hit`'s own callers get
+/// for free. Pushes a matching `RollEvent` (same convention as
+/// `resolve_hit`'s own `"Late-stage damage penalty"` entry) whenever it
+/// actually cut something, so these true-damage hits stay visible to the
+/// same roll-signature analysis a real attack already supports.
+fn apply_late_stage_penalty(
+    units: &[CombatSimUnit],
+    target_idx: usize,
+    amount: f64,
+    at_ms: u32,
+    hit_id: u64,
+    actor_id: &str,
+    rolls: &mut Vec<RollEvent>,
+) -> f64 {
+    let pct = units[target_idx].late_stage_damage_penalty_pct;
+    if pct <= 0.0 {
+        return amount;
+    }
+    rolls.push(RollEvent {
+        event_id: next_hit_id(),
+        hit_id,
+        caused_by: None,
+        at_ms,
+        category: RollCategory::IncreasedDamage,
+        source: std::borrow::Cow::Borrowed("Late-stage damage penalty"),
+        actor: actor_id.to_string(),
+        target: Some(units[target_idx].id.clone()),
+        probability: None,
+        succeeded: None,
+        magnitude: Some(-pct),
+    });
+    amount * (1.0 - pct)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_hit(
     base_damage: f64,
@@ -4198,11 +4245,13 @@ pub(crate) fn apply_reflect_damage(units: &mut [CombatSimUnit], source_idx: usiz
     if amount <= 0.0 || !units[target_idx].alive || at_ms <= units[target_idx].chakraoflife_immune_until_ms {
         return;
     }
-    let final_damage = amount.round().max(0.0) as i64;
+    let source_id = units[source_idx].id.clone();
+    let hit_id = next_hit_id();
+    let penalized = apply_late_stage_penalty(units, target_idx, amount, at_ms, hit_id, &source_id, rolls);
+    let final_damage = penalized.round().max(0.0) as i64;
     let new_hp = (units[target_idx].hp - final_damage).max(0);
     units[target_idx].hp = new_hp;
     units[source_idx].damage_dealt_total += final_damage.max(0) as u64;
-    let source_id = units[source_idx].id.clone();
     let target_id = units[target_idx].id.clone();
     events.push(CombatEvent::Attack {
         at_ms,
@@ -4213,7 +4262,7 @@ pub(crate) fn apply_reflect_damage(units: &mut [CombatSimUnit], source_idx: usiz
         target_hp_after: new_hp as u64,
         is_crit: false,
         evaded: false,
-        hit_id: next_hit_id(),
+        hit_id,
     });
     if new_hp == 0 {
         units[target_idx].alive = false;
@@ -4260,14 +4309,16 @@ pub(crate) fn apply_volatile_magic_splash(
         if !units[target_idx].alive || at_ms <= units[target_idx].chakraoflife_immune_until_ms {
             continue;
         }
-        let final_damage = amount_per_target.round().max(0.0) as i64;
+        let attacker_id = units[attacker_idx].id.clone();
+        let hit_id = next_hit_id();
+        let penalized = apply_late_stage_penalty(units, target_idx, amount_per_target, at_ms, hit_id, &attacker_id, rolls);
+        let final_damage = penalized.round().max(0.0) as i64;
         if final_damage <= 0 {
             continue;
         }
         let new_hp = (units[target_idx].hp - final_damage).max(0);
         units[target_idx].hp = new_hp;
         units[attacker_idx].damage_dealt_total += final_damage.max(0) as u64;
-        let attacker_id = units[attacker_idx].id.clone();
         let target_id = units[target_idx].id.clone();
         events.push(CombatEvent::Attack {
             at_ms,
@@ -4278,7 +4329,7 @@ pub(crate) fn apply_volatile_magic_splash(
             target_hp_after: new_hp as u64,
             is_crit: false,
             evaded: false,
-            hit_id: next_hit_id(),
+            hit_id,
         });
         if new_hp == 0 {
             units[target_idx].alive = false;
@@ -4414,10 +4465,11 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
         if at_ms <= units[target_idx].chakraoflife_immune_until_ms {
             continue;
         }
-        let final_damage = (dot.amount_per_tick * (1.0 - reduction)).round().max(0.0) as i64;
+        let hit_id = next_hit_id();
+        let penalized_amount = apply_late_stage_penalty(units, target_idx, dot.amount_per_tick, at_ms, hit_id, &dot.source_id, rolls);
+        let final_damage = (penalized_amount * (1.0 - reduction)).round().max(0.0) as i64;
         let new_hp = (units[target_idx].hp - final_damage).max(0);
         units[target_idx].hp = new_hp;
-        let hit_id = next_hit_id();
         events.push(CombatEvent::Attack {
             at_ms,
             attacker: dot.source_id.clone(),
@@ -4661,7 +4713,16 @@ pub(crate) fn active_buffs_snapshot(unit: &CombatSimUnit, at_ms: u32) -> Vec<(St
 /// so the proc-chance formula changed here to compensate, instead of
 /// reading the (now much bigger) raw roll directly as the chance the way
 /// it briefly did.
-pub(crate) const ELEMENTAL_PROC_CHANCE_DIVISOR: f64 = 50.0;
+/// Lowered 50 -> 10 (2026-08-18, a live request: "amp up the application
+/// of ailments by a factor of 5") - a straight 5x buff to how OFTEN a
+/// proc starts, not how strong one is once active (per-stack magnitude/
+/// `ELEMENTAL_DEFENSE_FLOOR`/`_CEILING`/stack caps/`ELEMENTAL_PROC_DURATION_MS`
+/// are all untouched). Checked against the live 49-character roster
+/// before this landed - only a handful of the heaviest single-element
+/// investments (e.g. lokati_gaming's combined Lightning, ~14%) cross the
+/// 100% clamp under the new divisor; everyone else's chance just scales
+/// up proportionally.
+pub(crate) const ELEMENTAL_PROC_CHANCE_DIVISOR: f64 = 10.0;
 
 /// Elemental damage rework (2026-08-15) - rolls one damage type's own
 /// chance (`raw_pct / ELEMENTAL_PROC_CHANCE_DIVISOR` - `raw_pct` already
@@ -6365,7 +6426,10 @@ pub(crate) fn apply_hit(
                 // audit found this missing outright: an active shield used
                 // to do nothing at all against a Hemorrhage explosion -
                 // still respected here even though crit/mitigation aren't.
-                let mut final_damage = explosion_base.round().max(0.0) as i64;
+                let ex_attacker_id = units[attacker_idx].id.clone();
+                let hit_id = next_hit_id();
+                let penalized_base = apply_late_stage_penalty(units, explosion_target, explosion_base, at_ms, hit_id, &ex_attacker_id, rolls);
+                let mut final_damage = penalized_base.round().max(0.0) as i64;
                 if final_damage > 0 && units[explosion_target].shield_hp > 0.0 && at_ms <= units[explosion_target].shield_expires_at_ms {
                     let absorbed = units[explosion_target].shield_hp.min(final_damage as f64);
                     units[explosion_target].shield_hp -= absorbed;
@@ -6380,22 +6444,22 @@ pub(crate) fn apply_hit(
                 // Slayer leaning on Hemorrhage explosions could be
                 // undervalued there.
                 units[attacker_idx].damage_dealt_total += final_damage.max(0) as u64;
-                let ex_attacker_id = units[attacker_idx].id.clone();
                 let ex_target_id = units[explosion_target].id.clone();
                 events.push(CombatEvent::Attack {
                     at_ms,
                     attacker: ex_attacker_id,
                     target: ex_target_id.clone(),
                     damage: final_damage.max(0) as u64,
-                    // Pre-shield flat amount - shields still reduce what
-                    // actually lands (`final_damage`), but there's no
-                    // mitigation step to distinguish "unmitigated" from
-                    // otherwise, same convention `apply_reflect_damage` uses.
-                    unmitigated_damage: explosion_base.round().max(0.0) as u64,
+                    // Pre-shield, post-late-stage-penalty flat amount -
+                    // shields still reduce what actually lands
+                    // (`final_damage`), but there's no mitigation step to
+                    // distinguish "unmitigated" from otherwise, same
+                    // convention `apply_reflect_damage` uses.
+                    unmitigated_damage: penalized_base.round().max(0.0) as u64,
                     target_hp_after: ex_new_hp as u64,
                     is_crit: false,
                     evaded: false,
-                    hit_id: next_hit_id(),
+                    hit_id,
                 });
                 if self_leech_pct > 0.0 && final_damage > 0 {
                     let self_heal = (final_damage as f64 * self_leech_pct).round().max(0.0) as i64;
@@ -9225,73 +9289,85 @@ pub(crate) fn simulate_battle(
                 // than a permanent debuff once Doom is invested.
                 if units[target_idx].alive {
                     let detonation = units[target_idx].curse_damage_taken_total * units[target_idx].curse_detonate_pct;
-                    let final_damage = detonation.round().max(0.0) as i64;
                     // Monk's Chakra of Life - true damage still respects full immunity.
-                    if final_damage > 0 && at_ms > units[target_idx].chakraoflife_immune_until_ms {
-                        let new_hp = (units[target_idx].hp - final_damage).max(0);
-                        units[target_idx].hp = new_hp;
+                    if detonation > 0.0 && at_ms > units[target_idx].chakraoflife_immune_until_ms {
                         let source_id = units[target_idx].curse_source_id.clone().unwrap_or_default();
-                        let target_id = units[target_idx].id.clone();
-                        events.push(CombatEvent::SkillCast { at_ms, unit: source_id.clone(), skill: "Doom".to_string() });
-                        events.push(CombatEvent::Attack {
-                            at_ms,
-                            attacker: source_id.clone(),
-                            target: target_id.clone(),
-                            damage: final_damage.max(0) as u64,
-                            unmitigated_damage: final_damage.max(0) as u64,
-                            target_hp_after: new_hp as u64,
-                            is_crit: false,
-                            evaded: false,
-                            hit_id: next_hit_id(),
-                        });
-                        if new_hp == 0 {
-                            units[target_idx].alive = false;
-                            events.push(CombatEvent::Defeat { at_ms, unit: target_id });
-                            if let Some(source_idx) = units.iter().position(|u| u.id == source_id) {
-                                fire_on_kill(&mut units, source_idx, at_ms, &mut events, &mut rolls, &mut rng);
-                            }
-                        } else {
-                            // Dreadful Death - the detonation also shreds
-                            // the target's DR for a few seconds.
-                            let source_idx = units.iter().position(|u| u.id == source_id);
-                            let dreadfuldeath_pct = source_idx.map(|i| units[i].own_dreadfuldeath_shred_pct).unwrap_or(0.0);
-                            if dreadfuldeath_pct > 0.0 {
-                                units[target_idx].temp_damage_reduction_bonus = -dreadfuldeath_pct;
-                                units[target_idx].temp_damage_reduction_bonus_expires_at_ms = at_ms + DREADFUL_DEATH_DEBUFF_DURATION_MS;
-                            }
-                            // Apocalypse - the detonation also splashes to
-                            // nearby enemies at a fraction of value.
-                            let apocalypse_pct = source_idx.map(|i| units[i].own_apocalypse_splash_pct).unwrap_or(0.0);
-                            if apocalypse_pct > 0.0 {
-                                let target_is_boss = units[target_idx].is_boss;
-                                let splash_damage = detonation * apocalypse_pct;
-                                let others: Vec<usize> =
-                                    units.iter().enumerate().filter(|(i, u)| *i != target_idx && u.is_boss == target_is_boss && u.alive).map(|(i, _)| i).collect();
-                                for other_idx in others {
-                                    let other_final = splash_damage.round().max(0.0) as i64;
-                                    // Monk's Chakra of Life - true damage still respects full immunity.
-                                    if other_final <= 0 || at_ms <= units[other_idx].chakraoflife_immune_until_ms {
-                                        continue;
-                                    }
-                                    let other_new_hp = (units[other_idx].hp - other_final).max(0);
-                                    units[other_idx].hp = other_new_hp;
-                                    let other_id = units[other_idx].id.clone();
-                                    events.push(CombatEvent::Attack {
-                                        at_ms,
-                                        attacker: source_id.clone(),
-                                        target: other_id.clone(),
-                                        damage: other_final.max(0) as u64,
-                                        unmitigated_damage: other_final.max(0) as u64,
-                                        target_hp_after: other_new_hp as u64,
-                                        is_crit: false,
-                                        evaded: false,
-                                        hit_id: next_hit_id(),
-                                    });
-                                    if other_new_hp == 0 {
-                                        units[other_idx].alive = false;
-                                        events.push(CombatEvent::Defeat { at_ms, unit: other_id });
-                                        if let Some(source_idx) = source_idx {
-                                            fire_on_kill(&mut units, source_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                        let hit_id = next_hit_id();
+                        let penalized = apply_late_stage_penalty(&units, target_idx, detonation, at_ms, hit_id, &source_id, &mut rolls);
+                        let final_damage = penalized.round().max(0.0) as i64;
+                        if final_damage > 0 {
+                            let new_hp = (units[target_idx].hp - final_damage).max(0);
+                            units[target_idx].hp = new_hp;
+                            let target_id = units[target_idx].id.clone();
+                            events.push(CombatEvent::SkillCast { at_ms, unit: source_id.clone(), skill: "Doom".to_string() });
+                            events.push(CombatEvent::Attack {
+                                at_ms,
+                                attacker: source_id.clone(),
+                                target: target_id.clone(),
+                                damage: final_damage.max(0) as u64,
+                                unmitigated_damage: final_damage.max(0) as u64,
+                                target_hp_after: new_hp as u64,
+                                is_crit: false,
+                                evaded: false,
+                                hit_id,
+                            });
+                            if new_hp == 0 {
+                                units[target_idx].alive = false;
+                                events.push(CombatEvent::Defeat { at_ms, unit: target_id });
+                                if let Some(source_idx) = units.iter().position(|u| u.id == source_id) {
+                                    fire_on_kill(&mut units, source_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                                }
+                            } else {
+                                // Dreadful Death - the detonation also shreds
+                                // the target's DR for a few seconds.
+                                let source_idx = units.iter().position(|u| u.id == source_id);
+                                let dreadfuldeath_pct = source_idx.map(|i| units[i].own_dreadfuldeath_shred_pct).unwrap_or(0.0);
+                                if dreadfuldeath_pct > 0.0 {
+                                    units[target_idx].temp_damage_reduction_bonus = -dreadfuldeath_pct;
+                                    units[target_idx].temp_damage_reduction_bonus_expires_at_ms = at_ms + DREADFUL_DEATH_DEBUFF_DURATION_MS;
+                                }
+                                // Apocalypse - the detonation also splashes to
+                                // nearby enemies at a fraction of value (of
+                                // the raw, pre-late-stage-penalty detonation -
+                                // each splash instance gets its own penalty
+                                // applied below, same as the primary hit did).
+                                let apocalypse_pct = source_idx.map(|i| units[i].own_apocalypse_splash_pct).unwrap_or(0.0);
+                                if apocalypse_pct > 0.0 {
+                                    let target_is_boss = units[target_idx].is_boss;
+                                    let splash_damage = detonation * apocalypse_pct;
+                                    let others: Vec<usize> =
+                                        units.iter().enumerate().filter(|(i, u)| *i != target_idx && u.is_boss == target_is_boss && u.alive).map(|(i, _)| i).collect();
+                                    for other_idx in others {
+                                        // Monk's Chakra of Life - true damage still respects full immunity.
+                                        if splash_damage <= 0.0 || at_ms <= units[other_idx].chakraoflife_immune_until_ms {
+                                            continue;
+                                        }
+                                        let other_hit_id = next_hit_id();
+                                        let other_penalized = apply_late_stage_penalty(&units, other_idx, splash_damage, at_ms, other_hit_id, &source_id, &mut rolls);
+                                        let other_final = other_penalized.round().max(0.0) as i64;
+                                        if other_final <= 0 {
+                                            continue;
+                                        }
+                                        let other_new_hp = (units[other_idx].hp - other_final).max(0);
+                                        units[other_idx].hp = other_new_hp;
+                                        let other_id = units[other_idx].id.clone();
+                                        events.push(CombatEvent::Attack {
+                                            at_ms,
+                                            attacker: source_id.clone(),
+                                            target: other_id.clone(),
+                                            damage: other_final.max(0) as u64,
+                                            unmitigated_damage: other_final.max(0) as u64,
+                                            target_hp_after: other_new_hp as u64,
+                                            is_crit: false,
+                                            evaded: false,
+                                            hit_id: other_hit_id,
+                                        });
+                                        if other_new_hp == 0 {
+                                            units[other_idx].alive = false;
+                                            events.push(CombatEvent::Defeat { at_ms, unit: other_id });
+                                            if let Some(source_idx) = source_idx {
+                                                fire_on_kill(&mut units, source_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                                            }
                                         }
                                     }
                                 }
@@ -10666,20 +10742,23 @@ mod full_detail_combat_log_tests {
 
     #[test]
     fn elemental_proc_reports_the_real_chance_it_rolled_against() {
-        // raw_pct=25 / ELEMENTAL_PROC_CHANCE_DIVISOR(50) = a real 50%
+        // raw_pct=5 / ELEMENTAL_PROC_CHANCE_DIVISOR(10) = a real 50%
         // chance - regardless of whether this particular seed happens to
         // hit or miss, a genuine roll happened and must be reported as
-        // `Some(0.5)`, not `None`.
+        // `Some(0.5)`, not `None`. Deliberately mid-range (not clamped)
+        // so this still tests a real rolled chance, not the 100% clamp
+        // path - see `elemental_proc_pushes_a_stack_only_on_success` for
+        // that.
         let mut stacks = Vec::new();
         let mut rng = StdRng::seed_from_u64(7);
-        let (_, chance) = roll_elemental_proc(25.0, &mut stacks, usize::MAX, 1_000, &mut rng);
+        let (_, chance) = roll_elemental_proc(5.0, &mut stacks, usize::MAX, 1_000, &mut rng);
         assert_eq!(chance, Some(0.5));
     }
 
     #[test]
     fn elemental_proc_pushes_a_stack_only_on_success() {
         let mut stacks = Vec::new();
-        // 1000% raw_pct / 50 divisor = chance 20.0, clamped to 1.0 -
+        // 1000% raw_pct / 10 divisor = chance 100.0, clamped to 1.0 -
         // deterministic success regardless of seed, isolating "does a
         // successful proc actually push its expiry stack" from the RNG
         // itself.
@@ -10979,6 +11058,70 @@ mod full_detail_combat_log_tests {
         let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.evaded, "zero evasion must never dodge");
         assert!(outcome.damage >= 50, "at least 5% of 1000 raw damage (50) must always land on a non-evaded hit - got {}", outcome.damage);
+    }
+
+    // Universal late-stage penalty coverage (2026-08-18) - `apply_reflect_damage`
+    // and `tick_lingering_dots` are two of the "true damage" paths that used
+    // to skip `late_stage_damage_penalty_pct` entirely since neither calls
+    // `resolve_hit` (see `apply_late_stage_penalty`'s own doc for the full
+    // list). Both now run through the shared helper directly.
+
+    #[test]
+    fn apply_reflect_damage_respects_the_late_stage_penalty() {
+        let source = CombatSimUnit { id: "shielded_player".to_string(), display_name: "Player".to_string(), alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let boss = CombatSimUnit {
+            id: "boss".to_string(),
+            display_name: "Boss".to_string(),
+            alive: true,
+            hp: 1_000,
+            max_hp: 1_000,
+            is_boss: true,
+            late_stage_damage_penalty_pct: 0.25,
+            ..Default::default()
+        };
+        let mut units = vec![source, boss];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_reflect_damage(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng);
+        // 100 raw * (1 - 0.25) = 75 - not the full 100 a pre-fix reflect would have dealt.
+        assert_eq!(units[1].hp, 1_000 - 75, "reflected damage against a boss must be cut by the late-stage penalty");
+        let penalty_roll = rolls
+            .iter()
+            .find(|r| r.source.as_ref() == "Late-stage damage penalty")
+            .expect("a reflect hit against a boss must log the late-stage penalty roll");
+        assert_eq!(penalty_roll.magnitude, Some(-0.25));
+        assert_eq!(penalty_roll.actor, "shielded_player");
+        assert_eq!(penalty_roll.target.as_deref(), Some("boss"));
+    }
+
+    #[test]
+    fn tick_lingering_dots_respects_the_late_stage_penalty() {
+        let mut boss = CombatSimUnit {
+            id: "boss".to_string(),
+            display_name: "Boss".to_string(),
+            alive: true,
+            hp: 1_000,
+            max_hp: 1_000,
+            is_boss: true,
+            late_stage_damage_penalty_pct: 0.25,
+            ..Default::default()
+        };
+        boss.lingering_dots.push(LingeringDot { source_id: "attacker".to_string(), amount_per_tick: 100.0, remaining_ticks: 3, next_tick_at_ms: 1, is_heal: false });
+        let mut units = vec![boss];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_lingering_dots(&mut units, 0, 1, &mut events, &mut rolls, &mut rng);
+        // 100 raw * (1 - 0.25) = 75, no other DR sources invested.
+        assert_eq!(units[0].hp, 1_000 - 75, "a lingering DoT tick against a boss must be cut by the late-stage penalty");
+        let penalty_roll = rolls
+            .iter()
+            .find(|r| r.source.as_ref() == "Late-stage damage penalty")
+            .expect("a lingering DoT tick against a boss must log the late-stage penalty roll");
+        assert_eq!(penalty_roll.magnitude, Some(-0.25));
+        assert_eq!(penalty_roll.actor, "attacker");
+        assert_eq!(penalty_roll.target.as_deref(), Some("boss"));
     }
 }
 
