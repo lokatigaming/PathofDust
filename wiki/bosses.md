@@ -6,19 +6,19 @@ Every world boss fight pits the party against one or more of five named bosses. 
 
 <h3 id="dragon">🐲 The Dragon</h3>
 
-Flies back and forth across the battlefield instead of standing on the ground, breathing fire with **every attack** it lands - unlike a normal attack, which only hits one hero, this sweeps the **whole party at once**, so nobody is safe. It also radiates a passive aura for the entire fight that slows everyone's attack speed by 50%. Two looks can show up in a Dragon fight - the classic purple dragon, or the rarer, fully-animated Bahamut - purely cosmetic, same fight either way.
+Flies back and forth across the battlefield instead of standing on the ground, breathing fire with **every attack** it lands - unlike a normal attack, which only hits one hero, this sweeps the **whole party at once**, so nobody is safe. It also radiates a passive aura for the entire fight that slows everyone's attack speed by {{DRAGON_SLOW_PCT}}%. Two looks can show up in a Dragon fight - the classic purple dragon, or the rarer, fully-animated Bahamut - purely cosmetic, same fight either way.
 
 <h3 id="cthulhu">🐙 Cthulhu</h3>
 
-Every {{CTHULHU_DEBUFF_CADENCE_S}} seconds, a purple bubble locks onto roughly half the party at random and stacks a debuff that cuts both damage AND healing from anyone it lands on, capped at a brutal 90% reduction - no single hero can carry a Cthulhu fight alone, and hanging back doesn't save you either: sooner or later the bubble finds everyone.
+Every {{CTHULHU_DEBUFF_CADENCE_S}} seconds, a purple bubble locks onto roughly half the party at random and stacks a debuff that cuts both damage AND healing from anyone it lands on, capped at a brutal {{CTHULHU_DEBUFF_CAP_PCT}}% reduction - no single hero can carry a Cthulhu fight alone, and hanging back doesn't save you either: sooner or later the bubble finds everyone.
 
 <h3 id="lich">💀 The Lich</h3>
 
-Raises 5 skeletons to fight alongside it every 2 seconds, up to 20 in a single battle. Each one is individually weak - a fraction of the Lich's own health and attack - but they pile up fast if the fight drags on, so speed matters against this one.
+Raises {{LICH_ADDS_PER_SUMMON}} skeletons to fight alongside it every {{LICH_SUMMON_CADENCE_S}} seconds, up to {{LICH_MAX_ADDS}} in a single battle. Each one is individually weak - a fraction of the Lich's own health and attack - but they pile up fast if the fight drags on, so speed matters against this one.
 
 <h3 id="fire-demon">🔥 Fire Demon</h3>
 
-No flashy abilities - just relentless heat. Its aura cuts the entire party's healing power in half for the whole fight, so healers get a lot less mileage out of every cast.
+No flashy abilities - just relentless heat. Its aura cuts the entire party's healing power by {{FIRE_DEMON_HEAL_MULT_PCT}}% for the whole fight, so healers get a lot less mileage out of every cast.
 
 <h3 id="gelatinous-cube">🧊 The Gelatinous Cube</h3>
 

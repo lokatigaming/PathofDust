@@ -32,7 +32,7 @@ The single rule worth memorizing before anything else here: **four base modifier
   <p class="wiki-ceiling-cap">Hard ceiling: <strong>7</strong> modifiers total.</p>
 </div>
 
-The R and C slots each carry a memory: once either crit has landed on an item, it can never land again — even if that item is later merged into something new by Recombine. A merged item inherits "already used" from either parent, so pairing a just-crit'd item with a fresh one can't reset its odds.
+The R and C slots each carry a memory: while the bonus modifier either crit granted is still on the item, that same crit can't land again — even if the item is later merged into something new by Recombine, which inherits "already used" from either parent. Removing that specific modifier by any means (Annulment, for instance) re-opens the odds for that slot, same as if it had never crit at all.
 
 A Unique Affix (from a Celestial Shard) and Sacred's implicit affix live entirely outside this pool — they never count toward the seven, and no crafting action can touch them.
 
@@ -63,7 +63,7 @@ Raises an item's tier and rescales everything it already has to match — the cl
 
 **Reforge Now** — a free action (via the dashboard button or its matching channel-points redemption), or `{{WEB_REFORGE_DUST_COST}}` dust on demand. Always targets a random unlocked equipped item, replacing it with a freshly reforged version at the same slot.
 
-**Crafting-Panel Reforge** — costs `30×tier` dust and lets you pick the exact item, equipped or bagged, rather than leaving it to chance. No cooldown, unlike the free button.
+**Crafting-Panel Reforge** — costs `{{PANEL_REFORGE_DUST_PER_TIER}}×tier` dust and lets you pick the exact item, equipped or bagged, rather than leaving it to chance. No cooldown, unlike the free button.
 
 **Tier jump:** +2 to +4 below tier 50, +1 to +2 at tier 50–99, +1 at tier 100+.
 
@@ -92,7 +92,7 @@ Forges two items of the same slot into one, consuming both. The result inherits 
 - **Unique Affix & durability:** either source's Unique Affix carries over; the result is indestructible if either source was.
 - **Perfect & Sacred never carry over.** The result is always an ordinary item, regardless of what went in.
 
-Free to recombine unveiled - no dust cost at all, blind result. **Veiling** it (or spending one of your banked free recombines, which always veils too) rolls 3 full candidate outcomes and lets you pick, and guarantees the higher power roll plus every shared modifier's transfer - costs `{{VEIL_EXTRA_COST}}` dust flat, plus `500` per modifier across *both* source items combined. A rare **5% crit** can add a bonus modifier on top of any recombine, veiled or not — the "C" slot from the ceiling, tracked and gated exactly like Reforge's own crit, independently.
+Free to recombine unveiled - no dust cost at all, blind result. **Veiling** it (or spending one of your banked free recombines, which always veils too) rolls 3 full candidate outcomes and lets you pick, and guarantees the higher power roll plus every shared modifier's transfer - costs `{{VEIL_EXTRA_COST}}` dust flat, plus `500` per modifier across *both* source items combined. A rare **{{RECOMBINE_CRIT_CHANCE_PCT}}% crit** can add a bonus modifier on top of any recombine, veiled or not — the "C" slot from the ceiling, tracked and gated exactly like Reforge's own crit, independently.
 
 <h3 id="polishing">Polishing</h3>
 
@@ -100,7 +100,7 @@ The only action priced in Sand instead of Dust, and the only one that improves r
 
 On an ordinary item, Polishing nudges the primary stat's roll upward by a fixed step, and does the same to one random modifier that still has room to climb. On a <span class="gear-unique">Perfect</span> item — whose primary stat is already maxed — it instead nudges up to two modifiers at once. An affix already sitting at its own cap is skipped automatically.
 
-<p class="muted">Cost scales with how much room is left to improve: <code>ceil(quality% &divide; 10)</code> sand on a normal item (1 to 10), or a flat <code>12</code> sand on a Perfect one. Bypasses tokens and veiling entirely.</p>
+<p class="muted">Cost scales with how much room is left to improve: <code>ceil(quality% &divide; {{POLISH_SAND_COST_PER_QUALITY_PCT}})</code> sand on a normal item (1 to {{POLISH_MAX_SAND_COST}}), or a flat <code>{{POLISH_PERFECT_SAND_COST}}</code> sand on a Perfect one. Bypasses tokens and veiling entirely.</p>
 
 <h3 id="celestial-shard">Celestial Shard</h3>
 
@@ -169,9 +169,9 @@ Toggle **Keep** on any item to protect it from both single and bulk disenchantin
 | Chancing | Dust | {{CHANCING_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Needs 1+ modifiers |
 | Reforge (free) | — | 0 | Random equipped item |
 | Reforge (on demand) | Dust | {{WEB_REFORGE_DUST_COST}} | Random equipped item |
-| Reforge (crafting panel) | Dust | 30/tier | Choose the exact item |
+| Reforge (crafting panel) | Dust | {{PANEL_REFORGE_DUST_PER_TIER}}/tier | Choose the exact item |
 | Recombine | Dust | Free unveiled | Veiled: +{{VEIL_EXTRA_COST}}, +500/combined modifier |
-| Polishing | Sand | 1–10, or 12 flat if Perfect | Not veilable |
+| Polishing | Sand | 1–{{POLISH_MAX_SAND_COST}}, or {{POLISH_PERFECT_SAND_COST}} flat if Perfect | Not veilable |
 | Celestial Shard | Shard token | 1 token | Excludes Krangle |
 
 </div>

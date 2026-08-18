@@ -91,16 +91,13 @@ fn substitute_wiki_placeholders(source: &str) -> String {
 /// `adventure-item-balance.toml` overrides, so the wiki tracks whatever
 /// price is really live, not just the compiled-in default.
 ///
-/// A handful of numbers this same audit verified accurate (Dragon's 50%
-/// slow, Lich's 5-per-wave/2s cadence/20 cap, Fire Demon's 50% heal cut,
-/// Cthulhu's 90% cap, Recombine's 5% crit, Crafting-Panel Reforge's
-/// `30×tier`, Polishing's `12`/`10`) are NOT wired here - they're bare
-/// literals in combat.rs/manager.rs/character.rs with no name to import,
-/// and `LICH_MAX_ADDS` specifically is a block-local const inside
-/// `simulate_battle`, not a module item at all. Promoting any of those to
-/// real named constants is a combat.rs/manager.rs code change outside
-/// the wiki module's own boundary - left as verified-correct hardcoded
-/// text in the .md files for now rather than done unilaterally.
+/// The handful of numbers this audit verified accurate but couldn't wire
+/// (Dragon's slow, Lich's wave size/cadence/cap, Fire Demon's heal cut,
+/// Cthulhu's cap, Recombine's crit, Crafting-Panel Reforge's per-tier
+/// rate, Polishing's costs) were bare literals with no name to import as
+/// of Phase 4 - the primary session has since hoisted all of them into
+/// named `pub(crate)` constants (see `WIKI_IMPACT.md`'s "Pure refactor"
+/// entry), so every one of them is wired below too now.
 fn wiki_placeholder_map() -> HashMap<&'static str, String> {
     let pct = |fraction: f64| -> String { format!("{}", (fraction * 100.0).round() as i64) };
     let crit_pct = |quality: f64, perfect: bool| -> String { format!("{:.1}", crate::adventure::reforge_crit_chance(quality, perfect) * 100.0) };
@@ -138,6 +135,22 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("CUBE_SHRED_MAX_PCT", pct(crate::adventure::CUBE_SHRED_PCT_PER_STACK * crate::adventure::CUBE_SHRED_MAX_STACKS as f64)),
         ("CUBE_SHRED_DURATION_S", (crate::adventure::CUBE_SHRED_DURATION_MS / 1000).to_string()),
         ("CUBE_SPLASH_TOTAL_TARGETS", (crate::adventure::CUBE_SPLASH_MAX_TARGETS + 1).to_string()),
+        // Hoisted by the primary session (see WIKI_IMPACT.md) specifically
+        // so this audit could wire them.
+        ("DRAGON_SLOW_PCT", pct(crate::adventure::DRAGON_SLOW_MULT - 1.0)),
+        ("FIRE_DEMON_HEAL_MULT_PCT", pct(1.0 - crate::adventure::FIRE_DEMON_HEAL_MULT)),
+        ("CTHULHU_DEBUFF_CAP_PCT", pct(crate::adventure::CTHULHU_DEBUFF_CAP)),
+        ("LICH_SUMMON_CADENCE_S", (crate::adventure::LICH_SUMMON_CADENCE_MS / 1000).to_string()),
+        ("LICH_ADDS_PER_SUMMON", crate::adventure::LICH_ADDS_PER_SUMMON.to_string()),
+        ("LICH_MAX_ADDS", crate::adventure::LICH_MAX_ADDS.to_string()),
+        ("RECOMBINE_CRIT_CHANCE_PCT", pct(crate::adventure::RECOMBINE_CRIT_CHANCE)),
+        ("PANEL_REFORGE_DUST_PER_TIER", crate::adventure::PANEL_REFORGE_DUST_PER_TIER.to_string()),
+        ("POLISH_PERFECT_SAND_COST", crate::adventure::POLISH_PERFECT_SAND_COST.to_string()),
+        ("POLISH_SAND_COST_PER_QUALITY_PCT", (crate::adventure::POLISH_SAND_COST_PER_QUALITY_PCT as i64).to_string()),
+        // Max normal-item polish cost is ceil(100% / divisor) - derived,
+        // not a separate constant, so it stays correct if the divisor
+        // above ever changes.
+        ("POLISH_MAX_SAND_COST", ((100.0 / crate::adventure::POLISH_SAND_COST_PER_QUALITY_PCT).ceil() as u64).to_string()),
     ])
 }
 
@@ -161,32 +174,57 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
 pub(super) async fn wiki_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
     Html(render_page(&format!(
-        "{}{}{}{}",
+        "{}{}{}{}{}",
         top_nav(character.as_ref()),
         wiki_crumb("/", "Back to your character"),
         wiki_hash_redirect_script(),
+        wiki_subnav("landing"),
         render_wiki_toc(),
     )))
 }
 
 pub(super) async fn wiki_bosses_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_bosses())))
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("bosses"),
+        render_wiki_bosses(),
+    )))
 }
 
 pub(super) async fn wiki_crafting_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_crafting())))
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("crafting"),
+        render_wiki_crafting(),
+    )))
 }
 
 pub(super) async fn wiki_healing_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_healing())))
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("healing"),
+        render_wiki_healing(),
+    )))
 }
 
 pub(super) async fn wiki_passives_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let character = resolve_wiki_character(&headers, &state).await;
-    Html(render_page(&format!("{}{}{}", top_nav(character.as_ref()), wiki_crumb("/wiki", "All wiki sections"), render_wiki_passives())))
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("passives"),
+        render_wiki_passives(),
+    )))
 }
 
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
@@ -201,6 +239,28 @@ async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option
 /// backs out to `/` while every sub-page backs out to `/wiki`.
 fn wiki_crumb(back_href: &str, back_label: &str) -> String {
     format!("<div class=\"card\"><h1>Wiki</h1><p class=\"muted\"><a href=\"{back_href}\">&larr; {back_label}</a></p></div>")
+}
+
+/// Small nav between the 4 wiki sections, shown on every wiki page
+/// (landing included, so it doubles as a shortcut past the ToC). Reuses
+/// `top_nav`'s own `.top-nav-links`/`.top-nav-link` classes verbatim
+/// instead of introducing new CSS - the active page renders as plain
+/// bold text (no href) rather than a new "active link" style.
+fn wiki_subnav(active: &str) -> String {
+    let entry = |path: &str, label: &str, key: &str| -> String {
+        if key == active {
+            format!("<strong class=\"top-nav-link\">{label}</strong>")
+        } else {
+            format!("<a class=\"top-nav-link\" href=\"{path}\">{label}</a>")
+        }
+    };
+    format!(
+        "<div class=\"top-nav-links\">{}{}{}{}</div>",
+        entry("/wiki/bosses", "🐲 Bosses", "bosses"),
+        entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
+        entry("/wiki/healing", "✨ Healing", "healing"),
+        entry("/wiki/passives", "🌳 Passives", "passives"),
+    )
 }
 
 /// `/wiki` landing page's table of contents - content lives in
