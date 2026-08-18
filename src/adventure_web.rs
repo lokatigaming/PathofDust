@@ -127,7 +127,7 @@ pub async fn start_adventure_web_server(
     client_secret: String,
     adventure: Arc<AdventureManager>,
     sessions_path: PathBuf,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<std::net::SocketAddr> {
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
     let state = AppState {
         adventure,
@@ -197,6 +197,14 @@ pub async fn start_adventure_web_server(
         .nest_service("/skill-effects", tower_http::services::ServeDir::new("public_adventure_overlay/skill-effects"));
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    // Read BEFORE spawning/moving the listener - callers that bind to
+    // port 0 (an ephemeral port, e.g. Stage 1.5's HTTP golden-response
+    // harness spinning up a disposable instance) need the OS-assigned
+    // port back, since nothing else reports it. A caller that already
+    // knows its own fixed `port` (main.rs today) just gets the same
+    // value back wrapped in a SocketAddr - harmless, and one return type
+    // serves both cases instead of two divergent server-startup paths.
+    let bound_addr = listener.local_addr()?;
     tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, app).await {
             tracing::error!("Adventure web dashboard server crashed: {err}");
@@ -204,7 +212,7 @@ pub async fn start_adventure_web_server(
     });
 
     tracing::info!("Adventure character dashboard running on port {port}.");
-    Ok(())
+    Ok(bound_addr)
 }
 
 /// Pulls the session token out of the `Cookie` header and resolves it
