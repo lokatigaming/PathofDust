@@ -1,13 +1,15 @@
 # Path of Dust — Architecture Refactor Plan
 
-**Status** (2026-08-18): Stages 0, 0.5, and 1 done, on branch
+**Status** (2026-08-18): Stages 0, 0.5, 1, 1.5, and 2 done, on branch
 `refactor/architecture` (pushed to origin as a backup — not merged to
 master, not deployed; the deploy procedure still applies to master
-exclusively). Stage 1.5 (harness #3 + POST-route baselines, now
-unblocked by Stage 1's configurable persistence paths) is next. This
-document is the durable record of the plan — written to the repo root
-so a fresh session can resume the project with full context, without
-needing the original Plan-mode transcript.
+exclusively). The standalone `game` binary is real and live-verified
+(see Stage 2's own note) but not deployed anywhere - `twitch-bot-rs`'s
+existing in-process startup is still the only thing actually running in
+production. Stage 3 (the API seam) is next. This document is the
+durable record of the plan — written to the repo root so a fresh
+session can resume the project with full context, without needing the
+original Plan-mode transcript.
 
 **Scope escalation, mid-audit**: the original ask ("refactor into
 domain/persistence/web/ws") was superseded by an addendum: the adventure
@@ -558,11 +560,30 @@ proven, not before.
   value routes rather than full coverage in one pass; extending it to
   more routes as later stages touch them is straightforward from here,
   the hard part (a working disposable instance) is done.
-- **Stage 2**: give `game` its OWN `main()` (a second binary) that can
-  start the adventure_web + adventure_overlay servers standalone, zero
-  Twitch dependency. Smoke-test: game-only startup, full web UI works
-  with no bot process running. `twitch-bot-rs` still ALSO starts
-  everything in-process (dual-mode transitional state).
+- **Stage 2** (done, 2026-08-18, four commits): `game` got its OWN
+  `main()` (`game/src/main.rs`) that starts the adventure_web +
+  adventure_overlay servers standalone, zero Twitch dependency.
+  Resolved the wiki.rs crate-placement question first (owner's ruling:
+  game-side, full stop - a small bot→game published-constants file for
+  the 5 formerly-direct bot-side reads, graceful "varies" fallback -
+  see WIKI_IMPACT.md), then moved adventure_web.rs (+ render.rs/wiki.rs)
+  and adventure_overlay_server.rs into `game` intact - notably a MUCH
+  smaller diff than Stage 1's move (these files' own `crate::adventure::X`
+  references needed zero changes once they were actually inside `game`;
+  only new external-crate dependencies were needed, no `pub(crate)`→`pub`
+  sweep). Caught the same "cargo test's CWD is the package root" class
+  of bug Stage 1 hit, this time in `render.rs`'s template loader - fixed
+  with a `#[cfg(test)]`-only path override, production behavior
+  untouched. **Smoke-test criterion met and LIVE-VERIFIED, not just
+  built**: ran the actual compiled standalone binary (no bot process
+  running at all) against isolated scratch data on non-conflicting
+  ports - `/`, `/wiki`, `/wiki/combat`, `/wiki/commands`, and the
+  overlay's own index all returned 200, and the published-constants
+  fallback was confirmed rendering "varies" under the exact condition
+  it exists for (no bot ever ran against that scratch instance). Not
+  merged, not deployed - exists on `refactor/architecture` only;
+  `twitch-bot-rs`'s own in-process startup is completely unchanged and
+  still the only thing actually running in production.
 - **Stage 3**: build the API seam per §4 (game-side `/api/` endpoints
   returning pre-formatted reply strings; the SSE announcements stream;
   the bot-side HTTP client module) ALONGSIDE the existing direct
