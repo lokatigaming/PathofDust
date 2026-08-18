@@ -1393,7 +1393,211 @@ async fn patch_notes(State(state): State<AppState>, headers: HeaderMap) -> Html<
 /// channel name, not because these two constants mean the same thing).
 const TWITCH_CHANNEL: &str = "lokati_gaming";
 
-async fn overlay_page(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+/// `?embed=app` (2026-08-18) - set by the private companion Electron app
+/// when it iframes `/overlay` (see `overlay_page`'s own doc) - suppresses
+/// the website-only settings tray, since the app provides its own
+/// settings UI and would otherwise show two. Parsed server-side (not by
+/// having the tray hide itself client-side) so a slow/failed script load
+/// in the app's iframe can never leave the tray flashing visible first.
+#[derive(Deserialize)]
+struct OverlayPageParams {
+    #[serde(default)]
+    embed: Option<String>,
+}
+
+/// Compact, collapsible overlay-settings tray (2026-08-18) - injected
+/// into the WEBSITE's copy of the overlay ONLY (never OBS's untouched
+/// copy - see `adventure_overlay_server.rs`'s `serve_index` - and never
+/// under `?embed=app`, gated by the caller). Lets a plain browser-tab
+/// viewer set the same `?bgOpacity=`/`?bossSize=`/`?highlight=` params
+/// `overlay.html` already reads, without hand-editing the URL - a
+/// control rewrites `location.search` on `change` (not continuously)
+/// and mirrors the choice into localStorage so it survives a reload/
+/// revisit that carries none of these params at all. `own_login` is the
+/// authenticated session's stable lowercase Twitch login (never a
+/// free-text field) - `None` disables Highlight Me entirely rather than
+/// letting a logged-out visitor type an arbitrary login.
+fn render_overlay_settings_tray(own_login: Option<&str>) -> String {
+    let own_login_js = match own_login {
+        Some(login) => format!("{login:?}"),
+        None => "null".to_string(),
+    };
+    let highlight_disabled_attr = if own_login.is_some() { "" } else { " disabled" };
+    let highlight_hint = if own_login.is_some() {
+        String::new()
+    } else {
+        "<p class=\"ov-tray-hint\">Log in to highlight your character.</p>".to_string()
+    };
+    let template = "\
+<div id=\"overlay-settings-tray\" style=\"position:fixed;bottom:12px;left:12px;z-index:10000;font:13px 'Segoe UI',Arial,sans-serif;color:#fff;\">\
+<style>\
+#overlay-settings-tray button.ov-toggle{background:rgba(10,10,14,0.85);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit;}\
+#overlay-settings-tray button.ov-toggle:focus-visible,#overlay-settings-tray input:focus-visible{outline:2px solid #7c5cff;outline-offset:2px;}\
+#overlay-settings-body{background:rgba(10,10,14,0.9);border:1px solid rgba(255,255,255,0.25);border-radius:8px;padding:12px;margin-top:6px;min-width:220px;}\
+#overlay-settings-body label{display:block;margin-bottom:10px;}\
+#overlay-settings-body input[type=range]{width:100%;}\
+.ov-switch{display:flex;align-items:center;gap:8px;cursor:pointer;}\
+.ov-switch input[type=checkbox]{appearance:none;-webkit-appearance:none;width:36px;height:20px;border-radius:10px;background:rgba(255,255,255,0.25);position:relative;cursor:pointer;margin:0;flex:none;}\
+.ov-switch input[type=checkbox]::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.15s;}\
+.ov-switch input[type=checkbox]:checked{background:#7c5cff;}\
+.ov-switch input[type=checkbox]:checked::after{left:18px;}\
+.ov-switch input[type=checkbox]:disabled{opacity:0.4;cursor:not-allowed;}\
+.ov-tray-hint{margin:4px 0 0;opacity:0.75;font-size:12px;}\
+</style>\
+<button type=\"button\" class=\"ov-toggle\" id=\"overlay-settings-toggle\" aria-expanded=\"false\" aria-controls=\"overlay-settings-body\">&#9881; Overlay Settings</button>\
+<div id=\"overlay-settings-body\" style=\"display:none;\">\
+<label for=\"ov-bgop\">Background Opacity: <span id=\"ov-bgop-val\">100%</span>\
+<input type=\"range\" id=\"ov-bgop\" min=\"0\" max=\"100\" step=\"5\" value=\"100\"></label>\
+<label for=\"ov-bosssize\">Boss Size: <span id=\"ov-bosssize-val\">100%</span>\
+<input type=\"range\" id=\"ov-bosssize\" min=\"50\" max=\"150\" step=\"5\" value=\"100\"></label>\
+<label class=\"ov-switch\" for=\"ov-highlight\">\
+<input type=\"checkbox\" id=\"ov-highlight\"__HIGHLIGHT_DISABLED__> Highlight Me</label>\
+__HIGHLIGHT_HINT__\
+</div>\
+</div>\
+<script>\
+(function() {\
+/* Overlay settings tray (2026-08-18) - reads/writes bgOpacity, bossSize,\
+   and highlight the SAME way overlay.html's own top-of-script param\
+   parsing does; a change here just rewrites location.search and lets\
+   the normal page load pick the new values up, same as hand-editing\
+   the URL always did. */\
+var STORAGE_KEY = 'adventureOverlaySettings';\
+var ownLogin = __OWN_LOGIN__;\
+var qs = new URLSearchParams(location.search);\
+var hasAnyTrayParam = qs.has('bgOpacity') || qs.has('bossSize') || qs.has('highlight');\
+var stored = {};\
+try { stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (err) {}\
+/* Restore-on-fresh-load: only when NONE of the 3 tray params are\
+   already in the URL - a URL that already specifies even one (a\
+   shared/direct link) is respected as-is, never silently overridden by\
+   a stored preference from a past visit. Computed target vs current\
+   compared as strings so this can only ever navigate ONCE - the\
+   reloaded page finds the same stored value, computes the same target,\
+   sees no diff, and stops. */\
+if (!hasAnyTrayParam && (stored.bgOpacity != null || stored.bossSize != null || stored.highlightMe)) {\
+  var restore = new URLSearchParams(location.search);\
+  if (stored.bgOpacity != null && stored.bgOpacity !== 100) restore.set('bgOpacity', String(stored.bgOpacity / 100));\
+  if (stored.bossSize != null && stored.bossSize !== 100) restore.set('bossSize', String(stored.bossSize / 100));\
+  if (stored.highlightMe && ownLogin) restore.set('highlight', ownLogin);\
+  var target = restore.toString();\
+  if (target !== qs.toString()) {\
+    location.search = target;\
+    return;\
+  }\
+}\
+var toggle = document.getElementById('overlay-settings-toggle');\
+var body = document.getElementById('overlay-settings-body');\
+toggle.addEventListener('click', function() {\
+  var open = body.style.display !== 'none';\
+  body.style.display = open ? 'none' : 'block';\
+  toggle.setAttribute('aria-expanded', String(!open));\
+});\
+var bgSlider = document.getElementById('ov-bgop');\
+var bgLabel = document.getElementById('ov-bgop-val');\
+var bossSlider = document.getElementById('ov-bosssize');\
+var bossLabel = document.getElementById('ov-bosssize-val');\
+var highlightBox = document.getElementById('ov-highlight');\
+var initialBgOpacity = qs.has('bgOpacity') ? Math.round(parseFloat(qs.get('bgOpacity')) * 100) : 100;\
+var initialBossSize = qs.has('bossSize') ? Math.round(parseFloat(qs.get('bossSize')) * 100) : 100;\
+if (Number.isFinite(initialBgOpacity)) { bgSlider.value = String(initialBgOpacity); bgLabel.textContent = initialBgOpacity + '%'; }\
+if (Number.isFinite(initialBossSize)) { bossSlider.value = String(initialBossSize); bossLabel.textContent = initialBossSize + '%'; }\
+highlightBox.checked = !!ownLogin && qs.get('highlight') === ownLogin;\
+function applyAndPersist() {\
+  var bg = parseInt(bgSlider.value, 10);\
+  var bs = parseInt(bossSlider.value, 10);\
+  try {\
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ bgOpacity: bg, bossSize: bs, highlightMe: highlightBox.checked }));\
+  } catch (err) {}\
+  var target = new URLSearchParams(location.search);\
+  var wasHighlightingMe = !!ownLogin && target.get('highlight') === ownLogin;\
+  if (bg !== 100) target.set('bgOpacity', String(bg / 100)); else target.delete('bgOpacity');\
+  if (bs !== 100) target.set('bossSize', String(bs / 100)); else target.delete('bossSize');\
+  if (highlightBox.checked && ownLogin) target.set('highlight', ownLogin);\
+  else if (wasHighlightingMe) target.delete('highlight');\
+  var targetStr = target.toString();\
+  if (targetStr !== new URLSearchParams(location.search).toString()) {\
+    location.search = targetStr;\
+  }\
+}\
+bgSlider.addEventListener('input', function() { bgLabel.textContent = bgSlider.value + '%'; });\
+bgSlider.addEventListener('change', applyAndPersist);\
+bossSlider.addEventListener('input', function() { bossLabel.textContent = bossSlider.value + '%'; });\
+bossSlider.addEventListener('change', applyAndPersist);\
+highlightBox.addEventListener('change', applyAndPersist);\
+})();\
+</script>";
+    template
+        .replace("__HIGHLIGHT_DISABLED__", highlight_disabled_attr)
+        .replace("__HIGHLIGHT_HINT__", &highlight_hint)
+        .replace("__OWN_LOGIN__", &own_login_js)
+}
+
+#[cfg(test)]
+mod overlay_settings_tray_tests {
+    use super::*;
+
+    #[test]
+    fn logged_out_disables_highlight_and_shows_the_login_hint() {
+        let html = render_overlay_settings_tray(None);
+        assert!(html.contains("id=\"ov-highlight\" disabled>"), "checkbox must carry a real `disabled` attribute when logged out");
+        assert!(html.contains("Log in to highlight your character."));
+        assert!(html.contains("var ownLogin = null;"));
+        // No placeholder should ever survive substitution.
+        assert!(!html.contains("__HIGHLIGHT_DISABLED__") && !html.contains("__HIGHLIGHT_HINT__") && !html.contains("__OWN_LOGIN__"));
+    }
+
+    #[test]
+    fn logged_in_enables_highlight_and_omits_the_hint() {
+        let html = render_overlay_settings_tray(Some("lokati_gaming"));
+        assert!(html.contains("id=\"ov-highlight\">"), "checkbox must be enabled (no `disabled` attribute) when logged in");
+        assert!(!html.contains("Log in to highlight your character."));
+        assert!(html.contains("var ownLogin = \"lokati_gaming\";"));
+    }
+
+    #[test]
+    fn own_login_is_escaped_for_safe_js_string_embedding() {
+        // Twitch logins are actually restricted to [a-z0-9_] and can never
+        // contain this, but `own_login` still flows into a raw JS string
+        // literal via straight substitution - confirm the escaping (Rust's
+        // `Debug` for `&str`) can't let a hostile value break out of the
+        // quotes or inject a second statement, as defense in depth.
+        let html = render_overlay_settings_tray(Some("mallory\";alert(1);//"));
+        assert!(html.contains("var ownLogin = \"mallory\\\";alert(1);//\";"), "the quote must be backslash-escaped, not left to close the string early");
+    }
+
+    #[test]
+    fn is_embed_app_matches_only_the_exact_value_app() {
+        let is_embed_app = |embed: Option<&str>| -> bool {
+            let params = OverlayPageParams { embed: embed.map(str::to_string) };
+            params.embed.as_deref() == Some("app")
+        };
+        assert!(is_embed_app(Some("app")));
+        assert!(!is_embed_app(Some("App")), "must be case-sensitive, not fuzzy-matched");
+        assert!(!is_embed_app(Some("")));
+        assert!(!is_embed_app(None), "the companion app's own iframe is the only ?embed=app source - absence means a plain browser visit");
+    }
+
+    #[test]
+    fn tray_is_injected_immediately_after_body_open_exactly_once() {
+        // Mirrors overlay_page's own injection: `format!("<body>{}", tray)`
+        // then `patched.replacen("<body>", &tray_html, 1)` - confirmed here
+        // against a minimal fixture rather than the full handler, which
+        // needs a live AppState/disk read to construct at all.
+        let fixture = "<html><head></head><body><canvas id=\"stage-back\"></canvas></body></html>";
+        let tray = render_overlay_settings_tray(Some("alice"));
+        let tray_html = format!("<body>{tray}");
+        let patched = fixture.replacen("<body>", &tray_html, 1);
+        assert_eq!(patched.matches("id=\"overlay-settings-tray\"").count(), 1);
+        // The tray must land BEFORE the existing body content, and the
+        // chat-panel injection point (`</body>`) must be untouched by this
+        // substitution - the two injections must never collide.
+        assert!(patched.find("overlay-settings-tray").unwrap() < patched.find("stage-back").unwrap());
+        assert_eq!(patched.matches("</body>").count(), 1);
+    }
+}
+
+async fn overlay_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<OverlayPageParams>) -> impl IntoResponse {
     match tokio::fs::read_to_string("public_adventure_overlay/overlay.html").await {
         Ok(contents) => {
             // overlay.html's own `html, body { background: transparent; }`
@@ -1410,6 +1614,21 @@ async fn overlay_page(State(state): State<AppState>, headers: HeaderMap) -> impl
             // `overlay.html` file on disk never needs editing.
             let dark_bg_override = "<style>html,body{background:#1a1a1a!important;}</style></head>";
             let mut patched = contents.replacen("</head>", dark_bg_override, 1);
+            let is_embed_app = params.embed.as_deref() == Some("app");
+            let session = current_session(&headers, &state).await;
+            // Settings tray (2026-08-18) - website only, never OBS's own
+            // untouched copy, and never inside the companion app's
+            // `?embed=app` iframe (it has its own settings UI - see
+            // OverlayPageParams's own doc). Injected right after <body>
+            // rather than at </body> like the chat panel below - it's
+            // `position: fixed`, so DOM order doesn't matter for where it
+            // renders, and doing it this way means the two injections
+            // never fight over the same `</body>` anchor.
+            if !is_embed_app {
+                let own_login = session.as_ref().map(|(login, _)| login.as_str());
+                let tray_html = format!("<body>{}", render_overlay_settings_tray(own_login));
+                patched = patched.replacen("<body>", &tray_html, 1);
+            }
             // Live chat embed pinned to the right side (moved from an
             // initial top-strip placement per a live follow-up request) -
             // gated to logged-in dashboard visitors only (not the
@@ -1423,7 +1642,7 @@ async fn overlay_page(State(state): State<AppState>, headers: HeaderMap) -> impl
             // client-side via `location.hostname` rather than hardcoded,
             // so this works unchanged whether it's reached via
             // adventure.lokati.net or localhost.
-            if current_session(&headers, &state).await.is_some() {
+            if session.is_some() {
                 const CHAT_WIDTH_PX: u32 = 340;
                 // /* */ block comment, NOT //, inside the JS below -
                 // deliberately, after a confirmed live bug: this whole
@@ -1444,13 +1663,16 @@ async fn overlay_page(State(state): State<AppState>, headers: HeaderMap) -> impl
                     </div>\
                     <script>\
                       document.getElementById('overlay-chat-frame').src = 'https://www.twitch.tv/embed/{TWITCH_CHANNEL}/chat?parent=' + location.hostname + '&darkpopout';\
-                      /* overlay.html's OWN resize() (see its own <script>, near the top) sizes the game canvas to the FULL window width - it has no idea this chat panel is reserving {CHAT_WIDTH_PX}px on the right, so without this the game keeps drawing (and getting covered) behind the chat panel. Re-shrinking the canvas here, both immediately (correcting whatever the page's own resize() just set on load) and on every future resize (this listener is attached AFTER the page's own, so it always runs second/last and wins) - every draw call in the game already positions everything relative to canvas.width/height, so shrinking it is enough to make the whole scene fit the remaining space with no other changes needed. */\
+                      /* overlay.html's OWN resize() (see its own <script>, near the top) sizes EVERY renderer canvas (see the layer-model comment in its own <style>) to the FULL window width - it has no idea this chat panel is reserving {CHAT_WIDTH_PX}px on the right, so without this the game keeps drawing (and getting covered) behind the chat panel. Re-shrinking every canvas here, both immediately (correcting whatever the page's own resize() just set on load) and on every future resize (this listener is attached AFTER the page's own, so it always runs second/last and wins) - querySelectorAll runs once (the set of canvases is static, never created/destroyed after page load), so this stays a single shared formula applied uniformly instead of drifting per-layer. */\
                       (function() {{\
-                        var stage = document.getElementById('stage');\
+                        var stages = document.querySelectorAll('canvas');\
                         function shrinkForChat() {{\
-                          if (!stage) return;\
-                          stage.width = Math.max(0, window.innerWidth - {CHAT_WIDTH_PX});\
-                          stage.height = window.innerHeight;\
+                          var w = Math.max(0, window.innerWidth - {CHAT_WIDTH_PX});\
+                          var h = window.innerHeight;\
+                          stages.forEach(function(stage) {{\
+                            stage.width = w;\
+                            stage.height = h;\
+                          }});\
                         }}\
                         shrinkForChat();\
                         window.addEventListener('resize', shrinkForChat);\

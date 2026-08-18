@@ -9,18 +9,51 @@
     width: 100%; height: 100%;
   }
   canvas { display: block; }
+  /* Layer model (2026-08-18, "players always in front of bosses" fix) -
+     a canvas draw can never beat a same-stacking-context <img> without a
+     canvas ABOVE that img, so the single #stage canvas is split into 3
+     stacked, transparent, full-viewport canvases interleaved with the
+     GIF <img> layers below, everything sharing one z-index scale so the
+     paint order is unambiguous regardless of DOM insertion order:
+       z0 stage-back   - background, ground line, stage label, enemy PNG bodies
+       z1 .boss-gif    - GIF-flagged boss bodies
+       z2 stage-mid    - normal player PNG bodies, downed ghosts
+       z3 .character-gif - GIF-flagged player bodies (non-highlighted)
+       z4 stage-top    - the HIGHLIGHTED character's PNG body, canvas
+                          combat effects, health bars, the result banner
+       z5 (inline)     - the highlighted character's .character-gif ONLY
+                          (see characterGifImgFor - every other instance
+                          of this class stays at the z3 default)
+       z6 .flicker-fx / .dragon-fx - always above every body
+     Every enemy lives in {z0, z1}; every normal player in {z2, z3}; the
+     highlighted player in {z4, z5} - so every player beats every enemy,
+     for every PNG/GIF combination, without needing per-pair special
+     cases. All three canvases share one resize() and are drawn from the
+     one draw() - see its own "Pass 2: draw" comment for which context
+     each draw call routes to. */
+  #stage-back, #stage-mid, #stage-top {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+  }
+  #stage-back { z-index: 0; }
+  #stage-mid { z-index: 2; }
+  #stage-top { z-index: 4; }
   /* Flicker Strike's dash effect (see spawnFlickerEffect) - a real <img>,
      not drawn into the canvas, since canvas drawImage only ever shows a
      GIF's first frame; a native <img> animates it for real. Position/
      size/opacity are all driven every frame from JS (updateAndDrawFlickerDashes),
      not fixed here. Each cast gets its own 4 freshly-created elements
      (never reused across casts) so simultaneous casts from different
-     characters each play their own animation from frame 1 independently. */
+     characters each play their own animation from frame 1 independently.
+     z6, bumped from the old flat z-index:5 every DOM effect/body layer
+     shared - see the layer-model comment above - so an effect never
+     renders below a body it's supposed to be layered over. */
   .flicker-fx {
     position: fixed;
     pointer-events: none;
     mix-blend-mode: screen;
-    z-index: 5;
+    z-index: 6;
     transform: translate(-50%, -50%);
   }
   /* Dragon's Breath (see spawnDragonsBreathShot) - same real-<img>
@@ -31,31 +64,38 @@
     position: fixed;
     pointer-events: none;
     mix-blend-mode: screen;
-    z-index: 5;
+    z-index: 6;
   }
   /* A GIF-flagged boss body (see bossGifImgFor/GIF_SPRITES) - a real
      <img> instead of a canvas draw, same reasoning as .flicker-fx, just
      long-lived per boss instead of a one-shot effect. No mix-blend-mode
      (this is the actual character art, not a glow/fire overlay) and no
      translate baked in - drawEnemy positions it in absolute left/top
-     terms directly, matching its own canvas-draw math exactly. */
+     terms directly, matching its own canvas-draw math exactly. z1 - see
+     the layer-model comment above; every enemy body (boss or basic) is
+     below every player body regardless of PNG/GIF. */
   .boss-gif {
     position: fixed;
     pointer-events: none;
-    z-index: 5;
+    z-index: 1;
   }
   /* Same reasoning as .boss-gif, for a player character whose custom
      drop-in sprite (see CUSTOM_SPRITE_DIR) turned out to be a .gif - see
-     characterGifImgFor. */
+     characterGifImgFor. z3 by default (above every enemy, below the
+     highlighted character's own z4/z5) - characterGifImgFor bumps THIS
+     ONE character's element to z5 inline when they're the ?highlight=
+     target, since highlight is fixed per page load and never changes. */
   .character-gif {
     position: fixed;
     pointer-events: none;
-    z-index: 5;
+    z-index: 3;
   }
 </style>
 </head>
 <body>
-<canvas id="stage"></canvas>
+<canvas id="stage-back"></canvas>
+<canvas id="stage-mid"></canvas>
+<canvas id="stage-top"></canvas>
 
 <script>
   // Prototype renderer. Players and the boss are drawn as real pixel-art
@@ -76,8 +116,22 @@
   // log back at the right pace and render its real consequences (HP
   // bars, knockouts) — it doesn't invent anything about who's winning.
 
-  const canvas = document.getElementById('stage');
+  // Three stacked canvases (see the layer-model comment in <style>) -
+  // `canvas`/`ctx` keep their old names and keep meaning "the back
+  // layer" specifically, so every existing `canvas.width`/`canvas.height`
+  // geometry read throughout this file (all three canvases are always
+  // sized identically, see resize()) and every existing bare `ctx.`
+  // draw call (background/ground-line/stage-label/drawEnemy - all z0
+  // content) needed zero changes. Only the calls that must land on a
+  // DIFFERENT layer (drawCharacter/drawDowned, routed per-character to
+  // mid or top; updateAndDrawEffects/drawHealthBar/drawBanner, always
+  // top) reference ctxMid/ctxTop explicitly - see "Pass 2: draw" below.
+  const canvas = document.getElementById('stage-back');
+  const canvasMid = document.getElementById('stage-mid');
+  const canvasTop = document.getElementById('stage-top');
   const ctx = canvas.getContext('2d');
+  const ctxMid = canvasMid.getContext('2d');
+  const ctxTop = canvasTop.getContext('2d');
   // Every enemy (a lone boss, or one member of a basic encounter's
   // group) gets an id like "__enemy_0__" - must match adventure.rs's
   // enemy_unit_id. A real boss fight always has exactly one, at index 0.
@@ -95,21 +149,42 @@
   }
 
   function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    for (const c of [canvas, canvasMid, canvasTop]) {
+      c.width = window.innerWidth;
+      c.height = window.innerHeight;
+    }
   }
   window.addEventListener('resize', resize);
   resize();
 
-  // ?highlight=<name> (2026-08-16, a live request) - dims every OTHER
-  // player character so one can be spotlighted on stream. Matched
-  // against the character's stable lowercased id (same key `characters`
-  // itself is keyed by, e.g. "kibukah" for "Kibukah"), not their raw
-  // display name, so casing in the URL doesn't matter. `null` (no dim at
-  // all, normal behavior) when the param is absent - a query string
-  // typo just silently highlights nobody rather than dimming everyone.
+  // ?highlight=<name> (2026-08-16, a live request; fixed 2026-08-18 - see
+  // highlightActive's own doc) - dims every OTHER player character so one
+  // can be spotlighted on stream, and (2026-08-18) draws that one
+  // character's body/health-bar/level/name on the top layer, above every
+  // other player AND every boss - see the <style> layer-model comment.
+  // Matched against the character's stable lowercased id (same key
+  // `characters` itself is keyed by, e.g. "kibukah" for "Kibukah"), not
+  // their raw display name, so casing in the URL doesn't matter. `null`
+  // (no highlight at all) when the param is absent.
   const highlightName = new URLSearchParams(location.search).get('highlight')?.trim().toLowerCase() || null;
   const HIGHLIGHT_DIM_ALPHA = 0.15;
+  // Whether highlight mode is actually ACTIVE this frame - NOT just
+  // `!!highlightName`. `highlightName` alone was a real bug (found while
+  // wiring the layer model, since routing a character to the top canvas
+  // needed a trustworthy "is this really the one" check): the roster
+  // (`characters`) is empty at page load, and a `?highlight=` value that
+  // never matches any real id (a stale/typo'd login, or simply "no state
+  // message has arrived yet") left `highlightName` permanently truthy
+  // with nothing it ever equalled, which the OLD dim-check
+  // (`highlightName && id !== highlightName`) read as "dim literally
+  // everyone" - the exact opposite of the doc comment's own claim that a
+  // typo "silently highlights nobody." Recomputed every frame (cheap -
+  // Map#has is O(1)) so it activates the instant a real `state` message
+  // establishes the id, and never activates at all for a login that's
+  // never actually on the roster.
+  function highlightActive() {
+    return !!highlightName && characters.has(highlightName);
+  }
 
   // id -> { displayName, level, xp, xpNeeded, wins, losses, role, color,
   // wanderX/Y + wanderTargetX/Y + nextWanderAt (idle roaming), jumpOffset
@@ -293,7 +368,16 @@
   // invalidation key, so a live sprite change swaps the element instead
   // of leaving a stale one on screen.
   const characterGifImgs = new Map();
-  function characterGifImgFor(id, sourceImg) {
+  // `isHighlighted` (2026-08-18, layer model) bumps THIS character's
+  // element to z5 - above stage-top (z4), same "highlighted player beats
+  // everything, PNG or GIF" guarantee drawCharacter's ctxTop routing
+  // gives a non-gif highlighted character - see the <style> layer-model
+  // comment. Only ever applied at element-creation time, never re-checked
+  // on a cache hit: highlight is resolved once from location.search at
+  // page load and never changes for the life of the page (isHighlighted
+  // is always the same value for a given `id` on every call), so a
+  // cached element's z-index from its own creation is already correct.
+  function characterGifImgFor(id, sourceImg, isHighlighted) {
     const isGif = sourceImg && sourceImg.complete && sourceImg.naturalWidth > 0 && sourceImg.src.endsWith('.gif');
     const cached = characterGifImgs.get(id);
     if (!isGif) {
@@ -308,6 +392,7 @@
     const img = document.createElement('img');
     img.className = 'character-gif';
     img.style.display = 'none';
+    if (isHighlighted) img.style.zIndex = '5';
     img.src = sourceImg.src;
     document.body.appendChild(img);
     characterGifImgs.set(id, img);
@@ -1002,7 +1087,12 @@
     return { x: st.x, y: homeY, scale, facingLeft: st.facingLeft };
   }
 
-  function updateAndDrawEffects(now) {
+  // `ctx` (2026-08-18, layer model) - always the top canvas at the one
+  // real call site in draw(), but still an explicit parameter (shadowing
+  // the module-level back-canvas `ctx`, same convention as drawCharacter/
+  // drawDowned) rather than hardcoded, so every draw call in this file
+  // states which layer it targets instead of some being implicit.
+  function updateAndDrawEffects(ctx, now) {
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const p = projectiles[i];
       const t = (now - p.startTime) / p.durationMs;
@@ -1152,6 +1242,16 @@
   const bgOpacityParam = parseFloat(new URLSearchParams(location.search).get('bgOpacity'));
   const BG_OPACITY = Number.isFinite(bgOpacityParam) ? Math.min(1, Math.max(0, bgOpacityParam)) : 1;
 
+  // ?bossSize=<0.5-1.5> (2026-08-18, same URL-param convention as
+  // ?bgOpacity= above) - a multiplier on a REAL boss's rendered height
+  // (see bossSpriteHeight in draw()), NEVER a basic encounter's mobs -
+  // gated there, not here, since this constant alone can't tell a boss
+  // fight from a basic one. Defaults to 1 (today's exact behavior) when
+  // absent/unparseable, clamped to [0.5, 1.5] so an out-of-range value
+  // can't shrink a boss to nothing or blow it up past the canvas.
+  const bossSizeParam = parseFloat(new URLSearchParams(location.search).get('bossSize'));
+  const BOSS_SIZE = Number.isFinite(bossSizeParam) ? Math.min(1.5, Math.max(0.5, bossSizeParam)) : 1;
+
   function drawScrollingBackground() {
     if (!bgImage.complete || !bgImage.naturalWidth) return;
     const displayHeight = canvas.height;
@@ -1175,7 +1275,10 @@
   // damage, so a hit visibly drains out instead of just jump-cutting the
   // bar to its new length. This is what actually reads as the bar
   // "moving with the flow of combat" rather than being a static readout.
-  function drawHealthBar(x, barY, width, height, displayFrac, ghostFrac, label) {
+  // `ctx` (2026-08-18, layer model) - always the top canvas at the real
+  // call site; see updateAndDrawEffects's own doc for why it's still an
+  // explicit parameter rather than hardcoded.
+  function drawHealthBar(ctx, x, barY, width, height, displayFrac, ghostFrac, label) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(x - width / 2 - 2, barY - 2, width + 4, height + 4);
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
@@ -1231,7 +1334,13 @@
   // now), just the death gif fading from mostly-visible to fully
   // transparent as fadeAlpha (see deathFadeAlpha) counts down to 0.
   // Feet-anchored (`y` is ground-contact), same convention as drawCharacter.
-  function drawDowned(x, y, size, displayName, fadeAlpha) {
+  // `ctx` (2026-08-18, layer model) is the target canvas context to draw
+  // on - stage-mid normally, stage-top for the highlighted character -
+  // deliberately SHADOWS the module-level `ctx` (the back canvas) for
+  // this function's whole body, so every existing bare `ctx.` call below
+  // needed zero further changes to route correctly; see the caller in
+  // draw()'s "Pass 2" and the <style> layer-model comment.
+  function drawDowned(ctx, x, y, size, displayName, fadeAlpha) {
     const sprite = loadedSprite('death');
     const dh = size * 2.2;
     const dw = sprite ? dh * (sprite.naturalWidth / sprite.naturalHeight) : dh;
@@ -1273,7 +1382,9 @@
   // character actually stands on the ground line instead of being buried
   // to the waist in it, and the health bar (just below the feet) stays
   // comfortably on-canvas.
-  function drawCharacter(x, y, size, sprite, fallbackColor, displayName, level, hpFrac, ghostFrac, downed, facingLeft, gifImg, dimAlpha) {
+  // `ctx` (2026-08-18, layer model) - same shadowing convention as
+  // drawDowned just above; see its own doc.
+  function drawCharacter(ctx, x, y, size, sprite, fallbackColor, displayName, level, hpFrac, ghostFrac, downed, facingLeft, gifImg, dimAlpha) {
     const dim = dimAlpha ?? 1;
     ctx.globalAlpha = (downed ? 0.45 : 1) * dim;
 
@@ -1576,7 +1687,10 @@
     return { x: leapX !== null ? leapX : st.restX, y: leapY !== null ? leapY : st.restY, scale, glow };
   }
 
-  function drawBanner(text, color, progress) {
+  // `ctx` (2026-08-18, layer model) - always the top canvas at the real
+  // call site; see updateAndDrawEffects's own doc for why it's still an
+  // explicit parameter rather than hardcoded.
+  function drawBanner(ctx, text, color, progress) {
     const alpha = progress < 0.5 ? progress / 0.5 : 1 - (progress - 0.5) / 0.5;
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -1600,7 +1714,11 @@
     // clock and isn't comparable to it.
     const nowEpoch = Date.now();
 
+    // All three layers, every frame - dimensions always match (see
+    // resize()), so canvas.width/height is a fine shared source for all.
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctxMid.clearRect(0, 0, canvas.width, canvas.height);
+    ctxTop.clearRect(0, 0, canvas.width, canvas.height);
     const groundY = canvas.height - 60;
 
     drawScrollingBackground();
@@ -1715,7 +1833,14 @@
     // doesn't just double the total footprint on screen.
     const bossCount = encounter ? Math.max(1, enemyUnitIds(encounter).length) : 1;
     const isMultiBoss = !!encounter && encounter.kind !== 'basic' && bossCount > 1;
-    const bossSpriteHeight = encounter ? Math.max(160, canvas.height * (encounter.kind === 'basic' ? 0.4 : isMultiBoss ? 0.5 : 0.72)) : 0;
+    // ?bossSize= (see its own doc) multiplies the WHOLE floor-and-all
+    // result, gated to `kind !== 'basic'` - a basic encounter's own
+    // grid sizing (enemyDh, computed separately below off the party's
+    // own sprite size) must stay untouched by this param entirely, not
+    // just unmultiplied here - see the enemyDh block just below, which
+    // only ever reads bossSpriteHeight for the isMultiBoss branch (a
+    // real multi-boss fight), never the basic-encounter one.
+    const bossSpriteHeight = encounter ? Math.max(160, canvas.height * (encounter.kind === 'basic' ? 0.4 : isMultiBoss ? 0.5 : 0.72)) * (encounter.kind === 'basic' ? 1 : BOSS_SIZE) : 0;
     const bossHalfWidth = bossSpriteHeight > 0 ? (bossSpriteHeight / 2) * bossAspect : 0;
     const bossAnchorX = canvas.width - 40 - bossHalfWidth;
 
@@ -2081,13 +2206,21 @@
       for (const u of encounter.units.values()) updateUnitDisplayHp(u, dt);
     }
 
-    // Pass 2: draw. Boss body first so heroes always render on top of it
-    // (melee especially - they crowd right up against it), even when
-    // they visually overlap; health bars are collected here and drawn in
-    // their own final pass instead of inline, so one can never end up
-    // buried under a neighboring sprite in a dense cluster; effects on
-    // top of both; the banner over everything.
+    // Pass 2: draw. Layer model (see <style>'s own comment) now does what
+    // "boss body first" alone used to: every enemy draws on the BACK
+    // canvas (ctx, this file's original/default context - unchanged
+    // below), every normal player on the MID canvas (ctxMid), and the
+    // highlighted player (if any) on the TOP canvas (ctxTop) instead -
+    // mid sits above back and top sits above mid regardless of draw
+    // order within a single canvas, so this no longer depends on boss
+    // bodies happening to draw first. Health bars are collected here and
+    // drawn in their own final pass on ctxTop (top of every body,
+    // enemy or player) instead of inline, so one can never end up
+    // buried under a neighboring sprite in a dense cluster; canvas
+    // effects (updateAndDrawEffects) also always draw on ctxTop; the
+    // banner over everything, ctxTop too.
     const healthBars = [];
+    const highlighted = highlightActive();
 
     if (phase && encounter) {
       // Each enemy - lone boss or group member alike - is a real,
@@ -2130,9 +2263,14 @@
       // zero, not all at once - so they go ghost right then too, just at
       // a flat (non-counting-down) alpha since the real 30s timer hasn't
       // started yet.
-      // ?highlight=<login> (see its own doc up top) - everyone but the
-      // named character gets dimmed, ghost/downed rendering included.
-      const dimAlpha = highlightName && id !== highlightName ? HIGHLIGHT_DIM_ALPHA : 1;
+      // ?highlight=<login> (see highlightActive's own doc) - everyone
+      // but the named character gets dimmed, ghost/downed rendering
+      // included; the named character itself draws on the TOP canvas
+      // (ctxTop) instead of the normal MID one, above every other player
+      // and every boss - see the <style> layer-model comment.
+      const isHighlighted = highlighted && id === highlightName;
+      const dimAlpha = highlighted && !isHighlighted ? HIGHLIGHT_DIM_ALPHA : 1;
+      const targetCtx = isHighlighted ? ctxTop : ctxMid;
 
       const revivingGhost = isDowned(c, nowEpoch);
       if (revivingGhost || downed) {
@@ -2142,7 +2280,7 @@
         // position while drawDowned draws the ghost separately.
         const staleGifImg = characterGifImgs.get(id);
         if (staleGifImg) staleGifImg.style.display = 'none';
-        drawDowned(pos.x, pos.y, pos.radius, c.displayName, (revivingGhost ? deathFadeAlpha(c, nowEpoch) : 0.75) * dimAlpha);
+        drawDowned(targetCtx, pos.x, pos.y, pos.radius, c.displayName, (revivingGhost ? deathFadeAlpha(c, nowEpoch) : 0.75) * dimAlpha);
         return;
       }
 
@@ -2155,21 +2293,21 @@
       }
 
       const sprite = spriteForCharacter(id);
-      const gifImg = characterGifImgFor(id, sprite);
-      const bar = drawCharacter(pos.x, pos.y, radius, sprite, c.color, c.displayName, c.level, hpFrac, ghostFrac, downed, c.facingLeft, gifImg, dimAlpha);
+      const gifImg = characterGifImgFor(id, sprite, isHighlighted);
+      const bar = drawCharacter(targetCtx, pos.x, pos.y, radius, sprite, c.color, c.displayName, c.level, hpFrac, ghostFrac, downed, c.facingLeft, gifImg, dimAlpha);
       if (bar) healthBars.push(bar);
     });
 
-    updateAndDrawEffects(now);
+    updateAndDrawEffects(ctxTop, now);
     updateAndDrawFlickerDashes(now);
     updateAndDrawDragonBreathShots(now);
 
     for (const bar of healthBars) {
-      drawHealthBar(bar.x, bar.barY, bar.width, bar.height, bar.hpFrac, bar.ghostFrac, bar.label);
+      drawHealthBar(ctxTop, bar.x, bar.barY, bar.width, bar.height, bar.hpFrac, bar.ghostFrac, bar.label);
     }
 
     if (phase && phase.name === 'resolve') {
-      drawBanner(encounter.won ? 'Victory!' : 'Defeated...', encounter.won ? '#7CFC7C' : '#FF6B6B', phase.progress);
+      drawBanner(ctxTop, encounter.won ? 'Victory!' : 'Defeated...', encounter.won ? '#7CFC7C' : '#FF6B6B', phase.progress);
     }
 
     requestAnimationFrame(draw);

@@ -860,6 +860,138 @@ pub enum EncounterKind {
     Basic,
 }
 
+/// One player's authoritative HP timeline for a fight (2026-08-18, the
+/// companion Electron app's Party pane) - `thin_events_for_overlay` can
+/// discard the very HP-changing/`Defeat` events a big fight would
+/// otherwise need (see its own doc), so this rides alongside the
+/// (possibly-thinned) broadcast `events` as a SEPARATE, NEVER-thinned
+/// record built from the FULL pre-thinning log - see
+/// `build_player_vitals`, whose own doc covers the exact construction
+/// rules. Additive (`#[serde(default)]` on `EncounterResult::player_vitals`
+/// below) - an old persisted `LastFightSnapshot` with no `playerVitals`
+/// key at all still deserializes, reading as an empty `Vec`.
+///
+/// **Wire contract, frozen once shipped** (an external companion app
+/// builds against this shape): `hpSamples` are `[atMs, hp]` pairs in the
+/// SAME compressed display-time space `events`' own `atMs` already uses
+/// (not real fight time), stepped (not interpolated) - the consumer
+/// walks them with its existing replay cursor, same as it already walks
+/// `events`. `maxHp` is deliberately NOT repeated here - it already
+/// lives on this player's matching `CombatUnitInfo` in
+/// `EncounterResult::units`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerVitals {
+    /// Matches `CombatUnitInfo.id`.
+    pub id: String,
+    /// Chronological, coalesced to one sample per 100ms display-time
+    /// bucket (the bucket's LAST event wins, stamped with that event's
+    /// own real `atMs`, not the bucket boundary), with consecutive
+    /// identical HP values dropped - see `build_player_vitals`.
+    pub hp_samples: Vec<(u32, u64)>,
+    /// Display-time timestamp of this player's own first `Defeat` event,
+    /// if they died this fight - `None`/omitted for a survivor. In-fight
+    /// death is terminal (nothing revives a unit mid-replay - see
+    /// `build_player_vitals`'s own doc), so this is unambiguous.
+    #[serde(default)]
+    pub died_at_ms: Option<u32>,
+}
+
+/// Builds every player's `PlayerVitals` timeline for one fight - see
+/// `PlayerVitals`'s own doc for the wire contract this produces.
+///
+/// **Caller contract**: MUST be called on the FULL, compressed,
+/// pre-thinning `events` (i.e. `compress_events`'s own output, before
+/// `thin_events_for_overlay` ever touches it) and assigned onto
+/// `EncounterResult::player_vitals` BEFORE `save_last_fight`, so the
+/// persisted snapshot and the live broadcast carry IDENTICAL vitals -
+/// same "build once from the untouched log, assign before anything
+/// thins/serializes it" precedent `EncounterResult::summary` already
+/// established (see its own doc). Both `run_encounter`/`run_basic_encounter`
+/// call this the same way.
+///
+/// Player characters only (`!u.is_boss`) - bosses, basic enemies, and
+/// summoned adds are all excluded, matching the companion app's own
+/// join filter (`!u.isBoss && !/^__enemy/.test(u.id)`). Each player
+/// starts at `[0, maxHp]`; an `Attack`/`Heal` event targeting them
+/// appends a sample from `target_hp_after`; their own `Defeat` sets HP
+/// to 0 and records `diedAtMs` (in-fight death is terminal - every
+/// cheat-death mechanic already fires BEFORE a `Defeat` would be
+/// emitted and leaves HP >= 1, so a player's first `Defeat` is their
+/// genuine, final death this fight - this can only ever record once);
+/// `Shield` is ignored (shield state doesn't ride on this payload, see
+/// `PlayerVitals`'s own doc). Events are walked in log order WITHOUT
+/// re-sorting - same-`atMs` sequences (e.g. the Warlock curse-split's
+/// intermediate `target_hp_after`) rely on that original order, last-
+/// write-wins. The very first sample (`[0, maxHp]`) is never itself
+/// subject to bucket-merging with a real event (a real event at
+/// `atMs < 100` still gets its own bucket 0 entry, distinct from the
+/// seed) - only real event-derived samples merge with each other within
+/// the same 100ms bucket.
+pub(crate) fn build_player_vitals(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Vec<PlayerVitals> {
+    const VITALS_BUCKET_MS: u32 = 100;
+
+    struct Building {
+        samples: Vec<(u32, u64)>,
+        last_real_bucket: Option<u32>,
+        died_at_ms: Option<u32>,
+    }
+
+    let mut building: HashMap<&str, Building> = units
+        .iter()
+        .filter(|u| !u.is_boss)
+        .map(|u| (u.id.as_str(), Building { samples: vec![(0, u.max_hp)], last_real_bucket: None, died_at_ms: None }))
+        .collect();
+
+    let push_sample = |b: &mut Building, at_ms: u32, hp: u64| {
+        let bucket = at_ms / VITALS_BUCKET_MS;
+        // Same bucket as the last REAL sample pushed - overwrite it (the
+        // bucket's LAST event wins) rather than appending a second entry.
+        // A same-bucket overwrite can legitimately restore an earlier
+        // value (e.g. damage then a same-bucket heal back to the prior
+        // HP) - harmless, the final dedup pass below re-collapses that
+        // against whatever the PRECEDING bucket's own sample was.
+        if b.last_real_bucket == Some(bucket) {
+            if let Some(last) = b.samples.last_mut() {
+                *last = (at_ms, hp);
+            }
+        } else {
+            b.samples.push((at_ms, hp));
+            b.last_real_bucket = Some(bucket);
+        }
+    };
+
+    for event in events {
+        match event {
+            CombatEvent::Attack { target, target_hp_after, .. } | CombatEvent::Heal { target, target_hp_after, .. } => {
+                if let Some(b) = building.get_mut(target.as_str()) {
+                    push_sample(b, event.at_ms(), *target_hp_after);
+                }
+            }
+            CombatEvent::Defeat { unit, at_ms } => {
+                if let Some(b) = building.get_mut(unit.as_str()) {
+                    push_sample(b, *at_ms, 0);
+                    b.died_at_ms.get_or_insert(*at_ms);
+                }
+            }
+            CombatEvent::Shield { .. } | CombatEvent::SkillCast { .. } | CombatEvent::BuffSnapshot { .. } => {}
+        }
+    }
+
+    building
+        .into_iter()
+        .map(|(id, mut b)| {
+            // Drop consecutive identical HP values - keeps the FIRST
+            // sample of a run (marks WHEN the HP first reached that
+            // value), drops later redundant confirmations of the same
+            // number, same "collapse a flat stretch" spirit the health-
+            // bar consumer itself already applies visually.
+            b.samples.dedup_by(|a, kept| a.1 == kept.1);
+            PlayerVitals { id: id.to_string(), hp_samples: b.samples, died_at_ms: b.died_at_ms }
+        })
+        .collect()
+}
+
 /// Broadcast the moment an encounter resolves — main.rs subscribes to
 /// announce it in chat, and the overlay subscribes to the same event to
 /// replay the fight.
@@ -933,6 +1065,19 @@ pub struct EncounterResult {
     /// follows (built once, then reassigned before the struct goes
     /// anywhere).
     pub summary: FightSummarySnapshot,
+    /// Per-player HP timelines for the companion Electron app (2026-08-18)
+    /// - see `PlayerVitals`'s own doc for the wire contract and
+    /// `build_player_vitals` for how this is built. `#[serde(default)]`
+    /// so an old persisted `LastFightSnapshot` with no `playerVitals` key
+    /// at all still deserializes (reads as empty). Unlike `rolls`, this
+    /// DOES ride the WebSocket broadcast (not `#[serde(skip)]`) and DOES
+    /// get persisted - built from the full, pre-thinning `events`/`units`
+    /// and assigned BEFORE `save_last_fight` runs (not after, the way
+    /// `summary` is - `summary` deliberately needs a `save_last_fight`
+    /// return value; this field doesn't, and the persisted snapshot must
+    /// carry it too).
+    #[serde(default)]
+    pub player_vitals: Vec<PlayerVitals>,
 }
 
 /// One resolved fight, persisted to disk purely for after-the-fact
@@ -3892,6 +4037,11 @@ impl AdventureManager {
         }
 
         self.broadcast_state().await;
+        // Built from the full, pre-thinning `events`/`units` (borrowed here,
+        // before both are moved into the struct literal below) so the
+        // persisted snapshot AND the broadcast carry identical vitals - see
+        // `PlayerVitals`'s own doc for why this can't be the thinned copy.
+        let player_vitals = build_player_vitals(&units, &events);
         let mut result = EncounterResult {
             kind: EncounterKind::Boss,
             stage,
@@ -3932,6 +4082,7 @@ impl AdventureManager {
             // Transient placeholder - overwritten below by
             // `save_last_fight`'s return, the same idiom `events` follows.
             summary: FightSummarySnapshot::default(),
+            player_vitals,
         };
         result.summary = save_last_fight(&result, boss_stats_snapshot);
         // Presentational only - see `thin_events_for_overlay`'s own doc.
@@ -4184,6 +4335,9 @@ impl AdventureManager {
         }
 
         self.broadcast_state().await;
+        // See `run_encounter`'s matching line for why this borrows `units`/
+        // `events` before they're moved into the struct literal below.
+        let player_vitals = build_player_vitals(&units, &events);
         let mut result = EncounterResult {
             kind: EncounterKind::Basic,
             stage,
@@ -4204,6 +4358,7 @@ impl AdventureManager {
             // Transient placeholder - overwritten below by
             // `save_last_fight`'s return, the same idiom `events` follows.
             summary: FightSummarySnapshot::default(),
+            player_vitals,
         };
         result.summary = save_last_fight(&result, Vec::new());
         // Presentational only - see `thin_events_for_overlay`'s own doc.
@@ -5022,6 +5177,193 @@ mod fight_summary_tests {
         let snapshot = FightSummarySnapshot { players: vec![player_stats("alice", 500, 100, 0), player_stats("bob", 300, 200, 0)], ..Default::default() };
         let summary = fight_summary_from_snapshot(&snapshot);
         assert!(summary.top_healing_done.is_empty(), "nobody healed - the list must be empty, not padded with 0-value entries");
+    }
+}
+
+#[cfg(test)]
+mod player_vitals_tests {
+    use super::*;
+
+    fn player(id: &str, max_hp: u64) -> CombatUnitInfo {
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp }
+    }
+
+    fn boss(id: &str) -> CombatUnitInfo {
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000 }
+    }
+
+    fn hit(at_ms: u32, attacker: &str, target: &str, target_hp_after: u64) -> CombatEvent {
+        CombatEvent::Attack {
+            at_ms,
+            attacker: attacker.to_string(),
+            target: target.to_string(),
+            damage: 0,
+            unmitigated_damage: 0,
+            target_hp_after,
+            is_crit: false,
+            evaded: false,
+            hit_id: 0,
+            source_kind: AttackSourceKind::Direct,
+        }
+    }
+
+    fn heal(at_ms: u32, healer: &str, target: &str, target_hp_after: u64) -> CombatEvent {
+        CombatEvent::Heal { at_ms, healer: healer.to_string(), target: target.to_string(), amount: 0, target_hp_after }
+    }
+
+    fn defeat(at_ms: u32, unit: &str) -> CombatEvent {
+        CombatEvent::Defeat { at_ms, unit: unit.to_string() }
+    }
+
+    fn vitals_for<'a>(v: &'a [PlayerVitals], id: &str) -> &'a PlayerVitals {
+        v.iter().find(|p| p.id == id).unwrap_or_else(|| panic!("no vitals row for {id}"))
+    }
+
+    #[test]
+    fn every_player_starts_at_max_hp() {
+        let units = vec![player("alice", 1000), player("bob", 1500), boss("__enemy_0")];
+        let v = build_player_vitals(&units, &[]);
+        assert_eq!(v.len(), 2);
+        assert_eq!(vitals_for(&v, "alice").hp_samples, vec![(0, 1000)]);
+        assert_eq!(vitals_for(&v, "bob").hp_samples, vec![(0, 1500)]);
+    }
+
+    #[test]
+    fn enemies_and_adds_are_excluded() {
+        let units = vec![player("alice", 1000), boss("__enemy_0"), boss("__enemy_1_add_3")];
+        let events = vec![hit(0, "__enemy_0", "__enemy_1_add_3", 9000)];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].id, "alice");
+    }
+
+    #[test]
+    fn same_bucket_events_coalesce_keeping_the_last_at_its_own_real_ms() {
+        let units = vec![player("alice", 1000)];
+        // Both land in the [0,100) 100ms bucket - only the LAST should
+        // survive, stamped with ITS real at_ms (37), not the first (12)
+        // and not the bucket boundary (0).
+        let events = vec![hit(12, "__enemy_0", "alice", 700), hit(37, "__enemy_0", "alice", 650)];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(vitals_for(&v, "alice").hp_samples, vec![(0, 1000), (37, 650)]);
+    }
+
+    #[test]
+    fn consecutive_identical_hp_values_are_dropped() {
+        let units = vec![player("alice", 1000)];
+        // Three separate 100ms buckets past the seed's own bucket 0 - the
+        // middle one's HP matches the bucket before it (e.g. a miss/
+        // 0-damage hit) - dedup must drop it, keeping only the first
+        // sample of that run. The seed (0, maxHp) is a genuinely distinct
+        // value here (1000 != 700) so it's expected to survive untouched.
+        let events = vec![hit(200, "__enemy_0", "alice", 700), hit(350, "__enemy_0", "alice", 700), hit(500, "__enemy_0", "alice", 400)];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(vitals_for(&v, "alice").hp_samples, vec![(0, 1000), (200, 700), (500, 400)]);
+    }
+
+    #[test]
+    fn exact_defeat_timestamp_is_preserved_even_mid_bucket() {
+        let units = vec![player("alice", 1000)];
+        let events = vec![hit(0, "__enemy_0", "alice", 50), defeat(1049, "alice")];
+        let v = build_player_vitals(&units, &events);
+        let alice = vitals_for(&v, "alice");
+        assert_eq!(alice.died_at_ms, Some(1049));
+        assert_eq!(*alice.hp_samples.last().unwrap(), (1049, 0));
+    }
+
+    #[test]
+    fn survivors_have_no_died_at_ms() {
+        let units = vec![player("alice", 1000)];
+        let events = vec![hit(0, "__enemy_0", "alice", 500)];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(vitals_for(&v, "alice").died_at_ms, None);
+    }
+
+    #[test]
+    fn final_hp_is_retained_as_the_last_sample() {
+        let units = vec![player("alice", 1000)];
+        let events = vec![hit(0, "__enemy_0", "alice", 500), heal(500, "bob", "alice", 800)];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(*vitals_for(&v, "alice").hp_samples.last().unwrap(), (500, 800));
+    }
+
+    #[test]
+    fn a_defeat_that_thinning_would_discard_still_appears() {
+        // build_player_vitals is only correct if it always runs on the
+        // full pre-thinning log - simulate what thin_events_for_overlay
+        // would drop by simply never handing it the death events at all,
+        // and confirm the vitals built from the FULL log still has them
+        // regardless of what a caller does with the separate, thinned
+        // copy of `events` used for the broadcast.
+        let units = vec![player("alice", 1000), player("bob", 1000)];
+        let full_events = vec![
+            hit(0, "__enemy_0", "alice", 500),
+            hit(100, "__enemy_0", "bob", 10),
+            defeat(150, "bob"),
+            hit(9000, "__enemy_0", "alice", 0),
+            defeat(9000, "alice"),
+        ];
+        let v = build_player_vitals(&units, &full_events);
+        assert_eq!(vitals_for(&v, "bob").died_at_ms, Some(150));
+        assert_eq!(vitals_for(&v, "alice").died_at_ms, Some(9000));
+    }
+
+    #[test]
+    fn shield_skillcast_and_buffsnapshot_are_ignored() {
+        let units = vec![player("alice", 1000)];
+        let events = vec![
+            CombatEvent::Shield { at_ms: 0, healer: "alice".to_string(), target: "alice".to_string(), amount: 200 },
+            CombatEvent::SkillCast { at_ms: 10, unit: "alice".to_string(), skill: "Flicker Strike".to_string() },
+            CombatEvent::BuffSnapshot { at_ms: 20, unit: "alice".to_string(), buffs: vec![("shielded".to_string(), 200.0)] },
+        ];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(vitals_for(&v, "alice").hp_samples, vec![(0, 1000)]);
+    }
+
+    #[test]
+    fn player_vitals_serde_round_trip() {
+        let units = vec![player("alice", 1000)];
+        let events = vec![hit(0, "__enemy_0", "alice", 500), defeat(9000, "alice")];
+        let v = build_player_vitals(&units, &events);
+        let json = serde_json::to_string(&v).unwrap();
+        assert!(json.contains("\"hpSamples\""));
+        assert!(json.contains("\"diedAtMs\""));
+        let round_tripped: Vec<PlayerVitals> = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_tripped.len(), v.len());
+        assert_eq!(round_tripped[0].hp_samples, v[0].hp_samples);
+        assert_eq!(round_tripped[0].died_at_ms, v[0].died_at_ms);
+    }
+
+    #[test]
+    fn old_persisted_fight_without_the_player_vitals_key_still_deserializes() {
+        // Simulates a real fight file saved before `playerVitals` existed:
+        // serialize a genuine EncounterResult, strip the key entirely (not
+        // just null it), and confirm #[serde(default)] reads that as an
+        // empty Vec rather than failing to parse.
+        let result = EncounterResult {
+            kind: EncounterKind::Boss,
+            stage: 5,
+            won: true,
+            participants: vec!["alice".to_string()],
+            units: vec![player("alice", 1000)],
+            events: vec![],
+            display_duration_ms: 0,
+            loot: vec![],
+            broken: vec![],
+            enemy_name: None,
+            enemy_count: None,
+            retreated: vec![],
+            boss_sprites: vec![],
+            rolls: vec![],
+            summary: FightSummarySnapshot::default(),
+            player_vitals: build_player_vitals(&[player("alice", 1000)], &[]),
+        };
+        let mut json = serde_json::to_value(&result).unwrap();
+        let obj = json.as_object_mut().unwrap();
+        assert!(obj.contains_key("playerVitals"), "sanity check: the field must actually serialize under this key");
+        obj.remove("playerVitals");
+        let round_tripped: EncounterResult = serde_json::from_value(json).unwrap();
+        assert!(round_tripped.player_vitals.is_empty());
     }
 }
 
