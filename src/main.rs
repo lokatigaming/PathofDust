@@ -7,7 +7,8 @@ use tracing_subscriber::prelude::*;
 
 use rand::Rng;
 use twitch_bot_rs::adventure::{
-    affix_name, fight_summary_from_snapshot, AdventureManager, CraftAction, EncounterKind, ForceBossOutcome, GearCritSource, PlayerFightStats, ReceiveOutcome,
+    affix_name, fight_summary_from_snapshot, AdventureManager, CraftAction, EncounterKind, ForceBossOutcome, GearCritSource, PlayerFightStats, PublishedConstants, ReceiveOutcome,
+    PUBLISHED_CONSTANTS_PATH,
 };
 use twitch_bot_rs::adventure_overlay_server;
 use twitch_bot_rs::adventure_web;
@@ -543,6 +544,26 @@ async fn async_main() -> anyhow::Result<()> {
     std::panic::set_hook(Box::new(|panic_info| {
         tracing::error!("PANIC: {panic_info}");
     }));
+
+    // Bot->game published constants (2026-08-18, architecture refactor
+    // Stage 2 - see PublishedConstants' own doc for the full "why a file,
+    // why not the API yet" reasoning). Written once, early, every startup -
+    // cheap, and means a fresh game-side read always sees this build's
+    // real values rather than a stale one from before the bot's last
+    // restart. Every source value here is a plain compile-time const on
+    // the bot side, so there's nothing to keep in sync afterward.
+    if let Err(err) = twitch_bot_rs::state::save_json(
+        PUBLISHED_CONSTANTS_PATH,
+        &PublishedConstants {
+            builtin_cooldown_secs: commands::BUILTIN_COOLDOWN.as_secs(),
+            bug_report_cooldown_secs: bug_reports::PER_USER_COOLDOWN.as_secs(),
+            song_skip_cooldown_secs: twitch_bot_rs::song_requests::SKIP_ACTION_COOLDOWN.as_secs(),
+            min_vote_volume: twitch_bot_rs::song_requests::MIN_VOTE_VOLUME,
+            max_vote_volume: twitch_bot_rs::song_requests::MAX_VOTE_VOLUME,
+        },
+    ) {
+        tracing::error!("Failed to publish bot-side constants for the wiki to read: {err}");
+    }
 
     let config = Config::load()?;
 

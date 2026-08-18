@@ -59,6 +59,7 @@ mod item;
 mod manager;
 mod migrations;
 mod paths;
+mod published_constants;
 mod tunables;
 
 pub use affix::*;
@@ -72,4 +73,5 @@ pub use manager::*;
 pub(crate) use migrations::*;
 pub use paths::set_data_dir;
 pub(crate) use paths::data_path;
+pub use published_constants::{PublishedConstants, PUBLISHED_CONSTANTS_PATH};
 pub use tunables::*;
