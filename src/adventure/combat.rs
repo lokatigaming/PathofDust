@@ -680,6 +680,14 @@ pub(crate) struct CombatSimUnit {
     id: String,
     display_name: String,
     is_boss: bool,
+    /// `Some` for a real player, `None` for a boss/enemy/mid-fight add -
+    /// carried through to `CombatUnitInfo`/`PlayerFightStats` (2026-08-18)
+    /// so per-class performance questions are a one-line query against
+    /// persisted fight records instead of a cross-reference against
+    /// current character state (which drifts - a player who's since
+    /// respecced doesn't retroactively change what class they played in
+    /// an old fight).
+    archetype: Option<Archetype>,
     /// When this unit entered the fight - `0` for anyone present at the
     /// start (every player, the main boss(es)), the real current `at_ms`
     /// for a mid-fight add (e.g. Lich's Raise Dead summons) so its OWN
@@ -2550,6 +2558,7 @@ impl Default for CombatSimUnit {
             id: String::new(),
             display_name: String::new(),
             is_boss: false,
+            archetype: None,
             spawned_at_ms: 0,
             role: None,
             hp: 0,
@@ -7613,6 +7622,7 @@ pub(crate) fn simulate_battle(
                 id: id.clone(),
                 display_name: c.display_name.clone(),
                 is_boss: false,
+                archetype: Some(c.archetype),
                 spawned_at_ms: 0,
                 role: Some(c.archetype.combat_function()),
                 // Warlock's Life Tap - drains a flat % of max HP once at
@@ -8567,6 +8577,7 @@ pub(crate) fn simulate_battle(
                 None => format!("Enemy {}", i + 1),
             },
             is_boss: true,
+            archetype: None,
             spawned_at_ms: 0,
             role: None,
             hp: enemy.hp as i64,
@@ -9480,6 +9491,7 @@ pub(crate) fn simulate_battle(
                                 id: add_unit_id(&boss_id, (lich_summon_count + j) as usize),
                                 display_name: "Skeleton".to_string(),
                                 is_boss: true,
+                                archetype: None,
                                 spawned_at_ms: at_ms,
                                 role: None,
                                 hp: (boss_max_hp / 10).max(20) as i64,
@@ -10578,7 +10590,7 @@ pub(crate) fn simulate_battle(
     // twice but did not see any summons").
     let unit_infos: Vec<CombatUnitInfo> = units
         .iter()
-        .map(|u| CombatUnitInfo { id: u.id.clone(), display_name: u.display_name.clone(), is_boss: u.is_boss, role: u.role, max_hp: u.max_hp })
+        .map(|u| CombatUnitInfo { id: u.id.clone(), display_name: u.display_name.clone(), is_boss: u.is_boss, archetype: u.archetype, role: u.role, max_hp: u.max_hp })
         .collect();
     (won, unit_infos, events, rolls)
 }
@@ -10668,8 +10680,8 @@ mod overlay_event_thinning_tests {
     #[test]
     fn caps_player_and_boss_events_independently_per_second() {
         let units = vec![
-            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, role: None, max_hp: 100 },
-            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, role: None, max_hp: 100 },
+            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 },
+            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100 },
         ];
         let mut events = Vec::new();
         for _ in 0..600 {
@@ -10687,7 +10699,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn different_seconds_each_get_their_own_budget() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, role: None, max_hp: 100 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 }];
         let mut events = Vec::new();
         for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
             events.push(attack_at(500, "a_player"));
@@ -10701,7 +10713,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn under_the_cap_nothing_is_dropped() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, role: None, max_hp: 100 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 }];
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
         let thinned = thin_events_for_overlay(events, &units);
         assert_eq!(thinned.len(), 3);

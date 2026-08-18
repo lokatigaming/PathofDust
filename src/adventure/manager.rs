@@ -513,6 +513,13 @@ pub struct CombatUnitInfo {
     pub id: String,
     pub display_name: String,
     pub is_boss: bool,
+    /// `Some` for a real player, `None` for a boss/enemy/mid-fight add -
+    /// see `CombatSimUnit::archetype`'s doc for why this is carried
+    /// through to persisted fight records at all. `#[serde(default)]` so
+    /// fight files already on disk from before this field existed still
+    /// deserialize (as `None`, same as a boss/add would read anyway).
+    #[serde(default)]
+    pub archetype: Option<Archetype>,
     pub role: Option<CombatFunction>,
     pub max_hp: u64,
 }
@@ -671,6 +678,15 @@ fn first_player_to_die(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Opti
 pub struct PlayerFightStats {
     pub id: String,
     pub display_name: String,
+    /// `Some` for a real player - always populated at record time (see
+    /// `full_player_fight_stats`), never backfilled or cross-referenced
+    /// against current character state, so per-class fight-history
+    /// queries stay historically accurate even after a player respecs to
+    /// a different archetype later. `#[serde(default)]` (via the derived
+    /// `Default` above) so fight records already on disk from before
+    /// this field existed still deserialize, as `None`.
+    #[serde(default)]
+    pub archetype: Option<Archetype>,
     pub damage_dealt: u64,
     pub damage_taken: u64,
     pub healing_done: u64,
@@ -696,7 +712,7 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
         .map(|u| {
             (
                 u.id.clone(),
-                PlayerFightStats { id: u.id.clone(), display_name: u.display_name.clone(), ..Default::default() },
+                PlayerFightStats { id: u.id.clone(), display_name: u.display_name.clone(), archetype: u.archetype, ..Default::default() },
             )
         })
         .collect();
@@ -4693,11 +4709,11 @@ mod fight_summary_tests {
     use super::*;
 
     fn player(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, role: None, max_hp: 1000 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000 }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, role: None, max_hp: 10_000 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000 }
     }
 
     fn attack(at_ms: u32, attacker: &str, target: &str, damage: u64, unmitigated_damage: u64, is_crit: bool, evaded: bool) -> CombatEvent {
@@ -4760,6 +4776,31 @@ mod fight_summary_tests {
     }
 
     #[test]
+    fn archetype_carries_through_from_the_unit_info_into_the_recorded_stats() {
+        // 2026-08-18, a live request: per-class fight-history queries
+        // need this on the persisted record itself, not derived by
+        // cross-referencing current character state (which a respec
+        // would make historically wrong).
+        let mut alice = player("alice");
+        alice.archetype = Some(Archetype::Warrior);
+        let units = vec![alice, boss("__enemy_0")];
+        let stats = full_player_fight_stats(&units, &[]);
+        let alice_stats = stats.iter().find(|s| s.id == "alice").unwrap();
+        assert_eq!(alice_stats.archetype, Some(Archetype::Warrior));
+        // The boss itself never gets a PlayerFightStats row at all
+        // (filtered out by `full_player_fight_stats`'s own `!u.is_boss`),
+        // so there's nothing to assert `None` against there - this just
+        // confirms a player with NO archetype set (shouldn't happen for
+        // a real player, but the type allows it) round-trips as `None`
+        // rather than panicking or defaulting to some other archetype.
+        let mut bob = player("bob");
+        bob.archetype = None;
+        let units2 = vec![bob];
+        let stats2 = full_player_fight_stats(&units2, &[]);
+        assert_eq!(stats2[0].archetype, None);
+    }
+
+    #[test]
     fn heal_and_shield_events_both_count_toward_healing_done() {
         let units = vec![player("alice"), player("bob"), boss("__enemy_0")];
         let events = vec![
@@ -4789,7 +4830,7 @@ mod fight_summary_tests {
     }
 
     fn player_stats(id: &str, damage_dealt: u64, damage_taken: u64, healing_done: u64) -> PlayerFightStats {
-        PlayerFightStats { id: id.to_string(), display_name: id.to_string(), damage_dealt, damage_taken, healing_done, hits: 0, crits: 0, evaded: 0 }
+        PlayerFightStats { id: id.to_string(), display_name: id.to_string(), archetype: None, damage_dealt, damage_taken, healing_done, hits: 0, crits: 0, evaded: 0 }
     }
 
     #[test]
