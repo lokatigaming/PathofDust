@@ -1242,15 +1242,15 @@
   const bgOpacityParam = parseFloat(new URLSearchParams(location.search).get('bgOpacity'));
   const BG_OPACITY = Number.isFinite(bgOpacityParam) ? Math.min(1, Math.max(0, bgOpacityParam)) : 1;
 
-  // ?bossSize=<0.5-1.5> (2026-08-18, same URL-param convention as
+  // ?bossSize=<0.05-1.5> (2026-08-18, same URL-param convention as
   // ?bgOpacity= above) - a multiplier on a REAL boss's rendered height
   // (see bossSpriteHeight in draw()), NEVER a basic encounter's mobs -
   // gated there, not here, since this constant alone can't tell a boss
   // fight from a basic one. Defaults to 1 (today's exact behavior) when
-  // absent/unparseable, clamped to [0.5, 1.5] so an out-of-range value
+  // absent/unparseable, clamped to [0.05, 1.5] so an out-of-range value
   // can't shrink a boss to nothing or blow it up past the canvas.
   const bossSizeParam = parseFloat(new URLSearchParams(location.search).get('bossSize'));
-  const BOSS_SIZE = Number.isFinite(bossSizeParam) ? Math.min(1.5, Math.max(0.5, bossSizeParam)) : 1;
+  const BOSS_SIZE = Number.isFinite(bossSizeParam) ? Math.min(1.5, Math.max(0.05, bossSizeParam)) : 1;
 
   function drawScrollingBackground() {
     if (!bgImage.complete || !bgImage.naturalWidth) return;

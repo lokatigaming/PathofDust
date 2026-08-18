@@ -1468,7 +1468,7 @@ fn render_overlay_settings_tray(own_login: Option<&str>) -> String {
 <label for=\"ov-bgop\">Background Opacity: <span id=\"ov-bgop-val\">100%</span>\
 <input type=\"range\" id=\"ov-bgop\" min=\"0\" max=\"100\" step=\"5\" value=\"100\"></label>\
 <label for=\"ov-bosssize\">Boss Size: <span id=\"ov-bosssize-val\">100%</span>\
-<input type=\"range\" id=\"ov-bosssize\" min=\"50\" max=\"150\" step=\"5\" value=\"100\"></label>\
+<input type=\"range\" id=\"ov-bosssize\" min=\"5\" max=\"150\" step=\"5\" value=\"100\"></label>\
 <label class=\"ov-switch\" for=\"ov-highlight\">\
 <input type=\"checkbox\" id=\"ov-highlight\"__HIGHLIGHT_DISABLED__> Highlight Me</label>\
 __HIGHLIGHT_HINT__\
