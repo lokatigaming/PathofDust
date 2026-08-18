@@ -1660,6 +1660,10 @@ struct TunablesForm {
     boss_count_tier_stages: u32,
     boss_count_cap_mult: f64,
     late_content_stage: u32,
+    /// See `LiveTunables::pierce_cap`'s doc.
+    pierce_cap: f64,
+    /// See `LiveTunables::pierce_h`'s doc.
+    pierce_h: f64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -1701,6 +1705,8 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 boss_count_cap_mult: form.boss_count_cap_mult.max(0.0),
                 late_content_stage: form.late_content_stage,
                 permanent_rampage: form.permanent_rampage.is_some(),
+                pierce_cap: form.pierce_cap.clamp(0.0, 1.0),
+                pierce_h: form.pierce_h.max(1.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -2372,6 +2378,16 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"1\" min=\"0\" id=\"late_content_stage\" name=\"late_content_stage\" value=\"{late_content_stage}\">\
               <p class=\"tunable-hint\">Gates the guaranteed-Perfect-item milestones (per-character and per-kill) — unrelated to Boss Health/Power above.</p>\
             </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"pierce_cap\">Boss Pierce Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"pierce_cap\" name=\"pierce_cap\" value=\"{pierce_cap}\">\
+              <p class=\"tunable-hint\">0 to 1 — the asymptotic ceiling a real boss's unavoidable/unmitigable pierce fraction climbs toward as stage grows (never actually reached). 0 = pierce disabled entirely, exactly today's pre-pierce behavior.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"pierce_h\">Boss Pierce Half-Stage</label>\
+              <input type=\"number\" step=\"any\" min=\"1\" id=\"pierce_h\" name=\"pierce_h\" value=\"{pierce_h}\">\
+              <p class=\"tunable-hint\">The stage at which pierce reaches HALF of the cap above. Lower = ramps up faster at earlier stages.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -2394,6 +2410,8 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         boss_count_tier_stages = t.boss_count_tier_stages,
         boss_count_cap_mult = t.boss_count_cap_mult,
         late_content_stage = t.late_content_stage,
+        pierce_cap = t.pierce_cap,
+        pierce_h = t.pierce_h,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
     )
 }

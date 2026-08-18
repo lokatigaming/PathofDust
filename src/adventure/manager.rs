@@ -3530,7 +3530,7 @@ impl AdventureManager {
             boss_kinds.iter().map(|&kind| (boss_stats_for(stage, fighting.len(), avg_level, power_mult, &tunables), Some(kind), power_mult)).collect();
         let boss_stats_snapshot: Vec<BossStats> = bosses.iter().map(|(s, _, _)| s.clone()).collect();
 
-        let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage);
+        let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables);
         let (events, display_duration_ms) = compress_events(events);
 
         // Anyone this fight's log actually knocked out (a real Defeat
@@ -4047,7 +4047,7 @@ impl AdventureManager {
         let enemy_stats = split_into_enemies(group_stats, num_enemies);
         let enemy_name = BASIC_ENEMY_NAMES[rand::thread_rng().gen_range(0..BASIC_ENEMY_NAMES.len())].to_string();
 
-        let (won, units, events, rolls) = simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage);
+        let (won, units, events, rolls) = simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables);
         let (events, display_duration_ms) = compress_events(events);
 
         let newly_downed: Vec<String> = events

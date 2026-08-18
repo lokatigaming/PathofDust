@@ -780,6 +780,20 @@ pub(crate) struct CombatSimUnit {
     /// originally-tuned stage range a fight has gone, independent of
     /// whatever integer width `BossStats.hp`/`atk` happen to be.
     late_stage_damage_penalty_pct: f64,
+    /// Boss pierce (2026-08-18, a live design call) - 0.0 for everyone
+    /// except a REAL boss (never players, never a basic-encounter mob),
+    /// set once at construction from `simulate_battle`'s `stage`/
+    /// `tunables` params: `pierce_cap * stage^2 / (stage^2 + pierce_h^2)`,
+    /// a quadratic-then-asymptotic ramp reaching half of `pierce_cap` at
+    /// stage `pierce_h` and climbing toward, but never reaching,
+    /// `pierce_cap` itself. Applied in `apply_hit`, upstream of
+    /// `resolve_hit` - this fraction of the swing's raw base damage is
+    /// carved off BEFORE evasion/block/DR/crit ever roll, resolves as
+    /// true damage (still respects shields and death-prevention saves),
+    /// and the remaining `1.0 - boss_pierce_pct` fraction is what
+    /// actually gets fed through the normal mitigation pipeline - see
+    /// `apply_hit`'s own doc for the exact split.
+    boss_pierce_pct: f64,
     /// A REAL boss fight (not a basic-encounter filler mob) always
     /// targets whichever alive player currently has the highest
     /// `survivability` instead of picking randomly - see
@@ -2605,6 +2619,7 @@ impl Default for CombatSimUnit {
             crit_multiplier: 0.0,
             splash: 0.0,
             late_stage_damage_penalty_pct: 0.0,
+            boss_pierce_pct: 0.0,
             boss_focus_stacks: 0.0,
             boss_ability: None,
             next_ability_at_ms: 0,
@@ -5446,8 +5461,18 @@ pub(crate) fn apply_hit(
     let target_chaos_debuff = prune_and_count(&mut units[target_idx].chaos_block_debuff, at_ms) as f64 * 0.01;
     let target_chaos_buff = prune_and_count(&mut units[target_idx].chaos_block_buff, at_ms) as f64 * 0.01;
     let target_lightning_dmg_taken = prune_and_count(&mut units[target_idx].lightning_dmg_taken, at_ms) as f64 * 0.01;
+    // Boss pierce (see `CombatSimUnit::boss_pierce_pct`'s doc) - carved off
+    // the TOP of this swing's raw base damage, before resolve_hit ever
+    // rolls anything, so it can never crit and never gets touched by
+    // evasion/block/DR - only the REMAINING `mitigable_damage` fraction is
+    // handed to resolve_hit and can still evade/block/reduce/crit exactly
+    // as before. 0.0 for every non-real-boss attacker, so `mitigable_damage`
+    // is bit-for-bit `base_damage` and this is a true no-op for players and
+    // basic-encounter mobs.
+    let pierce_amount = base_damage * units[attacker_idx].boss_pierce_pct;
+    let mitigable_damage = base_damage - pierce_amount;
     let outcome = resolve_hit(
-        base_damage,
+        mitigable_damage,
         &units[attacker_idx],
         &units[target_idx],
         at_ms,
@@ -5463,6 +5488,26 @@ pub(crate) fn apply_hit(
         target_chaos_buff,
         target_lightning_dmg_taken,
     );
+    // Pierce rides back in immediately, folded into BOTH `damage` and
+    // `unmitigated_damage` equally (true damage was never mitigated, so
+    // its "before" and "after" values are identical) - every downstream
+    // consumer of `outcome.damage`/`outcome.unmitigated_damage` below
+    // (shield absorption, the 5 death-prevention branches, the curse-
+    // credit split, the final Attack event, and Bramblegrowth/Spike
+    // Barrier/Unyielding's own `unmitigated_damage - damage` "how much
+    // was reduced" reflect math) sees the combined total automatically,
+    // and since pierce contributes equally to both sides of that
+    // subtraction it cancels out of the reflect calculations exactly as
+    // it should - reflecting mitigation that was never actually applied
+    // would be wrong. is_crit/evaded/is_blocked/probabilistic_rolls/
+    // deterministic_sources all stay exactly what resolve_hit reported
+    // for the mitigable portion - pierce is flat, unrolled true damage,
+    // not a second hit with its own outcome.
+    let outcome = HitOutcome {
+        damage: outcome.damage + pierce_amount.round() as u64,
+        unmitigated_damage: outcome.unmitigated_damage + pierce_amount.round() as u64,
+        ..outcome
+    };
     // Allocated once for this hit's resolution, shared by every branch
     // below that can end up pushing this hit's `Attack` event(s) (only
     // one branch fires per call) - lets every `RollEvent` a later phase
@@ -7594,6 +7639,7 @@ pub(crate) fn simulate_battle(
     characters: &HashMap<String, Character>,
     enemies: Vec<(BossStats, Option<BossKind>, f64)>,
     stage: u32,
+    tunables: &LiveTunables,
 ) -> (bool, Vec<CombatUnitInfo>, Vec<CombatEvent>, Vec<RollEvent>) {
     // Fixed for the whole fight (not recomputed as players die) - see
     // `prioritize_above_median`'s doc.
@@ -7603,6 +7649,15 @@ pub(crate) fn simulate_battle(
     // players or a basic-encounter mob, so this is computed once here
     // regardless of what kind of fight it turns out to be.
     let late_stage_penalty = stage as f64 / (stage as f64 + LATE_STAGE_PENALTY_STAGE_OFFSET);
+    // Boss pierce (see `CombatSimUnit::boss_pierce_pct`'s doc) - same
+    // "computed once here, gated on kind.is_some() at construction" shape
+    // as late_stage_penalty just above. Quadratic-then-asymptotic: grows
+    // roughly with stage^2 while stage << pierce_h, then flattens out
+    // toward pierce_cap as stage climbs past it - reaches exactly half of
+    // pierce_cap at stage == pierce_h.
+    let stage_sq = (stage as f64) * (stage as f64);
+    let pierce_h_sq = tunables.pierce_h * tunables.pierce_h;
+    let boss_pierce_pct = tunables.pierce_cap * stage_sq / (stage_sq + pierce_h_sq);
     let mut units: Vec<CombatSimUnit> = characters
         .iter()
         .map(|(id, c)| {
@@ -7751,6 +7806,7 @@ pub(crate) fn simulate_battle(
                 splash: c.combat_splash()
                     + (c.combat_attack_speed_pct() - if c.passive_node_rank("chaostheory") >= 3 { 0.70 } else if c.passive_node_rank("chaostheory") >= 2 { 0.80 } else if c.passive_node_rank("chaostheory") >= 1 { 0.90 } else { 1.0 }).max(0.0) * c.passive_node_magnitude("entropicforce"),
                 late_stage_damage_penalty_pct: 0.0,
+                boss_pierce_pct: 0.0,
                 boss_focus_stacks: 0.0,
                 boss_ability: None,
                 next_ability_at_ms: u32::MAX,
@@ -8672,6 +8728,9 @@ pub(crate) fn simulate_battle(
             // Only a REAL boss (this_unit_kind.is_some()) - a basic-
             // encounter mob (None) never gets this, regardless of stage.
             late_stage_damage_penalty_pct: if this_unit_kind.is_some() { late_stage_penalty } else { 0.0 },
+            // Same real-boss-only gate as late_stage_damage_penalty_pct
+            // just above - a basic-encounter mob never pierces.
+            boss_pierce_pct: if this_unit_kind.is_some() { boss_pierce_pct } else { 0.0 },
             boss_focus_stacks: 0.0,
             boss_ability: this_unit_kind,
             next_ability_at_ms,
@@ -9590,6 +9649,7 @@ pub(crate) fn simulate_battle(
                                 // CombatSimUnit::late_stage_damage_penalty_pct's
                                 // doc.
                                 late_stage_damage_penalty_pct: late_stage_penalty,
+                                boss_pierce_pct,
                                 boss_focus_stacks: 0.0,
                                 boss_ability: None,
                                 next_ability_at_ms: u32::MAX,
@@ -11352,6 +11412,138 @@ mod full_detail_combat_log_tests {
             CombatEvent::Attack { source_kind, .. } => assert_eq!(source_kind, AttackSourceKind::Direct),
             _ => panic!("expected an Attack event"),
         }
+    }
+
+    // Boss pierce (2026-08-18, a live design call) - a stage-scaled
+    // fraction of every REAL boss attack that's carved off the top as
+    // unavoidable/unmitigable true damage before resolve_hit ever rolls
+    // anything, with only the remainder still subject to the normal
+    // evasion/block/DR/crit pipeline - see `CombatSimUnit::boss_pierce_pct`'s
+    // doc and the fold-in comment at its `apply_hit` call site.
+
+    #[test]
+    fn pierce_lands_even_when_the_mitigable_remainder_is_evaded() {
+        // 95% evasion (the defensive-stat hard cap) means most seeds
+        // evade the roll-based remainder entirely - pierce must still
+        // land regardless. Checked across a spread of seeds rather than
+        // one fixed seed, asserting the pierce-floor invariant holds for
+        // EVERY one of them (not just a seed known to evade), while also
+        // confirming at least one of them genuinely exercised the evaded
+        // path - proving this isn't accidentally skipping the case that
+        // matters.
+        let mut saw_an_evaded_hit = false;
+        for seed in 0..20u64 {
+            let attacker =
+                CombatSimUnit { is_boss: true, boss_pierce_pct: 0.5, spawned_at_ms: 1, hp: 100_000, max_hp: 100_000, ..neutral_attacker() };
+            let target = CombatSimUnit { evasion: 0.95, hp: 100_000, max_hp: 100_000, ..neutral_defender() };
+            let mut units = vec![attacker, target];
+            let mut events = Vec::new();
+            let mut rolls = Vec::new();
+            let mut rng = StdRng::seed_from_u64(seed);
+            apply_hit(&mut units, 0, 1, 1000.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+            let (damage, evaded) = events
+                .iter()
+                .find_map(|e| match e {
+                    CombatEvent::Attack { damage, evaded, .. } => Some((*damage, *evaded)),
+                    _ => None,
+                })
+                .expect("an Attack event must have been logged");
+            if evaded {
+                saw_an_evaded_hit = true;
+            }
+            // pierce_amount = 1000 * 0.5 = 500, unconditionally - lands
+            // whether or not the OTHER half's evasion roll succeeded.
+            assert!(damage >= 500, "seed {seed}: pierce must land even on an evaded hit - got damage {damage}, evaded {evaded}");
+        }
+        assert!(saw_an_evaded_hit, "this test is only meaningful if at least one of the 20 seeds actually evaded the mitigable remainder");
+    }
+
+    #[test]
+    fn pierce_portion_is_unaffected_by_target_damage_reduction() {
+        let attacker = CombatSimUnit { is_boss: true, boss_pierce_pct: 0.5, spawned_at_ms: 1, hp: 100_000, max_hp: 100_000, ..neutral_attacker() };
+        let target = CombatSimUnit { damage_reduction: 0.5, hp: 100_000, max_hp: 100_000, ..neutral_defender() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 1000.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        let (damage, unmitigated_damage) = events
+            .iter()
+            .find_map(|e| match e {
+                CombatEvent::Attack { damage, unmitigated_damage, .. } => Some((*damage, *unmitigated_damage)),
+                _ => None,
+            })
+            .expect("an Attack event must have been logged");
+        // pierce_amount = 1000 * 0.5 = 500, untouched by the target's 50%
+        // DR; the remaining 500 "mitigable" half IS halved by that DR to
+        // 250. 500 (pierce) + 250 (mitigated remainder) = 750 real damage.
+        assert_eq!(damage, 750, "the target's DR must only ever touch the non-pierce half");
+        // unmitigated_damage: 500 (pierce, already "unmitigated" by
+        // definition) + 500 (the remainder's own pre-DR value) = 1000,
+        // exactly base_damage - proof DR never touched the pierce half.
+        assert_eq!(unmitigated_damage, 1000);
+    }
+
+    #[test]
+    fn zero_pierce_cap_reproduces_exactly_the_pre_pierce_damage() {
+        // The whole mechanism must be a true no-op at boss_pierce_pct ==
+        // 0.0 (what every non-real-boss attacker - players, basic-
+        // encounter mobs - always has, and what pierce_cap == 0.0 in
+        // LiveTunables produces for a real boss too): pierce_amount ==
+        // base_damage * 0.0 == 0.0, so mitigable_damage == base_damage
+        // bit-for-bit and resolve_hit runs exactly as it did before this
+        // feature existed. Same DR-target setup as the test above, with
+        // boss_pierce_pct at 0.0 instead of 0.5.
+        let attacker = CombatSimUnit { is_boss: true, boss_pierce_pct: 0.0, spawned_at_ms: 1, hp: 100_000, max_hp: 100_000, ..neutral_attacker() };
+        let target = CombatSimUnit { damage_reduction: 0.5, hp: 100_000, max_hp: 100_000, ..neutral_defender() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 1000.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        let (damage, unmitigated_damage) = events
+            .iter()
+            .find_map(|e| match e {
+                CombatEvent::Attack { damage, unmitigated_damage, .. } => Some((*damage, *unmitigated_damage)),
+                _ => None,
+            })
+            .expect("an Attack event must have been logged");
+        // 1000 * (1 - 0.5 DR) = 500, exactly what this same hit dealt
+        // before pierce existed - no other mitigation invested.
+        assert_eq!(damage, 500);
+        assert_eq!(unmitigated_damage, 1000);
+    }
+
+    #[test]
+    fn basic_encounter_mobs_never_pierce() {
+        // A basic-encounter mob is built with boss_pierce_pct: 0.0
+        // unconditionally (see the enemy-construction site in
+        // simulate_battle - gated on `this_unit_kind.is_some()`, the same
+        // "only a REAL boss" gate late_stage_damage_penalty_pct already
+        // uses), regardless of what simulate_battle's own locally-computed
+        // boss_pierce_pct value is for that stage. `is_boss: true` alone
+        // (a basic-encounter mob's own side-classification flag) must
+        // never be read as "this unit pierces" - only the dedicated field
+        // controls that, and this test locks in that a mob built the way
+        // a real basic encounter builds one (is_boss true, boss_pierce_pct
+        // left at its zero default) behaves identically to the explicit
+        // zero-pierce case above.
+        let attacker = CombatSimUnit { is_boss: true, spawned_at_ms: 1, hp: 100_000, max_hp: 100_000, ..neutral_attacker() };
+        assert_eq!(attacker.boss_pierce_pct, 0.0, "a basic-encounter mob must never have boss_pierce_pct set");
+        let target = CombatSimUnit { damage_reduction: 0.5, hp: 100_000, max_hp: 100_000, ..neutral_defender() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 1000.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        let damage = events
+            .iter()
+            .find_map(|e| match e {
+                CombatEvent::Attack { damage, .. } => Some(*damage),
+                _ => None,
+            })
+            .expect("an Attack event must have been logged");
+        assert_eq!(damage, 500, "a basic-encounter mob's hit must be identical to the zero-pierce case - 1000 * (1 - 0.5 DR)");
     }
 }
 

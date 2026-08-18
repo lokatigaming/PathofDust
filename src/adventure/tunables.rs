@@ -86,6 +86,19 @@ pub struct LiveTunables {
     /// toggle like this should survive a crash/restart, not silently
     /// revert.
     pub permanent_rampage: bool,
+    /// Boss pierce (2026-08-18, a live design call) - the asymptotic
+    /// ceiling `boss_pierce_pct` climbs toward as stage grows (see
+    /// `simulate_battle`'s own computation) - a stage-scaled fraction of
+    /// every REAL boss attack that resolves as unavoidable/unmitigable
+    /// true damage, the rest still running the full normal mitigation
+    /// pipeline. Never actually reached, only approached - a `pierce_cap`
+    /// of 0.0 is exactly today's pre-pierce behavior (the formula floors
+    /// to 0 at every stage regardless of `pierce_h`).
+    pub pierce_cap: f64,
+    /// The stage at which `boss_pierce_pct` reaches HALF of `pierce_cap`
+    /// (the curve's own half-saturation point) - see `simulate_battle`'s
+    /// computation. Lower means pierce ramps up faster at earlier stages.
+    pub pierce_h: f64,
 }
 
 impl Default for LiveTunables {
@@ -106,6 +119,8 @@ impl Default for LiveTunables {
             boss_count_cap_mult: 1.5,
             late_content_stage: 100,
             permanent_rampage: false,
+            pierce_cap: 0.5,
+            pierce_h: 2000.0,
         }
     }
 }
