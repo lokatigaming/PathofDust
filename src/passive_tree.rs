@@ -1293,8 +1293,8 @@ static WARLOCK_NODES: &[PassiveNode] = &[
     spec("felrush", "pact", "Fel Rush", "A kill grants +8% attack speed per rank for 4s (up to +24% at 3/3).", Special { at_rank_1: 0.08, per_additional_rank: 0.08 }),
     spec("amplifycurse", "curse", "Amplify Curse", "Curse of Weakness's damage taken bonus is increased by another 8% per rank (up to +24% at 3/3).", Special { at_rank_1: 0.08, per_additional_rank: 0.08 }),
     spec("contagiouscurse", "curse", "Contagious Curse", "Curse of Weakness spreads to 1 additional nearby enemy per rank (up to 3 total at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
-    // Reduced 20/40/60% -> 3/6/9% (2026-08-18, a live request).
-    spec("doom", "curse", "Doom", "Curse of Weakness detonates for a burst of damage when it expires, equal to 3% of damage dealt to the cursed target per rank (up to 9% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
+    // Reduced 20/40/60% -> 3/6/9% -> 2/4/6% (2026-08-18, both live requests).
+    spec("doom", "curse", "Doom", "Curse of Weakness detonates for a burst of damage when it expires, equal to 2% of damage dealt to the cursed target per rank (up to 6% at 3/3).", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
     spec("soulharvest", "siphon", "Soul Harvest", "A kill heals you for 6% max HP per rank (up to 18% at 3/3), on top of Soul Siphon's per-hit heal.", Special { at_rank_1: 0.06, per_additional_rank: 0.06 }),
     spec("lifetap", "siphon", "Life Tap", "Convert 3% of your max HP per rank into +6% increased damage instead, drained once at the start of each fight (up to -9% HP / +18% damage at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
     spec("darkcommunion", "siphon", "Dark Communion", "Soul Siphon's heal also applies to your lowest-HP ally, at 50% value per rank (up to 150% at 3/3).", Special { at_rank_1: 0.50, per_additional_rank: 0.50 }),
