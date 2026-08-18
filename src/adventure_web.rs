@@ -35,11 +35,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::adventure::{
-    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_fights, recent_summary_fights, summarize_fight, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CombatEvent, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, Item, LastFightSnapshot,
+    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
+    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, Item,
     LiveTunables, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate, VeilChosenOutcome,
-    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, COARSE_FIGHTS_CAPACITY, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
+    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
     NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
 };
 use crate::passive_tree::{PassiveNode, PassiveTier};
@@ -1564,34 +1564,23 @@ struct FightsPageParams {
 }
 
 /// Shared by `fights_page` (HTML) and `fights_json` (the companion app's
-/// preferred format) so both read exactly the same rules. The streamer's
-/// login gets `recent_fights(limit)` unfiltered, same as always; anyone
-/// else gets the full currently-stored history fetched first (cheap at
-/// today's `COARSE_FIGHTS_CAPACITY`-fight retention), filtered to fights
-/// they actually appear in (`units[].id`, the same lowercase login used
-/// everywhere else - NOT `participants`, which holds display names and
-/// would mismatch case), THEN capped at `limit` - fetching-then-filtering
-/// (rather than filtering a `recent_fights(limit)` slice) is what actually
-/// answers "the last N fights THEY were in," not "however many of the
-/// last N fights overall happened to include them."
-fn fights_for_viewer(login: &str, requested_limit: usize) -> Vec<LastFightSnapshot> {
-    let limit = requested_limit.clamp(1, COARSE_FIGHTS_CAPACITY);
-    if login == FIGHTS_PAGE_LOGIN {
-        recent_fights(limit)
-    } else {
-        recent_fights(COARSE_FIGHTS_CAPACITY).into_iter().filter(|snap| snap.result.units.iter().any(|u| !u.is_boss && u.id == login)).take(limit).collect()
-    }
-}
-
-/// Same shape as `fights_for_viewer` above, but reads the summary tier
-/// (2026-08-18, the `/fights.json` size/latency fix) instead of the
-/// coarse tier - what `fights_json` actually serves now, since a
-/// consumer like the companion app only wants the per-player aggregates,
-/// not the full event log. `SUMMARY_FIGHTS_CAPACITY` is far larger than
-/// `COARSE_FIGHTS_CAPACITY` (summaries are a few KB each), so unlike
-/// `fights_for_viewer`, reading the whole tier before filtering here
-/// isn't the meaningful cost `fights_for_viewer`'s own doc flags for the
-/// coarse tier.
+/// preferred format) so both read exactly the same rules - both render
+/// from the summary tier (2026-08-18: `fights_page` used to read the
+/// much smaller coarse tier while `fights_json` already read this same
+/// summary tier, so a player could fight, then immediately see "no
+/// recent fights" on the HTML page the moment the coarse tier's own
+/// `COARSE_FIGHTS_CAPACITY`-fight window rolled past them, while
+/// `/fights.json` still had them). The streamer's login gets
+/// `recent_summary_fights(limit)` unfiltered, same as always; anyone
+/// else gets the full currently-stored history fetched first (cheap -
+/// summaries are a few KB each, unlike the coarse tier's full event
+/// logs), filtered to fights they actually appear in (`players[].id`,
+/// the same lowercase login used everywhere else - NOT `participants`,
+/// which is just a count here, not display names), THEN capped at
+/// `limit` - fetching-then-filtering (rather than filtering a
+/// `recent_summary_fights(limit)` slice) is what actually answers "the
+/// last N fights THEY were in," not "however many of the last N fights
+/// overall happened to include them."
 fn fight_summaries_for_viewer(login: &str, requested_limit: usize) -> Vec<FightSummarySnapshot> {
     let limit = requested_limit.clamp(1, SUMMARY_FIGHTS_CAPACITY);
     if login == FIGHTS_PAGE_LOGIN {
@@ -1609,10 +1598,10 @@ async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(pa
             let viewer = state.adventure.character(&login).await;
             let is_streamer = login == FIGHTS_PAGE_LOGIN;
             let limit = params.limit.unwrap_or(FIGHTS_PAGE_DISPLAY_LIMIT);
-            // recent_fights()'s per-fight-file read is real, synchronous
-            // disk I/O (see its doc) - offloaded so it can't stall this
-            // worker thread's own tokio runtime.
-            let fights = tokio::task::spawn_blocking(move || fights_for_viewer(&login, limit)).await.unwrap_or_default();
+            // recent_summary_fights()'s per-fight-file read is real,
+            // synchronous disk I/O (see its doc) - offloaded so it can't
+            // stall this worker thread's own tokio runtime.
+            let fights = tokio::task::spawn_blocking(move || fight_summaries_for_viewer(&login, limit)).await.unwrap_or_default();
             tokio::task::spawn_blocking(move || render_fights_page(viewer.as_ref(), &fights, is_streamer))
                 .await
                 .unwrap_or_else(|err| {
@@ -1626,8 +1615,9 @@ async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(pa
 
 /// JSON twin of `/fights` (2026-08-17, a live request) - the desktop
 /// companion app would rather parse this than scrape the HTML page's
-/// markup. Same session cookie, same `fights_for_viewer` rules (streamer
-/// unfiltered, everyone else scoped to their own fights), same `?limit=`.
+/// markup. Same session cookie, same `fight_summaries_for_viewer` rules
+/// (streamer unfiltered, everyone else scoped to their own fights), same
+/// `?limit=`.
 /// 401 with an empty array when not logged in, same "don't hint at
 /// what's behind the gate" spirit `fights_page` itself now only applies
 /// to logged-out visitors (every logged-in viewer can reach this now).
@@ -2139,15 +2129,27 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
 const FIGHTS_PAGE_DISPLAY_LIMIT: usize = 10;
 
 /// `/fights` - breakdown of recent encounters (2026-08-17, opened up from
-/// streamer-only to every player - see `fights_for_viewer`), newest first:
-/// outcome, boss stats (real boss fights only), the same top-3 DPS/tanks/
-/// heals leaderboard the chat report uses (see `summarize_fight`), and
-/// loot/broken/retreated. `fights` is already resolved (fetched + filtered
-/// + limited) by the caller via `fights_for_viewer` - this function only
-/// renders. Everything needed to start tuning balance without having to
-/// catch a fight live or dig through raw JSON by hand, for the streamer;
-/// a personal fight log for everyone else.
-fn render_fights_page(viewer: Option<&Character>, fights: &[LastFightSnapshot], is_streamer: bool) -> String {
+/// streamer-only to every player - see `fight_summaries_for_viewer`),
+/// newest first: outcome, the same top-3 DPS/tanks/heals leaderboard the
+/// chat report uses (computed here directly from the summary's own
+/// per-player aggregates), and loot/broken. `fights` is already resolved
+/// (fetched + filtered + limited) by the caller via
+/// `fight_summaries_for_viewer` - this function only renders.
+///
+/// Reads the SUMMARY tier (2026-08-18, wiki audit finding #4 - see
+/// `fight_summaries_for_viewer`'s doc for the bug this fixes: this page
+/// used to read the much smaller coarse tier while `/fights.json` always
+/// read the summary tier, so a player could fight and immediately see
+/// "no recent fights" here the moment the coarse tier's short window
+/// rolled past them). That trades away three sections the coarse tier's
+/// full event log could build that the summary tier has no data for at
+/// all - per-boss combat stats, a skill-cast breakdown, and buff/debuff
+/// stack-activity samples - none of which survive into `FightSummarySnapshot`.
+/// Loot/broken/outcome/first-to-die/the DPS-tanks-heals leaderboard all
+/// survive intact; a Basic fight's title also loses the specific enemy
+/// name/count (not carried in the summary either), just "Basic — Stage
+/// N — outcome" now, same as a Boss fight's own title shape.
+fn render_fights_page(viewer: Option<&Character>, fights: &[FightSummarySnapshot], is_streamer: bool) -> String {
     let header = format!("{}<div class=\"card\"><h1>Fight History</h1></div>", top_nav(viewer));
     if fights.is_empty() {
         let msg = if is_streamer { "No fights logged yet." } else { "You haven't been in any recently logged fights yet." };
@@ -2155,150 +2157,40 @@ fn render_fights_page(viewer: Option<&Character>, fights: &[LastFightSnapshot], 
     }
     let cards: String = fights
         .iter()
-        .map(|snapshot| {
-            let r = &snapshot.result;
-            let outcome = if r.won { "Won" } else { "Lost" };
-            let title = match r.kind {
-                EncounterKind::Boss => format!("Boss — Stage {} — {outcome}", r.stage),
-                EncounterKind::Basic => format!(
-                    "Basic — Stage {} — {outcome} — {} ({})",
-                    r.stage,
-                    r.enemy_name.as_deref().unwrap_or("enemies"),
-                    r.enemy_count.map(|n| format!("{n}")).unwrap_or_default()
-                ),
+        .map(|s| {
+            let outcome = if s.won { "Won" } else { "Lost" };
+            let title = match s.kind {
+                EncounterKind::Boss => format!("Boss — Stage {} — {outcome}", s.stage),
+                EncounterKind::Basic => format!("Basic — Stage {} — {outcome}", s.stage),
             };
 
-            let boss_stats_html: String = snapshot
-                .boss_stats
-                .iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    let sprite = r.boss_sprites.get(i).map(String::as_str).unwrap_or("?");
-                    format!(
-                        "<li>#{n} ({sprite}): {hp} HP, {atk} ATK/{interval}ms, DR {dr:.0}%, Block {block:.0}%, Evasion {ev:.0}%, +{dmg:.0}% dmg, Crit {crit:.0}% x{critmult:.2}, Splash {splash:.0}%</li>",
-                        n = i + 1,
-                        hp = b.hp,
-                        atk = b.atk,
-                        interval = b.attack_interval_ms,
-                        dr = b.damage_reduction * 100.0,
-                        block = b.block_chance * 100.0,
-                        ev = b.evasion * 100.0,
-                        dmg = b.increased_damage * 100.0,
-                        crit = b.crit_chance * 100.0,
-                        critmult = b.crit_multiplier,
-                        splash = b.splash * 100.0,
-                    )
-                })
-                .collect();
-            let boss_stats_section =
-                if boss_stats_html.is_empty() { String::new() } else { format!("<h3>Boss Stats</h3><ul>{boss_stats_html}</ul>") };
-
-            let summary = summarize_fight(&r.units, &r.events);
-            let ranked = |entries: &[(String, u64)]| {
+            // Same top-3-by-amount ranked-list convention `summarize_fight`'s
+            // own top_damage_dealt/top_damage_taken/top_healing_done used,
+            // just derived directly from the summary tier's own per-player
+            // aggregates instead of re-walking the full event log.
+            let ranked = |mut entries: Vec<(&str, u64)>| {
+                entries.retain(|&(_, amt)| amt > 0);
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.truncate(3);
                 if entries.is_empty() {
                     return "—".to_string();
                 }
-                let names = entries.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", ");
+                let names = entries.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ");
                 let total: u64 = entries.iter().map(|(_, amt)| amt).sum();
                 format!("{names} ({total})")
             };
-            let first_down = summary.first_to_die.as_deref().unwrap_or("—").to_string();
+            let first_down = s.first_to_die.as_deref().unwrap_or("—").to_string();
 
-            // Combat logging (2026-08-15, a live request: "a robust log
-            // system... live buff/debuff stack counts along with skills
-            // used"). Skill casts - grouped by (unit, skill) with a
-            // count rather than one row per instance, since a single
-            // fight can carry dozens of the same cast (Bloodpact/
-            // FlickerStrike especially) - sorted by count desc, capped
-            // so a big roster's fight doesn't blow the card out.
-            let mut skill_counts: HashMap<(String, String), u32> = HashMap::new();
-            let mut skill_display_name: HashMap<String, String> = HashMap::new();
-            for event in &r.events {
-                if let CombatEvent::SkillCast { unit, skill, .. } = event {
-                    let display = r.units.iter().find(|u| &u.id == unit).map(|u| u.display_name.clone()).unwrap_or_else(|| unit.clone());
-                    skill_display_name.entry(unit.clone()).or_insert(display);
-                    *skill_counts.entry((unit.clone(), skill.clone())).or_insert(0) += 1;
-                }
-            }
-            let mut skill_rows: Vec<((String, String), u32)> = skill_counts.into_iter().collect();
-            skill_rows.sort_by(|a, b| b.1.cmp(&a.1));
-            const SKILL_ROWS_CAP: usize = 25;
-            let skill_html = if skill_rows.is_empty() {
-                "<li class=\"muted\">None logged</li>".to_string()
-            } else {
-                let rows: String = skill_rows
-                    .iter()
-                    .take(SKILL_ROWS_CAP)
-                    .map(|((unit, skill), count)| {
-                        let name = skill_display_name.get(unit).map(String::as_str).unwrap_or(unit.as_str());
-                        format!("<li>{} — {} ×{count}</li>", escape_html(name), escape_html(skill))
-                    })
-                    .collect();
-                let overflow = if skill_rows.len() > SKILL_ROWS_CAP {
-                    format!("<li class=\"muted\">...and {} more</li>", skill_rows.len() - SKILL_ROWS_CAP)
-                } else {
-                    String::new()
-                };
-                format!("{rows}{overflow}")
-            };
-
-            // Buff/debuff stack activity - every (unit, buff name) pair
-            // that showed up in at least one `BuffSnapshot`, with how
-            // many snapshots recorded it, its average stack across those
-            // snapshots, and its peak. NOT time-weighted (a snapshot only
-            // fires on an actual hit/heal, not on a fixed clock - see
-            // `CombatEvent::BuffSnapshot`'s own doc for why it's sparse
-            // by design), so "average" here means "average of the
-            // recorded samples", the most honest claim the data actually
-            // supports. Sorted by occurrence count desc, capped same as
-            // the skill list above.
-            let mut buff_samples: HashMap<(String, String), Vec<f64>> = HashMap::new();
-            for event in &r.events {
-                if let CombatEvent::BuffSnapshot { unit, buffs, .. } = event {
-                    let display = r.units.iter().find(|u| &u.id == unit).map(|u| u.display_name.clone()).unwrap_or_else(|| unit.clone());
-                    for (buff_name, value) in buffs {
-                        buff_samples.entry((display.clone(), buff_name.clone())).or_default().push(*value);
-                    }
-                }
-            }
-            let mut buff_rows: Vec<((String, String), Vec<f64>)> = buff_samples.into_iter().collect();
-            buff_rows.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-            const BUFF_ROWS_CAP: usize = 25;
-            let buff_html = if buff_rows.is_empty() {
-                "<tr><td colspan=\"5\" class=\"muted\">None logged</td></tr>".to_string()
-            } else {
-                let rows: String = buff_rows
-                    .iter()
-                    .take(BUFF_ROWS_CAP)
-                    .map(|((name, buff), samples)| {
-                        let n = samples.len();
-                        let avg = samples.iter().sum::<f64>() / n as f64;
-                        let peak = samples.iter().cloned().fold(0.0_f64, f64::max);
-                        format!(
-                            "<tr><td>{}</td><td>{}</td><td>{n}</td><td>{avg:.2}</td><td>{peak:.2}</td></tr>",
-                            escape_html(name),
-                            escape_html(buff)
-                        )
-                    })
-                    .collect();
-                let overflow = if buff_rows.len() > BUFF_ROWS_CAP {
-                    format!("<tr><td colspan=\"5\" class=\"muted\">...and {} more</td></tr>", buff_rows.len() - BUFF_ROWS_CAP)
-                } else {
-                    String::new()
-                };
-                format!("{rows}{overflow}")
-            };
-
-            let started_at = if snapshot.started_at_unix_ms > 0 {
-                format_unix_secs((snapshot.started_at_unix_ms / 1000) as i64)
+            let started_at = if s.started_at_unix_ms > 0 {
+                format_unix_secs((s.started_at_unix_ms / 1000) as i64)
             } else {
                 "unknown time (logged before this was tracked)".to_string()
             };
 
-            let loot_html: String = if r.loot.is_empty() {
+            let loot_html: String = if s.loot.is_empty() {
                 "<li class=\"muted\">None</li>".to_string()
             } else {
-                r.loot
+                s.loot
                     .iter()
                     .map(|l| {
                         let stats = if l.affixes.is_empty() {
@@ -2318,17 +2210,16 @@ fn render_fights_page(viewer: Option<&Character>, fights: &[LastFightSnapshot], 
                     })
                     .collect()
             };
-            let broken_html: String = if r.broken.is_empty() {
+            let broken_html: String = if s.broken.is_empty() {
                 "<li class=\"muted\">None</li>".to_string()
             } else {
-                r.broken.iter().map(|b| format!("<li>{} — {}</li>", escape_html(&b.display_name), escape_html(&b.item_name))).collect()
+                s.broken.iter().map(|b| format!("<li>{} — {}</li>", escape_html(&b.display_name), escape_html(&b.item_name))).collect()
             };
 
             format!(
                 "<div class=\"card\">\
                   <h2>{title}</h2>\
-                  <p class=\"muted\">{started_at} · {participants} participants · {events} events · {display_ms}ms display</p>\
-                  {boss_stats_section}\
+                  <p class=\"muted\">{started_at} · {participants} participants · {display_ms}ms display</p>\
                   <h3>Battle Report</h3>\
                   <ul>\
                     <li>🗡️ Top DPS: {dps}</li>\
@@ -2336,27 +2227,69 @@ fn render_fights_page(viewer: Option<&Character>, fights: &[LastFightSnapshot], 
                     <li>💚 Top Heals: {heals}</li>\
                     <li>💀 First down: {first_down}</li>\
                   </ul>\
-                  <h3>Skills Cast</h3><ul>{skill_html}</ul>\
-                  <h3>Buff/Debuff Stack Activity</h3>\
-                  <div style=\"overflow-x:auto\">\
-                  <table class=\"buff-activity-table\">\
-                    <thead><tr><th>Unit</th><th>Buff/Debuff</th><th>Samples</th><th>Avg Stack</th><th>Peak Stack</th></tr></thead>\
-                    <tbody>{buff_html}</tbody>\
-                  </table>\
-                  </div>\
                   <h3>Loot</h3><ul>{loot_html}</ul>\
                   <h3>Broken Gear</h3><ul>{broken_html}</ul>\
                 </div>",
-                participants = r.participants.len(),
-                events = r.events.len(),
-                display_ms = r.display_duration_ms,
-                dps = ranked(&summary.top_damage_dealt),
-                tanks = ranked(&summary.top_damage_taken),
-                heals = ranked(&summary.top_healing_done),
+                participants = s.participants,
+                display_ms = s.display_duration_ms,
+                dps = ranked(s.players.iter().map(|p| (p.display_name.as_str(), p.damage_dealt)).collect()),
+                tanks = ranked(s.players.iter().map(|p| (p.display_name.as_str(), p.damage_taken)).collect()),
+                heals = ranked(s.players.iter().map(|p| (p.display_name.as_str(), p.healing_done)).collect()),
             )
         })
         .collect();
     format!("{header}{cards}")
+}
+
+#[cfg(test)]
+mod render_fights_page_tests {
+    use super::*;
+    use crate::adventure::PlayerFightStats;
+
+    fn player_stats(name: &str, damage_dealt: u64, damage_taken: u64, healing_done: u64) -> PlayerFightStats {
+        PlayerFightStats { display_name: name.to_string(), damage_dealt, damage_taken, healing_done, ..Default::default() }
+    }
+
+    /// Wiki audit finding #4: `/fights` now renders from the summary
+    /// tier, same as `/fights.json` always did (see `render_fights_page`'s
+    /// own doc for the "no recent fights" bug this fixes). This test
+    /// exercises the new ranked-list logic (built directly from
+    /// `PlayerFightStats`, not a re-walk of the full event log the
+    /// summary tier no longer carries) rather than the disk-I/O path
+    /// (`fight_summaries_for_viewer`/`recent_summary_fights`), which -
+    /// same as the rest of fight_storage.rs - reads a fixed, real path
+    /// with no injectable directory to sandbox a test against.
+    #[test]
+    fn renders_rankings_and_outcome_from_summary_tier_data_alone() {
+        let snapshot = FightSummarySnapshot {
+            kind: EncounterKind::Boss,
+            stage: 5,
+            won: true,
+            participants: 2,
+            players: vec![player_stats("Alice", 500, 0, 0), player_stats("Bob", 0, 300, 100)],
+            first_to_die: Some("Bob".to_string()),
+            ..Default::default()
+        };
+        let html = render_fights_page(None, &[snapshot], false);
+        assert!(html.contains("Boss — Stage 5 — Won"), "title must reflect kind/stage/outcome from summary data alone: {html}");
+        assert!(html.contains("Alice (500)"), "top DPS must be computed from PlayerFightStats::damage_dealt: {html}");
+        assert!(html.contains("Bob (300)"), "top tank must be computed from PlayerFightStats::damage_taken: {html}");
+        assert!(html.contains("Bob (100)"), "top heals must be computed from PlayerFightStats::healing_done: {html}");
+        assert!(html.contains("First down: Bob"), "first_to_die must come straight from the summary: {html}");
+    }
+
+    #[test]
+    fn a_player_with_zero_in_every_category_never_appears_in_any_ranking() {
+        let snapshot = FightSummarySnapshot { players: vec![player_stats("Ghost", 0, 0, 0)], ..Default::default() };
+        let html = render_fights_page(None, &[snapshot], false);
+        assert!(html.contains("Top DPS: —"), "a player who dealt/took/healed nothing must not show up in any ranking: {html}");
+    }
+
+    #[test]
+    fn empty_fights_shows_the_right_message_for_streamer_vs_everyone_else() {
+        assert!(render_fights_page(None, &[], true).contains("No fights logged yet."));
+        assert!(render_fights_page(None, &[], false).contains("You haven't been in any recently logged fights yet."));
+    }
 }
 
 /// Admin-only live-tunables form (see `ADMIN_TUNABLES_LOGIN`/`LiveTunables`)
