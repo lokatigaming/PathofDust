@@ -99,6 +99,16 @@ pub struct Config {
     /// separately) before expecting viewers to actually be able to log in.
     pub adventure_web_public_url: String,
 
+    /// Shared secret gating the internal `/api/*` seam (architecture
+    /// refactor Stage 3, see REFACTOR_PLAN.md §4) that lets a separate
+    /// `bot` process drive the `game` process's adventure commands over
+    /// HTTP instead of an in-process call. None disables the mount
+    /// entirely (today's default — the bot still calls AdventureManager
+    /// directly in-process; this seam exists only to be exercised by
+    /// tests until Stage 4's actual cutover). Must match between the two
+    /// processes once that cutover happens.
+    pub adventure_api_secret: Option<String>,
+
     /// Shared secret for pushing personal-playlist data to the Apps
     /// Script backend (see personal_playlists.rs) — must match the
     /// PLAYLIST_SYNC_SECRET script property on that project. None
@@ -253,6 +263,7 @@ impl Config {
             adventure_overlay_server_port: env_u16_or("ADVENTURE_OVERLAY_SERVER_PORT", 4004),
             adventure_web_port: env_u16_or("ADVENTURE_WEB_PORT", 4005),
             adventure_web_public_url: env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005"),
+            adventure_api_secret: env_var("ADVENTURE_API_SECRET"),
             playlist_sync_secret: env_var("PLAYLIST_SYNC_SECRET"),
             channel_points_theme_reward_cost: env_u32_or("CHANNEL_POINTS_THEME_REWARD_COST", 5000),
             channel_points_interrupt_reward_cost: env_u32_or("CHANNEL_POINTS_INTERRUPT_REWARD_COST", 5000),

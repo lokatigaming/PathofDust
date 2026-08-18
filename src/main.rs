@@ -1065,6 +1065,7 @@ async fn async_main() -> anyhow::Result<()> {
         config.twitch_client_secret.clone(),
         adventure.clone(),
         PathBuf::from("adventure-sessions.json"),
+        config.adventure_api_secret.clone(),
     )
     .await?;
     {

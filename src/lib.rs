@@ -16,6 +16,7 @@ pub use game::adventure_overlay_server;
 pub use game::adventure_web;
 pub use game::passive_tree;
 pub use game::state;
+pub mod adventure_client;
 pub mod alerts;
 pub mod announcements;
 pub mod build_feed;

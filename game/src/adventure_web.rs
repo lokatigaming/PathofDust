@@ -44,6 +44,7 @@ use crate::adventure::{
 };
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
+mod api;
 mod render;
 mod wiki;
 
@@ -127,8 +128,14 @@ pub async fn start_adventure_web_server(
     client_secret: String,
     adventure: Arc<AdventureManager>,
     sessions_path: PathBuf,
+    // Stage 3 API seam (REFACTOR_PLAN.md §4) - `None` mounts nothing,
+    // the exact route table this function had before the seam existed.
+    // See config.rs's `adventure_api_secret` doc for why this is the
+    // production default today.
+    api_secret: Option<String>,
 ) -> anyhow::Result<std::net::SocketAddr> {
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
+    let api_router: Option<axum::Router<AppState>> = api::router(adventure.clone(), api_secret);
     let state = AppState {
         adventure,
         client_id,
@@ -140,7 +147,11 @@ pub async fn start_adventure_web_server(
         http: reqwest::Client::new(),
     };
 
-    let app = axum::Router::new()
+    let mut app: axum::Router<AppState> = axum::Router::new();
+    if let Some(api_router) = api_router {
+        app = app.nest("/api", api_router);
+    }
+    let app = app
         .route("/", get(index))
         .route("/inventory", get(inventory_page))
         .route("/login", get(login))

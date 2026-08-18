@@ -64,6 +64,11 @@ async fn main() -> anyhow::Result<()> {
     let adventure_web_port = env_u16_or("ADVENTURE_WEB_PORT", 4005);
     let adventure_web_public_url = env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005");
     let adventure_overlay_server_port = env_u16_or("ADVENTURE_OVERLAY_SERVER_PORT", 4004);
+    // Stage 3 API seam (REFACTOR_PLAN.md §4) - same env var, same
+    // None-disables-the-mount default, as the bot's own config.rs reads;
+    // must match whatever the bot process is configured with once Stage
+    // 4's cutover actually uses this.
+    let adventure_api_secret = env_var("ADVENTURE_API_SECRET");
 
     // Bot->game published constants (see PublishedConstants' own doc) -
     // a standalone game instance has no bot to publish these, so wiki.rs
@@ -98,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         twitch_client_secret,
         adventure.clone(),
         PathBuf::from("adventure-sessions.json"),
+        adventure_api_secret,
     )
     .await?;
 

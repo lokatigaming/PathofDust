@@ -64,6 +64,7 @@ async fn http_golden_responses_against_a_disposable_game_instance() {
         "test-client-secret".to_string(),
         manager.clone(),
         sessions_path,
+        None, // Stage 3 API seam not exercised by this pre-existing harness - see tests/api_seam.rs
     )
     .await
     .expect("disposable adventure_web server must start");
