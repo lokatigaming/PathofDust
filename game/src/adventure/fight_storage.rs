@@ -54,7 +54,7 @@ pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 3;
 /// `COARSE_FIGHTS_CAPACITY` costs about what 1-2 coarse files do. This
 /// also gives `/fights.json`'s own `?limit=` a genuinely useful range
 /// again, independent of the coarse tier's own much smaller retention.
-pub(crate) const SUMMARY_FIGHTS_CAPACITY: usize = 200;
+pub const SUMMARY_FIGHTS_CAPACITY: usize = 200;
 
 /// Bumps and persists the next sequence number for a tier, used to name
 /// that fight's own file - zero-padded so plain filename sorting is
@@ -155,7 +155,7 @@ pub(crate) fn save_summary_fight(summary: &FightSummarySnapshot) {
 /// Reads up to `limit` most recent fight summaries, newest first - what
 /// `/fights.json` reads instead of the full coarse-tier snapshot (see
 /// `fight_summaries_for_viewer` in `adventure_web.rs`).
-pub(crate) fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
+pub fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
     read_recent(SUMMARY_FIGHTS_DIR, limit)
 }
 
@@ -175,7 +175,7 @@ pub(crate) const PINNED_FIGHTS_DIR: &str = "adventure-fights-pinned";
 /// tier can independently be empty very early after a restart, before
 /// that tier has saved its first fight yet, so this is reported rather
 /// than assumed.
-pub(crate) struct PinnedFight {
+pub struct PinnedFight {
     /// The shared per-fight sequence number (`save_last_fight` bumps
     /// both tiers' counters together for every fight, so a fight's
     /// coarse and detail files always carry the same number) - `None`
@@ -215,7 +215,7 @@ fn copy_pinned(tier: &str, source: &Path) -> bool {
 /// why a plain copy into its own directory is sufficient protection from
 /// pruning. `None` if NEITHER tier has any file at all yet (nothing to
 /// pin - a fresh install/restart before the first fight has landed).
-pub(crate) fn pin_most_recent_fight() -> Option<PinnedFight> {
+pub fn pin_most_recent_fight() -> Option<PinnedFight> {
     if let Err(err) = std::fs::create_dir_all(PINNED_FIGHTS_DIR) {
         tracing::error!("Failed to create pinned-fights directory {PINNED_FIGHTS_DIR}: {err}");
         return None;
@@ -239,7 +239,7 @@ pub(crate) fn pin_most_recent_fight() -> Option<PinnedFight> {
 /// what the admin page's "Pinned Fights" section shows (see
 /// `render_tunables_page`) so a mod can confirm a `!pinfight` actually
 /// landed without spelunking the filesystem.
-pub(crate) fn list_pinned_fights() -> Vec<String> {
+pub fn list_pinned_fights() -> Vec<String> {
     let Ok(read_dir) = std::fs::read_dir(PINNED_FIGHTS_DIR) else { return Vec::new() };
     let mut names: Vec<String> = read_dir.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).collect();
     names.sort();

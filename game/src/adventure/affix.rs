@@ -129,7 +129,7 @@ impl Default for Affix {
 /// Every affix type - what `roll_affixes` picks distinct entries from,
 /// and what a reforge/recombine "crit" (see `GearCritEvent`) picks a
 /// brand-new one from.
-pub(crate) const ALL_AFFIXES: [Affix; 17] = [
+pub const ALL_AFFIXES: [Affix; 17] = [
     Affix::DamageReduction,
     Affix::BlockChance,
     Affix::Evasion,
@@ -399,7 +399,7 @@ pub(crate) fn dedup_affixes(affixes: Vec<(Affix, f64)>) -> Vec<(Affix, f64)> {
 /// everything else per the live request ("items will also have the
 /// potential to roll leech but it will be 10x more rare than other
 /// affixes"). Consumed by `weighted_affix_pick`.
-pub(crate) fn affix_weight(affix: Affix) -> f64 {
+pub fn affix_weight(affix: Affix) -> f64 {
     affix_balance(affix).1
 }
 

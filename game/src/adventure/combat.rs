@@ -224,17 +224,17 @@ pub(crate) const FLICKER_FRENZY_DURATION_MS: u32 = 4_000;
 /// Elemental damage rework (2026-08-15) - every Cold/Fire/Chaos/
 /// Lightning/Divine proc's own duration, explicit in the design text
 /// ("...for 4s") for all 5 types alike.
-pub(crate) const ELEMENTAL_PROC_DURATION_MS: u32 = 4_000;
+pub const ELEMENTAL_PROC_DURATION_MS: u32 = 4_000;
 /// A Fire/Cold/Chaos proc-debuff can never push the affected stat below
 /// this, no matter how many independent stacks are active - explicit in
 /// the design text ("defenses can never be reduced below 25% for
 /// enemies").
-pub(crate) const ELEMENTAL_DEFENSE_FLOOR: f64 = 0.25;
+pub const ELEMENTAL_DEFENSE_FLOOR: f64 = 0.25;
 /// A Fire/Cold/Chaos proc-buff (the healer-targets-an-ally variant) can
 /// never push the affected stat above this - explicit in the design text
 /// ("capped at the normal caps"), matching the same 75% ceiling
 /// DR/Block/Evasion already respect everywhere else.
-pub(crate) const ELEMENTAL_DEFENSE_CEILING: f64 = 0.75;
+pub const ELEMENTAL_DEFENSE_CEILING: f64 = 0.75;
 /// Hard ceiling on any single `OverflowConversion` passive node's OWN
 /// contribution, per invested rank - see `Character::passive_overflow_bonus`'s
 /// doc for why this exists (2026-08-16: "for something like overflow
@@ -247,14 +247,14 @@ pub(crate) const OVERFLOW_CONVERSION_CAP_PER_RANK: f64 = 0.10;
 /// Lightning's damage-taken stack cap - explicit in the design text
 /// ("lightning damage debuff can stack up to 200% increased damage
 /// taken"), 1% per stack.
-pub(crate) const ELEMENTAL_LIGHTNING_MAX_STACKS: usize = 200;
+pub const ELEMENTAL_LIGHTNING_MAX_STACKS: usize = 200;
 /// Divine's enemy-side healing-received-reduction stack cap - NOT
 /// explicit in the design text (only Lightning/Divine's own self-buff
 /// got an explicit number), but healing received going negative makes
 /// no sense, so 100 stacks/100% (fully negated) is the natural technical
 /// ceiling, same "sane default, flagged rather than silently invented"
 /// reasoning as every other unstated-but-necessary cap in this codebase.
-pub(crate) const ELEMENTAL_DIVINE_ENEMY_MAX_STACKS: usize = 100;
+pub const ELEMENTAL_DIVINE_ENEMY_MAX_STACKS: usize = 100;
 /// Twin Strikes'/Spell Echo's follow-up strike damage share - "strike
 /// again at 50% damage", explicit in the design text.
 pub(crate) const TWIN_STRIKE_BASE_DMG_PCT: f64 = 0.50;
@@ -280,8 +280,8 @@ pub(crate) const FROSTNOVA_DEBUFF_DURATION_MS: u32 = 3_000;
 /// this constant as its divisor, this single change keeps the total
 /// amount delivered identical - now spread over 80 small ticks across a
 /// real 4s instead of 4 big ticks across 200ms.
-pub(crate) const LINGERING_EFFECT_TICK_INTERVAL_MS: u32 = 50;
-pub(crate) const LINGERING_EFFECT_TICKS: u32 = 80;
+pub const LINGERING_EFFECT_TICK_INTERVAL_MS: u32 = 50;
+pub const LINGERING_EFFECT_TICKS: u32 = 80;
 /// Seed of Life's per-tick shield duration - long enough (vs.
 /// `LINGERING_EFFECT_TICK_INTERVAL_MS`'s 50ms cadence) that consecutive
 /// ticks from the same still-active Lingering Effect instance land before
@@ -303,7 +303,7 @@ pub(crate) const CTHULHU_DEBUFF_BASE_PCT_PER_STACK: f64 = 0.05;
 pub(crate) const CTHULHU_DEBUFF_DURATION_MS: u32 = 2_000;
 /// How often Cthulhu recasts Bubble on a fresh, independently-rolled half
 /// of the party.
-pub(crate) const CTHULHU_DEBUFF_CADENCE_MS: u32 = 3_000;
+pub const CTHULHU_DEBUFF_CADENCE_MS: u32 = 3_000;
 /// Hard floor on Cthulhu's Bubble - the combined per-target damage/
 /// healing reduction can never exceed this, regardless of stacks or
 /// `boss_dynamic_power_mult` (see `CTHULHU_DEBUFF_BASE_PCT_PER_STACK`'s
@@ -312,24 +312,24 @@ pub(crate) const CTHULHU_DEBUFF_CADENCE_MS: u32 = 3_000;
 /// Thornedhide/Soul Stone/Bloodpact Triage each independently cap their
 /// own unrelated debuff at the same 0.9 value by their own convention -
 /// this constant only feeds Cthulhu's own two read sites, not those.
-pub(crate) const CTHULHU_DEBUFF_CAP: f64 = 0.9;
+pub const CTHULHU_DEBUFF_CAP: f64 = 0.9;
 /// Dragon's aura - how much slower (as an `attack_interval_ms`
 /// multiplier) every non-boss unit attacks for the whole fight. Named
 /// 2026-08-18 for the wiki's constant audit - see the aura's own
 /// application site in `simulate_battle`.
-pub(crate) const DRAGON_SLOW_MULT: f64 = 1.5;
+pub const DRAGON_SLOW_MULT: f64 = 1.5;
 /// Fire Demon's aura - multiplier applied to every heal amount,
 /// fight-wide (0.5 = -50%). Named 2026-08-18 for the wiki's constant
 /// audit, same as `DRAGON_SLOW_MULT` above.
-pub(crate) const FIRE_DEMON_HEAL_MULT: f64 = 0.5;
+pub const FIRE_DEMON_HEAL_MULT: f64 = 0.5;
 /// How often the Lich casts Raise Dead (see the `BossAbility::Lich`
 /// handling in `simulate_battle`) - both the initial per-fight seed and
 /// the recast interval after each cast. Named 2026-08-18 for the wiki's
 /// constant audit.
-pub(crate) const LICH_SUMMON_CADENCE_MS: u32 = 2_000;
+pub const LICH_SUMMON_CADENCE_MS: u32 = 2_000;
 /// How many adds one Raise Dead cast summons, before `LICH_MAX_ADDS`
 /// clamps the total. Named 2026-08-18 for the wiki's constant audit.
-pub(crate) const LICH_ADDS_PER_SUMMON: u32 = 5;
+pub const LICH_ADDS_PER_SUMMON: u32 = 5;
 /// How many adds the Lich can summon in total across a fight, however
 /// long it runs - without this, "5 more every 2 seconds" could spiral
 /// into hundreds of units on an extended fight. Hoisted out of
@@ -337,7 +337,7 @@ pub(crate) const LICH_ADDS_PER_SUMMON: u32 = 5;
 /// the wiki's constant audit can see and wire it - it was already a
 /// `const` there, just function-local and therefore invisible outside
 /// `simulate_battle`; behavior is unchanged.
-pub(crate) const LICH_MAX_ADDS: u32 = 20;
+pub const LICH_MAX_ADDS: u32 = 20;
 /// Hard ceiling on combined Evasion, and separately on combined Block+DR
 /// (see the three call sites: `resolve_hit`'s evasion combine and its
 /// two DR/block combines) - each individual source is already capped on
@@ -369,21 +369,21 @@ pub(crate) const UNWAVERING_BUFF_DURATION_MS: u32 = 5_000;
 /// the original text's own "persists for 3s" number even though the
 /// mechanic itself was rewritten (see `eternallight_bonus_pct`'s doc).
 pub(crate) const ETERNAL_LIGHT_DURATION_MS: u32 = 3_000;
-pub(crate) const CUBE_CAPTURE_CADENCE_MS: u32 = 3_000;
+pub const CUBE_CAPTURE_CADENCE_MS: u32 = 3_000;
 /// Fraction of currently-alive players captured per cycle - clamped to at
 /// least 1 by the call site, never a flat count (a live request: scale
 /// with party size instead of a fixed 3).
-pub(crate) const CUBE_CAPTURE_PCT: f64 = 0.10;
+pub const CUBE_CAPTURE_PCT: f64 = 0.10;
 /// Gelatinous Cube's defense shred - % reduced effective mitigation per
 /// stack, refreshed on every landed hit (primary or splash) against a
 /// player.
-pub(crate) const CUBE_SHRED_PCT_PER_STACK: f64 = 0.10;
+pub const CUBE_SHRED_PCT_PER_STACK: f64 = 0.10;
 /// Caps stacking at exactly 50% total reduced defenses (5 * 10%) per the
 /// request's explicit clamp.
-pub(crate) const CUBE_SHRED_MAX_STACKS: u32 = 5;
+pub const CUBE_SHRED_MAX_STACKS: u32 = 5;
 /// How long a single shred stack lasts before lazy-expiring back to 0
 /// (Thornedhide-style) - matches the request's "for 3 seconds."
-pub(crate) const CUBE_SHRED_DURATION_MS: u32 = 3_000;
+pub const CUBE_SHRED_DURATION_MS: u32 = 3_000;
 /// Paladin's Divine Shield - base cast interval before any cooldown
 /// reduction (Divine Shield's own rank, Grace Period) is applied. States
 /// explicitly in the design text ("Every 8s").
@@ -3062,12 +3062,12 @@ pub(crate) struct LingeringDot {
 /// Safety valve — if a fight somehow hasn't resolved by this point (e.g.
 /// an all-Support roster that can never damage the boss), it just ends
 /// as a loss rather than looping forever.
-pub(crate) const MAX_FIGHT_DURATION_MS: u32 = 90_000;
+pub const MAX_FIGHT_DURATION_MS: u32 = 90_000;
 
 /// Flat multiplier applied to a hit's damage when the defender's block
 /// roll succeeds (see `resolve_hit`) - a block halves the hit, it
 /// doesn't reduce it by the defender's own block CHANCE value.
-pub(crate) const BLOCK_DAMAGE_REDUCTION: f64 = 0.5;
+pub const BLOCK_DAMAGE_REDUCTION: f64 = 0.5;
 /// Ceiling on Slayer's life leech (see `ArchetypeBonus::life_leech_pct`) -
 /// no more than this fraction of the leecher's own max hp can be regained
 /// from it in any trailing 1-second window, no matter how much raw damage
@@ -3076,16 +3076,16 @@ pub const LIFE_LEECH_CAP_PER_SEC: f64 = 0.20;
 /// How many OTHER alive enemies a player's splash also hits, on top of
 /// the primary target - a fixed cap, not scaled by the splash % itself
 /// (see `apply_splash`).
-pub(crate) const PLAYER_SPLASH_MAX_TARGETS: usize = 2;
+pub const PLAYER_SPLASH_MAX_TARGETS: usize = 2;
 /// Same idea in reverse - a boss with splash (its own "cleave") hits up
 /// to this many extra players, kept lower than the player-side cap since
 /// this is a threat, not a reward.
-pub(crate) const ENEMY_SPLASH_MAX_TARGETS: usize = 1;
+pub const ENEMY_SPLASH_MAX_TARGETS: usize = 1;
 /// Gelatinous Cube's splash - 4 ADDITIONAL targets beyond whichever player
 /// its normal attack already targeted (`apply_splash`'s own `max_targets`
 /// excludes the primary), giving 5 TOTAL players hit per swing per the
 /// "hits 5 random players" request.
-pub(crate) const CUBE_SPLASH_MAX_TARGETS: usize = 4;
+pub const CUBE_SPLASH_MAX_TARGETS: usize = 4;
 
 pub(crate) struct HitOutcome {
     /// Actual HP lost - after evasion (0 if evaded)/block/damage
@@ -3277,7 +3277,7 @@ pub(crate) fn attacker_base_damage(unit: &CombatSimUnit, rng: &mut impl Rng) -> 
 /// `Character::combat_crit_chance`), so a guaranteed double/triple crit
 /// still compounds correctly with this halving, not just a single-stack
 /// case.
-pub(crate) const CRIT_BONUS_MULT: f64 = 0.5;
+pub const CRIT_BONUS_MULT: f64 = 0.5;
 
 /// Overcrit saturation curve (2026-08-18, a live request: "give better
 /// control over how far crit stacking can run away at very high crit
@@ -3291,7 +3291,7 @@ pub(crate) const CRIT_BONUS_MULT: f64 = 0.5;
 /// hit without bound (part of what caused Hemorrhage's own
 /// trillions-of-damage incident earlier this session, on the other half
 /// of that same formula).
-pub(crate) const OVERCRIT_CURVE_A: f64 = 1.5;
+pub const OVERCRIT_CURVE_A: f64 = 1.5;
 pub(crate) const OVERCRIT_CURVE_H: f64 = 1.0;
 
 fn overcrit_curve(x: f64) -> f64 {
@@ -4857,7 +4857,7 @@ pub(crate) fn active_buffs_snapshot(unit: &CombatSimUnit, at_ms: u32) -> Vec<(St
 /// investments (e.g. lokati_gaming's combined Lightning, ~14%) cross the
 /// 100% clamp under the new divisor; everyone else's chance just scales
 /// up proportionally.
-pub(crate) const ELEMENTAL_PROC_CHANCE_DIVISOR: f64 = 10.0;
+pub const ELEMENTAL_PROC_CHANCE_DIVISOR: f64 = 10.0;
 
 /// Elemental damage rework (2026-08-15) - rolls one damage type's own
 /// chance (`raw_pct / ELEMENTAL_PROC_CHANCE_DIVISOR` - `raw_pct` already
@@ -7125,7 +7125,7 @@ pub(crate) fn fire_frenzy(
 
 /// How many extra splash targets 100%+ of overflow splash buys, on top
 /// of the normal max-targets cap - see `apply_splash`/`apply_heal_splash`.
-pub(crate) const SPLASH_OVERFLOW_BONUS_TARGETS: usize = 2;
+pub const SPLASH_OVERFLOW_BONUS_TARGETS: usize = 2;
 
 /// After a normal attack's primary hit resolves, splashes a fraction of
 /// that SAME base roll (not the primary hit's actual post-mitigation
@@ -7448,7 +7448,7 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
 /// How many OTHER injured allies a Heal-function unit's splash also
 /// heals, on top of the primary heal target - same fixed-cap idea as
 /// `apply_splash`, just for healing (see `Affix::Splash`'s doc).
-pub(crate) const HEAL_SPLASH_MAX_TARGETS: usize = 2;
+pub const HEAL_SPLASH_MAX_TARGETS: usize = 2;
 
 /// After a heal's primary target resolves, splashes the same fraction of
 /// that heal onto up to `HEAL_SPLASH_MAX_TARGETS` OTHER currently-hurt

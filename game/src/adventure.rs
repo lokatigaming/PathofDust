@@ -65,7 +65,7 @@ pub(crate) use balance::*;
 pub use character::*;
 pub use combat::*;
 pub use craft::*;
-pub(crate) use fight_storage::*;
+pub use fight_storage::*;
 pub use item::*;
 pub use manager::*;
 pub(crate) use migrations::*;

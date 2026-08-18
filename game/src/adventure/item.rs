@@ -28,7 +28,7 @@ pub(crate) fn default_max_uses() -> Option<u32> {
 /// `reforge_equipped_item`), so gaining tiers can never make an item
 /// weaker than it already was. Also what `Item::quality_percent` measures
 /// against for the web dashboard's Quality display.
-pub(crate) const POWER_ROLL_RANGE: std::ops::Range<f64> = 0.85..1.2;
+pub const POWER_ROLL_RANGE: std::ops::Range<f64> = 0.85..1.2;
 
 /// Backward-compat default for items saved before `power_roll` existed -
 /// 1.0 is the middle-ish of `POWER_ROLL_RANGE`, a fair neutral guess with
@@ -106,7 +106,7 @@ pub enum UniqueAffix {
 /// bonus damage to a random enemy - flat, not tier-scaled (unlike normal
 /// affixes) since a unique affix's whole point is being a fixed, iconic
 /// effect rather than a rollable magnitude.
-pub(crate) const CELESTIAL_CONVERSION_PCT: f64 = 0.10;
+pub const CELESTIAL_CONVERSION_PCT: f64 = 0.10;
 
 impl UniqueAffix {
     pub fn name(self) -> &'static str {
@@ -341,7 +341,7 @@ impl Item {
     /// regardless of which source granted it - `gear_stat_line` uses this
     /// to color that bullet, `craftable_affix_pool` uses it to exclude
     /// crit-bonus affixes from the normal-affix-count precondition.
-    pub(crate) fn is_crit_bonus_affix(&self, affix: Affix) -> bool {
+    pub fn is_crit_bonus_affix(&self, affix: Affix) -> bool {
         self.crit_bonus_affixes.iter().any(|&(a, _)| a == affix)
     }
 
@@ -806,7 +806,7 @@ pub struct GearCritEvent {
     pub affix: Affix,
 }
 
-pub(crate) const EQUIP_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
+pub const EQUIP_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
 
 /// Random item for `slot`, scaled off the current world stage - higher
 /// stages roll higher tiers, same "current progression, not raw level"
@@ -900,7 +900,7 @@ pub(crate) fn slot_power(slot: EquipSlot) -> (f64, Option<f64>) {
     })[&slot]
 }
 
-pub(crate) fn base_power_for_slot(slot: EquipSlot) -> f64 {
+pub fn base_power_for_slot(slot: EquipSlot) -> f64 {
     slot_power(slot).0
 }
 
@@ -1294,7 +1294,7 @@ mod sacred_item_tests {
 /// indistinguishable from a lucky max roll in the numeric Quality%
 /// display, when the whole point is a visibly distinct gold "Perfect
 /// Quality" tier (see the web dashboard's item-card rendering).
-pub(crate) const PERFECT_QUALITY_MULT: f64 = 1.20;
+pub const PERFECT_QUALITY_MULT: f64 = 1.20;
 
 /// Reforge's rare bonus-affix crit chance (2026-08-16, a live request:
 /// "increase this chance by the quality on the item") - a 1% floor at 0%
@@ -1305,7 +1305,7 @@ pub(crate) const PERFECT_QUALITY_MULT: f64 = 1.20;
 /// 1.0*1.2) = 2.2%. Shared by both reforge paths (`Character::reforge_item`
 /// and `AdventureManager::reforge_equipped_item`), which used to each
 /// hardcode their own identical flat `0.01` independently.
-pub(crate) fn reforge_crit_chance(quality_percent: f64, perfect: bool) -> f64 {
+pub fn reforge_crit_chance(quality_percent: f64, perfect: bool) -> f64 {
     let quality_fraction = (quality_percent / 100.0) * if perfect { PERFECT_QUALITY_MULT } else { 1.0 };
     (0.01 * (1.0 + quality_fraction)).min(1.0)
 }

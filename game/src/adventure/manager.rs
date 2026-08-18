@@ -8,15 +8,15 @@
 /// meaningfully out-pace the intended fight-driven leveling pace, and
 /// would have become proportionally MORE dominant once victory XP got cut
 /// (see the boss-win xp grant in `run_encounter`) if left untouched here.
-pub(crate) const ACTIVITY_XP_COOLDOWN: Duration = Duration::from_secs(180);
-pub(crate) const ACTIVITY_XP_AMOUNT: u64 = 4;
+pub const ACTIVITY_XP_COOLDOWN: Duration = Duration::from_secs(180);
+pub const ACTIVITY_XP_AMOUNT: u64 = 4;
 
 /// How often the joined roster auto-battles the next enemy.
-pub(crate) const ENCOUNTER_INTERVAL: Duration = Duration::from_secs(600);
+pub const ENCOUNTER_INTERVAL: Duration = Duration::from_secs(600);
 
 /// How many "Force Boss Fight" channel points redemptions are allowed
 /// per `ENCOUNTER_INTERVAL` cycle - see `AdventureManager::forced_boss_count`.
-pub(crate) const FORCE_BOSS_MAX_PER_CYCLE: u32 = 2;
+pub const FORCE_BOSS_MAX_PER_CYCLE: u32 = 2;
 
 /// What `AdventureManager::try_force_encounter` handed back - main.rs's
 /// redemption handler turns each into the right chat line/redemption
@@ -113,24 +113,24 @@ pub enum RampageVoteOutcome {
 
 /// How often a much weaker, non-progression-advancing "basic enemy" fight
 /// fires - see `run_basic_encounter`.
-pub(crate) const BASIC_ENCOUNTER_INTERVAL: Duration = Duration::from_secs(180);
+pub const BASIC_ENCOUNTER_INTERVAL: Duration = Duration::from_secs(180);
 
 /// !rampage (mod tool, 2026-08-16) - how many boss encounters one
 /// invocation queues up, per the exact request ("turns all encounters
 /// into boss encounters for the next 50 encounters").
-pub(crate) const RAMPAGE_ENCOUNTER_COUNT: u32 = 50;
+pub const RAMPAGE_ENCOUNTER_COUNT: u32 = 50;
 /// The floor on how long `spawn_rampage_loop` waits between encounters -
 /// per the exact request ("makes the timer between fights 1 minute (or
 /// delays if the current fight is taking longer than 1 minute)"). The
 /// actual wait is `max(RAMPAGE_MIN_INTERVAL, this fight's real overlay
 /// playback time)`, so a long fight is never interrupted mid-replay.
-pub(crate) const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_secs(60);
+pub const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_secs(60);
 /// !rampage vote (2026-08-17, a live request: "if 3 or more players use
 /// !rampage it will start a rampage without a mod activating the
 /// command, similar to a vote") - how many DISTINCT non-mod voters it
 /// takes. A mod's own !rampage still triggers instantly, same as before;
 /// this is purely the alternate viewer-driven path.
-pub(crate) const RAMPAGE_VOTE_THRESHOLD: u32 = 3;
+pub const RAMPAGE_VOTE_THRESHOLD: u32 = 3;
 /// !rampage persistence (2026-08-17, a live request: "if a rampage was
 /// active when the bot went down the bot should remember the rampage and
 /// come back up where it left off") - unlike `rampage_votes`/
@@ -154,25 +154,25 @@ pub(crate) const BASIC_ENEMY_NAMES: &[&str] = &["a pack of Goblin Raiders", "a b
 /// left to climb, only its 2 raised affixes, so its cost doesn't scale
 /// with quality the way a normal item's does. Named 2026-08-18 for the
 /// wiki's constant audit - was a bare `12`.
-pub(crate) const POLISH_PERFECT_SAND_COST: u64 = 12;
+pub const POLISH_PERFECT_SAND_COST: u64 = 12;
 /// Divisor for a non-Perfect item's Polishing cost: `ceil(quality% /
 /// this)` sand (see `craft_item_ex`'s Polishing branch) - a 0% item
 /// costs 0 (well, `ceil(0/10)` = 0, effectively free the very first
 /// time), a 100% item costs 10. Named 2026-08-18 for the wiki's
 /// constant audit - was a bare `10.0`.
-pub(crate) const POLISH_SAND_COST_PER_QUALITY_PCT: f64 = 10.0;
+pub const POLISH_SAND_COST_PER_QUALITY_PCT: f64 = 10.0;
 /// Dust-per-tier rate for the crafting-panel Reforge action (see
 /// `craft_item_ex`'s Reforge branch and `Character::reforge_item`'s own
 /// doc for why this bypasses the generic base_cost/tier-surcharge
 /// formula entirely) - cost is `tier * this`. Named 2026-08-18 for the
 /// wiki's constant audit - was a bare `30`.
-pub(crate) const PANEL_REFORGE_DUST_PER_TIER: u64 = 30;
+pub const PANEL_REFORGE_DUST_PER_TIER: u64 = 30;
 
 /// How long a knocked-out character sits out after their party's fight
 /// ends before they're eligible to fight again. If the next encounter
 /// (timer or !nextencounter) fires before this elapses, they're excluded
 /// from that fight's roster entirely rather than fighting hurt.
-pub(crate) const REVIVE_DURATION: Duration = Duration::from_secs(30);
+pub const REVIVE_DURATION: Duration = Duration::from_secs(30);
 
 /// How long a character with zero working gear (see
 /// `Character::all_gear_worn_out`) waits before every piece of their
@@ -1368,7 +1368,7 @@ pub struct AdventureManager {
 /// compile-time const, not part of `LiveTunables`, since the request was a
 /// fixed stage cutoff rather than a dial to iterate on live; can move into
 /// `LiveTunables` later if that changes.
-pub(crate) const SACRED_STAGE_THRESHOLD: u32 = 300;
+pub const SACRED_STAGE_THRESHOLD: u32 = 300;
 
 impl AdventureManager {
     pub fn new(characters_path: PathBuf, world_path: PathBuf, reforge_cooldown_path: PathBuf) -> Arc<Self> {
@@ -2771,7 +2771,7 @@ impl AdventureManager {
     /// request - it should never silently spend a banked token). `false`
     /// also sidesteps the "a token always forces `veiled = true`" rule
     /// below, since a token is never consulted at all in that case.
-    pub(crate) async fn craft_item_ex(&self, username: &str, item_id: &str, action: CraftAction, veiled: bool, allow_token_use: bool) -> Result<CraftResult, CraftError> {
+    pub async fn craft_item_ex(&self, username: &str, item_id: &str, action: CraftAction, veiled: bool, allow_token_use: bool) -> Result<CraftResult, CraftError> {
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase()).ok_or(CraftError::NotJoined)?;
         // Polishing and Reforge each have their own, entirely different
@@ -4433,7 +4433,7 @@ pub(crate) fn add_unit_id(boss_id: &str, index: usize) -> String {
 /// here instead, so sprite and mechanic always agree on which boss this
 /// actually is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum BossKind {
+pub enum BossKind {
     Lich,
     FireDemon,
     Cthulhu,
@@ -4484,7 +4484,7 @@ impl BossKind {
     /// `purple` force which SPRITE shows up (bypassing `sprite()`'s own
     /// 50/50 coin flip for that one forced fight), `None` there just lets
     /// the normal coin flip happen for a plain "dragon" request.
-    pub(crate) fn parse_forced(name: &str) -> Option<(BossKind, Option<&'static str>)> {
+    pub fn parse_forced(name: &str) -> Option<(BossKind, Option<&'static str>)> {
         match name.to_lowercase().as_str() {
             "lich" => Some((BossKind::Lich, None)),
             "demon" | "firedemon" | "fire" => Some((BossKind::FireDemon, None)),
@@ -4525,7 +4525,7 @@ impl BossKind {
     /// Player-facing name for chat/the overlay's per-unit label -
     /// distinct per boss so a stage-50+ 2-boss fight's health bars and
     /// chat lines don't both just say "Boss".
-    pub(crate) fn display_name(self) -> &'static str {
+    pub fn display_name(self) -> &'static str {
         match self {
             BossKind::Lich => "The Lich",
             BossKind::FireDemon => "The Fire Demon",
@@ -4539,7 +4539,7 @@ impl BossKind {
     /// `render_wiki_bosses`, adventure_web.rs) and the `#fragment` `!event
     /// intro` links to in its chat announcement - one shared source of
     /// truth so the two never drift apart into two different slugs.
-    pub(crate) fn wiki_slug(self) -> &'static str {
+    pub fn wiki_slug(self) -> &'static str {
         match self {
             BossKind::Lich => "lich",
             BossKind::FireDemon => "fire-demon",
@@ -5399,12 +5399,12 @@ pub(crate) const PITY_THRESHOLD: f64 = 1.0;
 /// than a basic filler fight, so it builds pity 5x faster (25% vs 5%,
 /// i.e. a guaranteed item within 4 boss fights or 20 basic fights of bad
 /// luck, whichever pity track gets there first).
-pub(crate) const BOSS_ITEM_PITY_GAIN: f64 = 0.25;
-pub(crate) const BASIC_ITEM_PITY_GAIN: f64 = 0.05;
+pub const BOSS_ITEM_PITY_GAIN: f64 = 0.25;
+pub const BASIC_ITEM_PITY_GAIN: f64 = 0.05;
 /// Same idea, for craft-currency tokens (see `Character::craft_pity`) -
 /// 10 boss fights or 50 basic fights of bad luck at most.
-pub(crate) const BOSS_CRAFT_PITY_GAIN: f64 = 0.10;
-pub(crate) const BASIC_CRAFT_PITY_GAIN: f64 = 0.02;
+pub const BOSS_CRAFT_PITY_GAIN: f64 = 0.10;
+pub const BASIC_CRAFT_PITY_GAIN: f64 = 0.02;
 
 /// Advances one pity counter (`item_pity` or `craft_pity`) by one fight's
 /// worth - resets it to 0 if `received` (they already got a reward this
@@ -5459,7 +5459,7 @@ pub(crate) const BOSS_INCREASED_DAMAGE_CAP: f64 = 10.0;
 /// reach on the same three stats was a real contributor, on top of the
 /// dynamic multiplier itself.
 pub(crate) const BOSS_DEFENSE_CAP: f64 = 0.75;
-pub(crate) const CRIT_CHANCE_CAP: f64 = 0.75;
+pub const CRIT_CHANCE_CAP: f64 = 0.75;
 
 /// Applies the dynamic difficulty multiplier (see
 /// `WorldState::boss_power_mult`/`post_win_power_boost`) on top of a

@@ -802,7 +802,7 @@ pub(crate) fn combine_reduction_sources(sources: &[f64]) -> f64 {
 /// unlike Reforge's quality-scaled `reforge_crit_chance`, this is a flat
 /// rate regardless of the sources' quality. Named 2026-08-18 for the
 /// wiki's constant audit - was a bare `0.05` at its one call site.
-pub(crate) const RECOMBINE_CRIT_CHANCE: f64 = 0.05;
+pub const RECOMBINE_CRIT_CHANCE: f64 = 0.05;
 
 /// Result of `Character::capped_stat_breakdown` - `sources` is
 /// (label, value) per contributor, in fraction form same as every other
@@ -867,7 +867,7 @@ impl Character {
     /// New characters start fully kitted out (a basic tier-1 item in
     /// every slot) rather than naked — see `AdventureManager::new`'s
     /// startup backfill for characters who joined before this existed.
-    pub(crate) fn new(display_name: String) -> Self {
+    pub fn new(display_name: String) -> Self {
         let mut rng = rand::thread_rng();
         Self {
             display_name,
@@ -2030,7 +2030,7 @@ impl Character {
     /// 5-6x longer than before. Existing characters' levels/xp are left
     /// exactly as they are - this only changes how much MORE xp it takes
     /// to cross whatever threshold they're already sitting at.
-    pub(crate) fn xp_to_next_level(level: u32) -> u64 {
+    pub fn xp_to_next_level(level: u32) -> u64 {
         20 + level as u64 * 15 + (level as u64) * (level as u64)
     }
 
