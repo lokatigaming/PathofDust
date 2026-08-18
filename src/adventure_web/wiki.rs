@@ -151,6 +151,17 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         // not a separate constant, so it stays correct if the divisor
         // above ever changes.
         ("POLISH_MAX_SAND_COST", ((100.0 / crate::adventure::POLISH_SAND_COST_PER_QUALITY_PCT).ceil() as u64).to_string()),
+        // Chat-command cooldowns/thresholds - these three were private
+        // consts in their own top-level modules (not adventure::) until
+        // this pass flipped them to pub(crate) specifically so they could
+        // be wired here; `song_requests`'s vote-volume bounds were already
+        // pub in a pub mod, so no visibility change was needed for those.
+        ("BUILTIN_COOLDOWN_S", crate::commands::BUILTIN_COOLDOWN.as_secs().to_string()),
+        ("BUGREPORT_COOLDOWN_S", crate::bug_reports::PER_USER_COOLDOWN.as_secs().to_string()),
+        ("VOTESKIP_COOLDOWN_S", crate::song_requests::SKIP_ACTION_COOLDOWN.as_secs().to_string()),
+        ("MIN_VOTE_VOLUME", crate::song_requests::MIN_VOTE_VOLUME.to_string()),
+        ("MAX_VOTE_VOLUME", crate::song_requests::MAX_VOTE_VOLUME.to_string()),
+        ("RAMPAGE_VOTE_THRESHOLD", crate::adventure::RAMPAGE_VOTE_THRESHOLD.to_string()),
     ])
 }
 
@@ -227,6 +238,17 @@ pub(super) async fn wiki_passives_page(State(state): State<AppState>, headers: H
     )))
 }
 
+pub(super) async fn wiki_commands_page(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
+    let character = resolve_wiki_character(&headers, &state).await;
+    Html(render_page(&format!(
+        "{}{}{}{}",
+        top_nav(character.as_ref()),
+        wiki_crumb("/wiki", "All wiki sections"),
+        wiki_subnav("commands"),
+        render_markdown_page("commands"),
+    )))
+}
+
 async fn resolve_wiki_character(headers: &HeaderMap, state: &AppState) -> Option<Character> {
     match current_session(headers, state).await {
         Some((login, _)) => state.adventure.character(&login).await,
@@ -255,11 +277,12 @@ fn wiki_subnav(active: &str) -> String {
         }
     };
     format!(
-        "<div class=\"top-nav-links\">{}{}{}{}</div>",
+        "<div class=\"top-nav-links\">{}{}{}{}{}</div>",
         entry("/wiki/bosses", "🐲 Bosses", "bosses"),
         entry("/wiki/crafting", "⚒️ Crafting", "crafting"),
         entry("/wiki/healing", "✨ Healing", "healing"),
         entry("/wiki/passives", "🌳 Passives", "passives"),
+        entry("/wiki/commands", "💬 Commands", "commands"),
     )
 }
 

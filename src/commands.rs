@@ -38,7 +38,7 @@ use crate::twitch::helix::HelixClient;
 /// (they can just run it again for more).
 const PLAYLIST_QUEUE_SAMPLE_SIZE: usize = 5;
 
-const BUILTIN_COOLDOWN: Duration = Duration::from_secs(5);
+pub(crate) const BUILTIN_COOLDOWN: Duration = Duration::from_secs(5);
 
 pub enum Reply {
     None,

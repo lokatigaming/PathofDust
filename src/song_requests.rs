@@ -265,7 +265,7 @@ const RECENT_HISTORY_LIMIT: usize = 30;
 
 /// Per-user cooldown shared by !voteskip and "Interrupt the Music" — see
 /// `Inner::skip_action_cooldowns`.
-const SKIP_ACTION_COOLDOWN: Duration = Duration::from_secs(600);
+pub(crate) const SKIP_ACTION_COOLDOWN: Duration = Duration::from_secs(600);
 
 /// Emitted when the overlay reports the YouTube IFrame player failed to
 /// play a video (removed, region-locked, embedding disabled, etc.) — so a

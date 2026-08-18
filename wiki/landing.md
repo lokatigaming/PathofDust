@@ -6,5 +6,6 @@
 - [⚒️ Crafting](/wiki/crafting) - currencies, actions, and the modifier ceiling
 - [✨ Healing](/wiki/healing) - shield stacking and duration rules
 - [🌳 Passives](/wiki/passives) - every class's full passive tree
+- [💬 Commands](/wiki/commands) - every chat command, cooldown, and cost
 
 </div>

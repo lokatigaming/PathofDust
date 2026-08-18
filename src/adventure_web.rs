@@ -177,6 +177,7 @@ pub async fn start_adventure_web_server(
         .route("/wiki/crafting", get(wiki::wiki_crafting_page))
         .route("/wiki/healing", get(wiki::wiki_healing_page))
         .route("/wiki/passives", get(wiki::wiki_passives_page))
+        .route("/wiki/commands", get(wiki::wiki_commands_page))
         .route("/characters", get(character_list))
         .route("/characters/:login", get(character_detail))
         .route("/characters/:login/passives", get(character_passives_readonly))

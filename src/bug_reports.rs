@@ -23,7 +23,7 @@ pub struct BugReport {
 /// to actually write out a real report (not spam-tight like the 5s shared
 /// builtin cooldown other commands share), tight enough that chat can't
 /// flood the file.
-const PER_USER_COOLDOWN: Duration = Duration::from_secs(60);
+pub(crate) const PER_USER_COOLDOWN: Duration = Duration::from_secs(60);
 
 pub enum SubmitOutcome {
     Recorded { id: u64 },
