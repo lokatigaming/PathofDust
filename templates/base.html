@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adventure Character Dashboard</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 60px; min-height: 100vh;
+    background: radial-gradient(ellipse at top, #1c1830 0%, #0c0a16 65%);
+    color: #eae6f5; font-family: "Segoe UI", Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .card {
+    width: 100%; max-width: 640px; background: rgba(30, 25, 50, 0.75);
+    border: 1px solid rgba(160, 140, 255, 0.25); border-radius: 12px;
+    padding: 24px; backdrop-filter: blur(6px);
+  }
+  .dashboard-grid {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px; width: 100%; max-width: 1320px; align-items: start;
+  }
+  .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .dashboard-col .card { max-width: none; }
+  /* Bag card sits below the dashboard-grid, not inside it, so it'd
+     otherwise fall back to the plain .card 640px cap - widened to match
+     the grid above it so the row layout actually has room to lay items
+     out side-by-side instead of cramming into a narrow column. */
+  .bag-card { max-width: 1320px; }
+  @media (max-width: 860px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+  }
+  h1 { margin: 0 0 8px; font-size: 1.6rem; }
+  h2 { margin: 0 0 12px; font-size: 1.1rem; color: #c9bdf0; }
+  h3 { margin: 16px 0 6px; font-size: 0.95rem; color: #b0a2d9; }
+  h3:first-of-type { margin-top: 4px; }
+  .card ul { margin: 0 0 4px; padding-left: 20px; }
+  .card li { margin: 4px 0; font-size: 0.9rem; line-height: 1.4; }
+  .profile-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .sprite-avatar {
+    width: 88px; height: 88px; object-fit: contain; flex-shrink: 0;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(160,140,255,0.2);
+    border-radius: 10px; padding: 6px;
+  }
+  .profile-info { flex: 1; min-width: 0; }
+  .header-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .dust-available { font-size: 0.95rem; font-weight: 600; color: #ffd76b; }
+  .role-badge { padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .passives-link-btn {
+    display: inline-block; padding: 6px 14px; border-radius: 999px; text-decoration: none;
+    font-size: 0.8rem; font-weight: 700; color: #eae6f5;
+    background: linear-gradient(135deg, rgba(124,92,255,0.35), rgba(160,140,255,0.15));
+    border: 1px solid rgba(160, 140, 255, 0.4);
+  }
+  .passives-link-btn:hover { background: linear-gradient(135deg, rgba(124,92,255,0.5), rgba(160,140,255,0.25)); border-color: rgba(160,140,255,0.6); }
+  .role-melee { background: #4a1f24; color: #ff8a8a; }
+  .role-ranged { background: #1f3a24; color: #8affa0; }
+  .role-support { background: #1f2c4a; color: #8ab4ff; }
+  .stat-row { display: flex; gap: 24px; margin: 16px 0; flex-wrap: wrap; }
+  .stat-label { font-size: 0.75rem; color: #a394c7; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-value { font-size: 1.4rem; font-weight: 600; }
+  .xp-label { font-size: 0.8rem; color: #a394c7; margin-bottom: 4px; }
+  .xp-bar { width: 100%; height: 10px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+  .xp-fill { height: 100%; background: linear-gradient(90deg, #7c5cff, #b98bff); }
+  .gear-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .bag-rows { display: flex; flex-direction: column; gap: 10px; }
+  .bag-row { background: rgba(255,255,255,0.02); border: 1px solid rgba(160,140,255,0.15); border-radius: 8px; padding: 10px; }
+  .bag-row summary {
+    cursor: pointer; list-style: none; font-weight: 600; font-size: 0.85rem;
+    color: #d9d2f0; padding: 4px 2px;
+  }
+  .bag-row summary::-webkit-details-marker { display: none; }
+  .bag-row[open] summary { margin-bottom: 8px; }
+  .bag-row-items { display: flex; flex-wrap: wrap; gap: 10px; }
+  .bag-row-items .gear-slot { flex: 1 1 180px; max-width: 220px; }
+  .bag-row .muted { padding: 0 2px; }
+  .model-picker-details summary {
+    cursor: pointer; list-style: none; display: inline-block;
+    padding: 8px 14px; margin-top: 4px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+    background: rgba(124,92,255,0.15); color: #d9d2f0; border: 1px solid rgba(160,140,255,0.25);
+  }
+  .model-picker-details summary::-webkit-details-marker { display: none; }
+  .model-picker-details summary:hover { background: rgba(124,92,255,0.28); }
+  .model-picker-details[open] summary { margin-bottom: 4px; }
+  .model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; margin: 12px 0; }
+  .model-option {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px; border: 1px solid rgba(160,140,255,0.15); border-radius: 8px;
+    cursor: pointer; font-size: 0.7rem; text-align: center; background: rgba(255,255,255,0.03);
+  }
+  .model-option:hover { border-color: rgba(160,140,255,0.4); }
+  .model-option:has(input:checked) { border-color: #7c5cff; background: rgba(124,92,255,0.18); }
+  .model-option input { margin: 0; }
+  /* 96px, not the original 56px - a two-subject composition (e.g. the
+     wolf+ranger duo) reads as an indistinct blob at 56px even though
+     the underlying crop itself is clean; this is purely a legibility
+     fix, not a re-crop. */
+  .model-thumb { width: 96px; height: 96px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .model-option img { width: 96px; height: 96px; object-fit: contain; }
+  .top-nav { width: 100%; max-width: 1320px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .top-nav-link {
+    display: block; text-align: center; flex: 1 1 220px; box-sizing: border-box;
+    padding: 12px 16px; border-radius: 12px; text-decoration: none;
+    font-size: 1.05rem; font-weight: 700; letter-spacing: 0.02em;
+    color: #eae6f5; background: linear-gradient(135deg, rgba(124,92,255,0.35), rgba(160,140,255,0.15));
+    border: 1px solid rgba(160, 140, 255, 0.4);
+  }
+  .top-nav-link:hover { background: linear-gradient(135deg, rgba(124,92,255,0.5), rgba(160,140,255,0.25)); border-color: rgba(160,140,255,0.6); }
+  /* The player's own stat summary (see top_nav's doc) sits apart from
+     the link pills - not a link at all, so it doesn't stretch to fill
+     the row like they do (flex: 0 0 auto overrides their shared
+     flex: 1 1 220px) and margin-left: auto pushes it to the right edge
+     of the nav bar instead. */
+  .top-nav-stats {
+    flex: 0 0 auto; margin-left: auto; padding: 12px 16px; display: flex; align-items: center;
+    font-size: 0.95rem; font-weight: 600; color: #cfc9e8; white-space: nowrap;
+  }
+  .buff-activity-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  .buff-activity-table th, .buff-activity-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(160,140,255,0.15); }
+  .buff-activity-table th { color: #b8b0d8; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.03em; }
+  .roster-grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+  .roster-card { flex: 1 1 140px; max-width: 200px; }
+  .roster-card {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center;
+    padding: 12px; border: 1px solid rgba(160,140,255,0.15); border-radius: 8px;
+    background: rgba(255,255,255,0.03); text-decoration: none; color: inherit;
+  }
+  .roster-card:hover { border-color: rgba(160,140,255,0.4); background: rgba(124,92,255,0.1); }
+  .roster-sprite { width: 72px; height: 72px; object-fit: contain; }
+  .roster-name { font-weight: 600; }
+  .roster-meta { font-size: 0.75rem; color: #a394c7; }
+  .gear-slot { background: rgba(255,255,255,0.04); border: 1px solid rgba(160,140,255,0.15); border-radius: 8px; padding: 12px; }
+  .gear-slot.empty { opacity: 0.5; }
+  .gear-slot-label { font-size: 0.7rem; color: #a394c7; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .gear-name { font-weight: 600; margin-bottom: 2px; }
+  /* Golden - a unique item (Item::unique_affix, e.g. Celestial Shard). */
+  .gear-name-unique { color: #ffd76b; text-shadow: 0 0 6px rgba(255, 215, 107, 0.4); }
+  /* Dark red - a Krangled (locked) item. Checked FIRST in
+     item_name_class (2026-08-16 fix) - locked overrides Sacred/Perfect's
+     own coloring, since Krangle has no precondition against either and
+     "this is permanently locked" is the more important thing to notice. */
+  .gear-name-locked { color: #b23a3a; }
+  /* Icy blue-white - a Sacred item (Item::sacred_affix), deliberately
+     distinct from unique/Perfect's gold so the three tiers never read
+     as the same thing at a glance. Only applies when NOT locked (see
+     item_name_class's doc). */
+  .gear-name-sacred { color: #d6f0ff; text-shadow: 0 0 8px rgba(120, 200, 255, 0.6); }
+  /* Krangled items' bottom-of-card tag (2026-08-16, a live request) -
+     same dark-red family as .gear-name-locked, styled as a quiet
+     standing warning rather than a loud callout like .gear-unique/
+     .gear-sacred above (those advertise a benefit; this warns about a
+     permanent restriction, so it reads as muted/serious instead). */
+  .gear-locked-tag {
+    font-size: 0.72rem; color: #d98d86; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    margin-top: 6px; opacity: 0.85;
+  }
+  /* The unique affix line itself, shown above Tier - the "implicit"
+     treatment, styled like a small callout so it reads as a fixed,
+     built-in property rather than just another modifier. */
+  .gear-unique {
+    font-size: 0.78rem; color: #ffd76b; font-weight: 600;
+    background: rgba(255, 215, 107, 0.1); border: 1px solid rgba(255, 215, 107, 0.35);
+    border-radius: 6px; padding: 4px 7px; margin-bottom: 6px; line-height: 1.35;
+  }
+  /* Sacred's own implicit callout - same shape as .gear-unique above,
+     just in the icy blue-white theme instead of gold. */
+  .gear-sacred {
+    font-size: 0.78rem; color: #d6f0ff; font-weight: 600;
+    background: rgba(120, 200, 255, 0.12); border: 1px solid rgba(120, 200, 255, 0.4);
+    border-radius: 6px; padding: 4px 7px; margin-bottom: 6px; line-height: 1.35;
+  }
+  .gear-quality { font-size: 0.75rem; color: #8f7fc4; margin-bottom: 2px; }
+  /* Perfect Quality (see quality_line_html's doc) - gold, bold, and
+     cursor:help like every other [data-tip] trigger so its tooltip
+     (the shared #js-tooltip system) is discoverable the same way a
+     unique implicit's callout already is. */
+  .gear-quality--perfect { color: #ffd76b; font-weight: 700; cursor: help; width: fit-content; }
+  /* Sacred's own quality-line tag - same shape as --perfect, icy
+     blue-white theme, shown instead of --perfect on a Sacred item. */
+  .gear-quality--sacred { color: #d6f0ff; font-weight: 700; cursor: help; width: fit-content; }
+  .gear-primary { font-size: 0.85rem; font-weight: 600; color: #d9d2f0; margin-bottom: 4px; }
+  .gear-tier { font-size: 0.75rem; color: #8f7fc4; margin-bottom: 6px; }
+  .gear-stat { font-size: 0.85rem; color: #b8adda; margin-bottom: 8px; }
+  .gear-stat ul { margin: 0; padding-left: 1.1em; }
+  .gear-stat li { margin: 1px 0; }
+  /* All `[data-tip]` tooltips (this rule, stat labels/values, craft
+     buttons, veil-check, and the passives tree's nodes below) render
+     through ONE shared JS-positioned tooltip (`#js-tooltip`, styled near
+     the end of this block, driven by the script at the bottom of the
+     page) instead of a per-element `::after` popup - a pure-CSS `::after`
+     gets silently clipped by ANY ancestor with `overflow` set to
+     anything but `visible` (the passives tree's horizontally-scrollable
+     `.tree-wrap` was the reproducible case a live report caught, but the
+     same clipping risk existed for every tooltip on the site, in any
+     card that ever gained a scroll/overflow rule) - no `z-index` value
+     can fix that, since ancestor overflow-clipping happens independently
+     of stacking order. A single `position: fixed` element appended
+     directly under `<body>` escapes every ancestor's overflow box by
+     construction. These base rules just keep the trigger's own cursor/
+     sizing; `data-roll` was renamed to `data-tip` on the mod-roll list
+     item so every tooltip trigger shares one attribute the script can
+     query generically.
+  */
+  .mod-roll { cursor: help; width: fit-content; }
+  /* Crit-granted modifier (Reforge/Recombine's rare bonus affix, see
+     Item::crit_bonus_affixes) - green to stand apart from the item's
+     normal, guaranteed modifiers at a glance. */
+  .mod-roll-crit { color: #6ee08a; font-weight: 600; }
+  .stat-label[data-tip] { cursor: help; width: fit-content; }
+  .stat-value[data-tip] { cursor: help; width: fit-content; }
+  .veil-check[data-tip] { cursor: help; width: fit-content; }
+  #js-tooltip {
+    position: fixed; z-index: 9999; pointer-events: none;
+    width: max-content; max-width: 300px;
+    background: #1c1830; border: 1px solid rgba(160, 140, 255, 0.4);
+    color: #eae6f5; font-size: 0.72rem; font-weight: 400; line-height: 1.45;
+    text-align: left; white-space: normal;
+    padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+    opacity: 0; transition: opacity 0.1s ease;
+  }
+  #js-tooltip.visible { opacity: 1; }
+  /* ---- Passives page: literal port of the design artifact's own CSS,
+     scoped under .ptree-page (same ".dashboard-col .card"-style scoping
+     already used above) so it can reuse the artifact's exact class names
+     (.node, .btn-save, .role-badge, etc.) without colliding with this
+     file's other, differently-styled uses of those same names elsewhere
+     on the site. Values copied 1:1 from the artifact, not re-derived. */
+  .ptree-page { max-width: 1320px; margin: 0 auto; width: 100%; }
+  .ptree-page .masthead { margin-bottom: 6px; }
+  .ptree-page .eyebrow { font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: #ff8a8a; font-weight: 600; }
+  .ptree-page h1 { margin: 4px 0 0; font-size: 2.1rem; font-weight: 700; letter-spacing: 0.01em; }
+  .ptree-page .subhead { margin: 6px 0 0; color: #a394c7; font-size: 0.95rem; max-width: 78ch; }
+  .ptree-page .current-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 20px 0 6px; }
+  .ptree-page .class-strip { display: flex; align-items: center; gap: 10px; }
+  .ptree-page .class-strip .icon { font-size: 1.5rem; }
+  .ptree-page .class-strip h2 { margin: 0; font-size: 1.4rem; font-weight: 700; }
+  .ptree-page .role-badge { font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(160, 140, 255, 0.18); color: #a394c7; background: none; }
+  .ptree-page .side-chips { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .ptree-page .points-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(160, 140, 255, 0.18);
+    border-radius: 999px; padding: 8px 16px; font-size: 0.85rem; color: #a394c7; white-space: nowrap;
+  }
+  .ptree-page .points-chip strong { color: #ff8a8a; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ptree-page .btn-respec {
+    font: inherit; font-size: 0.78rem; color: #a394c7;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(160, 140, 255, 0.18);
+    border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  .ptree-page .btn-respec:hover { border-color: rgba(160, 140, 255, 0.5); color: #eae6f5; }
+  .ptree-page .btn-respec:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ptree-page .points-formula { font-size: 0.72rem; color: #766a99; margin: 2px 0 0; }
+  .ptree-page .preview-row { display: flex; gap: 8px; }
+  .ptree-page .btn-save {
+    font: inherit; font-size: 0.78rem; font-weight: 600; color: #0c0a16;
+    background: #ff8a8a; border: 1px solid #ff8a8a; border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  .ptree-page .btn-save:hover:not(:disabled) { background: #ffa3a3; border-color: #ffa3a3; }
+  .ptree-page .btn-save:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ptree-page .preview-note { font-size: 0.72rem; color: #766a99; margin: 0; }
+  .ptree-page .preview-note.dirty { color: #ffd76b; }
+  .ptree-page .tree-meta { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 10px; }
+  .ptree-page .tier-count {
+    font-size: 0.72rem; color: #766a99; letter-spacing: 0.04em;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(160, 140, 255, 0.18);
+    border-radius: 999px; padding: 4px 12px;
+  }
+  .ptree-page .legend {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin: 4px 0 20px;
+    padding: 12px 18px; background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(160, 140, 255, 0.18); border-radius: 10px;
+    font-size: 0.75rem; color: #a394c7;
+  }
+  .ptree-page .legend-item { display: flex; align-items: center; gap: 7px; }
+  .ptree-page .legend-dots { display: flex; gap: 3px; }
+  .ptree-page .legend-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #766a99; }
+  .ptree-page .legend-dot.on { background: #ff3b4e; border-color: #ff3b4e; }
+  .ptree-page .legend-dot.spec { background: #ffd76b; border-color: #ffd76b; }
+  .ptree-page .tree-wrap { overflow-x: auto; overflow-y: visible; padding-bottom: 12px; display: flex; justify-content: center; }
+  .ptree-page #stage { position: relative; }
+  .ptree-page .connectors { position: absolute; top: 0; left: 0; overflow: visible; shape-rendering: crispEdges; }
+  .ptree-page .node {
+    position: absolute; transform: translate(-50%, -50%); z-index: 1;
+    border-radius: 10px; padding: 7px 9px;
+    background: #1c1830; border: 1.5px solid rgba(160, 140, 255, 0.18);
+    text-align: center; cursor: help;
+  }
+  .ptree-page .node:hover { z-index: 20; }
+  .ptree-page .node-root {
+    background: linear-gradient(160deg, rgba(255, 59, 78, 0.16), rgba(28, 24, 48, 0.9));
+    border: 1.5px solid rgba(255, 59, 78, 0.5); padding: 14px 18px; cursor: default;
+  }
+  .ptree-page .node-root .node-name { font-size: 1.02rem; letter-spacing: 0.04em; }
+  .ptree-page .node-root .node-desc { color: #a394c7; font-size: 0.72rem; line-height: 1.4; margin-top: 4px; }
+  .ptree-page .node-kind { font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; color: #766a99; margin-bottom: 2px; }
+  .ptree-page .node-spec .node-kind, .ptree-page .node-mod .node-kind { display: none; }
+  .ptree-page .node-name { font-size: 0.78rem; font-weight: 700; line-height: 1.22; color: #eae6f5; }
+  .ptree-page .node-skill .node-name { font-size: 0.84rem; }
+  .ptree-page .node-mod .node-name { font-size: 0.72rem; }
+  .ptree-page .dots { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
+  .ptree-page .dot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid #766a99; background: transparent; display: inline-block; }
+  .ptree-page .dot.filled { background: #ff3b4e; border-color: #ff3b4e; box-shadow: 0 0 6px rgba(255, 59, 78, 0.7); }
+  .ptree-page .dot.filled.dot-spec { background: #ffd76b; border-color: #ffd76b; box-shadow: 0 0 6px rgba(255, 215, 107, 0.7); }
+  .ptree-page .node-buttons { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; }
+  .ptree-page .node-rank { font-variant-numeric: tabular-nums; color: #a394c7; font-size: 0.78rem; }
+  .ptree-page .node--maxed { border-color: rgba(255, 59, 78, 0.55); box-shadow: 0 0 0 1px rgba(255, 59, 78, 0.12), 0 8px 22px rgba(255, 59, 78, 0.12); }
+  .ptree-page .node--maxed .node-name { color: #ff8a8a; }
+  .ptree-page .node--specialized { border-color: rgba(255, 215, 107, 0.6); box-shadow: 0 0 0 1px rgba(255, 215, 107, 0.15), 0 8px 22px rgba(255, 215, 107, 0.12); }
+  .ptree-page .node--specialized .node-name { color: #ffd76b; }
+  .ptree-page .node--invested { border-color: rgba(160, 140, 255, 0.45); }
+  .ptree-page .node--locked { opacity: 0.45; cursor: not-allowed; }
+  .ptree-page .node--locked .node-name { color: #a394c7; }
+  .ptree-page .node--locked .node-buttons button { pointer-events: none; }
+  .ptree-page footer { margin-top: 26px; font-size: 0.78rem; color: #766a99; max-width: 80ch; line-height: 1.6; }
+  .ptree-page footer strong { color: #a394c7; }
+  /* Split Personality's 2nd-class section (see `render_ptree_body`'s
+     doc) - nested inside `.ptree-page` so it already inherits every
+     `.ptree-page X` rule above for free (masthead/current-row/tree-wrap/
+     node styling); this just adds a visual break from the primary tree
+     above it and lays out the picker form. */
+  .ptree-secondary { margin-top: 36px; padding-top: 28px; border-top: 1px dashed rgba(160, 140, 255, 0.25); }
+  .secondary-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .secondary-picker label { font-size: 0.85rem; color: #c9bdf0; }
+  .secondary-picker select {
+    background: rgba(255,255,255,0.04); color: #eae6f5; border: 1px solid rgba(160,140,255,0.3);
+    border-radius: 8px; padding: 6px 10px; font-size: 0.85rem; font-family: inherit;
+  }
+  .passive-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .btn-save {
+    font: inherit; font-size: 0.85rem; font-weight: 600; color: #fff;
+    background: #7c5cff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer;
+  }
+  .btn-save:hover { background: #6a4ae8; }
+  .btn-save:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-respec {
+    font: inherit; font-size: 0.85rem; color: #a394c7;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(160, 140, 255, 0.25);
+    border-radius: 8px; padding: 8px 16px; cursor: pointer;
+  }
+  .btn-respec:hover { border-color: rgba(160, 140, 255, 0.5); color: #eae6f5; }
+  .btn-respec:disabled { opacity: 0.4; cursor: not-allowed; }
+  .preview-note { font-size: 0.8rem; color: #766a99; margin: 4px 0; }
+  .preview-note.dirty { color: #ffd76b; }
+  .gear-empty { font-size: 0.85rem; color: #766a99; }
+  .durability-bar { width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; display: inline-block; vertical-align: middle; width: 70%; }
+  .durability-fill { height: 100%; }
+  .durability-fill.good { background: #5fd66a; }
+  .durability-fill.warn { background: #e0c23f; }
+  .durability-fill.critical { background: #ff4444; }
+  .durability-pct { font-size: 0.75rem; color: #a394c7; margin-left: 6px; }
+  .indestructible { font-size: 0.8rem; color: #ffd76a; font-weight: 600; }
+  .needs-repair { font-size: 0.75rem; color: #ff8a8a; margin-top: 4px; }
+  .btn {
+    display: inline-block; padding: 10px 20px; background: #7c5cff; color: #fff;
+    text-decoration: none; border: none; border-radius: 8px; font-size: 0.95rem;
+    font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { background: #6a4ae8; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.wings-active { background: linear-gradient(135deg, #4fd1c5, #7c5cff); }
+  .btn.wings-active:hover { background: linear-gradient(135deg, #3fb8ac, #6a4ae8); }
+  select, input[type="text"], input[type="number"] {
+    display: block; width: 100%; margin: 10px 0; padding: 10px 12px;
+    background: rgba(255,255,255,0.06); color: #eae6f5; border: 1px solid rgba(160,140,255,0.25);
+    border-radius: 8px; font-size: 0.9rem; font-family: inherit;
+  }
+  select option { background: #1e1932; color: #eae6f5; }
+  /* Crafting/equip-picker dropdown groups (live request: "soften the
+     colors to muted greys... we dont want to flashbang anyone") -
+     `craft_item_options` is the only place `<optgroup>` is used anywhere
+     on the site, and it had zero custom color before this: an unstyled
+     optgroup renders with stark default browser/OS colors (often a plain
+     bright system list), clashing hard against the page's dark theme -
+     that's almost certainly the actual flashbang, not the option color
+     above (which every other dropdown already shares uneventfully).
+     Muted greys, not the page's usual purple tint, per the exact request. */
+  select optgroup { background: #242429; color: #8f8f99; font-weight: 600; font-style: normal; }
+  #crafting-card select option, .equip-picker select option { background: #2b2b31; color: #b8b8c0; }
+  input[type="text"]::placeholder { color: #766a99; }
+  .tunable-row { margin-bottom: 14px; }
+  .tunable-row label { display: block; font-size: 0.85rem; color: #c9bdf0; margin-bottom: 2px; }
+  .tunable-row input { margin: 4px 0 0; }
+  .tunable-hint { font-size: 0.75rem; color: #766a99; margin: 2px 0 0; }
+  /* Crafting wiki section (see `render_wiki_crafting`) - own `.wiki-*`
+     namespace, same convention as the passive-tree wiki block below.
+     `.wiki-wide` opts this one card out of the page's default 640px
+     `.card` cap (see `.dashboard-col .card`/`.bag-card` for the same
+     precedent) since it's mostly tables, which cramp badly at 640px. */
+  .wiki-wide { max-width: 900px; }
+  .wiki-wide h3 { border-top: 1px solid rgba(160,140,255,0.15); padding-top: 16px; margin-top: 24px; }
+  .wiki-wide h3:first-of-type { border-top: none; padding-top: 4px; margin-top: 4px; }
+  .wiki-wide code { background: rgba(255,255,255,0.06); border-radius: 4px; padding: 1px 5px; font-size: 0.88em; }
+  .wiki-currency-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0; }
+  .wiki-currency-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(160,140,255,0.15); border-radius: 10px; padding: 12px 14px; }
+  .wiki-currency-card h4 { margin: 0 0 4px; font-size: 0.9rem; color: #d9d2f0; }
+  .wiki-currency-card p { margin: 0; font-size: 0.82rem; color: #a394c7; }
+  .wiki-ceiling { background: rgba(255,255,255,0.03); border: 1px solid rgba(160,140,255,0.15); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .wiki-ceiling-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .wiki-slot { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex: none; }
+  .wiki-slot--base { background: #7c5cff; color: #fff; }
+  .wiki-slot--bonus { border: 2px dashed rgba(160,140,255,0.35); color: #a394c7; }
+  .wiki-slot-plus { color: #a394c7; font-size: 1rem; padding: 0 2px; }
+  .wiki-ceiling ul { margin: 14px 0 0; font-size: 0.85rem; color: #c9bdf0; }
+  .wiki-ceiling-cap { text-align: center; margin: 14px 0 0; font-size: 0.85rem; color: #a394c7; }
+  .wiki-ceiling-cap strong { color: #eae6f5; font-size: 1.05rem; }
+  .wiki-table-wrap { overflow-x: auto; border: 1px solid rgba(160,140,255,0.15); border-radius: 10px; margin: 12px 0; }
+  .wiki-table-wrap table { border-collapse: collapse; width: 100%; min-width: 480px; }
+  .wiki-table-wrap th, .wiki-table-wrap td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(160,140,255,0.12); font-size: 0.85rem; }
+  .wiki-table-wrap th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #a394c7; background: rgba(255,255,255,0.03); }
+  .wiki-table-wrap tbody tr:last-child td { border-bottom: none; }
+  .wiki-tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+  .wiki-tier-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(160,140,255,0.15); border-radius: 10px; padding: 14px 16px; }
+  .wiki-tier-card h4 { margin: 0 0 6px; }
+  .wiki-tier-card p { margin: 0; font-size: 0.85rem; color: #a394c7; }
+  /* Wide enough for the passive-tree graph (see `render_wiki_archetype_graph`)
+     - same reasoning as `.wiki-wide`/`.bag-card` opting out of the plain
+     `.card` 640px cap. `.tree-wrap`'s own `overflow-x: auto` still covers
+     any class whose tree is wider than even this on a small screen. */
+  .wiki-archetype { max-width: 1320px; }
+  .wiki-archetype .ptree-page { max-width: none; margin: 12px 0 0; }
+  .wiki-archetype summary { font-size: 1rem; display: flex; align-items: center; gap: 10px; }
+  .wiki-root-desc { font-size: 0.85rem; color: #c9bdf0; margin: 4px 0 16px; }
+  .wiki-skill { border-top: 1px solid rgba(160,140,255,0.15); padding-top: 12px; margin-top: 12px; }
+  .wiki-skill h3 { margin: 0 0 4px; font-size: 0.95rem; }
+  .wiki-skill > p { margin: 0 0 10px; font-size: 0.88rem; }
+  .wiki-spec { margin: 10px 0 10px 18px; padding-left: 12px; border-left: 2px solid rgba(160,140,255,0.2); }
+  .wiki-spec h4 { margin: 0 0 4px; font-size: 0.85rem; color: #d9d2f0; }
+  .wiki-spec > p { margin: 0 0 6px; font-size: 0.82rem; }
+  .wiki-mod-list { margin: 0; padding-left: 18px; font-size: 0.8rem; color: #c9bdf0; }
+  .wiki-mod-list li { margin-bottom: 4px; }
+  .slot-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .protect-toggle { margin-top: 8px; font-size: 0.78rem; color: #c9bdf0; }
+  .protect-toggle label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .auto-disenchant-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .auto-disenchant-row select, .auto-disenchant-row input[type=\"number\"] { display: inline-block; width: auto; margin: 0; padding: 6px 10px; }
+  .veil-check { display: block; margin: 4px 0 12px; font-size: 0.85rem; color: #c9bdf0; }
+  .craft-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .polish-reforge-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid #3a3255; }
+  .polish-reforge-actions + .craft-actions { margin-top: 10px; padding-top: 10px; border-top: 1px solid #3a3255; }
+  .polish-reforge-actions .muted { font-size: 0.82rem; }
+  .batch-check { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; color: #c9bdf0; cursor: pointer; }
+  .veil-options { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  .veil-option { margin: 0; }
+  .veil-option .btn { width: 100%; text-align: center; }
+  .btn-sm {
+    padding: 6px 12px; background: #7c5cff; color: #fff; border: none;
+    border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  }
+  .btn-sm:hover { background: #6a4ae8; }
+  .btn-sm.btn-danger { background: rgba(255,68,68,0.15); color: #ff8a8a; }
+  .btn-sm.btn-danger:hover { background: rgba(255,68,68,0.3); }
+  .btn-sm.btn-repair { background: rgba(122,196,255,0.15); color: #7ac4ff; }
+  .btn-sm.btn-repair:hover { background: rgba(122,196,255,0.3); }
+  .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-sm:disabled:hover { background: rgba(122,196,255,0.15); }
+  .muted { color: #a394c7; font-size: 0.85rem; }
+  .muted a { color: #a394c7; }
+  a { color: #b98bff; }
+  .reforge-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; margin-bottom: 10px; }
+  .token-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .token-pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+    background: rgba(255, 215, 106, 0.15); color: #ffd76a; border: 1px solid rgba(255, 215, 106, 0.3);
+  }
+  .countdown-card form { margin-top: 4px; }
+  .retreat-card { border-color: rgba(255, 138, 138, 0.5); }
+  .retreat-card h2 { color: #ff8a8a; }
+  .reforge-ready { background: rgba(95,214,106,0.15); color: #5fd66a; }
+  .reforge-used { background: rgba(255,255,255,0.08); color: #a394c7; }
+  .reforge-countdown { margin: 10px 0 0; font-size: 0.85rem; color: #a394c7; }
+  #reforge-timer { font-variant-numeric: tabular-nums; font-weight: 600; color: #eae6f5; }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(8, 6, 16, 0.75); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px;
+  }
+  .modal {
+    width: 100%; max-width: 380px; background: linear-gradient(160deg, #241f3d, #17132a);
+    border: 1px solid rgba(255, 215, 106, 0.4); border-radius: 14px; padding: 28px 24px;
+    text-align: center; box-shadow: 0 0 40px rgba(255, 140, 60, 0.25);
+  }
+  .modal-icon { font-size: 2.5rem; margin-bottom: 8px; }
+  .modal h2 { margin: 0 0 12px; color: #ffd76a; }
+  .modal p { margin: 6px 0; }
+  .modal-tier { font-size: 1.1rem; font-weight: 700; color: #eae6f5; margin: 12px 0 20px; }
+</style>
+</head>
+<body>
+<div id="js-tooltip"></div>
+{{ body }}
+<script>
+  (function() {
+    // Every action on this dashboard is a plain <form method="post">
+    // submit followed by a server-side redirect - a real page
+    // navigation, which the browser resets to scroll 0 on by default
+    // (2026-08-17, a live report: "the page keeps scrolling back to the
+    // top on every action"). Save the scroll position right before the
+    // browser navigates away (sessionStorage survives the navigation, a
+    // JS variable wouldn't), then restore it as soon as the new page's
+    // script runs.
+    document.addEventListener('submit', function() {
+      sessionStorage.setItem('scrollY', String(window.scrollY));
+    }, true);
+    var savedY = sessionStorage.getItem('scrollY');
+    if (savedY !== null) {
+      sessionStorage.removeItem('scrollY');
+      window.scrollTo(0, parseInt(savedY, 10));
+    }
+  })();
+  (function() {
+    // Generic ticking countdown for every .countdown-card on the page
+    // (Reforge Gear's hourly reset, the Retreated banner's auto-repair
+    // timer) - each just needs a data-reset-ms and a .countdown-timer
+    // span inside it.
+    var cards = document.querySelectorAll('.countdown-card');
+    if (!cards.length) return;
+    var timers = Array.prototype.map.call(cards, function(card) {
+      return { resetMs: parseInt(card.dataset.resetMs, 10), el: card.querySelector('.countdown-timer') };
+    }).filter(function(t) { return t.el; });
+    function tick() {
+      var now = Date.now();
+      timers.forEach(function(t) {
+        var remaining = Math.max(0, t.resetMs - now);
+        if (remaining <= 0) {
+          // Whatever this timer was counting down to just happened - the
+          // rest of the page (server-rendered at load) is now stale, so
+          // prompt a refresh rather than silently showing a wrong status.
+          t.el.textContent = '00:00 — refresh the page';
+          return;
+        }
+        var mins = Math.floor(remaining / 60000);
+        var secs = Math.floor((remaining % 60000) / 1000);
+        t.el.textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+      });
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+  (function() {
+    // After submitting a craft that came back as a veil choice (see
+    // render_veil_choice_card), the POST-redirect-GET flow reloads the
+    // whole page from scratch with no memory of what was just clicked -
+    // this is what puts the "choose your outcome" card in front of the
+    // player instead of leaving them to scroll down and find it
+    // themselves. Runs on every load the card happens to be present for,
+    // which is exactly the "still waiting on a choice" state either way.
+    var veilCard = document.getElementById('veil-choice') || document.getElementById('chancing-wizard');
+    if (veilCard) {
+      veilCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  })();
+  (function() {
+    // Live cost preview for the Crafting card (see render_crafting_card) -
+    // every non-free action button carries data-base/data-label, and, if
+    // veiling actually changes its price, data-veil-extra too (Scour and
+    // token-covered buttons omit it, so they're left alone below).
+    // Recombine additionally carries data-recombine, since its veiled
+    // price also depends on the combined modifier count of whichever two
+    // items are currently picked (each <option> carries data-affixes -
+    // see craft_item_options) - server-side is still the source of truth,
+    // this is purely a preview so the cost shown matches what submitting
+    // the form will actually charge. The 6 non-Recombine buttons also add
+    // a flat per-tier surcharge (TIER_CRAFT_DUST_COST in adventure.rs -
+    // kept as a literal here, not interpolated, since this script block
+    // has no access to that Rust constant by name) off item_a's own tier
+    // (each <option> carries data-tier) - Recombine doesn't pay this at
+    // all (see AdventureManager::craft_item vs recombine_gear - two
+    // separate cost paths), so it's excluded via the same data-recombine
+    // check the pool surcharge already uses.
+    var TIER_CRAFT_DUST_COST = 3;
+    var veilCheckbox = document.querySelector('input[name="veiled"]');
+    var itemASelect = document.querySelector('select[name="item_a"]');
+    var itemBSelect = document.querySelector('select[name="item_b"]');
+    var craftButtons = document.querySelectorAll('.craft-actions button[data-base]');
+    // Polishing/Reforge each price off item_a alone, in their own
+    // currency, entirely outside the base/tier/veil formula above - see
+    // render_crafting_card's own doc on why their cost text has to be
+    // computed here instead of server-side.
+    var polishBtn = document.querySelector('.craft-actions button[data-polish], .polish-reforge-actions button[data-polish]');
+    var reforgeBtn = document.querySelector('.craft-actions button[data-reforge], .polish-reforge-actions button[data-reforge]');
+    // x5/x10/x50 batch checkboxes for Polish/Reforge only (see the hidden
+    // `times` input do_craft reads server-side) - mutually exclusive
+    // (checking one clears the other), unchecked-both means times=1, the
+    // normal single-craft behavior every other button already has.
+    var timesInput = document.querySelector('input[name="times"]');
+    var batchChecks = document.querySelectorAll('.polish-reforge-actions input[data-times]');
+    var currentTimes = function() {
+      for (var i = 0; i < batchChecks.length; i++) {
+        if (batchChecks[i].checked) return parseInt(batchChecks[i].getAttribute('data-times'), 10);
+      }
+      return 1;
+    };
+    var updateSpecialCosts = function() {
+      var times = currentTimes();
+      if (timesInput) timesInput.value = times;
+      var suffix = times > 1 ? ' x' + times : '';
+      if (polishBtn) {
+        var quality = itemASelect && itemASelect.selectedOptions.length ? parseFloat(itemASelect.selectedOptions[0].getAttribute('data-quality') || '0') : 0;
+        var perfect = itemASelect && itemASelect.selectedOptions.length && itemASelect.selectedOptions[0].getAttribute('data-perfect') === '1';
+        // Item::has_polish_room, mirrored server-side too (see
+        // Character::polish's own early NothingToPolish check) - an
+        // already-maxed item gets a disabled, clearly-labeled button
+        // instead of silently charging sand for nothing.
+        var polishRoom = !itemASelect || !itemASelect.selectedOptions.length || itemASelect.selectedOptions[0].getAttribute('data-polish-room') !== '0';
+        // Only an approximation past the first use when NOT perfect -
+        // polishing raises quality, which raises the next use's own cost,
+        // and this preview can't simulate that chain without duplicating
+        // Character::polish's own logic client-side. Good enough for a
+        // preview; the server is still the real source of truth and
+        // charges each iteration's actual cost as it goes.
+        var sandCost = (perfect ? 12 : Math.ceil(quality / 10)) * times;
+        var sandHave = parseInt(polishBtn.getAttribute('data-sand') || '0', 10);
+        if (!polishRoom) {
+          polishBtn.textContent = 'Polishing (maxed)';
+          polishBtn.disabled = true;
+        } else {
+          polishBtn.textContent = 'Polishing' + suffix + ' (' + sandCost + 's)';
+          polishBtn.disabled = sandHave < sandCost;
+        }
+      }
+      if (reforgeBtn) {
+        var tier = itemASelect && itemASelect.selectedOptions.length ? parseInt(itemASelect.selectedOptions[0].getAttribute('data-tier') || '0', 10) : 0;
+        var dustCost = 30 * tier * times;
+        var dustHave = parseInt(reforgeBtn.getAttribute('data-dust') || '0', 10);
+        reforgeBtn.textContent = 'Reforge' + suffix + ' (' + dustCost + 'd)';
+        reforgeBtn.disabled = dustHave < dustCost;
+      }
+    };
+    if (itemASelect) itemASelect.addEventListener('change', updateSpecialCosts);
+    for (var bi = 0; bi < batchChecks.length; bi++) {
+      (function(cb) {
+        cb.addEventListener('change', function() {
+          if (cb.checked) {
+            for (var j = 0; j < batchChecks.length; j++) {
+              if (batchChecks[j] !== cb) batchChecks[j].checked = false;
+            }
+          }
+          updateSpecialCosts();
+        });
+      })(batchChecks[bi]);
+    }
+    updateSpecialCosts();
+    if (veilCheckbox && craftButtons.length) {
+      var affixCountOf = function(select) {
+        if (!select || !select.selectedOptions.length) return 0;
+        var n = parseInt(select.selectedOptions[0].getAttribute('data-affixes') || '0', 10);
+        return isNaN(n) ? 0 : n;
+      };
+      var tierOf = function(select) {
+        if (!select || !select.selectedOptions.length) return 0;
+        var n = parseInt(select.selectedOptions[0].getAttribute('data-tier') || '0', 10);
+        return isNaN(n) ? 0 : n;
+      };
+      var updateCraftCosts = function() {
+        var veiled = veilCheckbox.checked;
+        var pool = affixCountOf(itemASelect) + affixCountOf(itemBSelect);
+        var tierCost = TIER_CRAFT_DUST_COST * tierOf(itemASelect);
+        craftButtons.forEach(function(btn) {
+          var base = parseInt(btn.getAttribute('data-base'), 10);
+          var extra = btn.getAttribute('data-veil-extra');
+          var isRecombine = btn.hasAttribute('data-recombine');
+          var cost = isRecombine ? base : base + tierCost;
+          if (veiled && extra !== null) {
+            cost += parseInt(extra, 10);
+            if (isRecombine) {
+              cost += 500 * pool;
+            }
+          }
+          var costText = cost > 0 ? (cost + 'd') : 'Free';
+          btn.textContent = btn.getAttribute('data-label') + ' (' + costText + ')';
+        });
+      };
+      veilCheckbox.addEventListener('change', updateCraftCosts);
+      if (itemASelect) itemASelect.addEventListener('change', updateCraftCosts);
+      if (itemBSelect) itemBSelect.addEventListener('change', updateCraftCosts);
+      updateCraftCosts();
+    }
+  })();
+
+  (function() {
+    // Confirmation prompt for Krangle & Scour (see action_btn's
+    // data-confirm attribute) - both are irreversible, so this shows
+    // exactly which item is about to be affected before the form
+    // actually submits, instead of a silent one-click commit.
+    var craftForm = document.querySelector('.craft-actions')?.closest('form');
+    if (craftForm) {
+      craftForm.addEventListener('submit', function(e) {
+        var btn = e.submitter;
+        if (!btn || !btn.hasAttribute('data-confirm')) return;
+        var itemSelect = craftForm.querySelector('select[name="item_a"]');
+        var itemLabel = itemSelect && itemSelect.selectedOptions.length ? itemSelect.selectedOptions[0].textContent : 'this item';
+        var actionLabel = btn.getAttribute('data-label') || btn.textContent;
+        if (!window.confirm(actionLabel + ' ' + itemLabel + '? This cannot be undone.')) {
+          e.preventDefault();
+        }
+      });
+    }
+  })();
+
+  (function() {
+    // Same fix as the OBS overlay's sprite normalization (see
+    // overlay.html's computeContentScale) - sprites are sliced by hand
+    // from packed sheets, so different sheets carry different amounts of
+    // transparent padding around the actual character art. Even fit
+    // into the SAME 96x96 box (see .model-thumb/.model-option img),
+    // a tightly-cropped sprite reads visibly bigger than a padded one.
+    // Zooms each thumbnail in proportionally (never out - a zoom below
+    // 1x would just shrink an already-fine crop for no reason) to
+    // compensate, clipped to the 96x96 window by .model-thumb's own
+    // overflow:hidden so the zoomed image never spills into a neighbor.
+    var thumbs = document.querySelectorAll('.model-option img');
+    if (!thumbs.length) return;
+    function normalize(img) {
+      try {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) return;
+        var cvs = document.createElement('canvas');
+        cvs.width = w;
+        cvs.height = h;
+        var cctx = cvs.getContext('2d');
+        cctx.drawImage(img, 0, 0);
+        var data = cctx.getImageData(0, 0, w, h).data;
+        var minX = -1, maxX = -1, minY = -1, maxY = -1;
+        var THRESHOLD = 10;
+        for (var y = 0; y < h; y++) {
+          var rowStart = y * w * 4;
+          for (var x = 0; x < w; x++) {
+            if (data[rowStart + x * 4 + 3] > THRESHOLD) {
+              if (minX === -1 || x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (minY === -1) minY = y;
+              maxY = y;
+            }
+          }
+        }
+        if (minX === -1 || maxX < minX || minY === -1 || maxY < minY) return;
+        var fillW = (maxX - minX + 1) / w;
+        var fillH = (maxY - minY + 1) / h;
+        var fill = Math.max(fillW, fillH);
+        // Negligible padding (already fills the frame) or a scan result
+        // too small to trust (likely a decode glitch, not real content) -
+        // leave it alone rather than risk a wrong or wild zoom.
+        if (fill <= 0.05 || fill >= 0.95) return;
+        var zoom = Math.min(1 / fill, 1.8);
+        img.style.transform = 'scale(' + zoom.toFixed(3) + ')';
+      } catch (err) {
+        // Same-origin sprites shouldn't ever taint the canvas, but a
+        // decode hiccup should never break the picker over a cosmetic fix.
+      }
+    }
+    thumbs.forEach(function(img) {
+      if (img.complete && img.naturalWidth > 0) normalize(img);
+      else img.addEventListener('load', function() { normalize(img); });
+    });
+  })();
+
+  (function() {
+    // Every [data-tip] element on the page (stat labels/values, craft
+    // buttons, veil-check, mod-roll, passives tree nodes) shares this one
+    // tooltip instead of each rendering its own CSS ::after popup - see
+    // the #js-tooltip rule's doc for why (ancestor overflow-clipping a
+    // live report caught on the passives tree, but really any card on
+    // the site). Appended directly under <body> (not wherever the
+    // trigger happens to be nested) and positioned with `fixed`
+    // coordinates computed from the trigger's own bounding box, so no
+    // ancestor's overflow/scroll box can ever clip it, and it's clamped
+    // to the viewport so it can't run off-screen either.
+    var tip = document.getElementById('js-tooltip');
+    var triggers = document.querySelectorAll('[data-tip]');
+    if (!tip || !triggers.length) return;
+    var MARGIN = 8;
+    function position(el) {
+      var rect = el.getBoundingClientRect();
+      var tipRect = tip.getBoundingClientRect();
+      var top = rect.top - tipRect.height - MARGIN;
+      if (top < MARGIN) {
+        // Not enough room above the trigger (e.g. the top row of the
+        // passives tree) - flip to below it instead.
+        top = rect.bottom + MARGIN;
+      }
+      top = Math.min(top, window.innerHeight - tipRect.height - MARGIN);
+      var left = rect.left + rect.width / 2 - tipRect.width / 2;
+      left = Math.max(MARGIN, Math.min(left, window.innerWidth - tipRect.width - MARGIN));
+      tip.style.top = top + 'px';
+      tip.style.left = left + 'px';
+    }
+    function show(el) {
+      var text = el.getAttribute('data-tip');
+      if (!text) return;
+      tip.textContent = text;
+      tip.classList.add('visible');
+      position(el);
+    }
+    function hide() {
+      tip.classList.remove('visible');
+    }
+    triggers.forEach(function(el) {
+      el.addEventListener('mouseenter', function() { show(el); });
+      el.addEventListener('mouseleave', hide);
+      el.addEventListener('focus', function() { show(el); });
+      el.addEventListener('blur', hide);
+    });
+  })();
+</script>
+</body>
+</html>
