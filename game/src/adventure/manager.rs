@@ -889,10 +889,15 @@ pub struct PlayerVitals {
     /// own real `atMs`, not the bucket boundary), with consecutive
     /// identical HP values dropped - see `build_player_vitals`.
     pub hp_samples: Vec<(u32, u64)>,
-    /// Display-time timestamp of this player's own first `Defeat` event,
-    /// if they died this fight - `None`/omitted for a survivor. In-fight
-    /// death is terminal (nothing revives a unit mid-replay - see
-    /// `build_player_vitals`'s own doc), so this is unambiguous.
+    /// Display-time timestamp of this player's OWN FINAL `Defeat` event
+    /// this fight - `None`/omitted for a survivor. This field's SHAPE is
+    /// frozen (an external companion app builds against it) and stays
+    /// single-shot in that sense - at most one value, never a list - but
+    /// as of Elementalist's Rising Phoenix a unit CAN come back from a
+    /// `Defeat` event mid-fight (see `build_player_vitals`'s own doc for
+    /// how a later revival clears a pending death, so this only ever
+    /// reflects whichever death - if any - was still standing at the
+    /// end of the fight).
     #[serde(default)]
     pub died_at_ms: Option<u32>,
 }
@@ -966,12 +971,27 @@ pub(crate) fn build_player_vitals(units: &[CombatUnitInfo], events: &[CombatEven
             CombatEvent::Attack { target, target_hp_after, .. } | CombatEvent::Heal { target, target_hp_after, .. } => {
                 if let Some(b) = building.get_mut(target.as_str()) {
                     push_sample(b, event.at_ms(), *target_hp_after);
+                    // Elementalist's Rising Phoenix (docs/elementalist_spec.md)
+                    // - the only mechanic that can bring a unit back after a
+                    // real `Defeat` event, surfaced as a `Heal` back above
+                    // 0 hp (see `tick_righteous_fire`'s revival handling).
+                    // Clearing here is what keeps `died_at_ms` single-shot
+                    // AND correct per its own doc ("records only a unit's
+                    // FINAL death") - a no-op for every fight without a
+                    // revival, since nothing else ever produces a
+                    // post-Defeat life sign for the same unit.
+                    if *target_hp_after > 0 {
+                        b.died_at_ms = None;
+                    }
                 }
             }
             CombatEvent::Defeat { unit, at_ms } => {
                 if let Some(b) = building.get_mut(unit.as_str()) {
                     push_sample(b, *at_ms, 0);
-                    b.died_at_ms.get_or_insert(*at_ms);
+                    // Overwrite (not `get_or_insert`) - tracks the MOST
+                    // RECENT death, so a revive-then-die-again correctly
+                    // reports the final death, not the first.
+                    b.died_at_ms = Some(*at_ms);
                 }
             }
             CombatEvent::Shield { .. } | CombatEvent::SkillCast { .. } | CombatEvent::BuffSnapshot { .. } => {}
@@ -5518,6 +5538,34 @@ mod player_vitals_tests {
         let v = build_player_vitals(&units, &full_events);
         assert_eq!(vitals_for(&v, "bob").died_at_ms, Some(150));
         assert_eq!(vitals_for(&v, "alice").died_at_ms, Some(9000));
+    }
+
+    #[test]
+    fn elementalist_rising_phoenix_revive_clears_a_pending_death() {
+        // Rising Phoenix (docs/elementalist_spec.md) is the one mechanic
+        // that can bring a unit back after a real Defeat event - surfaced
+        // here as a later Heal event with a positive target_hp_after
+        // (see combat.rs's own NextEvent::Revive doc). Reviving BEFORE
+        // the fight ends must leave died_at_ms unset, matching that
+        // field's own "only the FINAL death, if any" contract.
+        let units = vec![player("alice", 1000)];
+        let events = vec![hit(0, "__enemy_0", "alice", 0), defeat(1000, "alice"), heal(2000, "alice", "alice", 250)];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(vitals_for(&v, "alice").died_at_ms, None, "revived-and-still-alive must not report a death");
+    }
+
+    #[test]
+    fn elementalist_rising_phoenix_a_second_death_after_revival_reports_the_final_one() {
+        let units = vec![player("alice", 1000)];
+        let events = vec![
+            hit(0, "__enemy_0", "alice", 0),
+            defeat(1000, "alice"),
+            heal(2000, "alice", "alice", 250),
+            hit(3000, "__enemy_0", "alice", 0),
+            defeat(3000, "alice"),
+        ];
+        let v = build_player_vitals(&units, &events);
+        assert_eq!(vitals_for(&v, "alice").died_at_ms, Some(3000), "must report the SECOND (final) death, not the first");
     }
 
     #[test]

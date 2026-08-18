@@ -199,6 +199,33 @@ pub(crate) const RIGHTEOUS_FIRE_TICK_INTERVAL_MS: u32 = 1_000;
 /// a duration), rounded up slightly past the 1s tick interval so a
 /// steady RF beam never has a visible gap between applications.
 pub(crate) const CAUTERIZING_FLAMES_DEBUFF_DURATION_MS: u32 = 1_500;
+/// Cleansing Flames' own tick cadence - "33/66/100% chance every 4
+/// seconds" per the spec, stated explicitly unlike Righteous Fire's
+/// implied 1s. Enshrouded Fire/Guardian Fire/Shielding Fire (Cleansing
+/// Flames' own modifiers) ride this SAME cadence for their own
+/// unconditional buff refresh - see `tick_cleansing_flames`'s own doc.
+pub(crate) const CLEANSING_FLAMES_TICK_INTERVAL_MS: u32 = 4_000;
+/// How long Enshrouded Fire/Guardian Fire's temp buffs last before
+/// lazily expiring - refreshed every Cleansing Flames tick (4s) that
+/// re-applies them, rounded up past that interval so a steady buff
+/// never has a visible gap, same spirit as
+/// `CAUTERIZING_FLAMES_DEBUFF_DURATION_MS`'s own doc.
+pub(crate) const ELEMENTALIST_ALLY_BUFF_DURATION_MS: u32 = 4_500;
+/// Rising Phoenix's own "rejoin the battle" delay after a death is
+/// accepted for revival - the spec states this explicitly ("1 second
+/// after death").
+pub(crate) const RISING_PHOENIX_REVIVE_DELAY_MS: u32 = 1_000;
+/// Rising Phoenix's own "survived at least 3 seconds" eligibility
+/// window, checked against the time since a unit's last
+/// `alive_since_ms` (fight start, or their last revival) - the spec
+/// states this explicitly.
+pub(crate) const RISING_PHOENIX_MIN_SURVIVAL_MS: u32 = 3_000;
+/// What fraction of max HP Rising Phoenix restores a revived ally to -
+/// NOT stated in the spec (only "revive and rejoin the battle," no HP
+/// amount given). Judgment call: a modest-but-meaningful fraction, in
+/// line with this game's other partial-restoration effects rather than
+/// a full heal - see `tick_rising_phoenix_revivals`'s own doc.
+pub(crate) const RISING_PHOENIX_REVIVE_HP_PCT: f64 = 0.25;
 /// How long Eternal Hunger's shield (off a Soul Harvest kill-heal) lasts -
 /// same first-pass-pick spirit, the design text only states the value
 /// ("a small shield worth 25% of the heal per rank"), not a duration.
@@ -1714,6 +1741,82 @@ pub(crate) struct CombatSimUnit {
     /// subset - see `tick_righteous_fire`'s own doc). 0.0 without it
     /// invested.
     ashestoashes_pct: f64,
+    /// Elementalist's Healing Flames - THIS unit's own regen fraction per
+    /// second (irregular 3/6/10% per-rank progression, NOT linear - see
+    /// `healing_flames_regen_pct`'s own doc). Rides Righteous Fire's own
+    /// once-a-second tick (see `tick_righteous_fire`'s doc for why -
+    /// investing here requires Righteous Fire itself already invested).
+    /// 0.0 without it invested.
+    healingflames_pct: f64,
+    /// Elementalist's Fanning Flames - what fraction of Healing Flames'
+    /// own regen amount is ALSO shared with nearby injured allies (via
+    /// `apply_heal_splash`, target count based on splash). 0.0 without
+    /// it invested.
+    fanningflames_pct: f64,
+    /// Elementalist's Shielding Flames - what fraction of Healing Flames'
+    /// own regen amount is ALSO granted to THIS unit as a shield, in
+    /// addition to the healing. 0.0 without it invested.
+    shieldingflames_pct: f64,
+    /// Elementalist's Rising Phoenix - THIS unit's own per-combat revival
+    /// cap (the raw rank, 0-3 - a COUNT, not a magnitude, same
+    /// `passive_node_rank` read `onehundredhands_bonus_stacks` already
+    /// uses). 0 without it invested.
+    risingphoenix_max_revives: u32,
+    /// How many revivals THIS unit (as the Elementalist) has already
+    /// granted this combat - starts at 0, capped against
+    /// `risingphoenix_max_revives` at the grant site (see the main
+    /// event loop's death-detection sweep).
+    risingphoenix_revives_used: u32,
+    /// When THIS unit most recently became alive - 0 at fight start
+    /// (everyone's first "became alive" moment), updated to `at_ms`
+    /// whenever Rising Phoenix revives them. Used to check Rising
+    /// Phoenix's own "only allies who had survived at least 3 seconds"
+    /// eligibility rule against their NEXT death, not just their very
+    /// first spawn.
+    alive_since_ms: u32,
+    /// Rising Phoenix's own "dead but scheduled to return" clock -
+    /// `u32::MAX` (not scheduled) unless a death was just accepted for
+    /// revival, in which case this is `death_at_ms + 1_000` (see the
+    /// main event loop's death-detection sweep and `NextEvent::Revive`).
+    /// Deliberately checked EVEN on a dead unit (the main loop's usual
+    /// `if !u.alive { continue; }` skip is bypassed specifically for
+    /// this one field) - see the loop's own comment at that check.
+    revive_at_ms: u32,
+    /// Elementalist's Cleansing Flames - THIS unit's own chance (33/66/
+    /// 100%) to cleanse every 4 seconds. 0.0 without it invested, which
+    /// also keeps `next_cleansingflames_at_ms` at `u32::MAX`.
+    cleansingflames_chance: f64,
+    /// Cleansing Flames' own 4-second clock - `u32::MAX` (never fires)
+    /// without the spec invested, same sentinel convention every other
+    /// `next_*_at_ms` field here already uses.
+    next_cleansingflames_at_ms: u32,
+    /// Elementalist's Enshrouded Fire - THIS unit's own magnitude,
+    /// granted to a number of allies (based on splash) as a temporary
+    /// evasion buff, refreshed on Cleansing Flames' own 4-second cycle
+    /// (see `tick_cleansing_flames`'s own doc for why it rides that
+    /// cadence despite not being spec'd with its own chance/interval).
+    /// 0.0 without it invested.
+    enshroudedfire_evasion_pct: f64,
+    /// Elementalist's Guardian Fire - same shape as `enshroudedfire_evasion_pct`,
+    /// grants reduced damage taken instead.
+    guardianfire_dr_pct: f64,
+    /// Elementalist's Shielding Fire - same shape as
+    /// `enshroudedfire_evasion_pct`, grants improved block (an OVERRIDE
+    /// percentage - 55/60/65% - not an additive bonus) instead. Applied
+    /// to allies via the existing shared `temp_evasion_buff`
+    /// (Enshrouded Fire) and `temp_damage_reduction_bonus` (Guardian
+    /// Fire) slots directly - same "shared temp_* slot, last write wins"
+    /// convention Cauterizing Flames already established in Stage 3, no
+    /// new fields needed for either. Shielding Fire's own improved-block
+    /// override has no existing equivalent slot, so it gets one below.
+    shieldingfire_block_pct: f64,
+    /// Live improved-block override on THIS unit from someone else's
+    /// Shielding Fire - `0.0` = no override (use `block_damage_reduction_pct`
+    /// as normal). Read as a `.max()` against the unit's own
+    /// `block_damage_reduction_pct`, never a downgrade for someone who
+    /// already has a naturally higher personal override.
+    temp_shieldingfire_block_pct: f64,
+    temp_shieldingfire_block_pct_expires_at_ms: u32,
     /// Chakra of Life - a hit that would kill this unit instead grants
     /// this many ms of full damage immunity (`chakraoflife_immune_until_ms`
     /// below), after which the unit dies unconditionally
@@ -2901,6 +3004,20 @@ impl Default for CombatSimUnit {
             relentlessflames_dmg_taken_pct: 0.0,
             cauterizingflames_pct: 0.0,
             ashestoashes_pct: 0.0,
+            healingflames_pct: 0.0,
+            fanningflames_pct: 0.0,
+            shieldingflames_pct: 0.0,
+            risingphoenix_max_revives: 0,
+            risingphoenix_revives_used: 0,
+            alive_since_ms: 0,
+            revive_at_ms: u32::MAX,
+            cleansingflames_chance: 0.0,
+            next_cleansingflames_at_ms: u32::MAX,
+            enshroudedfire_evasion_pct: 0.0,
+            guardianfire_dr_pct: 0.0,
+            shieldingfire_block_pct: 0.0,
+            temp_shieldingfire_block_pct: 0.0,
+            temp_shieldingfire_block_pct_expires_at_ms: 0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: 0,
@@ -4181,8 +4298,14 @@ pub(crate) fn resolve_hit(
     }
     if is_blocked {
         // Second Skin - overrides the flat block-reduction constant with
-        // this unit's own rank-scaled value.
-        sources.push(("Block reduction (Second Skin)", def.block_damage_reduction_pct));
+        // this unit's own rank-scaled value. Elementalist's Shielding
+        // Fire (`temp_shieldingfire_block_pct`) is a live ally-granted
+        // override on the SAME stat - `.max()` so it never DOWNGRADES
+        // someone who already has a naturally higher personal override
+        // (Second Skin's own investment, if any).
+        let shieldingfire_block =
+            if def.temp_shieldingfire_block_pct > 0.0 && at_ms <= def.temp_shieldingfire_block_pct_expires_at_ms { def.temp_shieldingfire_block_pct } else { 0.0 };
+        sources.push(("Block reduction (Second Skin)", def.block_damage_reduction_pct.max(shieldingfire_block)));
     }
     // Ambush - a guaranteed-landing hit also ignores a fraction of the
     // target's damage reduction (a negative source, same slot Overwhelm's
@@ -5004,6 +5127,29 @@ pub(crate) fn elementalist_elemental_damage_pct(gear_pct: f64, elemental_focus_p
     gear_pct + elemental_focus_pct + gear_pct * gear_scaling_modifier_pct
 }
 
+/// Healing Flames' own per-rank regen fraction (docs/elementalist_spec.md)
+/// - an IRREGULAR progression (3%/6%/10%, not an even step), unlike every
+/// other Elementalist node so far. `PassiveTier::Specialization`'s
+/// `magnitude_at_rank` formula is strictly linear
+/// (`at_rank_1 + per_additional_rank * (rank-1)`), which cannot hit all
+/// three of 3/6/10 at once - flagged in this exact spot back in Stage 1's
+/// own header comment. Rather than extend the shared `PassiveEffect` enum
+/// with a new irregular-table variant (a bigger, riskier change touching
+/// every archetype's node type), this stays a small local lookup read
+/// directly off the raw rank (`passive_node_rank`, not
+/// `passive_node_magnitude`) at the one call site that needs the real
+/// value - the node's own `Special{0.03, 0.035}` stays for structural/
+/// display consistency but is never actually consulted for Healing
+/// Flames specifically.
+pub(crate) fn healing_flames_regen_pct(rank: u32) -> f64 {
+    match rank {
+        1 => 0.03,
+        2 => 0.06,
+        r if r >= 3 => 0.10,
+        _ => 0.0,
+    }
+}
+
 /// Applies `amount` of true (unmitigated - no crit/evasion/mitigation
 /// roll) damage to `units[target_idx]`, same "a detonation, not an
 /// attack" shape Warlock's Doom/Apocalypse already established (see
@@ -5078,6 +5224,24 @@ pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize,
     if !units[actor_idx].alive {
         return;
     }
+    // Healing Flames/Fanning Flames/Shielding Flames - all 3 ride
+    // Righteous Fire's own tick (see this function's own doc; investing
+    // in any of them requires Righteous Fire itself already invested,
+    // and the spec states Healing Flames' regen as "per second" too -
+    // the same cadence, not a coincidence).
+    let healingflames_pct = units[actor_idx].healingflames_pct;
+    if healingflames_pct > 0.0 {
+        let regen_amount = max_hp * healingflames_pct;
+        apply_heal(units, actor_idx, actor_idx, regen_amount, at_ms, events, rng);
+        let fanningflames_pct = units[actor_idx].fanningflames_pct;
+        if fanningflames_pct > 0.0 {
+            apply_heal_splash(units, actor_idx, actor_idx, regen_amount.round() as u32, fanningflames_pct, at_ms, events, rng);
+        }
+        let shieldingflames_pct = units[actor_idx].shieldingflames_pct;
+        if shieldingflames_pct > 0.0 && units[actor_idx].alive {
+            grant_shield(units, actor_idx, actor_idx, regen_amount * shieldingflames_pct, at_ms, ELEMENTAL_AEGIS_SHIELD_DURATION_MS, events);
+        }
+    }
     let splash = units[actor_idx].splash;
     let max_targets = if splash > 1.0 { PLAYER_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { PLAYER_SPLASH_MAX_TARGETS };
     let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
@@ -5119,6 +5283,114 @@ pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize,
         events.push(CombatEvent::Defeat { at_ms, unit: target_id });
         fire_on_kill(units, actor_idx, at_ms, events, rolls, rng);
     }
+}
+
+/// Elementalist's Rising Phoenix (docs/elementalist_spec.md) - called
+/// from the main event loop's per-iteration death-detection sweep (see
+/// that loop's own comment) for every real player who was alive last
+/// iteration and isn't now, regardless of what killed them. Schedules a
+/// revival (`revive_at_ms`) if: this unit doesn't already have one
+/// scheduled, they'd survived at least `RISING_PHOENIX_MIN_SURVIVAL_MS`
+/// since they last became alive, and SOME alive ally (the first found,
+/// in `units` order - nothing in the spec singles out a priority order
+/// for multiple Elementalists) has Rising Phoenix invested with revives
+/// remaining this combat. Returns whether a revival was scheduled.
+fn try_schedule_rising_phoenix_revival(units: &mut [CombatSimUnit], dead_idx: usize, death_at_ms: u32) -> bool {
+    if units[dead_idx].is_boss || units[dead_idx].revive_at_ms != u32::MAX {
+        return false;
+    }
+    if death_at_ms.saturating_sub(units[dead_idx].alive_since_ms) < RISING_PHOENIX_MIN_SURVIVAL_MS {
+        return false;
+    }
+    let caster_idx =
+        units.iter().enumerate().position(|(i, u)| i != dead_idx && !u.is_boss && u.alive && u.risingphoenix_max_revives > u.risingphoenix_revives_used);
+    let Some(caster_idx) = caster_idx else {
+        return false;
+    };
+    units[caster_idx].risingphoenix_revives_used += 1;
+    units[dead_idx].revive_at_ms = death_at_ms + RISING_PHOENIX_REVIVE_DELAY_MS;
+    true
+}
+
+/// Elementalist's Cleansing Flames branch (docs/elementalist_spec.md) -
+/// once every `CLEANSING_FLAMES_TICK_INTERVAL_MS`: a probabilistic
+/// cleanse of the caster + up to `HEAL_SPLASH_MAX_TARGETS` (+overflow)
+/// nearby allies (see `cleanse_player_debuffs`'s own doc for exactly
+/// what "all debuffs" covers here), then an UNCONDITIONAL refresh of
+/// Enshrouded Fire/Guardian Fire/Shielding Fire's own buffs onto the
+/// same-shaped ally subset - none of those 3 modifiers are spec'd with
+/// their own chance/interval, so they ride this cadence as a flat
+/// periodic reapplication rather than gating on the cleanse roll's own
+/// success.
+pub(crate) fn tick_cleansing_flames(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) {
+    if !units[actor_idx].alive {
+        return;
+    }
+    let chance = units[actor_idx].cleansingflames_chance;
+    if chance > 0.0 && rng.gen_bool(chance.clamp(0.0, 1.0)) {
+        cleanse_player_debuffs(&mut units[actor_idx]);
+        events.push(CombatEvent::SkillCast { at_ms, unit: units[actor_idx].id.clone(), skill: "Cleansing Flames".to_string() });
+        let splash = units[actor_idx].splash;
+        let max_targets = if splash > 1.0 { HEAL_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { HEAL_SPLASH_MAX_TARGETS };
+        let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != actor_idx && !u.is_boss && u.alive).map(|(i, _)| i).collect();
+        let pick_count = max_targets.min(candidates.len());
+        for _ in 0..pick_count {
+            let pick_at = rng.gen_range(0..candidates.len());
+            let target_idx = candidates.remove(pick_at);
+            cleanse_player_debuffs(&mut units[target_idx]);
+        }
+    }
+    let evasion_pct = units[actor_idx].enshroudedfire_evasion_pct;
+    let dr_pct = units[actor_idx].guardianfire_dr_pct;
+    let block_pct = units[actor_idx].shieldingfire_block_pct;
+    if evasion_pct <= 0.0 && dr_pct <= 0.0 && block_pct <= 0.0 {
+        return;
+    }
+    let splash = units[actor_idx].splash;
+    let max_targets = if splash > 1.0 { HEAL_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { HEAL_SPLASH_MAX_TARGETS };
+    let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != actor_idx && !u.is_boss && u.alive).map(|(i, _)| i).collect();
+    let pick_count = max_targets.min(candidates.len());
+    for _ in 0..pick_count {
+        let pick_at = rng.gen_range(0..candidates.len());
+        let target_idx = candidates.remove(pick_at);
+        if evasion_pct > 0.0 {
+            units[target_idx].temp_evasion_buff = evasion_pct;
+            units[target_idx].temp_evasion_buff_expires_at_ms = at_ms + ELEMENTALIST_ALLY_BUFF_DURATION_MS;
+        }
+        if dr_pct > 0.0 {
+            units[target_idx].temp_damage_reduction_bonus = dr_pct;
+            units[target_idx].temp_damage_reduction_bonus_expires_at_ms = at_ms + ELEMENTALIST_ALLY_BUFF_DURATION_MS;
+        }
+        if block_pct > 0.0 {
+            units[target_idx].temp_shieldingfire_block_pct = block_pct;
+            units[target_idx].temp_shieldingfire_block_pct_expires_at_ms = at_ms + ELEMENTALIST_ALLY_BUFF_DURATION_MS;
+        }
+    }
+}
+
+/// Elementalist's Cleansing Flames - clears a hand-enumerated set of
+/// debuffs (docs/elementalist_spec.md says "remove all debuffs," but
+/// this codebase has no generic debuff API - every debuff is its own
+/// separately-named field on `CombatSimUnit`, see this module's own
+/// top-of-file doc). JUDGMENT CALL, not an exhaustive audit of every
+/// debuff-shaped field in this ~700-field struct: this list is scoped
+/// to the fields with direct evidence (their own doc comments) of
+/// actually landing on a PLAYER unit - `boss_focus_stacks` (the real
+/// boss's own survivability-focus targeting debuff), `cube_shred_stacks`
+/// (Gelatinous Cube's own "every landed hit against a player" shred),
+/// and `wound_stacks` (Festering Wound - applicable to either side via
+/// `apply_hit`'s `applies_wound` parameter). Deliberately excludes the 5
+/// elemental on-hit debuffs (`fire_dr_debuff` etc.) and every other
+/// `temp_*_debuff` pair - their own doc comments show they're only ever
+/// applied by a PLAYER source against an ENEMY (Frost Nova, Static
+/// Field, Poison Thorns) - clearing them on an ally is always a no-op
+/// today, since a boss never rolls the gear stats that would apply one.
+fn cleanse_player_debuffs(unit: &mut CombatSimUnit) {
+    unit.boss_focus_stacks = 0.0;
+    unit.cube_shred_stacks = 0;
+    unit.cube_shred_expires_at_ms = 0;
+    unit.wound_stacks = 0;
+    unit.wound_expires_at_ms = 0;
 }
 
 pub(crate) fn roll_elemental_proc(raw_pct: f64, stacks: &mut Vec<u32>, max_stacks: usize, at_ms: u32, rng: &mut impl Rng) -> (bool, Option<f64>) {
@@ -8941,6 +9213,20 @@ pub(crate) fn simulate_battle(
                 relentlessflames_dmg_taken_pct: 0.0,
                 cauterizingflames_pct: c.passive_node_magnitude("cauterizingflames"),
                 ashestoashes_pct: c.passive_node_magnitude("ashestoashes"),
+                healingflames_pct: healing_flames_regen_pct(c.passive_node_rank("healingflames")),
+                fanningflames_pct: c.passive_node_magnitude("fanningflames"),
+                shieldingflames_pct: c.passive_node_magnitude("shieldingflames"),
+                risingphoenix_max_revives: c.passive_node_rank("risingphoenix").min(3),
+                risingphoenix_revives_used: 0,
+                alive_since_ms: 0,
+                revive_at_ms: u32::MAX,
+                cleansingflames_chance: c.passive_node_magnitude("cleansingflames"),
+                next_cleansingflames_at_ms: if c.passive_node_rank("cleansingflames") > 0 { CLEANSING_FLAMES_TICK_INTERVAL_MS } else { u32::MAX },
+                enshroudedfire_evasion_pct: c.passive_node_magnitude("enshroudedfire"),
+                guardianfire_dr_pct: c.passive_node_magnitude("guardianfire"),
+                shieldingfire_block_pct: c.passive_node_magnitude("shieldingfire"),
+                temp_shieldingfire_block_pct: 0.0,
+                temp_shieldingfire_block_pct_expires_at_ms: 0,
                 chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
                 chakraoflife_immune_until_ms: 0,
                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9232,6 +9518,20 @@ pub(crate) fn simulate_battle(
             relentlessflames_dmg_taken_pct: 0.0,
             cauterizingflames_pct: 0.0,
             ashestoashes_pct: 0.0,
+            healingflames_pct: 0.0,
+            fanningflames_pct: 0.0,
+            shieldingflames_pct: 0.0,
+            risingphoenix_max_revives: 0,
+            risingphoenix_revives_used: 0,
+            alive_since_ms: 0,
+            revive_at_ms: u32::MAX,
+            cleansingflames_chance: 0.0,
+            next_cleansingflames_at_ms: u32::MAX,
+            enshroudedfire_evasion_pct: 0.0,
+            guardianfire_dr_pct: 0.0,
+            shieldingfire_block_pct: 0.0,
+            temp_shieldingfire_block_pct: 0.0,
+            temp_shieldingfire_block_pct_expires_at_ms: 0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
             next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -9663,6 +9963,8 @@ pub(crate) fn simulate_battle(
         CurseExpiry(usize),
         ChakraOfLifeExpiry(usize),
         RighteousFireTick(usize),
+        Revive(usize),
+        CleansingFlamesTick(usize),
     }
 
     // Which player the real boss is currently focus-targeting (see the
@@ -9675,16 +9977,50 @@ pub(crate) fn simulate_battle(
     // How many adds Lich has summoned so far this fight - see
     // `LICH_MAX_ADDS`'s own doc for the cap this counts against.
     let mut lich_summon_count: u32 = 0;
+    // Elementalist's Rising Phoenix - a snapshot of who was alive as of
+    // the PREVIOUS iteration, compared against the current state at the
+    // top of every iteration below to detect a death from ANY source
+    // (a normal attack, a boss ability, Righteous Fire's own self-burn,
+    // anything) without needing to audit every individual damage-
+    // application site in this file - see the loop body's own comment.
+    let mut prev_alive: Vec<bool> = units.iter().map(|u| u.alive).collect();
+    let mut prev_at_ms: u32 = 0;
 
     loop {
         let boss_alive = units.iter().any(|u| u.is_boss && u.alive);
-        let any_player_alive = units.iter().any(|u| !u.is_boss && u.alive);
+        // A unit with `revive_at_ms` scheduled counts as "still in the
+        // fight" even while `alive == false` for the moment - otherwise
+        // an all-real-players-dead instant where one of them is due back
+        // in a second would end the fight right before Rising Phoenix
+        // could matter.
+        let any_player_alive = units.iter().any(|u| !u.is_boss && (u.alive || u.revive_at_ms != u32::MAX));
         if !boss_alive || !any_player_alive {
             break;
         }
 
+        // Rising Phoenix - detect every real player who died since the
+        // last iteration (comparing against `prev_alive`, taken at the
+        // END of the previous iteration) and offer them a revival. Runs
+        // once per iteration rather than at each individual kill site -
+        // see `prev_alive`'s own doc for why.
+        if prev_alive.len() < units.len() {
+            prev_alive.resize(units.len(), true);
+        }
+        for i in 0..units.len() {
+            if !units[i].is_boss && prev_alive[i] && !units[i].alive {
+                try_schedule_rising_phoenix_revival(&mut units, i, prev_at_ms);
+            }
+        }
+        prev_alive = units.iter().map(|u| u.alive).collect();
+
         let mut best: Option<(u32, NextEvent)> = None;
         for (i, u) in units.iter().enumerate() {
+            // Rising Phoenix's own revival clock - checked BEFORE the
+            // `!u.alive` skip just below, since a unit scheduled to
+            // revive is, by definition, currently dead.
+            if u.revive_at_ms != u32::MAX && (best.is_none() || u.revive_at_ms < best.unwrap().0) {
+                best = Some((u.revive_at_ms, NextEvent::Revive(i)));
+            }
             if !u.alive {
                 continue;
             }
@@ -9706,6 +10042,9 @@ pub(crate) fn simulate_battle(
                 }
                 if u.next_righteousfire_tick_at_ms < best.unwrap().0 {
                     best = Some((u.next_righteousfire_tick_at_ms, NextEvent::RighteousFireTick(i)));
+                }
+                if u.next_cleansingflames_at_ms < best.unwrap().0 {
+                    best = Some((u.next_cleansingflames_at_ms, NextEvent::CleansingFlamesTick(i)));
                 }
             } else if u.next_ability_at_ms < best.unwrap().0 {
                 best = Some((u.next_ability_at_ms, NextEvent::BossAbility(i)));
@@ -9738,6 +10077,7 @@ pub(crate) fn simulate_battle(
         if at_ms > MAX_FIGHT_DURATION_MS {
             break;
         }
+        prev_at_ms = at_ms;
 
         let actor_idx = match next_event {
             NextEvent::Turn(i) => i,
@@ -9827,6 +10167,31 @@ pub(crate) fn simulate_battle(
             NextEvent::RighteousFireTick(actor_idx) => {
                 tick_righteous_fire(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng);
                 units[actor_idx].next_righteousfire_tick_at_ms += RIGHTEOUS_FIRE_TICK_INTERVAL_MS;
+                continue;
+            }
+            NextEvent::CleansingFlamesTick(actor_idx) => {
+                tick_cleansing_flames(&mut units, actor_idx, at_ms, &mut events, &mut rng);
+                units[actor_idx].next_cleansingflames_at_ms += CLEANSING_FLAMES_TICK_INTERVAL_MS;
+                continue;
+            }
+            NextEvent::Revive(target_idx) => {
+                // Elementalist's Rising Phoenix - see
+                // `try_schedule_rising_phoenix_revival`'s doc for the
+                // eligibility/scheduling side; this is just the payoff.
+                // No `apply_heal` (that would run reduced-healing debuffs
+                // against a revival, which is wrong) - hp/alive are set
+                // directly, then a `Heal`-shaped event tells the same
+                // story the combat log/HP-sample curve already need
+                // (see `PlayerVitals::died_at_ms`'s own doc for why no
+                // dedicated event type was added).
+                let revive_hp = ((units[target_idx].max_hp as f64) * RISING_PHOENIX_REVIVE_HP_PCT).round().max(1.0) as i64;
+                units[target_idx].alive = true;
+                units[target_idx].hp = revive_hp;
+                units[target_idx].alive_since_ms = at_ms;
+                units[target_idx].revive_at_ms = u32::MAX;
+                let unit_id = units[target_idx].id.clone();
+                events.push(CombatEvent::SkillCast { at_ms, unit: unit_id.clone(), skill: "Rising Phoenix".to_string() });
+                events.push(CombatEvent::Heal { at_ms, healer: unit_id.clone(), target: unit_id, amount: revive_hp as u64, target_hp_after: revive_hp as u64 });
                 continue;
             }
             NextEvent::CurseExpiry(target_idx) => {
@@ -10172,6 +10537,20 @@ pub(crate) fn simulate_battle(
                                 relentlessflames_dmg_taken_pct: 0.0,
                                 cauterizingflames_pct: 0.0,
                                 ashestoashes_pct: 0.0,
+                                healingflames_pct: 0.0,
+                                fanningflames_pct: 0.0,
+                                shieldingflames_pct: 0.0,
+                                risingphoenix_max_revives: 0,
+                                risingphoenix_revives_used: 0,
+                                alive_since_ms: 0,
+                                revive_at_ms: u32::MAX,
+                                cleansingflames_chance: 0.0,
+                                next_cleansingflames_at_ms: u32::MAX,
+                                enshroudedfire_evasion_pct: 0.0,
+                                guardianfire_dr_pct: 0.0,
+                                shieldingfire_block_pct: 0.0,
+                                temp_shieldingfire_block_pct: 0.0,
+                                temp_shieldingfire_block_pct_expires_at_ms: 0,
                                 chakraoflife_duration_ms: 0,
                                 chakraoflife_immune_until_ms: 0,
                                 next_chakraoflife_expiry_at_ms: u32::MAX,
@@ -12417,6 +12796,208 @@ mod elementalist_stage_3_tests {
         let mut rng = StdRng::seed_from_u64(1);
         tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
         assert!(units[1].alive, "0.0 ashestoashes_pct must never execute anyone");
+    }
+}
+
+#[cfg(test)]
+mod elementalist_stage_4_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn elementalist() -> CombatSimUnit {
+        CombatSimUnit { id: "elementalist".to_string(), display_name: "Elementalist".to_string(), alive: true, hp: 1000, max_hp: 1000, ..Default::default() }
+    }
+
+    fn ally(id: &str, hp: i64, max_hp: u64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp, ..Default::default() }
+    }
+
+    #[test]
+    fn healing_flames_regen_pct_matches_the_irregular_3_6_10_progression() {
+        assert_eq!(healing_flames_regen_pct(0), 0.0);
+        assert_eq!(healing_flames_regen_pct(1), 0.03);
+        assert_eq!(healing_flames_regen_pct(2), 0.06);
+        assert_eq!(healing_flames_regen_pct(3), 0.10);
+        assert_eq!(healing_flames_regen_pct(4), 0.10, "no rank above 3 exists, but the lookup should never panic or under-return");
+    }
+
+    #[test]
+    fn healing_flames_regenerates_self_on_the_righteous_fire_tick() {
+        let mut atk = elementalist();
+        atk.hp = 500;
+        atk.healingflames_pct = 0.10; // righteousfire_pct left 0.0 to isolate
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 600, "10% of 1000 max hp = 100 regen");
+    }
+
+    #[test]
+    fn fanning_flames_shares_regen_with_an_injured_ally() {
+        let mut atk = elementalist();
+        atk.healingflames_pct = 0.10;
+        atk.fanningflames_pct = 1.0; // 100% share for a deterministic amount
+        let mut units = vec![atk, ally("hurt", 500, 1000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[1].hp, 600, "100% of the 100-hp regen shared onto the injured ally");
+    }
+
+    #[test]
+    fn fanning_flames_never_touches_a_full_health_ally() {
+        let mut atk = elementalist();
+        atk.healingflames_pct = 0.10;
+        atk.fanningflames_pct = 1.0;
+        let mut units = vec![atk, ally("full_hp", 1000, 1000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[1].hp, 1000, "apply_heal_splash only picks currently-hurt allies");
+    }
+
+    #[test]
+    fn shielding_flames_grants_a_shield_in_addition_to_the_heal() {
+        let mut atk = elementalist();
+        atk.hp = 500;
+        atk.healingflames_pct = 0.10;
+        atk.shieldingflames_pct = 0.50;
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 600, "the heal still happens");
+        assert!((units[0].shield_hp - 50.0).abs() < 1e-9, "50% of the 100-hp regen = 50 shield, on top of the heal");
+    }
+
+    #[test]
+    fn rising_phoenix_schedules_a_revival_when_eligible() {
+        let mut caster = elementalist();
+        caster.risingphoenix_max_revives = 1;
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        dead_ally.alive_since_ms = 0;
+        let mut units = vec![caster, dead_ally];
+        let scheduled = try_schedule_rising_phoenix_revival(&mut units, 1, 5_000);
+        assert!(scheduled);
+        assert_eq!(units[1].revive_at_ms, 5_000 + RISING_PHOENIX_REVIVE_DELAY_MS);
+        assert_eq!(units[0].risingphoenix_revives_used, 1);
+    }
+
+    #[test]
+    fn rising_phoenix_refuses_an_ally_who_died_too_early() {
+        let mut caster = elementalist();
+        caster.risingphoenix_max_revives = 1;
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        dead_ally.alive_since_ms = 4_000; // died at 5_000 -> only survived 1s
+        let mut units = vec![caster, dead_ally];
+        let scheduled = try_schedule_rising_phoenix_revival(&mut units, 1, 5_000);
+        assert!(!scheduled, "must not revive an ally who survived less than 3 seconds");
+        assert_eq!(units[1].revive_at_ms, u32::MAX);
+    }
+
+    #[test]
+    fn rising_phoenix_respects_the_per_combat_cap() {
+        let mut caster = elementalist();
+        caster.risingphoenix_max_revives = 1;
+        caster.risingphoenix_revives_used = 1; // already used its one revive
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        let mut units = vec![caster, dead_ally];
+        let scheduled = try_schedule_rising_phoenix_revival(&mut units, 1, 5_000);
+        assert!(!scheduled, "the per-combat cap must be enforced");
+    }
+
+    #[test]
+    fn rising_phoenix_does_nothing_without_any_caster_invested() {
+        let caster = elementalist(); // risingphoenix_max_revives left at 0
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        let mut units = vec![caster, dead_ally];
+        let scheduled = try_schedule_rising_phoenix_revival(&mut units, 1, 5_000);
+        assert!(!scheduled);
+    }
+
+    #[test]
+    fn cleansing_flames_removes_boss_focus_cube_shred_and_wound_stacks() {
+        let mut atk = elementalist();
+        atk.cleansingflames_chance = 1.0; // guaranteed roll
+        atk.boss_focus_stacks = 0.30;
+        atk.cube_shred_stacks = 5;
+        atk.cube_shred_expires_at_ms = 50_000;
+        atk.wound_stacks = 3;
+        atk.wound_expires_at_ms = 50_000;
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng);
+        assert_eq!(units[0].boss_focus_stacks, 0.0);
+        assert_eq!(units[0].cube_shred_stacks, 0);
+        assert_eq!(units[0].wound_stacks, 0);
+    }
+
+    #[test]
+    fn cleansing_flames_also_cleanses_a_nearby_ally() {
+        let mut atk = elementalist();
+        atk.cleansingflames_chance = 1.0;
+        let mut debuffed_ally = ally("debuffed", 1000, 1000);
+        debuffed_ally.boss_focus_stacks = 0.20;
+        let mut units = vec![atk, debuffed_ally];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng);
+        assert_eq!(units[1].boss_focus_stacks, 0.0);
+    }
+
+    #[test]
+    fn enshrouded_guardian_and_shielding_fire_refresh_unconditionally_even_with_zero_cleanse_chance() {
+        // These 3 are NOT gated on the cleanse roll succeeding - they
+        // refresh every Cleansing Flames tick regardless (see
+        // tick_cleansing_flames's own doc for the judgment call).
+        let mut atk = elementalist();
+        atk.cleansingflames_chance = 0.0; // cleanse itself never invested/rolled
+        atk.enshroudedfire_evasion_pct = 0.09;
+        atk.guardianfire_dr_pct = 0.09;
+        atk.shieldingfire_block_pct = 0.65;
+        let mut units = vec![atk, ally("buffed", 1000, 1000)];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng);
+        assert!((units[1].temp_evasion_buff - 0.09).abs() < 1e-9);
+        assert!((units[1].temp_damage_reduction_bonus - 0.09).abs() < 1e-9);
+        assert!((units[1].temp_shieldingfire_block_pct - 0.65).abs() < 1e-9);
+        assert_eq!(units[1].temp_evasion_buff_expires_at_ms, 1_000 + ELEMENTALIST_ALLY_BUFF_DURATION_MS);
+    }
+
+    #[test]
+    fn shielding_fire_never_downgrades_a_naturally_higher_block_reduction() {
+        let atk = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        // Second Skin at a higher value (70%) than Shielding Fire (55%) -
+        // the ally's own investment must win. block_chance: 1.0 forces a
+        // guaranteed block so `is_blocked` is deterministic regardless
+        // of seed.
+        let def = CombatSimUnit {
+            block_chance: 1.0,
+            block_damage_reduction_pct: 0.70,
+            temp_shieldingfire_block_pct: 0.55,
+            temp_shieldingfire_block_pct_expires_at_ms: 5_000,
+            ..boss_for_block_test()
+        };
+        let mut rng = StdRng::seed_from_u64(1);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Block reduction (Second Skin)");
+        let (_, _, magnitude) = entry.expect("block_chance: 1.0 must guarantee a logged block-reduction source");
+        assert!((*magnitude - 0.70).abs() < 1e-9, "the ally's own higher Second Skin value must not be downgraded by Shielding Fire's 55%, got {magnitude}");
+    }
+
+    fn boss_for_block_test() -> CombatSimUnit {
+        CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, is_boss: true, ..Default::default() }
     }
 }
 

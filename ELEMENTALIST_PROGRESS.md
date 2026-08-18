@@ -31,8 +31,12 @@ stage's "all existing tests still pass" check is protecting.
 - [x] Stage 3 — Righteous Fire part 1 (damage + self-burn, Scorching
       Flames, Relentless/Cauterizing Flames, Ashes to Ashes) (done
       2026-08-19)
-- [ ] Stage 4 — Righteous Fire part 2 (regen clock, Fanning Flames,
-      Rising Phoenix, Shielding Flames, Cleansing Flames)
+- [x] Stage 4 — Righteous Fire part 2 (regen clock, Fanning Flames,
+      Rising Phoenix, Shielding Flames, Cleansing Flames) (done
+      2026-08-19) — completes the ENTIRE Righteous Fire branch (13/13
+      nodes now real, including Cleansing Flames' own 3 modifiers,
+      Enshrouded/Guardian/Shielding Fire - see Decision 20 below on why
+      those 3 are counted as part of this stage)
 - [ ] Stage 5 — Golem foundation (summoner-death rule, dead-but-
       scheduled lifecycle state, on-death hook wrapper, Golem Master,
       `/passives` type-picker UI, Basic golem)
@@ -214,9 +218,126 @@ listed here for completeness, not decisions made unattended):*
    sloppy `replace_all` match, not a genuine site). Left the correction
    inline in place rather than rewriting history.
 
+20. **Stage 4 scope includes Cleansing Flames' own 3 modifiers**
+   (Enshrouded Fire/Guardian Fire/Shielding Fire), even though the
+   approved plan's own Stage 4 line only explicitly named "Cleansing
+   Flames + its enumerated debuff-field list" without spelling those 3
+   out by name. Judgment call: Stage 4 is "Righteous Fire branch, part
+   2" and Stage 5 moves on to a completely different branch (Golem
+   foundation) - leaving 3 nodes permanently `NotYetImplemented` in the
+   middle of a branch every later stage has moved past would be a
+   dangling gap, not a deferral. The node count confirms this reading:
+   Righteous Fire's full branch is 13 nodes (1 skill + 3 specs + 9
+   modifiers); Stage 3 did 5, so Stage 4 needed the remaining 8 to
+   actually finish "part 2."
+21. **Enshrouded Fire/Guardian Fire/Shielding Fire ride Cleansing
+   Flames' own 4-second tick as an UNCONDITIONAL refresh**, independent
+   of whether that tick's own probabilistic cleanse roll succeeds. None
+   of the 3 are spec'd with their own chance or interval ("grants a
+   number of allies... X%," no "chance every N seconds" language like
+   their parent has) - reusing the parent's cadence as a flat periodic
+   reapplication was the most conservative reading. Backed by a test
+   proving they refresh even at `cleansingflames_chance: 0.0`.
+22. **Enshrouded Fire/Guardian Fire reuse the EXISTING shared
+   `temp_evasion_buff`/`temp_damage_reduction_bonus` slots** (Mage's
+   Vanish and Dreadful Death's shred, respectively) rather than adding
+   new fields - same "shared temp_* slot, last write wins" acceptance
+   as Cauterizing Flames (Stage 3) and Guardian Fire's own dual-purpose
+   reuse of `temp_damage_reduction_bonus` (Dreadful Death writes
+   negative values to ENEMIES only; Guardian Fire writes positive
+   values to ALLIES only - no real collision risk in practice). Shielding
+   Fire's improved-block override had no existing equivalent, so it gets
+   one new pair (`temp_shieldingfire_block_pct`/`_expires_at_ms`), read
+   via `.max()` against the target's own `block_damage_reduction_pct` so
+   it can never DOWNGRADE an ally who already has a naturally higher
+   personal override - backed by a dedicated test.
+23. **Rising Phoenix's death detection is a per-iteration alive-state
+   sweep at the top of the main event loop**, NOT an audit of every
+   individual damage-application call site. A snapshot of who was alive
+   as of the previous iteration (`prev_alive`) is compared against
+   current state at the top of every iteration; any real player who
+   flips from alive to dead is offered a revival via
+   `try_schedule_rising_phoenix_revival`. This correctly catches a death
+   from ANY source (normal attacks, boss abilities, Righteous Fire's own
+   self-burn, anything) with zero changes to any existing damage site -
+   avoided the originally-anticipated "~9 site audit" (which the plan
+   assigned to Stage 5's on-death hook instead) entirely for this
+   mechanic. The main loop's own `if !u.alive { continue; }` skip is
+   bypassed specifically for `revive_at_ms` (checked one line earlier),
+   and `any_player_alive`'s fight-termination check now also counts a
+   unit with `revive_at_ms` scheduled as "still in the fight," so an
+   all-real-players-dead instant with someone due back in a second
+   doesn't end the fight early.
+24. **`PlayerVitals::died_at_ms`'s OWN building logic
+   (`build_player_vitals` in manager.rs) needed a real fix**, not just
+   documentation - it was using `get_or_insert` (first-Defeat-wins),
+   which is WRONG per Stage 0's own resolution #2 ("records only a
+   unit's FINAL death"). Fixed to overwrite on every `Defeat` (tracks
+   the latest) and clear whenever a later `Heal`/`Attack` event shows
+   `target_hp_after > 0` for that unit (a revival always surfaces this
+   way - see Decision 25). This is a genuine behavior change to
+   pre-existing code, but a provably safe one: before Rising Phoenix, no
+   unit could ever have more than one `Defeat` event in a fight, so
+   `get_or_insert` and "overwrite + clear-on-revival" are IDENTICAL for
+   every fight that existed before this stage - confirmed via 2 new
+   tests (`survivors_have_no_died_at_ms`/`exact_defeat_timestamp_is_
+   preserved_even_mid_bucket`, both pre-existing, still pass unchanged)
+   plus 2 new revival-specific tests. The field's wire SHAPE
+   (`Option<u32>`, `#[serde(default)]`) is untouched - only this
+   internal computation changed - so this does not violate the frozen-
+   contract hard-stop condition.
+25. **A revival is surfaced as existing `SkillCast`/`Heal` events, NOT a
+   new `CombatEvent` variant** - `CombatEvent` is the same wire contract
+   `PlayerVitals` builds from, and Stage 0's own resolution #2 already
+   anticipated this exact approach ("the HP-sample curve and combat log
+   show the real dip-and-recovery accurately regardless"). `NextEvent::Revive`
+   sets `hp`/`alive` directly rather than calling `apply_heal` -
+   reduced-healing debuffs should never apply to "coming back from
+   death," and `apply_heal` isn't built to operate on an already-dead
+   unit anyway.
+26. **Rising Phoenix's revival HP amount (25% of max HP) is a judgment
+   call** - the spec states "revive and rejoin the battle" with no HP
+   number given. Chose a modest-but-meaningful fraction rather than a
+   full heal, consistent with this being a safety net, not a free full
+   recovery; `RISING_PHOENIX_REVIVE_HP_PCT` is a single named constant,
+   easy to retune later if this reads wrong in play.
+27. **Cleansing Flames' "remove all debuffs" cleanses a hand-enumerated,
+   NOT exhaustive, list**: `boss_focus_stacks`, `cube_shred_stacks`
+   (+ its expiry), and `wound_stacks` (+ its expiry). This is the set
+   with DIRECT EVIDENCE (their own doc comments) of actually landing on
+   a PLAYER unit - the real boss's own survivability-focus debuff,
+   Gelatinous Cube's per-hit shred, and Festering Wound (applicable to
+   either side via `apply_hit`'s `applies_wound` parameter). Deliberately
+   excludes the 5 elemental on-hit debuffs (`fire_dr_debuff` etc.) and
+   every `temp_*_debuff` pair (Frost Nova, Static Field, Poison Thorns) -
+   their own doc comments show those are only ever applied by a PLAYER
+   source against an ENEMY, never the reverse, so clearing them on an
+   ally is always a no-op today. This is NOT a full audit of every
+   debuff-shaped field in the ~700-field `CombatSimUnit` struct - flagged
+   explicitly per the owner's own instruction that this judgment call be
+   documented.
+28. **Healing Flames' irregular 3/6/10% progression is a small local
+   lookup (`healing_flames_regen_pct(rank)`), not a new `PassiveEffect`
+   variant.** The node's own `Special{0.03, 0.035}` stays for structural
+   consistency but is never actually consulted for the real value -
+   confirmed nothing in the UI reads `magnitude_at_rank` for display
+   (tooltips are the hand-written `description` strings, already correct
+   since Stage 1). Extending the shared `PassiveEffect` enum would touch
+   every archetype's node type for a need only this one node has -
+   flagged back in Stage 1's own header comment as the expected
+   resolution once this stage was reached.
+29. **Rising Phoenix's "survived at least 3 seconds" check uses an
+   approximate death timestamp** (`prev_at_ms`, the last processed
+   event's own `at_ms` - see Decision 23) rather than the EXACT
+   millisecond a unit's hp hit 0, since nothing centrally records that
+   without the same site-by-site audit Decision 23 avoided. In practice
+   this is off by at most one event's worth of time (typically well
+   under a second in a fast-ticking fight), acceptable slack against a
+   3-second gameplay threshold.
+
 *(Everything above this line was decided without a check-in, during
 autonomous execution. Nothing further yet - this section grows as
-Stages 4-6 proceed.)*
+Stages 5-6 proceed.)*
 
 ---
 
@@ -304,6 +425,38 @@ Stages 4-6 proceed.)*
   passing, 0 failed** (was 184).
 - One correction made to Stage 2's own Decision 12 (see Decision 19) -
   "5 construction sites" was wrong, corrected to the verified 4.
+- Committed as `d5923c0`, pushed.
+
+## Stage 4 summary (for the morning, or a fresh session)
+
+- The ENTIRE Righteous Fire branch is now real: all 13 nodes (skill +
+  3 specs + 9 modifiers). Only Golem Master's whole branch (12 nodes)
+  remains `NotYetImplemented`, for Stages 5-6.
+- Healing Flames/Fanning Flames/Shielding Flames all ride Righteous
+  Fire's own once-a-second tick (extended `tick_righteous_fire`
+  directly) - self-regen (irregular 3/6/10%, via the new
+  `healing_flames_regen_pct` lookup), a splash-shared portion via the
+  existing `apply_heal_splash`, and a shield via the existing
+  `grant_shield`.
+- Cleansing Flames got its OWN new periodic tick
+  (`NextEvent::CleansingFlamesTick` -> `tick_cleansing_flames`, 4s
+  cadence, independent of Righteous Fire's 1s one) - a probabilistic
+  cleanse of a hand-enumerated debuff list (see Decision 27) plus an
+  unconditional refresh of Enshrouded/Guardian/Shielding Fire on nearby
+  allies (see Decision 21).
+- Rising Phoenix required genuinely new cross-cutting machinery: a
+  per-iteration death-detection sweep in the main event loop (Decision
+  23), a `revive_at_ms`/`NextEvent::Revive` scheduling pair, and a real
+  fix to `PlayerVitals::died_at_ms`'s own building logic in manager.rs
+  (Decision 24) - the field's doc previously said "nothing revives a
+  unit mid-replay," which stopped being true this stage.
+- 14 new `CombatSimUnit` fields, each defaulted at all 4 construction
+  sites (verified count from Stage 3's own correction still holds).
+- 19 new tests (4 magnitude checks in `passive_tree.rs`, 13 in
+  `combat.rs`'s new `elementalist_stage_4_tests` module, 2 in
+  `manager.rs`'s existing `player_vitals_tests` module proving the
+  revive-then-survive and revive-then-die-again `died_at_ms` cases).
+  Full suite: **216 passing, 0 failed** (was 197).
 - Commit is next.
 
 ---

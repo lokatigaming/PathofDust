@@ -1855,14 +1855,20 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "righteousfire",
         "Healing Flames",
         "Regenerate 3% of your health per second at rank 1, 6% at rank 2, 10% at rank 3 (irregular scaling - see this file's own note above).",
-        PassiveEffect::NotYetImplemented,
+        // Irregular 3/6/10% progression - this Special's own numbers are
+        // NOT the real per-rank value (linear can't hit all 3 points at
+        // once); the real value is `combat.rs`'s own
+        // `healing_flames_regen_pct(rank)` lookup, read via
+        // `passive_node_rank`, not this magnitude. See that function's
+        // own doc.
+        PassiveEffect::Special { at_rank_1: 0.03, per_additional_rank: 0.035 },
     ),
     spec(
         "cleansingflames",
         "righteousfire",
         "Cleansing Flames",
         "33% chance every 4 seconds to remove all debuffs from yourself and nearby allies at rank 1, 66% at rank 2, 100% at rank 3 - target count based on splash.",
-        PassiveEffect::NotYetImplemented,
+        PassiveEffect::Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
     ),
     spec(
         "scorchingflames",
@@ -1913,26 +1919,50 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "Base golem behavior - this golem type's real identity is its 3 modifiers below.",
         PassiveEffect::NotYetImplemented,
     ),
-    modifier("fanningflames", "healingflames", "Fanning Flames", "Share 33% of your Healing Flames regeneration with nearby allies at rank 1, 66% at rank 2, 100% at rank 3 - target count based on splash."),
-    modifier(
+    modifier_with_effect(
+        "fanningflames",
+        "healingflames",
+        "Fanning Flames",
+        "Share 33% of your Healing Flames regeneration with nearby allies at rank 1, 66% at rank 2, 100% at rank 3 - target count based on splash.",
+        Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
+    ),
+    modifier_with_effect(
         "risingphoenix",
         "healingflames",
         "Rising Phoenix",
         "When nearby allies die, up to 1 of them revives and rejoins the battle 1 second after death at rank 1 - +1 per additional rank (3 at 3/3, a per-combat limit). Only applies to allies that had survived at least 3 seconds.",
+        // A COUNT (1/2/3), not a magnitude - read via `passive_node_rank`
+        // directly at the real call site, same as
+        // `onehundredhands_bonus_stacks`'s own precedent.
+        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
-    modifier(
+    modifier_with_effect(
         "shieldingflames",
         "healingflames",
         "Shielding Flames",
         "33% of your Healing Flames regeneration is also added as a shield on you at rank 1, 66% at rank 2, 100% at rank 3 - in addition to the healing.",
+        Special { at_rank_1: 0.33, per_additional_rank: 0.335 },
     ),
-    modifier("enshroudedfire", "cleansingflames", "Enshrouded Fire", "Grants a number of allies (based on splash) 3% multiplicative evasion at rank 1 - +3% per additional rank (9% at 3/3)."),
-    modifier("guardianfire", "cleansingflames", "Guardian Fire", "Grants a number of allies (based on splash) 3% multiplicative reduced damage taken at rank 1 - +3% per additional rank (9% at 3/3)."),
-    modifier(
+    modifier_with_effect(
+        "enshroudedfire",
+        "cleansingflames",
+        "Enshrouded Fire",
+        "Grants a number of allies (based on splash) 3% multiplicative evasion at rank 1 - +3% per additional rank (9% at 3/3).",
+        Special { at_rank_1: 0.03, per_additional_rank: 0.03 },
+    ),
+    modifier_with_effect(
+        "guardianfire",
+        "cleansingflames",
+        "Guardian Fire",
+        "Grants a number of allies (based on splash) 3% multiplicative reduced damage taken at rank 1 - +3% per additional rank (9% at 3/3).",
+        Special { at_rank_1: 0.03, per_additional_rank: 0.03 },
+    ),
+    modifier_with_effect(
         "shieldingfire",
         "cleansingflames",
         "Shielding Fire",
         "Grants a number of allies (based on splash) improved block: blocked attacks reduce damage by 55% at rank 1, 60% at rank 2, 65% at rank 3, instead of the standard 50%.",
+        Special { at_rank_1: 0.55, per_additional_rank: 0.05 },
     ),
     modifier_with_effect(
         "relentlessflames",
@@ -2117,10 +2147,10 @@ mod tree_shape_tests {
     /// Every node outside the branches wired so far is still deliberately
     /// `NotYetImplemented` (see this section's own doc above the array) -
     /// this test exists so whichever later stage wires a node's real
-    /// effect in remembers to add that key to `IMPLEMENTED_BY_STAGE_3`
+    /// effect in remembers to add that key to `IMPLEMENTED_BY_STAGE_4`
     /// below (or otherwise update this test), rather than the change
     /// going unnoticed.
-    const IMPLEMENTED_BY_STAGE_3: &[&str] = &[
+    const IMPLEMENTED_BY_STAGE_4: &[&str] = &[
         // Stage 2 - Elemental Focus branch.
         "elementalfocus",
         "shockingfocus",
@@ -2141,13 +2171,22 @@ mod tree_shape_tests {
         "relentlessflames",
         "cauterizingflames",
         "ashestoashes",
+        // Stage 4 - Righteous Fire part 2 (the rest of the branch).
+        "healingflames",
+        "fanningflames",
+        "risingphoenix",
+        "shieldingflames",
+        "cleansingflames",
+        "enshroudedfire",
+        "guardianfire",
+        "shieldingfire",
     ];
     #[test]
-    fn elementalist_stage_3_implemented_rest_not_yet() {
+    fn elementalist_stage_4_implemented_rest_not_yet() {
         let nodes = Archetype::Elementalist.passive_nodes();
         for node in nodes {
-            if IMPLEMENTED_BY_STAGE_3.contains(&node.key) {
-                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect by Stage 3", node.key);
+            if IMPLEMENTED_BY_STAGE_4.contains(&node.key) {
+                assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect by Stage 4", node.key);
             } else {
                 assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should still be NotYetImplemented until its own stage wires it in", node.key);
             }
@@ -2219,6 +2258,37 @@ mod tree_shape_tests {
         let node = node_by_key(Archetype::Elementalist, "ashestoashes");
         assert_eq!(node.magnitude_at_rank(1), 1.0);
         assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_fanning_flames_and_shielding_flames_reach_100pct_at_max_rank() {
+        for key in ["fanningflames", "shieldingflames", "cleansingflames"] {
+            let node = node_by_key(Archetype::Elementalist, key);
+            assert_eq!(node.magnitude_at_rank(1), 0.33, "{key} rank 1");
+            assert!((node.magnitude_at_rank(3) - 1.0).abs() < 1e-9, "{key} at 3/3");
+        }
+    }
+
+    #[test]
+    fn elementalist_rising_phoenix_reaches_3_revives_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "risingphoenix");
+        assert_eq!(node.magnitude_at_rank(1), 1.0);
+        assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn elementalist_enshrouded_and_guardian_fire_reach_9pct_at_max_rank() {
+        for key in ["enshroudedfire", "guardianfire"] {
+            let node = node_by_key(Archetype::Elementalist, key);
+            assert!((node.magnitude_at_rank(3) - 0.09).abs() < 1e-9, "{key} at 3/3");
+        }
+    }
+
+    #[test]
+    fn elementalist_shielding_fire_reaches_65pct_block_reduction_at_max_rank() {
+        let node = node_by_key(Archetype::Elementalist, "shieldingfire");
+        assert_eq!(node.magnitude_at_rank(1), 0.55);
+        assert!((node.magnitude_at_rank(3) - 0.65).abs() < 1e-9);
     }
 
     fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {
