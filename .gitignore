@@ -5,6 +5,10 @@ patreon-tokens.json
 
 # --- Rust build artifacts ---
 /target
+# Separate build output dir used for the Stage 5 bake prep (building the
+# new binaries while the currently-running one still holds a file lock
+# on /target/release) - see REFACTOR_PLAN.md's bake deployment proposal.
+/target-bake
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
