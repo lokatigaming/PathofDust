@@ -23,6 +23,7 @@
 
 use game::adventure::{AdventureManager, PublishedConstants, PUBLISHED_CONSTANTS_PATH};
 use std::path::PathBuf;
+use tracing_subscriber::prelude::*;
 
 fn env_var(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.trim().is_empty())
@@ -36,10 +37,43 @@ fn env_u16_or(key: &str, default: u16) -> u16 {
     env_var(key).and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+/// Not `#[tokio::main]` (Stage 5, REFACTOR_PLAN.md, 2026-08-19) - matches
+/// the bot's own `src/main.rs`, for the exact same reason: this process
+/// now runs the REAL `simulate_battle`/`apply_hit` combat simulation
+/// (moved here wholesale by the Stage 1/2 crate split), the same code
+/// that caused repeat `STATUS_STACK_OVERFLOW` crashes bot-side badly
+/// enough to need a dedicated watchdog (see repo-root watchdog.ps1's own
+/// doc) before this refactor even started. The bot's own fix was never
+/// mirrored here - Tokio's 2MiB default worker stack was fine while this
+/// binary only served the dashboard/wiki (Stage 2's own live-verification
+/// never ran a real fight), but Stage 4 made this binary the ONLY thing
+/// that ever calls `run_encounter_inner` at all once a bot is pointed at
+/// it, so this gap needed closing before any real-traffic bake could be
+/// trusted not to reproduce the exact crash class that motivated the
+/// watchdog in the first place.
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(32 * 1024 * 1024).build()?.block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
+    // File logging (Stage 5, 2026-08-19) - matches the bot's own
+    // src/main.rs identically, and for the same reason: a plain stdout
+    // logger writes nowhere a human can ever read once this runs headless
+    // under a Scheduled Task (no attached console). `_log_guard` must
+    // stay alive for the whole program - dropping it stops the
+    // background flush thread and buffered lines are lost. Previously
+    // this binary only ever ran in a foreground terminal during Stage
+    // 1-4's own manual smoke tests, where stdout was enough - a real bake
+    // period (or any unattended run) needs this the same way the bot
+    // needed it.
+    std::fs::create_dir_all("logs")?;
+    let file_appender = tracing_appender::rolling::daily("logs", "game.log");
+    let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
         .init();
 
     std::panic::set_hook(Box::new(|panic_info| {

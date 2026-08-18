@@ -6,7 +6,7 @@ use std::time::Duration;
 use tracing_subscriber::prelude::*;
 
 use twitch_bot_rs::adventure::{PublishedConstants, PUBLISHED_CONSTANTS_PATH};
-use twitch_bot_rs::adventure_client::AdventureApiClient;
+use twitch_bot_rs::adventure_client::{AdventureApiClient, RedemptionResponse};
 use twitch_bot_rs::alerts;
 use twitch_bot_rs::announcements::Announcements;
 use twitch_bot_rs::bug_reports;
@@ -322,6 +322,32 @@ async fn handle_interrupt_redemption(
 /// alike, no `announce` gate) - a real request to keep it that way, it
 /// doubles as a fun public "look what I just got" moment that Twitch's
 /// own redemption UI alone doesn't convey.
+/// What a redemption handler actually does once it has an answer -
+/// separated from `handle_reforge_redemption` itself (Stage 5,
+/// REFACTOR_PLAN.md §4c/§5, 2026-08-19) so the game-down DECISION is
+/// unit-testable without a real `HelixClient`/`ChatClient` (neither has
+/// a test-friendly constructor - see Stage 4's own "honest gap" note).
+struct RedemptionAction {
+    status: &'static str,
+    chat_message: Option<String>,
+}
+
+/// Game down (§4c) - REFUND silently, matching Repair's own
+/// already-silent tone (the ratified policy table lumps these two
+/// together under one "REFUND silently" row) - this is a DIFFERENT
+/// refund reason than the cooldown/no-gear refunds the game itself
+/// already handles (see api.rs's own `redeem_reforge`), which still
+/// chat-announce normally when the game is actually reachable.
+fn reforge_redemption_action(result: anyhow::Result<RedemptionResponse>, user_name: &str) -> RedemptionAction {
+    match result {
+        Ok(resp) => RedemptionAction { status: if resp.fulfilled { "FULFILLED" } else { "CANCELED" }, chat_message: resp.chat_message },
+        Err(err) => {
+            tracing::warn!("reforge redemption for {user_name} failed (game down?): {err}");
+            RedemptionAction { status: "CANCELED", chat_message: None }
+        }
+    }
+}
+
 async fn handle_reforge_redemption(
     redemption_id: String,
     reward_id: String,
@@ -331,24 +357,10 @@ async fn handle_reforge_redemption(
     chat_client: &chat::ChatClient,
     adventure: &AdventureApiClient,
 ) {
-    match adventure.redeem_reforge(&user_name).await {
-        Ok(resp) => {
-            let status = if resp.fulfilled { "FULFILLED" } else { "CANCELED" };
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, status).await;
-            if let Some(msg) = resp.chat_message {
-                chat_client.say(msg).await;
-            }
-        }
-        // Game down (§4c) - REFUND silently, matching Repair's own
-        // already-silent tone (the ratified policy table lumps these
-        // two together under one "REFUND silently" row) - this is a
-        // DIFFERENT refund reason than the cooldown/no-gear refunds
-        // above, which are handled entirely game-side and still chat-
-        // announce normally when the game is actually reachable.
-        Err(err) => {
-            tracing::warn!("reforge redemption for {user_name} failed (game down?): {err}");
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-        }
+    let action = reforge_redemption_action(adventure.redeem_reforge(&user_name).await, &user_name);
+    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, action.status).await;
+    if let Some(msg) = action.chat_message {
+        chat_client.say(msg).await;
     }
 }
 
@@ -359,16 +371,23 @@ async fn handle_reforge_redemption(
 /// (see adventure.rs's `repair_all_gear_free`). Silent in chat either
 /// way now (per request) - the redemption's own FULFILLED/CANCELED
 /// status on Twitch's side is confirmation enough.
-async fn handle_repair_redemption(redemption_id: String, reward_id: String, user_name: String, helix: &HelixClient, broadcaster_id: &str, adventure: &AdventureApiClient) {
-    let fulfilled = match adventure.redeem_repair(&user_name).await {
-        Ok(resp) => resp.fulfilled,
+/// Game down (§4c) - REFUND, same as today's up-and-running behavior:
+/// this redemption is already silent in chat either way (see this fn's
+/// own doc), so there's no separate "down" tone to apply - the fixed
+/// `chat_message: None` here is just making that explicit.
+fn repair_redemption_action(result: anyhow::Result<RedemptionResponse>, user_name: &str) -> RedemptionAction {
+    match result {
+        Ok(resp) => RedemptionAction { status: if resp.fulfilled { "FULFILLED" } else { "CANCELED" }, chat_message: resp.chat_message },
         Err(err) => {
             tracing::warn!("repair redemption for {user_name} failed (game down?): {err}");
-            false // REFUND silently (§4c) - same as today's up-and-running behavior, already silent either way.
+            RedemptionAction { status: "CANCELED", chat_message: None }
         }
-    };
-    let status = if fulfilled { "FULFILLED" } else { "CANCELED" };
-    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, status).await;
+    }
+}
+
+async fn handle_repair_redemption(redemption_id: String, reward_id: String, user_name: String, helix: &HelixClient, broadcaster_id: &str, adventure: &AdventureApiClient) {
+    let action = repair_redemption_action(adventure.redeem_repair(&user_name).await, &user_name);
+    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, action.status).await;
 }
 
 /// Someone redeemed "Force Boss Fight" — no text input, no per-user
@@ -393,23 +412,23 @@ async fn handle_force_boss_redemption(
     // backlog from while the bot was down.
     announce: bool,
 ) {
-    match adventure.redeem_force_boss(&user_name, announce).await {
-        Ok(resp) => {
-            let status = if resp.fulfilled { "FULFILLED" } else { "CANCELED" };
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, status).await;
-            if let Some(msg) = resp.chat_message {
-                chat_client.say(msg).await;
-            }
-        }
-        // Game down (§4c) - REFUND + a chat line explaining why, same
-        // as this redemption's already-always-chat-announced tone -
-        // still gated on `announce` so a replayed backlog stays quiet.
+    let action = force_boss_redemption_action(adventure.redeem_force_boss(&user_name, announce).await, &user_name, announce);
+    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, action.status).await;
+    if let Some(msg) = action.chat_message {
+        chat_client.say(msg).await;
+    }
+}
+
+/// Game down (§4c) - REFUND + a chat line explaining why, same as this
+/// redemption's already-always-chat-announced tone - still gated on
+/// `announce` so a replayed backlog stays quiet.
+fn force_boss_redemption_action(result: anyhow::Result<RedemptionResponse>, user_name: &str, announce: bool) -> RedemptionAction {
+    match result {
+        Ok(resp) => RedemptionAction { status: if resp.fulfilled { "FULFILLED" } else { "CANCELED" }, chat_message: resp.chat_message },
         Err(err) => {
             tracing::warn!("force-boss redemption for {user_name} failed (game down?): {err}");
-            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-            if announce {
-                chat_client.say(format!("{user_name}, Force Boss Fight couldn't be processed right now — refunded. Try again in a moment!")).await;
-            }
+            let chat_message = announce.then(|| format!("{user_name}, Force Boss Fight couldn't be processed right now — refunded. Try again in a moment!"));
+            RedemptionAction { status: "CANCELED", chat_message }
         }
     }
 }
@@ -1170,4 +1189,80 @@ async fn async_main() -> anyhow::Result<()> {
     tracing::info!("Shutting down...");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Stage 5 (REFACTOR_PLAN.md §4c/§5, 2026-08-19) - every row of the
+    /// redemption half of §4c's failure-isolation table, unit-tested
+    /// directly against the pure decision functions rather than the
+    /// handlers themselves (which need a real `HelixClient`/`ChatClient` -
+    /// see Stage 4's own "honest gap" note on why those can't be
+    /// constructed in a test without live Twitch).
+    #[test]
+    fn reforge_up_and_fulfilled_passes_the_status_and_message_through() {
+        let action = reforge_redemption_action(Ok(RedemptionResponse { fulfilled: true, chat_message: Some("reforged!".to_string()) }), "viewer1");
+        assert_eq!(action.status, "FULFILLED");
+        assert_eq!(action.chat_message, Some("reforged!".to_string()));
+    }
+
+    #[test]
+    fn reforge_up_but_declined_still_passes_the_game_side_message_through() {
+        // e.g. on cooldown / no gear equipped - the game already formatted
+        // a real refund message for this, unrelated to game-down at all.
+        let action = reforge_redemption_action(Ok(RedemptionResponse { fulfilled: false, chat_message: Some("on cooldown".to_string()) }), "viewer1");
+        assert_eq!(action.status, "CANCELED");
+        assert_eq!(action.chat_message, Some("on cooldown".to_string()));
+    }
+
+    #[test]
+    fn reforge_down_refunds_silently() {
+        let action = reforge_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1");
+        assert_eq!(action.status, "CANCELED");
+        assert_eq!(action.chat_message, None, "§4c: Reforge/Repair on game-down must refund SILENTLY");
+    }
+
+    #[test]
+    fn repair_up_and_fulfilled_is_silent_either_way() {
+        let action = repair_redemption_action(Ok(RedemptionResponse { fulfilled: true, chat_message: None }), "viewer1");
+        assert_eq!(action.status, "FULFILLED");
+        assert_eq!(action.chat_message, None);
+    }
+
+    #[test]
+    fn repair_down_refunds_silently() {
+        let action = repair_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1");
+        assert_eq!(action.status, "CANCELED");
+        assert_eq!(action.chat_message, None, "§4c: Reforge/Repair on game-down must refund SILENTLY");
+    }
+
+    #[test]
+    fn force_boss_up_and_fulfilled_passes_the_announcement_through() {
+        let action = force_boss_redemption_action(Ok(RedemptionResponse { fulfilled: true, chat_message: Some("boss summoned!".to_string()) }), "viewer1", true);
+        assert_eq!(action.status, "FULFILLED");
+        assert_eq!(action.chat_message, Some("boss summoned!".to_string()));
+    }
+
+    #[test]
+    fn force_boss_down_refunds_and_announces_when_live() {
+        let action = force_boss_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1", true);
+        assert_eq!(action.status, "CANCELED", "§4c: Force Boss Fight on game-down must still refund");
+        assert!(
+            action.chat_message.as_deref().is_some_and(|m| m.contains("viewer1") && m.contains("refunded")),
+            "§4c: Force Boss Fight on game-down must chat-announce why when live, got {:?}",
+            action.chat_message
+        );
+    }
+
+    #[test]
+    fn force_boss_down_stays_quiet_when_replaying_a_backlog() {
+        // `announce: false` - reconcile_missed_redemptions replaying while
+        // the bot was down; matches every other redemption's "don't spam
+        // chat for a backlog nobody's watching live" convention.
+        let action = force_boss_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1", false);
+        assert_eq!(action.status, "CANCELED");
+        assert_eq!(action.chat_message, None);
+    }
 }
