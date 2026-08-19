@@ -2,6 +2,17 @@
 <html>
 <head>
 <meta charset="utf-8">
+<script>
+  // Scroll-position preservation (2026-08-19, priority UX fix) - opt out
+  // of the browser's OWN automatic back/forward scroll restoration as the
+  // very first thing on the page, before anything else runs. Left on,
+  // it can apply its own remembered position on top of (or racing) the
+  // restore this page does itself further down, which is exactly the
+  // kind of double-restore that causes a visible jump. Must run this
+  // early (synchronously, before any layout) - setting this property
+  // doesn't touch the DOM, so it's safe before <body> exists at all.
+  if ('scrollRestoration' in history) { history.scrollRestoration = 'manual'; }
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Adventure Character Dashboard</title>
 <style>
@@ -544,22 +555,95 @@
 {{ body }}
 <script>
   (function() {
-    // Every action on this dashboard is a plain <form method="post">
-    // submit followed by a server-side redirect - a real page
-    // navigation, which the browser resets to scroll 0 on by default
-    // (2026-08-17, a live report: "the page keeps scrolling back to the
-    // top on every action"). Save the scroll position right before the
-    // browser navigates away (sessionStorage survives the navigation, a
-    // JS variable wouldn't), then restore it as soon as the new page's
-    // script runs.
-    document.addEventListener('submit', function() {
-      sessionStorage.setItem('scrollY', String(window.scrollY));
-    }, true);
-    var savedY = sessionStorage.getItem('scrollY');
-    if (savedY !== null) {
-      sessionStorage.removeItem('scrollY');
-      window.scrollTo(0, parseInt(savedY, 10));
+    // Scroll-position preservation, EVERY page (2026-08-19, priority UX
+    // fix, supersedes two earlier narrower attempts at this - one
+    // site-wide but window-vertical-only, one path-scoped to just
+    // "/"/"/inventory" and also vertical-only). Restores window
+    // scrollX/scrollY PLUS every inner scrollable container's own
+    // scrollLeft/scrollTop (the passives tree's horizontally-pannable
+    // .tree-wrap is the critical case a live report called out - losing
+    // BOTH axes there - but this covers any overflow:auto/scroll
+    // container generically, no per-page wiring needed) after ANY reload:
+    // a form-submit's POST-redirect-GET round trip, a plain hard refresh,
+    // or any other away-navigation. Keyed by location.pathname in
+    // sessionStorage (per-tab, so two tabs never fight over one shared
+    // key; per-path, so every page remembers its own position
+    // independently).
+    var KEY = 'scrollPos:' + location.pathname;
+
+    // Same overflow-based scan used for both saving and restoring, so
+    // the Nth scrollable element in document order refers to the same
+    // logical container across the reload (the page is server-rendered
+    // fresh from the same underlying state either side of a routine
+    // action, so document order is a stable-enough key - no id/data-
+    // attribute annotation needed on any page's own markup).
+    function scrollableContainers() {
+      var candidates = document.querySelectorAll('body *');
+      var found = [];
+      for (var i = 0; i < candidates.length; i++) {
+        var style = getComputedStyle(candidates[i]);
+        if (style.overflowX === 'auto' || style.overflowX === 'scroll' || style.overflowY === 'auto' || style.overflowY === 'scroll') {
+          found.push(candidates[i]);
+        }
+      }
+      return found;
     }
+
+    function save() {
+      try {
+        var containers = scrollableContainers();
+        var inner = [];
+        for (var i = 0; i < containers.length; i++) {
+          inner.push([containers[i].scrollLeft, containers[i].scrollTop]);
+        }
+        sessionStorage.setItem(KEY, JSON.stringify({ x: window.scrollX, y: window.scrollY, inner: inner }));
+      } catch (err) {
+        // Storage can throw in a locked-down/private-browsing context -
+        // losing the scroll-restore is harmless, so just skip it.
+      }
+    }
+
+    function restore() {
+      var raw;
+      try {
+        raw = sessionStorage.getItem(KEY);
+      } catch (err) {
+        return;
+      }
+      if (!raw) return;
+      var state;
+      try {
+        state = JSON.parse(raw);
+      } catch (err) {
+        return;
+      }
+      window.scrollTo(state.x, state.y);
+      var containers = scrollableContainers();
+      for (var i = 0; i < containers.length && i < state.inner.length; i++) {
+        containers[i].scrollLeft = state.inner[i][0];
+        containers[i].scrollTop = state.inner[i][1];
+      }
+    }
+
+    // Restore as early as the DOM allows - this script sits right after
+    // {{ body }} closes, so every element it needs already exists;
+    // running it now, synchronously, still inside the initial parse,
+    // beats first paint (no top-then-jump flicker), unlike waiting for
+    // DOMContentLoaded/load.
+    restore();
+    // A page with sprite images/gear grids can still reflow after this
+    // point - a defensive re-apply once everything has finished loading
+    // catches a restore that undershot because scrollHeight/Width wasn't
+    // final yet. A silent no-op in the common case where the first
+    // restore already landed exactly right.
+    window.addEventListener('load', restore);
+
+    // pagehide (not 'submit') specifically because it also fires for a
+    // plain hard refresh and any other away-navigation, not just a form
+    // submit - a live request called out F5-mid-scroll as a case that
+    // must restore correctly too, which a submit-only listener would
+    // never catch.
+    window.addEventListener('pagehide', save);
   })();
   (function() {
     // Generic ticking countdown for every .countdown-card on the page
@@ -856,54 +940,6 @@
     });
   })();
 
-  (function() {
-    // Scroll-position preservation across a craft/inventory form's POST-
-    // redirect-GET round trip (2026-08-18, a live request) - every action
-    // on /inventory (craft, equip, disenchant, veil-choose, ...) posts and
-    // reloads the same page, which previously dumped the player back at
-    // the very top instead of wherever they were scrolled to when they
-    // acted. Scoped to just / and /inventory (the only pages this was
-    // reported on) rather than site-wide, even though this script is
-    // shared with every page including /wiki/*.
-    var path = location.pathname;
-    if (path !== '/' && path !== '/inventory') return;
-    var key = 'scrollPos:' + path;
-    document.addEventListener('submit', function(e) {
-      // A cancelled confirm() (Krangle/Scour/etc, see the data-confirm
-      // handler above) already called preventDefault() on this same
-      // event before it bubbled here - nothing actually submitted, so
-      // there's no reload coming and the CURRENT position (not a stale
-      // save from the last real submit) should stay in effect.
-      if (e.defaultPrevented) return;
-      try {
-        sessionStorage.setItem(key, String(window.scrollY));
-      } catch (err) {
-        // Storage can throw in a locked-down/private-browsing context -
-        // losing the scroll-restore is harmless, so just skip it.
-      }
-    });
-    var saved;
-    try {
-      saved = sessionStorage.getItem(key);
-      sessionStorage.removeItem(key);
-    } catch (err) {
-      saved = null;
-    }
-    // Only ever a ONE-TIME restore right after the reload that follows a
-    // real submit - removed immediately above so a later plain refresh
-    // (F5) or a fresh visit doesn't keep re-applying a stale position.
-    // The result popups (#craft-modal etc) are `position: fixed` overlays
-    // (see .modal-backdrop), so they render centered on screen regardless
-    // of where the underlying page is scrolled to - nothing here needs to
-    // account for them separately, and the veil-choose flow is just
-    // another plain form on this same page, already covered above.
-    if (saved !== null) {
-      var y = parseInt(saved, 10);
-      if (!isNaN(y)) {
-        window.scrollTo(0, y);
-      }
-    }
-  })();
 </script>
 </body>
 </html>
