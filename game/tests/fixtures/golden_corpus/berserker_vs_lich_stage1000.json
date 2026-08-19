@@ -649,7 +649,8 @@
       "healer": "berserker_vs_lich_stage1000",
       "target": "berserker_vs_lich_stage1000",
       "amount": 2505,
-      "targetHpAfter": 15901
+      "targetHpAfter": 15901,
+      "isRevive": false
     },
     {
       "kind": "attack",

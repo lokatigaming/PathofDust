@@ -381,7 +381,8 @@
       "healer": "druid_vs_generic_stage1000",
       "target": "druid_vs_generic_stage1000",
       "amount": 1958,
-      "targetHpAfter": 2782
+      "targetHpAfter": 2782,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",

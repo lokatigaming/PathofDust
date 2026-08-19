@@ -79,7 +79,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 156,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -113,7 +114,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 236,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -147,7 +149,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 255,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -181,7 +184,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 182,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -215,7 +219,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 223,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -249,7 +254,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 213,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -327,7 +333,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 208,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -405,7 +412,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 246,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -483,7 +491,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 237,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -539,7 +548,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 392,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -573,7 +583,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 323,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -607,7 +618,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 352,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -641,7 +653,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 313,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -719,7 +732,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 341,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -797,7 +811,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 403,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -875,7 +890,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 402,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -953,7 +969,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 405,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1009,7 +1026,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 383,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1087,7 +1105,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 350,
-      "targetHpAfter": 1480
+      "targetHpAfter": 1480,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1117,7 +1136,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 131,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1195,7 +1215,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 485,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1273,7 +1294,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 478,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1351,7 +1373,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 311,
-      "targetHpAfter": 1406
+      "targetHpAfter": 1406,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1381,7 +1404,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 205,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1437,7 +1461,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 508,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1471,7 +1496,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 563,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1505,7 +1531,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 575,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1539,7 +1566,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 698,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1573,7 +1601,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 628,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1607,7 +1636,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 633,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1641,7 +1671,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 799,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1675,7 +1706,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 999,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1709,7 +1741,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 713,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1743,7 +1776,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 696,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1777,7 +1811,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 759,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1855,7 +1890,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 744,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -1933,7 +1969,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 1257,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -2011,7 +2048,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 1024,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -2067,7 +2105,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 959,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2101,7 +2140,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 281,
-      "targetHpAfter": 948
+      "targetHpAfter": 948,
+      "isRevive": false
     },
     {
       "kind": "heal",
@@ -2109,7 +2149,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 663,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2143,7 +2184,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 821,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2177,7 +2219,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 846,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2211,7 +2254,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 297,
-      "targetHpAfter": 969
+      "targetHpAfter": 969,
+      "isRevive": false
     },
     {
       "kind": "heal",
@@ -2219,7 +2263,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 642,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2253,7 +2298,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 1325,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2287,7 +2333,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 1151,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2321,7 +2368,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 1307,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2355,7 +2403,8 @@
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
       "amount": 1137,
-      "targetHpAfter": 1611
+      "targetHpAfter": 1611,
+      "isRevive": false
     },
     {
       "kind": "attack",

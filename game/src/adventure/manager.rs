@@ -361,7 +361,29 @@ pub enum CombatEvent {
         source_kind: AttackSourceKind,
     },
     #[serde(rename_all = "camelCase")]
-    Heal { at_ms: u32, healer: String, target: String, amount: u64, target_hp_after: u64 },
+    Heal {
+        at_ms: u32,
+        healer: String,
+        target: String,
+        amount: u64,
+        target_hp_after: u64,
+        /// Elementalist's Rising Phoenix (2026-08-19) - `true` when this
+        /// Heal is a revival (the HP a just-died ally comes back with),
+        /// `false` for every ordinary cast/regen/leech-derived heal. A
+        /// revival still counts as REAL healing (it routes through the
+        /// same `apply_heal` pipeline - see that fn's own doc - so
+        /// heal-effect modifiers like Water Golem's Singing interact
+        /// normally, and it still rolls up into the casting Elementalist's
+        /// healing_done stat), this flag exists purely so a fight-log
+        /// audit can separate revival healing from routine heal casts
+        /// without having to infer it from context. `#[serde(default)]`
+        /// so every Heal event recorded before this field existed still
+        /// deserializes, as `false` - correct, since none of them could
+        /// have been a revival before Rising Phoenix routed through this
+        /// pipeline.
+        #[serde(default)]
+        is_revive: bool,
+    },
     /// A shield grant (Overflowing Grace, Divine Favor, Martyrdom - see
     /// `grant_shield`) - deliberately a SEPARATE variant from `Heal`, not
     /// reused for it, even though `summarize_fight`'s "healing done" stat
@@ -442,8 +464,8 @@ impl CombatEvent {
             CombatEvent::Attack { attacker, target, damage, unmitigated_damage, target_hp_after, is_crit, evaded, hit_id, source_kind, .. } => {
                 CombatEvent::Attack { at_ms, attacker, target, damage, unmitigated_damage, target_hp_after, is_crit, evaded, hit_id, source_kind }
             }
-            CombatEvent::Heal { healer, target, amount, target_hp_after, .. } => {
-                CombatEvent::Heal { at_ms, healer, target, amount, target_hp_after }
+            CombatEvent::Heal { healer, target, amount, target_hp_after, is_revive, .. } => {
+                CombatEvent::Heal { at_ms, healer, target, amount, target_hp_after, is_revive }
             }
             CombatEvent::Shield { healer, target, amount, .. } => CombatEvent::Shield { at_ms, healer, target, amount },
             CombatEvent::Defeat { unit, .. } => CombatEvent::Defeat { at_ms, unit },
@@ -5551,7 +5573,7 @@ mod fight_summary_tests {
     fn heal_and_shield_events_both_count_toward_healing_done() {
         let units = vec![player("alice"), player("bob"), boss("__enemy_0")];
         let events = vec![
-            CombatEvent::Heal { at_ms: 0, healer: "alice".to_string(), target: "bob".to_string(), amount: 40, target_hp_after: 0 },
+            CombatEvent::Heal { at_ms: 0, healer: "alice".to_string(), target: "bob".to_string(), amount: 40, target_hp_after: 0, is_revive: false },
             CombatEvent::Shield { at_ms: 1, healer: "alice".to_string(), target: "bob".to_string(), amount: 25 },
         ];
         let stats = full_player_fight_stats(&units, &events);
@@ -5671,7 +5693,7 @@ mod fight_summary_tests {
     #[test]
     fn golem_healing_credits_the_owners_heal_stat() {
         let units = vec![player("lokati_gaming"), golem("__golem_lokati_gaming_0", "lokati_gaming")];
-        let events = vec![CombatEvent::Heal { at_ms: 0, healer: "__golem_lokati_gaming_0".to_string(), target: "lokati_gaming".to_string(), amount: 250, target_hp_after: 250 }];
+        let events = vec![CombatEvent::Heal { at_ms: 0, healer: "__golem_lokati_gaming_0".to_string(), target: "lokati_gaming".to_string(), amount: 250, target_hp_after: 250, is_revive: false }];
         let stats = full_player_fight_stats(&units, &events);
         let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
         assert_eq!(owner.healing_done, 250);
@@ -5753,7 +5775,7 @@ mod player_vitals_tests {
     }
 
     fn heal(at_ms: u32, healer: &str, target: &str, target_hp_after: u64) -> CombatEvent {
-        CombatEvent::Heal { at_ms, healer: healer.to_string(), target: target.to_string(), amount: 0, target_hp_after }
+        CombatEvent::Heal { at_ms, healer: healer.to_string(), target: target.to_string(), amount: 0, target_hp_after, is_revive: false }
     }
 
     fn defeat(at_ms: u32, unit: &str) -> CombatEvent {

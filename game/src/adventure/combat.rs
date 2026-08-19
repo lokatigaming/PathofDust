@@ -1783,6 +1783,16 @@ pub(crate) struct CombatSimUnit {
     /// `if !u.alive { continue; }` skip is bypassed specifically for
     /// this one field) - see the loop's own comment at that check.
     revive_at_ms: u32,
+    /// The id of the Elementalist whose Rising Phoenix is paying for this
+    /// scheduled revival - set alongside `revive_at_ms` in
+    /// `try_schedule_rising_phoenix_revival`, read back when
+    /// `NextEvent::Revive` actually fires (2026-08-19, revival-healing
+    /// attribution) so the restored hp credits the CASTER's own
+    /// healing_done stat, not the revived unit's own (a revive isn't a
+    /// self-heal). Empty string when nothing is scheduled - same
+    /// "id string, resolved to an index later" convention
+    /// `curse_source_id` already uses elsewhere in this file.
+    revive_caster_id: String,
     /// Elementalist's Cleansing Flames - THIS unit's own chance (33/66/
     /// 100%) to cleanse every 4 seconds. 0.0 without it invested, which
     /// also keeps `next_cleansingflames_at_ms` at `u32::MAX`.
@@ -3104,6 +3114,7 @@ impl Default for CombatSimUnit {
             risingphoenix_revives_used: 0,
             alive_since_ms: 0,
             revive_at_ms: u32::MAX,
+            revive_caster_id: String::new(),
             cleansingflames_chance: 0.0,
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
@@ -4961,7 +4972,7 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
             let room = (units[target_idx].max_hp as i64 - units[target_idx].hp).max(0);
             let healed = (dot.amount_per_tick.round().max(0.0) as i64).min(room);
             units[target_idx].hp += healed;
-            events.push(CombatEvent::Heal { at_ms, healer: dot.source_id.clone(), target: target_id, amount: healed.max(0) as u64, target_hp_after: units[target_idx].hp as u64 });
+            events.push(CombatEvent::Heal { at_ms, healer: dot.source_id.clone(), target: target_id, amount: healed.max(0) as u64, target_hp_after: units[target_idx].hp as u64, is_revive: false });
             // Seed of Life (Druid-specific, 2026-08-16) - the SOURCE's own
             // rate, ADDITIONAL to the direct heal above, not a replacement
             // for it. Off the tick's full `amount_per_tick` (not the
@@ -5543,6 +5554,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             risingphoenix_revives_used: 0,
             alive_since_ms: 0,
             revive_at_ms: u32::MAX,
+            revive_caster_id: String::new(),
             cleansingflames_chance: 0.0,
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
@@ -5863,6 +5875,32 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
         evasion: summoner.evasion * GOLEM_STAT_SCALE,
         damage_reduction: summoner.damage_reduction * GOLEM_STAT_SCALE,
         block_chance: summoner.block_chance * GOLEM_STAT_SCALE,
+        // 2026-08-19 bugfix (golem stat inheritance) - "33% of the
+        // Elementalist's stats" was missing the summoner's own
+        // increased_damage/conflagration_dmg_pct entirely (defaulting to
+        // 0.0 via zeroed_combat_unit() below), leaving a golem's per-hit
+        // output far below the intended 33% for any build with real
+        // gear/tree damage multipliers invested - confirmed via live
+        // fight-log audit (golem hits measured at ~3% of owner output,
+        // not 33%). `summoner` is already the fully-buffed effective unit
+        // at this point (built earlier in `simulate_battle`'s own
+        // construction pass, gear+tree+per-level Elemental Focus/
+        // Scorching Flames all baked in).
+        //
+        // DELIBERATELY inherited at FULL value here, NOT scaled by
+        // GOLEM_STAT_SCALE like the base stats above - these are
+        // MULTIPLIERS, not base stats, and the arithmetic only lands
+        // near the intended ~33% per-hit-damage RATIO if they're passed
+        // through whole: golem_dmg = (atk * 0.33) * (1 + full_ID) *
+        // (1 + full_CD) = 0.33 * owner_dmg, exactly, regardless of how
+        // large ID/CD get. Scaling them down to 33% too would instead
+        // converge toward a ~11% ratio in the limit of a large dominant
+        // multiplier (0.33 base * 0.33 multiplier) - verified against
+        // the audit's own "an 11x gap" finding, which is consistent with
+        // exactly this compounding-scale-down error, not with a single
+        // missing-field omission alone.
+        increased_damage: summoner.increased_damage,
+        conflagration_dmg_pct: summoner.conflagration_dmg_pct,
         is_boss: false,
         is_golem: true,
         golem_summoner_id: Some(summoner_id.to_string()),
@@ -5904,11 +5942,13 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
                 golem.attack_interval_ms = ((golem.attack_interval_ms as f64) / (1.0 + blazing_pct)).round().max(50.0) as u32;
                 golem.next_action_at_ms = golem.attack_interval_ms;
             }
-            // Surging - a golem-only unit never has any OTHER source
-            // feeding `increased_damage`, so setting it directly here is
-            // exactly equivalent to a clean independent multiplicative
-            // bonus, with no need for a separate field.
-            golem.increased_damage = c.passive_node_magnitude("surging");
+            // Surging - stacks ADDITIVELY on top of the golem's own
+            // inherited 33% increased_damage (2026-08-19 bugfix - a golem
+            // now DOES have another source feeding this field, the
+            // summoner's own gear/tree damage bonus scaled to 33% above;
+            // this used to overwrite it entirely, silently discarding
+            // whatever the summoner's own increased_damage contributed).
+            golem.increased_damage += c.passive_node_magnitude("surging");
         }
         GolemType::Water => {
             // Replenishing - "convert ALL damage dealt into healing, at
@@ -6208,8 +6248,57 @@ fn try_schedule_rising_phoenix_revival(units: &mut [CombatSimUnit], dead_idx: us
         return false;
     };
     units[caster_idx].risingphoenix_revives_used += 1;
+    units[dead_idx].revive_caster_id = units[caster_idx].id.clone();
     units[dead_idx].revive_at_ms = death_at_ms + RISING_PHOENIX_REVIVE_DELAY_MS;
     true
+}
+
+/// Elementalist's Rising Phoenix - the revival payoff, called from the
+/// main event loop's `NextEvent::Revive` arm (its only call site) once
+/// `try_schedule_rising_phoenix_revival`'s delay elapses. Extracted into
+/// its own function (2026-08-19, revival-healing attribution bugfix) for
+/// the same reason `reform_thunder_golem`/`tick_righteous_fire` are their
+/// own functions - so a regression test can call the REAL logic directly.
+///
+/// The restored hp IS real healing, credited to the CASTING Elementalist
+/// (a revive is their own healing contribution, not the revived unit's
+/// own self-heal) via `revive_caster_id` (set at schedule time - see
+/// `try_schedule_rising_phoenix_revival`'s own doc), and routes through
+/// the real `apply_heal` pipeline so heal-effect modifiers (Water Golem's
+/// Singing, etc.) interact normally - this supersedes an earlier design
+/// ("no `apply_heal`, that would run reduced-healing debuffs against a
+/// revival") per an explicit ruling that a revive SHOULD behave like a
+/// real heal. Still logged as a DISTINCT event (`is_revive: true` on the
+/// resulting `Heal`) so a fight-log audit can separate revival healing
+/// from routine heal casts, and so it can never be confused with a golem
+/// reform's own hp restoration - see `reform_thunder_golem`'s own doc for
+/// why THAT one pushes no heal event at all (a reform is a unit lifecycle
+/// event, never healing, regardless of how large the hp number is).
+fn apply_rising_phoenix_revival(units: &mut [CombatSimUnit], target_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) {
+    let revive_hp_amount = ((units[target_idx].max_hp as f64) * RISING_PHOENIX_REVIVE_HP_PCT).max(1.0);
+    units[target_idx].alive = true;
+    units[target_idx].hp = 0;
+    units[target_idx].alive_since_ms = at_ms;
+    units[target_idx].revive_at_ms = u32::MAX;
+    let unit_id = units[target_idx].id.clone();
+    events.push(CombatEvent::SkillCast { at_ms, unit: unit_id, skill: "Rising Phoenix".to_string() });
+    let caster_id = units[target_idx].revive_caster_id.clone();
+    let caster_idx = units.iter().position(|u| u.id == caster_id);
+    if let Some(caster_idx) = caster_idx {
+        let events_len_before = events.len();
+        apply_heal(units, caster_idx, target_idx, revive_hp_amount, at_ms, events, rng);
+        if let Some(CombatEvent::Heal { is_revive, .. }) = events.get_mut(events_len_before) {
+            *is_revive = true;
+        }
+    } else {
+        // Defensive fallback (should never happen - a scheduled revival
+        // always has a real caster id recorded by
+        // try_schedule_rising_phoenix_revival) - still revive the unit
+        // even if the caster somehow can't be found, just without any
+        // heal credited anywhere.
+        let room = units[target_idx].max_hp as i64;
+        units[target_idx].hp = (revive_hp_amount.round() as i64).min(room).max(1);
+    }
 }
 
 /// Golem Master's own summoner-death rule (owner-mandated, docs/
@@ -6276,6 +6365,18 @@ fn handle_golem_death(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u32,
 /// a regression test can call the REAL formula directly instead of
 /// re-deriving it inline, unlike most other single-call-site event
 /// handlers in this file.
+///
+/// 2026-08-19 bugfix (part 2, same day) - reform HP restoration is a UNIT
+/// LIFECYCLE event, not a heal, and must never be logged as one: the
+/// `SkillCast { skill: "Thunder Golem Reform" }` marker below is already
+/// the observability signal a fight-log audit needs (same "distinct,
+/// meter-ignored marker" shape RF/Healing Flames' own 2026-08-19 markers
+/// use). A Thunder Golem can reform ~20 times in a single long fight at
+/// millions of hp each reform - a `Heal` event for that would have
+/// silently buried every real healer's own contribution the moment golem
+/// attribution rolled it up into the owner's healing stat. No `Heal`
+/// event is pushed here at all; `full_player_fight_stats` never sees a
+/// reform as healing, so nothing to roll up.
 fn reform_thunder_golem(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>) {
     let growing_pct = units[golem_idx].thundergolem_growing_pct;
     if growing_pct > 0.0 {
@@ -6289,8 +6390,7 @@ fn reform_thunder_golem(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u3
     units[golem_idx].hp = units[golem_idx].max_hp as i64;
     units[golem_idx].golem_reform_at_ms = u32::MAX;
     let golem_id = units[golem_idx].id.clone();
-    events.push(CombatEvent::SkillCast { at_ms, unit: golem_id.clone(), skill: "Thunder Golem Reform".to_string() });
-    events.push(CombatEvent::Heal { at_ms, healer: golem_id.clone(), target: golem_id, amount: units[golem_idx].max_hp, target_hp_after: units[golem_idx].max_hp });
+    events.push(CombatEvent::SkillCast { at_ms, unit: golem_id, skill: "Thunder Golem Reform".to_string() });
 }
 
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
@@ -7898,7 +7998,7 @@ pub(crate) fn apply_hit(
                 source_kind: AttackSourceKind::Direct,
             });
             let saver_id = units[saver_idx].id.clone();
-            events.push(CombatEvent::Heal { at_ms, healer: saver_id, target: target_id, amount: new_hp as u64, target_hp_after: new_hp as u64 });
+            events.push(CombatEvent::Heal { at_ms, healer: saver_id, target: target_id, amount: new_hp as u64, target_hp_after: new_hp as u64, is_revive: false });
             // Divine Intervention - +damage reduction for the saved unit.
             let dr_bonus = units[saver_idx].guardian_spirit_save_dr_pct;
             if dr_bonus > 0.0 {
@@ -7998,7 +8098,7 @@ pub(crate) fn apply_hit(
                 hit_id,
                 source_kind: AttackSourceKind::Direct,
             });
-            events.push(CombatEvent::Heal { at_ms, healer: target_id.clone(), target: target_id, amount: healed as u64, target_hp_after: max_hp as u64 });
+            events.push(CombatEvent::Heal { at_ms, healer: target_id.clone(), target: target_id, amount: healed as u64, target_hp_after: max_hp as u64, is_revive: false });
             return;
         } else if units[target_idx].chakraoflife_duration_ms > 0 {
             // Monk's Chakra of Life - a SELF-only fallback (unlike Guardian
@@ -8255,7 +8355,7 @@ pub(crate) fn apply_hit(
                     units[attacker_idx].hp = healed_hp;
                     if healed > 0 {
                         let id = units[attacker_idx].id.clone();
-                        events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: healed_hp as u64 });
+                        events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: healed_hp as u64, is_revive: false });
                     }
                 }
                 if ex_new_hp == 0 {
@@ -8315,7 +8415,7 @@ pub(crate) fn apply_hit(
             units[attacker_idx].hp = healed_hp;
             if healed > 0 {
                 let id = units[attacker_idx].id.clone();
-                events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: healed_hp as u64 });
+                events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: healed_hp as u64, is_revive: false });
             }
             // Warlock's Dark Communion - a fraction of this SAME leeched
             // amount also goes to the attacker's current lowest-HP ally.
@@ -8973,7 +9073,7 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     if healed > 0 {
         let healer_id = units[healer_idx].id.clone();
         let target_id = units[target_idx].id.clone();
-        events.push(CombatEvent::Heal { at_ms, healer: healer_id, target: target_id, amount: healed, target_hp_after: units[target_idx].hp as u64 });
+        events.push(CombatEvent::Heal { at_ms, healer: healer_id, target: target_id, amount: healed, target_hp_after: units[target_idx].hp as u64, is_revive: false });
     }
     // Berserker's Death Defiant (2026-08-17) - if this heal moved the
     // target to a LOWER missing-HP 20%-bucket (the same bucket math
@@ -10302,6 +10402,7 @@ pub(crate) fn simulate_battle(
                 risingphoenix_revives_used: 0,
                 alive_since_ms: 0,
                 revive_at_ms: u32::MAX,
+                revive_caster_id: String::new(),
                 cleansingflames_chance: c.passive_node_magnitude("cleansingflames"),
                 next_cleansingflames_at_ms: if c.passive_node_rank("cleansingflames") > 0 { CLEANSING_FLAMES_TICK_INTERVAL_MS } else { u32::MAX },
                 enshroudedfire_evasion_pct: c.passive_node_magnitude("enshroudedfire"),
@@ -10666,6 +10767,7 @@ pub(crate) fn simulate_battle(
             risingphoenix_revives_used: 0,
             alive_since_ms: 0,
             revive_at_ms: u32::MAX,
+            revive_caster_id: String::new(),
             cleansingflames_chance: 0.0,
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
@@ -11368,23 +11470,7 @@ pub(crate) fn simulate_battle(
                 continue;
             }
             NextEvent::Revive(target_idx) => {
-                // Elementalist's Rising Phoenix - see
-                // `try_schedule_rising_phoenix_revival`'s doc for the
-                // eligibility/scheduling side; this is just the payoff.
-                // No `apply_heal` (that would run reduced-healing debuffs
-                // against a revival, which is wrong) - hp/alive are set
-                // directly, then a `Heal`-shaped event tells the same
-                // story the combat log/HP-sample curve already need
-                // (see `PlayerVitals::died_at_ms`'s own doc for why no
-                // dedicated event type was added).
-                let revive_hp = ((units[target_idx].max_hp as f64) * RISING_PHOENIX_REVIVE_HP_PCT).round().max(1.0) as i64;
-                units[target_idx].alive = true;
-                units[target_idx].hp = revive_hp;
-                units[target_idx].alive_since_ms = at_ms;
-                units[target_idx].revive_at_ms = u32::MAX;
-                let unit_id = units[target_idx].id.clone();
-                events.push(CombatEvent::SkillCast { at_ms, unit: unit_id.clone(), skill: "Rising Phoenix".to_string() });
-                events.push(CombatEvent::Heal { at_ms, healer: unit_id.clone(), target: unit_id, amount: revive_hp as u64, target_hp_after: revive_hp as u64 });
+                apply_rising_phoenix_revival(&mut units, target_idx, at_ms, &mut events, &mut rng);
                 continue;
             }
             NextEvent::CurseExpiry(target_idx) => {
@@ -11744,6 +11830,7 @@ pub(crate) fn simulate_battle(
                                 risingphoenix_revives_used: 0,
                                 alive_since_ms: 0,
                                 revive_at_ms: u32::MAX,
+                                revive_caster_id: String::new(),
                                 cleansingflames_chance: 0.0,
                                 next_cleansingflames_at_ms: u32::MAX,
                                 enshroudedfire_evasion_pct: 0.0,
@@ -12388,7 +12475,7 @@ pub(crate) fn simulate_battle(
                             units[actor_idx].hp = new_hp;
                             if healed > 0 {
                                 let id = units[actor_idx].id.clone();
-                                events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: new_hp as u64 });
+                                events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: new_hp as u64, is_revive: false });
                             }
                         }
                     }
@@ -12478,7 +12565,7 @@ pub(crate) fn simulate_battle(
                             units[actor_idx].hp = new_hp;
                             if healed > 0 {
                                 let id = units[actor_idx].id.clone();
-                                events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: new_hp as u64 });
+                                events.push(CombatEvent::Heal { at_ms, healer: id.clone(), target: id, amount: healed, target_hp_after: new_hp as u64, is_revive: false });
                             }
                             // Clean Slate - a successful Grim Bargain
                             // refund has a chance to also fully reset
@@ -14249,6 +14336,65 @@ mod elementalist_stage_4_tests {
     }
 
     #[test]
+    fn rising_phoenix_scheduling_records_the_caster_id() {
+        let mut caster = elementalist();
+        caster.risingphoenix_max_revives = 1;
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        dead_ally.alive_since_ms = 0;
+        let mut units = vec![caster, dead_ally];
+        try_schedule_rising_phoenix_revival(&mut units, 1, 5_000);
+        assert_eq!(units[1].revive_caster_id, "elementalist", "must remember WHO cast it, for the eventual heal credit");
+    }
+
+    /// 2026-08-19 revival-healing attribution bugfix - the payoff itself:
+    /// a revive credits the CASTING Elementalist's healing_done, not the
+    /// revived ally's own, and is marked `is_revive: true` on its `Heal`
+    /// event so a fight-log audit can tell it apart from a routine cast.
+    #[test]
+    fn rising_phoenix_revival_credits_the_caster_and_marks_is_revive() {
+        let caster = elementalist(); // id "elementalist"
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        dead_ally.revive_caster_id = "elementalist".to_string();
+        let mut units = vec![caster, dead_ally];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_rising_phoenix_revival(&mut units, 1, 5_000, &mut events, &mut rng);
+        assert!(units[1].alive, "the ally must actually come back");
+        assert_eq!(units[1].hp, 250, "25% of 1000 max hp, per RISING_PHOENIX_REVIVE_HP_PCT");
+        let heal = events.iter().find_map(|e| match e {
+            CombatEvent::Heal { healer, target, is_revive, amount, .. } => Some((healer.clone(), target.clone(), *is_revive, *amount)),
+            _ => None,
+        });
+        let (healer, target, is_revive, amount) = heal.expect("a Heal event must be logged for the revival");
+        assert_eq!(healer, "elementalist", "the CASTER gets healing credit, not the revived ally healing itself");
+        assert_eq!(target, "dead_ally");
+        assert!(is_revive, "must be marked as a revival, distinct from a routine heal cast");
+        assert_eq!(amount, 250);
+    }
+
+    /// Rising Phoenix's revive must interact with heal-effect modifiers
+    /// normally (per the explicit ruling superseding the original "skip
+    /// apply_heal" design) - here, Water Golem's Singing (a receiver-side
+    /// "more effect from heals received" buff on the revived ally,
+    /// explicitly named in that ruling) boosts the restored amount above
+    /// the bare 25%.
+    #[test]
+    fn rising_phoenix_revival_respects_heal_power_modifiers() {
+        let caster = elementalist();
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        dead_ally.revive_caster_id = "elementalist".to_string();
+        dead_ally.received_healing_bonus_pct = 1.0; // Singing: +100% effect from heals received
+        let mut units = vec![caster, dead_ally];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_rising_phoenix_revival(&mut units, 1, 5_000, &mut events, &mut rng);
+        assert_eq!(units[1].hp, 500, "25% base * (1 + 100% Singing) = 50% of max hp");
+    }
+
+    #[test]
     fn cleansing_flames_removes_boss_focus_cube_shred_and_wound_stacks() {
         let mut atk = elementalist();
         atk.cleansingflames_chance = 1.0; // guaranteed roll
@@ -14485,6 +14631,45 @@ mod elementalist_stage_6_golem_type_tests {
         CombatSimUnit { id: "caster".to_string(), display_name: "Caster".to_string(), alive: true, hp: max_hp as i64, max_hp, atk, fire_damage_pct, ..Default::default() }
     }
 
+    /// 2026-08-19 bugfix (golem stat inheritance) - required regression
+    /// coverage: golem per-hit output must land at ~33% of the owner's,
+    /// even (especially) at a build where one multiplier genuinely
+    /// dominates - a live audit measured only ~3% before this fix (an
+    /// 11x gap), root-caused to increased_damage/conflagration_dmg_pct
+    /// not being inherited at all. `increased_damage: 29.4` stands in for
+    /// a maxed, high-level build (matches rank 3 Elemental Focus's own
+    /// per-level magnitude at level 196, `0.15 * 196`, as a realistic
+    /// "large dominant multiplier" - not claiming Elemental Focus itself
+    /// feeds increased_damage, just using a comparably large number).
+    /// `crit_chance: 0.0` on both sides keeps the comparison deterministic,
+    /// isolating exactly the multiplier-inheritance fix under test.
+    #[test]
+    fn golem_per_hit_output_lands_near_33pct_of_owner_even_with_a_dominant_multiplier() {
+        let owner = CombatSimUnit { id: "caster".to_string(), atk: 1000, increased_damage: 29.4, crit_chance: 0.0, ..Default::default() };
+        let c = elementalist_with(&[("golemmaster", 1)], vec![GolemType::Basic]);
+        let golem = spawn_golem(&owner, "caster", 0, GolemType::Basic, &c);
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let owner_dmg = roll_attacker_damage(owner.atk as f64, &owner, 0, &mut rng, 0.0, 0.0, 0.0, false, false).damage;
+        let golem_dmg = roll_attacker_damage(golem.atk as f64, &golem, 0, &mut rng, 0.0, 0.0, 0.0, false, false).damage;
+        let ratio = golem_dmg / owner_dmg;
+        assert!((ratio - 0.33).abs() < 0.01, "golem per-hit output should land at ~33% of owner's per-hit output, got {:.4} ({golem_dmg} / {owner_dmg})", ratio);
+    }
+
+    /// Companion proof that the fix is specifically about inheriting the
+    /// multiplier at FULL value, not scaling it down too - the old (buggy)
+    /// behavior of leaving increased_damage at 0 for the golem reproduces
+    /// almost exactly the audit's own "~3%" finding at this magnitude.
+    #[test]
+    fn golem_stat_scale_alone_without_multiplier_inheritance_reproduces_the_audited_gap() {
+        let owner = CombatSimUnit { id: "caster".to_string(), atk: 1000, increased_damage: 29.4, crit_chance: 0.0, ..Default::default() };
+        let broken_golem = CombatSimUnit { id: "golem".to_string(), atk: (owner.atk as f64 * GOLEM_STAT_SCALE).round() as u64, increased_damage: 0.0, crit_chance: 0.0, ..Default::default() };
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let owner_dmg = roll_attacker_damage(owner.atk as f64, &owner, 0, &mut rng, 0.0, 0.0, 0.0, false, false).damage;
+        let broken_dmg = roll_attacker_damage(broken_golem.atk as f64, &broken_golem, 0, &mut rng, 0.0, 0.0, 0.0, false, false).damage;
+        let ratio = broken_dmg / owner_dmg;
+        assert!(ratio < 0.05, "sanity check on the audit's own finding - scaling atk alone with no increased_damage inheritance should land near ~3%, got {:.4}", ratio);
+    }
+
     #[test]
     fn gigantify_raises_thunder_golem_hp_contribution() {
         let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 1), ("gigantify", 3)], vec![GolemType::Thunder]);
@@ -14606,6 +14791,60 @@ mod elementalist_stage_6_golem_type_tests {
         let expected_max_hp = ((base_max_hp as f64) * 1.33).round() as u64; // growing rank 1, 1 reform: 1 + 0.33*1
         assert_eq!(units[0].max_hp, expected_max_hp);
         assert_eq!(units[0].thundergolem_reform_count, 1);
+    }
+
+    /// 2026-08-19 revival-healing attribution bugfix - a reform is a UNIT
+    /// LIFECYCLE event, never healing: confirmed live via fight-log
+    /// analysis that a reform's own phantom `Heal` event, once golem
+    /// attribution rolled golem stats up into their owner, was burying
+    /// every real healer on the leaderboard (one fight: 22 reforms
+    /// produced 301.7M of a reported 316.5M total "healing," 95.3%
+    /// phantom). No `CombatEvent::Heal` may ever be pushed by a reform,
+    /// regardless of how large the golem's hp is.
+    #[test]
+    fn golem_reform_pushes_no_heal_event() {
+        let mut golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Thunder, &elementalist_with(&[("thundergolem", 1), ("growing", 3)], vec![GolemType::Thunder]));
+        golem.alive = false;
+        golem.hp = 0;
+        let mut units = vec![golem];
+        let mut events: Vec<CombatEvent> = Vec::new();
+        // Several reforms in a row (matching the live "~20 reforms per
+        // fight at millions of hp each" scenario the bug was found in) -
+        // not just once, since the bug only manifests once real hp
+        // numbers get large.
+        for _ in 0..5 {
+            units[0].alive = false;
+            reform_thunder_golem(&mut units, 0, 5_000, &mut events);
+        }
+        let heal_events = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
+        assert_eq!(heal_events, 0, "a reform must never generate a Heal event, no matter how many times it happens");
+    }
+
+    /// End-to-end proof through the actual attribution pipeline: a fight
+    /// with several Thunder Golem reforms must show ZERO healing credited
+    /// to the owner from those reforms, even though the golem's own hp
+    /// swings are enormous - the exact live-bug scenario, reproduced
+    /// through `full_player_fight_stats` itself rather than just checking
+    /// the raw event list.
+    #[test]
+    fn multi_reform_fight_credits_zero_reform_healing_to_the_owner() {
+        let mut golem = spawn_golem(&summoner(1_000_000, 100, 0.0), "lokati_gaming", 0, GolemType::Thunder, &elementalist_with(&[("thundergolem", 1), ("growing", 3)], vec![GolemType::Thunder]));
+        let golem_id = golem.id.clone();
+        golem.alive = false;
+        golem.hp = 0;
+        let mut units = vec![golem];
+        let mut events: Vec<CombatEvent> = Vec::new();
+        for _ in 0..22 {
+            units[0].alive = false;
+            reform_thunder_golem(&mut units, 0, 5_000, &mut events);
+        }
+        let unit_infos = vec![
+            CombatUnitInfo { id: "lokati_gaming".to_string(), display_name: "lokati_gaming".to_string(), is_boss: false, archetype: None, role: None, max_hp: 1_000_000, golem_summoner_id: None },
+            CombatUnitInfo { id: golem_id, display_name: "lokati_gaming's Golem".to_string(), is_boss: false, archetype: None, role: None, max_hp: units[0].max_hp, golem_summoner_id: Some("lokati_gaming".to_string()) },
+        ];
+        let stats = full_player_fight_stats(&unit_infos, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        assert_eq!(owner.healing_done, 0, "22 reforms at a huge hp each must credit exactly zero healing to the owner");
     }
 
     /// The 2026-08-19 bugfix's own required regression coverage: Growing
