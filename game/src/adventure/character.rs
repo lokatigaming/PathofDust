@@ -386,6 +386,17 @@ pub struct Character {
     /// doc for why that action uses this currency instead of dust.
     #[serde(default)]
     pub sand: u64,
+    /// Divine Dust (2026-08-19) - a per-character currency for making an
+    /// item Sacred and rerolling its sacred affix (see
+    /// `AdventureManager::craft_item_ex`'s `CraftAction::DivineDust`
+    /// branch), on top of its own dust+sand craft recipe. Three
+    /// acquisition sources, all additive: a chance per fighting character
+    /// on every win (`LiveTunables::divine_dust_drop_chance`, same
+    /// eligibility as `sand`'s own win grant), a chance per SACRED item
+    /// manually disenchanted (`LiveTunables::divine_dust_disenchant_chance`),
+    /// and the craft recipe itself. See `docs/divine_dust_spec.md`.
+    #[serde(default)]
+    pub divine_dust: u64,
     /// Set the moment every equipped, non-indestructible item hits 0%
     /// durability (see `all_gear_worn_out`) — while set, this character
     /// sits out every encounter (boss and basic alike), same exclusion
@@ -965,6 +976,7 @@ impl Character {
             inventory: Vec::new(),
             dust: 0,
             sand: 0,
+            divine_dust: 0,
             retreated_since: None,
             model: None,
             free_model_changes: STARTING_FREE_MODEL_CHANGES,
@@ -3885,6 +3897,26 @@ mod memory_persistence_tests {
         assert_eq!(restored.memory_slots, STARTING_MEMORY_SLOTS, "an existing character is granted the default slots on load");
         assert_eq!(restored.memories_padded().len(), 3, "the stored vec is short, but reading it must still show 3 slots");
         assert!(restored.memories_padded().iter().all(|m| m.is_none()));
+    }
+
+    #[test]
+    fn divine_dust_round_trips_through_json() {
+        let mut character = Character::new("dust_hoarder".to_string());
+        character.divine_dust = 42;
+        let json = serde_json::to_string(&character).expect("must serialize");
+        let restored: Character = serde_json::from_str(&json).expect("must deserialize");
+        assert_eq!(restored.divine_dust, 42);
+    }
+
+    #[test]
+    fn a_character_saved_before_divine_dust_existed_still_loads_with_zero() {
+        // Same additive-schema precedent as
+        // `a_character_saved_before_memories_existed_still_loads_with_three_empty_slots`
+        // - a save file predating `divine_dust` entirely must still
+        // deserialize, defaulting to 0 rather than failing to parse.
+        let old_save_json = r#"{"display_name":"pre_divine_dust","level":10,"xp":0,"wins":0,"losses":0,"archetype":"warrior"}"#;
+        let restored: Character = serde_json::from_str(old_save_json).expect("a pre-Divine-Dust save must still deserialize");
+        assert_eq!(restored.divine_dust, 0);
     }
 
     #[test]
