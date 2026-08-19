@@ -2798,11 +2798,20 @@ pub(crate) struct CombatSimUnit {
     /// 0.0 without any of the three invested.
     evade_counter_chance: f64,
     /// When the evade-counter above last actually fired (0 = never yet
-    /// this fight) - the trigger below requires a full 1000ms to have
-    /// passed since this before rolling again, capping Voidstep/
-    /// Counterflow/Wild Fury at 1 real counter-attack per second no
-    /// matter how many evades land in that window (a live request).
+    /// this fight) - the trigger below requires `reactive_proc_cap_ms` to
+    /// have passed since this before rolling again, capping Voidstep/
+    /// Counterflow/Wild Fury at 1 real counter-attack per that window no
+    /// matter how many evades land in it (a live request).
     evade_counter_last_fired_at_ms: u32,
+    /// LiveTunables::reactive_proc_cap_ms, snapshotted per-unit at
+    /// construction (2026-08-19, Release 1.2 item 4 - the spec owner's
+    /// ruling that this cap becomes admin-tunable) - same "store the
+    /// tunable-derived value on the unit itself" shape `boss_pierce_pct`
+    /// already uses, since `apply_hit` (where this is actually read)
+    /// doesn't take `&LiveTunables` and every other call site would need
+    /// threading otherwise. Default 1000ms matches the previous hardcoded
+    /// value exactly - no behavior change unless an admin retunes it.
+    reactive_proc_cap_ms: u32,
     /// Party-wide temporary buffs, broadcast on a trigger to every alive
     /// non-boss unit - same `for u in units.iter_mut() { if !u.is_boss &&
     /// u.alive { ... } }` idiom Guardian Spirit's Final Blessing/Paladin's
@@ -3380,6 +3389,7 @@ impl Default for CombatSimUnit {
             clarity_triggers_on_block: false,
             evade_counter_chance: 0.0,
             evade_counter_last_fired_at_ms: 0,
+            reactive_proc_cap_ms: 1_000,
             temp_party_attack_speed_bonus: 0.0,
             temp_party_attack_speed_bonus_expires_at_ms: 0,
             temp_party_increased_damage_bonus: 0.0,
@@ -5866,6 +5876,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             clarity_triggers_on_block: false,
             evade_counter_chance: 0.0,
             evade_counter_last_fired_at_ms: 0,
+            reactive_proc_cap_ms: 1_000,
             temp_party_attack_speed_bonus: 0.0,
             temp_party_attack_speed_bonus_expires_at_ms: 0,
             temp_party_increased_damage_bonus: 0.0,
@@ -5965,8 +5976,6 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
         atk: scaled_atk,
         attack_interval_ms: summoner.attack_interval_ms,
         next_action_at_ms: summoner.attack_interval_ms,
-        crit_chance: summoner.crit_chance * GOLEM_STAT_SCALE,
-        crit_multiplier: summoner.crit_multiplier * GOLEM_STAT_SCALE,
         evasion: summoner.evasion * GOLEM_STAT_SCALE,
         damage_reduction: summoner.damage_reduction * GOLEM_STAT_SCALE,
         block_chance: summoner.block_chance * GOLEM_STAT_SCALE,
@@ -5996,6 +6005,28 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
         // missing-field omission alone.
         increased_damage: summoner.increased_damage,
         conflagration_dmg_pct: summoner.conflagration_dmg_pct,
+        // Release 1.2 item 2 (2026-08-19) - crit_chance/crit_multiplier
+        // were STILL being scaled by GOLEM_STAT_SCALE (this bug's own
+        // sibling, missed in the increased_damage/conflagration_dmg_pct
+        // fix above) despite functioning as the exact same kind of
+        // MULTIPLIER on `base_damage` (`roll_attacker_damage`'s own
+        // `dmg = base_damage * crit_bonus_mult`, where `crit_bonus_mult`
+        // is derived from crit_chance/crit_multiplier together) - the
+        // same compounding error the comment above already explains for
+        // increased_damage/conflagration_dmg_pct applies identically
+        // here: scaling BOTH the chance AND the multiplier down by 0.33
+        // each doesn't converge toward a 33% ratio, it collapses crit's
+        // whole contribution toward roughly zero (0.33 crit_multiplier
+        // often lands below 1.0, making a golem's own "crit" contribute
+        // LESS than a normal hit), consistent with the live finding's
+        // ~4x shortfall (21.9-28.5% of the 33%-plus-golem-multipliers
+        // target) and its near-constant per-hit figure despite the
+        // owner's own crit-driven swings - a golem whose crit
+        // contribution is pinned near zero doesn't reflect the owner's
+        // crit variance at all. Inherited at FULL value now, matching
+        // increased_damage/conflagration_dmg_pct exactly.
+        crit_chance: summoner.crit_chance,
+        crit_multiplier: summoner.crit_multiplier,
         is_boss: false,
         is_golem: true,
         golem_summoner_id: Some(summoner_id.to_string()),
@@ -6690,12 +6721,37 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
         units[target_idx].next_thunder_redistribution_tick_at_ms = u32::MAX;
         return;
     }
-    if units[target_idx].alive && !is_damage_immune(&units[target_idx], at_ms) {
+    // Release 1.2 item 3 (2026-08-19) - a real accounting gap, confirmed
+    // live once shield-absorption instrumentation ruled out that
+    // explanation: the scheduled recipient can die from a COMPLETELY
+    // unrelated cause (another hit, a DoT tick, anything) between this
+    // tick being scheduled and it actually firing - the original branch
+    // below just silently skipped a dead/immune target's own tick,
+    // decrementing `ticks_remaining` and moving on with NOTHING applied
+    // anywhere. That portion of the total already debited from the
+    // golem's own tank-credit (`handle_golem_death`'s
+    // `thundergolem_net_absorbed -= total_redistributed`, computed at
+    // SCHEDULING time, not delivery time) vanished into nothing -
+    // consistent with the live finding's own sub-0.50 delivery ratio
+    // even with shield absorption (a separate, already-ruled-out
+    // explanation) instrumented at exactly 0. Fixed: redirect a dead/
+    // immune recipient's own tick to another currently-alive, eligible
+    // party member instead of dropping it - same "any currently-alive
+    // real party member, never a golem" pool `handle_golem_death`'s own
+    // initial scheduling already uses. Silently drops only if the WHOLE
+    // party is down (nowhere left to redirect to - a fight-ending state
+    // regardless).
+    let recipient_idx = if units[target_idx].alive && !is_damage_immune(&units[target_idx], at_ms) {
+        Some(target_idx)
+    } else {
+        units.iter().position(|u| !u.is_boss && !u.is_golem && u.alive && !is_damage_immune(u, at_ms))
+    };
+    if let Some(recipient_idx) = recipient_idx {
         let final_damage = units[target_idx].thunder_redistribution_per_tick_amount.round().max(0.0) as i64;
         if final_damage > 0 {
-            let new_hp = (units[target_idx].hp - final_damage).max(0);
-            units[target_idx].hp = new_hp;
-            let target_id = units[target_idx].id.clone();
+            let new_hp = (units[recipient_idx].hp - final_damage).max(0);
+            units[recipient_idx].hp = new_hp;
+            let target_id = units[recipient_idx].id.clone();
             let hit_id = next_hit_id();
             events.push(CombatEvent::Attack {
                 at_ms,
@@ -6710,7 +6766,7 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
                 source_kind: AttackSourceKind::Environmental,
             });
             if new_hp == 0 {
-                units[target_idx].alive = false;
+                units[recipient_idx].alive = false;
                 events.push(CombatEvent::Defeat { at_ms, unit: target_id });
             }
         }
@@ -8124,11 +8180,12 @@ pub(crate) fn apply_hit(
         // that itself gets evaded can't chain into a second free counter.
         if defender_may_react && units[target_idx].alive && units[attacker_idx].alive {
             let counter_chance = units[target_idx].evade_counter_chance;
-            // Capped at 1 real trigger per second (a live request) - many
-            // evades landing in quick succession (multiple enemies/adds
-            // attacking) could otherwise roll this far more often than
-            // intended.
-            let counter_ready = at_ms >= units[target_idx].evade_counter_last_fired_at_ms.saturating_add(1_000);
+            // Capped at 1 real trigger per `reactive_proc_cap_ms` (a live
+            // request, made admin-tunable in Release 1.2 item 4 - see
+            // that field's own doc) - many evades landing in quick
+            // succession (multiple enemies/adds attacking) could
+            // otherwise roll this far more often than intended.
+            let counter_ready = at_ms >= units[target_idx].evade_counter_last_fired_at_ms.saturating_add(units[target_idx].reactive_proc_cap_ms);
             if counter_chance > 0.0 && counter_ready && rng.gen_bool(counter_chance.clamp(0.0, 1.0)) {
                 units[target_idx].evade_counter_last_fired_at_ms = at_ms;
                 let counter_base = attacker_base_damage(&units[target_idx], rng);
@@ -10423,6 +10480,7 @@ pub(crate) fn simulate_battle(
                 clarity_triggers_on_block: c.passive_node_rank("clarity") >= 2,
                 evade_counter_chance: c.passive_node_magnitude("voidstep") + c.passive_node_magnitude("counterflow") + c.passive_node_magnitude("wildfury"),
                 evade_counter_last_fired_at_ms: 0,
+                reactive_proc_cap_ms: tunables.reactive_proc_cap_ms,
                 temp_party_attack_speed_bonus: 0.0,
                 temp_party_attack_speed_bonus_expires_at_ms: 0,
                 temp_party_increased_damage_bonus: 0.0,
@@ -11513,6 +11571,7 @@ pub(crate) fn simulate_battle(
             clarity_triggers_on_block: false,
             evade_counter_chance: 0.0,
             evade_counter_last_fired_at_ms: 0,
+            reactive_proc_cap_ms: 1_000,
             temp_party_attack_speed_bonus: 0.0,
             temp_party_attack_speed_bonus_expires_at_ms: 0,
             temp_party_increased_damage_bonus: 0.0,
@@ -11635,6 +11694,27 @@ pub(crate) fn simulate_battle(
             u.evasion += party_evasion_pct;
             if party_attack_speed_pct > 0.0 {
                 u.attack_interval_ms = (u.attack_interval_ms as f64 / (1.0 + party_attack_speed_pct)).round().max(200.0) as u32;
+            }
+        }
+        // Release 1.2 item 1 (2026-08-19) - Thunder Golem's own
+        // `thundergolem_reform_base_max_hp` is captured inside
+        // `spawn_golem`, which runs BEFORE this party-wide buff pass (see
+        // `golems_to_add.push(spawn_golem(...))`, earlier in this same
+        // fn). The loop above correctly bumps a golem's LIVE `max_hp` by
+        // this same buff (golems aren't excluded, only `u.is_boss` is
+        // checked) - but the frozen reform base never got refreshed, so
+        // every reform after the first silently undercounted the buff's
+        // own contribution. Confirmed live: a golem's implied reform base,
+        // backed out from its actual max_hp after N reforms, measured at
+        // exactly spawn_golem's own predicted base divided by
+        // `(1 + party_max_hp_pct)` - the missing factor, isolated
+        // precisely. Re-synced here, once, to the golem's own
+        // now-current (already-buffed) max_hp.
+        if party_max_hp_pct > 0.0 {
+            for u in units.iter_mut() {
+                if u.is_golem && u.golem_type == Some(GolemType::Thunder) {
+                    u.thundergolem_reform_base_max_hp = u.max_hp;
+                }
             }
         }
     }
@@ -12620,6 +12700,7 @@ pub(crate) fn simulate_battle(
                                 clarity_triggers_on_block: false,
                                 evade_counter_chance: 0.0,
                                 evade_counter_last_fired_at_ms: 0,
+                                reactive_proc_cap_ms: 1_000,
                                 temp_party_attack_speed_bonus: 0.0,
                                 temp_party_attack_speed_bonus_expires_at_ms: 0,
                                 temp_party_increased_damage_bonus: 0.0,
@@ -15069,8 +15150,14 @@ mod elementalist_stage_5_tests {
         let golem = spawn_golem(&summoner, "caster", 0, GolemType::Basic, &elementalist_character());
         assert_eq!(golem.max_hp, 330, "33% of 1000");
         assert_eq!(golem.atk, 99, "33% of 300");
-        assert!((golem.crit_chance - 0.099).abs() < 1e-9);
-        assert!((golem.crit_multiplier - 0.198).abs() < 1e-9);
+        // Release 1.2 item 2 (2026-08-19) - crit_chance/crit_multiplier
+        // moved to full-value inheritance, same as increased_damage/
+        // conflagration_dmg_pct below - they're MULTIPLIERS on
+        // base_damage, not base stats, and scaling them down too
+        // compounds into a near-zero crit contribution instead of the
+        // intended 33% per-hit ratio (see spawn_golem's own doc).
+        assert_eq!(golem.crit_chance, 0.30, "crit_chance is a multiplier on base_damage, inherited whole, not scaled to 33%");
+        assert_eq!(golem.crit_multiplier, 0.60, "crit_multiplier is a multiplier on base_damage, inherited whole, not scaled to 33%");
         assert!((golem.evasion - 0.0495).abs() < 1e-9);
         assert!((golem.damage_reduction - 0.033).abs() < 1e-9);
         assert!((golem.block_chance - 0.066).abs() < 1e-9);
@@ -15135,6 +15222,42 @@ mod elementalist_stage_5_tests {
         assert!(
             golem_outcome.unmitigated_damage > owner_actual_outcome.unmitigated_damage,
             "at 3 golems summoned (99% penalty), the owner's OWN penalized per-hit must fall below a single golem's own per-hit - exactly the live audit's own observed pattern (golem output roughly constant, owner's own swings with golem-count/build)"
+        );
+    }
+
+    /// Release 1.2 item 2's own required regression coverage - the
+    /// actual root cause of the live audit's "~4x shortfall" (Flame
+    /// golem per-hit at 21.9-28.5% of the 33%*surging target):
+    /// crit_chance/crit_multiplier were STILL scaled to 33% (spawn_golem's
+    /// own sibling bug to the already-fixed increased_damage/
+    /// conflagration_dmg_pct one from Release 1) - scaling BOTH the
+    /// chance and the multiplier down compounds into a near-zero crit
+    /// contribution instead of tracking the owner's own, exactly the "~4x
+    /// shortfall, golem near-constant while owner swings" signature the
+    /// live finding describes. Uses a real crit build (0.6 chance, 3.0
+    /// multiplier - well past base 0.05/2.0) averaged over many seeds -
+    /// a single roll can land on either side of the crit chance, and this
+    /// needs the STEADY-STATE ratio, matching the live finding's own
+    /// "measured across many hits/fights" methodology.
+    #[test]
+    fn golem_per_hit_ratio_holds_with_a_real_crit_build() {
+        let owner = CombatSimUnit { crit_chance: 0.6, crit_multiplier: 3.0, increased_damage: 0.5, ..elementalist("caster", 2000, 1_000_000) };
+        let golem = spawn_golem(&owner, "caster", 0, GolemType::Basic, &elementalist_character());
+        let def = boss();
+
+        let trials = 2000u64;
+        let mut owner_total = 0u64;
+        let mut golem_total = 0u64;
+        for seed in 0..trials {
+            let mut rng_o = StdRng::seed_from_u64(seed);
+            owner_total += resolve_hit(2000.0, &owner, &def, 1, &mut rng_o, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).unmitigated_damage;
+            let mut rng_g = StdRng::seed_from_u64(seed);
+            golem_total += resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng_g, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).unmitigated_damage;
+        }
+        let ratio = golem_total as f64 / owner_total as f64;
+        assert!(
+            (ratio - 0.33).abs() < 0.02,
+            "golem per-hit must average ~33% of the owner's own per-hit even with a real crit build invested (0.6 chance, 3.0 multiplier) - got ratio {ratio} over {trials} trials"
         );
     }
 
@@ -16183,6 +16306,141 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         assert_eq!(total_delivered, 700, "every unit of redistribution owed across BOTH deaths must eventually reach the recipient");
     }
 
+    /// Release 1.2 item 3's own required regression coverage - a real
+    /// accounting gap, confirmed live once shield-absorption
+    /// instrumentation (Release 2) ruled out that explanation for the
+    /// sub-0.50 delivery ratio: a scheduled recipient can die from a
+    /// COMPLETELY unrelated cause (any other hit) between their
+    /// redistribution tick being scheduled and it actually firing. The
+    /// original code just silently skipped a dead recipient's own tick -
+    /// nothing applied, nowhere. Fixed to redirect that tick to another
+    /// currently-alive, eligible party member instead. Two recipients
+    /// (alice, bob) split a golem's redistribution evenly; alice is then
+    /// killed by an unrelated hit before either of her own ticks fires -
+    /// both must land on bob instead of vanishing.
+    #[test]
+    fn a_recipients_own_unrelated_death_redirects_their_pending_ticks_instead_of_losing_them() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 1_000_000), real_player("bob", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        // 1000 absorbed, 50% redistribution = 500 total, split evenly
+        // across 2 recipients = 250 each, as 2 ticks of 125.
+        handle_golem_death(&mut units, 0, 0, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        assert!((units[1].thunder_redistribution_per_tick_amount - 125.0).abs() < 1e-9);
+
+        // Alice dies from something completely unrelated before her own
+        // first tick fires - simulates any other lethal hit landing on
+        // her in the meantime.
+        units[1].alive = false;
+        let bob_hp_before = units[2].hp;
+
+        apply_thunder_redistribution_tick(&mut units, 1, 1_000, &mut events, 1_000);
+        apply_thunder_redistribution_tick(&mut units, 1, 2_000, &mut events, 1_000);
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0, "the clock still runs to completion even though delivery redirected elsewhere");
+
+        let redirected_to_bob: i64 = events
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Attack { target, damage, source_kind: AttackSourceKind::Environmental, .. } if target == "bob" => Some(*damage as i64),
+                _ => None,
+            })
+            .sum();
+        assert_eq!(redirected_to_bob, 250, "alice's own full 250 (both ticks) must land on bob, the only other alive eligible recipient, instead of vanishing");
+        assert_eq!(bob_hp_before - units[2].hp, 250, "bob's own hp must actually reflect the redirected damage");
+
+        let sent_to_alice: usize = events
+            .iter()
+            .filter(|e| matches!(e, CombatEvent::Attack { target, source_kind: AttackSourceKind::Environmental, .. } if target == "alice"))
+            .count();
+        assert_eq!(sent_to_alice, 0, "a dead recipient must never receive an Attack event for their own no-longer-deliverable tick");
+    }
+
+    /// Release 1.2 item 4's second half - investigating hereticgamingdad's
+    /// reported 9.5% effective proc rate against a 30% tooltip (a ratio
+    /// of 0.095/0.30 = 0.317, i.e. only 31.7% of the tooltip's own rate
+    /// survived). Full code read of the Voidstep/Counterflow/Wild Fury
+    /// branch (and everything upstream of it) found NO additional gate
+    /// beyond what's already documented and intentional:
+    /// `defender_may_react` (excludes only derived/follow-up hits, not
+    /// splash - fixed in item 7), the alive checks, and
+    /// `reactive_proc_cap_ms` itself (this release's own item 4, first
+    /// half). No hidden exclusion specific to any one build was found.
+    ///
+    /// This test empirically bounds how much the cap ALONE can suppress,
+    /// at DELIBERATELY extreme parameters chosen to be maximally
+    /// cap-unfavorable - 90% evasion (near the defensive hard cap) and a
+    /// 150ms attack interval (well past any realistic boss cadence, even
+    /// accounting for `BOSS_ATTACK_INTERVAL_BASE_MS`'s own party-size
+    /// scaling), so evades cluster as densely as this mechanism could
+    /// ever plausibly see. Even here, the cap alone only suppresses the
+    /// effective ratio to ~0.67 of tooltip - the live finding's own 0.317
+    /// needs roughly DOUBLE that suppression. The cap is real and does
+    /// contribute, but cannot be the sole or even primary explanation;
+    /// the remaining gap needs the parser's own attached character/fight
+    /// data to investigate further (same "honest, don't guess" precedent
+    /// as this release's item 1/BLOCKED items before it) - most likely
+    /// either something specific to that one build not reproducible from
+    /// code alone, or a measurement/sample-size question on the report's
+    /// own side, not a hidden code gate.
+    #[test]
+    fn reactive_proc_cap_alone_cannot_fully_explain_the_live_finding() {
+        let full_hp: i64 = 10_000_000;
+        let attacker = CombatSimUnit { id: "boss".to_string(), display_name: "Boss".to_string(), alive: true, hp: full_hp, max_hp: full_hp as u64, atk: 100, is_boss: true, ..Default::default() };
+        let defender = CombatSimUnit {
+            id: "defender".to_string(),
+            display_name: "Defender".to_string(),
+            alive: true,
+            hp: full_hp,
+            max_hp: full_hp as u64,
+            evasion: 0.9,
+            evade_counter_chance: 0.30,
+            reactive_proc_cap_ms: 1_000,
+            ..Default::default()
+        };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(777);
+        let attack_interval_ms: u32 = 150;
+        let hits = 5_000u32;
+        for i in 0..hits {
+            let at_ms = i * attack_interval_ms;
+            // Reset hp every iteration (keeping every other field, notably
+            // `evade_counter_last_fired_at_ms` - the cap's own state, the
+            // one thing that MUST persist across iterations) so 10M hp is
+            // never actually at risk of running out over 5000 hits.
+            units[0].hp = full_hp;
+            units[1].hp = full_hp;
+            apply_hit(&mut units, 0, 1, 100.0, at_ms, &mut events, &mut rolls, &mut rng, true, false);
+        }
+
+        let evades = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker: a, evaded: true, .. } if a == "boss")).count();
+        let procs = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker: a, target: t, .. } if a == "defender" && t == "boss")).count();
+        let ratio = procs as f64 / evades as f64;
+        let fraction_of_tooltip = ratio / 0.30;
+        println!(
+            "reactive_proc_cap investigation: {evades} evades, {procs} procs, ratio {ratio:.4} ({:.1}% of tooltip) vs hereticgamingdad's own live-measured 9.5%/30% = 31.7% of tooltip",
+            fraction_of_tooltip * 100.0
+        );
+        assert!(evades > 1000, "fixture must generate enough evades to mean anything - got {evades}");
+        // The cap DOES measurably suppress the ratio below the raw
+        // tooltip (confirms it's a real, contributing factor) - but even
+        // at these deliberately extreme, cap-unfavorable parameters, it
+        // stays comfortably ABOVE the live finding's own 31.7%-of-tooltip
+        // figure. That gap between "what the cap alone can do" and "what
+        // was actually observed" is the release report's own headline
+        // finding for this item - the cap contributes but cannot be the
+        // full explanation.
+        assert!(ratio < 0.30, "the cap must measurably suppress the effective per-evade rate below the raw tooltip chance at this cadence/evasion, got {ratio:.4}");
+        assert!(
+            fraction_of_tooltip > 0.45,
+            "even at extreme, maximally cap-unfavorable parameters, the cap alone should stay well above the live finding's own 31.7%-of-tooltip ratio - if this ever drops that low, the cap alone WOULD explain the live finding and this test's own conclusion needs revisiting, got {:.1}%",
+            fraction_of_tooltip * 100.0
+        );
+    }
+
     /// Release 1.1 item 4's own required regression coverage - every
     /// OTHER golem-sizing test hand-constructs its own `CombatSimUnit`
     /// summoner with a directly-specified `max_hp`, bypassing
@@ -16195,14 +16453,20 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
     /// generated gear, and checks the golem's actual `CombatUnitInfo.maxHp`
     /// against the summoner's OWN `Character::combat_max_hp()`, computed
     /// independently - proving there's no pre/post-buff split between
-    /// what golems are sized from and what the fight record reports:
-    /// investigated at length (real gear, a real 2-character party,
-    /// confirmed gigantify=3) and could not reproduce the "implied base
-    /// = predicted x 0.7692" signature the live finding describes - this
-    /// exact ratio always comes out to 1.0000 exactly. Documented as
-    /// unresolved (not a confirmed code bug) in this release's own
-    /// report, same "honest, don't guess" precedent as A3's own sizing
-    /// investigation.
+    /// what golems are sized from and what the fight record reports.
+    ///
+    /// Release 1.1 investigated at length (real gear, a real 2-character
+    /// party, confirmed gigantify=3) and could not reproduce the "implied
+    /// base = predicted x 0.7692" signature - this test's own ratio
+    /// always came out 1.0000. Root cause found in Release 1.2: this
+    /// fixture's Cleric ally has ZERO passive investment, so
+    /// `party_max_hp_pct` (Blessed Resilience's party-wide max-hp buff)
+    /// is always 0 here - the bug requires `party_max_hp_pct > 0` to
+    /// manifest at all (see `thundergolem_reform_base_max_hp_stays_in_sync_with_a_partys_own_max_hp_buff`
+    /// below, which reproduces it directly and proves the fix). This
+    /// test is still valid coverage for the buff-absent case (still
+    /// 1.0000 exactly, as it should be) - kept as-is, not merged with
+    /// the new test, so each stays a minimal, single-variable fixture.
     #[test]
     fn golem_sizing_matches_combat_max_hp_exactly_through_the_real_party_pipeline() {
         let mut character = Character::new("elementalist".to_string());
@@ -16243,6 +16507,91 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
 
         let expected_golem_max_hp = (predicted_owner_max_hp * 0.33 * 4.0).round() as u64; // gigantify rank 3 = 1+3.0
         assert_eq!(golem_info.max_hp, expected_golem_max_hp, "golem sizing must derive from the SAME max_hp the fight record itself reports - no pre/post-buff split");
+    }
+
+    /// Release 1.2 item 1 - the confirmed root cause of the "implied
+    /// reform base = predicted x 0.7692 (= 1/1.30)" live finding.
+    /// `thundergolem_reform_base_max_hp` is captured inside `spawn_golem`,
+    /// which `simulate_battle` calls BEFORE its own party-wide buff pass
+    /// (Cleric's Blessed Resilience, `party_max_hp_pct`) runs. That pass
+    /// correctly bumps a golem's LIVE `max_hp` (golems aren't excluded,
+    /// only `is_boss` is checked) - so the golem's FIRST spawn already
+    /// reflects the buff correctly - but the frozen reform base never got
+    /// refreshed, so every reform after the first silently reverted to
+    /// the stale pre-buff figure. A weak, frequent boss attack (atk 100,
+    /// 1200ms interval) against a gearless golem over a very long fight
+    /// (500M boss hp - the fight never naturally ends) forces many
+    /// reforms within one deterministic seeded run; the exact reform
+    /// count actually reached is read back off the event log's own
+    /// "Thunder Golem Reform" SkillCast markers rather than assumed, so
+    /// this test can't drift out of sync with the sim's own real timing.
+    #[test]
+    fn thundergolem_reform_base_max_hp_stays_in_sync_with_a_partys_own_max_hp_buff() {
+        let mut character = Character::new("elementalist".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.level = 100;
+        character.passive_allocations.insert("golemmaster".to_string(), 1);
+        character.passive_allocations.insert("thundergolem".to_string(), 3);
+        // No gigantify - deliberately keeps the golem's own max_hp WELL
+        // below the owner's (33% base, vs. up to 132% with gigantify
+        // invested), which this fixture needs: it has to pick a single
+        // boss atk that reliably one-shots the golem every reform while
+        // staying below the OWNER's own max_hp too, so a hit that leaks
+        // onto a real player during a reform gap (a known, accepted
+        // Thunder Golem weakness - see `is_protected_golem`'s own doc)
+        // can't end the fight early. Growing at rank 1 (not 3) for the
+        // same reason - gentler max_hp growth per reform keeps the golem
+        // one-shottable for longer within that same window.
+        character.passive_allocations.insert("growing".to_string(), 1);
+        character.golem_slot_types = vec![GolemType::Thunder];
+        let owner_pre_buff_max_hp = character.combat_max_hp() as f64;
+
+        let mut ally = Character::new("healer".to_string());
+        ally.archetype = Archetype::Cleric;
+        ally.level = 100;
+        ally.passive_allocations.insert("resilience".to_string(), 3);
+        let party_max_hp_pct = 0.10; // Blessed Resilience at 3/3: 4% + 2*3% = 10%
+
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist".to_string(), character);
+        characters.insert("healer".to_string(), ally);
+
+        // 70% of the owner's own (pre-buff, so a lower bound) max_hp -
+        // comfortably above the golem's spawn max_hp (33%*1.10 = ~36.3%
+        // of owner_hp) and several reforms' worth of growing rank 1's
+        // gentle growth past that, while staying under 100% of owner_hp
+        // so a leaked hit during a reform gap can't one-shot the owner.
+        let boss_atk = (owner_pre_buff_max_hp * 0.70).round() as u64;
+        let boss_stats = BossStats { hp: 500_000_000, atk: boss_atk, attack_interval_ms: 1_200, ..Default::default() };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(4242);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+
+        let owner_info = unit_infos.iter().find(|u| u.id == "elementalist").unwrap();
+        let expected_owner_post_buff_max_hp = owner_pre_buff_max_hp + (owner_pre_buff_max_hp * party_max_hp_pct).round();
+        assert_eq!(owner_info.max_hp as f64, expected_owner_post_buff_max_hp, "sanity check - the owner's own reported maxHp must reflect Blessed Resilience's buff");
+
+        let golem_info = unit_infos.iter().find(|u| u.golem_type == Some(GolemType::Thunder)).expect("fixture produced no Thunder Golem - test would be vacuous");
+        let reform_count = events
+            .iter()
+            .filter(|e| matches!(e, CombatEvent::SkillCast { unit, skill, .. } if *unit == golem_info.id && skill == "Thunder Golem Reform"))
+            .count();
+        assert!(reform_count >= 1, "fixture must exercise at least one reform for this test to mean anything - got {reform_count}");
+
+        // Mirrors spawn_golem's own rounding exactly: pre-buff base ->
+        // buffed spawn max_hp (the corrected reform base, post-fix) ->
+        // growing's own per-reform formula, same order the real code
+        // applies them in.
+        let hp_scale = 0.33; // no gigantify invested
+        let pre_buff_reform_base = (owner_pre_buff_max_hp * hp_scale).round();
+        let corrected_reform_base = pre_buff_reform_base + (pre_buff_reform_base * party_max_hp_pct).round();
+        let growing_pct = 0.33; // growing rank 1
+        let expected_final_max_hp = (corrected_reform_base * (1.0 + growing_pct * reform_count as f64)).round() as u64;
+        assert_eq!(
+            golem_info.max_hp, expected_final_max_hp,
+            "the golem's reform base must stay in sync with the party's own max-hp buff - a stale pre-buff base would undercount by the buff's own {}% every reform",
+            (party_max_hp_pct * 100.0) as u32
+        );
     }
 
     /// The 2026-08-19 bugfix's own required regression coverage: protected

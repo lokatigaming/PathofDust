@@ -280,7 +280,41 @@ how large that multiplier gets. Scaling the multiplier down to 33% too
 compounds against the already-scaled base stat instead of canceling out,
 converging toward an ~11% ratio at a large dominant multiplier — this
 is what the live audit's own "~3% instead of 33%, an 11x gap" finding
-measured. See `spawn_golem`'s own doc in combat.rs.) The Elementalist
+measured. See `spawn_golem`'s own doc in combat.rs.
+
+2026-08-19, Release 1.2 item 2 - `crit_chance`/`crit_multiplier` had the
+EXACT SAME bug, missed in the fix above: both were still scaled to 33%
+of the owner's own values, despite functioning as a MULTIPLIER on
+`base_damage` (`roll_attacker_damage`'s own `dmg = base_damage *
+crit_bonus_mult`) exactly like `increased_damage`. Scaling both the
+chance and the multiplier down compounds into a near-zero crit
+contribution (a 0.33-scaled `crit_multiplier` often lands below 1.0,
+making a golem's own "crit" contribute LESS than a normal hit) instead
+of tracking the owner's own - the confirmed root cause of the live
+finding's "~4x shortfall, golem output near-constant while the owner's
+own swings with their build." Fixed the same way: inherited at FULL
+value, matching `increased_damage`/`conflagration_dmg_pct`.
+
+**The formula the parser should verify against, precisely**: for any
+golem type, `golem_per_hit ≈ 0.33 × owner_unpenalized_per_hit ×
+golem_type_multipliers`, where `owner_unpenalized_per_hit` is the
+owner's own average per-hit damage INCLUDING their own live crit
+contribution (not just their base atk), and `golem_type_multipliers` is
+that golem type's own additional multiplicative bonus (e.g. Flame
+Golem's Surging: `1 + surging_magnitude`, 1.30 at rank 3). What a golem
+inherits from the owner, precisely: `atk`/`max_hp`/`evasion`/
+`damage_reduction`/`block_chance` at 33% (base stats); `crit_chance`/
+`crit_multiplier`/`increased_damage`/`conflagration_dmg_pct` at FULL
+value (multipliers - see the two fixes above for why). What a golem
+does NOT inherit at all: per-level Elemental Focus/Scorching Flames
+(these are elemental-PROC-CHANCE inputs, not damage multipliers -
+confirmed separately, does not affect this formula either way) and any
+archetype-specific stacking mechanic (Bloodlust, Kill Zone, Avalanche,
+etc. - the Elementalist's own kit never grants these, so they're always
+0 for a real Elementalist anyway). See
+`golem_per_hit_ratio_holds_with_a_real_crit_build` in combat.rs for the
+regression test proving this ratio holds with a real crit build
+invested.) The Elementalist
 deals 33% less damage per summoned golem, additive — at 3 golems the
 Elementalist deals 1% of their normal damage. Golems attack with a basic
 unified hit as if they
@@ -296,6 +330,25 @@ behavior and stats.
   and rejoins combat.
   - *Gigantify* — Thunder Golems get 100/200/300% more contribution
     from your health pool (base 33% of your health → 66/99/132%).
+
+    2026-08-19, Release 1.2 item 1 - a Thunder Golem's own reform base
+    (`thundergolem_reform_base_max_hp`, what Growing's own per-reform
+    formula below multiplies against) is captured at golem spawn time,
+    which happens BEFORE `simulate_battle`'s own party-wide buff pass
+    (e.g. Cleric's Blessed Resilience, a party-wide max-hp %) runs. That
+    pass correctly bumps a golem's LIVE `max_hp` (golems aren't
+    excluded, only bosses are), so a golem's FIRST spawn already
+    reflects any active party max-hp buff correctly - but the frozen
+    reform base never got refreshed, so every reform silently reverted
+    to the stale pre-buff figure, undercounting the buff's own
+    contribution by a factor of `1 / (1 + party_max_hp_pct)` on every
+    reform. Confirmed live: an implied reform base backed out from a
+    real fight's own reform count measured at exactly `predicted_base /
+    1.30` (party_max_hp_pct = 0.30 in that fight). Fixed: the reform
+    base is now re-synced to the golem's own already-buffed `max_hp`
+    right after the party-buff pass runs, once. See
+    `thundergolem_reform_base_max_hp_stays_in_sync_with_a_partys_own_max_hp_buff`
+    in combat.rs for the regression test.
   - *Growing* — Thunder Golems gain 33/66/100% more maximum health
     each time they reform, ADDITIVELY off their ORIGINAL spawn-time
     max hp, stacking within a combat: `max_hp = reform_base * (1.0 +
@@ -730,3 +783,94 @@ Counterflow/Wild Fury, and surviving a LANDED splash hit still procs
 Retaliation. See `retaliate_proc_gate_tests` for the full suite,
 specifically `voidstep_counterflow_wildfury_group_fires_on_an_evade_against_a_splash_hit`
 and `retaliation_fires_on_surviving_a_landed_splash_hit`.
+
+---
+
+## Release 1.2 — golem adjudication + redistribution tail (2026-08-19)
+
+**Item 1 — golem HP sizing, "implied base = predicted / 1.30": a real
+bug found and fixed.** See the Gigantify section above for the full
+root-cause writeup. In short: `thundergolem_reform_base_max_hp` was
+captured at golem spawn time, BEFORE `simulate_battle`'s own
+party-wide max-hp buff pass (e.g. Cleric's Blessed Resilience) runs -
+the golem's live `max_hp` correctly picked up that buff (not excluded
+from the pass), but the frozen reform base never refreshed, so every
+reform undercounted the buff by a factor of `1 / (1 + party_max_hp_pct)`
+- matching the live finding's own "1/1.30 exactly" signature at a
+30%-strength buff, five decimals, reproduced across fights/reform
+counts. Fixed by re-syncing the reform base to the golem's own
+already-buffed `max_hp` right after the buff pass runs. The earlier
+report's own "ratio always 1.0000" test wasn't wrong - its fixture
+simply had no party_max_hp_pct source invested at all, so the bug's
+own trigger condition was never present; both tests are now kept as
+separate, minimal, single-variable fixtures.
+
+**Item 2 — golem damage magnitude, "~4x shortfall": a real bug found
+and fixed, the sibling of Release 1's own increased_damage/
+conflagration_dmg_pct fix.** See the Golem Master section above for
+the full root-cause writeup and the exact formula the parser should
+verify against. In short: `crit_chance`/`crit_multiplier` were STILL
+scaled to 33% of the owner's own values - the exact same class of bug
+already fixed for increased_damage/conflagration_dmg_pct, just missed
+at the time. Scaling both the chance and the multiplier down compounds
+into a near-zero crit contribution rather than tracking the owner's
+own, which reproduces the live finding's own signature closely: a
+direct test with the bug still present (0.6 crit chance, 3.0
+multiplier) measured a 0.2045 ratio against the 0.33 target - within
+the live finding's own reported 0.219-0.285 range. Fixed by inheriting
+both at FULL value, matching increased_damage/conflagration_dmg_pct.
+
+**Item 3 — redistribution delivery, still short of the 0.50 tunable
+after Release 1.1: a second, real accounting gap found and fixed.**
+With Release 2's shield-absorption instrumentation live, the parser
+confirmed golem shieldAbsorb reads exactly 0 in the fights showing this
+gap - ruling out shield absorption as the explanation and confirming
+the remaining shortfall is a real code gap, not a measurement one.
+Found: `apply_thunder_redistribution_tick` silently no-op'd a
+scheduled recipient's own tick if that recipient had died from ANY
+unrelated cause (a completely separate hit, a DoT, anything) between
+scheduling and the tick actually firing - the owed amount simply
+vanished, already debited from the golem's own tank-credit at
+scheduling time but delivered nowhere. Fixed: a dead/immune recipient's
+own tick now redirects to another currently-alive, eligible party
+member (same pool `handle_golem_death`'s own initial scheduling
+already uses - any real, non-golem, non-boss party member) instead of
+being dropped; only drops if the whole party is down (a fight-ending
+state regardless). The residual "off-clock tick gaps (1040-2240ms)"
+noted in the parser's own report are consistent with the MERGE
+mechanism's own reset-to-`death_time + tick_interval` behavior when a
+second death lands mid-window (Release 1.1's own fix) - expected
+scheduling variance, not itself a loss mechanism; re-measure delivery
+ratio after this fix ships to see how much of the sub-0.50 gap it
+closes.
+
+**Item 4 — reactive proc cap: now a LiveTunable (spec-owner ruling),
+plus an investigation into hereticgamingdad's reported 9.5%-vs-30%
+gap.** `reactive_proc_cap_ms` (default 1000, matching the previous
+hardcoded value exactly - no behavior change at default) is now
+admin-editable at `/admin/tunables`, under a new "Reactive Procs"
+section (applies to the shared Rogue's Voidstep/Monk's Counterflow/
+Druid's Wild Fury group only - Warrior's Retaliation has no such cap).
+Threaded the same way `boss_pierce_pct` already is - snapshotted onto
+each unit at construction (`CombatSimUnit::reactive_proc_cap_ms`),
+since `apply_hit` (where the cap is actually read) doesn't take
+`&LiveTunables` and threading it through every call site would be a
+much larger change than this cap deserves.
+
+Investigated hereticgamingdad's own reported 9.5% effective proc rate
+against a 30% tooltip (a ratio of 0.317 relative to tooltip). Full code
+read of the Voidstep/Counterflow/Wild Fury branch found no additional
+gate beyond what's already documented and intentional
+(`defender_may_react`'s follow-up exclusion, the alive checks, and the
+cap itself). Empirically bounded how much the cap ALONE can suppress,
+at deliberately extreme, maximally cap-unfavorable parameters (90%
+evasion, a 150ms attack interval - well past any realistic boss
+cadence): even here, the cap alone only suppresses the effective ratio
+to ~0.67 of tooltip, nowhere close to the live finding's own 0.317. The
+cap is real and does contribute, but cannot be the sole or even primary
+explanation for a gap this large. See
+`reactive_proc_cap_alone_cannot_fully_explain_the_live_finding` in
+combat.rs. Conclusion: the remaining gap needs that specific build's
+own character/fight data to investigate further, not more code-only
+speculation - flagged for the parser's own follow-up pass rather than
+guessed at here.
