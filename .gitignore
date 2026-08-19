@@ -36,6 +36,8 @@ patreon-tokens.json
 /backup-pre-release-1.1
 # Pre-Memories-deploy rollback backup, same discipline.
 /backup-pre-memories
+# Pre-Release-2-deploy rollback backup, same discipline.
+/backup-pre-release-2
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
