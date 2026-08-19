@@ -528,9 +528,10 @@ fn wiki_hash_redirect_script() -> String {
 /// once, on first request, instead of recomputing 11 full tree layouts
 /// (SVG connectors and all) on every single visit to any wiki page - the
 /// heading extraction (for the sidebar's in-page nav, same as every
-/// markdown page gets) rides along in that same one-time cost, since
-/// archetype sections are `<details>`/`<summary>`, not headings, so the
-/// only real heading here is the card's own "Class Passive Trees" `<h2>`.
+/// markdown page gets) rides along in that same one-time cost. Real
+/// headings here: the intro card's "Class Passive Trees" `<h2>` and the
+/// "Memories" `<h2>` (2026-08-19) - archetype sections themselves are
+/// `<details>`/`<summary>`, not headings, so they don't add more.
 static WIKI_PASSIVES_HTML: LazyLock<(String, Vec<WikiHeading>)> = LazyLock::new(|| {
     let sections: String = ALL_ARCHETYPES.iter().map(|&archetype| render_wiki_archetype_graph(archetype)).collect();
     let html = format!(
@@ -542,7 +543,23 @@ static WIKI_PASSIVES_HTML: LazyLock<(String, Vec<WikiHeading>)> = LazyLock::new(
           its 3 Modifiers below). Shown fully unlocked below so every node is visible at once - a node flagged \
           <span class=\"muted\">(inactive)</span> doesn't do anything yet, though points spent there are banked, not wasted, and \
           will start working the day that mechanic ships.</p>\
-        </div>{sections}"
+          <p class=\"muted\">Node values can also be tuned live by the streamer without a redeploy. A node currently running a \
+          different number than its own description text is flagged with a \"Tuned: X (default Y)\" note beside that description - \
+          treat that note as the real, current number whenever the two disagree.</p>\
+        </div>\
+        <div class=\"card\">\
+          <h2>Memories: Save &amp; Swap Full Builds</h2>\
+          <p>Every character gets {memory_slots} Memory slots, managed right here on this page. A Memory saves your entire build - \
+          archetype, full passive allocation, Split Personality's second archetype and tree if you have one, and (for Elementalists) \
+          your golem loadout - so you can save a build, respec into something else, and load the saved one back exactly as it was.</p>\
+          <p>Saving and loading are both completely free, bypassing the normal {archetype_cost} dust archetype-change cost and \
+          {respec_cost} dust passive-respec cost entirely once a build is saved.</p>\
+          <p>Loading only works out of combat - no mid-fight swaps. If you've earned levels since a Memory was saved, the extra \
+          points it doesn't spend are left for you to place yourself, never auto-spent.</p>\
+        </div>{sections}",
+        memory_slots = crate::adventure::STARTING_MEMORY_SLOTS,
+        archetype_cost = crate::adventure::ARCHETYPE_CHANGE_COST,
+        respec_cost = crate::adventure::PASSIVE_RESPEC_COST,
     );
     extract_and_inject_heading_ids(&html)
 });
@@ -575,6 +592,10 @@ fn render_wiki_archetype_graph(archetype: Archetype) -> String {
             format!("{} Not yet active - allocating still banks the point for when this mechanic ships.", escape_html(n.description))
         } else {
             escape_html(n.description)
+        };
+        let tip = match passive_override_note(n) {
+            Some(note) => format!("{tip} {note}"),
+            None => tip,
         };
         let (kind_class, kind_label) = match n.tier {
             PassiveTier::Skill => ("node-skill", "Tier 1"),
@@ -622,4 +643,3 @@ fn render_wiki_archetype_graph(archetype: Archetype) -> String {
         </details>",
     )
 }
-
