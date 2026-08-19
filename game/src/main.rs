@@ -127,6 +127,7 @@ async fn async_main() -> anyhow::Result<()> {
     adventure.clone().spawn_encounter_loop();
     adventure.clone().spawn_basic_encounter_loop();
     adventure.clone().spawn_rampage_loop();
+    adventure.clone().spawn_fight_summary_flush_loop();
 
     // One-time giveaway: hands the "Wings of Flight" cosmetic to one
     // random currently-joined character - per a live request, "while
