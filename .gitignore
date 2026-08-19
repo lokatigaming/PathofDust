@@ -24,6 +24,8 @@ patreon-tokens.json
 /backup-pre-golem-bugfixes
 # Pre-per-level-scaling-fix-deploy rollback backup, same discipline.
 /backup-pre-perlevel-fix
+# Pre-golem-attribution-deploy rollback backup, same discipline.
+/backup-pre-golem-attribution
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
