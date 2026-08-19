@@ -46,6 +46,8 @@ patreon-tokens.json
 /backup-pre-release-1.2
 # Pre-Divine-Dust-deploy rollback backup, same discipline.
 /backup-pre-divine-dust
+# Pre-Divine-Dust-craft-fix-deploy rollback backup, same discipline.
+/backup-pre-divine-dust-craft-fix
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
