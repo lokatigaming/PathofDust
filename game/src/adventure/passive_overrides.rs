@@ -180,7 +180,6 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "assassinate", // rogue
     "bloodrush", // berserker
     "bloodscent", // berserker
-    "chainoflight", // cleric
     "chaostheory", // warlock
     "clarity", // monk
     "compassion", // cleric
@@ -241,6 +240,7 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
 /// confirmed to be a plain arithmetic count at its own call site before
 /// being listed.
 pub const INTEGER_COUNT_NODES: &[&str] = &[
+    "chainoflight",
     "arterialspray",
     "blooddebt",
     "bloodsac",
@@ -503,9 +503,9 @@ mod passive_override_tests {
         // combat.rs rather than in their own declaration. If this
         // changes without a migration batch landing, the list has
         // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 38, "Stage 2 migrated 20 and reclassified 2 as unwired, from the original 60");
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 37, "Stage 2 migrated 21 and reclassified 2 as unwired, from the original 60");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 38, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 37, "the pending list must not contain duplicates");
     }
 
     #[test]
@@ -591,6 +591,32 @@ mod passive_override_tests {
         for key in UNWIRED_NODES {
             assert!(!INTEGER_COUNT_NODES.contains(key), "{key:?} cannot be both unwired and migrated");
         }
+    }
+
+    #[test]
+    fn chain_of_light_at_four_four_now_matches_its_own_description() {
+        // The ONE deliberate behavior change in Stage 2, on an explicit
+        // owner decision. Chain of Light is a Specialization, so it can
+        // hold rank 4; `combat.rs` used to read the raw rank and hand a
+        // 4/4 investment a 5th bounce target. Its description says "2
+        // total targets at rank 1, up to 4 at rank 3", and the tree
+        // documents a Spec's 4th point as unlock-only.
+        //
+        // Pinned here explicitly because the golden corpus CANNOT catch
+        // this: `run_scenario` never populates `passive_allocations`, so
+        // every node sits at rank 0 in every fixture and no passive
+        // mechanic fires at all.
+        let node = node(Archetype::Cleric, "chainoflight");
+        let empty = PassiveOverrides::default();
+        // `prayer_bounce_targets` is `1 + count`, so these are the
+        // target totals the description promises.
+        assert_eq!(1 + node.magnitude_at_rank_with(1, &empty).round() as u32, 2, "rank 1 = 2 total targets");
+        assert_eq!(1 + node.magnitude_at_rank_with(3, &empty).round() as u32, 4, "rank 3 = 4 total targets");
+        assert_eq!(
+            1 + node.magnitude_at_rank_with(4, &empty).round() as u32,
+            4,
+            "4/4 must now also be 4, not 5 - the 4th point unlocks modifiers, it does not add a target"
+        );
     }
 
     #[test]

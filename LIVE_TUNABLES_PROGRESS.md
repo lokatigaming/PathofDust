@@ -20,10 +20,10 @@ The main checkout was never touched and its branch never switched.
 - [x] **Stage 1** — override store, the `magnitude_at_rank` hook,
       `/admin/passives`, and the tuned-value display line.
       374 → 403 tests. Commits `453155e`, `8ad16e1`.
-- [x] **Stage 2** — 20 count nodes migrated onto the tunable path;
-      5 reclassified after reading their real call sites. 442 → 449
-      tests. Commit `dc1b8ec`.
-- [ ] **Stage 3** — buckets B, C, D (24 nodes), batched per class, plus
+- [x] **Stage 2** — 21 count nodes migrated onto the tunable path;
+      4 reclassified after reading their real call sites. 442 → 450
+      tests. Commits `dc1b8ec`, +chainoflight.
+- [ ] **Stage 3** — buckets B, C, D (23 nodes), batched per class, plus
       an Elementalist golden-corpus scenario as a fixture ADDITION.
 
 **Ask the owner before starting each migration batch** — they may
@@ -103,15 +103,57 @@ Two are worth calling out here because they were nearly got wrong:
 
 ## Stage 2 summary (2026-08-20)
 
-**449 passing, 0 failed.** Golden corpus green — that is the
-behavior-neutrality proof for this stage. Clippy and release build
-clean. No character data touched.
+**450 passing, 0 failed** (excluding one pre-existing flaky test — see
+below). Clippy and release build clean. No character data touched.
 
-20 nodes migrated from `passive_node_rank` to the new
+### CORRECTION: the golden corpus does NOT protect passive migrations
+
+An earlier draft of this file, and the Stage 2 commit message, called
+the golden corpus this stage's behavior-neutrality proof. **That was
+wrong**, and the error is worth recording because the whole Stage 3 plan
+was built on it.
+
+`golden_corpus.rs::run_scenario` builds each scenario character with an
+archetype, a level and deterministic gear, and **never populates
+`passive_allocations`**. Every node sits at rank 0 in every fixture, so
+no passive mechanic fires in any of them. A corpus run therefore proves
+only that non-passive combat is unchanged; it could not detect a passive
+regression if one existed.
+
+**What actually proves Stage 2 neutral** is the algebraic property,
+asserted directly in
+`at_default_values_every_migrated_count_still_equals_its_rank`: every
+migrated node declares `1.0 / 1.0`, so `1.0 + 1.0 * (rank - 1) == rank`
+exactly, and swapping a rank read for a magnitude read cannot move a
+number. That test walks all 21 nodes at every rank.
+
+**Consequence for Stage 3** (buckets B/C/D, which change real values):
+the corpus will not protect those either. Closing this needs corpus
+scenarios that actually allocate passives — a fixture **ADDITION**,
+never a regeneration, and therefore permitted. That should land before
+the first value-changing batch, not after.
+
+### Pre-existing flaky test (not introduced here)
+
+`elementalist_stage_6_thunder_golem_isolation_tests::every_golem_death_gets_handle_golem_death_even_on_the_fights_final_tick`
+fails intermittently. Measured on **unmodified master**: 4 failures in
+14 runs (~29%). On this branch: comparable. **Not caused by Stage 2** —
+all three characters in that test have empty `passive_allocations`, so
+every migrated node reads 0 through either accessor.
+
+Cause: the test uses a 3-character party in a `HashMap`, and
+`simulate_battle` iterates `characters.iter()`. Rust randomizes
+`HashMap` order per process, so targeting and first-mover tie-breaks
+differ run to run even with a seeded RNG — precisely the hazard
+`golden_corpus.rs`'s own doc documents as its reason for keeping every
+scenario solo. Reported to the owner; belongs to the Elementalist
+session, not touched here.
+
+21 nodes migrated from `passive_node_rank` to the new
 `Character::passive_node_count`, which reads the magnitude (and so the
 override hook) and converts to `u32` in one documented place.
 
-### The batch was 20, not the 36 the Stage 1 audit projected
+### The batch was 21, not the 36 the Stage 1 audit projected
 
 Stage 1 classified nodes by their *declaration* (`1.0 / 1.0` ⇒
 magnitude equals rank ⇒ mechanical swap). Dumping every candidate's
@@ -133,7 +175,7 @@ site.** Read the call site first. This is the second time the same
 assumption has produced a wrong list (Stage 1's `INTEGER_COUNT_NODES`
 was the first).
 
-### Open decision: `chainoflight`
+### RESOLVED: `chainoflight` — migrated, nerf accepted
 
 `(1 + c.passive_node_rank("chainoflight") + …).min(5)`. A
 Specialization can hold rank 4, so today a 4/4 investment gives **5**
@@ -145,8 +187,13 @@ at rank 3"; `passive_tree.rs` documents the 4th point as unlock-only,
 adding no further increment; and every other Spec obeys that. So today's
 5 looks like a latent bug rather than intent.
 
-But correcting it is a **player-facing nerf**, not a neutral migration,
-so it was deliberately left alone. Needs an explicit call:
+Correcting it is a **player-facing nerf**, not a neutral migration, so
+it was raised rather than assumed. **Owner decision (2026-08-20):
+migrate and accept.** A 4/4 Chain of Light now gives 4 bounce targets
+instead of 5, the node becomes tunable, and its description becomes
+accurate rather than aspirational. Pinned by
+`chain_of_light_at_four_four_now_matches_its_own_description`, which
+exists because the corpus cannot catch it. The options considered were:
 
 - **Migrate and accept the change** (4/4 drops 5 → 4 targets) — makes
   the node tunable and brings it in line with the documented rule.
@@ -168,8 +215,8 @@ would have nothing to do.
 
 ### Counts after Stage 2
 
-- `PENDING_MIGRATION_NODES`: **38** (was 60)
-- `INTEGER_COUNT_NODES`: **20**, each confirmed a plain arithmetic count
+- `PENDING_MIGRATION_NODES`: **37** (was 60)
+- `INTEGER_COUNT_NODES`: **21**, each confirmed a plain arithmetic count
   at its own call site
 - `UNWIRED_NODES`: **2**
-- Tunable nodes overall: **371** of 471 (was 351)
+- Tunable nodes overall: **372** of 471 (was 351)

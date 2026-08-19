@@ -11226,7 +11226,20 @@ pub(crate) fn simulate_battle(
                 // Mending/Merciful Touch's Druid-side twins.
                 prayer_chance: c.passive_node_magnitude("prayer") + c.passive_node_magnitude("swiftmending") + c.passive_node_magnitude("rejuvenation") + c.passive_node_magnitude("seedoflife"),
                 prayer_bounce_targets: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("prayer") > 0 {
-                    (1 + c.passive_node_rank("chainoflight") + c.passive_node_magnitude("wideningcircle").round() as u32).min(5)
+                    // Chain of Light reads its COUNT, not its raw rank
+                    // (2026-08-20, Stage 2). This is the one DELIBERATE
+                    // behavior change in that batch, made on an explicit
+                    // owner decision. As a Specialization this can hold
+                    // rank 4, and reading the raw rank gave a 4/4
+                    // investment a 5th bounce target. The node's own
+                    // description says "up to 4 at rank 3", and
+                    // `magnitude_at_rank` documents a Specialization's
+                    // 4th point as unlock-only, adding no further
+                    // increment - which every other spec in the tree
+                    // obeys. Reading the count applies that rule here
+                    // too: 4/4 now gives 4 targets, and the description
+                    // becomes accurate rather than aspirational.
+                    (1 + c.passive_node_count("chainoflight") + c.passive_node_magnitude("wideningcircle").round() as u32).min(5)
                 } else if c.has_archetype(Archetype::Druid) && c.passive_node_rank("rejuvenation") > 0 {
                     (1 + c.passive_node_rank("bloomingfield")).min(3)
                 } else {

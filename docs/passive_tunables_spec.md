@@ -137,14 +137,14 @@ Decision 5.
     constants) and from `NotYetImplemented` (declares no value at all).
     `node_untunable_reason` tells `/admin/passives` which applies, so it
     never promises a migration batch that would have nothing to do.
-14. **`chainoflight` is held, not migrated.** A Specialization read as
-    `(1 + rank).min(5)`, so 4/4 yields 5 targets today while magnitude
-    would yield 4 (`effective_rank` floors a Spec at 3). Its description
-    says "up to 4 at rank 3" and the tree documents a Spec's 4th point
-    as unlock-only, so today's 5 looks like a latent bug — but
-    correcting it is a player-facing nerf, not a neutral migration.
-    Needs an explicit decision; options are in
-    `LIVE_TUNABLES_PROGRESS.md`.
+14. **`chainoflight` migrated, nerf accepted** (owner decision,
+    2026-08-20). A Specialization read as `(1 + rank).min(5)`, so 4/4
+    yielded 5 targets while magnitude yields 4 (`effective_rank` floors
+    a Spec at 3). Its description said "up to 4 at rank 3" and the tree
+    documents a Spec 4th point as unlock-only, so the old behavior was a
+    latent bug. Migrating makes the node tunable AND makes its own
+    description accurate. This is the one deliberate behavior change in
+    Stage 2; a 4/4 investment loses a bounce target.
 
 ---
 
@@ -156,7 +156,11 @@ Decision 5.
 - **Stage 2 — bucket A**, the 36 nodes where magnitude equals rank by
   construction. Mechanical, provably identical at defaults.
 - **Stage 3 — buckets B, C, D**, the 24 real ones, batched per class so
-  each batch maps onto the golden-corpus fixture that protects it.
+  each batch is small enough to review whole.
+  **NOTE:** the golden corpus does NOT protect passive migrations — its
+  scenarios never allocate any passives, so every node sits at rank 0 in
+  every fixture. Corpus scenarios WITH allocations (a fixture ADDITION,
+  not a regeneration) must land before the first value-changing batch.
   Includes **adding an Elementalist corpus scenario** — a fixture
   ADDITION, never a regeneration — to close the one archetype-coverage
   gap (11 of 12 are covered; Elementalist's golem code is unprotected).
