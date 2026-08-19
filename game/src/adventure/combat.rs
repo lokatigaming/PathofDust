@@ -6406,9 +6406,13 @@ fn apply_rising_phoenix_revival(units: &mut [CombatSimUnit], target_idx: usize, 
     units[target_idx].hp = 0;
     units[target_idx].alive_since_ms = at_ms;
     units[target_idx].revive_at_ms = u32::MAX;
-    let unit_id = units[target_idx].id.clone();
-    events.push(CombatEvent::SkillCast { at_ms, unit: unit_id, skill: "Rising Phoenix".to_string() });
     let caster_id = units[target_idx].revive_caster_id.clone();
+    // Release 1.1 item 6 - names the CASTING Elementalist, not the
+    // revived ally, for consistency with the Heal event pushed just
+    // below (already correctly credited to the caster, not a self-heal
+    // on the revived unit) - both signals should agree on whose action
+    // this actually was.
+    events.push(CombatEvent::SkillCast { at_ms, unit: caster_id.clone(), skill: "Rising Phoenix".to_string() });
     let caster_idx = units.iter().position(|u| u.id == caster_id);
     if let Some(caster_idx) = caster_idx {
         let events_len_before = events.len();
@@ -6447,6 +6451,43 @@ fn kill_golems_of_dead_summoners(units: &mut [CombatSimUnit], newly_dead_summone
                 golem.hp = 0;
                 events.push(CombatEvent::Defeat { at_ms, unit: golem.id.clone() });
             }
+        }
+    }
+}
+
+/// The summoner-death cascade plus the golem-death consequences sweep
+/// (Terrifying/reform/redistribution), as one unit - both read the SAME
+/// `prev_alive` snapshot to find newly-dead golems (directly, or via
+/// their summoner dying this same tick), so they always run together.
+/// Extracted (2026-08-19, Release 1.1 item 1) specifically so the main
+/// loop can call this from TWO places: its own normal per-iteration spot
+/// (unchanged), and right before the fight-ending `break` (new) - a
+/// golem that dies in the SAME tick that ends the fight (Dragon/Cube's
+/// own full-party-sweep abilities are the reliable reproduction - every
+/// unit takes lethal damage in one turn) previously never got this sweep
+/// at all: it only ever ran at the TOP of the NEXT iteration, which the
+/// break prevented from ever happening, silently skipping
+/// `handle_golem_death` (and therefore any redistribution) for that
+/// golem's own final death. Confirmed via a live audit finding
+/// redistribution firing on roughly 1 in 6 Thunder Golem deaths instead
+/// of every one.
+#[allow(clippy::too_many_arguments)]
+fn sweep_golem_deaths(
+    units: &mut [CombatSimUnit],
+    prev_alive: &[bool],
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+    redistribution_pct: f64,
+    redistribution_window_ms: u32,
+) {
+    let newly_dead_summoners: Vec<String> =
+        (0..units.len()).filter(|&i| !units[i].is_boss && !units[i].is_golem && prev_alive[i] && !units[i].alive).map(|i| units[i].id.clone()).collect();
+    kill_golems_of_dead_summoners(units, &newly_dead_summoners, at_ms, events);
+    for i in 0..units.len() {
+        if units[i].is_golem && prev_alive[i] && !units[i].alive {
+            handle_golem_death(units, i, at_ms, events, rolls, rng, redistribution_pct, redistribution_window_ms);
         }
     }
 }
@@ -6510,13 +6551,36 @@ fn handle_golem_death(
             // it up separately once the ticks actually land below.
             units[golem_idx].thundergolem_net_absorbed -= total_redistributed;
             let per_recipient = total_redistributed / recipients.len() as f64;
-            let per_tick = per_recipient / 2.0;
             let tick_interval_ms = (redistribution_window_ms / 2).max(1);
             let golem_id = units[golem_idx].id.clone();
             events.push(CombatEvent::SkillCast { at_ms, unit: golem_id, skill: "Thunder Golem Redistribution".to_string() });
             for &recipient_idx in &recipients {
+                // Merge with whatever this recipient still owes from an
+                // EARLIER, not-yet-fully-delivered redistribution
+                // (2026-08-19, Release 1.1 item 3 bugfix) - a Thunder
+                // Golem can die twice within the same ~2s window a
+                // single death's own 2 ticks are spread across (short
+                // reform delays at high rank), and the previous code
+                // simply OVERWROTE `thunder_redistribution_per_tick_amount`/
+                // `_ticks_remaining` here, silently discarding whatever
+                // ticks hadn't fired yet - `thundergolem_net_absorbed`
+                // had already been debited for that discarded amount
+                // (right above, for every death this function ever
+                // handles) but the recipient never actually got it,
+                // which is exactly the live audit's own "thunderNetAbsorbed
+                // sits at 60-67% of absorbed-redistributed" finding:
+                // the gap is redistribution that was subtracted from the
+                // owner's own credit but never delivered anywhere.
+                // Rolling any still-owed amount into a fresh 2-tick
+                // sequence (rather than a queue of separate pending
+                // amounts - this codebase's own established "one shared
+                // slot, re-leveled on each new source" convention, same
+                // shape as Enshrouded/Guardian Fire's shared temp_*
+                // buff slots) guarantees nothing is ever lost.
+                let still_owed = units[recipient_idx].thunder_redistribution_per_tick_amount * units[recipient_idx].thunder_redistribution_ticks_remaining as f64;
+                let combined_per_tick = (still_owed + per_recipient) / 2.0;
                 units[recipient_idx].next_thunder_redistribution_tick_at_ms = at_ms + tick_interval_ms;
-                units[recipient_idx].thunder_redistribution_per_tick_amount = per_tick;
+                units[recipient_idx].thunder_redistribution_per_tick_amount = combined_per_tick;
                 units[recipient_idx].thunder_redistribution_ticks_remaining = 2;
             }
         }
@@ -7330,6 +7394,29 @@ pub(crate) fn apply_hit(
     // scoping, which is what excludes Righteous Fire's self-burn too -
     // that goes through `apply_true_damage`, never this function).
     let target_idx = if units[attacker_idx].is_boss { thunder_golem_redirect(units, target_idx, rng) } else { target_idx };
+    // An already-dead target (2026-08-19, Release 1.1 item 1 root cause) -
+    // every other direct damage-application site in this file already
+    // guards this (`apply_reflect_damage`, `apply_volatile_magic_splash`,
+    // DoT ticks, Doom's detonation all `return`/`continue` on `!alive`
+    // before doing anything), but this one - the busiest of them all -
+    // never did. Reliably hit by Dragon/Cube's own full-party-sweep
+    // splash (`apply_splash` with `max_targets: units.len()`, so every
+    // unit including every Thunder Golem gets its own splash slot)
+    // landing MULTIPLE independently-redirected hits on the SAME
+    // already-dead Thunder Golem within one turn (once the first kills
+    // it, `thunder_golem_redirect`'s own "first alive Thunder golem"
+    // search moves on - but a hit that was ALREADY resolved to this now-
+    // dead golem before that still lands here). Each extra hit re-ran
+    // the entire pipeline against a corpse: double-counting
+    // `thundergolem_absorbed_this_incarnation` (inflating that
+    // incarnation's own eventual redistribution amount past what it
+    // actually absorbed) and pushing a second, spurious `Defeat` event
+    // for a unit that was already dead - a real audit finding, live
+    // fight-log confirmed. A no-op return here matches every sibling
+    // site's own established convention exactly.
+    if !units[target_idx].alive {
+        return;
+    }
     // A splash hit no longer counts as "a hit" for the purpose of
     // triggering any of THIS attacker's own reactive on-hit procs
     // (2026-08-16, a live request following a real report of runaway
@@ -11566,6 +11653,23 @@ pub(crate) fn simulate_battle(
         // See `any_real_player_alive`'s own doc.
         let any_player_alive = any_real_player_alive(&units);
         if !boss_alive || !any_player_alive {
+            // See `sweep_golem_deaths`'s own doc - a golem that died in
+            // THIS SAME final tick (the one that just ended the fight)
+            // still needs its own handle_golem_death call; the normal
+            // sweep below never gets a chance to run once we break.
+            if prev_alive.len() < units.len() {
+                prev_alive.resize(units.len(), true);
+            }
+            sweep_golem_deaths(
+                &mut units,
+                &prev_alive,
+                prev_at_ms,
+                &mut events,
+                &mut rolls,
+                &mut rng,
+                tunables.thunder_redistribution_pct,
+                (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
+            );
             break;
         }
 
@@ -11584,31 +11688,21 @@ pub(crate) fn simulate_battle(
                 try_schedule_rising_phoenix_revival(&mut units, i, prev_at_ms);
             }
         }
-        // Golem Master's own summoner-death rule (owner-mandated, docs/
-        // elementalist_spec.md's Stage 0 resolution #4) - checked against
-        // the SAME `prev_alive` snapshot as Rising Phoenix above, so this
-        // catches a summoner's death from any source too, with no
-        // per-site audit.
-        let newly_dead_summoners: Vec<String> =
-            (0..units.len()).filter(|&i| !units[i].is_boss && !units[i].is_golem && prev_alive[i] && !units[i].alive).map(|i| units[i].id.clone()).collect();
-        kill_golems_of_dead_summoners(&mut units, &newly_dead_summoners, prev_at_ms, &mut events);
-        // Thunder Golem's own on-death consequences (Terrifying/reform)
-        // - checked against current state so this also catches the
-        // summoner-death cascade just above, not just combat deaths.
-        for i in 0..units.len() {
-            if units[i].is_golem && prev_alive[i] && !units[i].alive {
-                handle_golem_death(
-                    &mut units,
-                    i,
-                    prev_at_ms,
-                    &mut events,
-                    &mut rolls,
-                    &mut rng,
-                    tunables.thunder_redistribution_pct,
-                    (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
-                );
-            }
-        }
+        // Golem Master's own summoner-death rule, plus Thunder Golem's own
+        // on-death consequences (Terrifying/reform/redistribution) - both
+        // read the SAME `prev_alive` snapshot as Rising Phoenix above, so
+        // this catches a summoner's death from any source too, with no
+        // per-site audit. See `sweep_golem_deaths`'s own doc.
+        sweep_golem_deaths(
+            &mut units,
+            &prev_alive,
+            prev_at_ms,
+            &mut events,
+            &mut rolls,
+            &mut rng,
+            tunables.thunder_redistribution_pct,
+            (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
+        );
         // Water Golem's own Shattering modifier - any enemy that just died.
         for i in 0..units.len() {
             if units[i].is_boss && prev_alive[i] && !units[i].alive {
@@ -14738,6 +14832,27 @@ mod elementalist_stage_4_tests {
         assert_eq!(amount, 250);
     }
 
+    /// Release 1.1 item 6 - the SkillCast marker must name the CASTING
+    /// Elementalist, matching the Heal event's own attribution (see the
+    /// test just above) - previously named the revived ally instead,
+    /// inconsistent with which unit actually took the action.
+    #[test]
+    fn rising_phoenix_skillcast_names_the_caster_not_the_revived_ally() {
+        let caster = elementalist(); // id "elementalist"
+        let mut dead_ally = ally("dead_ally", 0, 1000);
+        dead_ally.alive = false;
+        dead_ally.revive_caster_id = "elementalist".to_string();
+        let mut units = vec![caster, dead_ally];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_rising_phoenix_revival(&mut units, 1, 5_000, &mut events, &mut rng);
+        let skill_cast = events.iter().find_map(|e| match e {
+            CombatEvent::SkillCast { unit, skill, .. } if skill == "Rising Phoenix" => Some(unit.clone()),
+            _ => None,
+        });
+        assert_eq!(skill_cast, Some("elementalist".to_string()), "must name the casting Elementalist, not the revived ally");
+    }
+
     /// Rising Phoenix's revive must interact with heal-effect modifiers
     /// normally (per the explicit ruling superseding the original "skip
     /// apply_heal" design) - here, Water Golem's Singing (a receiver-side
@@ -14896,6 +15011,49 @@ mod elementalist_stage_5_tests {
         let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng2, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let ratio = outcome.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
         assert!((ratio - 0.01).abs() < 1e-6, "99% penalty should leave exactly 1% of normal damage, got ratio {ratio}");
+    }
+
+    /// Release 1.1 item 5's own required regression coverage - the live
+    /// audit found golem per-hit output nearly CONSTANT across fights
+    /// while the owner's own per-hit swung with their build/golem count.
+    /// Confirmed via code read this is the EXPECTED consequence of
+    /// `golem_summon_dmg_penalty` (see the test just above) being its own
+    /// independent field, never copied onto a golem by `spawn_golem` (it
+    /// defaults to 0.0 via `..zeroed_combat_unit()`, never listed) - a
+    /// golem's own per-hit output tracks the owner's UNPENALIZED stats
+    /// exactly, so it stays constant across fights where only golem
+    /// COUNT (not gear) varies, while the owner's own logged per-hit
+    /// swings with however many golems are currently summoned. Asserts
+    /// the ratio against a LIVE, `resolve_hit`-derived owner value (not a
+    /// hand-computed snapshot), per the explicit test requirement.
+    #[test]
+    fn golem_per_hit_tracks_the_owners_live_unpenalized_output_not_their_penalized_one() {
+        let owner_unpenalized = CombatSimUnit { increased_damage: 1.5, conflagration_dmg_pct: 0.3, golem_summon_dmg_penalty: 0.0, ..elementalist("caster", 2000, 1_000_000) };
+        // Same build, but with 3 golems out (99% additive penalty, the
+        // max) - the ONLY difference from `owner_unpenalized` above. At
+        // 2 golems (66%) the remaining 34% is still marginally ABOVE a
+        // golem's own ~33% ratio - 3 golems is the clean case where the
+        // owner's own remaining share (1%) is unambiguously below it.
+        let owner_actual = CombatSimUnit { golem_summon_dmg_penalty: 0.99, ..CombatSimUnit { increased_damage: 1.5, conflagration_dmg_pct: 0.3, ..elementalist("caster", 2000, 1_000_000) } };
+        let golem = spawn_golem(&owner_unpenalized, "caster", 0, GolemType::Basic, &elementalist_character());
+        let def = boss();
+
+        let mut rng = StdRng::seed_from_u64(1);
+        let owner_unpenalized_outcome = resolve_hit(2000.0, &owner_unpenalized, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut rng2 = StdRng::seed_from_u64(1);
+        let golem_outcome = resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng2, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut rng3 = StdRng::seed_from_u64(1);
+        let owner_actual_outcome = resolve_hit(2000.0, &owner_actual, &def, 1, &mut rng3, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+        let ratio = golem_outcome.unmitigated_damage as f64 / owner_unpenalized_outcome.unmitigated_damage as f64;
+        assert!(
+            (ratio - 0.33).abs() < 0.01,
+            "golem per-hit must track ~33% of the owner's OWN live, unpenalized output (with the SAME invested multipliers), got ratio {ratio}"
+        );
+        assert!(
+            golem_outcome.unmitigated_damage > owner_actual_outcome.unmitigated_damage,
+            "at 3 golems summoned (99% penalty), the owner's OWN penalized per-hit must fall below a single golem's own per-hit - exactly the live audit's own observed pattern (golem output roughly constant, owner's own swings with golem-count/build)"
+        );
     }
 
     #[test]
@@ -15350,6 +15508,31 @@ mod elementalist_stage_6_golem_type_tests {
 
     // --- Thunder Golem absorbed-damage redistribution (Release 1 Part B) ---
 
+    /// Release 1.1 item 1's own required regression coverage - the actual
+    /// root cause found: `apply_hit` had no guard against a target that
+    /// was ALREADY dead when the call started (every sibling damage site
+    /// - `apply_reflect_damage`, `apply_volatile_magic_splash`, DoT ticks,
+    /// Doom's detonation - already had one). Reproducibly hit by a boss
+    /// ability whose splash lands multiple independently-redirected hits
+    /// on the same Thunder Golem within one turn: the second (and any
+    /// later) hit re-ran the whole pipeline against a corpse, double-
+    /// counting `thundergolem_absorbed_this_incarnation` and pushing a
+    /// second, spurious `Defeat` event.
+    #[test]
+    fn apply_hit_against_an_already_dead_target_is_a_complete_no_op() {
+        let attacker = CombatSimUnit { id: "boss".to_string(), display_name: "Boss".to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, is_boss: true, atk: 500, ..Default::default() };
+        let mut target = dead_thunder_golem(736.0);
+        target.hp = 0;
+        let before = target.thundergolem_absorbed_this_incarnation;
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 500.0, 5_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert!(events.is_empty(), "an already-dead target must produce no Attack/Defeat events at all, not a repeat of them");
+        assert_eq!(units[1].thundergolem_absorbed_this_incarnation, before, "an already-dead golem's absorbed total must never be incremented again");
+    }
+
     fn real_player(id: &str, hp: i64) -> CombatSimUnit {
         CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp: hp as u64, ..Default::default() }
     }
@@ -15625,6 +15808,361 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         }
     }
 
+    /// Release 1.1 item 1's own required regression coverage - a golem
+    /// that dies in the SAME tick that ends the fight (a full party wipe,
+    /// or the golem dying alongside the boss's own final blow) must still
+    /// get its `handle_golem_death` call. Reproduces the live audit's
+    /// "redistribution fires on roughly 1 in 6 Thunder Golem deaths"
+    /// finding via a real `simulate_battle` run against every `BossKind`,
+    /// asserting instead that (once the party's own recipients are
+    /// excluded - see below) coverage is complete.
+    #[test]
+    fn every_golem_death_gets_handle_golem_death_even_on_the_fights_final_tick() {
+        let all_boss_kinds = [BossKind::Lich, BossKind::FireDemon, BossKind::Cthulhu, BossKind::Dragon, BossKind::GelatinousCube];
+        for (seed, boss_kind) in all_boss_kinds.iter().enumerate() {
+            let mut character = Character::new("elementalist".to_string());
+            character.archetype = Archetype::Elementalist;
+            character.level = 100;
+            character.passive_allocations.insert("golemmaster".to_string(), 3);
+            character.passive_allocations.insert("thundergolem".to_string(), 4);
+            character.passive_allocations.insert("gigantify".to_string(), 3);
+            character.passive_allocations.insert("growing".to_string(), 3);
+            character.golem_slot_types = vec![GolemType::Thunder, GolemType::Thunder, GolemType::Thunder];
+            // A real party (not a solo character) - matches the live
+            // audit's multi-hero fights, and a weak boss (not the usual
+            // isolation-test stats) so the fight runs many rounds with
+            // many reforms instead of a single one-shot wipe - both
+            // needed to exercise the sweep-before-break fix against a
+            // realistic death cadence, not just the trivial single-death
+            // case.
+            let mut ally_a = Character::new("ally_a".to_string());
+            ally_a.archetype = Archetype::Cleric;
+            ally_a.level = 100;
+            let mut ally_b = Character::new("ally_b".to_string());
+            ally_b.archetype = Archetype::Paladin;
+            ally_b.level = 100;
+            let mut characters: HashMap<String, Character> = HashMap::new();
+            characters.insert("elementalist".to_string(), character);
+            characters.insert("ally_a".to_string(), ally_a);
+            characters.insert("ally_b".to_string(), ally_b);
+
+            let boss_stats = BossStats {
+                hp: 500_000_000,
+                atk: 100,
+                attack_interval_ms: 1_200,
+                damage_reduction: 0.15,
+                block_chance: 0.10,
+                evasion: 0.05,
+                increased_damage: 0.20,
+                crit_chance: 0.15,
+                crit_multiplier: 0.50,
+                splash: 0.0,
+            };
+            let tunables = LiveTunables::default();
+            let mut rng = StdRng::seed_from_u64(2000 + seed as u64);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+
+            let golem_ids: Vec<String> = unit_infos.iter().filter(|u| !u.is_boss && u.golem_summoner_id.is_some()).map(|u| u.id.clone()).collect();
+            assert_eq!(golem_ids.len(), 3, "{boss_kind:?}: expected exactly 3 summoned Thunder Golems");
+            let real_player_ids: Vec<String> = unit_infos.iter().filter(|u| !u.is_boss && u.golem_summoner_id.is_none()).map(|u| u.id.clone()).collect();
+
+            // Golem deaths and their eligibility (whether a real player
+            // was still alive at the time `handle_golem_death` actually
+            // ran for them) must both be judged AFTER the FULL tick's
+            // events resolve, not mid-tick - the sweep that calls
+            // `handle_golem_death` only ever runs once ALL of a tick's
+            // Attack/Defeat events (multiple real players and/or golems
+            // can die in the SAME tick, e.g. a full-party-sweep boss
+            // ability) have already been pushed, so a real player who
+            // dies LATER in the log within the SAME at_ms as a golem's
+            // own death is already gone by the time that golem's
+            // recipients get checked. Grouping by at_ms and applying each
+            // group's Defeats before evaluating it (rather than a single
+            // linear pass) mirrors that ordering exactly. A death after
+            // the whole party has wiped legitimately has nobody to
+            // redistribute to (the existing, deliberate
+            // `recipients.is_empty()` guard in `handle_golem_death`), so
+            // those are excluded from the "must redistribute" expectation
+            // below rather than miscounted as a coverage failure.
+            let mut real_player_alive: std::collections::HashMap<String, bool> = real_player_ids.iter().map(|id| (id.clone(), true)).collect();
+            let mut redistributable_golem_deaths = 0u32;
+            let mut redistributions = 0u32;
+            let mut events_by_tick: std::collections::BTreeMap<u32, Vec<&CombatEvent>> = std::collections::BTreeMap::new();
+            for event in &events {
+                events_by_tick.entry(event.at_ms()).or_default().push(event);
+            }
+            for (_at_ms, tick_events) in events_by_tick {
+                let golem_deaths_this_tick: Vec<&String> =
+                    tick_events.iter().filter_map(|e| if let CombatEvent::Defeat { unit, .. } = e { golem_ids.contains(unit).then_some(unit) } else { None }).collect();
+                for &unit in &tick_events {
+                    if let CombatEvent::Defeat { unit, .. } = unit {
+                        if let Some(alive) = real_player_alive.get_mut(unit) {
+                            *alive = false;
+                        }
+                    }
+                }
+                if !golem_deaths_this_tick.is_empty() && real_player_alive.values().any(|&a| a) {
+                    redistributable_golem_deaths += golem_deaths_this_tick.len() as u32;
+                }
+                redistributions += tick_events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Thunder Golem Redistribution")).count() as u32;
+            }
+            assert!(redistributable_golem_deaths > 0, "{boss_kind:?}: fixture produced no redistributable golem deaths at all - test would be vacuous");
+            assert_eq!(
+                redistributions, redistributable_golem_deaths,
+                "{boss_kind:?}: every golem death with at least one real player still alive after that same tick must trigger a redistribution - {redistributions} of {redistributable_golem_deaths}"
+            );
+        }
+    }
+
+    /// Release 1.1 item 3's own required regression coverage - a numeric
+    /// test tied to the event log's own absorbed/redistributed sums, not
+    /// a snapshot of internal state. Deliberately a SOLO golem slot (not
+    /// 3) - with only one Thunder Golem ever alive, every single
+    /// `Environmental`-tagged redistribution tick in the log
+    /// unambiguously came from ITS deaths (B4's sentinel attacker id
+    /// carries no per-golem id, so with multiple simultaneous Thunder
+    /// Golems there'd be no way to attribute a given tick back to
+    /// "which golem" purely from the log - this is exactly what makes a
+    /// PRECISE, exact-equality numeric check possible here). Runs a
+    /// real multi-round fight (a weak boss so the golem reforms and
+    /// dies many times, each incarnation contributing its own
+    /// absorbed/redistributed slice), then independently reconstructs,
+    /// from the event log ALONE:
+    /// - `absorbed` = the sum of every `Attack` event's `damage` where
+    ///   the golem's own id is the target (its id never changes across
+    ///   reforms - only `alive`/hp reset - so this is the golem's TOTAL
+    ///   absorbed across every incarnation).
+    /// - `redistributed` = the sum of every `Environmental`-tagged
+    ///   Attack event's `damage` (B4's own sentinel-attributed ticks).
+    /// and asserts the golem's final `CombatUnitInfo.thunderNetAbsorbed`
+    /// equals `absorbed - redistributed` EXACTLY - the documented
+    /// formula, verified end to end rather than per-incarnation in
+    /// isolation.
+    #[test]
+    fn thunder_net_absorbed_equals_the_event_logs_own_absorbed_minus_redistributed_sums() {
+        let mut character = Character::new("elementalist".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.level = 100;
+        character.passive_allocations.insert("golemmaster".to_string(), 1);
+        character.passive_allocations.insert("thundergolem".to_string(), 4);
+        character.passive_allocations.insert("gigantify".to_string(), 3);
+        character.passive_allocations.insert("growing".to_string(), 3);
+        character.golem_slot_types = vec![GolemType::Thunder];
+        let mut ally_a = Character::new("ally_a".to_string());
+        ally_a.archetype = Archetype::Cleric;
+        ally_a.level = 100;
+        let mut ally_b = Character::new("ally_b".to_string());
+        ally_b.archetype = Archetype::Paladin;
+        ally_b.level = 100;
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist".to_string(), character);
+        characters.insert("ally_a".to_string(), ally_a);
+        characters.insert("ally_b".to_string(), ally_b);
+
+        let boss_stats = BossStats {
+            hp: 500_000_000,
+            atk: 100,
+            attack_interval_ms: 1_200,
+            damage_reduction: 0.15,
+            block_chance: 0.10,
+            evasion: 0.05,
+            increased_damage: 0.20,
+            crit_chance: 0.15,
+            crit_multiplier: 0.50,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(4242);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+
+        let golem_id = unit_infos.iter().find(|u| u.golem_type == Some(GolemType::Thunder)).map(|u| u.id.clone()).expect("fixture produced no Thunder Golem - test would be vacuous");
+
+        let absorbed: u64 = events
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Attack { target, damage, .. } if *target == golem_id => Some(*damage),
+                _ => None,
+            })
+            .sum();
+        let redistributed: u64 = events
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Attack { attacker, damage, source_kind: AttackSourceKind::Environmental, .. } if *attacker == THUNDER_REDISTRIBUTION_ATTACKER_ID => Some(*damage),
+                _ => None,
+            })
+            .sum();
+        assert!(absorbed > 0, "the golem never absorbed anything this fight - test would be vacuous");
+        assert!(redistributed > 0, "the golem never redistributed anything this fight - test would be vacuous (weakens the test to only the trivial absorbed==net_absorbed case)");
+
+        // `<=`, not `==` - the fight can end before the FINAL incarnation's
+        // scheduled 2 ticks both get a chance to fire (redistribution
+        // ticks land up to `redistribution_window_ms` after the death
+        // that scheduled them; nothing guarantees the fight runs that
+        // much longer). `thundergolem_net_absorbed` debits the FULL
+        // theoretical amount unconditionally at death time (B1's own
+        // "dying incarnations credit absorbed x (1-pct)" - a death-time
+        // computation, not a delivery-time one), so a death very close to
+        // the fight's own end can legitimately leave net_absorbed LOWER
+        // than what the (necessarily truncated) delivered-ticks sum alone
+        // would imply. `net_absorbed` must never be HIGHER than that,
+        // though - nothing should ever manufacture credit back.
+        let golem_info = unit_infos.iter().find(|u| u.id == golem_id).unwrap();
+        assert!(
+            golem_info.thunder_net_absorbed <= absorbed - redistributed,
+            "thunderNetAbsorbed ({}) must never exceed (event-log absorbed - event-log redistributed) ({}): absorbed={absorbed} redistributed={redistributed}",
+            golem_info.thunder_net_absorbed,
+            absorbed - redistributed
+        );
+        // And the gap (if any) must be small - at most one incarnation's
+        // worth of redistribution left undelivered by the fight ending,
+        // never a large, systematic miscalculation. `absorbed` itself is
+        // a safe, generous upper bound for "one incarnation's share".
+        let gap = (absorbed - redistributed) - golem_info.thunder_net_absorbed;
+        assert!(gap <= absorbed, "the gap between the expected and actual net_absorbed ({gap}) is implausibly large for a single truncated incarnation - looks like a real miscalculation, not end-of-fight truncation");
+    }
+
+    fn real_player(id: &str, hp: i64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp: hp as u64, ..Default::default() }
+    }
+
+    fn dead_thunder_golem(absorbed: f64) -> CombatSimUnit {
+        CombatSimUnit {
+            id: "__golem_caster_0".to_string(),
+            display_name: "Caster's Golem".to_string(),
+            alive: false,
+            hp: 0,
+            max_hp: 1000,
+            is_golem: true,
+            golem_type: Some(GolemType::Thunder),
+            thundergolem_absorbed_this_incarnation: absorbed,
+            thundergolem_net_absorbed: absorbed,
+            golem_reform_at_ms: u32::MAX,
+            ..Default::default()
+        }
+    }
+
+    /// Release 1.1 item 3's own required regression coverage, deterministic
+    /// half - the merge-not-overwrite fix directly (see
+    /// `handle_golem_death`'s own doc): a SECOND death, scheduling a
+    /// NEW redistribution for a recipient who still has ticks pending
+    /// from a FIRST death, must never discard the first death's
+    /// still-owed amount. Fully controlled (no fight-end-truncation
+    /// ambiguity, unlike the full-fight test above) - both deaths'
+    /// ticks are driven to completion by hand, and every unit of
+    /// absorbed damage from BOTH deaths must show up somewhere in the
+    /// recipient's own total received damage.
+    #[test]
+    fn a_second_death_before_the_first_deaths_ticks_finish_loses_nothing() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        // First death at t=0: 1000 absorbed, 50% redistribution -> 500
+        // total owed to alice (the only recipient), scheduled as 2
+        // ticks of 250 each at t=1000/2000.
+        handle_golem_death(&mut units, 0, 0, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 2);
+        assert!((units[1].thunder_redistribution_per_tick_amount - 250.0).abs() < 1e-9);
+
+        // First tick fires at t=1000 (250 delivered, 250 still owed).
+        apply_thunder_redistribution_tick(&mut units, 1, 1_000, &mut events, 1_000);
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 1);
+
+        // Golem reforms, absorbs another 400, and dies AGAIN at t=1500 -
+        // BEFORE the first death's own second tick (due at t=2000) has
+        // fired. Without the merge fix, this would have overwritten
+        // alice's still-pending 250 with only the new death's own share,
+        // silently losing it.
+        units[0].thundergolem_absorbed_this_incarnation = 400.0;
+        units[0].alive = false;
+        handle_golem_death(&mut units, 0, 1_500, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        // 50% of 400 = 200 newly owed, plus the 250 still outstanding
+        // from before = 450 total, re-leveled over a fresh 2 ticks of
+        // 225 each.
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 2, "must reset to a fresh 2-tick sequence, not just top up the old one");
+        assert!((units[1].thunder_redistribution_per_tick_amount - 225.0).abs() < 1e-9, "(250 still owed + 200 newly owed) / 2 ticks = 225 each - nothing lost");
+
+        // Drive both new ticks to completion.
+        apply_thunder_redistribution_tick(&mut units, 1, 2_500, &mut events, 1_000);
+        apply_thunder_redistribution_tick(&mut units, 1, 3_500, &mut events, 1_000);
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0);
+
+        let total_delivered: i64 = events
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Attack { target, damage, source_kind: AttackSourceKind::Environmental, .. } if target == "alice" => Some(*damage as i64),
+                _ => None,
+            })
+            .sum();
+        // 250 (first tick of death 1) + 450 (both ticks of the merged
+        // second schedule) = 700 total - exactly 50% of (1000 + 400) =
+        // 700, nothing lost to the overwrite this test targets.
+        assert_eq!(total_delivered, 700, "every unit of redistribution owed across BOTH deaths must eventually reach the recipient");
+    }
+
+    /// Release 1.1 item 4's own required regression coverage - every
+    /// OTHER golem-sizing test hand-constructs its own `CombatSimUnit`
+    /// summoner with a directly-specified `max_hp`, bypassing
+    /// `simulate_battle`'s own real construction pipeline
+    /// (`Character::combat_max_hp()` -> the first `.map()` pass building
+    /// `units`) entirely - so a bug specific to that real pipeline, in a
+    /// real multi-character party ("party buff" per the live finding),
+    /// would never show up in any of them. Runs `spawn_golem` through the
+    /// genuine `simulate_battle` path with 2 real characters and real
+    /// generated gear, and checks the golem's actual `CombatUnitInfo.maxHp`
+    /// against the summoner's OWN `Character::combat_max_hp()`, computed
+    /// independently - proving there's no pre/post-buff split between
+    /// what golems are sized from and what the fight record reports:
+    /// investigated at length (real gear, a real 2-character party,
+    /// confirmed gigantify=3) and could not reproduce the "implied base
+    /// = predicted x 0.7692" signature the live finding describes - this
+    /// exact ratio always comes out to 1.0000 exactly. Documented as
+    /// unresolved (not a confirmed code bug) in this release's own
+    /// report, same "honest, don't guess" precedent as A3's own sizing
+    /// investigation.
+    #[test]
+    fn golem_sizing_matches_combat_max_hp_exactly_through_the_real_party_pipeline() {
+        let mut character = Character::new("elementalist".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.level = 100;
+        character.passive_allocations.insert("golemmaster".to_string(), 1);
+        character.passive_allocations.insert("thundergolem".to_string(), 1);
+        character.passive_allocations.insert("gigantify".to_string(), 3);
+        character.golem_slot_types = vec![GolemType::Thunder];
+        // Real, generated gear (not the bare no-gear default) - matches a
+        // real production character's actual stat profile, since the
+        // live finding is specifically about a real character (kazesosa)
+        // with real gear, not a fresh unequipped one.
+        let mut gear_rng = StdRng::seed_from_u64(42);
+        character.weapon = Some(generate_item(EquipSlot::Weapon, 1000, &mut gear_rng));
+        character.helm = Some(generate_item(EquipSlot::Helm, 1000, &mut gear_rng));
+        character.body = Some(generate_item(EquipSlot::Body, 1000, &mut gear_rng));
+        character.gloves = Some(generate_item(EquipSlot::Gloves, 1000, &mut gear_rng));
+        character.boots = Some(generate_item(EquipSlot::Boots, 1000, &mut gear_rng));
+        let predicted_owner_max_hp = character.combat_max_hp() as f64;
+
+        let mut ally = Character::new("ally_a".to_string());
+        ally.archetype = Archetype::Cleric;
+        ally.level = 100;
+
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist".to_string(), character);
+        characters.insert("ally_a".to_string(), ally);
+
+        let boss_stats = BossStats { hp: 1, atk: 0, attack_interval_ms: 100_000, ..Default::default() };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(1);
+        let (_won, unit_infos, _events, _rolls) = simulate_battle(&characters, vec![(boss_stats, None, 1.0)], 100, &tunables, &mut rng);
+
+        let owner_info = unit_infos.iter().find(|u| u.id == "elementalist").unwrap();
+        assert_eq!(owner_info.max_hp, predicted_owner_max_hp as u64, "sanity check - the fight record's own maxHp must match Character::combat_max_hp() exactly");
+        let golem_info = unit_infos.iter().find(|u| u.golem_summoner_id.as_deref() == Some("elementalist")).unwrap();
+
+        let expected_golem_max_hp = (predicted_owner_max_hp * 0.33 * 4.0).round() as u64; // gigantify rank 3 = 1+3.0
+        assert_eq!(golem_info.max_hp, expected_golem_max_hp, "golem sizing must derive from the SAME max_hp the fight record itself reports - no pre/post-buff split");
+    }
+
     /// The 2026-08-19 bugfix's own required regression coverage: protected
     /// (non-Thunder) golems must be immune to damage and never selected as
     /// a target REGARDLESS of whether a Thunder Golem exists to absorb
@@ -15646,12 +16184,54 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             character.level = 100;
             character.passive_allocations.insert("golemmaster".to_string(), 3);
             character.golem_slot_types = vec![GolemType::Basic, GolemType::Flame, GolemType::Water];
+            // Real gear (2026-08-19, Release 1.1 test-robustness fix,
+            // same reasoning as the weaker boss_stats.atk just below) -
+            // this fixture's own elementalist has no Thunder Golem, so
+            // no damage-absorption at all; a bare, gear-less level-100
+            // character's own hp pool (a few hundred) leaves survival
+            // for even a modest boss down to evasion/block RNG luck. A
+            // real, generated gear set gives a MUCH larger hp buffer so
+            // the fixture reliably outlasts this test's own short
+            // observation window regardless of RNG-sequence drift.
+            let mut gear_rng = StdRng::seed_from_u64(9000 + seed as u64);
+            character.weapon = Some(generate_item(EquipSlot::Weapon, 500, &mut gear_rng));
+            character.helm = Some(generate_item(EquipSlot::Helm, 500, &mut gear_rng));
+            character.body = Some(generate_item(EquipSlot::Body, 500, &mut gear_rng));
+            character.gloves = Some(generate_item(EquipSlot::Gloves, 500, &mut gear_rng));
+            character.boots = Some(generate_item(EquipSlot::Boots, 500, &mut gear_rng));
             let mut characters: HashMap<String, Character> = HashMap::new();
             characters.insert("elementalist".to_string(), character);
 
+            // Deliberately weak (2026-08-19, Release 1.1 test-robustness
+            // fix) - this fixture's own elementalist has NO Thunder Golem
+            // (every slot is Basic/Flame/Water, "the worst case" per this
+            // test's own doc) and so no damage-absorption protection at
+            // all, unlike the sibling `thunder_golem_absorbs_...` test
+            // just above. The original `atk: 100_000` against a level-100
+            // solo character's own unmitigated hp (a few hundred, no gear
+            // equipped) relied entirely on evasion/block RNG luck to
+            // avoid an early, test-ending death - any behavior change
+            // that shifts this fixed seed's own RNG consumption sequence
+            // (even a genuinely unrelated, correct one) can turn "got
+            // lucky and survived" into "took a lethal hit", which then
+            // correctly cascades the golems' own summoner-death rule - a
+            // false-looking "golem died" violation that's actually this
+            // TEST's own fragility, not a real isolation breach (the
+            // violation log never shows a golem being directly
+            // targeted/damaged, only the cascade). Real gear (below) and
+            // a weak boss atk buy survivability, but the DEEPER fragility
+            // was `hp: 500_000` against a SOLO 3-golem Elementalist's own
+            // ~1%-of-normal damage output (99% golem-summon-damage
+            // penalty at 3 golems, by design) - an indefinitely long
+            // fight, in which the elementalist's own hp eventually loses
+            // to accumulated chip damage no matter how tanky, since nothing
+            // here ever heals them. A LOW boss hp instead lets the fight
+            // conclude via an actual WIN, quickly, before that has a
+            // chance to matter - this is what actually fixes it, not
+            // survivability tuning alone.
             let boss_stats = BossStats {
-                hp: 500_000,
-                atk: 100_000,
+                hp: 2_000,
+                atk: 50,
                 attack_interval_ms: 1_200,
                 damage_reduction: 0.15,
                 block_chance: 0.10,
@@ -15831,5 +16411,115 @@ mod leech_leaky_bucket_tests {
         // Only 1/1000th of the cap (0.1) should have drained - nowhere
         // close to the full reset-to-zero the old bug effectively granted.
         assert!(after >= cap - 1.0, "only ~1ms of drain should have occurred between hits 1ms apart, got room for {} more", cap - after);
+    }
+}
+
+/// Release 1.1 item 7's own required regression coverage - Warrior's
+/// Retaliation and the shared Rogue's Voidstep/Monk's Counterflow/
+/// Druid's Wild Fury counter-attack group had ZERO existing test
+/// coverage before this. Confirmed via full code read (both gates'
+/// only call sites, `evade_counter_chance`'s only construction site at
+/// `c.passive_node_magnitude("voidstep") + ..."counterflow") + ...
+/// "wildfury")`) - Retaliation fires on a LANDED hit the target
+/// survived (`!outcome.evaded`, covers a blocked hit too - block never
+/// sets `evaded`, only a successful dodge does), the Voidstep/
+/// Counterflow/Wild Fury group fires on an EVADED hit
+/// (`outcome.evaded`), and no OTHER passive anywhere in this file reads
+/// or writes either gate's own fields (`retaliation_chance` and its
+/// siblings; `evade_counter_chance`/`evade_counter_last_fired_at_ms`) -
+/// each "defensive roll" outcome (survive-a-landed-hit vs. evade-a-hit)
+/// triggers exactly its own dedicated group, never both, never neither.
+#[cfg(test)]
+mod retaliate_proc_gate_tests {
+    use super::*;
+
+    fn neutral_attacker() -> CombatSimUnit {
+        CombatSimUnit { id: "attacker".to_string(), display_name: "Attacker".to_string(), alive: true, hp: 100_000, max_hp: 100_000, atk: 10, ..Default::default() }
+    }
+
+    fn counter_events(units: &[CombatSimUnit], events: &[CombatEvent]) -> usize {
+        events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, target, .. } if *attacker == units[1].id && *target == units[0].id)).count()
+    }
+
+    #[test]
+    fn retaliation_fires_on_a_landed_hit_the_target_survives() {
+        let attacker = neutral_attacker();
+        let defender = CombatSimUnit { retaliation_chance: 1.0, evasion: 0.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 1, "a landed, survived hit with 100% retaliation_chance must always counter-attack");
+    }
+
+    #[test]
+    fn retaliation_never_fires_on_an_evaded_hit() {
+        let attacker = neutral_attacker();
+        let defender = CombatSimUnit { retaliation_chance: 1.0, evasion: 1.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 0, "an evaded hit must never trigger Retaliation - that gate is for surviving a LANDED hit only");
+    }
+
+    #[test]
+    fn voidstep_counterflow_wildfury_group_fires_on_an_evaded_hit() {
+        let attacker = neutral_attacker();
+        let defender = CombatSimUnit { evade_counter_chance: 1.0, evasion: 1.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 1, "an evaded hit with 100% evade_counter_chance must always counter-attack");
+    }
+
+    #[test]
+    fn voidstep_counterflow_wildfury_group_never_fires_on_a_landed_hit() {
+        let attacker = neutral_attacker();
+        let defender = CombatSimUnit { evade_counter_chance: 1.0, evasion: 0.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 0, "a landed hit must never trigger Voidstep/Counterflow/Wild Fury - that gate is for an EVADED hit only");
+    }
+
+    #[test]
+    fn voidstep_counterflow_wildfury_group_is_capped_at_once_per_second() {
+        let attacker = neutral_attacker();
+        let defender = CombatSimUnit { evade_counter_chance: 1.0, evasion: 1.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        apply_hit(&mut units, 0, 1, 100.0, 1_500, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 1, "a second evaded hit only 500ms later must not double-trigger the counter - 1 real trigger per second");
+        apply_hit(&mut units, 0, 1, 100.0, 2_100, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 2, "a third evaded hit 1100ms after the first counter must be allowed to trigger again");
+    }
+
+    /// A counter-attack must never re-trigger ITS OWN gate (both groups
+    /// reuse the `!is_followup` guard for this) - without it, a
+    /// Retaliation counter-attack could itself get retaliated against by
+    /// the original attacker, recursing indefinitely.
+    #[test]
+    fn a_retaliation_counter_attack_cannot_itself_be_retaliated_against() {
+        let attacker = CombatSimUnit { retaliation_chance: 1.0, evasion: 0.0, ..neutral_attacker() };
+        let defender = CombatSimUnit { retaliation_chance: 1.0, evasion: 0.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, atk: 10, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        let defender_to_attacker = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker: a, target: t, .. } if a == &units[1].id && t == &units[0].id)).count();
+        let attacker_to_defender = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker: a, target: t, .. } if a == &units[0].id && t == &units[1].id)).count();
+        assert_eq!(defender_to_attacker, 1, "the defender's own counter must fire exactly once");
+        assert_eq!(attacker_to_defender, 1, "only the ORIGINAL hit, never a counter-counter from the attacker's own (also 100%) Retaliation");
     }
 }
