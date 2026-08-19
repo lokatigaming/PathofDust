@@ -23,23 +23,34 @@ use crate::twitch::helix::HelixClient;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const THEME_REWARD_TITLE: &str = "Set Entrance Theme Song";
+// pub, not pub(crate) (2026-08-19, Release 2 observability) - main.rs's
+// redemption dispatch logs each redemption's title alongside its
+// reward_id/username, reusing these instead of a second copy of the
+// literal strings. `src/main.rs` is a separate BINARY crate from this
+// library crate (`use twitch_bot_rs::channel_points` is a cross-crate
+// access from main.rs's perspective, same as any external dependency),
+// so `pub(crate)` - which only reaches within this library crate itself -
+// isn't enough; confirmed the hard way (E0603) when `cargo test`
+// actually compiled the bin target and `cargo build`'s own success
+// turned out to be a false read - piping through `tail` swallowed
+// cargo's real (nonzero) exit code behind the pipe's own.
+pub const THEME_REWARD_TITLE: &str = "Set Entrance Theme Song";
 const THEME_REWARD_PROMPT: &str =
     "Enter a YouTube link or song search — this becomes your entrance theme, played the next time you show up in chat!";
 
-const INTERRUPT_REWARD_TITLE: &str = "Interrupt the Music";
+pub const INTERRUPT_REWARD_TITLE: &str = "Interrupt the Music";
 const INTERRUPT_REWARD_PROMPT: &str =
     "Enter a YouTube link or song search — it plays immediately, interrupting the current song, AND counts as your vote to skip it!";
 
-const REFORGE_REWARD_TITLE: &str = "Reforge Gear";
+pub const REFORGE_REWARD_TITLE: &str = "Reforge Gear";
 const REFORGE_REWARD_PROMPT: &str =
     "Reforges one random piece of your adventure gear into a fresh, higher-tier version! Once per hour — needs at least one item equipped (fight some encounters first via !join).";
 
-const REPAIR_REWARD_TITLE: &str = "Repair All Gear";
+pub const REPAIR_REWARD_TITLE: &str = "Repair All Gear";
 const REPAIR_REWARD_PROMPT: &str =
     "Fully repairs every piece of your adventure gear, equipped and bagged, and gets you straight back on the battlefield if worn-out gear had you sitting out!";
 
-const FORCE_BOSS_REWARD_TITLE: &str = "Force Boss Fight";
+pub const FORCE_BOSS_REWARD_TITLE: &str = "Force Boss Fight";
 const FORCE_BOSS_REWARD_PROMPT: &str =
     "Triggers the next boss fight right now instead of waiting for the 10-minute timer! Limited to 2 uses per 10-minute cycle - refunded if nobody's currently joined.";
 

@@ -879,6 +879,25 @@ async fn async_main() -> anyhow::Result<()> {
             let adventure = adventure.clone();
             tokio::spawn(async move {
                 if let TwitchEvent::ChannelPointsRedemption { redemption_id, reward_id, user_name, user_input } = event {
+                    // Release 2 observability - the raw redemption itself
+                    // had no log trace before this; each handler only
+                    // logged its OWN downstream outcome, so a parser
+                    // auditing redemption volume/attribution had nothing
+                    // to start from.
+                    let reward_title = if interrupt_reward_id.as_deref() == Some(reward_id.as_str()) {
+                        channel_points::INTERRUPT_REWARD_TITLE
+                    } else if theme_reward_id.as_deref() == Some(reward_id.as_str()) {
+                        channel_points::THEME_REWARD_TITLE
+                    } else if reforge_reward_id.as_deref() == Some(reward_id.as_str()) {
+                        channel_points::REFORGE_REWARD_TITLE
+                    } else if repair_reward_id.as_deref() == Some(reward_id.as_str()) {
+                        channel_points::REPAIR_REWARD_TITLE
+                    } else if force_boss_reward_id.as_deref() == Some(reward_id.as_str()) {
+                        channel_points::FORCE_BOSS_REWARD_TITLE
+                    } else {
+                        "unrecognized"
+                    };
+                    tracing::info!(%reward_title, %reward_id, %user_name, %redemption_id, "Redemption");
                     if interrupt_reward_id.as_deref() == Some(reward_id.as_str()) {
                         handle_interrupt_redemption(
                             redemption_id,

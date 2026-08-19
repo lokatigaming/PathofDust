@@ -140,7 +140,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 13,
+      "hitId": 14,
       "sourceKind": "direct"
     },
     {
@@ -153,7 +153,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 22,
+      "hitId": 23,
       "sourceKind": "dot"
     },
     {
@@ -166,7 +166,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 24,
+      "hitId": 25,
       "sourceKind": "dot"
     },
     {
@@ -179,7 +179,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 26,
+      "hitId": 27,
       "sourceKind": "dot"
     },
     {
@@ -192,7 +192,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 28,
+      "hitId": 29,
       "sourceKind": "dot"
     },
     {
@@ -205,7 +205,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 30,
+      "hitId": 31,
       "sourceKind": "dot"
     },
     {
@@ -218,7 +218,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 32,
+      "hitId": 33,
       "sourceKind": "dot"
     },
     {
@@ -231,7 +231,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 34,
+      "hitId": 35,
       "sourceKind": "dot"
     },
     {
@@ -244,7 +244,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 36,
+      "hitId": 37,
       "sourceKind": "dot"
     },
     {
@@ -257,7 +257,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 38,
+      "hitId": 39,
       "sourceKind": "dot"
     },
     {
@@ -270,7 +270,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 40,
+      "hitId": 41,
       "sourceKind": "dot"
     },
     {
@@ -283,7 +283,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 42,
+      "hitId": 43,
       "sourceKind": "dot"
     },
     {
@@ -296,7 +296,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 44,
+      "hitId": 45,
       "sourceKind": "dot"
     },
     {
@@ -309,7 +309,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 46,
+      "hitId": 47,
       "sourceKind": "dot"
     },
     {
@@ -322,7 +322,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 48,
+      "hitId": 49,
       "sourceKind": "dot"
     },
     {
@@ -341,7 +341,7 @@
       "targetHpAfter": 85,
       "isCrit": false,
       "evaded": false,
-      "hitId": 50,
+      "hitId": 51,
       "sourceKind": "direct"
     },
     {
@@ -354,7 +354,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 54,
+      "hitId": 56,
       "sourceKind": "dot"
     },
     {
@@ -367,7 +367,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 56,
+      "hitId": 58,
       "sourceKind": "dot"
     },
     {
@@ -380,7 +380,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 58,
+      "hitId": 60,
       "sourceKind": "dot"
     },
     {
@@ -393,7 +393,7 @@
       "targetHpAfter": 7679,
       "isCrit": false,
       "evaded": false,
-      "hitId": 60,
+      "hitId": 62,
       "sourceKind": "dot"
     },
     {
@@ -417,7 +417,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 62,
+      "hitId": 64,
       "sourceKind": "direct"
     },
     {
@@ -521,8 +521,18 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 14,
-      "hitId": 13,
+      "eventId": 13,
+      "hitId": 7,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warrior_vs_lich_stage50",
+      "magnitude": 0.05274780512420916
+    },
+    {
+      "eventId": 15,
+      "hitId": 14,
       "atMs": 1259,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -532,8 +542,8 @@
       "succeeded": false
     },
     {
-      "eventId": 15,
-      "hitId": 13,
+      "eventId": 16,
+      "hitId": 14,
       "atMs": 1259,
       "category": "evasion",
       "source": "Evasion",
@@ -543,8 +553,8 @@
       "succeeded": false
     },
     {
-      "eventId": 16,
-      "hitId": 13,
+      "eventId": 17,
+      "hitId": 14,
       "atMs": 1259,
       "category": "block",
       "source": "Block chance",
@@ -554,8 +564,8 @@
       "succeeded": false
     },
     {
-      "eventId": 17,
-      "hitId": 13,
+      "eventId": 18,
+      "hitId": 14,
       "atMs": 1259,
       "category": "crit",
       "source": "Crit chance",
@@ -564,8 +574,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 18,
-      "hitId": 13,
+      "eventId": 19,
+      "hitId": 14,
       "atMs": 1259,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -574,8 +584,8 @@
       "magnitude": 0.49456060647009936
     },
     {
-      "eventId": 19,
-      "hitId": 13,
+      "eventId": 20,
+      "hitId": 14,
       "atMs": 1259,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -584,8 +594,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 20,
-      "hitId": 13,
+      "eventId": 21,
+      "hitId": 14,
       "atMs": 1259,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -595,8 +605,8 @@
       "succeeded": false
     },
     {
-      "eventId": 21,
-      "hitId": 13,
+      "eventId": 22,
+      "hitId": 14,
       "atMs": 1259,
       "category": "elementalProc",
       "source": "Divine proc",
@@ -606,8 +616,8 @@
       "succeeded": false
     },
     {
-      "eventId": 23,
-      "hitId": 22,
+      "eventId": 24,
+      "hitId": 23,
       "atMs": 1309,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -616,8 +626,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 25,
-      "hitId": 24,
+      "eventId": 26,
+      "hitId": 25,
       "atMs": 1359,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -626,8 +636,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 27,
-      "hitId": 26,
+      "eventId": 28,
+      "hitId": 27,
       "atMs": 1409,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -636,8 +646,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 29,
-      "hitId": 28,
+      "eventId": 30,
+      "hitId": 29,
       "atMs": 1459,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -646,8 +656,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 31,
-      "hitId": 30,
+      "eventId": 32,
+      "hitId": 31,
       "atMs": 1509,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -656,8 +666,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 33,
-      "hitId": 32,
+      "eventId": 34,
+      "hitId": 33,
       "atMs": 1559,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -666,8 +676,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 35,
-      "hitId": 34,
+      "eventId": 36,
+      "hitId": 35,
       "atMs": 1609,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -676,8 +686,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 37,
-      "hitId": 36,
+      "eventId": 38,
+      "hitId": 37,
       "atMs": 1659,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -686,8 +696,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 39,
-      "hitId": 38,
+      "eventId": 40,
+      "hitId": 39,
       "atMs": 1709,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -696,8 +706,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 41,
-      "hitId": 40,
+      "eventId": 42,
+      "hitId": 41,
       "atMs": 1759,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -706,8 +716,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 43,
-      "hitId": 42,
+      "eventId": 44,
+      "hitId": 43,
       "atMs": 1809,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -716,8 +726,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 45,
-      "hitId": 44,
+      "eventId": 46,
+      "hitId": 45,
       "atMs": 1859,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -726,8 +736,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 47,
-      "hitId": 46,
+      "eventId": 48,
+      "hitId": 47,
       "atMs": 1909,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -736,8 +746,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 49,
-      "hitId": 48,
+      "eventId": 50,
+      "hitId": 49,
       "atMs": 1959,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -746,8 +756,8 @@
       "magnitude": -0.024390243902439025
     },
     {
-      "eventId": 51,
-      "hitId": 50,
+      "eventId": 52,
+      "hitId": 51,
       "atMs": 2000,
       "category": "evasion",
       "source": "Evasion",
@@ -757,8 +767,8 @@
       "succeeded": false
     },
     {
-      "eventId": 52,
-      "hitId": 50,
+      "eventId": 53,
+      "hitId": 51,
       "atMs": 2000,
       "category": "block",
       "source": "Block chance",
@@ -768,8 +778,8 @@
       "succeeded": false
     },
     {
-      "eventId": 53,
-      "hitId": 50,
+      "eventId": 54,
+      "hitId": 51,
       "atMs": 2000,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -779,18 +789,18 @@
     },
     {
       "eventId": 55,
-      "hitId": 54,
-      "atMs": 2009,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "warrior_vs_lich_stage50",
-      "target": "__enemy_0__",
-      "magnitude": -0.024390243902439025
+      "hitId": 51,
+      "atMs": 2000,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__-add-0",
+      "target": "warrior_vs_lich_stage50",
+      "magnitude": 0.009480105343974725
     },
     {
       "eventId": 57,
       "hitId": 56,
-      "atMs": 2059,
+      "atMs": 2009,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warrior_vs_lich_stage50",
@@ -800,7 +810,7 @@
     {
       "eventId": 59,
       "hitId": 58,
-      "atMs": 2109,
+      "atMs": 2059,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warrior_vs_lich_stage50",
@@ -810,7 +820,7 @@
     {
       "eventId": 61,
       "hitId": 60,
-      "atMs": 2159,
+      "atMs": 2109,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warrior_vs_lich_stage50",
@@ -820,6 +830,16 @@
     {
       "eventId": 63,
       "hitId": 62,
+      "atMs": 2159,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warrior_vs_lich_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.024390243902439025
+    },
+    {
+      "eventId": 65,
+      "hitId": 64,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -829,8 +849,8 @@
       "succeeded": false
     },
     {
-      "eventId": 64,
-      "hitId": 62,
+      "eventId": 66,
+      "hitId": 64,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -840,8 +860,8 @@
       "succeeded": false
     },
     {
-      "eventId": 65,
-      "hitId": 62,
+      "eventId": 67,
+      "hitId": 64,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -850,8 +870,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 66,
-      "hitId": 62,
+      "eventId": 68,
+      "hitId": 64,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -860,14 +880,24 @@
       "magnitude": 0.4887523415138728
     },
     {
-      "eventId": 67,
-      "hitId": 62,
+      "eventId": 69,
+      "hitId": 64,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
       "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 70,
+      "hitId": 64,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warrior_vs_lich_stage50",
+      "magnitude": 0.04393791377526021
     }
   ]
 }

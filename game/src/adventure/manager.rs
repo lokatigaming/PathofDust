@@ -513,6 +513,11 @@ pub enum RollCategory {
     MarkOrCurse,
     DamageCredit,
     ShieldAbsorb,
+    /// Boss pierce (2026-08-19, Release 2 observability) - see
+    /// `CombatSimUnit::boss_pierce_pct`'s own doc. Deterministic (not a
+    /// chance roll): the stage-scaled fraction of a real boss's fully-
+    /// rolled hit that bypasses evasion/block/DR entirely.
+    Pierce,
 }
 
 /// One named mechanic's contribution to a single hit - the full-detail
@@ -1015,6 +1020,8 @@ pub struct FightSummarySnapshot {
     pub won: bool,
     pub started_at_unix_ms: u64,
     pub display_duration_ms: u32,
+    #[serde(default)]
+    pub real_duration_ms: u32,
     pub participants: usize,
     pub players: Vec<PlayerFightStats>,
     pub first_to_die: Option<String>,
@@ -1205,6 +1212,15 @@ pub struct EncounterResult {
     /// `compress_events`, NOT simply the last event's `at_ms` (that's the
     /// fight's real, uncompressed length).
     pub display_duration_ms: u32,
+    /// The fight's real, uncompressed event-clock length (2026-08-19,
+    /// Release 2 observability) — the last event's `at_ms` BEFORE
+    /// `compress_events` rescales it into `display_duration_ms`'s fixed
+    /// 6-35s window. `display_duration_ms` caps at `MAX_DISPLAY_MS`
+    /// (35,000) regardless of how long the real fight ran, so any
+    /// analysis of real elapsed time (redistribution timing, golem
+    /// reform cadence, proc-rate-per-second) needs this instead.
+    #[serde(default)]
+    pub real_duration_ms: u32,
     /// Empty on a loss - see `run_encounter`'s loot roll (one drop per 5
     /// participants, rounded up).
     pub loot: Vec<LootDrop>,
@@ -1340,6 +1356,7 @@ pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStat
         won: result.won,
         started_at_unix_ms,
         display_duration_ms: result.display_duration_ms,
+        real_duration_ms: result.real_duration_ms,
         participants: result.participants.len(),
         players: full_player_fight_stats(&result.units, &result.events),
         first_to_die: first_player_to_die(&result.units, &result.events),
@@ -4316,6 +4333,7 @@ impl AdventureManager {
         let boss_stats_snapshot: Vec<BossStats> = bosses.iter().map(|(s, _, _)| s.clone()).collect();
 
         let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, &mut rand::thread_rng());
+        let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         let (events, display_duration_ms) = compress_events(events);
 
         // Anyone this fight's log actually knocked out (a real Defeat
@@ -4690,6 +4708,7 @@ impl AdventureManager {
             units,
             events,
             display_duration_ms,
+            real_duration_ms,
             loot,
             broken,
             enemy_name: None,
@@ -4863,6 +4882,7 @@ impl AdventureManager {
 
         let (won, units, events, rolls) =
             simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, &mut rand::thread_rng());
+        let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         let (events, display_duration_ms) = compress_events(events);
 
         let newly_downed: Vec<String> = events
@@ -5010,6 +5030,7 @@ impl AdventureManager {
             units,
             events,
             display_duration_ms,
+            real_duration_ms,
             loot,
             broken,
             enemy_name: Some(enemy_name),
@@ -6243,6 +6264,7 @@ mod player_vitals_tests {
             units: vec![player("alice", 1000)],
             events: vec![],
             display_duration_ms: 0,
+            real_duration_ms: 0,
             loot: vec![],
             broken: vec![],
             enemy_name: None,

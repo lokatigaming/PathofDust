@@ -314,6 +314,7 @@ mod tests {
             units: vec![],
             events: vec![],
             display_duration_ms: 0,
+            real_duration_ms: 0,
             loot: vec![],
             broken: vec![],
             enemy_name: None,

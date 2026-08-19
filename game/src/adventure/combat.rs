@@ -4404,6 +4404,13 @@ pub(crate) fn resolve_hit(
     // no-op for players and basic-encounter mobs.
     let pierce_amount = raw_dmg * boss_pierce_pct;
     let mitigable_raw_dmg = raw_dmg - pierce_amount;
+    // Release 2 observability (2026-08-19) - boss pierce landed
+    // unconditionally in `damage` below with no trace of how much of a
+    // given hit was pierce vs the normal mitigable pipeline. Logged as a
+    // deterministic source (not a probability roll - pierce isn't
+    // chance-based) so it flows through the same `RollEvent` conversion
+    // every other deterministic source already uses.
+    let pierce_source: Vec<(RollCategory, &'static str, f64)> = if pierce_amount > 0.0 { vec![(RollCategory::Pierce, "Boss Pierce", pierce_amount)] } else { Vec::new() };
     // Druid's Pack Instinct - +evasion while THIS unit is the party's
     // current lowest-HP ally (see `apply_hit`'s live computation).
     if !opportunist_guaranteed {
@@ -4424,6 +4431,7 @@ pub(crate) fn resolve_hit(
                     .into_iter()
                     .chain(attacker_roll.deterministic_sources)
                     .chain(attacker_side_debuffs)
+                    .chain(pierce_source)
                     .collect(),
             };
         }
@@ -4710,6 +4718,7 @@ pub(crate) fn resolve_hit(
     deterministic_sources.extend(sources.into_iter().map(|(name, mag)| (RollCategory::Mitigation, name, mag)));
     deterministic_sources.extend(attacker_roll.deterministic_sources);
     deterministic_sources.extend(attacker_side_debuffs);
+    deterministic_sources.extend(pierce_source);
     HitOutcome {
         // `pierce_amount` lands unconditionally on top of whatever the
         // mitigable portion's own evasion/block/DR pipeline left of
@@ -7557,6 +7566,17 @@ pub(crate) fn apply_hit(
     // one branch fires per call) - lets every `RollEvent` a later phase
     // logs for this hit correlate back to whichever `Attack` it produced.
     let hit_id = next_hit_id();
+    // Release 2 observability (2026-08-19) - every branch below used to
+    // hardcode `AttackSourceKind::Direct` regardless of how this call
+    // was reached, so a splash target hit via the generic `apply_splash`
+    // path (Ranger's base splash, tree splash bonuses - as opposed to
+    // Mage's Volatile Magic, which builds its own event directly and
+    // already tagged itself `Splash` correctly) was indistinguishable
+    // from a real primary attack in the event log. `in_splash_resolution`
+    // is set on the attacker for the FULL DURATION of `apply_splash`'s
+    // loop over every target (see that field's own doc) and is never set
+    // true for any other reason, so it's a reliable signal here.
+    let source_kind = if units[attacker_idx].in_splash_resolution { AttackSourceKind::Splash } else { AttackSourceKind::Direct };
     // Full-detail combat log (2026-08-17, Wiring Phase 1) - every genuine
     // probabilistic roll `resolve_hit` already collected (crit remainder,
     // evasion, block/Stonewall, Cold Steel pass-along) becomes a real
@@ -8141,6 +8161,31 @@ pub(crate) fn apply_hit(
         let absorbed = units[target_idx].shield_hp.min(final_damage as f64);
         units[target_idx].shield_hp -= absorbed;
         final_damage -= absorbed.round() as i64;
+        // Release 2 observability (2026-08-19) - shield absorption was
+        // invisible before this: the doc above already explains why the
+        // Attack event only ever reports the post-shield `damage`, so a
+        // parser had no way to see how much a shield actually blocked
+        // for a given hit. `RollCategory::ShieldAbsorb` already existed
+        // for exactly this but was never wired up anywhere - wiring it
+        // here rather than adding a new `CombatEvent` variant, matching
+        // this file's own established "RollEvent for a named mechanic's
+        // contribution, not a new event type" convention (see
+        // `RollEvent`'s own doc for why it's kept out of `events`).
+        if absorbed > 0.0 {
+            rolls.push(RollEvent {
+                event_id: next_hit_id(),
+                hit_id,
+                caused_by: None,
+                at_ms,
+                category: RollCategory::ShieldAbsorb,
+                source: std::borrow::Cow::Borrowed("Shield"),
+                actor: units[target_idx].id.clone(),
+                target: Some(units[attacker_idx].id.clone()),
+                probability: None,
+                succeeded: None,
+                magnitude: Some(absorbed),
+            });
+        }
         // Shield-absorb reflect (Sacred Barrier/Retribution Aura/
         // Guardian's Blood - see `shield_reflect_pct`'s doc).
         let reflect_pct = units[target_idx].shield_reflect_pct;
@@ -8359,7 +8404,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
-                source_kind: AttackSourceKind::Direct,
+                source_kind,
             });
             let saver_id = units[saver_idx].id.clone();
             events.push(CombatEvent::Heal { at_ms, healer: saver_id, target: target_id, amount: new_hp as u64, target_hp_after: new_hp as u64, is_revive: false });
@@ -8401,7 +8446,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
-                source_kind: AttackSourceKind::Direct,
+                source_kind,
             });
             return;
         } else if let Some(druid_idx) =
@@ -8428,7 +8473,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
-                source_kind: AttackSourceKind::Direct,
+                source_kind,
             });
             return;
         } else if units[target_idx].soul_stones > 0 {
@@ -8460,7 +8505,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
-                source_kind: AttackSourceKind::Direct,
+                source_kind,
             });
             events.push(CombatEvent::Heal { at_ms, healer: target_id.clone(), target: target_id, amount: healed as u64, target_hp_after: max_hp as u64, is_revive: false });
             return;
@@ -8493,7 +8538,7 @@ pub(crate) fn apply_hit(
                 is_crit: outcome.is_crit,
                 evaded: outcome.evaded,
                 hit_id,
-                source_kind: AttackSourceKind::Direct,
+                source_kind,
             });
             return;
         }
@@ -8699,6 +8744,21 @@ pub(crate) fn apply_hit(
                     let absorbed = units[explosion_target].shield_hp.min(final_damage as f64);
                     units[explosion_target].shield_hp -= absorbed;
                     final_damage -= absorbed.round() as i64;
+                    if absorbed > 0.0 {
+                        rolls.push(RollEvent {
+                            event_id: next_hit_id(),
+                            hit_id,
+                            caused_by: None,
+                            at_ms,
+                            category: RollCategory::ShieldAbsorb,
+                            source: std::borrow::Cow::Borrowed("Shield"),
+                            actor: units[explosion_target].id.clone(),
+                            target: Some(ex_attacker_id.clone()),
+                            probability: None,
+                            succeeded: None,
+                            magnitude: Some(absorbed),
+                        });
+                    }
                 }
                 let ex_new_hp = (units[explosion_target].hp - final_damage).max(0);
                 units[explosion_target].hp = ex_new_hp;
@@ -8725,7 +8785,7 @@ pub(crate) fn apply_hit(
                     is_crit: false,
                     evaded: false,
                     hit_id,
-                    source_kind: AttackSourceKind::Direct,
+                    source_kind,
                 });
                 // 2026-08-19 - golem healing restriction (see
                 // `golem_may_produce_heals`'s own doc): `self_leech_pct`
@@ -8857,7 +8917,7 @@ pub(crate) fn apply_hit(
             is_crit: outcome.is_crit,
             evaded: outcome.evaded,
             hit_id,
-            source_kind: AttackSourceKind::Direct,
+            source_kind,
         });
         // The Warlock's credited half of the SAME hit (see this block's
         // own doc above) - `CurseShare`, not `Direct`, so it's never
@@ -8889,7 +8949,7 @@ pub(crate) fn apply_hit(
             is_crit: outcome.is_crit,
             evaded: outcome.evaded,
             hit_id,
-            source_kind: AttackSourceKind::Direct,
+            source_kind,
         });
     }
     // Mage's Arcane Shield - a crit grants the ATTACKER (not the target)

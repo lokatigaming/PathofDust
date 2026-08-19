@@ -90,7 +90,7 @@
       "targetHpAfter": 2000000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1620,
+      "hitId": 1763,
       "sourceKind": "direct"
     },
     {
@@ -103,7 +103,7 @@
       "targetHpAfter": 155626,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1626,
+      "hitId": 1769,
       "sourceKind": "direct"
     },
     {
@@ -116,7 +116,7 @@
       "targetHpAfter": 1856382,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1627,
+      "hitId": 1770,
       "sourceKind": "direct"
     },
     {
@@ -129,7 +129,7 @@
       "targetHpAfter": 1686500,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1635,
+      "hitId": 1778,
       "sourceKind": "direct"
     },
     {
@@ -142,7 +142,7 @@
       "targetHpAfter": 1527767,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1643,
+      "hitId": 1786,
       "sourceKind": "direct"
     },
     {
@@ -155,7 +155,7 @@
       "targetHpAfter": 1368285,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1651,
+      "hitId": 1794,
       "sourceKind": "direct"
     },
     {
@@ -168,7 +168,7 @@
       "targetHpAfter": 1228735,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1659,
+      "hitId": 1802,
       "sourceKind": "direct"
     },
     {
@@ -181,7 +181,7 @@
       "targetHpAfter": 152742,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1667,
+      "hitId": 1810,
       "sourceKind": "direct"
     },
     {
@@ -194,7 +194,7 @@
       "targetHpAfter": 1074209,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1673,
+      "hitId": 1817,
       "sourceKind": "direct"
     },
     {
@@ -207,7 +207,7 @@
       "targetHpAfter": 936465,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1681,
+      "hitId": 1825,
       "sourceKind": "direct"
     },
     {
@@ -220,7 +220,7 @@
       "targetHpAfter": 793549,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1689,
+      "hitId": 1833,
       "sourceKind": "direct"
     },
     {
@@ -233,7 +233,7 @@
       "targetHpAfter": 601177,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1697,
+      "hitId": 1841,
       "sourceKind": "direct"
     },
     {
@@ -246,7 +246,7 @@
       "targetHpAfter": 441044,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1705,
+      "hitId": 1849,
       "sourceKind": "direct"
     },
     {
@@ -265,7 +265,7 @@
       "targetHpAfter": 152009,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1713,
+      "hitId": 1857,
       "sourceKind": "direct"
     },
     {
@@ -278,7 +278,7 @@
       "targetHpAfter": 29133,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1717,
+      "hitId": 1862,
       "sourceKind": "direct"
     },
     {
@@ -291,8 +291,8 @@
       "targetHpAfter": 270177,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1725,
-      "sourceKind": "direct"
+      "hitId": 1870,
+      "sourceKind": "splash"
     },
     {
       "kind": "attack",
@@ -304,8 +304,8 @@
       "targetHpAfter": 29133,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1733,
-      "sourceKind": "direct"
+      "hitId": 1878,
+      "sourceKind": "splash"
     },
     {
       "kind": "attack",
@@ -317,8 +317,8 @@
       "targetHpAfter": 27099,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1741,
-      "sourceKind": "direct"
+      "hitId": 1886,
+      "sourceKind": "splash"
     },
     {
       "kind": "attack",
@@ -330,8 +330,8 @@
       "targetHpAfter": 29133,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1749,
-      "sourceKind": "direct"
+      "hitId": 1894,
+      "sourceKind": "splash"
     },
     {
       "kind": "attack",
@@ -343,7 +343,7 @@
       "targetHpAfter": 148263,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1757,
+      "hitId": 1902,
       "sourceKind": "direct"
     },
     {
@@ -356,7 +356,7 @@
       "targetHpAfter": 147618,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1763,
+      "hitId": 1909,
       "sourceKind": "direct"
     },
     {
@@ -369,7 +369,7 @@
       "targetHpAfter": 99148,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1769,
+      "hitId": 1916,
       "sourceKind": "direct"
     },
     {
@@ -382,8 +382,8 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1777,
-      "sourceKind": "direct"
+      "hitId": 1924,
+      "sourceKind": "splash"
     },
     {
       "kind": "defeat",
@@ -400,8 +400,8 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1785,
-      "sourceKind": "direct"
+      "hitId": 1932,
+      "sourceKind": "splash"
     },
     {
       "kind": "defeat",
@@ -418,8 +418,8 @@
       "targetHpAfter": 28971,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1793,
-      "sourceKind": "direct"
+      "hitId": 1940,
+      "sourceKind": "splash"
     },
     {
       "kind": "attack",
@@ -431,8 +431,8 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1801,
-      "sourceKind": "direct"
+      "hitId": 1948,
+      "sourceKind": "splash"
     },
     {
       "kind": "defeat",
@@ -449,7 +449,7 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1809,
+      "hitId": 1956,
       "sourceKind": "direct"
     },
     {
@@ -467,8 +467,8 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1817,
-      "sourceKind": "direct"
+      "hitId": 1964,
+      "sourceKind": "splash"
     },
     {
       "kind": "defeat",
@@ -485,8 +485,8 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1825,
-      "sourceKind": "direct"
+      "hitId": 1972,
+      "sourceKind": "splash"
     },
     {
       "kind": "defeat",
@@ -496,1367 +496,73 @@
   ],
   "rolls": [
     {
-      "eventId": 1621,
-      "hitId": 1620,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1622,
-      "hitId": 1620,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1623,
-      "hitId": 1620,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1624,
-      "hitId": 1620,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1625,
-      "hitId": 1620,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1628,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1629,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1630,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1631,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1632,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1633,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1634,
-      "hitId": 1627,
-      "atMs": 200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1636,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1637,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1638,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1639,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1640,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1641,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1642,
-      "hitId": 1635,
-      "atMs": 400,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1644,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1645,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1646,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1647,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1648,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1649,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1650,
-      "hitId": 1643,
-      "atMs": 600,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1652,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1653,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1654,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1655,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1656,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1657,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1658,
-      "hitId": 1651,
-      "atMs": 800,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1660,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1661,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1662,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1663,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1664,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1665,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1666,
-      "hitId": 1659,
-      "atMs": 1000,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1668,
-      "hitId": 1667,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1669,
-      "hitId": 1667,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1670,
-      "hitId": 1667,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1671,
-      "hitId": 1667,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1672,
-      "hitId": 1667,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1674,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1675,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1676,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1677,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1678,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1679,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1680,
-      "hitId": 1673,
-      "atMs": 1200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1682,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1683,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1684,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1685,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1686,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1687,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1688,
-      "hitId": 1681,
-      "atMs": 1400,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1690,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1691,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1692,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1693,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1694,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1695,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1696,
-      "hitId": 1689,
-      "atMs": 1600,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1698,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1699,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1700,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1701,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1702,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1703,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1704,
-      "hitId": 1697,
-      "atMs": 1800,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1706,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1707,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1708,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1709,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1710,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1711,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1712,
-      "hitId": 1705,
-      "atMs": 2000,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1714,
-      "hitId": 1713,
-      "atMs": 2000,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1715,
-      "hitId": 1713,
-      "atMs": 2000,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1716,
-      "hitId": 1713,
-      "atMs": 2000,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1718,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1719,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-4",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1720,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-4",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1721,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1722,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1723,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1724,
-      "hitId": 1717,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1726,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1727,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1728,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1729,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1730,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1731,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1732,
-      "hitId": 1725,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1734,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1735,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-3",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1736,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-3",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1737,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1738,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1739,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1740,
-      "hitId": 1733,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1742,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1743,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-2",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1744,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-2",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1745,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1746,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1747,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1748,
-      "hitId": 1741,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1750,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1751,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-0",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1752,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-0",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1753,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1754,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1755,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1756,
-      "hitId": 1749,
-      "atMs": 2200,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1758,
-      "hitId": 1757,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1759,
-      "hitId": 1757,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1760,
-      "hitId": 1757,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 1761,
-      "hitId": 1757,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1762,
-      "hitId": 1757,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
       "eventId": 1764,
       "hitId": 1763,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "probability": 0.0,
-      "succeeded": false
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
     },
     {
       "eventId": 1765,
       "hitId": 1763,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "probability": 0.0,
-      "succeeded": false
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
     },
     {
       "eventId": 1766,
       "hitId": 1763,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit multiplier",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": -0.004
+      "target": "__enemy_0__",
+      "magnitude": 2.0
     },
     {
       "eventId": 1767,
       "hitId": 1763,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": 0.75
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
     },
     {
       "eventId": 1768,
       "hitId": 1763,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": -0.004
+      "target": "__enemy_0__",
+      "magnitude": -0.6
     },
     {
-      "eventId": 1770,
-      "hitId": 1769,
-      "atMs": 2400,
+      "eventId": 1771,
+      "hitId": 1770,
+      "atMs": 200,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "ranger_vs_lich_stage3000",
       "target": "__enemy_0__",
       "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1771,
-      "hitId": 1769,
-      "atMs": 2400,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1772,
-      "hitId": 1769,
-      "atMs": 2400,
-      "category": "block",
-      "source": "Block chance",
+      "hitId": 1770,
+      "atMs": 200,
+      "category": "evasion",
+      "source": "Evasion",
       "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
@@ -1864,8 +570,19 @@
     },
     {
       "eventId": 1773,
-      "hitId": 1769,
-      "atMs": 2400,
+      "hitId": 1770,
+      "atMs": 200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1774,
+      "hitId": 1770,
+      "atMs": 200,
       "category": "crit",
       "source": "Crit chance",
       "actor": "ranger_vs_lich_stage3000",
@@ -1873,9 +590,9 @@
       "magnitude": 5.501180057598734
     },
     {
-      "eventId": 1774,
-      "hitId": 1769,
-      "atMs": 2400,
+      "eventId": 1775,
+      "hitId": 1770,
+      "atMs": 200,
       "category": "crit",
       "source": "Crit multiplier",
       "actor": "ranger_vs_lich_stage3000",
@@ -1883,9 +600,9 @@
       "magnitude": 2.0
     },
     {
-      "eventId": 1775,
-      "hitId": 1769,
-      "atMs": 2400,
+      "eventId": 1776,
+      "hitId": 1770,
+      "atMs": 200,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "ranger_vs_lich_stage3000",
@@ -1893,9 +610,9 @@
       "magnitude": 28.630920089211635
     },
     {
-      "eventId": 1776,
-      "hitId": 1769,
-      "atMs": 2400,
+      "eventId": 1777,
+      "hitId": 1770,
+      "atMs": 200,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "ranger_vs_lich_stage3000",
@@ -1903,323 +620,250 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 1778,
-      "hitId": 1777,
-      "atMs": 2400,
+      "eventId": 1779,
+      "hitId": 1778,
+      "atMs": 400,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
+      "target": "__enemy_0__",
       "probability": 0.5011800575987344,
       "succeeded": false
     },
     {
-      "eventId": 1779,
-      "hitId": 1777,
-      "atMs": 2400,
+      "eventId": 1780,
+      "hitId": 1778,
+      "atMs": 400,
       "category": "evasion",
       "source": "Evasion",
-      "actor": "__enemy_0__-add-4",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1780,
-      "hitId": 1777,
-      "atMs": 2400,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-4",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1781,
-      "hitId": 1777,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1782,
-      "hitId": 1777,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1783,
-      "hitId": 1777,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1784,
-      "hitId": 1777,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-4",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1786,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "probability": 0.5011800575987344,
-      "succeeded": false
-    },
-    {
-      "eventId": 1787,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-2",
+      "hitId": 1778,
+      "atMs": 400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
+      "eventId": 1782,
+      "hitId": 1778,
+      "atMs": 400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1783,
+      "hitId": 1778,
+      "atMs": 400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1784,
+      "hitId": 1778,
+      "atMs": 400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1785,
+      "hitId": 1778,
+      "atMs": 400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1787,
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
       "eventId": 1788,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-2",
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1789,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1790,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1791,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1792,
-      "hitId": 1785,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-2",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1794,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1795,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-1",
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
+      "eventId": 1790,
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1791,
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1792,
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1793,
+      "hitId": 1786,
+      "atMs": 600,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1795,
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
       "eventId": 1796,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-1",
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1797,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1798,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1799,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1800,
-      "hitId": 1793,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-1",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1802,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1803,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__-add-3",
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
+      "eventId": 1798,
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1799,
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1800,
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1801,
+      "hitId": 1794,
+      "atMs": 800,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1803,
+      "hitId": 1802,
+      "atMs": 1000,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
       "eventId": 1804,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__-add-3",
+      "hitId": 1802,
+      "atMs": 1000,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1805,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": 5.501180057598734
-    },
-    {
-      "eventId": 1806,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": 2.0
-    },
-    {
-      "eventId": 1807,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": 28.630920089211635
-    },
-    {
-      "eventId": 1808,
-      "hitId": 1801,
-      "atMs": 2400,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-3",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 1810,
-      "hitId": 1809,
-      "atMs": 2600,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.5011800575987344,
-      "succeeded": true
-    },
-    {
-      "eventId": 1811,
-      "hitId": 1809,
-      "atMs": 2600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "ranger_vs_lich_stage3000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1812,
-      "hitId": 1809,
-      "atMs": 2600,
+      "hitId": 1802,
+      "atMs": 1000,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -2228,9 +872,9 @@
       "succeeded": false
     },
     {
-      "eventId": 1813,
-      "hitId": 1809,
-      "atMs": 2600,
+      "eventId": 1806,
+      "hitId": 1802,
+      "atMs": 1000,
       "category": "crit",
       "source": "Crit chance",
       "actor": "ranger_vs_lich_stage3000",
@@ -2238,9 +882,9 @@
       "magnitude": 5.501180057598734
     },
     {
-      "eventId": 1814,
-      "hitId": 1809,
-      "atMs": 2600,
+      "eventId": 1807,
+      "hitId": 1802,
+      "atMs": 1000,
       "category": "crit",
       "source": "Crit multiplier",
       "actor": "ranger_vs_lich_stage3000",
@@ -2248,9 +892,9 @@
       "magnitude": 2.0
     },
     {
-      "eventId": 1815,
-      "hitId": 1809,
-      "atMs": 2600,
+      "eventId": 1808,
+      "hitId": 1802,
+      "atMs": 1000,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "ranger_vs_lich_stage3000",
@@ -2258,9 +902,9 @@
       "magnitude": 28.630920089211635
     },
     {
-      "eventId": 1816,
-      "hitId": 1809,
-      "atMs": 2600,
+      "eventId": 1809,
+      "hitId": 1802,
+      "atMs": 1000,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "ranger_vs_lich_stage3000",
@@ -2268,23 +912,85 @@
       "magnitude": -0.6
     },
     {
+      "eventId": 1811,
+      "hitId": 1810,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1812,
+      "hitId": 1810,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1813,
+      "hitId": 1810,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1814,
+      "hitId": 1810,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 1815,
+      "hitId": 1810,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1816,
+      "hitId": 1810,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "magnitude": 1826.4559125126098
+    },
+    {
       "eventId": 1818,
       "hitId": 1817,
-      "atMs": 2600,
+      "atMs": 1200,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "ranger_vs_lich_stage3000",
-      "target": "__enemy_0__-add-0",
+      "target": "__enemy_0__",
       "probability": 0.5011800575987344,
-      "succeeded": true
+      "succeeded": false
     },
     {
       "eventId": 1819,
       "hitId": 1817,
-      "atMs": 2600,
+      "atMs": 1200,
       "category": "evasion",
       "source": "Evasion",
-      "actor": "__enemy_0__-add-0",
+      "actor": "__enemy_0__",
       "target": "ranger_vs_lich_stage3000",
       "probability": 0.0,
       "succeeded": false
@@ -2292,6 +998,1340 @@
     {
       "eventId": 1820,
       "hitId": 1817,
+      "atMs": 1200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1821,
+      "hitId": 1817,
+      "atMs": 1200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1822,
+      "hitId": 1817,
+      "atMs": 1200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1823,
+      "hitId": 1817,
+      "atMs": 1200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1824,
+      "hitId": 1817,
+      "atMs": 1200,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1826,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1827,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1828,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1829,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1830,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1831,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1832,
+      "hitId": 1825,
+      "atMs": 1400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1834,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1835,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1836,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1837,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1838,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1839,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1840,
+      "hitId": 1833,
+      "atMs": 1600,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1842,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1843,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1844,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1845,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1846,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1847,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1848,
+      "hitId": 1841,
+      "atMs": 1800,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1850,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1851,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1852,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1853,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1854,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1855,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1856,
+      "hitId": 1849,
+      "atMs": 2000,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1858,
+      "hitId": 1857,
+      "atMs": 2000,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1859,
+      "hitId": 1857,
+      "atMs": 2000,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1860,
+      "hitId": 1857,
+      "atMs": 2000,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 1861,
+      "hitId": 1857,
+      "atMs": 2000,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__-add-0",
+      "target": "ranger_vs_lich_stage3000",
+      "magnitude": 467.7618286351572
+    },
+    {
+      "eventId": 1863,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1864,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-4",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1865,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-4",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1866,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1867,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1868,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1869,
+      "hitId": 1862,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1871,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1872,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1873,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1874,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1875,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1876,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1877,
+      "hitId": 1870,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1879,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1880,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-3",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1881,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-3",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1882,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1883,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1884,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1885,
+      "hitId": 1878,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1887,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1888,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-2",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1889,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-2",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1890,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1891,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1892,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1893,
+      "hitId": 1886,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1895,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1896,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-0",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1897,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-0",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1898,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1899,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1900,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1901,
+      "hitId": 1894,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1903,
+      "hitId": 1902,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1904,
+      "hitId": 1902,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1905,
+      "hitId": 1902,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 1906,
+      "hitId": 1902,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 1907,
+      "hitId": 1902,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 1908,
+      "hitId": 1902,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "magnitude": 2282.633408818714
+    },
+    {
+      "eventId": 1910,
+      "hitId": 1909,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1911,
+      "hitId": 1909,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1912,
+      "hitId": 1909,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": -0.004
+    },
+    {
+      "eventId": 1913,
+      "hitId": 1909,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": 0.75
+    },
+    {
+      "eventId": 1914,
+      "hitId": 1909,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": -0.004
+    },
+    {
+      "eventId": 1915,
+      "hitId": 1909,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__-add-1",
+      "target": "ranger_vs_lich_stage3000",
+      "magnitude": 399.29744542484366
+    },
+    {
+      "eventId": 1917,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1918,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1919,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1920,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1921,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1922,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1923,
+      "hitId": 1916,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1925,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1926,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-4",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1927,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-4",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1928,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1929,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1930,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1931,
+      "hitId": 1924,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-4",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1933,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "probability": 0.5011800575987344,
+      "succeeded": false
+    },
+    {
+      "eventId": 1934,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-2",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1935,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-2",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1936,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1937,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1938,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1939,
+      "hitId": 1932,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-2",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1941,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1942,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-1",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1943,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-1",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1944,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1945,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1946,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1947,
+      "hitId": 1940,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-1",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1949,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1950,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-3",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1951,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__-add-3",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1952,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1953,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1954,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1955,
+      "hitId": 1948,
+      "atMs": 2400,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-3",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1957,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1958,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1959,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1960,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 5.501180057598734
+    },
+    {
+      "eventId": 1961,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 1962,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 28.630920089211635
+    },
+    {
+      "eventId": 1963,
+      "hitId": 1956,
+      "atMs": 2600,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 1965,
+      "hitId": 1964,
+      "atMs": 2600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "ranger_vs_lich_stage3000",
+      "target": "__enemy_0__-add-0",
+      "probability": 0.5011800575987344,
+      "succeeded": true
+    },
+    {
+      "eventId": 1966,
+      "hitId": 1964,
+      "atMs": 2600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__-add-0",
+      "target": "ranger_vs_lich_stage3000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1967,
+      "hitId": 1964,
       "atMs": 2600,
       "category": "block",
       "source": "Block chance",
@@ -2301,8 +2341,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1821,
-      "hitId": 1817,
+      "eventId": 1968,
+      "hitId": 1964,
       "atMs": 2600,
       "category": "crit",
       "source": "Crit chance",
@@ -2311,8 +2351,8 @@
       "magnitude": 5.501180057598734
     },
     {
-      "eventId": 1822,
-      "hitId": 1817,
+      "eventId": 1969,
+      "hitId": 1964,
       "atMs": 2600,
       "category": "crit",
       "source": "Crit multiplier",
@@ -2321,8 +2361,8 @@
       "magnitude": 2.0
     },
     {
-      "eventId": 1823,
-      "hitId": 1817,
+      "eventId": 1970,
+      "hitId": 1964,
       "atMs": 2600,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2331,8 +2371,8 @@
       "magnitude": 28.630920089211635
     },
     {
-      "eventId": 1824,
-      "hitId": 1817,
+      "eventId": 1971,
+      "hitId": 1964,
       "atMs": 2600,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2341,8 +2381,8 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 1826,
-      "hitId": 1825,
+      "eventId": 1973,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2352,8 +2392,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1827,
-      "hitId": 1825,
+      "eventId": 1974,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "evasion",
       "source": "Evasion",
@@ -2363,8 +2403,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1828,
-      "hitId": 1825,
+      "eventId": 1975,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "block",
       "source": "Block chance",
@@ -2374,8 +2414,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1829,
-      "hitId": 1825,
+      "eventId": 1976,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "crit",
       "source": "Crit chance",
@@ -2384,8 +2424,8 @@
       "magnitude": 5.501180057598734
     },
     {
-      "eventId": 1830,
-      "hitId": 1825,
+      "eventId": 1977,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "crit",
       "source": "Crit multiplier",
@@ -2394,8 +2434,8 @@
       "magnitude": 2.0
     },
     {
-      "eventId": 1831,
-      "hitId": 1825,
+      "eventId": 1978,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2404,8 +2444,8 @@
       "magnitude": 28.630920089211635
     },
     {
-      "eventId": 1832,
-      "hitId": 1825,
+      "eventId": 1979,
+      "hitId": 1972,
       "atMs": 2600,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",

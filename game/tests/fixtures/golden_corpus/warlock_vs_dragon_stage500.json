@@ -35,7 +35,7 @@
       "targetHpAfter": 120000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1257,
+      "hitId": 1363,
       "sourceKind": "direct"
     },
     {
@@ -48,7 +48,7 @@
       "targetHpAfter": 5790,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1263,
+      "hitId": 1369,
       "sourceKind": "direct"
     },
     {
@@ -61,7 +61,7 @@
       "targetHpAfter": 5790,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1265,
+      "hitId": 1371,
       "sourceKind": "direct"
     },
     {
@@ -80,7 +80,7 @@
       "targetHpAfter": 97934,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1267,
+      "hitId": 1373,
       "sourceKind": "direct"
     },
     {
@@ -93,7 +93,7 @@
       "targetHpAfter": 71342,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1276,
+      "hitId": 1382,
       "sourceKind": "direct"
     },
     {
@@ -106,7 +106,7 @@
       "targetHpAfter": 5776,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1285,
+      "hitId": 1391,
       "sourceKind": "direct"
     },
     {
@@ -119,7 +119,7 @@
       "targetHpAfter": 5471,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1289,
+      "hitId": 1396,
       "sourceKind": "direct"
     },
     {
@@ -138,7 +138,7 @@
       "targetHpAfter": 48980,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1296,
+      "hitId": 1404,
       "sourceKind": "direct"
     },
     {
@@ -151,7 +151,7 @@
       "targetHpAfter": 25900,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1305,
+      "hitId": 1413,
       "sourceKind": "direct"
     },
     {
@@ -164,7 +164,7 @@
       "targetHpAfter": 5459,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1314,
+      "hitId": 1422,
       "sourceKind": "direct"
     },
     {
@@ -177,7 +177,7 @@
       "targetHpAfter": 5447,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1318,
+      "hitId": 1427,
       "sourceKind": "direct"
     },
     {
@@ -196,7 +196,7 @@
       "targetHpAfter": 0,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1322,
+      "hitId": 1432,
       "sourceKind": "direct"
     },
     {
@@ -207,8 +207,8 @@
   ],
   "rolls": [
     {
-      "eventId": 1258,
-      "hitId": 1257,
+      "eventId": 1364,
+      "hitId": 1363,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -218,8 +218,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1259,
-      "hitId": 1257,
+      "eventId": 1365,
+      "hitId": 1363,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -228,8 +228,8 @@
       "magnitude": 1.008790036043107
     },
     {
-      "eventId": 1260,
-      "hitId": 1257,
+      "eventId": 1366,
+      "hitId": 1363,
       "atMs": 0,
       "category": "crit",
       "source": "Crit multiplier",
@@ -238,8 +238,8 @@
       "magnitude": 6.550127986477253
     },
     {
-      "eventId": 1261,
-      "hitId": 1257,
+      "eventId": 1367,
+      "hitId": 1363,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -248,8 +248,8 @@
       "magnitude": 4.860264015349889
     },
     {
-      "eventId": 1262,
-      "hitId": 1257,
+      "eventId": 1368,
+      "hitId": 1363,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -258,8 +258,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 1264,
-      "hitId": 1263,
+      "eventId": 1370,
+      "hitId": 1369,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -268,8 +268,8 @@
       "magnitude": 0.75
     },
     {
-      "eventId": 1266,
-      "hitId": 1265,
+      "eventId": 1372,
+      "hitId": 1371,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -278,8 +278,8 @@
       "magnitude": 0.75
     },
     {
-      "eventId": 1268,
-      "hitId": 1267,
+      "eventId": 1374,
+      "hitId": 1373,
       "atMs": 465,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -289,8 +289,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1269,
-      "hitId": 1267,
+      "eventId": 1375,
+      "hitId": 1373,
       "atMs": 465,
       "category": "evasion",
       "source": "Evasion",
@@ -300,8 +300,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1270,
-      "hitId": 1267,
+      "eventId": 1376,
+      "hitId": 1373,
       "atMs": 465,
       "category": "block",
       "source": "Block chance",
@@ -311,8 +311,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1271,
-      "hitId": 1267,
+      "eventId": 1377,
+      "hitId": 1373,
       "atMs": 465,
       "category": "crit",
       "source": "Crit chance",
@@ -321,8 +321,8 @@
       "magnitude": 1.008790036043107
     },
     {
-      "eventId": 1272,
-      "hitId": 1267,
+      "eventId": 1378,
+      "hitId": 1373,
       "atMs": 465,
       "category": "crit",
       "source": "Crit multiplier",
@@ -331,8 +331,8 @@
       "magnitude": 6.550127986477253
     },
     {
-      "eventId": 1273,
-      "hitId": 1267,
+      "eventId": 1379,
+      "hitId": 1373,
       "atMs": 465,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -341,8 +341,8 @@
       "magnitude": 4.860264015349889
     },
     {
-      "eventId": 1274,
-      "hitId": 1267,
+      "eventId": 1380,
+      "hitId": 1373,
       "atMs": 465,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -351,8 +351,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 1275,
-      "hitId": 1267,
+      "eventId": 1381,
+      "hitId": 1373,
       "atMs": 465,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -362,8 +362,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1277,
-      "hitId": 1276,
+      "eventId": 1383,
+      "hitId": 1382,
       "atMs": 930,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -373,8 +373,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1278,
-      "hitId": 1276,
+      "eventId": 1384,
+      "hitId": 1382,
       "atMs": 930,
       "category": "evasion",
       "source": "Evasion",
@@ -384,8 +384,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1279,
-      "hitId": 1276,
+      "eventId": 1385,
+      "hitId": 1382,
       "atMs": 930,
       "category": "block",
       "source": "Block chance",
@@ -395,8 +395,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1280,
-      "hitId": 1276,
+      "eventId": 1386,
+      "hitId": 1382,
       "atMs": 930,
       "category": "crit",
       "source": "Crit chance",
@@ -405,8 +405,8 @@
       "magnitude": 1.008790036043107
     },
     {
-      "eventId": 1281,
-      "hitId": 1276,
+      "eventId": 1387,
+      "hitId": 1382,
       "atMs": 930,
       "category": "crit",
       "source": "Crit multiplier",
@@ -415,8 +415,8 @@
       "magnitude": 6.550127986477253
     },
     {
-      "eventId": 1282,
-      "hitId": 1276,
+      "eventId": 1388,
+      "hitId": 1382,
       "atMs": 930,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -425,8 +425,8 @@
       "magnitude": 4.860264015349889
     },
     {
-      "eventId": 1283,
-      "hitId": 1276,
+      "eventId": 1389,
+      "hitId": 1382,
       "atMs": 930,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -435,8 +435,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 1284,
-      "hitId": 1276,
+      "eventId": 1390,
+      "hitId": 1382,
       "atMs": 930,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -446,8 +446,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1286,
-      "hitId": 1285,
+      "eventId": 1392,
+      "hitId": 1391,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -457,8 +457,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1287,
-      "hitId": 1285,
+      "eventId": 1393,
+      "hitId": 1391,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -467,8 +467,8 @@
       "magnitude": 0.75
     },
     {
-      "eventId": 1288,
-      "hitId": 1285,
+      "eventId": 1394,
+      "hitId": 1391,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -477,8 +477,18 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1290,
-      "hitId": 1289,
+      "eventId": 1395,
+      "hitId": 1391,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warlock_vs_dragon_stage500",
+      "magnitude": 14.382408368237167
+    },
+    {
+      "eventId": 1397,
+      "hitId": 1396,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -488,8 +498,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1291,
-      "hitId": 1289,
+      "eventId": 1398,
+      "hitId": 1396,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -499,8 +509,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1292,
-      "hitId": 1289,
+      "eventId": 1399,
+      "hitId": 1396,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -509,8 +519,8 @@
       "magnitude": 0.75
     },
     {
-      "eventId": 1293,
-      "hitId": 1289,
+      "eventId": 1400,
+      "hitId": 1396,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -519,8 +529,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1294,
-      "hitId": 1289,
+      "eventId": 1401,
+      "hitId": 1396,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -529,8 +539,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 1295,
-      "hitId": 1289,
+      "eventId": 1402,
+      "hitId": 1396,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -539,8 +549,18 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1297,
-      "hitId": 1296,
+      "eventId": 1403,
+      "hitId": 1396,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warlock_vs_dragon_stage500",
+      "magnitude": 14.382408368237167
+    },
+    {
+      "eventId": 1405,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -550,8 +570,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1298,
-      "hitId": 1296,
+      "eventId": 1406,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "evasion",
       "source": "Evasion",
@@ -561,8 +581,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1299,
-      "hitId": 1296,
+      "eventId": 1407,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "block",
       "source": "Block chance",
@@ -572,8 +592,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1300,
-      "hitId": 1296,
+      "eventId": 1408,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "crit",
       "source": "Crit chance",
@@ -582,8 +602,8 @@
       "magnitude": 1.008790036043107
     },
     {
-      "eventId": 1301,
-      "hitId": 1296,
+      "eventId": 1409,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "crit",
       "source": "Crit multiplier",
@@ -592,8 +612,8 @@
       "magnitude": 6.550127986477253
     },
     {
-      "eventId": 1302,
-      "hitId": 1296,
+      "eventId": 1410,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -602,8 +622,8 @@
       "magnitude": 4.860264015349889
     },
     {
-      "eventId": 1303,
-      "hitId": 1296,
+      "eventId": 1411,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -612,8 +632,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 1304,
-      "hitId": 1296,
+      "eventId": 1412,
+      "hitId": 1404,
       "atMs": 1395,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -623,8 +643,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1306,
-      "hitId": 1305,
+      "eventId": 1414,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -634,8 +654,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1307,
-      "hitId": 1305,
+      "eventId": 1415,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "evasion",
       "source": "Evasion",
@@ -645,8 +665,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1308,
-      "hitId": 1305,
+      "eventId": 1416,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "block",
       "source": "Block chance",
@@ -656,8 +676,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1309,
-      "hitId": 1305,
+      "eventId": 1417,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "crit",
       "source": "Crit chance",
@@ -666,8 +686,8 @@
       "magnitude": 1.008790036043107
     },
     {
-      "eventId": 1310,
-      "hitId": 1305,
+      "eventId": 1418,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "crit",
       "source": "Crit multiplier",
@@ -676,8 +696,8 @@
       "magnitude": 6.550127986477253
     },
     {
-      "eventId": 1311,
-      "hitId": 1305,
+      "eventId": 1419,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -686,8 +706,8 @@
       "magnitude": 4.860264015349889
     },
     {
-      "eventId": 1312,
-      "hitId": 1305,
+      "eventId": 1420,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -696,8 +716,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 1313,
-      "hitId": 1305,
+      "eventId": 1421,
+      "hitId": 1413,
       "atMs": 1860,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -707,8 +727,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1315,
-      "hitId": 1314,
+      "eventId": 1423,
+      "hitId": 1422,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -718,8 +738,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1316,
-      "hitId": 1314,
+      "eventId": 1424,
+      "hitId": 1422,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -728,8 +748,8 @@
       "magnitude": 0.75
     },
     {
-      "eventId": 1317,
-      "hitId": 1314,
+      "eventId": 1425,
+      "hitId": 1422,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -738,8 +758,18 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1319,
-      "hitId": 1318,
+      "eventId": 1426,
+      "hitId": 1422,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warlock_vs_dragon_stage500",
+      "magnitude": 11.616304406520229
+    },
+    {
+      "eventId": 1428,
+      "hitId": 1427,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -749,8 +779,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1320,
-      "hitId": 1318,
+      "eventId": 1429,
+      "hitId": 1427,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -759,8 +789,8 @@
       "magnitude": 0.75
     },
     {
-      "eventId": 1321,
-      "hitId": 1318,
+      "eventId": 1430,
+      "hitId": 1427,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -769,8 +799,18 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1323,
-      "hitId": 1322,
+      "eventId": 1431,
+      "hitId": 1427,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warlock_vs_dragon_stage500",
+      "magnitude": 11.616304406520229
+    },
+    {
+      "eventId": 1433,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -780,8 +820,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1324,
-      "hitId": 1322,
+      "eventId": 1434,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "evasion",
       "source": "Evasion",
@@ -791,8 +831,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1325,
-      "hitId": 1322,
+      "eventId": 1435,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "block",
       "source": "Block chance",
@@ -802,8 +842,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1326,
-      "hitId": 1322,
+      "eventId": 1436,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "crit",
       "source": "Crit chance",
@@ -812,8 +852,8 @@
       "magnitude": 1.008790036043107
     },
     {
-      "eventId": 1327,
-      "hitId": 1322,
+      "eventId": 1437,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "crit",
       "source": "Crit multiplier",
@@ -822,8 +862,8 @@
       "magnitude": 6.550127986477253
     },
     {
-      "eventId": 1328,
-      "hitId": 1322,
+      "eventId": 1438,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -832,8 +872,8 @@
       "magnitude": 4.860264015349889
     },
     {
-      "eventId": 1329,
-      "hitId": 1322,
+      "eventId": 1439,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -842,8 +882,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 1330,
-      "hitId": 1322,
+      "eventId": 1440,
+      "hitId": 1432,
       "atMs": 2325,
       "category": "elementalProc",
       "source": "Chaos proc",
