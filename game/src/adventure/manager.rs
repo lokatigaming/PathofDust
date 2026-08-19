@@ -3471,6 +3471,23 @@ impl AdventureManager {
             self.broadcast_state().await;
             return Ok(CraftResult::Reforged(outcome));
         }
+        if action == CraftAction::DivineDust {
+            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
+            let cost = 2 * item.tier as u64;
+            if character.divine_dust < cost {
+                return Err(CraftError::InsufficientDivineDust(cost));
+            }
+            let outcome = {
+                let mut rng = rand::thread_rng();
+                character.apply_divine_dust(item_id, &mut rng)?
+            };
+            character.divine_dust -= cost;
+            character.last_crafted_item_id = Some(item_id.to_string());
+            self.persist_characters(&characters);
+            drop(characters);
+            self.broadcast_state().await;
+            return Ok(CraftResult::DivineDustApplied(outcome));
+        }
         let has_token = allow_token_use && character.craft_token_count(action) > 0;
         // Token crafts always veil, when there's real randomness to
         // choose between (see `CraftAction::is_veilable` - Scour has
@@ -7122,6 +7139,56 @@ mod divine_dust_craft_tests {
         assert_eq!(character.dust, 500, "2 successful units spend 2000, leaving 500 - the failed 3rd attempt spends nothing more");
         assert_eq!(character.sand, 5);
         assert_eq!(character.divine_dust, 2);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Joins `login`, gives them `divine_dust` currency and a single
+    /// tier-`tier` item (bagged, not equipped, so `find_item_by_id` sees
+    /// it regardless of slot) - returns its id for
+    /// `craft_item_ex(..., CraftAction::DivineDust, ...)` to target.
+    async fn joined_with_divine_dust_and_item(manager: &Arc<AdventureManager>, login: &str, divine_dust: u64, tier: u32) -> String {
+        manager.join(login, login).await;
+        let mut rng = rand::thread_rng();
+        let item = generate_item_at_tier(EquipSlot::Weapon, tier, &mut rng);
+        let id = item.id.clone();
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.divine_dust = divine_dust;
+        character.inventory.push(item);
+        id
+    }
+
+    #[tokio::test]
+    async fn applying_divine_dust_costs_exactly_two_times_tier_and_sacralizes() {
+        let (manager, scratch) = disposable_manager("apply_cost");
+        let id = joined_with_divine_dust_and_item(&manager, "applier", 100, 20).await;
+
+        match manager.craft_item_ex("applier", &id, CraftAction::DivineDust, false, false).await {
+            Ok(CraftResult::DivineDustApplied(outcome)) => assert!(outcome.became_sacred),
+            other => panic!("expected DivineDustApplied, got {other:?}"),
+        }
+
+        let character = manager.character("applier").await.expect("still joined");
+        assert_eq!(character.divine_dust, 100 - 2 * 20, "cost must be exactly 2 x item tier (20)");
+        let item = character.find_item_by_id(&id).expect("item still present");
+        assert!(item.sacred_affix.is_some());
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn applying_divine_dust_with_insufficient_balance_consumes_nothing() {
+        let (manager, scratch) = disposable_manager("apply_insufficient");
+        // Tier 20 costs 40; give them only 10.
+        let id = joined_with_divine_dust_and_item(&manager, "poor_applier", 10, 20).await;
+
+        let err = manager.craft_item_ex("poor_applier", &id, CraftAction::DivineDust, false, false).await.expect_err("10 Divine Dust is below the 40 cost");
+        assert!(matches!(err, CraftError::InsufficientDivineDust(40)));
+
+        let character = manager.character("poor_applier").await.expect("still joined");
+        assert_eq!(character.divine_dust, 10, "a failed application must not touch the balance");
+        assert!(character.find_item_by_id(&id).expect("item still present").sacred_affix.is_none(), "a failed application must not touch the item");
 
         std::fs::remove_dir_all(&scratch).ok();
     }

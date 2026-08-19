@@ -36,7 +36,7 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
@@ -1250,6 +1250,7 @@ fn parse_craft_action(s: &str) -> Option<CraftAction> {
         "unique shard" => Some(CraftAction::UniqueShard),
         "polishing" => Some(CraftAction::Polishing),
         "reforge" => Some(CraftAction::Reforge),
+        "divine dust" => Some(CraftAction::DivineDust),
         _ => None,
     }
 }
@@ -1331,6 +1332,18 @@ fn reforge_outcome_change_text(outcome: &ReforgeOutcome) -> String {
     match outcome.bonus_affix {
         Some(affix) => format!("{tier_text} — bonus modifier: {}", affix_name(affix)),
         None => tier_text,
+    }
+}
+
+/// One-line "what changed" for `CraftAction::DivineDust`'s popup - see
+/// `DivineDustOutcome`.
+fn divine_dust_outcome_change_text(outcome: &DivineDustOutcome) -> String {
+    let new_line = format!("Sacred affix: {}", affix_display(outcome.new_affix, outcome.new_value));
+    if outcome.became_sacred {
+        format!("Became Sacred! {new_line}")
+    } else {
+        let old = outcome.old_affix.map(affix_name).unwrap_or("—");
+        format!("{old} → {new_line}")
     }
 }
 
@@ -1470,6 +1483,10 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
                     let change = reforge_outcome_change_text(&outcome);
                     return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
                 }
+                Ok(CraftResult::DivineDustApplied(outcome)) => {
+                    let change = divine_dust_outcome_change_text(&outcome);
+                    return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &change));
+                }
                 Ok(CraftResult::PendingChoice) => {}
                 Err(err) => return Redirect::to(&craft_error_popup_url(&craft_error_text(err))),
             }
@@ -1488,6 +1505,10 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
     let mut completed = 0u32;
     let mut last_applied: Option<CraftOutcome> = None;
     let mut last_reforged: Option<ReforgeOutcome> = None;
+    // DivineDust is never batch-eligible today (see the `times` gate in
+    // `do_craft`, Polishing/Reforge only) - tracked anyway so this match
+    // stays correct, not just exhaustive, if that ever changes.
+    let mut last_divine_dust: Option<DivineDustOutcome> = None;
     // Reforge's own popup text (`reforge_outcome_change_text`) shows a
     // single craft's own old_tier -> new_tier - called on just the LAST
     // iteration's outcome, that would show only that one iteration's
@@ -1514,6 +1535,10 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
                 }
                 last_reforged = Some(outcome);
             }
+            Ok(CraftResult::DivineDustApplied(outcome)) => {
+                completed += 1;
+                last_divine_dust = Some(outcome);
+            }
             Ok(CraftResult::PendingChoice) => break,
             Err(err) => {
                 error = Some(err);
@@ -1539,6 +1564,10 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
         };
         let change = format!("{prefix}{change_body}");
         return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
+    }
+    if let Some(outcome) = last_divine_dust {
+        let change = format!("{prefix}{}", divine_dust_outcome_change_text(&outcome));
+        return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &change));
     }
     Redirect::to("/inventory")
 }
@@ -1603,7 +1632,10 @@ async fn do_hideout_warrior(state: &AppState, login: &str, item_id: &str, includ
     for action in steps {
         match state.adventure.craft_item_ex(login, item_id, *action, false, false).await {
             Ok(CraftResult::Applied(outcome)) => completed.push(outcome),
-            Ok(CraftResult::PendingChoice) | Ok(CraftResult::Reforged(_)) => {}
+            // DivineDustApplied is unreachable here - DivineDust is never
+            // one of HIDEOUT_WARRIOR_STEPS - but the match must stay
+            // exhaustive regardless.
+            Ok(CraftResult::PendingChoice) | Ok(CraftResult::Reforged(_)) | Ok(CraftResult::DivineDustApplied(_)) => {}
             Err(err @ (CraftError::NotJoined | CraftError::ItemNotFound | CraftError::InsufficientDust(_))) => {
                 hard_error = Some(err);
                 break;
@@ -4718,6 +4750,9 @@ fn craft_action_tip(action: CraftAction) -> &'static str {
         }
         CraftAction::Reforge => {
             "Rerolls this item to a new (usually higher) tier, same as the Reforge Gear channel points reward, but costs dust instead \u{2014} 30 per tier of the item \u{2014} and targets this specific item, with a small chance at a bonus modifier."
+        }
+        CraftAction::DivineDust => {
+            "Costs Divine Dust, not dust or sand \u{2014} 2 per tier of the item. Not yet Sacred: makes it Sacred (also Perfect, if it wasn't already) and grants one random sacred affix. Already Sacred: rerolls its sacred affix to a different one."
         }
     }
 }
