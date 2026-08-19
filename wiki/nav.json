@@ -6,6 +6,7 @@
   {"slug": "crafting", "label": "⚒️ Crafting"},
   {"slug": "healing", "label": "✨ Healing"},
   {"slug": "classes", "label": "🎭 Classes"},
+  {"slug": "golems", "label": "🗿 Golems"},
   {"slug": "passives", "label": "🌳 Passives"},
   {"slug": "commands", "label": "💬 Commands"},
   {"slug": "dashboard", "label": "🖥️ Dashboard"}

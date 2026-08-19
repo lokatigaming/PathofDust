@@ -31,6 +31,7 @@ of changing your mind later).
 | Cleric | Healer | Chain-heals and shields |
 | Druid | Healer (evasion-flavored) | Same healer baseline as Cleric, leans on evasion instead of raw heal-power gear |
 | Slayer | Melee DPS | HP-cost resource system (Bloodpact) and stacking bleed |
+| Elementalist | Ranged DPS | Splash-based root; 3 elemental branches (Elemental Focus, Righteous Fire, Golem Master) - see below |
 
 </div>
 
@@ -108,5 +109,39 @@ rather than staying mutually exclusive. This is current behavior, not a
 documented or guaranteed feature - treat any cross-archetype combo like this
 as something that could change without notice, not a build you should count
 on staying exactly this strong.
+
+<h3 id="elementalist">The Elementalist</h3>
+
+The 12th class - a Ranged elemental caster built around three distinct
+branches, each following the same 1 Skill → 3 Specializations → 9 Modifiers
+shape (13 nodes each, 39 total) every other class's tree already uses,
+including the standard 4/4 gate on Specializations.
+
+**Root passive**: splash, scaling with level - the same mechanic and
+magnitude Ranger's own root uses, just on a caster instead of an archer.
+
+**Elemental Focus** - raises how reliably your Fire/Cold/Lightning on-hit
+debuffs actually land (see [Combat](/wiki/combat#elemental) for what those
+debuffs do), scaling with your character level, independently per element.
+Its 3 specs (Shocking/Chilling/Scorching Focus) each add "applies debuffs
+more frequently," and their modifiers add gear-scaled elemental damage, bonus
+crit, and on-proc shields for their own element.
+
+<p class="muted">The per-level numbers here get large fast (rank 3 is 15% × your level, separately for each of fire/cold/lightning) - but this stat feeds a proc-chance roll that's hard-capped at 100%, not a raw damage multiplier. In practice this means a mid-level Elementalist's elemental debuffs go from "sometimes" to "reliably every hit" well before max level, not that damage itself scales unboundedly - your base attack damage, crit, and increased-damage stats are untouched by this branch.</p>
+
+**Righteous Fire** - an aura that burns you and nearby enemies every second
+(true damage, unaffected by evasion/block/DR on either side) - real, ongoing
+self-damage by design, meant to be offset by the branch's own healing/shield
+nodes (Healing Flames' self-regen, Shielding Flames, Fanning Flames sharing
+it with allies) rather than "fixed." Cleansing Flames periodically clears
+debuffs from you and nearby allies and refreshes a few defensive buffs.
+Scorching Flames adds more fire damage (same per-level/proc-chance shape as
+Elemental Focus above) and unlocks **Ashes to Ashes** - an unconditional
+execute on any enemy (bosses included, no exemption) below a health
+percentage of your own max HP.
+
+**Golem Master** - summons 1-3 golems that fight alongside you, at the cost
+of a real chunk of your own damage. Big enough a system to get its own page
+- see [Golems](/wiki/golems).
 
 </div>

@@ -8,9 +8,9 @@ subscriber-only tier anywhere in this bot - it's always one of "everyone,"
 "mods," or (for one command) "broadcaster only."
 
 Most commands have no cooldown at all. A specific subset shares one **global**
-5-second cooldown per command name - "global" means if one viewer runs it,
+cooldown per command name - "global" means if one viewer runs it,
 *everyone* is briefly blocked from that same command, not just that viewer.
-That subset is called out per-row below as "Shared {{BUILTIN_COOLDOWN_S}}s."
+That subset is called out per-row below as "Shared cooldown ({{BUILTIN_COOLDOWN_S}} seconds)."
 
 <h3 id="adventure">Adventure</h3>
 
@@ -39,13 +39,13 @@ The chat RPG the rest of this wiki covers. See [Getting Started](/wiki/getting-s
 
 | Command | What it does | Cooldown |
 |---|---|---|
-| `!hug [@user]` | Sends a hug, to someone specific or to chat generally. | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!uptime` | How long the stream's been live. | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!time` | The streamer's local time. | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!commands` | Link to the full public commands list. | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!theme` / `!themes` | Link to the entrance-theme listing. | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!handsome` | Plays a short video on stream. | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!thatsagoodbuild` | Plays a short video on stream. | Shared {{BUILTIN_COOLDOWN_S}}s |
+| `!hug [@user]` | Sends a hug, to someone specific or to chat generally. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!uptime` | How long the stream's been live. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!time` | The streamer's local time. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!commands` | Link to the full public commands list. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!theme` / `!themes` | Link to the entrance-theme listing. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!handsome` | Plays a short video on stream. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!thatsagoodbuild` | Plays a short video on stream. | Shared, {{BUILTIN_COOLDOWN_S}} sec |
 
 <p class="muted">Yes, <code>!handsome</code> and <code>!thatsagoodbuild</code> really are open to everyone, no mod gate - that's on purpose.</p>
 
@@ -57,7 +57,7 @@ The chat RPG the rest of this wiki covers. See [Getting Started](/wiki/getting-s
 
 | Command | Syntax | Who | What it does | Cooldown |
 |---|---|---|---|---|
-| `!bugreport <what happened>` | `!bugreport the dragon fight froze` | everyone | Files a free-text bug report for the streamer. | {{BUGREPORT_COOLDOWN_S}}s per user |
+| `!bugreport <what happened>` | `!bugreport the dragon fight froze` | everyone | Files a free-text bug report for the streamer. | {{BUGREPORT_COOLDOWN_S}} sec per user |
 | `!bugreports` | `!bugreports` | **Mods** | Lists the 5 most recent reports in chat. | none |
 
 </div>
@@ -70,10 +70,10 @@ Live Path of Exile market data pulled from poe.ninja - unrelated to this game's 
 
 | Command | What it does | Who | Cooldown |
 |---|---|---|---|
-| `!essenceprofit` / `!ep` | Live Deafening Essence price + estimated farming profit/hr. | everyone | Shared {{BUILTIN_COOLDOWN_S}}s |
-| `!ritualprofit` / `!rp` | Live Ritual-currency farming profit estimate. | everyone | Shared {{BUILTIN_COOLDOWN_S}}s |
+| `!essenceprofit` / `!ep` | Live Deafening Essence price + estimated farming profit/hr. | everyone | Shared, {{BUILTIN_COOLDOWN_S}} sec |
+| `!ritualprofit` / `!rp` | Live Ritual-currency farming profit estimate. | everyone | Shared, {{BUILTIN_COOLDOWN_S}} sec |
 | `!vesselprice` / `!vp` | Link to Blood-filled Vessel pricing. | **Mods** | none |
-| `!price <ritual\|essence\|vessel>` | Shortcut to the three above. | everyone (`vessels` sub-form is mod-only) | Shared {{BUILTIN_COOLDOWN_S}}s |
+| `!price <ritual\|essence\|vessel>` | Shortcut to the three above. | everyone (`vessels` sub-form is mod-only) | Shared, {{BUILTIN_COOLDOWN_S}} sec |
 
 </div>
 
@@ -90,7 +90,7 @@ Live Path of Exile market data pulled from poe.ninja - unrelated to this game's 
 | `!voteskip` / `!vs` | `!voteskip` | everyone | Votes to skip the current song (3 distinct voters by default triggers it; auto-passes if it's your own song). |
 | `!votepause` | `!votepause` | everyone | Votes to pause. |
 | `!votestart` | `!votestart` | everyone | Votes to resume a paused song. |
-| `!votevolume` / `!vv <{{MIN_VOTE_VOLUME}}-{{MAX_VOTE_VOLUME}}>` | `!vv 60` | everyone | Votes for a volume level within the allowed range. |
+| `!votevolume` / `!vv <level>` | `!vv 60` | everyone | Votes for a volume level (allowed range: {{MIN_VOTE_VOLUME}} to {{MAX_VOTE_VOLUME}}). |
 | `!skip` / `!modskip` | `!skip` | **Mods** | Immediate skip, no vote. |
 | `!modpause` | `!modpause` | **Mods** | Immediate pause, no vote. |
 | `!modstart` / `!modresume` | `!modstart` | **Mods** | Immediate resume, no vote. |
@@ -101,7 +101,7 @@ Live Path of Exile market data pulled from poe.ninja - unrelated to this game's 
 | `!playrandom <1-5>` | `!playrandom 3` | everyone | Queues that many songs from recently-played genres. |
 | `!playrandom on\|off` | `!playrandom on` | **Mods** | Toggles continuous auto-topup from those genres. |
 
-<p class="muted"><code>!voteskip</code> shares a {{VOTESKIP_COOLDOWN_S}}-second (10 minute) per-user cooldown with the channel-points "Interrupt the Music" reward. Every other command on this list has no cooldown of its own.</p>
+<p class="muted"><code>!voteskip</code> shares a per-user cooldown ({{VOTESKIP_COOLDOWN_S}} seconds, 10 minutes normally) with the channel-points "Interrupt the Music" reward. Every other command on this list has no cooldown of its own.</p>
 
 </div>
 

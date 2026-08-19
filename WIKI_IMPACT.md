@@ -39,3 +39,59 @@ src/adventure/combat.rs:reform_thunder_golem (Growing bugfix) — Thunder Golem'
 src/adventure/combat.rs:is_protected_golem/is_damage_immune (new) + thunder_golem_redirect (extended) — Basic/Flame/Water golems are now UNCONDITIONALLY immune to damage and never selected as an enemy attack's target, closing a real gap where their immunity previously only held as a side effect of Thunder Golem's own redirect: a non-Thunder golem picked directly as a target (or hit during a Thunder Golem's reform gap, when none is alive to absorb) previously took full damage like a real player. Fixed with two layers — every target-selection pool (primary attacks, splash, Volatile-Magic-style true-damage AoE) now excludes non-Thunder golems outright, and every direct damage-application site that doesn't route through the redirect (DoT ticks, Doom detonation, reflect, true damage) now runs a blanket immunity check. Known, accepted consequence: during a Thunder Golem's reform gap, attacks that used to leak onto a non-Thunder golem now land on a real player instead — that gap is Thunder Golem's own intended weakness, this just stops it bleeding onto the wrong unit type — affects passives
 src/adventure/combat.rs:elementalist_per_level_elemental_pct (new) — Elemental Focus and Scorching Flames now actually multiply by the Elementalist's own character level (the spec has always said "per level" for both, the code never did) — rank 3 Elemental Focus (15%) applies in full to fire, cold, AND lightning independently at level×15%; rank 3 Scorching Flames (30%) stacks on top for fire only. Balance note: these stats are elemental-PROC-CHANCE inputs (clamped to 100% past a raw value of 10.0), not damage multipliers, so this does not inflate personal damage-per-hit for anyone near max level — full detail in docs/elementalist_spec.md. Base-class splash (the third "per level" mention in the spec) was separately verified already correct, unchanged — affects passives
 src/adventure/manager.rs:full_player_fight_stats/first_player_to_die (golem attribution) — a golem's own damage dealt, damage absorbed/taken, and healing done (including a Thunder Golem's party-tanking absorption and a Water Golem's Replenishing heals) now roll up into its owning Elementalist's stats everywhere a per-player total is shown or ranked: Top DPS/Tanks/Heals in fight announcements (per-fight and the batched summary), and the /fights dashboard. A golem never appears as its own named leaderboard entry again — previously it did (any non-boss unit got its own row), including in the one-time Celestial Shard "top healer" and Unique Shard launch-giveaway awards, which would have silently tried to grant to a golem's own (non-existent) character id had one ever topped a category. Also fixed a real, already-live bug found during this audit: the /fights dashboard's "First Down" field could report a Thunder Golem's own routine reform-cycle death as if the owning Elementalist had gone down — golem deaths are now excluded entirely, never attributed to anyone. Dust/sand/loot grants were checked and confirmed unaffected — they're flat, per-participating-player rewards with no connection to per-unit damage or healing — affects passives|commands
+
+---
+
+## Wiki catch-up pass (2026-08-19) — processed
+
+Entries 10-25 (Monk rename, Cthulhu/Dragon/leech/intervene fixes, constant
+hoists, pinfight, Echoing Power, boss pierce, bot→game published constants)
+were already handled by the prior wiki completeness pass (commits e282330
+through d01be34, plus the placeholder-map hoist-fulfillment follow-up) —
+re-checked against current wiki text this pass, still accurate, nothing to
+change.
+
+This pass, oldest-unprocessed-first:
+- Entry 26 (bot-published-constants "varies" wording): fixed the "Shared
+  variess" / "!vv <varies-varies>" awkward phrasing in wiki/commands.md
+  (now reads correctly whether the value is a real number or "varies").
+- Entries 28-34, 40 (Elementalist class + all 3 branches, Golem
+  foundation + all 4 types, the Elemental Focus/Scorching Flames
+  per-level fix): documented in full against docs/elementalist_spec.md
+  as source of truth — new "The Elementalist" section on wiki/classes.md,
+  new wiki/golems.md for the whole golem system. The 39-node tree's own
+  real numbers need no hand-transcription — they're already live on the
+  code-generated /wiki/passives page now that ALL_ARCHETYPES includes
+  Elementalist.
+- Entry 36 (fight-announcement batching): documented in
+  wiki/getting-started.md's new "Chat Announcements" section.
+- Entry 41 (golem attribution): documented in wiki/golems.md's "Rules
+  Worth Knowing" section.
+- Entries 24-25 (boss pierce) and 38-39 (Growing/non-Thunder-immunity
+  bugfixes): checked against every currently-published wiki page —
+  none of these change any existing wiki claim (boss pierce isn't
+  referenced anywhere in wiki/combat.md at all yet; Growing/immunity are
+  internal-mechanics-only, no player-facing number was ever published
+  for either). Boss pierce specifically is a real combat-page gap, not a
+  contradiction — flagged in this pass's report for a future pass, out
+  of this pass's explicit Elementalist/Golem/announcement/attribution
+  scope.
+
+Tagged "balance in flux" per the owner's explicit instruction (mechanic
+documented, numbers deliberately left loose, both relayed directly by the
+owner rather than found in this log): golem stat inheritance being
+corrected from base stats to fully-buffed effective stats, and Thunder
+Golem's incoming absorbed-damage-redistribution-on-death mechanic. Both
+called out on wiki/golems.md.
+
+Not documented, per instruction (not yet deployed): Memories (build
+loadouts), Divine Dust (sacred affix currency) — not found anywhere in
+this log, docs/elementalist_spec.md, or ELEMENTALIST_PROGRESS.md either,
+consistent with "still in development." Nothing accidentally published.
+
+No contradiction found between this log's entries and
+docs/elementalist_spec.md's current numbers — the spec doc's own inline
+"(2026-08-19: ...)" addenda already incorporate every balance-ruling
+correction referenced in this log (Growing's additive-not-compounding
+fix, the per-level elemental-pct fix), and every number checked against
+it during this pass matched exactly.

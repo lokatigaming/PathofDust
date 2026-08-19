@@ -8,7 +8,8 @@
 - [🗡️ Items](/wiki/items) - generation, affixes, drops, durability, inventory
 - [⚒️ Crafting](/wiki/crafting) - currencies, actions, and the modifier ceiling
 - [✨ Healing](/wiki/healing) - shield stacking and everything that affects your heals
-- [🎭 Classes &amp; Passives](/wiki/classes) - the 11 classes, how passive points work, Split Personality
+- [🎭 Classes &amp; Passives](/wiki/classes) - the 12 classes, how passive points work, Split Personality
+- [🗿 Golems](/wiki/golems) - the Elementalist's summonable golems: types, stats, and rules
 - [🌳 Passives](/wiki/passives) - every class's full passive tree, node by node
 - [💬 Commands](/wiki/commands) - every chat command, cooldown, and cost
 - [🖥️ Dashboard](/wiki/dashboard) - the web dashboard, passive-tree page, fight history, and OBS overlay

@@ -59,7 +59,7 @@ retreat as long as you can afford it - off by default.
 Everyone starts as **Commoner** - a plain, unspecialized fighter with no
 bonus and no penalty. Pick a real class from your web dashboard whenever
 you're ready; see [Classes &amp; Passives](/wiki/classes) for what each of the
-11 does. Changing your mind later costs **{{ARCHETYPE_CHANGE_COST}} dust**
+12 does. Changing your mind later costs **{{ARCHETYPE_CHANGE_COST}} dust**
 after a couple of free changes are used up, and **fully clears your passive
 tree** - it's a real decision, not a free respec-and-keep. Picking Commoner
 back is never allowed once you've specialized.
@@ -85,6 +85,17 @@ distinct voters). The streamer can also flip on **Permanent Rampage**, which
 replaces the normal timer with continuous back-to-back boss fights until
 turned back off - if fights seem to be firing constantly rather than every
 {{ENCOUNTER_INTERVAL_MIN}} minutes, that toggle is probably on.
+
+<h3 id="announcements">Chat Announcements</h3>
+
+Routine fight-result messages (win/loss, Top DPS/Tanks/Heals) no longer post
+one at a time per fight - they batch into a single summary covering multiple
+fights at once, flushed every 10 fights or after 5 minutes of no new fight,
+whichever comes first. The Top DPS/Tanks/Heals lines in that summary are
+totals across the whole batch, not any one fight. A new boss's arrival still
+gets its own immediate chat announcement, and per-fight loot/gear-crit lines
+still post right away too - only the routine result summary itself is
+batched.
 
 <h3 id="roster">The Roster</h3>
 
