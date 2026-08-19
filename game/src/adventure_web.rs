@@ -1282,6 +1282,12 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
             }
         }
     }
+    // TEMPORARY diagnostic (2026-08-19, craft x5/x10/x50 investigation) -
+    // pinpoints exactly why a batch stopped short of `times`, since
+    // `times` alone (already confirmed correctly received) doesn't say
+    // whether the loop ran out of dust/sand partway through (working as
+    // designed) or failed on iteration 1 for an unrelated reason.
+    tracing::info!(login = %login, ?action, times, completed, ?error, "DIAG do_craft_batch finished");
     if completed == 0 {
         let reason = error.map(craft_error_text).unwrap_or_else(|| "Nothing happened.".to_string());
         return Redirect::to(&craft_error_popup_url(&reason));
