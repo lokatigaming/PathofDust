@@ -40,6 +40,8 @@ patreon-tokens.json
 /backup-pre-release-2
 # Pre-live-tunables-deploy rollback backup, same discipline.
 /backup-pre-live-tunables
+# Pre-chat-noise-cleanup-deploy rollback backup, same discipline.
+/backup-pre-chat-noise-cleanup
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
