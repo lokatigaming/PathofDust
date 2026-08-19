@@ -4992,4 +4992,3 @@ mod memories_render_tests {
         assert!(note.contains("1 unspent point."), "singular, not '1 unspent points' - got: {note}");
     }
 }
-
