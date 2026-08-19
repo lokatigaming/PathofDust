@@ -124,6 +124,27 @@ Decision 5.
     description agrees with the *code* ("unlocked at rank 2"). Each
     migration corrects the declaration to the real per-rank table, so
     declarations become trustworthy going forward.
+12. **A node's declared shape does not predict its call site.** Stage 2
+    projected 36 mechanical swaps from the `1.0 / 1.0` declarations;
+    dumping the actual call sites cut the batch to 20 and turned up two
+    nodes with no consumer at all, one feeding a non-linear `match`
+    table, and one genuine behavior change. **Read the call site before
+    editing, every time.** This is the second occurrence of the same
+    assumption failing — see Decision 9.
+13. **`UNWIRED_NODES` is a third classification.** A node can declare
+    real per-rank values that nothing in the codebase reads. Distinct
+    from pending migration (values *do* reach the game, via hardcoded
+    constants) and from `NotYetImplemented` (declares no value at all).
+    `node_untunable_reason` tells `/admin/passives` which applies, so it
+    never promises a migration batch that would have nothing to do.
+14. **`chainoflight` is held, not migrated.** A Specialization read as
+    `(1 + rank).min(5)`, so 4/4 yields 5 targets today while magnitude
+    would yield 4 (`effective_rank` floors a Spec at 3). Its description
+    says "up to 4 at rank 3" and the tree documents a Spec's 4th point
+    as unlock-only, so today's 5 looks like a latent bug — but
+    correcting it is a player-facing nerf, not a neutral migration.
+    Needs an explicit decision; options are in
+    `LIVE_TUNABLES_PROGRESS.md`.
 
 ---
 

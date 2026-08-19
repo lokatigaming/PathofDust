@@ -20,8 +20,9 @@ The main checkout was never touched and its branch never switched.
 - [x] **Stage 1** — override store, the `magnitude_at_rank` hook,
       `/admin/passives`, and the tuned-value display line.
       374 → 403 tests. Commits `453155e`, `8ad16e1`.
-- [ ] **Stage 2** — bucket A, the 36 nodes where magnitude equals rank
-      by construction.
+- [x] **Stage 2** — 20 count nodes migrated onto the tunable path;
+      5 reclassified after reading their real call sites. 442 → 449
+      tests. Commit `dc1b8ec`.
 - [ ] **Stage 3** — buckets B, C, D (24 nodes), batched per class, plus
       an Elementalist golden-corpus scenario as a fixture ADDITION.
 
@@ -97,3 +98,78 @@ Two are worth calling out here because they were nearly got wrong:
   node has been retuned.
 - No human has looked at `/admin/passives` yet. It is verified
   structurally (render tests) and end to end (HTTP test), not by eye.
+
+---
+
+## Stage 2 summary (2026-08-20)
+
+**449 passing, 0 failed.** Golden corpus green — that is the
+behavior-neutrality proof for this stage. Clippy and release build
+clean. No character data touched.
+
+20 nodes migrated from `passive_node_rank` to the new
+`Character::passive_node_count`, which reads the magnitude (and so the
+override hook) and converts to `u32` in one documented place.
+
+### The batch was 20, not the 36 the Stage 1 audit projected
+
+Stage 1 classified nodes by their *declaration* (`1.0 / 1.0` ⇒
+magnitude equals rank ⇒ mechanical swap). Dumping every candidate's
+actual **call site** before editing found five the declaration-shaped
+view got wrong. Worth reading before Stage 3, because the same trap
+applies there:
+
+| Node | What the declaration implied | What the code actually does |
+|---|---|---|
+| `chainoflight` | trivial count swap | Spec read as `(1 + rank).min(5)`; at rank 4 yields **5**, magnitude would yield 4 — **held, see below** |
+| `bloodsac` | risky (Spec, rank 4) | safe — `.max(2000.0)` floor makes rank 3 and 4 identical |
+| `onehundredhands` | risky (Spec, rank 4) | safe — already `.min(3)` by hand |
+| `risingblaze` | pending migration | **no consumer anywhere** — nothing to migrate |
+| `stillwater` | pending migration | **no consumer anywhere** — nothing to migrate |
+| `undyingwill` | trivial count swap | feeds a non-linear `match` table — stays pending for Stage 3 |
+
+**The general lesson: a node's declared shape does not predict its call
+site.** Read the call site first. This is the second time the same
+assumption has produced a wrong list (Stage 1's `INTEGER_COUNT_NODES`
+was the first).
+
+### Open decision: `chainoflight`
+
+`(1 + c.passive_node_rank("chainoflight") + …).min(5)`. A
+Specialization can hold rank 4, so today a 4/4 investment gives **5**
+Prayer of Mending targets. Migrating to magnitude would give 4, because
+`effective_rank` floors a Spec at 3.
+
+Three facts point the same way: the node's own description says "up to 4
+at rank 3"; `passive_tree.rs` documents the 4th point as unlock-only,
+adding no further increment; and every other Spec obeys that. So today's
+5 looks like a latent bug rather than intent.
+
+But correcting it is a **player-facing nerf**, not a neutral migration,
+so it was deliberately left alone. Needs an explicit call:
+
+- **Migrate and accept the change** (4/4 drops 5 → 4 targets) — makes
+  the node tunable and brings it in line with the documented rule.
+- **Preserve today's behavior** — keep reading the raw rank, and leave
+  the node permanently non-tunable.
+- **Preserve and make tunable** — read the count but re-add the +1 at
+  rank 4 explicitly, which encodes the anomaly in code forever.
+
+### New classification: `UNWIRED_NODES`
+
+`risingblaze` and `stillwater` declare real per-rank values that
+**nothing in the codebase reads** — no `passive_node_magnitude`, no
+`passive_node_rank`, no call site at all. That is a third state,
+distinct from "pending migration" (values do reach the game, via
+hardcoded constants) and from `NotYetImplemented` (declares no value).
+`/admin/passives` now says the accurate thing for each via
+`node_untunable_reason` rather than promising a migration batch that
+would have nothing to do.
+
+### Counts after Stage 2
+
+- `PENDING_MIGRATION_NODES`: **38** (was 60)
+- `INTEGER_COUNT_NODES`: **20**, each confirmed a plain arithmetic count
+  at its own call site
+- `UNWIRED_NODES`: **2**
+- Tunable nodes overall: **371** of 471 (was 351)
