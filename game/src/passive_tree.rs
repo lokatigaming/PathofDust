@@ -2098,6 +2098,56 @@ pub fn points_for_level(level: u32) -> u32 {
     1 + level / 4
 }
 
+/// The single source of truth for "is this rank legal for this node,
+/// given these other allocations in the same tree" - node existence,
+/// `max_rank`, and the parent/`unlock_at` prerequisite gate.
+///
+/// Extracted (2026-08-19, the Memories feature) from
+/// `AdventureManager::preview_allocate_passive`, which had been the only
+/// place these rules existed and now calls this instead. The extraction
+/// is what lets a Memory load replay a stored build through the EXACT
+/// rules a live click obeys (see `adventure::memory::replay_snapshot`)
+/// rather than a second copy of them that could drift - "a Memory can
+/// never produce a tree state the normal UI couldn't have built" is only
+/// worth asserting if there is one implementation of "could have built".
+///
+/// `side` is the allocation map this rank would land in - the caller's
+/// pending preview for a live click, or the partially-replayed tree for
+/// a Memory load. The prerequisite is checked against THAT map rather
+/// than against the character's saved tree, which is what makes a
+/// same-request allocate-parent-then-child work (and, for a replay, what
+/// makes tier-ordered rebuilding cascade correctly).
+///
+/// The point BUDGET is deliberately not checked here: it is
+/// character-scoped (`Character::total_passive_points`, one pool shared
+/// across both trees) rather than a property of a node, and both callers
+/// enforce it themselves over the whole resulting spend.
+pub fn validate_allocation_step(
+    nodes: &'static [PassiveNode],
+    side: &std::collections::HashMap<String, u32>,
+    node_key: &str,
+    new_rank: u32,
+) -> Result<(), crate::adventure::PassiveError> {
+    use crate::adventure::PassiveError;
+
+    let node = nodes.iter().find(|n| n.key == node_key).ok_or(PassiveError::NodeNotFound)?;
+    if new_rank > node.max_rank {
+        return Err(PassiveError::MaxRankReached);
+    }
+    // Rank 0 is "not allocated" - it has no prerequisite to satisfy, and
+    // de-allocating a node whose parent is already gone must stay legal.
+    if new_rank > 0 {
+        if let Some(parent_key) = node.parent {
+            let parent_rank = side.get(parent_key).copied().unwrap_or(0);
+            let required = node.unlock_at.unwrap_or(1);
+            if parent_rank < required {
+                return Err(PassiveError::ParentNotInvested);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Stage 1 of the Elementalist build (docs/elementalist_spec.md,
 /// ELEMENTALIST_PROGRESS.md) - the first structural validation this file
 /// has ever had for ANY archetype's tree, not just the new one. Written

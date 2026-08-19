@@ -593,6 +593,24 @@ pub struct Character {
     /// non-lossy respec in this codebase).
     #[serde(default)]
     pub golem_slot_types: Vec<GolemType>,
+    /// Memories (2026-08-19) - saved passive-tree builds this character
+    /// can swap between for free out of combat, see `Memory` and
+    /// `AdventureManager::load_memory`. Index == slot number, `None` ==
+    /// an empty slot: slots have identity (filling slot 3 while 1 and 2
+    /// are empty has to STAY slot 3), which a bare `Vec<Memory>` can't
+    /// express. Never assume this is already `memory_slots` long - a
+    /// character saved before this feature has none at all - read it
+    /// through `memory_slot`/`memories_padded`, which normalize.
+    #[serde(default)]
+    pub memories: Vec<Option<Memory>>,
+    /// How many Memory slots this character has. A per-character VALUE
+    /// rather than a global constant consulted at each use site
+    /// specifically so a future feature can grant an individual
+    /// character extra slots with no migration and no code change
+    /// anywhere that reads it - `STARTING_MEMORY_SLOTS` is only the
+    /// default. Nothing downstream may hardcode 3.
+    #[serde(default = "default_memory_slots")]
+    pub memory_slots: u32,
 }
 
 /// Bag size — see `Character::inventory`. Raised 50 -> 150 (2026-08-18, a
@@ -969,6 +987,68 @@ impl Character {
             secondary_archetype: None,
             secondary_passive_allocations: HashMap::new(),
             golem_slot_types: Vec::new(),
+            memories: Vec::new(),
+            memory_slots: STARTING_MEMORY_SLOTS,
+        }
+    }
+
+    /// This character's Memory slots, normalized to exactly
+    /// `memory_slots` entries - padded with empties for a character
+    /// saved before the feature (or before a slot grant), and truncated
+    /// if `memory_slots` ever shrank. The ONE way the rest of the
+    /// codebase should read `memories`: nothing else has to know the
+    /// stored vec can be any length.
+    pub fn memories_padded(&self) -> Vec<Option<Memory>> {
+        let mut slots = self.memories.clone();
+        slots.resize(self.memory_slots as usize, None);
+        slots
+    }
+
+    /// Whatever is saved in `slot`, or `None` for an empty or
+    /// out-of-range slot. Out-of-range reads as empty rather than
+    /// panicking - callers that need to tell "empty" from "no such slot"
+    /// apart check `slot < memory_slots` themselves (see
+    /// `AdventureManager::load_memory`, which reports them differently).
+    pub fn memory_slot(&self, slot: usize) -> Option<&Memory> {
+        if slot >= self.memory_slots as usize {
+            return None;
+        }
+        self.memories.get(slot).and_then(|m| m.as_ref())
+    }
+
+    /// Grows `memories` just far enough to address `slot`, so a caller
+    /// can write to a slot a short (or empty) stored vec doesn't reach
+    /// yet. Returns `None` if `slot` is past `memory_slots`.
+    pub(crate) fn memory_slot_mut(&mut self, slot: usize) -> Option<&mut Option<Memory>> {
+        if slot >= self.memory_slots as usize {
+            return None;
+        }
+        if self.memories.len() <= slot {
+            self.memories.resize(slot + 1, None);
+        }
+        self.memories.get_mut(slot)
+    }
+
+    /// Snapshots this character's CURRENT build into a `Memory` - the
+    /// read half of "Save Current Build". `name` is assumed already
+    /// validated (see `validate_memory_name`); this never sees raw form
+    /// input. Reads `effective_secondary_archetype()` rather than the
+    /// raw field so a snapshot taken while Split Personality is
+    /// unequipped correctly records "no secondary", matching what the
+    /// player can actually see on the page at the time.
+    pub fn snapshot_build(&self, name: String, saved_at: u64) -> Memory {
+        let secondary_archetype = self.effective_secondary_archetype();
+        Memory {
+            name,
+            archetype: self.archetype,
+            passive_allocations: self.passive_allocations.clone(),
+            secondary_archetype,
+            // Only carry the secondary tree when one is actually live -
+            // otherwise a stale map would ride along and reappear the
+            // next time Split Personality happened to be equipped.
+            secondary_passive_allocations: if secondary_archetype.is_some() { self.secondary_passive_allocations.clone() } else { HashMap::new() },
+            golem_slot_types: self.golem_slot_types.clone(),
+            saved_at,
         }
     }
 
@@ -3757,6 +3837,116 @@ pub enum ChangeModelError {
     InvalidChoice,
     /// Not enough dust — carries the cost that was needed.
     InsufficientDust(u64),
+}
+
+/// Stage A of the Memories build (docs/memories_spec.md) - the
+/// persistence half. Same additive-schema precedent every other new
+/// field on this struct follows: a round-trip test plus a test proving a
+/// save written before the field existed still loads.
+#[cfg(test)]
+mod memory_persistence_tests {
+    use super::*;
+
+    #[test]
+    fn memories_round_trip_through_json() {
+        let mut character = Character::new("memory_tester".to_string());
+        character.archetype = Archetype::Warrior;
+        character.passive_allocations.insert("bulwark".to_string(), 3);
+        character.memory_slots = STARTING_MEMORY_SLOTS;
+        character.memories = vec![
+            Some(character.snapshot_build("Tank Build".to_string(), 1_700_000_000)),
+            None,
+            Some(character.snapshot_build("Backup".to_string(), 1_700_000_001)),
+        ];
+
+        let json = serde_json::to_string(&character).expect("must serialize");
+        let restored: Character = serde_json::from_str(&json).expect("must deserialize");
+
+        assert_eq!(restored.memory_slots, 3);
+        assert_eq!(restored.memories.len(), 3);
+        assert_eq!(restored.memory_slot(0).map(|m| m.name.as_str()), Some("Tank Build"));
+        assert!(restored.memory_slot(1).is_none(), "an empty slot must round-trip as still empty, not collapse away");
+        assert_eq!(restored.memory_slot(2).map(|m| m.name.as_str()), Some("Backup"));
+        assert_eq!(restored.memory_slot(0).unwrap().passive_allocations.get("bulwark"), Some(&3));
+        assert_eq!(restored.memory_slot(0).unwrap().saved_at, 1_700_000_000);
+    }
+
+    #[test]
+    fn a_character_saved_before_memories_existed_still_loads_with_three_empty_slots() {
+        // Same additive-schema precedent as
+        // `a_character_saved_before_golem_master_existed_still_loads_with_no_slots_assigned`
+        // - a save file predating `memories`/`memory_slots` entirely must
+        // still deserialize, getting the default slot grant rather than
+        // failing to parse.
+        let old_save_json = r#"{"display_name":"pre_memories","level":10,"xp":0,"wins":0,"losses":0,"archetype":"warrior"}"#;
+        let restored: Character = serde_json::from_str(old_save_json).expect("a pre-Memories save must still deserialize");
+
+        assert_eq!(restored.memories, Vec::new(), "nothing saved yet");
+        assert_eq!(restored.memory_slots, STARTING_MEMORY_SLOTS, "an existing character is granted the default slots on load");
+        assert_eq!(restored.memories_padded().len(), 3, "the stored vec is short, but reading it must still show 3 slots");
+        assert!(restored.memories_padded().iter().all(|m| m.is_none()));
+    }
+
+    #[test]
+    fn memories_padded_normalizes_a_stored_vec_of_any_length() {
+        let mut character = Character::new("padder".to_string());
+        // Shorter than `memory_slots` - the common case for anyone who
+        // has only ever used slot 1.
+        character.memories = vec![Some(character.snapshot_build("Only One".to_string(), 0))];
+        assert_eq!(character.memories_padded().len(), 3);
+        assert_eq!(character.memories_padded()[0].as_ref().map(|m| m.name.as_str()), Some("Only One"));
+        assert!(character.memories_padded()[2].is_none());
+
+        // Longer than `memory_slots` - only reachable if a grant were
+        // ever revoked, but reading must not then expose a slot the
+        // player no longer has.
+        character.memory_slots = 1;
+        assert_eq!(character.memories_padded().len(), 1);
+        assert!(character.memory_slot(1).is_none(), "a slot past `memory_slots` must read as absent");
+    }
+
+    #[test]
+    fn memory_slots_is_a_per_character_value_not_a_hardcoded_three() {
+        // The whole reason it's a field: a future feature must be able
+        // to grant extras with no migration and no change to any reader.
+        let mut character = Character::new("granted".to_string());
+        character.memory_slots = 5;
+        assert_eq!(character.memories_padded().len(), 5);
+        assert!(character.memory_slot_mut(4).is_some(), "slot 5 must be addressable once granted");
+        assert!(character.memory_slot_mut(5).is_none(), "slot 6 must still be out of range");
+    }
+
+    #[test]
+    fn snapshot_build_captures_the_whole_current_build() {
+        let mut character = Character::new("snapshotter".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.passive_allocations.insert("golemmaster".to_string(), 3);
+        character.golem_slot_types = vec![GolemType::Thunder, GolemType::Flame];
+
+        let memory = character.snapshot_build("Golem Build".to_string(), 42);
+
+        assert_eq!(memory.archetype, Archetype::Elementalist);
+        assert_eq!(memory.passive_allocations.get("golemmaster"), Some(&3));
+        assert_eq!(memory.golem_slot_types, vec![GolemType::Thunder, GolemType::Flame]);
+        assert_eq!(memory.saved_at, 42);
+    }
+
+    #[test]
+    fn snapshot_build_omits_the_secondary_tree_when_split_personality_is_not_equipped() {
+        // Reads `effective_secondary_archetype()`, never the raw field -
+        // otherwise a stale map would ride along in the snapshot and
+        // reappear the next time the item happened to be equipped.
+        let mut character = Character::new("stale_secondary".to_string());
+        character.archetype = Archetype::Warrior;
+        character.secondary_archetype = Some(Archetype::Mage);
+        character.secondary_passive_allocations.insert("arcane".to_string(), 3);
+        assert!(character.effective_secondary_archetype().is_none(), "sanity: nothing equipped grants Split Personality here");
+
+        let memory = character.snapshot_build("No Secondary".to_string(), 0);
+
+        assert_eq!(memory.secondary_archetype, None);
+        assert!(memory.secondary_passive_allocations.is_empty(), "an inactive secondary tree must not be captured");
+    }
 }
 
 /// Why a `purchase_wings`/`toggle_flying` attempt didn't go through.

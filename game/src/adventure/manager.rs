@@ -2793,7 +2793,12 @@ impl AdventureManager {
         let character = characters.get(&key).ok_or(PassiveError::NotJoined)?;
         let target_archetype = if secondary { character.effective_secondary_archetype().ok_or(PassiveError::NodeNotFound)? } else { character.archetype };
         let nodes = target_archetype.passive_nodes();
-        let node = nodes.iter().find(|n| n.key == node_key).ok_or(PassiveError::NodeNotFound)?;
+        // Existence is re-checked by `validate_allocation_step` below;
+        // this early copy is about ORDERING, not validation - an unknown
+        // node key must bail before the line below creates a preview
+        // entry for this user as a side effect of merely being asked
+        // about a node that doesn't exist.
+        nodes.iter().find(|n| n.key == node_key).ok_or(PassiveError::NodeNotFound)?;
 
         let mut previews = self.pending_passive_previews.lock().await;
         let preview = previews.entry(key.clone()).or_insert_with(|| PassivePreview {
@@ -2809,18 +2814,14 @@ impl AdventureManager {
 
         let current_rank = side.get(node_key).copied().unwrap_or(0);
         let new_rank = if delta >= 0 { current_rank.saturating_add(delta as u32) } else { current_rank.saturating_sub((-delta) as u32) };
-        if new_rank > node.max_rank {
-            return Err(PassiveError::MaxRankReached);
-        }
-        if new_rank > 0 {
-            if let Some(parent_key) = node.parent {
-                let parent_rank = side.get(parent_key).copied().unwrap_or(0);
-                let required = node.unlock_at.unwrap_or(1);
-                if parent_rank < required {
-                    return Err(PassiveError::ParentNotInvested);
-                }
-            }
-        }
+        // Node existence, `max_rank` and the parent/`unlock_at` gate all
+        // moved into `validate_allocation_step` (2026-08-19, the
+        // Memories feature) - shared verbatim with the saved-build
+        // snapshot replay so a loaded Memory and a live click can never
+        // disagree about what a legal tree is. See its own doc. The
+        // budget check below deliberately stays here: it's
+        // character-scoped, not node-scoped.
+        crate::passive_tree::validate_allocation_step(nodes, side, node_key, new_rank)?;
         let mut trial_side = side.clone();
         if new_rank == 0 {
             trial_side.remove(node_key);

@@ -84,3 +84,4 @@ watchdog.log
 .DS_Store
 Thumbs.db
 desktop.ini
+target-memories/
