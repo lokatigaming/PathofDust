@@ -6,6 +6,8 @@
       "displayName": "mage_vs_cthulhu_stage200",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "mage",
       "role": "ranged",
       "maxHp": 803
@@ -15,6 +17,8 @@
       "displayName": "Cthulhu",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 40000

@@ -6,6 +6,8 @@
       "displayName": "slayer_vs_tough_boss_stage3000",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "slayer",
       "role": "melee",
       "maxHp": 8375
@@ -15,6 +17,8 @@
       "displayName": "The Dragon",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 2000000
@@ -4060,15 +4064,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 3550,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "buffSnapshot",
       "atMs": 3564,
       "unit": "slayer_vs_tough_boss_stage3000",
@@ -4221,15 +4216,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 3600,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 3614,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -4358,15 +4344,6 @@
       "evaded": false,
       "hitId": 2848,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 3650,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4499,15 +4476,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 3700,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 3714,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -4636,15 +4604,6 @@
       "evaded": false,
       "hitId": 2908,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 3750,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4777,15 +4736,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 3800,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 3814,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -4914,15 +4864,6 @@
       "evaded": false,
       "hitId": 2968,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 3850,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -5090,15 +5031,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 3900,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 3914,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -5227,15 +5159,6 @@
       "evaded": false,
       "hitId": 3035,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 3950,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5368,15 +5291,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 4000,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 4014,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -5505,15 +5419,6 @@
       "evaded": false,
       "hitId": 3095,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 4050,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5646,15 +5551,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 4100,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 4114,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -5783,15 +5679,6 @@
       "evaded": false,
       "hitId": 3155,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 4150,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -5959,15 +5846,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 4200,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 4208,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -6109,15 +5987,6 @@
       "evaded": false,
       "hitId": 3227,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 4250,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "attack",
@@ -6263,15 +6132,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 4300,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 4308,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -6402,15 +6262,6 @@
       "sourceKind": "dot"
     },
     {
-      "kind": "heal",
-      "atMs": 4350,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
-    },
-    {
       "kind": "attack",
       "atMs": 4358,
       "attacker": "slayer_vs_tough_boss_stage3000",
@@ -6539,15 +6390,6 @@
       "evaded": false,
       "hitId": 3320,
       "sourceKind": "dot"
-    },
-    {
-      "kind": "heal",
-      "atMs": 4400,
-      "healer": "slayer_vs_tough_boss_stage3000",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 0,
-      "targetHpAfter": 8375,
-      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
