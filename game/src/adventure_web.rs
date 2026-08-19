@@ -4168,10 +4168,10 @@ fn render_crafting_card(c: &Character) -> String {
             </div>\
             <div class=\"polish-reforge-actions\">\
               <span class=\"muted\">Polish / Reforge:</span>\
-              <label class=\"batch-check\"><input type=\"checkbox\" data-times=\"5\"> x5</label>\
-              <label class=\"batch-check\"><input type=\"checkbox\" data-times=\"10\"> x10</label>\
-              <label class=\"batch-check\"><input type=\"checkbox\" data-times=\"50\"> x50</label>\
-              <input type=\"hidden\" name=\"times\" value=\"1\">\
+              <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"1\" checked> x1</label>\
+              <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"5\"> x5</label>\
+              <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"10\"> x10</label>\
+              <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"50\"> x50</label>\
               {polish_btn}{reforge_btn}\
             </div>\
             <div class=\"craft-actions\">\

@@ -554,7 +554,7 @@
 <div id="js-tooltip"></div>
 {{ body }}
 <script>
-  (function() {
+  try { (function() {
     // Scroll-position preservation, EVERY page (2026-08-19, priority UX
     // fix, supersedes two earlier narrower attempts at this - one
     // site-wide but window-vertical-only, one path-scoped to just
@@ -665,8 +665,8 @@
     // must restore correctly too, which a submit-only listener would
     // never catch.
     window.addEventListener('pagehide', save);
-  })();
-  (function() {
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
+  try { (function() {
     // Generic ticking countdown for every .countdown-card on the page
     // (Reforge Gear's hourly reset, the Retreated banner's auto-repair
     // timer) - each just needs a data-reset-ms and a .countdown-timer
@@ -694,8 +694,8 @@
     }
     tick();
     setInterval(tick, 1000);
-  })();
-  (function() {
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
+  try { (function() {
     // After submitting a craft that came back as a veil choice (see
     // render_veil_choice_card), the POST-redirect-GET flow reloads the
     // whole page from scratch with no memory of what was just clicked -
@@ -707,8 +707,8 @@
     if (veilCard) {
       veilCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  })();
-  (function() {
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
+  try { (function() {
     // Live cost preview for the Crafting card (see render_crafting_card) -
     // every non-free action button carries data-base/data-label, and, if
     // veiling actually changes its price, data-veil-extra too (Scour and
@@ -737,21 +737,25 @@
     // computed here instead of server-side.
     var polishBtn = document.querySelector('.craft-actions button[data-polish], .polish-reforge-actions button[data-polish]');
     var reforgeBtn = document.querySelector('.craft-actions button[data-reforge], .polish-reforge-actions button[data-reforge]');
-    // x5/x10/x50 batch checkboxes for Polish/Reforge only (see the hidden
-    // `times` input do_craft reads server-side) - mutually exclusive
-    // (checking one clears the other), unchecked-both means times=1, the
-    // normal single-craft behavior every other button already has.
-    var timesInput = document.querySelector('input[name="times"]');
-    var batchChecks = document.querySelectorAll('.polish-reforge-actions input[data-times]');
+    // x1/x5/x10/x50 batch picker for Polish/Reforge only - real
+    // `name="times"` radio inputs (2026-08-19, rebuilt from nameless
+    // checkboxes + a JS-managed hidden input after a live report that
+    // the picker had stopped doing anything at all - any exception
+    // ANYWHERE earlier in this shared <script> tag aborted every
+    // statement after it, including the listener-binding loop this
+    // replaced, silently leaving the hidden `times` input stuck at its
+    // server-rendered default). Mutual exclusivity and the actual
+    // submitted value are now both handled natively by the browser's
+    // own radio-group behavior - correctness no longer depends on any
+    // JS here running at all. Everything below is a pure cosmetic
+    // preview (button text/cost estimate) on top of that.
+    var batchChecks = document.querySelectorAll('.polish-reforge-actions input[name="times"]');
     var currentTimes = function() {
-      for (var i = 0; i < batchChecks.length; i++) {
-        if (batchChecks[i].checked) return parseInt(batchChecks[i].getAttribute('data-times'), 10);
-      }
-      return 1;
+      var checked = document.querySelector('.polish-reforge-actions input[name="times"]:checked');
+      return checked ? parseInt(checked.value, 10) : 1;
     };
     var updateSpecialCosts = function() {
       var times = currentTimes();
-      if (timesInput) timesInput.value = times;
       var suffix = times > 1 ? ' x' + times : '';
       if (polishBtn) {
         var quality = itemASelect && itemASelect.selectedOptions.length ? parseFloat(itemASelect.selectedOptions[0].getAttribute('data-quality') || '0') : 0;
@@ -787,16 +791,7 @@
     };
     if (itemASelect) itemASelect.addEventListener('change', updateSpecialCosts);
     for (var bi = 0; bi < batchChecks.length; bi++) {
-      (function(cb) {
-        cb.addEventListener('change', function() {
-          if (cb.checked) {
-            for (var j = 0; j < batchChecks.length; j++) {
-              if (batchChecks[j] !== cb) batchChecks[j].checked = false;
-            }
-          }
-          updateSpecialCosts();
-        });
-      })(batchChecks[bi]);
+      batchChecks[bi].addEventListener('change', updateSpecialCosts);
     }
     updateSpecialCosts();
     if (veilCheckbox && craftButtons.length) {
@@ -834,9 +829,9 @@
       if (itemBSelect) itemBSelect.addEventListener('change', updateCraftCosts);
       updateCraftCosts();
     }
-  })();
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
-  (function() {
+  try { (function() {
     // Confirmation prompt for Krangle & Scour (see action_btn's
     // data-confirm attribute) - both are irreversible, so this shows
     // exactly which item is about to be affected before the form
@@ -854,9 +849,9 @@
         }
       });
     }
-  })();
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
-  (function() {
+  try { (function() {
     // Same fix as the OBS overlay's sprite normalization (see
     // overlay.html's computeContentScale) - sprites are sliced by hand
     // from packed sheets, so different sheets carry different amounts of
@@ -911,9 +906,9 @@
       if (img.complete && img.naturalWidth > 0) normalize(img);
       else img.addEventListener('load', function() { normalize(img); });
     });
-  })();
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
-  (function() {
+  try { (function() {
     // Every [data-tip] element on the page (stat labels/values, craft
     // buttons, veil-check, mod-roll, passives tree nodes) shares this one
     // tooltip instead of each rendering its own CSS ::after popup - see
@@ -959,7 +954,7 @@
       el.addEventListener('focus', function() { show(el); });
       el.addEventListener('blur', hide);
     });
-  })();
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
 </script>
 </body>
