@@ -692,19 +692,41 @@ consistency — both signals now agree on whose action a revival
 actually was. Verified via
 `rising_phoenix_skillcast_names_the_caster_not_the_revived_ally`.
 
-**Item 7 — retaliate proc gates: verified correct, test coverage
-added (none existed before).** Warrior's Retaliation and the shared
-Rogue's Voidstep/Monk's Counterflow/Druid's Wild Fury counter-attack
-group had zero prior regression coverage. Confirmed via full code read
-and new tests: Retaliation fires on a LANDED hit the target survives
-(`!outcome.evaded` — covers a blocked hit too, since block never sets
-`evaded`), the Voidstep/Counterflow/Wild Fury group fires on an EVADED
-hit (`outcome.evaded`) via one shared field
+**Item 7 — retaliate proc gates: real bug found and fixed, was
+initially misreported as "verified correct, no bug found."** Both
+gates originally read `counts_as_primary_hit`
+(`!is_followup && !units[attacker_idx].in_splash_resolution`), a flag
+that exists to stop an ATTACKER's own reactive on-hit chain (Twin
+Strikes, Volatile Magic, etc.) from re-triggering off their own splash
+targets. Reusing it for the DEFENDER's own reactive procs was wrong:
+`in_splash_resolution` is set on the attacker for the full duration of
+every splash target's `apply_hit` call, so it made every splash-target
+evade or survived-hit ineligible to proc Retaliation or Voidstep/
+Counterflow/Wild Fury — roughly 95% of evaded hits in a typical fight,
+since splash is the majority damage source. This contradicted the
+spec's explicit ruling that these must trigger on ANY defensive roll,
+including against splash hits, with the tooltip chance applying per
+roll. Fixed by introducing `defender_may_react = !is_followup` (no
+`in_splash_resolution` exclusion) and switching both gates to it —
+`!is_followup` alone is correct and sufficient, since splash targets
+are never themselves follow-ups (`apply_splash` always calls
+`apply_hit` with `is_followup: false` for each target); only an actual
+derived hit (a counter-attack, or a Twin-Strikes-style follow-up) is
+excluded, preventing infinite counter-chains. Regression coverage:
+Retaliation fires on a LANDED hit the target survives (`!outcome.evaded`
+— covers a blocked hit too, since block never sets `evaded`), the
+Voidstep/Counterflow/Wild Fury group fires on an EVADED hit
+(`outcome.evaded`) via one shared field
 (`evade_counter_chance`/`evade_counter_last_fired_at_ms` — reasonable
 given the three skills belong to three different, normally-mutually-
 exclusive archetypes), each "defensive roll" outcome triggers exactly
 its own dedicated group and never the other, a counter-attack can
 never itself re-trigger either gate (`!is_followup`), the shared evade-
-counter group respects its 1-per-second cap, and no OTHER passive
-anywhere in the file reads or writes either gate's own fields. See
-`retaliate_proc_gate_tests` for the full suite.
+counter group respects its 1-per-second cap, no OTHER passive anywhere
+in the file reads or writes either gate's own fields, AND — the tests
+that specifically prove this fix — an evade against a SPLASH hit
+(attacker's `in_splash_resolution` set) still procs Voidstep/
+Counterflow/Wild Fury, and surviving a LANDED splash hit still procs
+Retaliation. See `retaliate_proc_gate_tests` for the full suite,
+specifically `voidstep_counterflow_wildfury_group_fires_on_an_evade_against_a_splash_hit`
+and `retaliation_fires_on_surviving_a_landed_splash_hit`.

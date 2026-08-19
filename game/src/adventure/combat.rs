@@ -7429,6 +7429,17 @@ pub(crate) fn apply_hit(
     // ATTACKER (see `in_splash_resolution`'s own doc) since that's who's
     // mid-`apply_splash` here, not the target.
     let counts_as_primary_hit = !is_followup && !units[attacker_idx].in_splash_resolution;
+    // Release 1.1 item 7 (2026-08-19) - Warrior's Retaliation and the
+    // Voidstep/Counterflow/Wild Fury group are the TARGET's own reactive
+    // procs (did THIS unit just survive/evade a hit), not the attacker's
+    // chain-prevention concern `counts_as_primary_hit` above exists for.
+    // The spec ruling is that these must trigger on ANY defensive roll,
+    // including an evade/block against a SPLASH hit - so unlike
+    // `counts_as_primary_hit`, this deliberately does NOT exclude
+    // `in_splash_resolution`. It still excludes `is_followup` so a
+    // counter-attack (Retaliation's own strike, or a Twin-Strike-style
+    // follow-up) can't itself re-trigger these procs.
+    let defender_may_react = !is_followup;
     // Druid's Pack Instinct/Symbiosis - both read "am I THE party's
     // current lowest-HP ally right now", which needs the full `units`
     // slice (see `resolve_hit`'s doc for why this can't live there
@@ -8083,9 +8094,15 @@ pub(crate) fn apply_hit(
         // successful evade has a chance to trigger an immediate free
         // counter-attack, modeled directly on Warrior's Retaliation
         // (`evade_counter_chance`'s doc) but gated on `outcome.evaded`
-        // instead, and reusing the same `!is_followup` guard so a counter
+        // instead. Release 1.1 item 7 (2026-08-19): this is the TARGET's
+        // own reactive proc off surviving a hit, so it uses
+        // `defender_may_react` rather than `counts_as_primary_hit` - the
+        // spec requires it to fire on an evade against a SPLASH hit too,
+        // which `counts_as_primary_hit` incorrectly excluded (it was
+        // scoped to the attacker's own chain-prevention, see that
+        // variable's doc). Still excludes `is_followup` so a counter
         // that itself gets evaded can't chain into a second free counter.
-        if counts_as_primary_hit && units[target_idx].alive && units[attacker_idx].alive {
+        if defender_may_react && units[target_idx].alive && units[attacker_idx].alive {
             let counter_chance = units[target_idx].evade_counter_chance;
             // Capped at 1 real trigger per second (a live request) - many
             // evades landing in quick succession (multiple enemies/adds
@@ -9013,8 +9030,13 @@ pub(crate) fn apply_hit(
     // deliberately reused rather than adding a second flag for the exact
     // same "this is a derived hit, don't re-trigger reactive procs off
     // it" purpose. Player-only (a boss taking a hit never retaliates via
-    // this - that's what a boss's own kit already is).
-    if !outcome.evaded && counts_as_primary_hit && !units[target_idx].is_boss && units[target_idx].alive && units[attacker_idx].alive {
+    // this - that's what a boss's own kit already is). Release 1.1 item 7
+    // (2026-08-19): uses `defender_may_react` rather than
+    // `counts_as_primary_hit` - the spec requires Retaliation to fire off
+    // surviving a SPLASH hit too, which `counts_as_primary_hit` incorrectly
+    // excluded (it's scoped to the attacker's own chain-prevention
+    // concern, see that variable's doc, not the defender's reactive procs).
+    if !outcome.evaded && defender_may_react && !units[target_idx].is_boss && units[target_idx].alive && units[attacker_idx].alive {
         let base_chance = units[target_idx].retaliation_chance;
         if base_chance > 0.0 {
             // Last Stand - live below-25%-HP bonus to the trigger chance.
@@ -16521,5 +16543,43 @@ mod retaliate_proc_gate_tests {
         let attacker_to_defender = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker: a, target: t, .. } if a == &units[0].id && t == &units[1].id)).count();
         assert_eq!(defender_to_attacker, 1, "the defender's own counter must fire exactly once");
         assert_eq!(attacker_to_defender, 1, "only the ORIGINAL hit, never a counter-counter from the attacker's own (also 100%) Retaliation");
+    }
+
+    /// Release 1.1 item 7's actual bug: both gates above used to read
+    /// `counts_as_primary_hit`, which is false whenever
+    /// `units[attacker_idx].in_splash_resolution` is set - excluding
+    /// ~95% of evaded hits (every splash secondary target) from ever
+    /// being eligible to proc Voidstep/Counterflow/Wild Fury or
+    /// Retaliation, contrary to the spec ruling that these must fire on
+    /// ANY defensive roll. `apply_splash` (the only real caller that
+    /// ever sets this flag) always sets it on the ATTACKER, not the
+    /// target, and always calls `apply_hit` with `is_followup: false`
+    /// for each splash target - reproduced exactly here rather than
+    /// going through `apply_splash` itself, to isolate this one gate
+    /// without needing the full multi-target splash machinery.
+    #[test]
+    fn voidstep_counterflow_wildfury_group_fires_on_an_evade_against_a_splash_hit() {
+        let mut attacker = neutral_attacker();
+        attacker.in_splash_resolution = true;
+        let defender = CombatSimUnit { evade_counter_chance: 1.0, evasion: 1.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 1, "an evade against a SPLASH hit (in_splash_resolution set on the attacker) must still proc Voidstep/Counterflow/Wild Fury - the old counts_as_primary_hit gate wrongly excluded this");
+    }
+
+    #[test]
+    fn retaliation_fires_on_surviving_a_landed_splash_hit() {
+        let mut attacker = neutral_attacker();
+        attacker.in_splash_resolution = true;
+        let defender = CombatSimUnit { retaliation_chance: 1.0, evasion: 0.0, ..CombatSimUnit { id: "defender".to_string(), display_name: "Defender".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() } };
+        let mut units = vec![attacker, defender];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(counter_events(&units, &events), 1, "surviving a landed SPLASH hit (in_splash_resolution set on the attacker) must still proc Retaliation - the old counts_as_primary_hit gate wrongly excluded this");
     }
 }

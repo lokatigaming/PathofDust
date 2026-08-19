@@ -1186,16 +1186,6 @@ fn craft_error_popup_url(reason: &str) -> String {
 /// gets its own chat announcement from the manager's broadcast channel
 /// (see main.rs), not from anything this handler does directly.
 async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<CraftForm>) -> impl IntoResponse {
-    // TEMPORARY diagnostic (2026-08-19, craft x5/x10/x50 repeat-multiplier
-    // investigation) - logs exactly what the page actually submitted for
-    // `times`/`action`/`item_a`, so a real click on the live site can be
-    // compared against what an external app sends (confirmed correct) to
-    // find where the page's own submission diverges. Removed once root
-    // cause is confirmed.
-    tracing::info!(
-        action = %form.action, item_a = %form.item_a, times = ?form.times,
-        "DIAG do_craft received"
-    );
     if let Some((login, _)) = current_session(&headers, &state).await {
         let veiled = form.veiled.is_some();
         if form.action == "recombine" {
@@ -1282,12 +1272,6 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
             }
         }
     }
-    // TEMPORARY diagnostic (2026-08-19, craft x5/x10/x50 investigation) -
-    // pinpoints exactly why a batch stopped short of `times`, since
-    // `times` alone (already confirmed correctly received) doesn't say
-    // whether the loop ran out of dust/sand partway through (working as
-    // designed) or failed on iteration 1 for an unrelated reason.
-    tracing::info!(login = %login, ?action, times, completed, ?error, "DIAG do_craft_batch finished");
     if completed == 0 {
         let reason = error.map(craft_error_text).unwrap_or_else(|| "Nothing happened.".to_string());
         return Redirect::to(&craft_error_popup_url(&reason));
