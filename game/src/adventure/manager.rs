@@ -115,6 +115,35 @@ pub enum RampageVoteOutcome {
 /// fires - see `run_basic_encounter`.
 pub const BASIC_ENCOUNTER_INTERVAL: Duration = Duration::from_secs(180);
 
+/// Fight-announcement batching (2026-08-19) - a pending batch never sits
+/// unposted longer than this, even if it never reaches
+/// `LiveTunables::fight_summary_batch_size` fights - see
+/// `spawn_fight_summary_flush_loop`. Deliberately a fixed constant, not a
+/// tunable - unlike the batch SIZE (a real content/pacing dial worth
+/// live-editing), this is a "nothing waits forever" safety bound the user
+/// specified as a flat "~5 min," not something meant to be tuned day to
+/// day.
+const FIGHT_SUMMARY_FLUSH_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// How often `spawn_fight_summary_flush_loop` checks whether the pending
+/// batch has aged past `FIGHT_SUMMARY_FLUSH_TIMEOUT` - well under the
+/// timeout itself so the actual worst-case delay stays close to 5 minutes,
+/// not up to 5 minutes plus a whole extra poll period.
+const FIGHT_SUMMARY_FLUSH_POLL_INTERVAL: Duration = Duration::from_secs(15);
+
+/// In-memory-only (2026-08-19, per an explicit "lost on restart is
+/// acceptable, do not persist it" instruction) accumulator for
+/// `announce_encounter_result`'s batched summary - see
+/// `AdventureManager::record_fight_for_batch`/`flush_fight_summary_batch`.
+#[derive(Default)]
+struct PendingFightBatch {
+    fights: Vec<BatchedFight>,
+    /// When the first fight in the CURRENT batch was recorded - reset to
+    /// `None` on every flush. Drives the 5-minute time-based flush
+    /// independently of the size-based one.
+    first_fight_at: Option<Instant>,
+}
+
 /// !rampage (mod tool, 2026-08-16) - how many boss encounters one
 /// invocation queues up, per the exact request ("turns all encounters
 /// into boss encounters for the next 50 encounters").
@@ -1394,6 +1423,12 @@ pub struct AdventureManager {
     /// `std::sync::RwLock` (not `tokio::sync::RwLock`) deliberately - every
     /// use is a quick clone-and-drop, never held across an `.await`.
     live_tunables: std::sync::RwLock<LiveTunables>,
+    /// Fight-announcement batching (2026-08-19, a live request to cut
+    /// per-fight chat spam) - the pending accumulation of encounter
+    /// results (Basic and Boss alike) awaiting a batched summary post,
+    /// see `record_fight_for_batch`/`flush_fight_summary_batch`. In-memory
+    /// only per the request - lost on a restart, never persisted.
+    pending_fight_batch: Mutex<PendingFightBatch>,
 }
 
 /// Sacred items (2026-08-16, a live request; moved from 200 to 300 on
@@ -1748,6 +1783,7 @@ impl AdventureManager {
             rampage_notify: Notify::new(),
             rampage_votes: Mutex::new(std::collections::HashSet::new()),
             live_tunables: std::sync::RwLock::new(load_live_tunables()),
+            pending_fight_batch: Mutex::new(PendingFightBatch::default()),
         })
     }
 
@@ -1911,11 +1947,71 @@ impl AdventureManager {
             }
         }
 
-        let _ = self.announcements_tx.send(format_encounter_outcome(result));
+        self.record_fight_for_batch(result).await;
 
         if let Some(loot_msg) = format_loot_line(result) {
             let _ = self.announcements_tx.send(loot_msg);
         }
+    }
+
+    /// Fight-announcement batching (2026-08-19) - accumulates one encounter
+    /// result (Basic and Boss alike; see the resolved design decision this
+    /// implements) into the pending batch, flushing immediately if that
+    /// reaches `LiveTunables::fight_summary_batch_size`. Read fresh on
+    /// every call so an admin-page change to the batch size takes effect
+    /// on the very next fight, not the next restart.
+    async fn record_fight_for_batch(self: &Arc<Self>, result: &EncounterResult) {
+        let batch_size = self.live_tunables().fight_summary_batch_size.max(1) as usize;
+        let should_flush = {
+            let mut pending = self.pending_fight_batch.lock().await;
+            if pending.fights.is_empty() {
+                pending.first_fight_at = Some(Instant::now());
+            }
+            pending.fights.push(BatchedFight::from_result(result));
+            pending.fights.len() >= batch_size
+        };
+        if should_flush {
+            self.flush_fight_summary_batch().await;
+        }
+    }
+
+    /// Drains the pending batch (if any) and posts one aggregated summary -
+    /// see `announcements::aggregate_batch`/`format_batch_summary`. A no-op
+    /// if nothing has accumulated (e.g. the 5-minute timer fires with an
+    /// empty batch, or two flush paths race).
+    async fn flush_fight_summary_batch(self: &Arc<Self>) {
+        let fights = {
+            let mut pending = self.pending_fight_batch.lock().await;
+            pending.first_fight_at = None;
+            std::mem::take(&mut pending.fights)
+        };
+        if let Some(data) = aggregate_batch(&fights) {
+            let _ = self.announcements_tx.send(format_batch_summary(&data));
+        }
+    }
+
+    /// Runs forever, posting a partial-batch summary if `record_fight_for_batch`
+    /// hasn't flushed one via the size threshold in `FIGHT_SUMMARY_FLUSH_TIMEOUT`
+    /// - the "nothing waits longer than ~5 min" requirement. Polls rather
+    /// than sleeping a fixed 5 minutes so a size-triggered flush in between
+    /// is picked up promptly (this loop just finds an empty batch and moves
+    /// on) instead of an idle timer racing a real flush. Called once from
+    /// main.rs, alongside the other encounter loops.
+    pub fn spawn_fight_summary_flush_loop(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(FIGHT_SUMMARY_FLUSH_POLL_INTERVAL);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let timed_out = {
+                    let pending = self.pending_fight_batch.lock().await;
+                    pending.first_fight_at.is_some_and(|at| at.elapsed() >= FIGHT_SUMMARY_FLUSH_TIMEOUT)
+                };
+                if timed_out {
+                    self.flush_fight_summary_batch().await;
+                }
+            }
+        });
     }
 
     /// Stage 3 API seam - see `announce_encounter_result`'s own doc for

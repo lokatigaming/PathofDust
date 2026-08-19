@@ -99,6 +99,19 @@ pub struct LiveTunables {
     /// (the curve's own half-saturation point) - see `simulate_battle`'s
     /// computation. Lower means pierce ramps up faster at earlier stages.
     pub pierce_h: f64,
+    /// Fight-announcement batching (2026-08-19, a live request to cut
+    /// per-fight chat spam) - how many encounter results
+    /// (`announce_encounter_result`'s per-fight "party of N heroes..."
+    /// line, Basic and Boss alike) accumulate into one pending batch
+    /// before `flush_fight_summary_batch` posts a single aggregated
+    /// summary instead. See `announcements::aggregate_batch`/
+    /// `format_batch_summary` for the aggregation/formatting itself -
+    /// this is purely "how many," re-read on every fight so a change
+    /// takes effect on the next accumulated fight, not the next restart.
+    /// 1 would mean "batch of 1" - functionally identical to today's
+    /// per-fight behavior, a safe way to fully disable batching without
+    /// a separate on/off flag.
+    pub fight_summary_batch_size: u32,
 }
 
 impl Default for LiveTunables {
@@ -121,6 +134,7 @@ impl Default for LiveTunables {
             permanent_rampage: false,
             pierce_cap: 0.5,
             pierce_h: 2000.0,
+            fight_summary_batch_size: 10,
         }
     }
 }

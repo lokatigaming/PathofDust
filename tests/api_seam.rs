@@ -55,6 +55,16 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
 
     let client = AdventureApiClient::new(format!("http://127.0.0.1:{}", bound_addr.port()), TEST_SECRET);
 
+    // Fight-announcement batching (2026-08-19) defaults to a batch of 10 -
+    // this test only ever triggers ONE fight, so without this the batch
+    // would just sit pending and this test would have to wait out the
+    // whole 5-minute time-flush to see any summary at all. Forcing a batch
+    // size of 1 makes that one fight flush immediately, same as every
+    // fight did before batching existed.
+    let mut tunables = manager.live_tunables();
+    tunables.fight_summary_batch_size = 1;
+    manager.save_live_tunables(tunables).expect("failed to save test tunables");
+
     // Wrong/missing secret must be rejected - the whole point of gating
     // this router at all (§3: "Localhost-only or shared-secret header -
     // not public").
@@ -115,33 +125,34 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     );
 
     // The fight that redemption just triggered runs `announce_encounter_result`
-    // server-side (see manager.rs), which pushes the fight's outcome (plus,
-    // since this is the manager's very first-ever fight, every one-time
-    // launch-giveaway announcement too - see that fn's own doc on ordering)
-    // onto the SAME `announcements_tx` this SSE stream reads from - proving
-    // the full round trip (HTTP redemption call -> real state mutation ->
-    // SSE announcement) actually works, not just that each half compiles.
-    // Collect a few messages rather than asserting on the very first one,
-    // since which one-time giveaways fire first isn't this test's concern.
-    // Timeout is generous (not just "5s felt safe") because the
-    // announcement is genuinely delayed server-side, on purpose - see the
-    // Stage 4 fix in `run_encounter_inner`/`run_basic_encounter_inner`:
-    // `700ms + display_duration_ms`, and `display_duration_ms` alone has
-    // a hard floor of `combat::MIN_DISPLAY_MS` (6s) - so the very first
-    // message can legitimately take ~6.7s to arrive even for this small
-    // a fight.
+    // server-side (see manager.rs), which pushes the fight's batched-summary
+    // line (flushed immediately since `fight_summary_batch_size` was forced
+    // to 1 above; plus, since this is the manager's very first-ever fight,
+    // every one-time launch-giveaway announcement too - see that fn's own
+    // doc on ordering) onto the SAME `announcements_tx` this SSE stream
+    // reads from - proving the full round trip (HTTP redemption call ->
+    // real state mutation -> SSE announcement) actually works, not just
+    // that each half compiles. Collect a few messages rather than asserting
+    // on the very first one, since which one-time giveaways fire first
+    // isn't this test's concern. Timeout is generous (not just "5s felt
+    // safe") because the announcement is genuinely delayed server-side, on
+    // purpose - see the Stage 4 fix in
+    // `run_encounter_inner`/`run_basic_encounter_inner`: `700ms +
+    // display_duration_ms`, and `display_duration_ms` alone has a hard
+    // floor of `combat::MIN_DISPLAY_MS` (6s) - so the very first message
+    // can legitimately take ~6.7s to arrive even for this small a fight.
     let mut seen = Vec::new();
     let found_outcome = loop {
         let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(10), announcements.next()).await else {
             break false;
         };
-        let is_outcome = msg.contains("⚔️");
+        let is_outcome = msg.starts_with("Last 1 fight:");
         seen.push(msg);
         if is_outcome {
             break true;
         }
     };
-    assert!(found_outcome, "never saw the boss-fight outcome line among the announcements received: {seen:?}");
+    assert!(found_outcome, "never saw the batched fight-summary line among the announcements received: {seen:?}");
 
     // Fire-and-forget activity XP (§4c) - just needs to succeed at the
     // HTTP layer; no reply body to check by design (see api.rs's own doc).
