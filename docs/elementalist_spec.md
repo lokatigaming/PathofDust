@@ -174,8 +174,57 @@ reuse it directly, do not build a parallel mechanism.
 
 ### Base passive 1: Righteous Fire
 Deals damage equal to 10/20/30% of the Elementalist's maximum health
-to a number of enemies based on splash. The Elementalist takes
-10/20/30% of their health as damage per second while it's active.
+to a number of enemies based on splash. The Elementalist takes damage
+per second while it's active, per the self-damage rules below.
+
+**Elementalist rework (2026-08-19), self-damage decoupled and
+mitigated.** Three changes, all admin-editable independent of the
+offensive side above:
+
+1. **Separate tunable.** The self-burn percentage is no longer tied to
+   the offensive `righteousfire` node's own magnitude - it's its own
+   `LiveTunables` field, `rf_self_damage_pct_rank{1,2,3}`, defaulting
+   to 10/20/30% (today's exact values, zero behavior change at
+   defaults), editable under the Righteous Fire section of
+   `/admin/tunables`. The offensive side stays on the node's own
+   magnitude (tunable via `/admin/passives` like every other node).
+2. **Mitigated by damage reduction.** The character's combined DR
+   sources (`combine_reduction_sources` - the same multiplicative-
+   stacking formula `resolve_hit` uses for a normal hit's defender-side
+   DR: base `damage_reduction` + any active `temp_damage_reduction_bonus`)
+   now reduce the tick. Evasion and block do NOT apply - spec-owner
+   ruling, "you cannot dodge or block your own fire."
+3. **Shields absorb the remainder.** After DR mitigation, whatever
+   self-damage remains is absorbed by the caster's own active shield
+   before touching HP - a standard `ShieldAbsorb` roll event is
+   emitted for the absorbed portion. Order of operations:
+   `tunable_pct × maxHp → reduced by combined DR → absorbed by shields
+   → remainder to HP`. This is deliberate synergy with Shielding
+   Flames and Lightning/Chilling/Scorching Aegis - shield-generating
+   RF builds are a legitimate sustain archetype. Consequence, accepted
+   as intended: tanky/DR-invested and shield-generating Elementalists
+   can sustain rank-3 RF far more easily than an uninvested build - "RF
+   is dangerous and requires investment to survive" still holds, DR and
+   shield investment IS the investment.
+
+See `apply_righteous_fire_self_damage` in combat.rs for the
+implementation and `elementalist_stage_3_tests` for the regression
+coverage (DR mitigation at multiple levels, evasion/block exemption,
+shield absorption with the emitted roll event, zero-DR-zero-shield
+equals today's exact values).
+
+**RF exempt from the golem damage penalty.** RF's own damage - both
+this self-burn half and the offensive half below - goes through
+`apply_true_damage`/`apply_righteous_fire_self_damage`, never through
+`resolve_hit` (a normal attack roll). `golem_summon_dmg_penalty` (the
+"33% less damage per golem" penalty) is only ever read inside
+`resolve_hit`, so RF's own damage was ALWAYS exempt by construction,
+not by a special-case bypass - it was simply never wired to read that
+field. RF + golems is a legitimate hybrid archetype: RF ticks deal
+full damage regardless of golem count, while the Elementalist's OTHER
+damage (attacks, procs) is still penalized exactly as before. See
+`rf_damage_is_unaffected_by_golem_count_while_attacks_still_are` in
+combat.rs.
 
 - **Healing Flames** — regenerate 3/6/10% of your health per second.
   - *Fanning Flames* — share 33/66/100% of your Healing Flames
@@ -386,14 +435,45 @@ behavior and stats.
   legitimately sit well below a rank-3 assumption's own prediction.
   **Not resolved as a confirmed code bug** - re-flag with the actual
   character's real Gigantify/Growing ranks if the shortfall persists.
-- **Flame Golem** — base behavior is the standard golem attack; the
-  sub-passives are its identity.
+- **Flame Golem** — base effect (added 2026-08-19, Elementalist
+  rework item 4): all of the Elementalist's own increases to elemental
+  damage (fire/cold/lightning - `fire_damage_pct`/`cold_damage_pct`/
+  `lightning_damage_pct`; chaos/divine aren't "elemental") are
+  multiplicatively increased by 1.33x at rank 1, 1.66x at rank 2, 2.0x
+  at rank 3. Read at player-construction time (`flamegolem_mult` in
+  `simulate_battle`), so it's baked into the owner's own
+  `fire_damage_pct`/etc. before anything downstream reads them -
+  including Volcanic Ash's own inheritance line below, which is what
+  makes the multiplied scaling reach Flame Golems too: ONE application
+  flowing through inheritance, no separate second buff, no
+  double-dipping (see `volcanic_ash_inherits_the_already_flamegolem_multiplied_value_exactly_once`
+  in combat.rs). Per-rank values read from the node definition, so
+  tunable via `/admin/passives` like every other node.
   - *Volcanic Ash* — Flame Golems inherit 33/66/100% of the
-    Elementalist's multiplicative increased fire damage.
+    Elementalist's multiplicative increased fire damage (already
+    including the Flame Golem multiplier above, per the owner's own
+    `fire_damage_pct`). This rank-gated PARTIAL inheritance is
+    Volcanic Ash's own deliberate identity, distinct from the
+    full-inheritance doctrine below - it's the one passive effect
+    intentionally NOT inherited at full value.
   - *Blazing* — Flame Golems gain 6/9/18% multiplicative attack speed.
   - *Surging* — Flame Golems deal 10/20/30% multiplicative damage.
-- **Water Golem** — base behavior is the standard golem attack; the
-  sub-passives are its identity.
+- **Water Golem** — base effect (added 2026-08-19, Elementalist
+  rework item 6): regenerates 3/6/9% of the Water Golem's OWN max
+  health per second, applied to ALL party members (not the golem
+  itself, not any other golem - golems are never valid heal targets).
+  Real healing: ticks once a second via its own `SkillCast { skill:
+  "Water Golem" }` marker + normal `Heal` events (interacts with
+  heal-effect modifiers - Singing, Divine heal power, etc. - normally,
+  since it routes through the standard `apply_heal`), credited to the
+  OWNING Elementalist as the heal's `healer`, never the golem. Per-rank
+  values read from the node definition, tunable via `/admin/passives`.
+  Non-stacking across multiple Water Golems: the strongest is
+  designated "primary" at fight start (`select_primary_watergolem`)
+  and is the only one whose clock ever runs - highest rank applies
+  once, regardless of how many Water Golems (from one or several
+  Elementalists) are in the party. See `tick_watergolem_regen` and its
+  regression tests in combat.rs.
   - *Replenishing* — Water Golems convert all damage they deal into
     healing for the party at a 100/200/300% rate.
   - *Singing* — all allies gain 10/20/30% more effect from shields and
@@ -401,6 +481,31 @@ behavior and stats.
   - *Shattering* — when an enemy dies in the Water Golem's presence,
     it explodes, sending icicles at (splash + 1/2/3) nearby enemies,
     each dealing damage equal to 1% of the dead enemy's health.
+
+**Golem full-inheritance doctrine (2026-08-19, Elementalist rework
+item 5, stated explicitly so future passive additions follow it by
+default):** a golem inherits its summoner's BASE stats (`max_hp`/
+`atk`/`evasion`/`damage_reduction`/`block_chance`) at `GOLEM_STAT_SCALE`
+(33%, or Gigantify's own boosted fraction for Thunder Golem HP) -
+that's deliberate and unrelated to this doctrine. Every MULTIPLIER the
+summoner's tree/gear grants (`increased_damage`, `conflagration_dmg_pct`,
+`crit_chance`, `crit_multiplier`, and now the Flame Golem elemental
+multiplier baked into `fire_damage_pct`/etc. above), by contrast, MUST
+carry through to a golem at FULL value, exactly like gear - scaling a
+multiplier down to 33% too compounds against the already-scaled base
+stat instead of canceling out (see the `increased_damage`/
+`conflagration_dmg_pct` and `crit_chance`/`crit_multiplier` fixes
+above for the two live bugs this exact compounding error caused).
+Audited as part of this rework; the two exceptions found, both
+deliberate and NOT bugs: Volcanic Ash's own rank-gated 33/66/100%
+partial inheritance (its identity, not an oversight - full inheritance
+would make the rank gate meaningless) and Shattering's `splash + rank`
+target-count formula (golems never invest splash themselves, so it
+reduces to exactly `rank` in practice - kept as `splash + rank` for
+spec fidelity, pre-existing and documented at `handle_shattering_on_enemy_death`'s
+own doc in combat.rs). See
+`golem_inherits_every_owner_multiplier_at_full_value_never_scaled_to_33pct`
+in combat.rs for the consolidated regression test.
 
 ---
 

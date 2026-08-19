@@ -1952,21 +1952,26 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "flamegolem",
         "golemmaster",
         "Flame Golem",
-        "Base golem behavior - this golem type's real identity is its 3 modifiers below.",
-        PassiveEffect::NotYetImplemented,
+        "All of your increases to elemental damage are multiplicatively increased by 1.33x at rank 1, 1.66x at rank 2, 2.0x at rank 3 - this multiplied scaling applies to your Flame Golems as well, via inheritance.",
+        // Elementalist rework item 4 (2026-08-19) - Flame Golem gained a
+        // real base effect (previously NotYetImplemented, "identity is
+        // its modifiers" per the original spec). 1.33/1.66/2.0 is the
+        // same irregular-Special idiom as Growing/Terrifying/Volcanic
+        // Ash: at_rank_1 and rank_3 land exactly on the round prose
+        // values, rank_2 lands at 1.665 (described as "1.66x").
+        PassiveEffect::Special { at_rank_1: 1.33, per_additional_rank: 0.335 },
     ),
     spec(
         "watergolem",
         "golemmaster",
         "Water Golem",
-        "Base golem behavior - this golem type's real identity is its 3 modifiers below.",
-        PassiveEffect::NotYetImplemented,
+        "Water Golems regenerate 3% of their own max health per second to ALL party members at rank 1, 6% at rank 2, 9% at rank 3 (non-stacking across multiple Water Golems - highest rank applies once).",
+        // Elementalist rework item 6 (2026-08-19) - Water Golem gained a
+        // real base effect (previously NotYetImplemented, same as
+        // Flame Golem above). Exact linear 3/6/9%, no irregular scaling
+        // needed.
+        PassiveEffect::Special { at_rank_1: 0.03, per_additional_rank: 0.03 },
     ),
-    // Both Flame Golem and Water Golem stay NotYetImplemented - the spec
-    // itself says "base behavior is the standard golem attack; the
-    // sub-passives are its identity," i.e. these two specs have no
-    // effect of their own beyond unlocking their 3 modifiers (unlike
-    // Thunder Golem, which has its own real base behavior above).
     modifier_with_effect(
         "fanningflames",
         "healingflames",
@@ -2289,10 +2294,12 @@ mod tree_shape_tests {
 
     /// Every node in this list has a real effect by Stage 6 (the final
     /// stage) - everything else stays `NotYetImplemented` FOREVER by
-    /// design: "flamegolem"/"watergolem" have no base effect of their
-    /// own per the spec's own text ("base behavior is the standard golem
-    /// attack; the sub-passives are its identity") - only their 3
-    /// modifiers each carry real effects, which this list does include.
+    /// design. "flamegolem"/"watergolem" originally had no base effect
+    /// of their own beyond their 3 modifiers each - the Elementalist
+    /// rework (2026-08-19, items 4/6) gave both a real base effect
+    /// (Flame Golem's owner+golem elemental multiplier, Water Golem's
+    /// party regen), so they're included below like every other node
+    /// with a real effect.
     const IMPLEMENTED_BY_STAGE_6: &[&str] = &[
         // Stage 2 - Elemental Focus branch.
         "elementalfocus",
@@ -2329,9 +2336,11 @@ mod tree_shape_tests {
         "gigantify",
         "growing",
         "terrifying",
+        "flamegolem",
         "volcanicash",
         "blazing",
         "surging",
+        "watergolem",
         "replenishing",
         "singing",
         "shattering",
@@ -2343,11 +2352,7 @@ mod tree_shape_tests {
             if IMPLEMENTED_BY_STAGE_6.contains(&node.key) {
                 assert!(!matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should have a real effect by Stage 6", node.key);
             } else {
-                assert!(
-                    matches!(node.effect, PassiveEffect::NotYetImplemented),
-                    "{:?} should be NotYetImplemented - either not yet wired, or (flamegolem/watergolem) intentionally has no base effect of its own",
-                    node.key
-                );
+                assert!(matches!(node.effect, PassiveEffect::NotYetImplemented), "{:?} should be NotYetImplemented - not yet wired", node.key);
             }
         }
     }

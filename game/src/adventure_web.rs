@@ -2502,6 +2502,12 @@ struct TunablesForm {
     divine_dust_craft_sand_cost: u64,
     /// See `LiveTunables::divine_dust_craft_output`'s doc.
     divine_dust_craft_output: u64,
+    /// See `LiveTunables::rf_self_damage_pct_rank1`'s doc.
+    rf_self_damage_pct_rank1: f64,
+    /// See `LiveTunables::rf_self_damage_pct_rank2`'s doc.
+    rf_self_damage_pct_rank2: f64,
+    /// See `LiveTunables::rf_self_damage_pct_rank3`'s doc.
+    rf_self_damage_pct_rank3: f64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -2554,6 +2560,9 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 divine_dust_craft_dust_cost: form.divine_dust_craft_dust_cost,
                 divine_dust_craft_sand_cost: form.divine_dust_craft_sand_cost,
                 divine_dust_craft_output: form.divine_dust_craft_output.max(1),
+                rf_self_damage_pct_rank1: form.rf_self_damage_pct_rank1.clamp(0.0, 1.0),
+                rf_self_damage_pct_rank2: form.rf_self_damage_pct_rank2.clamp(0.0, 1.0),
+                rf_self_damage_pct_rank3: form.rf_self_damage_pct_rank3.clamp(0.0, 1.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3253,6 +3262,22 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
               <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
             </div>\
+            <h2>Righteous Fire</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
+              <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
+              <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
+              <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+            </div>\
             <h2>Reactive Procs</h2>\
             <div class=\"tunable-row\">\
               <label for=\"reactive_proc_cap_ms\">Reactive Counter Cap (ms)</label>\
@@ -3318,6 +3343,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         divine_dust_craft_dust_cost = t.divine_dust_craft_dust_cost,
         divine_dust_craft_sand_cost = t.divine_dust_craft_sand_cost,
         divine_dust_craft_output = t.divine_dust_craft_output,
+        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
+        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
+        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
     )
 }
