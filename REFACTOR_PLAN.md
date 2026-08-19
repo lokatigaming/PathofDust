@@ -1067,3 +1067,70 @@ this plan documents elsewhere:
 Baselines and fixtures captured for Stage 0 execution are captured
 against `54f7c67` (or later) specifically so they record this corrected
 world, per the owner's explicit ordering.
+
+## 13. Production deploy procedure (current, authoritative)
+
+Documented here (rather than left in a single session's own memory) so
+it survives into every future session, per the owner's explicit
+instruction (2026-08-19). Supersedes any earlier informal version.
+CLAUDE.md's own "Deploy procedure" section covers the source-side
+push/pod-qa-sync steps (5, 8, 9 below) in more detail — this section is
+the full picture, source push through binary swap.
+
+**Every deploy, regardless of size, in order:**
+
+1. Write the patch-notes entry FIRST, before the deploy report — in
+   `patch-notes.json` (repo root; `{date, sections: [{heading, items}]}`,
+   newest entry at the TOP of the array; loaded fresh per-request, no
+   rebuild needed to take effect). Player-facing changes get real
+   player-facing entries in the established prose style (see any
+   existing entry for tone/format). Internal-only releases (logging,
+   admin tooling, refactors with zero player-visible effect) get a
+   one-line entry under a heading prefixed `Internal:` so the notes stay
+   an unbroken record without pretending an internal change is a player
+   feature. A deploy report without a patch-notes line is incomplete.
+   If a parallel wiki session might also be touching this file (e.g.
+   backfilling a gap), flag what you added via a WIKI_IMPACT.md note so
+   the two don't duplicate or collide.
+2. If this deploy is a feature-branch merge: `git merge --no-ff` into
+   `master`, resolve any conflicts (WIKI_IMPACT.md conflicts: keep both
+   sides' blocks, in chronological order — never drop either session's
+   entries), commit.
+3. Full verification on the merged/final state: `cargo build --release
+   --workspace` into an ISOLATED `--target-dir` (never the live
+   `/target` a running process holds a file lock on — see Stage 5's own
+   "Build-lock prep" note above), full test suite, clippy clean on every
+   touched line. **Never pipe a verification build/test/clippy command
+   through `tail`/`grep`/etc. without also capturing the real exit code
+   separately** (`cmd > file 2>&1; echo "exit: $?"` — a trailing pipe
+   reports the PIPE's exit code, not the command's, and has produced a
+   false "clean build" read before).
+4. If this deploy changes either binary's behavior (not a source/docs-
+   only or template-hot-reload-only change): disable both watchdog
+   scheduled tasks (`GameProcess-Watchdog`, `TwitchBotRS-Watchdog`) →
+   stop the bot task (`TwitchBotRS`) → stop the game task
+   (`GameProcess`) → confirm both processes actually exited → SHA-256
+   hash the current live `target\release\game.exe` (and/or
+   `twitch-bot-rs.exe`) and the freshly-built one, confirming they
+   differ → back up the current binary(ies) to a new, deploy-named
+   `backup-pre-<name>/` directory (gitignored — add the entry and a
+   tiny separate commit) → copy the new binary(ies) into
+   `target\release\` → start `GameProcess` FIRST, verify healthy (curl
+   its ports, plus a real page like `/passives`) → re-enable
+   `GameProcess-Watchdog` → start `TwitchBotRS`, verify healthy (curl
+   its ports) → re-enable `TwitchBotRS-Watchdog`. Game always comes up
+   and is verified healthy before the bot starts — never the other
+   order.
+5. `git push origin master` — pod-qa syncs from GitHub, not this local
+   repo directly, so this step is never optional even if everything
+   "looks" deployed locally.
+6. Clean up the isolated build target-dir.
+7. `powershell -File C:\sync-pod-qa.ps1`.
+8. Verify the sync actually landed: `git -C C:\pod-qa rev-parse HEAD` vs
+   `git rev-parse HEAD`. MATCH: say so briefly. MISMATCH: report loudly,
+   state both hashes, stop for instructions — never force-fix pod-qa's
+   state from an AI session (see CLAUDE.md's own fuller treatment of
+   this, including the untracked-file-collision case).
+9. Report: what shipped, the patch-notes entry added, all relevant
+   hashes (merge/final commit, old/new binary SHA-256), rollback backup
+   location, and the pod-qa HEAD match/mismatch.
