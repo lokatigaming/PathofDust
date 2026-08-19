@@ -1,13 +1,23 @@
 # Elementalist Class — Implementation Progress
 
-**Status** (2026-08-19): Stage 0 (investigation + plan) complete and
-approved. Working autonomously through Stages 1-6 overnight per
-explicit owner authorization — no check-ins, most-conservative-choice-
-and-document rule for any decision point, branch/commit/push only, no
-deploy, no master merge. This file is written so a brand-new session
-with zero memory of the planning conversation can resume exactly where
-things stand — read this file first, then `docs/elementalist_spec.md`
-(once Stage 1 creates it) for the full class spec.
+**Status** (2026-08-19, updated): All 6 stages complete, merged to
+`master`, and deployed to production - see "Merge and production
+deploy" below for the full record, plus a post-deploy golem-bugfix
+round the same day. The section immediately below describes the
+original overnight build authorization (Stages 1-6, branch/commit/push
+only, no deploy/merge yet at that point) - kept as written for the
+historical record rather than rewritten now that the gate has since
+been cleared. This file is written so a brand-new session with zero
+memory of the planning conversation can resume exactly where things
+stand — read this file first, then `docs/elementalist_spec.md` for the
+full class spec.
+
+Original overnight-build status line (superseded by the above, kept
+for history): Stage 0 (investigation + plan) complete and approved.
+Working autonomously through Stages 1-6 overnight per explicit owner
+authorization — no check-ins, most-conservative-choice-and-document
+rule for any decision point, branch/commit/push only, no deploy, no
+master merge.
 
 Branch: `feature/elementalist` off `master` (created at the `master`
 commit that includes the boss-size overlay fix, 2026-08-19 — Phase 1
@@ -687,6 +697,45 @@ scope (left for whenever the owner picks this up):
   mechanically real but invisible in OBS today, by design).
 - The `/admin/tunables` auth baseline the owner separately owes (see
   memory - unrelated to this feature, just a standing reminder).
+
+---
+
+## Merge and production deploy (2026-08-18/19)
+
+Explicit owner go-ahead received: "Reviewed — decisions log, Stage 6
+site list, and summary all accepted. Proceed: merge feature/elementalist
+to master and deploy per the documented procedure in REFACTOR_PLAN.md
+(same care as before: stop tasks and watchdogs around the swap, verify
+game.exe healthy before the bot starts)." Executed in full: merged
+`feature/elementalist` into `master` (clean, no conflicts), pushed, pod-
+qa synced and verified matching, then the full production binary
+cutover (both watchdogs disabled → bot then game stopped → built to an
+isolated `--target-dir` → SHA-256-verified → `backup-pre-elementalist/`
+taken → new binaries copied into `target/release/` → `GameProcess`
+started and confirmed healthy over real HTTP before `TwitchBotRS` was
+allowed to start → both watchdogs re-enabled → final PID/task-state
+verification). Owner then personally verified live on `/passives`
+(created a test Elementalist, allocated into each branch, assigned
+golem types, ran a fight with a Thunder Golem) and confirmed. This
+closes out the Elementalist feature end to end - it is live in
+production, same status tier as every other archetype.
+
+Two post-deploy bugfix rounds followed, each its own branch/merge/
+deploy cycle (see `WIKI_IMPACT.md` for the player-facing summary of
+each, `docs/elementalist_spec.md`'s own Stage 0 resolution #5 addendum
+and Growing entry for the technical detail):
+- `feature/fight-announcement-batching` (unrelated feature, same
+  session) landed in between and is not part of this class's own
+  history, noted here only because it shares this file's timeline.
+- `feature/elementalist-golem-bugfixes` (2026-08-19) - three fixes
+  confirmed via live fight-log analysis (fights 2149/2150): Growing's
+  per-reform max-hp modifier was compounding instead of additive (fixed
+  - see `reform_thunder_golem`), non-Thunder golems' damage immunity
+  was a side effect of Thunder Golem's own redirect rather than a real
+  guarantee (fixed with two layers - see `is_protected_golem`/
+  `is_damage_immune`), and Righteous Fire/Healing Flames ticks gained
+  distinct log-only `SkillCast` markers for future audits. Deployed and
+  verified healthy the same day.
 
 ---
 
