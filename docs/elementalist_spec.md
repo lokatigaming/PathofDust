@@ -111,6 +111,35 @@ do not stop to ask.
    with a seeded-fight test against every `BossKind`, not just careful
    reading (see Stage 6 below).
 
+   **2026-08-19 bugfix — non-Thunder golem immunity made real, not
+   accidental.** Live fight-log analysis confirmed Basic/Flame/Water
+   golems' immunity to damage only ever held as a SIDE EFFECT of
+   `thunder_golem_redirect` steering hits away from real players — it
+   did nothing if a non-Thunder golem was itself already the selected
+   target (the redirect's own early-return treated "already IS a
+   golem" as "leave it alone," not distinguishing type), and offered
+   no protection at all during a Thunder Golem's own reform gap.
+   Fixed with two layers: (1) targeting — every candidate-selection
+   pool an enemy attack, splash secondary, or Volatile-Magic-style
+   true-damage AoE draws from now excludes protected (non-Thunder)
+   golems outright (`is_protected_golem`), and `thunder_golem_redirect`
+   itself now also redirects a golem-aimed hit to a random real player
+   when no Thunder Golem is alive to absorb it, instead of leaving it
+   on the golem; (2) damage application — every direct HP-mutation
+   site that doesn't funnel through `apply_hit` (DoT ticks, Doom
+   detonation, reflect, Righteous Fire/Terrifying's own true damage)
+   now runs a blanket `is_damage_immune` check, the same shape as the
+   existing Chakra of Life immunity guard, so a protected golem takes
+   zero damage from ANY source regardless of how it was targeted.
+   Known, accepted consequence: during a Thunder Golem's reform gap,
+   attacks that would have leaked onto a non-Thunder golem now land on
+   real players instead — that gap IS Thunder Golem's intended
+   weakness, this fix just stops it from bleeding onto the wrong unit
+   type. See `is_protected_golem`/`is_damage_immune`'s own doc in
+   combat.rs, and the `protected_golems_take_no_damage_and_are_never_targeted_against_every_boss_kind`
+   test (same seeded-fight-per-`BossKind` harness as the original
+   Thunder absorption test).
+
 ---
 
 ## Class specification
@@ -217,7 +246,16 @@ behavior and stats.
   - *Gigantify* — Thunder Golems get 100/200/300% more contribution
     from your health pool (base 33% of your health → 66/99/132%).
   - *Growing* — Thunder Golems gain 33/66/100% more maximum health
-    each time they reform (stacking within a combat).
+    each time they reform, ADDITIVELY off their ORIGINAL spawn-time
+    max hp, stacking within a combat: `max_hp = reform_base * (1.0 +
+    rank_pct * reform_count)`. NOT compounding onto the
+    already-grown value — 12 reforms at rank 3 (100%/reform) lands
+    at exactly 13x the original base, never 2^12x. (2026-08-19: the
+    original implementation compounded onto the current, already-
+    grown max_hp every reform, misreading "stacking within a
+    combat" as authorizing that; confirmed unintended via live
+    fight-log analysis and fixed the same day — see
+    `thundergolem_growing_pct`'s own doc in combat.rs.)
   - *Terrifying* — when a Thunder Golem dies, it explodes dealing
     33/66/100% of its health as damage to enemies.
 - **Flame Golem** — base behavior is the standard golem attack; the
