@@ -30,8 +30,11 @@ layered on top of that existing mechanic, not a new item state.
    - Fight drops: `LiveTunables::divine_dust_drop_chance` (default 0.1),
      rolled once per fighting character on every WIN (boss or basic —
      the same eligibility `sand`'s own grant uses), granting exactly 1.
-     Announces in chat (rare-event framing) via `announce_divine_dust_drop`/
-     `format_divine_dust_drop`.
+     Originally announced in chat (rare-event framing); the chat
+     announcement was removed 2026-08-19 (a live request, chat-noise
+     reduction) - `announce_divine_dust_drop`/`format_divine_dust_drop`
+     no longer exist. The grant itself is completely unaffected, silent
+     now like the disenchant/craft sources below.
    - Disenchanting a SACRED item: `LiveTunables::divine_dust_disenchant_chance`
      (default 0.1), rolled once per Sacred item MANUALLY disenchanted
      (`disenchant_from_inventory`/`disenchant_all_from_inventory` only —

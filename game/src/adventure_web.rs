@@ -691,7 +691,20 @@ struct NameItemForm {
 
 #[derive(Deserialize)]
 struct CraftForm {
-    item_a: String,
+    /// `Option`, not a bare required `String` (2026-08-19 live bugfix) -
+    /// the Divine Dust craft recipe's own `<form>`
+    /// (`render_divine_dust_recipe_row`) has no item involved at all and
+    /// submits no `item_a` field whatsoever; a required field here made
+    /// Axum's own `Form<CraftForm>` extractor reject that submission
+    /// with a 422 ("missing field `item_a`") before `do_craft` ever ran,
+    /// so the recipe was completely unusable in production despite
+    /// passing every structural test (none of which POST a real,
+    /// item-less form through the real extractor). Every action that
+    /// DOES need an item validates `Some` itself in `do_craft`/
+    /// `do_craft_batch` and errors cleanly via the same
+    /// `craft_error_popup_url` every other craft failure already uses.
+    #[serde(default)]
+    item_a: Option<String>,
     #[serde(default)]
     item_b: String,
     action: String,
@@ -1436,8 +1449,22 @@ fn craft_error_popup_url(reason: &str) -> String {
 async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<CraftForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
         let veiled = form.veiled.is_some();
+        // Every action below except "divine dust craft" needs a real
+        // item - validated once here rather than at each branch, since
+        // an absent `item_a` (now `Option`, see the field's own doc) is
+        // the exact same "nothing to act on" condition regardless of
+        // which of those actions was requested.
+        let item_a = if form.action != "divine dust craft" {
+            match form.item_a.as_deref() {
+                Some(id) => Some(id),
+                None => return Redirect::to(&craft_error_popup_url("No item selected.")),
+            }
+        } else {
+            None
+        };
         if form.action == "recombine" {
-            match state.adventure.recombine_gear(&login, &form.item_a, &form.item_b, veiled).await {
+            let item_a = item_a.expect("validated above - only \"divine dust craft\" skips this");
+            match state.adventure.recombine_gear(&login, item_a, &form.item_b, veiled).await {
                 Ok(RecombineResult::Applied(outcome)) => {
                     let change = recombine_outcome_change_text(&outcome);
                     return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
@@ -1446,7 +1473,8 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
                 Err(err) => return Redirect::to(&craft_error_popup_url(&recombine_error_text(err))),
             }
         } else if form.action == "hideout warrior" {
-            return do_hideout_warrior(&state, &login, &form.item_a, form.hideout_krangle.is_some()).await;
+            let item_a = item_a.expect("validated above - only \"divine dust craft\" skips this");
+            return do_hideout_warrior(&state, &login, item_a, form.hideout_krangle.is_some()).await;
         } else if form.action == "divine dust craft" {
             // Currency-only recipe, no item involved at all - a third
             // string-matched pseudo-action alongside "recombine"/"hideout
@@ -1463,6 +1491,7 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
                 Err(err) => return Redirect::to(&craft_error_popup_url(&divine_dust_craft_error_text(err))),
             }
         } else if let Some(action) = parse_craft_action(&form.action) {
+            let item_a = item_a.expect("validated above - only \"divine dust craft\" skips this");
             // Only Polishing/Reforge get the x5/x10/x50 batch treatment
             // (see the dedicated section in render_crafting_card) - every
             // other action ignores `times` even if the hidden input still
@@ -1473,9 +1502,9 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
                 1
             };
             if times > 1 {
-                return do_craft_batch(&state, &login, &form.item_a, action, times).await;
+                return do_craft_batch(&state, &login, item_a, action, times).await;
             }
-            match state.adventure.craft_item(&login, &form.item_a, action, veiled).await {
+            match state.adventure.craft_item(&login, item_a, action, veiled).await {
                 Ok(CraftResult::Applied(outcome)) => {
                     let change = craft_outcome_change_text(&outcome);
                     return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &change));

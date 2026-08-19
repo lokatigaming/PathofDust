@@ -2199,16 +2199,6 @@ impl AdventureManager {
         let _ = self.unique_shard_tx.send(event);
     }
 
-    /// Divine Dust fight-drop only (per the spec: "rarer — it should feel
-    /// like an event") - the craft recipe's own output is deliberately
-    /// silent, same "routine vs. event" split `format_loot_line` already
-    /// draws for auto-disenchanted loot. No dedicated event channel (unlike
-    /// `announce_unique_shard_win`'s `unique_shard_tx`) - nothing currently
-    /// subscribes to a Divine Dust drop beyond the chat line itself.
-    fn announce_divine_dust_drop(&self, display_name: String) {
-        let _ = self.announcements_tx.send(format_divine_dust_drop(&display_name));
-    }
-
     /// Current roster + world stage — pushed to a freshly (re)connected
     /// overlay immediately, so it doesn't sit blank until the next change.
     pub async fn snapshot(&self) -> AdventureSnapshot {
@@ -4464,10 +4454,10 @@ impl AdventureManager {
                     // Divine Dust fight-drop (2026-08-19) - same
                     // eligibility as sand's own grant just above (every
                     // fighting character, every win), see
-                    // `maybe_drop_divine_dust`'s doc.
-                    if maybe_drop_divine_dust(character, &mut win_rng, tunables.divine_dust_drop_chance) {
-                        self.announce_divine_dust_drop(character.display_name.clone());
-                    }
+                    // `maybe_drop_divine_dust`'s doc. Chat announcement
+                    // removed (a live request) - the grant itself is
+                    // unchanged, it just no longer posts.
+                    maybe_drop_divine_dust(character, &mut win_rng, tunables.divine_dust_drop_chance);
 
                     // Perfect Quality's per-character milestone (see
                     // `received_first_perfect`'s doc) - every character
@@ -4994,9 +4984,9 @@ impl AdventureManager {
                     // Divine Dust fight-drop - same eligibility as sand's
                     // own grant just above, see `maybe_drop_divine_dust`'s
                     // doc and `run_encounter`'s identical boss-win roll.
-                    if maybe_drop_divine_dust(character, &mut rng, tunables.divine_dust_drop_chance) {
-                        self.announce_divine_dust_drop(character.display_name.clone());
-                    }
+                    // Chat announcement removed (a live request) - the
+                    // grant itself is unchanged, it just no longer posts.
+                    maybe_drop_divine_dust(character, &mut rng, tunables.divine_dust_drop_chance);
                 }
                 // Deliberately no gear decay here - only real boss fights
                 // wear equipment down (see run_encounter); these lighter
