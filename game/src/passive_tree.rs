@@ -1848,7 +1848,7 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
     skill(
         "elementalfocus",
         "Elemental Focus",
-        "Gain 5% additive elemental damage (lightning/cold/fire) per level, at rank 1 - +5% per additional rank (15% at 3/3).",
+        "Gain 5% additive elemental damage (lightning/cold/fire) × your character level, at rank 1 - +5% per additional rank (15% at 3/3). Applies in full to each element separately.",
         PassiveEffect::Special { at_rank_1: 0.05, per_additional_rank: 0.05 },
     ),
     skill(
@@ -1884,7 +1884,7 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "scorchingflames",
         "righteousfire",
         "Scorching Flames",
-        "Gain 10% additive fire damage per level at rank 1 - +10% per additional rank (30% at 3/3).",
+        "Gain 10% additive fire damage × your character level, at rank 1 - +10% per additional rank (30% at 3/3).",
         PassiveEffect::Special { at_rank_1: 0.10, per_additional_rank: 0.10 },
     ),
     spec(

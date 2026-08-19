@@ -148,7 +148,14 @@ do not stop to ask.
 Base class effect: splash (number of additional targets affected)
 scaling with level — implemented via the existing `PassiveStat::Splash`
 mechanism (`Archetype::bonus()`), the same shape Ranger's own root
-bonus already uses (`b.splash = 0.15 * mult`). Splash's existing
+bonus already uses (`b.splash = 0.15 * mult`, `mult = 1.0 + level *
+0.10`). (2026-08-19: reverified against a spec-owner ruling that
+questioned whether this scaled correctly, alongside the separate
+Elemental Focus/Scorching Flames per-level bugfix below — confirmed
+correct and unchanged, already using the same `Archetype::bonus()`
+convention every other class's base effect does; see the
+`root_bonus_grants_splash_scaling_with_level_like_ranger` test in
+character.rs, which already covered this.) Splash's existing
 codebase convention is a *fraction* applied to a *fixed* target-count
 cap (`HEAL_SPLASH_MAX_TARGETS`, `PLAYER_SPLASH_MAX_TARGETS`, plus
 `SPLASH_OVERFLOW_BONUS_TARGETS` once the fraction exceeds 100%) — not a
@@ -190,8 +197,12 @@ to a number of enemies based on splash. The Elementalist takes
   - *Shielding Fire* — grants a number of allies (based on splash)
     improved block: blocked attacks reduce damage by 55/60/65%
     instead of the standard 50%.
-- **Scorching Flames** — gain 10/20/30% additive fire damage per
-  level.
+- **Scorching Flames** — gain 10/20/30% additive fire damage ×
+  CHARACTER LEVEL — e.g. at level 194, rank 3 (30%) is 5,820%
+  additive fire, stacking on top of Elemental Focus's own fire
+  contribution. (2026-08-19: same implementation bugfix as Elemental
+  Focus above — see `elementalist_per_level_elemental_pct` in
+  combat.rs.)
   - *Relentless Flames* — a number of nearby enemies (based on
     splash) take 1/2/3% increased damage per second for every second
     they remain in the Elementalist's presence (stacking).
@@ -202,8 +213,31 @@ to a number of enemies based on splash. The Elementalist takes
     drops below 100/200/300% of the Elementalist's health.
 
 ### Base passive 2: Elemental Focus
-Gain 5/10/15% additive elemental damage (lightning/cold/fire) per
-level.
+Gain 5/10/15% additive elemental damage (lightning/cold/fire) ×
+CHARACTER LEVEL, applied to each element separately (not one pool
+split three ways) — e.g. at level 194, rank 3 (15%) is 2,910%
+additive to lightning, AND to cold, AND to fire, each independently.
+(2026-08-19: implementation bugfix — the code never actually
+multiplied by level despite this spec text always saying "per level";
+see `elementalist_per_level_elemental_pct` in combat.rs.)
+
+**Balance note, confirmed at fix time:** `fire_damage_pct`/
+`cold_damage_pct`/`lightning_damage_pct` are NOT raw damage
+multipliers — every read site (`apply_hit`'s 5 elemental-proc rolls,
+`apply_heal`'s on-heal buff rolls) feeds them through
+`roll_elemental_proc`, which divides by `ELEMENTAL_PROC_CHANCE_DIVISOR`
+(10.0) and hard-clamps the result to `[0.0, 1.0]` — a raw value of
+10.0 (1000%) already guarantees a 100% proc chance, and every point
+above that is inert. Reaching that clamp only takes rank 3 Elemental
+Focus alone around level ~67 (10.0 / 0.15), or fire specifically much
+sooner once Scorching Flames and/or gear rolls stack in. This fix does
+NOT inflate the Elementalist's raw damage-per-hit at all — increased_damage/
+crit/base attack damage are untouched — it only affects how reliably
+the elemental on-hit DEBUFFS (Fire DR reduction, Cold evasion
+reduction, Lightning damage-taken stacks) land, and only for a
+character below that saturation level; anyone already near or at max
+level was very likely already at or near the 100% clamp before this
+fix too (via gear rolls alone, independent of Elemental Focus).
 
 - **Shocking Focus** — you apply lightning damage debuffs 33/66/100%
   more frequently.

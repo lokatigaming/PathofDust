@@ -5275,6 +5275,25 @@ pub(crate) fn elementalist_elemental_damage_pct(gear_pct: f64, elemental_focus_p
     gear_pct + elemental_focus_pct + gear_pct * gear_scaling_modifier_pct
 }
 
+/// Elemental Focus/Scorching Flames' own PER CHARACTER LEVEL scaling
+/// (2026-08-19 bugfix) - docs/elementalist_spec.md has always read "X%
+/// additive elemental damage ... per level" for both, but the unit
+/// construction that feeds `elemental_focus_pct` above never actually
+/// multiplied by level - a real implementation bug, not a design change,
+/// per an explicit spec-owner ruling. `rank_pct` is the raw per-rank
+/// magnitude (5/10/15% for Elemental Focus, 10/20/30% for Scorching
+/// Flames - `Character::passive_node_magnitude`'s own return, 0.0 if
+/// uninvested); this just multiplies it by the character's level, plain
+/// and direct - NOT the `1.0 + level * 0.10` shape `Archetype::bonus`'s
+/// own base-class-effect `mult` uses (a different mechanism for a
+/// different kind of bonus - see that function's own Elementalist arm,
+/// which already correctly reuses IT for base-class splash). Extracted
+/// into its own function so a test can assert the exact numeric scaling
+/// directly rather than re-deriving the formula.
+pub(crate) fn elementalist_per_level_elemental_pct(rank_pct: f64, level: u32) -> f64 {
+    rank_pct * level as f64
+}
+
 /// A fully-zeroed `CombatSimUnit` for production code that needs to
 /// build ONE off a small set of real fields (currently just
 /// `spawn_golem`) without the risk `CombatSimUnit`'s own test-only
@@ -9398,6 +9417,23 @@ pub(crate) fn simulate_battle(
             } else {
                 u32::MAX
             };
+            // Elemental Focus/Scorching Flames (2026-08-19 bugfix) - the
+            // spec has always read "X% additive elemental damage ... per
+            // level" for both (docs/elementalist_spec.md), but this
+            // construction never actually multiplied by character level -
+            // a real implementation bug, not a design change, per an
+            // explicit spec-owner ruling. PER CHARACTER LEVEL, not per
+            // rank: at level 194, rank 3 Elemental Focus (15%) is 2,910%
+            // additive to EACH element separately (the SAME level-scaled
+            // value is added into fire/cold/lightning independently
+            // below, not split three ways across one pool), and rank 3
+            // Scorching Flames (30%, fire-only) is 5,820% additive fire
+            // on top of that. Overshock/Polar Flux/Incinerate (the
+            // `gear_scaling_modifier_pct` argument below) are explicitly
+            // NOT per-level - the spec never says so for them, unaffected
+            // by this fix.
+            let elemental_focus_per_level = elementalist_per_level_elemental_pct(c.passive_node_magnitude("elementalfocus"), c.level);
+            let scorching_flames_per_level = elementalist_per_level_elemental_pct(c.passive_node_magnitude("scorchingflames"), c.level);
             CombatSimUnit {
                 id: id.clone(),
                 display_name: c.display_name.clone(),
@@ -9634,15 +9670,17 @@ pub(crate) fn simulate_battle(
                 // Elemental Focus/Overshock/Polar Flux/Incinerate folded
                 // in via `elementalist_elemental_damage_pct` (see its own
                 // doc) - collapses to exactly the plain gear roll for
-                // every non-Elementalist.
+                // every non-Elementalist. `elemental_focus_per_level`/
+                // `scorching_flames_per_level` computed above the struct
+                // literal - see their own 2026-08-19 bugfix comment there.
                 fire_damage_pct: elementalist_elemental_damage_pct(
                     c.sum_affix(Affix::FireDamage),
-                    c.passive_node_magnitude("elementalfocus") + c.passive_node_magnitude("scorchingflames"),
+                    elemental_focus_per_level + scorching_flames_per_level,
                     c.passive_node_magnitude("incinerate"),
                 ),
-                cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("polarflux")),
+                cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), elemental_focus_per_level, c.passive_node_magnitude("polarflux")),
                 chaos_damage_pct: c.sum_affix(Affix::ChaosDamage),
-                lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), c.passive_node_magnitude("elementalfocus"), c.passive_node_magnitude("overshock")),
+                lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), elemental_focus_per_level, c.passive_node_magnitude("overshock")),
                 divine_damage_pct: c.sum_affix(Affix::DivineDamage),
                 fire_dr_debuff: Vec::new(),
                 cold_evasion_debuff: Vec::new(),
@@ -13737,6 +13775,55 @@ mod elementalist_stage_2_tests {
         let modifier = 0.45;
         let expected = gear + focus + gear * modifier;
         assert_eq!(elementalist_elemental_damage_pct(gear, focus, modifier), expected);
+    }
+
+    /// 2026-08-19 bugfix - Elemental Focus/Scorching Flames must scale
+    /// PER CHARACTER LEVEL, not stay flat at the raw per-rank magnitude
+    /// (confirmed unintended vs. the spec's own long-standing "per level"
+    /// wording, per an explicit spec-owner ruling). Exact worked example
+    /// from that ruling: level 194, rank 3 (15%) Elemental Focus = 29.1
+    /// (0.15 * 194), rank 3 (30%) Scorching Flames = 58.2 (0.30 * 194).
+    #[test]
+    fn elemental_focus_and_scorching_flames_scale_by_exact_character_level() {
+        assert!((elementalist_per_level_elemental_pct(0.15, 194) - 29.1).abs() < 1e-9, "rank 3 Elemental Focus at level 194 must be exactly 29.1 (2,910%)");
+        assert!((elementalist_per_level_elemental_pct(0.30, 194) - 58.2).abs() < 1e-9, "rank 3 Scorching Flames at level 194 must be exactly 58.2 (5,820%)");
+    }
+
+    #[test]
+    fn per_level_scaling_is_zero_at_level_zero_and_uninvested() {
+        assert_eq!(elementalist_per_level_elemental_pct(0.15, 0), 0.0, "level 0 must zero out even a maxed rank");
+        assert_eq!(elementalist_per_level_elemental_pct(0.0, 194), 0.0, "an uninvested node (0.0 magnitude) must stay 0.0 regardless of level");
+    }
+
+    /// The level-scaled Elemental Focus contribution must land on EACH of
+    /// the three elements independently (fire, cold, lightning ALL get
+    /// the full value), never split three ways across one shared pool -
+    /// exactly how `elemental_focus_per_level` is used identically in all
+    /// 3 `elementalist_elemental_damage_pct` calls at construction.
+    #[test]
+    fn elemental_focus_per_level_applies_in_full_to_all_three_elements_independently() {
+        let elemental_focus_per_level = elementalist_per_level_elemental_pct(0.15, 194); // 29.1
+        let fire = elementalist_elemental_damage_pct(0.0, elemental_focus_per_level, 0.0);
+        let cold = elementalist_elemental_damage_pct(0.0, elemental_focus_per_level, 0.0);
+        let lightning = elementalist_elemental_damage_pct(0.0, elemental_focus_per_level, 0.0);
+        for (name, value) in [("fire", fire), ("cold", cold), ("lightning", lightning)] {
+            assert!((value - 29.1).abs() < 1e-9, "{name} must receive the FULL 29.1 Elemental Focus contribution, not a fraction of it");
+        }
+    }
+
+    /// Scorching Flames is fire-only per the spec - it must never add
+    /// anything to cold or lightning, only stack on top of Elemental
+    /// Focus for fire specifically.
+    #[test]
+    fn scorching_flames_only_stacks_onto_fire_never_cold_or_lightning() {
+        let elemental_focus_per_level = elementalist_per_level_elemental_pct(0.15, 194); // 29.1
+        let scorching_flames_per_level = elementalist_per_level_elemental_pct(0.30, 194); // 58.2
+        let fire = elementalist_elemental_damage_pct(0.0, elemental_focus_per_level + scorching_flames_per_level, 0.0);
+        let cold = elementalist_elemental_damage_pct(0.0, elemental_focus_per_level, 0.0);
+        let lightning = elementalist_elemental_damage_pct(0.0, elemental_focus_per_level, 0.0);
+        assert!((fire - 87.3).abs() < 1e-9, "fire = Elemental Focus (29.1) + Scorching Flames (58.2) = 87.3");
+        assert!((cold - 29.1).abs() < 1e-9, "cold only ever gets Elemental Focus");
+        assert!((lightning - 29.1).abs() < 1e-9, "lightning only ever gets Elemental Focus");
     }
 
     /// Scorching Aegis - a fire proc landing grants the attacker a shield
