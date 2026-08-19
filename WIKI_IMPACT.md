@@ -101,3 +101,45 @@ it during this pass matched exactly.
 src/adventure/combat.rs:reform_thunder_golem/apply_rising_phoenix_revival (revival-healing attribution) — a real, live leaderboard-corrupting bug, confirmed via fight-log audit: a Thunder Golem's reform (full-hp restoration after death) was logging as a `Heal` event, and once golem attribution shipped, rolled that phantom "healing" into the owning Elementalist's own healing_done stat — one audited fight showed 22 reforms contributing 301.7M of a reported 316.5M total "healing" (95.3% phantom). Fixed: a reform is now a pure unit-lifecycle event (its existing `SkillCast` marker is the only log trace), never a `Heal` — credits nothing, rolls up nothing. Water Golem's Replenishing is unaffected, still real healing via the same shared heal pipeline every other healer uses. Rising Phoenix's revive HP now correctly credits the CASTING Elementalist's own healing_done (previously credited the revived ally's own id, a self-heal misattribution) and routes through the real heal pipeline so modifiers like Water Golem's Singing apply normally, logged with a new `isRevive` marker so audits can tell a revival apart from a routine heal cast — affects passives
 src/adventure/combat.rs:spawn_golem (golem stat inheritance) — golems' per-hit damage output was measured at ~3% of the owning Elementalist's own output instead of the intended 33%, an 11x gap: increased_damage and conflagration_dmg_pct (gear/tree damage multipliers) were never inherited from the summoner at all, only base stats (max hp/atk/crit/evasion/DR/block) were. Fixed by inheriting those two multipliers at FULL value (not scaled to 33% like the base stats — the math only lands near the intended 33% per-hit RATIO if a multiplier passes through whole, since `(atk×0.33)×(1+full_multiplier) = 0.33×owner_damage` exactly, while scaling the multiplier down too compounds against the already-scaled base stat instead of canceling out). Real, meaningful damage buff for any Elementalist running gear/tree damage investment with golems out — see docs/elementalist_spec.md's balance projection for the expected combined (self+golem) output band — affects passives
 src/twitch/chat.rs:ChatClient::say (observability) — every bot-originated chat message (commands, redemptions, and every game announcement) is now logged in full to bot.log before sending, regardless of outcome — previously only a truncation warning or a send failure was logged, so a fight-log audit had no way to verify what actually appeared in chat. Log-only, no behavior change — the existing 500-char truncation guard in this same function (confirmed already in place, live-tested 2026-08-13) is unrelated and untouched — affects commands
+
+---
+
+## Wiki update pass (consolidated-fix release) — processed
+
+Entries 101-102 (this log's two new entries since the last wiki pass),
+checked against docs/elementalist_spec.md's updated Golem Master section
+and its new "Balance projection" addendum as source of truth:
+
+- Entry 101 (reform/Rising-Phoenix healing-attribution fix): documented
+  in wiki/golems.md's "Rules Worth Knowing" - a golem reform grants no
+  healing credit to anyone (pure lifecycle event); Water Golem
+  Replenishing still credits the owner normally; Rising Phoenix's
+  revival heal now correctly credits the casting Elementalist, not the
+  revived ally (also noted on wiki/classes.md where Rising Phoenix is
+  named, since it's a Righteous Fire node, not a golem one).
+- Entry 102 (golem stat inheritance): the "balance in flux" tag from
+  the prior pass is now resolved and finalized on wiki/golems.md, per
+  the spec's own explicit "FULLY-BUFFED EFFECTIVE stats" wording -
+  documented with the real nuance the spec calls out (damage
+  multipliers inherit at FULL value, not scaled to 33% like everything
+  else - that's the actual fix, not just a base-vs-effective swap), plus
+  the spec's new balance projection (combined self+golem output should
+  land near 100% of solo at any golem count, crit-heavy builds trending
+  a bit under).
+
+Entry 103 (chat-send logging) - internal observability only, no
+player-facing behavior, nothing to document.
+
+Still tagged "balance in flux" (not yet resolved, per direct owner
+instruction rather than a new log entry - not found written down in
+this log or the spec doc yet):
+- Thunder Golem's absorbed-damage redistribution-on-death mechanic -
+  built, awaiting deploy. Flux tag kept as-is on wiki/golems.md.
+- Ashes to Ashes - a full rework is queued (replacing current behavior,
+  not just retuning it). New flux note added to wiki/classes.md - the
+  page never stated the live 100/200/300% figures to begin with, but
+  the note now makes clear the MECHANIC itself (not just its numbers)
+  shouldn't be treated as final.
+
+Still not documented, per instruction (not yet deployed, still not
+found in this log or either spec/progress doc): Memories, Divine Dust.

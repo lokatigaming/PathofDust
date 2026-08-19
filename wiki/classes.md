@@ -133,12 +133,14 @@ crit, and on-proc shields for their own element.
 (true damage, unaffected by evasion/block/DR on either side) - real, ongoing
 self-damage by design, meant to be offset by the branch's own healing/shield
 nodes (Healing Flames' self-regen, Shielding Flames, Fanning Flames sharing
-it with allies) rather than "fixed." Cleansing Flames periodically clears
-debuffs from you and nearby allies and refreshes a few defensive buffs.
-Scorching Flames adds more fire damage (same per-level/proc-chance shape as
-Elemental Focus above) and unlocks **Ashes to Ashes** - an unconditional
-execute on any enemy (bosses included, no exemption) below a health
-percentage of your own max HP.
+it with allies) rather than "fixed." **Rising Phoenix** revives a couple of
+recently-alive nearby allies shortly after they die - the healing credit for
+that revival goes to you, not the revived ally. Cleansing Flames periodically
+clears debuffs from you and nearby allies and refreshes a few defensive
+buffs. Scorching Flames adds more fire damage (same per-level/proc-chance
+shape as Elemental Focus above) and unlocks **Ashes to Ashes**.
+
+<p class="muted"><strong>⚠️ Balance in flux:</strong> Ashes to Ashes is queued for a full rework - the currently-live "execute any enemy, bosses included, below a health percentage of your own max HP" behavior is expected to be replaced, not just retuned. Don't treat its current behavior as final.</p>
 
 **Golem Master** - summons 1-3 golems that fight alongside you, at the cost
 of a real chunk of your own damage. Big enough a system to get its own page

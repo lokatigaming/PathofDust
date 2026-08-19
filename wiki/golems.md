@@ -18,19 +18,26 @@ free and takes effect on your next fight.
 
 <h3 id="stats">Stats &amp; the Damage Trade-off</h3>
 
-A golem fights with 33% of your own core combat stats (max HP, attack, crit
-chance/multiplier, evasion, damage reduction, block chance) - it attacks at
-your own pace, not a scaled-down one. None of your other passive-tree bonuses
-(elemental procs, splash, Righteous Fire, etc.) carry over to a golem - it's
-a basic unified hit, nothing more, unless its type grants something extra
-(see below).
+A golem fights with 33% of your **fully-buffed effective stats** (max HP,
+attack, crit chance/multiplier, evasion, damage reduction, block chance) -
+your real, post-buff numbers at the moment it's summoned (level, every
+passive-tree bonus including Elemental Focus/Scorching Flames' per-level
+scaling, and gear), not a base-stats-only snapshot. It attacks at your own
+pace, not a scaled-down one.
 
-<p class="muted"><strong>⚠️ Balance in flux:</strong> golem stats currently scale off your character's base combat stats. This is actively being corrected to scale off your fully-buffed effective stats instead (gear and passives included) - exact numbers are being tuned this week, so treat "33%" as directionally correct but not final.</p>
+<p class="muted">Your damage MULTIPLIERS (increased damage, Conflagration) are the one exception - a golem inherits those at their FULL value, not scaled to 33% like everything else. That's deliberate, not an oversight: scaling a multiplier down compounds against an already-scaled-down base stat instead of canceling out, so passing it through whole is what actually makes a golem's own hit land near the intended 33%-of-your-damage mark. Crit chance/multiplier are still scaled to 33% each, unlike the flat damage multipliers - a crit-heavy build's golems won't crit as meaningfully as the build itself does.</p>
 
 Summoning golems isn't free for your own damage: **each golem summoned cuts
 your own damage by 33%, additive** - one golem costs you 33%, two costs 66%,
-and three leaves you dealing just 1% of your normal damage. Golems are a
-real trade of your own offense for board presence, not a pure bonus.
+and three leaves you dealing just 1% of your normal damage. This is designed
+to roughly cancel out against each golem's own ~33% share, so your combined
+output (yourself plus every golem) should land close to what you'd deal
+running solo at any golem count - Golem Master trades some of your own
+damage for board presence and build diversity, not a straight loss (crit-
+heavy builds should expect to land a little under that mark, per the crit
+note above). A Thunder Golem's tanking is separate, additional value on top
+of this - expect to rank disproportionately high on Top Tanks compared to
+Top DPS if you run one, that's working as intended.
 
 <h3 id="basic">Basic Golem</h3>
 
@@ -73,7 +80,8 @@ whole point, here turning it into a support unit instead of a damage one.
 
 - **Golems die when you die.** If your Elementalist goes down, every golem you had out dies instantly with you.
 - **Golems don't keep a fight going.** They're never counted toward "is anyone still alive" - a fight where every real player is down ends normally even if a Thunder Golem is mid-reform.
-- **Your golems' stats count as yours.** Damage dealt, damage absorbed/tanked, and healing done by any of your golems (including a Thunder Golem's tanking and a Water Golem's heals) roll up into your own totals everywhere per-player stats are shown or ranked - Top DPS/Tanks/Heals in chat announcements, and your fight history. A golem never shows up as its own separate entry.
+- **Your golems' stats count as yours.** Damage dealt and damage absorbed/tanked by any of your golems (including a Thunder Golem's tanking) roll up into your own totals everywhere per-player stats are shown or ranked - Top DPS/Tanks/Heals in chat announcements, and your fight history. A golem never shows up as its own separate entry.
+- **Healing credit is specific about *what* counts as healing.** A Thunder Golem reforming (coming back after dying) is not a heal - it grants no healing credit to anyone, yours or otherwise. A Water Golem's Replenishing *is* real healing (it's converting damage into an actual heal), and that credits you, same as any other golem stat. Rising Phoenix (a Righteous Fire passive, not a golem one) works the same way when it revives a nearby ally - the healing credit goes to *you*, the Elementalist whose Phoenix triggered, not to the ally who got revived.
 - **Golems are invisible on the OBS overlay, on purpose** - not a bug. They're fully real in combat (the fight log, damage, and outcome all reflect them correctly) but don't currently get their own sprite on stream. Visualizing them is a known future improvement, not yet built.
 
 </div>
