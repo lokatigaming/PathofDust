@@ -2910,9 +2910,192 @@ impl AdventureManager {
             character.dust -= PASSIVE_RESPEC_COST;
         }
         character.passive_allocations.clear();
+        // KNOWN GAP, deliberately not fixed here (2026-08-19): this does
+        // NOT clear `secondary_passive_allocations`, so a paid respec
+        // refunds the primary tree only while charging the full cost,
+        // and Split Personality's points stay spent against the shared
+        // budget. The owner has ruled this a bug; it ships as its own
+        // small release rather than riding along on the Memories branch.
+        // See the passive-tree maintenance backlog.
         self.persist_characters(&characters);
         drop(characters);
         self.pending_passive_previews.lock().await.remove(&key);
+        self.broadcast_state().await;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------
+    // Memories (2026-08-19) - saved passive-tree builds, see
+    // `adventure::memory` and docs/memories_spec.md. Every method here
+    // is a thin wrapper: lock, call into the pure domain functions,
+    // persist, broadcast. None of the policy lives in this file.
+    // -----------------------------------------------------------------
+
+    /// Whether a fight is running RIGHT NOW - the gate a Memory load
+    /// checks before touching anything (loads are out-of-combat only,
+    /// per the design: no queuing, no mid-fight swaps).
+    ///
+    /// There is no per-character "in combat" flag in this codebase and
+    /// deliberately shouldn't be one: combat resolves instantaneously
+    /// inside `simulate_battle`, and the overlay merely animates the
+    /// resulting log afterwards. The one real signal is `fight_gate`,
+    /// which `run_encounter`/`run_basic_encounter` hold as a LOCK GUARD
+    /// for a fight's entire duration - so a failed `try_lock` is exactly
+    /// "a fight is in flight".
+    ///
+    /// A global signal is per-character accurate here, not an
+    /// approximation: `eligible_fighters` pulls in every non-downed,
+    /// non-retreated character, so any running fight is one this
+    /// character is in. Deliberately reads the LOCK rather than the
+    /// `Instant` it holds - the stored deadline is extended past the
+    /// fight to cover overlay playback plus a 5s spacing floor (see the
+    /// field's own doc), and blocking a build swap during that quiet
+    /// tail would be stricter than "in an active encounter" means.
+    pub async fn fight_in_progress(&self) -> bool {
+        self.fight_gate.try_lock().is_err()
+    }
+
+    /// Web dashboard: snapshots the character's CURRENT build into
+    /// `slot`. Always free. `name` is the player's custom name, or
+    /// `None` to take `default_memory_name`'s suggestion; either way it
+    /// goes through `validate_memory_name` before being stored, so no
+    /// unvalidated player text ever reaches a `Memory`.
+    ///
+    /// Overwriting an occupied slot is allowed and deliberate - it's the
+    /// natural "update this build to what I'm playing now" gesture, and
+    /// the UI labels it as overwriting.
+    pub async fn save_memory(&self, username: &str, slot: usize, name: Option<&str>) -> Result<(), MemoryError> {
+        let key = username.to_lowercase();
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&key).ok_or(MemoryError::NotJoined)?;
+        if slot >= character.memory_slots as usize {
+            return Err(MemoryError::SlotOutOfRange);
+        }
+        // Commoner has no passive tree at all (`passive_nodes()` is
+        // empty), so there is genuinely no build to capture - saving one
+        // would create a Memory that can only ever load as "become a
+        // Commoner with nothing allocated".
+        if character.archetype == Archetype::Commoner {
+            return Err(MemoryError::NoBuildToSave);
+        }
+        let resolved = match name {
+            Some(raw) => validate_memory_name(raw).map_err(MemoryError::InvalidName)?,
+            None => default_memory_name(character.archetype, character.effective_secondary_archetype()),
+        };
+        let saved_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let memory = character.snapshot_build(resolved, saved_at);
+        // `memory_slot_mut` grows the stored vec just far enough to
+        // address `slot` - a character who has only ever used slot 1 has
+        // a 1-element vec.
+        *character.memory_slot_mut(slot).ok_or(MemoryError::SlotOutOfRange)? = Some(memory);
+        self.persist_characters(&characters);
+        drop(characters);
+        self.broadcast_state().await;
+        Ok(())
+    }
+
+    /// Web dashboard: fully becomes the build saved in `slot` - the
+    /// whole point of the feature.
+    ///
+    /// **Free, bypassing both `ARCHETYPE_CHANGE_COST` and
+    /// `PASSIVE_RESPEC_COST`** - it writes `archetype` and both
+    /// allocation maps directly instead of going through
+    /// `change_archetype`/`respec_passive_tree`, and touches neither
+    /// `dust` nor any `free_*` counter. That is the accepted design (and
+    /// its accepted economy cost - see docs/memories_spec.md): one paid
+    /// class change plus a saved build buys free switching thereafter.
+    ///
+    /// Allocations are never raw-written. Everything goes through
+    /// `apply_memory`, which replays each rank through the same
+    /// validator a live click uses - see its own doc, and
+    /// `passive_tree::validate_allocation_step`.
+    pub async fn load_memory(&self, username: &str, slot: usize) -> Result<MemoryLoadReport, MemoryError> {
+        // Checked BEFORE the characters lock, and before anything is
+        // read or written - an in-combat rejection must leave the
+        // character completely untouched.
+        if self.fight_in_progress().await {
+            return Err(MemoryError::InCombat);
+        }
+        let key = username.to_lowercase();
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&key).ok_or(MemoryError::NotJoined)?;
+        if slot >= character.memory_slots as usize {
+            return Err(MemoryError::SlotOutOfRange);
+        }
+        let memory = character.memory_slot(slot).ok_or(MemoryError::SlotEmpty)?.clone();
+
+        let previous_archetype = character.archetype;
+        // Resolve the post-load secondary here, where the character's
+        // live equipment is visible - `apply_memory` deliberately can't
+        // see it. Same rule `save_passive_tree` applies to a preview
+        // saved after Split Personality came off, and the same
+        // "secondary equal to primary is treated as unset" filter
+        // `effective_secondary_archetype` uses.
+        let active_secondary = memory
+            .secondary_archetype
+            .filter(|&a| a != memory.archetype)
+            .filter(|_| character.effective_split_personality_item().is_some());
+
+        // The budget must be the POST-load one. Nothing `apply_memory`
+        // writes affects `total_passive_points` (it reads level plus the
+        // equipped Split Personality item's tier, and a load changes
+        // neither), so reading it here is already the post-load value.
+        let budget = character.total_passive_points();
+        let (build, report) = apply_memory(&memory, active_secondary, previous_archetype, budget);
+
+        character.archetype = build.archetype;
+        character.passive_allocations = build.passive_allocations;
+        character.secondary_archetype = build.secondary_archetype;
+        character.secondary_passive_allocations = build.secondary_passive_allocations;
+        character.golem_slot_types = build.golem_slot_types;
+
+        self.persist_characters(&characters);
+        drop(characters);
+        // Same reason `change_archetype` and `set_secondary_archetype`
+        // both drop the preview: a preview built against the OLD tree
+        // would keep counting against the shared point budget and could
+        // be Saved over the freshly loaded build.
+        self.pending_passive_previews.lock().await.remove(&key);
+        self.broadcast_state().await;
+        Ok(report)
+    }
+
+    /// Web dashboard: renames the Memory in `slot`. Free, cosmetic, and
+    /// the name goes through the same `validate_memory_name` a save
+    /// does - there is no path by which an unvalidated name reaches
+    /// storage.
+    pub async fn rename_memory(&self, username: &str, slot: usize, name: &str) -> Result<(), MemoryError> {
+        let validated = validate_memory_name(name).map_err(MemoryError::InvalidName)?;
+        let key = username.to_lowercase();
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&key).ok_or(MemoryError::NotJoined)?;
+        if slot >= character.memory_slots as usize {
+            return Err(MemoryError::SlotOutOfRange);
+        }
+        let entry = character.memory_slot_mut(slot).ok_or(MemoryError::SlotOutOfRange)?;
+        entry.as_mut().ok_or(MemoryError::SlotEmpty)?.name = validated;
+        self.persist_characters(&characters);
+        drop(characters);
+        self.broadcast_state().await;
+        Ok(())
+    }
+
+    /// Web dashboard: empties `slot`. The slot itself stays (it's a
+    /// grant, not a container) - only its contents go.
+    pub async fn delete_memory(&self, username: &str, slot: usize) -> Result<(), MemoryError> {
+        let key = username.to_lowercase();
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&key).ok_or(MemoryError::NotJoined)?;
+        if slot >= character.memory_slots as usize {
+            return Err(MemoryError::SlotOutOfRange);
+        }
+        let entry = character.memory_slot_mut(slot).ok_or(MemoryError::SlotOutOfRange)?;
+        if entry.is_none() {
+            return Err(MemoryError::SlotEmpty);
+        }
+        *entry = None;
+        self.persist_characters(&characters);
+        drop(characters);
         self.broadcast_state().await;
         Ok(())
     }
@@ -6329,5 +6512,339 @@ pub(crate) fn split_into_enemies(aggregate: BossStats, count: usize) -> Vec<Boss
     let per_hp = ((aggregate.hp as f64 / count as f64).round() as u64).max(1);
     let per_interval = ((aggregate.attack_interval_ms as u64) * count as u64).min(u32::MAX as u64) as u32;
     (0..count).map(|_| BossStats { hp: per_hp, atk: aggregate.atk, attack_interval_ms: per_interval, ..Default::default() }).collect()
+}
+
+/// Stage B of the Memories build (docs/memories_spec.md) - the
+/// manager-level contract: the in-combat gate, the free-swap guarantee,
+/// and the end-to-end save/load round trip through real persistence.
+///
+/// These run against a REAL `AdventureManager` rather than a mock,
+/// because the two properties most worth protecting here (a fight in
+/// flight blocks a load; a load spends nothing) are properties of this
+/// file's own locking and mutation, not of the pure domain functions
+/// already covered in `memory.rs`.
+///
+/// Every instance is constructed with ABSOLUTE paths into a per-test
+/// scratch directory. Deliberately NOT `set_data_dir`: that is a
+/// process-wide `OnceLock` shared by every test in this binary, and
+/// `paths.rs`'s own doc records that racing to be its first caller makes
+/// a test inherently flaky. Absolute paths sidestep it entirely -
+/// `data_path` joins onto an empty base, and joining an absolute path
+/// onto an empty base is that absolute path.
+#[cfg(test)]
+mod memory_manager_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A disposable manager with its own scratch directory, so no two
+    /// tests (and nothing outside the test run) can see each other's
+    /// save file.
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("memories_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    /// Joins `login` and puts them on a real, allocated Warrior build.
+    async fn joined_warrior(manager: &Arc<AdventureManager>, login: &str) {
+        manager.join(login, login).await;
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.level = 40; // 1 + 40/4 = 11 passive points
+        character.archetype = Archetype::Warrior;
+        character.passive_allocations.insert("bulwark".to_string(), 3);
+        character.passive_allocations.insert("unbreakable".to_string(), 4);
+        character.passive_allocations.insert("fortress".to_string(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_full_build_round_trips_through_save_and_load() {
+        let (manager, scratch) = disposable_manager("round_trip");
+        joined_warrior(&manager, "roundtrip").await;
+
+        manager.save_memory("roundtrip", 0, Some("Tank Build")).await.expect("saving a legal build must succeed");
+
+        // Wander off to a completely different class and tree.
+        manager.change_archetype("roundtrip", Archetype::Mage).await.expect("class change must succeed");
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("roundtrip").expect("still joined");
+            character.passive_allocations.insert("arcane".to_string(), 2);
+        }
+
+        let report = manager.load_memory("roundtrip", 0).await.expect("loading a saved build must succeed");
+
+        let character = manager.character("roundtrip").await.expect("still joined");
+        assert_eq!(character.archetype, Archetype::Warrior, "the load must restore the saved class");
+        assert_eq!(character.passive_allocations.get("bulwark"), Some(&3));
+        assert_eq!(character.passive_allocations.get("unbreakable"), Some(&4));
+        assert_eq!(character.passive_allocations.get("fortress"), Some(&2));
+        assert_eq!(character.passive_allocations.len(), 3, "the Mage allocation must be gone, not merged in");
+        assert!(report.class_changed);
+        assert!(report.dropped.is_empty(), "a clean round trip must drop nothing, got {:?}", report.dropped);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn a_saved_build_survives_a_reload_from_disk() {
+        // Proves the whole thing actually persists, not just that it
+        // round-trips in memory - a second manager reading the same file
+        // must see the Memory.
+        let (manager, scratch) = disposable_manager("persist");
+        joined_warrior(&manager, "persister").await;
+        manager.save_memory("persister", 1, Some("Slot Two")).await.expect("save must succeed");
+
+        let reloaded =
+            AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        let character = reloaded.character("persister").await.expect("must have been persisted");
+        assert_eq!(character.memory_slot(1).map(|m| m.name.as_str()), Some("Slot Two"));
+        assert!(character.memory_slot(0).is_none(), "slot 1 must still be empty - slots have identity");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn loading_a_memory_while_a_fight_is_running_is_rejected_and_changes_nothing() {
+        // The out-of-combat rule. `fight_gate` is held as a lock guard
+        // for a fight's entire duration by `run_encounter`/
+        // `run_basic_encounter`, so holding it here is exactly what a
+        // fight in flight looks like to `fight_in_progress`.
+        let (manager, scratch) = disposable_manager("in_combat");
+        joined_warrior(&manager, "fighter").await;
+        manager.save_memory("fighter", 0, Some("Tank Build")).await.expect("save must succeed");
+        manager.change_archetype("fighter", Archetype::Mage).await.expect("class change must succeed");
+
+        let before = manager.character("fighter").await.expect("still joined");
+
+        let gate = manager.fight_gate.lock().await;
+        assert!(manager.fight_in_progress().await, "sanity: holding the gate must read as a fight in progress");
+        let err = manager.load_memory("fighter", 0).await.expect_err("a load during a fight must be rejected");
+        assert_eq!(err, MemoryError::InCombat);
+
+        let after = manager.character("fighter").await.expect("still joined");
+        assert_eq!(after.archetype, before.archetype, "a rejected load must not change the class");
+        assert_eq!(after.passive_allocations, before.passive_allocations, "a rejected load must not touch the tree");
+
+        // Once the fight ends the same load goes through - proving the
+        // rejection was the gate, not something permanently broken.
+        drop(gate);
+        assert!(!manager.fight_in_progress().await, "the gate is released, so no fight is in progress");
+        manager.load_memory("fighter", 0).await.expect("the same load must succeed once the fight is over");
+        assert_eq!(manager.character("fighter").await.unwrap().archetype, Archetype::Warrior);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn loading_a_memory_is_free_and_never_touches_dust_or_the_free_change_counters() {
+        // The deliberate economy trade-off, pinned as a test so it can't
+        // be quietly "fixed" into charging - see docs/memories_spec.md.
+        let (manager, scratch) = disposable_manager("free");
+        joined_warrior(&manager, "thrifty").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("thrifty").expect("just joined");
+            character.dust = 12_345;
+            character.free_archetype_changes = 0;
+            character.free_passive_respecs = 0;
+        }
+        manager.save_memory("thrifty", 0, Some("Tank Build")).await.expect("save must succeed");
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("thrifty").expect("still joined");
+            character.archetype = Archetype::Mage;
+            character.passive_allocations.clear();
+        }
+
+        manager.load_memory("thrifty", 0).await.expect("a load must succeed with no free changes and no intent to spend");
+
+        let character = manager.character("thrifty").await.expect("still joined");
+        assert_eq!(character.archetype, Archetype::Warrior, "the class change happened");
+        assert_eq!(character.dust, 12_345, "a load must never spend dust");
+        assert_eq!(character.free_archetype_changes, 0, "a load must never consume a free class change");
+        assert_eq!(character.free_passive_respecs, 0, "a load must never consume a free respec");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn loading_a_memory_clears_any_pending_passive_preview() {
+        // Same reason `change_archetype`/`set_secondary_archetype` both
+        // drop it: a preview built against the OLD tree keeps counting
+        // against the shared point budget and could be Saved straight
+        // over the freshly loaded build.
+        let (manager, scratch) = disposable_manager("preview");
+        joined_warrior(&manager, "previewer").await;
+        manager.save_memory("previewer", 0, Some("Tank Build")).await.expect("save must succeed");
+
+        manager.preview_allocate_passive("previewer", "juggernaut", 1, false).await.expect("a legal preview click must succeed");
+        assert!(manager.pending_passive_preview("previewer").await.is_some(), "sanity: there must be a preview to clear");
+
+        manager.load_memory("previewer", 0).await.expect("load must succeed");
+        assert!(manager.pending_passive_preview("previewer").await.is_none(), "the stale preview must be gone");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn an_elementalist_build_round_trips_with_its_golem_slot_types() {
+        let (manager, scratch) = disposable_manager("golem");
+        manager.join("golemancer", "Golemancer").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("golemancer").expect("just joined");
+            character.level = 40;
+            character.archetype = Archetype::Elementalist;
+            character.passive_allocations.insert("golemmaster".to_string(), 3);
+            character.golem_slot_types = vec![GolemType::Thunder, GolemType::Flame, GolemType::Water];
+        }
+        manager.save_memory("golemancer", 0, None).await.expect("save must succeed");
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("golemancer").expect("still joined");
+            character.golem_slot_types = vec![GolemType::Basic];
+            character.passive_allocations.clear();
+        }
+
+        manager.load_memory("golemancer", 0).await.expect("load must succeed");
+
+        let character = manager.character("golemancer").await.expect("still joined");
+        assert_eq!(character.golem_slot_types, vec![GolemType::Thunder, GolemType::Flame, GolemType::Water]);
+        assert_eq!(character.passive_allocations.get("golemmaster"), Some(&3));
+        assert_eq!(character.memory_slot(0).unwrap().name, "Memories of an Elementalist", "no name given means the default is used");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn a_stale_node_in_a_saved_build_is_refunded_and_reported_rather_than_failing_the_load() {
+        let (manager, scratch) = disposable_manager("stale");
+        joined_warrior(&manager, "staleworth").await;
+        manager.save_memory("staleworth", 0, Some("Tank Build")).await.expect("save must succeed");
+        // Reach into the stored snapshot and plant a node key that no
+        // longer exists - exactly what a removed or renamed node leaves
+        // behind in an old save.
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("staleworth").expect("still joined");
+            let memory = character.memory_slot_mut(0).unwrap().as_mut().unwrap();
+            memory.passive_allocations.insert("a_node_that_was_deleted".to_string(), 3);
+        }
+
+        let report = manager.load_memory("staleworth", 0).await.expect("a stale node must never fail the whole load");
+
+        let character = manager.character("staleworth").await.expect("still joined");
+        assert!(!character.passive_allocations.contains_key("a_node_that_was_deleted"));
+        assert_eq!(character.passive_allocations.get("bulwark"), Some(&3), "the rest of the build still applies");
+        assert_eq!(report.dropped.len(), 1);
+        assert_eq!(report.dropped[0].node_key, "a_node_that_was_deleted");
+        assert!(report.is_noteworthy(), "the player must be told");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn a_blocked_or_malformed_name_is_rejected_and_nothing_is_saved() {
+        let (manager, scratch) = disposable_manager("badname");
+        joined_warrior(&manager, "namer").await;
+
+        for (bad, expected) in [("   ", NameRejection::Empty), ("retard", NameRejection::Blocked), ("bad\nname", NameRejection::Unprintable)] {
+            let err = manager.save_memory("namer", 0, Some(bad)).await.expect_err("a bad name must be rejected");
+            assert_eq!(err, MemoryError::InvalidName(expected), "{bad:?}");
+        }
+        assert!(manager.character("namer").await.unwrap().memory_slot(0).is_none(), "a rejected save must leave the slot empty");
+
+        // And the same filter guards a rename, so there is no back door.
+        manager.save_memory("namer", 0, Some("Fine Name")).await.expect("a legal name must save");
+        let err = manager.rename_memory("namer", 0, "retard").await.expect_err("a bad rename must be rejected");
+        assert_eq!(err, MemoryError::InvalidName(NameRejection::Blocked));
+        assert_eq!(manager.character("namer").await.unwrap().memory_slot(0).unwrap().name, "Fine Name", "the old name must survive a rejected rename");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn slot_bounds_and_emptiness_are_reported_distinctly() {
+        let (manager, scratch) = disposable_manager("slots");
+        joined_warrior(&manager, "slotter").await;
+
+        // Default grant is 3 slots, so slot index 3 is past the end.
+        assert_eq!(manager.save_memory("slotter", 3, Some("Nope")).await, Err(MemoryError::SlotOutOfRange));
+        assert_eq!(manager.load_memory("slotter", 3).await.err(), Some(MemoryError::SlotOutOfRange));
+        assert_eq!(manager.delete_memory("slotter", 3).await, Err(MemoryError::SlotOutOfRange));
+
+        // In range but nothing saved there.
+        assert_eq!(manager.load_memory("slotter", 2).await.err(), Some(MemoryError::SlotEmpty));
+        assert_eq!(manager.rename_memory("slotter", 2, "Nothing Here").await, Err(MemoryError::SlotEmpty));
+        assert_eq!(manager.delete_memory("slotter", 2).await, Err(MemoryError::SlotEmpty));
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn renaming_and_deleting_a_memory_leave_the_slot_itself_intact() {
+        let (manager, scratch) = disposable_manager("rename_delete");
+        joined_warrior(&manager, "editor").await;
+        manager.save_memory("editor", 1, Some("First Name")).await.expect("save must succeed");
+
+        manager.rename_memory("editor", 1, "  Second Name  ").await.expect("rename must succeed");
+        assert_eq!(manager.character("editor").await.unwrap().memory_slot(1).unwrap().name, "Second Name", "the stored name must be trimmed");
+
+        manager.delete_memory("editor", 1).await.expect("delete must succeed");
+        let character = manager.character("editor").await.unwrap();
+        assert!(character.memory_slot(1).is_none(), "the Memory is gone");
+        assert_eq!(character.memory_slots, STARTING_MEMORY_SLOTS, "the SLOT is a grant, not a container - deleting its contents must not take it away");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn a_commoner_has_no_build_to_save() {
+        let (manager, scratch) = disposable_manager("commoner");
+        manager.join("newbie", "Newbie").await;
+        assert_eq!(manager.save_memory("newbie", 0, Some("Nothing Yet")).await, Err(MemoryError::NoBuildToSave));
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn a_character_who_never_joined_is_rejected_by_every_memory_action() {
+        let (manager, scratch) = disposable_manager("notjoined");
+        assert_eq!(manager.save_memory("ghost", 0, None).await, Err(MemoryError::NotJoined));
+        assert_eq!(manager.load_memory("ghost", 0).await.err(), Some(MemoryError::NotJoined));
+        assert_eq!(manager.rename_memory("ghost", 0, "Hi").await, Err(MemoryError::NotJoined));
+        assert_eq!(manager.delete_memory("ghost", 0).await, Err(MemoryError::NotJoined));
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn points_earned_since_the_snapshot_are_left_unspent_after_a_load() {
+        // The level-drift rule, end to end: a level-up between save and
+        // load must leave the extra points for the player to place, not
+        // fail the load and not auto-spend them.
+        let (manager, scratch) = disposable_manager("drift");
+        joined_warrior(&manager, "drifter").await;
+        manager.save_memory("drifter", 0, Some("Tank Build")).await.expect("save must succeed");
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("drifter").expect("still joined");
+            character.level = 80; // 1 + 80/4 = 21 points, up from 11
+            character.passive_allocations.clear();
+        }
+
+        let report = manager.load_memory("drifter", 0).await.expect("load must succeed");
+
+        let character = manager.character("drifter").await.expect("still joined");
+        let spent: u32 = character.passive_allocations.values().sum();
+        assert_eq!(spent, 9, "the snapshot's own spend applies verbatim");
+        assert_eq!(character.total_passive_points(), 21);
+        assert_eq!(report.unspent, 12, "the 12 newly earned points are left unspent");
+        assert!(report.dropped.is_empty());
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
 }
 
