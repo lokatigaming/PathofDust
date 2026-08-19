@@ -48,6 +48,9 @@ patreon-tokens.json
 /backup-pre-divine-dust
 # Pre-Divine-Dust-craft-fix-deploy rollback backup, same discipline.
 /backup-pre-divine-dust-craft-fix
+# Pre-Elementalist-rework-deploy rollback backup (RF self-damage mitigation
+# + golem synergy), same discipline.
+/backup-pre-rf-self-damage-mitigation
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
