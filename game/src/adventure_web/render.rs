@@ -123,3 +123,30 @@ mod live_reload_tests {
         assert_eq!(second, "after", "editing the template file must change the very next render - no rebuild, no restart, no explicit cache-bust");
     }
 }
+
+#[cfg(test)]
+mod base_html_body_substitution_tests {
+    use super::*;
+
+    /// Regression test (2026-08-19, a live player-reachable finding):
+    /// `base.html`'s shared scroll-restore script used to have a doc
+    /// comment containing the literal `{{ body }}` template syntax.
+    /// minijinja substitutes `{{ ... }}` anywhere it appears in the raw
+    /// template text - comment or not - so that stray occurrence
+    /// duplicated the ENTIRE rendered page body a second time, inline
+    /// inside a `<script>` tag's `//` comment. Any newline in the body
+    /// content (item nicknames reach rendered pages unstripped) would
+    /// terminate that `//` comment early, letting the remainder of the
+    /// page's own content parse as live JavaScript - a real
+    /// script-execution surface, not a theoretical one. This proves the
+    /// fix: a body containing a newline renders with that body's content
+    /// appearing exactly once, and nothing from it leaks a second time
+    /// into the script block.
+    #[test]
+    fn a_body_with_a_newline_appears_exactly_once_and_never_reenters_the_script_block() {
+        let payload = "unique_marker_9f3a1c\nthis_would_have_been_live_js_if_the_comment_leaked();";
+        let rendered = render_template("base.html", minijinja::context! { body => payload });
+        let occurrences = rendered.matches("unique_marker_9f3a1c").count();
+        assert_eq!(occurrences, 1, "the body's own content must appear exactly once in the rendered page - a second occurrence means it leaked back into the shared script block");
+    }
+}

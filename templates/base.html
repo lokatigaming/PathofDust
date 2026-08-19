@@ -647,10 +647,17 @@
     }
 
     // Restore as early as the DOM allows - this script sits right after
-    // {{ body }} closes, so every element it needs already exists;
-    // running it now, synchronously, still inside the initial parse,
-    // beats first paint (no top-then-jump flicker), unlike waiting for
-    // DOMContentLoaded/load.
+    // the rendered page content closes, so every element it needs
+    // already exists; running it now, synchronously, still inside the
+    // initial parse, beats first paint (no top-then-jump flicker),
+    // unlike waiting for DOMContentLoaded/load. (Deliberately not
+    // written as the literal template-substitution syntax for "page
+    // body" - minijinja substitutes that anywhere it appears in the raw
+    // template text, comment or not; the substituted content could
+    // contain a newline - e.g. from an unstripped item nickname - which
+    // would terminate this `//` comment early and let the rest of the
+    // page's own content parse as live JavaScript. 2026-08-19, a live
+    // player-reachable finding.)
     restore();
     // A page with sprite images/gear grids can still reflow after this
     // point - a defensive re-apply once everything has finished loading
