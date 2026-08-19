@@ -5,6 +5,7 @@
       "id": "druid_vs_generic_stage1000",
       "displayName": "druid_vs_generic_stage1000",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "druid",
       "role": "support",
       "maxHp": 2782
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "Boss",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 500000

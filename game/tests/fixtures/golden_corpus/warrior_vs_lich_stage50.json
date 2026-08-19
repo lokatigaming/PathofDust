@@ -5,6 +5,7 @@
       "id": "warrior_vs_lich_stage50",
       "displayName": "warrior_vs_lich_stage50",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "warrior",
       "role": "melee",
       "maxHp": 210
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "The Lich",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 8000
@@ -21,6 +23,7 @@
       "id": "__enemy_0__-add-0",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -29,6 +32,7 @@
       "id": "__enemy_0__-add-1",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -37,6 +41,7 @@
       "id": "__enemy_0__-add-2",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -45,6 +50,7 @@
       "id": "__enemy_0__-add-3",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -53,6 +59,7 @@
       "id": "__enemy_0__-add-4",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 800

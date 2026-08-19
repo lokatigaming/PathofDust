@@ -5,6 +5,7 @@
       "id": "paladin_vs_cube_stage500",
       "displayName": "paladin_vs_cube_stage500",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "paladin",
       "role": "melee",
       "maxHp": 1658
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "The Gelatinous Cube",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 120000

@@ -5,6 +5,7 @@
       "id": "rogue_vs_generic_stage50",
       "displayName": "rogue_vs_generic_stage50",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "rogue",
       "role": "melee",
       "maxHp": 371
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "Boss",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 8000

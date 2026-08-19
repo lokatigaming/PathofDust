@@ -575,6 +575,26 @@ pub struct CombatUnitInfo {
     pub id: String,
     pub display_name: String,
     pub is_boss: bool,
+    /// `Some(owner's id)` for a golem unit, `None` for everyone else -
+    /// mirrors `CombatSimUnit::golem_summoner_id` (see that field's own
+    /// doc), threaded through here so `full_player_fight_stats` can roll
+    /// a golem's stats up into its owner's row (2026-08-19, golem
+    /// attribution) without needing to parse the golem's own id string.
+    ///
+    /// WIRE CONTRACT NOTE (this struct is sent to the OBS overlay - see
+    /// this struct's own doc - and travels through the `/api/*` seam's
+    /// announcement/encounter payloads): purely ADDITIVE, safe in both
+    /// directions. `#[serde(default)]` means fight records already on
+    /// disk from before this field existed still deserialize (as `None` -
+    /// correct, since none of them could have contained a golem anyway),
+    /// and any consumer (overlay.html's JS, a future external tool) that
+    /// hasn't been updated to read this field simply never looks at it -
+    /// no existing field changed shape or meaning. NOT a repeat of the
+    /// `PlayerVitals::died_at_ms` situation (a frozen field an external
+    /// companion app depends on the EXACT shape of) - this is a new,
+    /// optional field nothing external currently reads.
+    #[serde(default)]
+    pub golem_summoner_id: Option<String>,
     /// `Some` for a real player, `None` for a boss/enemy/mid-fight add -
     /// see `CombatSimUnit::archetype`'s doc for why this is carried
     /// through to persisted fight records at all. `#[serde(default)]` so
@@ -622,7 +642,17 @@ pub(crate) const FIGHT_SUMMARY_TOP_N: usize = 3;
 /// just what leaked through to their hp. "Damage dealt" still uses the
 /// real, post-mitigation `damage` - that's what actually landed.
 pub fn summarize_fight(units: &[CombatUnitInfo], events: &[CombatEvent]) -> FightSummary {
-    let is_player = |id: &str| units.iter().find(|u| u.id == id).map(|u| !u.is_boss).unwrap_or(false);
+    // 2026-08-19, golem attribution audit - found this function has no
+    // callers anywhere in the workspace (superseded by
+    // `fight_summary_from_snapshot`, see this fn's own doc), but it
+    // shared the same "a golem is `is_boss: false` too" leak every OTHER
+    // per-unit aggregator had before that audit. Excluding golems here
+    // is the minimal defensive fix appropriate for dead code - unlike
+    // `full_player_fight_stats`, this doesn't roll a golem's stats up
+    // into its owner (no live caller needs that), it just stops a golem
+    // from ever appearing as its OWN fake leaderboard entry, matching
+    // the "golems never appear as named entries" requirement even here.
+    let is_player = |id: &str| units.iter().find(|u| u.id == id).map(|u| !u.is_boss && u.golem_summoner_id.is_none()).unwrap_or(false);
     let display_name = |id: &str| units.iter().find(|u| u.id == id).map(|u| u.display_name.clone());
 
     let mut damage_dealt: HashMap<String, u64> = HashMap::new();
@@ -714,8 +744,22 @@ pub fn fight_summary_from_snapshot(summary: &FightSummarySnapshot) -> FightSumma
 /// (rather than extracted out of `summarize_fight`) so that already-
 /// deployed function's control flow and single-pass cost stay untouched.
 /// Used by `full_player_fight_stats`'s summary builder.
+///
+/// Golem attribution (2026-08-19) - golem deaths are excluded from `is_player`
+/// entirely, never attributed to their owner. Unlike damage/healing (which
+/// roll up - see `full_player_fight_stats`'s own doc), a golem dying must
+/// NOT count as its owner going down: the owner is very much still alive
+/// when their Thunder Golem dies (that's the mechanic working as intended -
+/// the golem died so the owner wouldn't), so crediting the death to them
+/// would actively misreport their survival. This was a real, live bug on
+/// the `/fights` dashboard's "First Down" field before this fix - Thunder
+/// Golems die routinely as part of normal absorb-then-reform play (the
+/// ONLY golem type that can die at all now that non-Thunder golems are
+/// fully damage-immune - see `is_protected_golem`), so a fight's own
+/// "first down" could silently show a golem's internal unit id instead of
+/// a real player's name.
 fn first_player_to_die(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Option<String> {
-    let is_player = |id: &str| units.iter().find(|u| u.id == id).map(|u| !u.is_boss).unwrap_or(false);
+    let is_player = |id: &str| units.iter().find(|u| u.id == id).map(|u| !u.is_boss && u.golem_summoner_id.is_none()).unwrap_or(false);
     let display_name = |id: &str| units.iter().find(|u| u.id == id).map(|u| u.display_name.clone());
     let mut first_death: Option<(u32, String)> = None;
     for event in events {
@@ -799,6 +843,19 @@ pub struct PlayerFightStats {
 /// damage_taken already uses. `source_kind` decides where an `Attack`
 /// event's damage lands (2026-08-18, the DoT-attribution fix) - see
 /// `PlayerFightStats`'s own doc for exactly which fields each kind feeds.
+///
+/// Golem attribution (2026-08-19) - every stat is still accumulated
+/// per-UNIT first, one entry per golem included, exactly as before (the
+/// raw `events` log this walks is untouched - a fight-log audit can still
+/// see each golem's own individual hits). Only at the very end are golem
+/// entries rolled into their owner's row and dropped from the returned
+/// list - see the merge pass below. This means a Thunder Golem's
+/// absorbed hits (recorded as `Attack` events targeting the golem's own
+/// id) land in the golem's `damage_taken` first, then fold into the
+/// owner's `damage_taken` - the party-tanking mechanic becomes the
+/// owner's OWN tanking stat, no special-casing needed. Same story for a
+/// Water Golem's Replenishing heals (`Heal` events with `healer` ==
+/// the golem's id) feeding the owner's `healing_done`.
 pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[CombatEvent]) -> Vec<PlayerFightStats> {
     let mut stats: HashMap<String, PlayerFightStats> = units
         .iter()
@@ -846,6 +903,28 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
                 }
             }
             CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } | CombatEvent::BuffSnapshot { .. } => {}
+        }
+    }
+    // Golem attribution merge pass - drains every golem's own entry into
+    // its owner's row, then drops it. `units` (not `stats`'s own keys) is
+    // the source of truth for who owns which golem, via
+    // `CombatUnitInfo::golem_summoner_id`. A golem whose owner somehow
+    // isn't in `stats` (should never happen - an owner is always a real
+    // player, included in the initial map build above) is just dropped
+    // rather than panicking, since this is a display-layer rollup, not a
+    // correctness-critical invariant worth crashing a fight over.
+    for u in units.iter().filter(|u| u.golem_summoner_id.is_some()) {
+        let Some(golem_stats) = stats.remove(&u.id) else { continue };
+        let Some(owner_id) = &u.golem_summoner_id else { continue };
+        if let Some(owner) = stats.get_mut(owner_id) {
+            owner.damage_dealt += golem_stats.damage_dealt;
+            owner.damage_taken += golem_stats.damage_taken;
+            owner.healing_done += golem_stats.healing_done;
+            owner.hits += golem_stats.hits;
+            owner.crits += golem_stats.crits;
+            owner.evaded += golem_stats.evaded;
+            owner.dot_ticks += golem_stats.dot_ticks;
+            owner.dot_damage += golem_stats.dot_damage;
         }
     }
     stats.into_values().collect()
@@ -5298,11 +5377,15 @@ mod fight_summary_tests {
     use super::*;
 
     fn player(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000, golem_summoner_id: None }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None }
+    }
+
+    fn golem(id: &str, owner_id: &str) -> CombatUnitInfo {
+        CombatUnitInfo { id: id.to_string(), display_name: format!("{owner_id}'s Golem"), is_boss: false, archetype: None, role: None, max_hp: 330, golem_summoner_id: Some(owner_id.to_string()) }
     }
 
     fn attack(at_ms: u32, attacker: &str, target: &str, damage: u64, unmitigated_damage: u64, is_crit: bool, evaded: bool) -> CombatEvent {
@@ -5535,6 +5618,111 @@ mod fight_summary_tests {
         let summary = fight_summary_from_snapshot(&snapshot);
         assert!(summary.top_healing_done.is_empty(), "nobody healed - the list must be empty, not padded with 0-value entries");
     }
+
+    // --- Golem attribution (2026-08-19) ---
+
+    #[test]
+    fn a_golem_never_gets_its_own_row() {
+        let units = vec![player("lokati_gaming"), golem("__golem_lokati_gaming_0", "lokati_gaming"), boss("__enemy_0")];
+        let events = vec![attack(0, "__golem_lokati_gaming_0", "__enemy_0", 500, 500, false, false)];
+        let stats = full_player_fight_stats(&units, &events);
+        assert_eq!(stats.len(), 1, "only the owner's row should exist - the golem's own row must be dropped after the merge");
+        assert_eq!(stats[0].id, "lokati_gaming");
+        assert!(!stats.iter().any(|s| s.id.starts_with("__golem_")), "no golem id may ever survive into the returned rows");
+    }
+
+    #[test]
+    fn owner_totals_are_own_plus_all_owned_golems_damage_dealt() {
+        let units = vec![
+            player("lokati_gaming"),
+            golem("__golem_lokati_gaming_0", "lokati_gaming"),
+            golem("__golem_lokati_gaming_1", "lokati_gaming"),
+            boss("__enemy_0"),
+        ];
+        let events = vec![
+            attack(0, "lokati_gaming", "__enemy_0", 100, 100, false, false),
+            attack(1, "__golem_lokati_gaming_0", "__enemy_0", 30, 30, false, false),
+            attack(2, "__golem_lokati_gaming_1", "__enemy_0", 40, 40, false, false),
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        assert_eq!(owner.damage_dealt, 170, "own 100 + golem 30 + golem 40");
+        assert_eq!(owner.hits, 3, "own hit + both golems' hits all count toward the owner");
+    }
+
+    /// Requirement 2 - damage a Thunder Golem ABSORBS (i.e. is the
+    /// `target` of) counts toward the owner's tank/"took" stat, since the
+    /// party immunity it provides IS the Elementalist's own tanking
+    /// contribution.
+    #[test]
+    fn damage_absorbed_by_a_golem_counts_toward_the_owners_tank_stat() {
+        let units = vec![player("lokati_gaming"), golem("__golem_lokati_gaming_0", "lokati_gaming"), boss("__enemy_0")];
+        let events = vec![
+            attack(0, "__enemy_0", "lokati_gaming", 20, 20, false, false),
+            attack(1, "__enemy_0", "__golem_lokati_gaming_0", 900, 900, false, false),
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        assert_eq!(owner.damage_taken, 920, "own 20 taken + 900 absorbed by the golem, both credited to the owner's tank stat");
+    }
+
+    /// Requirement 3 - a Water Golem's Replenishing heal (a `Heal` event
+    /// with the golem as `healer`) credits the owner's heal stat.
+    #[test]
+    fn golem_healing_credits_the_owners_heal_stat() {
+        let units = vec![player("lokati_gaming"), golem("__golem_lokati_gaming_0", "lokati_gaming")];
+        let events = vec![CombatEvent::Heal { at_ms: 0, healer: "__golem_lokati_gaming_0".to_string(), target: "lokati_gaming".to_string(), amount: 250, target_hp_after: 250 }];
+        let stats = full_player_fight_stats(&units, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        assert_eq!(owner.healing_done, 250);
+    }
+
+    #[test]
+    fn two_different_owners_golems_never_cross_credit() {
+        let units = vec![
+            player("lokati_gaming"),
+            player("someone_else"),
+            golem("__golem_lokati_gaming_0", "lokati_gaming"),
+            golem("__golem_someone_else_0", "someone_else"),
+            boss("__enemy_0"),
+        ];
+        let events = vec![
+            attack(0, "__golem_lokati_gaming_0", "__enemy_0", 50, 50, false, false),
+            attack(1, "__golem_someone_else_0", "__enemy_0", 999, 999, false, false),
+        ];
+        let stats = full_player_fight_stats(&units, &events);
+        let lokati = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        let someone = stats.iter().find(|s| s.id == "someone_else").unwrap();
+        assert_eq!(lokati.damage_dealt, 50);
+        assert_eq!(someone.damage_dealt, 999);
+    }
+
+    /// Rankings built off the rolled-up output (the same shape
+    /// `fight_summary_from_snapshot`/the batched-summary aggregator both
+    /// consume) must never surface a golem as its own leaderboard entry -
+    /// the owner's combined total is what ranks, under the owner's own
+    /// display name.
+    #[test]
+    fn rankings_built_from_rolled_up_stats_never_name_a_golem() {
+        let units = vec![player("lokati_gaming"), golem("__golem_lokati_gaming_0", "lokati_gaming"), boss("__enemy_0")];
+        let events = vec![attack(0, "__golem_lokati_gaming_0", "__enemy_0", 500, 500, false, false)];
+        let stats = full_player_fight_stats(&units, &events);
+        let snapshot = FightSummarySnapshot { players: stats, ..Default::default() };
+        let summary = fight_summary_from_snapshot(&snapshot);
+        assert_eq!(summary.top_damage_dealt, vec![("lokati_gaming".to_string(), 500)]);
+        assert!(!summary.top_damage_dealt.iter().any(|(name, _)| name.contains("Golem")), "no golem display name may ever rank");
+    }
+
+    /// A golem's own death must never be reported as its owner going
+    /// down - the owner is still alive when a Thunder Golem dies (that's
+    /// the mechanic working correctly), so `first_player_to_die` must
+    /// skip golem deaths entirely, not attribute them to the owner.
+    #[test]
+    fn a_golems_death_is_never_reported_as_its_owner_going_down() {
+        let units = vec![player("lokati_gaming"), golem("__golem_lokati_gaming_0", "lokati_gaming")];
+        let events = vec![CombatEvent::Defeat { at_ms: 100, unit: "__golem_lokati_gaming_0".to_string() }];
+        assert_eq!(first_player_to_die(&units, &events), None, "the owner never died - only their golem did, which must not count");
+    }
 }
 
 #[cfg(test)]
@@ -5542,11 +5730,11 @@ mod player_vitals_tests {
     use super::*;
 
     fn player(id: &str, max_hp: u64) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp, golem_summoner_id: None }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None }
     }
 
     fn hit(at_ms: u32, attacker: &str, target: &str, target_hp_after: u64) -> CombatEvent {

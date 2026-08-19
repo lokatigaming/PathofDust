@@ -5,6 +5,7 @@
       "id": "cleric_vs_tough_boss_stage200",
       "displayName": "cleric_vs_tough_boss_stage200",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "cleric",
       "role": "support",
       "maxHp": 1611
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "The Fire Demon",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 40000
