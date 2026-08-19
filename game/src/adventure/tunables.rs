@@ -159,6 +159,20 @@ pub struct LiveTunables {
     /// Same recipe - Divine Dust granted per craft (before the x1/x10/x50
     /// multiplier, which just repeats the whole recipe that many times).
     pub divine_dust_craft_output: u64,
+    /// Righteous Fire self-damage rework (2026-08-19) - the self-burn
+    /// percentage (max HP taken per second while active) is now its own
+    /// tunable, decoupled from the `righteousfire` node's own magnitude
+    /// (which stays purely offensive - see `CombatSimUnit::righteousfire_pct`'s
+    /// doc). Picked by the caster's own invested RANK in `righteousfire`
+    /// (a skill node, capped at 3, no 4th unlock-only rank) - `rank1`
+    /// applies at 1/3, `rank2` at 2/3, `rank3` at 3/3. Defaults match the
+    /// node's own previous 10/20/30% self-burn numbers exactly - zero
+    /// behavior change unless an admin retunes one.
+    pub rf_self_damage_pct_rank1: f64,
+    /// Same mechanic - rank 2.
+    pub rf_self_damage_pct_rank2: f64,
+    /// Same mechanic - rank 3.
+    pub rf_self_damage_pct_rank3: f64,
 }
 
 impl Default for LiveTunables {
@@ -190,6 +204,9 @@ impl Default for LiveTunables {
             divine_dust_craft_dust_cost: 1000,
             divine_dust_craft_sand_cost: 10,
             divine_dust_craft_output: 1,
+            rf_self_damage_pct_rank1: 0.10,
+            rf_self_damage_pct_rank2: 0.20,
+            rf_self_damage_pct_rank3: 0.30,
         }
     }
 }

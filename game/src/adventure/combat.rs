@@ -191,6 +191,10 @@ pub(crate) const ELEMENTAL_AEGIS_SHIELD_DURATION_MS: u32 = 5_000;
 /// second for the whole fight once invested (see
 /// `next_righteousfire_tick_at_ms`'s own doc).
 pub(crate) const RIGHTEOUS_FIRE_TICK_INTERVAL_MS: u32 = 1_000;
+/// Water Golem's own base regen effect - "per second," same cadence as
+/// Righteous Fire above (a separate constant since the two mechanics
+/// are unrelated, even though the value happens to match).
+pub(crate) const WATER_GOLEM_REGEN_INTERVAL_MS: u32 = 1_000;
 /// How long Cauterizing Flames' reduced-healing debuff lasts before it
 /// lazily expires - refreshed every Righteous Fire tick that re-applies
 /// it (once a second), so this only matters for the ~1s gap right after
@@ -1707,12 +1711,32 @@ pub(crate) struct CombatSimUnit {
     /// 0.0 without it invested.
     conflagration_dmg_pct: f64,
     /// Elementalist's Righteous Fire (docs/elementalist_spec.md) - the
-    /// SAME rank magnitude drives both halves of the skill: self-burn
-    /// (true damage to THIS unit, once per second) and the damage dealt
-    /// to each enemy it reaches (see `tick_righteous_fire`'s own doc).
-    /// 0.0 without it invested, which also makes `next_righteousfire_tick_at_ms`
-    /// stay `u32::MAX` (never scheduled) at construction.
+    /// OFFENSIVE half only: damage dealt to each enemy it reaches (see
+    /// `tick_righteous_fire`'s own doc). Still driven by the
+    /// `righteousfire` node's own rank magnitude. 0.0 without it
+    /// invested, which also makes `next_righteousfire_tick_at_ms` stay
+    /// `u32::MAX` (never scheduled) at construction.
+    ///
+    /// 2026-08-19 rework - this USED TO also drive the self-burn half,
+    /// but the two are now deliberately decoupled: self-burn moved to
+    /// its own tunable (`rf_self_damage_pct` below), independently
+    /// admin-adjustable from the offensive side.
     righteousfire_pct: f64,
+    /// Righteous Fire's self-burn half (2026-08-19 rework, see
+    /// `righteousfire_pct`'s own doc for why these split) -
+    /// `LiveTunables::rf_self_damage_pct_rank{1,2,3}`, picked by the
+    /// caster's own invested rank and snapshotted here at construction
+    /// (same "tunable-derived value stored per-unit" shape
+    /// `boss_pierce_pct`/`reactive_proc_cap_ms` already use, since
+    /// `tick_righteous_fire` doesn't take `&LiveTunables`). Read by
+    /// `apply_righteous_fire_self_damage`, which - unlike a normal
+    /// `apply_true_damage` true-damage tick - mitigates this by the
+    /// caster's own combined damage reduction and lets an active shield
+    /// absorb the remainder (spec-owner ruling: DR/shield investment IS
+    /// the "requires investment to survive" cost this skill was always
+    /// meant to demand). Evasion/block are deliberately excluded - you
+    /// cannot dodge or block your own fire.
+    rf_self_damage_pct: f64,
     /// Righteous Fire's own once-a-second clock - `u32::MAX` (never
     /// fires) without the skill invested, same "sentinel means inert"
     /// convention `next_divine_shield_at_ms`/etc already use.
@@ -1877,6 +1901,18 @@ pub(crate) struct CombatSimUnit {
     /// unpredictably with the caster's OWN other damage bonuses instead
     /// of always landing on the exact spec'd numbers. 0.0 for every
     /// non-Elementalist and for an Elementalist with no golems summoned.
+    ///
+    /// Only ever read inside `resolve_hit` (a normal attack roll) -
+    /// Righteous Fire's own damage (both the self-burn half, see
+    /// `apply_righteous_fire_self_damage`, and the enemy-damage half,
+    /// see `tick_righteous_fire`) goes through `apply_true_damage`
+    /// instead, which never reads this field at all. This is the
+    /// explicit, spec-owner-ruled design (2026-08-19, RF+golem hybrid
+    /// rework item 3): RF's own damage is exempt from the golem summon
+    /// penalty by construction, not by a special-case bypass - it was
+    /// never wired to read this field in the first place. See
+    /// `rf_damage_is_unaffected_by_golem_count_while_attacks_still_are`
+    /// for the regression test proving this stays true.
     golem_summon_dmg_penalty: f64,
     /// For a golem unit: Thunder Golem's own "dead but scheduled to
     /// reform" clock - `u32::MAX` (not scheduled) unless it just died.
@@ -1956,6 +1992,21 @@ pub(crate) struct CombatSimUnit {
     /// every real ally (see that pass's own doc). 0.0 for every
     /// non-Water-Golem unit or without Singing invested.
     watergolem_singing_pct: f64,
+    /// Elementalist rework item 6 (2026-08-19) - Water Golem's new base
+    /// effect (docs/elementalist_spec.md): party-wide regen worth this
+    /// fraction of THIS golem's own max hp, once per second. Copied
+    /// from the summoner's own "watergolem" node rank at spawn, same as
+    /// every other golem-type field here. 0.0 for every non-Water-Golem
+    /// unit or without the base effect invested (rank 0). See
+    /// `tick_watergolem_regen`'s own doc and the "primary golem"
+    /// selection in the golem-spawning pass for how non-stacking across
+    /// multiple Water Golems is enforced.
+    watergolem_regen_pct: f64,
+    /// This golem's own regen-tick clock - `u32::MAX` (never fires) for
+    /// every unit except the single "primary" Water Golem selected by
+    /// the golem-spawning pass, which the fight starts on the first
+    /// `WATER_GOLEM_REGEN_INTERVAL_MS` tick.
+    next_watergolem_regen_at_ms: u32,
     /// Live "gain more effect from shields/heals applied to you" bonus
     /// on THIS unit (Water Golem's Singing) - a party-wide grant set on
     /// every real ally at fight start if any Water Golem with Singing
@@ -3155,6 +3206,7 @@ impl Default for CombatSimUnit {
             scorchingaegis_shield_pct: 0.0,
             conflagration_dmg_pct: 0.0,
             righteousfire_pct: 0.0,
+            rf_self_damage_pct: 0.0,
             next_righteousfire_tick_at_ms: u32::MAX,
             relentlessflames_pct_per_stack: 0.0,
             relentlessflames_dmg_taken_pct: 0.0,
@@ -3192,6 +3244,8 @@ impl Default for CombatSimUnit {
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
+            watergolem_regen_pct: 0.0,
+            next_watergolem_regen_at_ms: u32::MAX,
             received_healing_bonus_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
@@ -5642,6 +5696,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             scorchingaegis_shield_pct: 0.0,
             conflagration_dmg_pct: 0.0,
             righteousfire_pct: 0.0,
+            rf_self_damage_pct: 0.0,
             next_righteousfire_tick_at_ms: u32::MAX,
             relentlessflames_pct_per_stack: 0.0,
             relentlessflames_dmg_taken_pct: 0.0,
@@ -5679,6 +5734,8 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
+            watergolem_regen_pct: 0.0,
+            next_watergolem_regen_at_ms: u32::MAX,
             received_healing_bonus_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
@@ -6101,6 +6158,14 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
             }
             golem.watergolem_shattering_extra_targets = c.passive_node_rank("shattering");
             golem.watergolem_singing_pct = c.passive_node_magnitude("singing");
+            // Elementalist rework item 6 (2026-08-19) - Water Golem's
+            // new base effect. `next_watergolem_regen_at_ms` stays at
+            // its default `u32::MAX` here (set by `..zeroed_combat_unit()`
+            // above) - only the "primary" golem among all summoned Water
+            // Golems (selected by the golem-spawning pass, see its own
+            // doc) actually gets a live clock, enforcing "highest rank
+            // applies once, non-stacking."
+            golem.watergolem_regen_pct = c.passive_node_magnitude("watergolem");
         }
     }
     golem
@@ -6290,6 +6355,84 @@ fn apply_true_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx:
     true
 }
 
+/// Righteous Fire's own self-burn tick (2026-08-19 rework - see
+/// `CombatSimUnit::rf_self_damage_pct`'s own doc for the full "why this
+/// isn't `apply_true_damage`" reasoning). Order of operations, per the
+/// spec-owner ruling: `raw_amount` (already `maxHp * rf_self_damage_pct`,
+/// computed by the caller) -> reduced by the caster's own COMBINED
+/// damage reduction (base `damage_reduction` + any active
+/// `temp_damage_reduction_bonus`, via `combine_reduction_sources` - the
+/// same multiplicative-stacking shape every other DR combination in
+/// this file already uses) -> the remainder absorbed by an active
+/// shield, same mechanic/event shape `apply_hit`'s own shield block
+/// uses (Release 2's `RollCategory::ShieldAbsorb`, wired up there) ->
+/// whatever's left lands on hp. Evasion/block are deliberately never
+/// consulted - you cannot dodge or block your own fire, only reduce or
+/// absorb it. Mirrors `apply_true_damage`'s own `Attack`/`Defeat` event
+/// shape (attacker == target == the caster, `source_kind: Direct`) so a
+/// log parser sees the identical structure - `unmitigated_damage` is
+/// `raw_amount` (before DR, matching that field's own "what damage
+/// would have been without mitigation" doc), `damage` is the real,
+/// post-DR-post-shield amount that actually reached hp.
+fn apply_righteous_fire_self_damage(units: &mut [CombatSimUnit], actor_idx: usize, raw_amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>) -> bool {
+    if raw_amount <= 0.0 || !units[actor_idx].alive || is_damage_immune(&units[actor_idx], at_ms) {
+        return false;
+    }
+    let mut dr_sources = vec![units[actor_idx].damage_reduction];
+    if units[actor_idx].temp_damage_reduction_bonus > 0.0 && at_ms <= units[actor_idx].temp_damage_reduction_bonus_expires_at_ms {
+        dr_sources.push(units[actor_idx].temp_damage_reduction_bonus);
+    }
+    let combined_dr = combine_reduction_sources(&dr_sources);
+    let mitigated = raw_amount * (1.0 - combined_dr);
+    let hit_id = next_hit_id();
+    let mut final_damage = mitigated.round().max(0.0) as i64;
+    if final_damage > 0 && units[actor_idx].shield_hp > 0.0 && at_ms <= units[actor_idx].shield_expires_at_ms {
+        let absorbed = units[actor_idx].shield_hp.min(final_damage as f64);
+        units[actor_idx].shield_hp -= absorbed;
+        final_damage -= absorbed.round() as i64;
+        if absorbed > 0.0 {
+            let actor_id = units[actor_idx].id.clone();
+            rolls.push(RollEvent {
+                event_id: next_hit_id(),
+                hit_id,
+                caused_by: None,
+                at_ms,
+                category: RollCategory::ShieldAbsorb,
+                source: std::borrow::Cow::Borrowed("Shield"),
+                actor: actor_id.clone(),
+                target: Some(actor_id),
+                probability: None,
+                succeeded: None,
+                magnitude: Some(absorbed),
+            });
+        }
+    }
+    if final_damage <= 0 {
+        return false;
+    }
+    let new_hp = (units[actor_idx].hp - final_damage).max(0);
+    units[actor_idx].hp = new_hp;
+    let actor_id = units[actor_idx].id.clone();
+    events.push(CombatEvent::Attack {
+        at_ms,
+        attacker: actor_id.clone(),
+        target: actor_id.clone(),
+        damage: final_damage.max(0) as u64,
+        unmitigated_damage: raw_amount.round().max(0.0) as u64,
+        target_hp_after: new_hp as u64,
+        is_crit: false,
+        evaded: false,
+        hit_id,
+        source_kind: AttackSourceKind::Direct,
+    });
+    if new_hp != 0 {
+        return false;
+    }
+    units[actor_idx].alive = false;
+    events.push(CombatEvent::Defeat { at_ms, unit: actor_id });
+    true
+}
+
 /// Righteous Fire's own periodic tick (docs/elementalist_spec.md) - once
 /// per second for the whole fight once invested. Self-burn always fires
 /// first (true damage, can kill the caster like any other damage
@@ -6321,7 +6464,8 @@ pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize,
     // `next_righteousfire_tick_at_ms`'s own gating), so this is
     // unconditional.
     events.push(CombatEvent::SkillCast { at_ms, unit: units[actor_idx].id.clone(), skill: "Righteous Fire".to_string() });
-    apply_true_damage(units, actor_idx, actor_idx, max_hp * pct, at_ms, events, rolls, rng);
+    let self_dmg_pct = units[actor_idx].rf_self_damage_pct;
+    apply_righteous_fire_self_damage(units, actor_idx, max_hp * self_dmg_pct, at_ms, events, rolls);
     if !units[actor_idx].alive {
         return;
     }
@@ -6804,6 +6948,66 @@ fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx:
         let pick_at = rng.gen_range(0..candidates.len());
         let target_idx = candidates.remove(pick_at);
         apply_true_damage(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng);
+    }
+}
+
+/// Elementalist rework item 6 (2026-08-19) - "non-stacking across
+/// multiple Water Golems, highest rank applies once." Among every
+/// summoned Water Golem with the base effect invested
+/// (`watergolem_regen_pct > 0.0`), the strongest (first match on a
+/// tie) is designated "primary" and gets its `next_watergolem_regen_at_ms`
+/// clock started (`WATER_GOLEM_REGEN_INTERVAL_MS` from fight start);
+/// every other Water Golem's own clock stays at its construction-time
+/// default (`u32::MAX`, never fires). Extracted as its own pure
+/// function (rather than left inline in the golem-spawning pass) so a
+/// test can assert the selection directly without a full
+/// `simulate_battle` run.
+fn select_primary_watergolem(golems: &mut [CombatSimUnit]) {
+    if let Some(idx) = golems
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| g.golem_type == Some(GolemType::Water) && g.watergolem_regen_pct > 0.0)
+        .max_by(|(_, a), (_, b)| a.watergolem_regen_pct.partial_cmp(&b.watergolem_regen_pct).unwrap())
+        .map(|(i, _)| i)
+    {
+        golems[idx].next_watergolem_regen_at_ms = WATER_GOLEM_REGEN_INTERVAL_MS;
+    }
+}
+
+/// Elementalist rework item 6 (2026-08-19) - Water Golem's new base
+/// effect (docs/elementalist_spec.md): once per second, heals every
+/// alive PARTY MEMBER (not the golem itself, not any other golem -
+/// golems are never valid heal targets, matching the standing golem
+/// heal-immunity rules) for `watergolem_regen_pct` of THIS golem's own
+/// max hp. Credited to the OWNING Elementalist as `apply_heal`'s
+/// `healer_idx`, not the golem itself, per the attribution rules - a
+/// golem healer would also be rejected by `apply_heal`'s own
+/// `golem_may_produce_heals` gate for any type other than Water's own
+/// Replenishing mechanic, which this deliberately doesn't reuse (a
+/// separate, real, party-wide heal, not a damage-to-healing
+/// conversion). Only ever scheduled on the ONE "primary" Water Golem
+/// selected at construction time (see that selection's own doc in the
+/// golem-spawning pass) - every other Water Golem's own clock stays at
+/// `u32::MAX` and never fires, so this can never double-apply.
+fn tick_watergolem_regen(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) {
+    if !units[golem_idx].alive {
+        return;
+    }
+    let pct = units[golem_idx].watergolem_regen_pct;
+    if pct <= 0.0 {
+        return;
+    }
+    let amount = units[golem_idx].max_hp as f64 * pct;
+    let Some(summoner_id) = units[golem_idx].golem_summoner_id.clone() else {
+        return;
+    };
+    let Some(owner_idx) = units.iter().position(|u| u.id == summoner_id) else {
+        return;
+    };
+    events.push(CombatEvent::SkillCast { at_ms, unit: units[golem_idx].id.clone(), skill: "Water Golem".to_string() });
+    let targets: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && !u.is_golem && u.alive).map(|(i, _)| i).collect();
+    for target_idx in targets {
+        apply_heal(units, owner_idx, target_idx, amount, at_ms, events, rng);
     }
 }
 
@@ -10059,6 +10263,22 @@ pub(crate) fn simulate_battle(
             // by this fix.
             let elemental_focus_per_level = elementalist_per_level_elemental_pct(c.passive_node_magnitude("elementalfocus"), c.level);
             let scorching_flames_per_level = elementalist_per_level_elemental_pct(c.passive_node_magnitude("scorchingflames"), c.level);
+            // Elementalist rework item 4 (2026-08-19) - Flame Golem's new
+            // base effect: ALL of the Elementalist's own increases to
+            // elemental damage (fire/cold/lightning - chaos/divine aren't
+            // "elemental") are multiplicatively scaled by this. Node
+            // magnitude already stores the multiplier itself (1.33/1.665/
+            // 2.0), not a "+X%" delta, so it's used directly - 1.0
+            // (no-op) when uninvested, since `passive_node_magnitude`
+            // returns 0.0 at rank 0 like every other node. Applied here,
+            // at the SAME point `fire_damage_pct`/etc. are computed below,
+            // is what makes Volcanic Ash's own golem inheritance
+            // (`golem.fire_damage_pct = summoner.fire_damage_pct * ...`,
+            // spawn_golem) automatically carry the multiplied value
+            // through with no second application - item 4's own "one
+            // application flowing through inheritance, no double-dip"
+            // requirement.
+            let flamegolem_mult = if c.passive_node_rank("flamegolem") > 0 { c.passive_node_magnitude("flamegolem") } else { 1.0 };
             CombatSimUnit {
                 id: id.clone(),
                 display_name: c.display_name.clone(),
@@ -10302,10 +10522,10 @@ pub(crate) fn simulate_battle(
                     c.sum_affix(Affix::FireDamage),
                     elemental_focus_per_level + scorching_flames_per_level,
                     c.passive_node_magnitude("incinerate"),
-                ),
-                cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), elemental_focus_per_level, c.passive_node_magnitude("polarflux")),
+                ) * flamegolem_mult,
+                cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), elemental_focus_per_level, c.passive_node_magnitude("polarflux")) * flamegolem_mult,
                 chaos_damage_pct: c.sum_affix(Affix::ChaosDamage),
-                lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), elemental_focus_per_level, c.passive_node_magnitude("overshock")),
+                lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), elemental_focus_per_level, c.passive_node_magnitude("overshock")) * flamegolem_mult,
                 divine_damage_pct: c.sum_affix(Affix::DivineDamage),
                 fire_dr_debuff: Vec::new(),
                 cold_evasion_debuff: Vec::new(),
@@ -10917,6 +11137,12 @@ pub(crate) fn simulate_battle(
                 conflagration_dmg_pct: c.passive_node_magnitude("pyroclasm"),
                 righteousfire_pct: c.passive_node_magnitude("righteousfire"),
                 next_righteousfire_tick_at_ms: if c.passive_node_rank("righteousfire") > 0 { RIGHTEOUS_FIRE_TICK_INTERVAL_MS } else { u32::MAX },
+                rf_self_damage_pct: match c.passive_node_rank("righteousfire") {
+                    1 => tunables.rf_self_damage_pct_rank1,
+                    2 => tunables.rf_self_damage_pct_rank2,
+                    3 => tunables.rf_self_damage_pct_rank3,
+                    _ => 0.0,
+                },
                 relentlessflames_pct_per_stack: c.passive_node_magnitude("relentlessflames"),
                 relentlessflames_dmg_taken_pct: 0.0,
                 cauterizingflames_pct: c.passive_node_magnitude("cauterizingflames"),
@@ -10953,6 +11179,8 @@ pub(crate) fn simulate_battle(
                 thundergolem_terrifying_pct: 0.0,
                 watergolem_shattering_extra_targets: 0,
                 watergolem_singing_pct: 0.0,
+                watergolem_regen_pct: 0.0,
+                next_watergolem_regen_at_ms: u32::MAX,
                 received_healing_bonus_pct: 0.0,
                 chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
                 chakraoflife_immune_until_ms: 0,
@@ -11090,6 +11318,13 @@ pub(crate) fn simulate_battle(
             }
         }
     }
+    // Elementalist rework item 6 (2026-08-19) - Water Golem's new base
+    // effect (party-wide regen). Unlike Singing just above (a static
+    // buff every ally can read live off their own field), this is real
+    // periodic healing with its own event, so it can't be resolved as a
+    // shared value - exactly ONE golem needs to actually run the clock.
+    // See `select_primary_watergolem`'s own doc.
+    select_primary_watergolem(&mut golems_to_add);
     units.extend(golems_to_add);
     // One CombatSimUnit per enemy - a real boss fight passes 1 (or,
     // stage 50+, 2 - see run_encounter) real bosses each paired with
@@ -11286,6 +11521,7 @@ pub(crate) fn simulate_battle(
             scorchingaegis_shield_pct: 0.0,
             conflagration_dmg_pct: 0.0,
             righteousfire_pct: 0.0,
+            rf_self_damage_pct: 0.0,
             next_righteousfire_tick_at_ms: u32::MAX,
             relentlessflames_pct_per_stack: 0.0,
             relentlessflames_dmg_taken_pct: 0.0,
@@ -11323,6 +11559,8 @@ pub(crate) fn simulate_battle(
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
+            watergolem_regen_pct: 0.0,
+            next_watergolem_regen_at_ms: u32::MAX,
             received_healing_bonus_pct: 0.0,
             chakraoflife_duration_ms: 0,
             chakraoflife_immune_until_ms: 0,
@@ -11781,6 +12019,7 @@ pub(crate) fn simulate_battle(
         CleansingFlamesTick(usize),
         GolemReform(usize),
         ThunderRedistributionTick(usize),
+        WaterGolemRegenTick(usize),
     }
 
     // Which player the real boss is currently focus-targeting (see the
@@ -11921,6 +12160,9 @@ pub(crate) fn simulate_battle(
                 if u.next_cleansingflames_at_ms < best.unwrap().0 {
                     best = Some((u.next_cleansingflames_at_ms, NextEvent::CleansingFlamesTick(i)));
                 }
+                if u.next_watergolem_regen_at_ms < best.unwrap().0 {
+                    best = Some((u.next_watergolem_regen_at_ms, NextEvent::WaterGolemRegenTick(i)));
+                }
             } else if u.next_ability_at_ms < best.unwrap().0 {
                 best = Some((u.next_ability_at_ms, NextEvent::BossAbility(i)));
             }
@@ -12047,6 +12289,11 @@ pub(crate) fn simulate_battle(
             NextEvent::CleansingFlamesTick(actor_idx) => {
                 tick_cleansing_flames(&mut units, actor_idx, at_ms, &mut events, &mut rng);
                 units[actor_idx].next_cleansingflames_at_ms += CLEANSING_FLAMES_TICK_INTERVAL_MS;
+                continue;
+            }
+            NextEvent::WaterGolemRegenTick(golem_idx) => {
+                tick_watergolem_regen(&mut units, golem_idx, at_ms, &mut events, &mut rng);
+                units[golem_idx].next_watergolem_regen_at_ms += WATER_GOLEM_REGEN_INTERVAL_MS;
                 continue;
             }
             NextEvent::GolemReform(golem_idx) => {
@@ -12415,6 +12662,7 @@ pub(crate) fn simulate_battle(
                                 scorchingaegis_shield_pct: 0.0,
                                 conflagration_dmg_pct: 0.0,
                                 righteousfire_pct: 0.0,
+                                rf_self_damage_pct: 0.0,
                                 next_righteousfire_tick_at_ms: u32::MAX,
                                 relentlessflames_pct_per_stack: 0.0,
                                 relentlessflames_dmg_taken_pct: 0.0,
@@ -12452,6 +12700,8 @@ pub(crate) fn simulate_battle(
                                 thundergolem_terrifying_pct: 0.0,
                                 watergolem_shattering_extra_targets: 0,
                                 watergolem_singing_pct: 0.0,
+                                watergolem_regen_pct: 0.0,
+                                next_watergolem_regen_at_ms: u32::MAX,
                                 received_healing_bonus_pct: 0.0,
                                 chakraoflife_duration_ms: 0,
                                 chakraoflife_immune_until_ms: 0,
@@ -14656,6 +14906,14 @@ mod elementalist_stage_3_tests {
             hp: 1000,
             max_hp: 1000,
             righteousfire_pct,
+            // RF-rework item 1 (2026-08-19) decoupled the self-damage
+            // percentage from `righteousfire_pct` into its own
+            // `rf_self_damage_pct` field/tunable. This helper mirrors
+            // the pre-decoupling defaults (10/20/30% == righteousfire_pct
+            // exactly) so every existing self-burn test in this module
+            // keeps asserting the same numbers without needing its own
+            // edit.
+            rf_self_damage_pct: righteousfire_pct,
             ..Default::default()
         }
     }
@@ -14828,6 +15086,121 @@ mod elementalist_stage_3_tests {
         let mut rng = StdRng::seed_from_u64(1);
         tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
         assert!(units[1].alive, "0.0 ashestoashes_pct must never execute anyone");
+    }
+
+    /// RF-rework item 1 (2026-08-19) - `rf_self_damage_pct` is now its
+    /// own independent tunable, decoupled from `righteousfire_pct` (the
+    /// offensive side). Proves the two can diverge: the self-burn tick
+    /// must track ONLY `rf_self_damage_pct`, and the enemy-damage tick
+    /// must track ONLY `righteousfire_pct`, never bleeding into each
+    /// other.
+    #[test]
+    fn rf_self_damage_pct_is_independent_of_the_offensive_righteousfire_pct() {
+        let mut atk = elementalist(0.10); // offensive side: 10% of max hp to enemies
+        atk.rf_self_damage_pct = 0.30; // self-burn side: 30%, deliberately different
+        let mut units = vec![atk, boss("only", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 700, "self-burn must use rf_self_damage_pct (30%), not righteousfire_pct (10%)");
+        assert_eq!(units[1].hp, 1_000_000 - 100, "enemy damage must still use righteousfire_pct (10%), unaffected by the self-damage tunable");
+    }
+
+    /// RF-rework item 2 (2026-08-19) - self-damage is now mitigated by
+    /// the character's combined damage-reduction sources (the same
+    /// `combine_reduction_sources` multiplicative pipeline `resolve_hit`
+    /// uses for defender-side DR), stacked multiplicatively across the
+    /// base `damage_reduction` stat and any active
+    /// `temp_damage_reduction_bonus`.
+    #[test]
+    fn self_burn_is_reduced_by_combined_damage_reduction() {
+        let mut atk = elementalist(0.10);
+        atk.damage_reduction = 0.5;
+        atk.temp_damage_reduction_bonus = 0.2;
+        atk.temp_damage_reduction_bonus_expires_at_ms = 10_000;
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        // combine_reduction_sources([0.5, 0.2]) = 1 - (1-0.5)*(1-0.2) = 0.6
+        // raw = 100, mitigated = 100 * (1 - 0.6) = 40
+        assert_eq!(units[0].hp, 960, "40 self-burn after 60% combined DR (multiplicative stacking, not additive)");
+    }
+
+    /// Spec-owner ruling: evasion and block do NOT mitigate self-damage
+    /// ("you cannot dodge or block your own fire") - only DR sources do.
+    /// Cranking both to their max should have zero effect on the tick.
+    #[test]
+    fn evasion_and_block_do_not_mitigate_self_burn() {
+        let mut atk = elementalist(0.10);
+        atk.evasion = 0.99;
+        atk.block_chance = 0.99;
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 900, "evasion/block must never reduce or avoid the self-burn tick");
+    }
+
+    /// Spec-owner ruling: after DR mitigation, any remaining self-damage
+    /// is absorbed by the caster's own active shield before touching HP
+    /// - the intended Shielding Flames/Aegis synergy. The absorbed
+    /// portion must emit the standard ShieldAbsorb roll event for
+    /// auditability.
+    #[test]
+    fn shields_absorb_the_post_mitigation_remainder_of_self_burn() {
+        let mut atk = elementalist(0.10);
+        atk.shield_hp = 60.0;
+        atk.shield_expires_at_ms = 10_000;
+        let mut units = vec![atk];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        // raw/mitigated = 100 (no DR), shield absorbs 60, remaining 40 to hp.
+        assert_eq!(units[0].hp, 960, "shield absorbs 60 of the 100 self-burn, 40 remainder hits hp");
+        assert_eq!(units[0].shield_hp, 0.0, "shield fully consumed");
+        let absorb = rolls.iter().find(|r| matches!(r.category, RollCategory::ShieldAbsorb) && r.actor == "elementalist");
+        assert!(absorb.is_some(), "shield-absorbed self-burn must emit a ShieldAbsorb roll event for audits");
+        assert_eq!(absorb.unwrap().magnitude, Some(60.0));
+    }
+
+    /// RF-rework item 3 (2026-08-19) - RF's own damage (both self-burn
+    /// and enemy-facing) is exempt from `golem_summon_dmg_penalty` by
+    /// construction: it goes through `apply_true_damage`/
+    /// `apply_righteous_fire_self_damage`, neither of which ever reads
+    /// that field (only `resolve_hit`, a normal attack roll, does). This
+    /// pins that behavior down: cranking the penalty to its max (99%,
+    /// as if 3 golems were out) must leave RF's own tick damage
+    /// completely untouched, while a normal attack from the SAME unit's
+    /// stats is still crushed down to 1% by the same penalty.
+    #[test]
+    fn rf_damage_is_unaffected_by_golem_count_while_attacks_still_are() {
+        let mut atk = elementalist(0.10);
+        atk.golem_summon_dmg_penalty = 0.99; // as if 3 golems were summoned
+        let mut units = vec![atk, boss("only", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 900, "self-burn tick must be full 100, unaffected by the golem-count penalty");
+        assert_eq!(units[1].hp, 1_000_000 - 100, "enemy-facing RF damage must be full 100, unaffected by the golem-count penalty");
+
+        // Contrast: a normal attack roll from a unit carrying the same
+        // penalty IS crushed to ~1% of normal, via resolve_hit (the only
+        // place this field is ever read).
+        let penalized_attacker = CombatSimUnit { golem_summon_dmg_penalty: 0.99, ..elementalist(0.0) };
+        let unpenalized_attacker = elementalist(0.0);
+        let def = boss("target", 1_000_000);
+        let mut rng_a = StdRng::seed_from_u64(1);
+        let penalized = resolve_hit(1000.0, &penalized_attacker, &def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut rng_b = StdRng::seed_from_u64(1);
+        let unpenalized = resolve_hit(1000.0, &unpenalized_attacker, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = penalized.unmitigated_damage as f64 / unpenalized.unmitigated_damage as f64;
+        assert!((ratio - 0.01).abs() < 1e-6, "unlike RF's own damage, a normal attack roll IS still crushed to 1% by the same 99% golem penalty, got ratio {ratio}");
     }
 }
 
@@ -15259,6 +15632,160 @@ mod elementalist_stage_5_tests {
             (ratio - 0.33).abs() < 0.02,
             "golem per-hit must average ~33% of the owner's own per-hit even with a real crit build invested (0.6 chance, 3.0 multiplier) - got ratio {ratio} over {trials} trials"
         );
+    }
+
+    /// Elementalist rework item 4 (2026-08-19) - Flame Golem's new base
+    /// effect multiplies ALL of the owner's own elemental-damage
+    /// increases (fire/cold/lightning). Replicates the exact real
+    /// construction-site formula (`elementalist_elemental_damage_pct(...)
+    /// * flamegolem_mult`) at each rank, matching the codebase's own
+    /// established convention of testing this arithmetic pipeline
+    /// directly rather than through a full `simulate_battle` run (see
+    /// `elemental_focus_per_level_applies_in_full_to_all_three_elements_independently`).
+    #[test]
+    fn flamegolem_multiplies_the_owners_elemental_damage_increases_at_each_rank() {
+        let flamegolem_node = Archetype::Elementalist.passive_nodes().iter().find(|n| n.key == "flamegolem").expect("flamegolem node must exist");
+        let gear_pct = 0.20; // e.g. 20% fire damage on gear
+        for (rank, expected_mult) in [(1, 1.33), (2, 1.665), (3, 2.0)] {
+            let mult = flamegolem_node.magnitude_at_rank(rank);
+            assert!((mult - expected_mult).abs() < 1e-9, "rank {rank} should be {expected_mult}x, got {mult}x");
+            let base = elementalist_elemental_damage_pct(gear_pct, 0.0, 0.0);
+            let multiplied = base * mult;
+            assert!((multiplied - gear_pct * expected_mult).abs() < 1e-9);
+        }
+        // Uninvested (rank 0) must be a true no-op - the real construction
+        // site falls back to 1.0 rather than reading the node's own 0.0
+        // magnitude directly (see that site's own comment), since
+        // `magnitude_at_rank(0)` is always 0.0 and would zero out the
+        // owner's elemental increases entirely without the fallback.
+        assert_eq!(flamegolem_node.magnitude_at_rank(0), 0.0);
+        let uninvested_mult = 1.0; // the real site's own `if rank > 0 { magnitude } else { 1.0 }` fallback
+        assert_eq!(elementalist_elemental_damage_pct(gear_pct, 0.0, 0.0) * uninvested_mult, gear_pct);
+    }
+
+    /// Elementalist rework item 4/5 (2026-08-19) - "one application
+    /// flowing through inheritance, no double-dipping." The Flame
+    /// Golem multiplier is baked into the OWNER's `fire_damage_pct` at
+    /// player-construction time (see that site's own comment) - Volcanic
+    /// Ash's existing inheritance line (`spawn_golem`) just reads
+    /// whatever `summoner.fire_damage_pct` already is, with no second
+    /// multiplication of its own. This proves that: an owner whose
+    /// fire_damage_pct already reflects a 2.0x Flame Golem multiplier
+    /// (0.20 gear -> 0.40 post-multiplier, simulating what the real
+    /// construction site would produce at flamegolem rank 3) must
+    /// inherit through Volcanic Ash at EXACTLY 0.40 * volcanicash_pct,
+    /// not 0.40 * 2.0 * volcanicash_pct - if spawn_golem ever grew its
+    /// own second multiplication, this test catches the double-dip.
+    #[test]
+    fn volcanic_ash_inherits_the_already_flamegolem_multiplied_value_exactly_once() {
+        let owner_post_flamegolem_mult = CombatSimUnit { fire_damage_pct: 0.40, ..elementalist("caster", 300, 1000) };
+        let mut c = elementalist_character();
+        c.passive_allocations.insert("volcanicash".to_string(), 3); // 100% inheritance
+        let golem = spawn_golem(&owner_post_flamegolem_mult, "caster", 0, GolemType::Flame, &c);
+        assert!((golem.fire_damage_pct - 0.40).abs() < 1e-9, "must inherit the already-multiplied 0.40 exactly once (100% Volcanic Ash), not double-apply the Flame Golem multiplier again");
+    }
+
+    /// Elementalist rework item 5 (2026-08-19) - the full-inheritance
+    /// doctrine, consolidated: every MULTIPLIER (as opposed to a base
+    /// stat like max_hp/atk/evasion, which are deliberately scaled to
+    /// GOLEM_STAT_SCALE) a golem inherits from its summoner must carry
+    /// through at FULL value, exactly like gear. Individually covered
+    /// by Release 1/1.2's own regression tests already; this is the
+    /// single consolidated assertion the doctrine itself asks for, so a
+    /// future new multiplier field added to `spawn_golem` without full
+    /// inheritance has one obvious test to extend.
+    #[test]
+    fn golem_inherits_every_owner_multiplier_at_full_value_never_scaled_to_33pct() {
+        let owner = CombatSimUnit {
+            increased_damage: 1.23,
+            conflagration_dmg_pct: 0.45,
+            crit_chance: 0.67,
+            crit_multiplier: 2.89,
+            ..elementalist("caster", 300, 1000)
+        };
+        let golem = spawn_golem(&owner, "caster", 0, GolemType::Basic, &elementalist_character());
+        assert_eq!(golem.increased_damage, owner.increased_damage, "increased_damage is a multiplier, not a base stat - full inheritance");
+        assert_eq!(golem.conflagration_dmg_pct, owner.conflagration_dmg_pct, "conflagration_dmg_pct is a multiplier, not a base stat - full inheritance");
+        assert_eq!(golem.crit_chance, owner.crit_chance, "crit_chance is a multiplier, not a base stat - full inheritance");
+        assert_eq!(golem.crit_multiplier, owner.crit_multiplier, "crit_multiplier is a multiplier, not a base stat - full inheritance");
+    }
+
+    /// Elementalist rework item 6 (2026-08-19) - Water Golem's new base
+    /// effect reads its per-rank magnitude straight off the "watergolem"
+    /// node, same as every other golem-type field `spawn_golem` copies
+    /// at construction.
+    #[test]
+    fn spawn_golem_copies_watergolem_regen_pct_from_the_node_rank() {
+        for (rank, expected_pct) in [(1, 0.03), (2, 0.06), (3, 0.09)] {
+            let mut c = elementalist_character();
+            c.passive_allocations.insert("watergolem".to_string(), rank);
+            let golem = spawn_golem(&elementalist("caster", 300, 1000), "caster", 0, GolemType::Water, &c);
+            assert!((golem.watergolem_regen_pct - expected_pct).abs() < 1e-9, "rank {rank} should be {expected_pct}, got {}", golem.watergolem_regen_pct);
+        }
+    }
+
+    /// Elementalist rework item 6's own required regression coverage:
+    /// the regen tick heals every alive PARTY MEMBER (not the golem
+    /// itself, not a boss) for `watergolem_regen_pct` of the golem's own
+    /// max hp, credited to the OWNING Elementalist (not the golem) as
+    /// the heal's own `healer`.
+    #[test]
+    fn tick_watergolem_regen_heals_all_party_members_credited_to_owner_not_golem() {
+        let mut owner = elementalist("caster", 300, 1000);
+        owner.hp = 500;
+        let mut ally = elementalist("ally", 300, 1000);
+        ally.hp = 500;
+        let mut golem = CombatSimUnit { is_golem: true, golem_type: Some(GolemType::Water), golem_summoner_id: Some("caster".to_string()), watergolem_regen_pct: 0.03, ..elementalist("golem", 0, 1000) };
+        golem.hp = 1000;
+        let mut enemy = boss();
+        enemy.hp = 1000;
+        enemy.max_hp = 1000;
+        let mut units = vec![owner, ally, golem, enemy];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_watergolem_regen(&mut units, 2, 1_000, &mut events, &mut rng);
+
+        assert_eq!(units[0].hp, 530, "owner healed for 3% of the golem's 1000 max hp = 30");
+        assert_eq!(units[1].hp, 530, "ally healed identically - party-wide, not owner-only");
+        assert_eq!(units[2].hp, 1000, "the golem itself must never be healed - golems are never valid heal targets");
+        assert_eq!(units[3].hp, 1000, "a boss must never be healed");
+
+        let heals: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Heal { healer, target, amount, .. } => Some((healer.clone(), target.clone(), *amount)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(heals.len(), 2, "exactly 2 Heal events - owner and ally, no more");
+        assert!(heals.iter().all(|(healer, _, amount)| healer == "caster" && *amount == 30), "every heal must be credited to the OWNER (\"caster\"), never the golem itself");
+        let casts = events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Water Golem")).count();
+        assert_eq!(casts, 1, "exactly one distinct Water Golem marker per tick, same observability convention as Righteous Fire/Healing Flames");
+    }
+
+    #[test]
+    fn tick_watergolem_regen_does_nothing_without_the_effect_invested() {
+        let mut golem = CombatSimUnit { is_golem: true, golem_type: Some(GolemType::Water), golem_summoner_id: Some("caster".to_string()), watergolem_regen_pct: 0.0, ..elementalist("golem", 0, 1000) };
+        golem.hp = 1000;
+        let mut units = vec![elementalist("caster", 300, 1000), golem];
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_watergolem_regen(&mut units, 1, 1_000, &mut events, &mut rng);
+        assert!(events.is_empty(), "uninvested (0.0 pct) must be a true no-op, no events at all");
+    }
+
+    /// `select_primary_watergolem`'s own required regression coverage -
+    /// "non-stacking across multiple Water Golems, highest rank applies
+    /// once": only the strongest Water Golem gets a live clock, so only
+    /// IT can ever produce a regen tick.
+    #[test]
+    fn select_primary_watergolem_starts_the_clock_on_only_the_strongest() {
+        let weak = CombatSimUnit { is_golem: true, golem_type: Some(GolemType::Water), watergolem_regen_pct: 0.03, next_watergolem_regen_at_ms: u32::MAX, ..elementalist("weak_golem", 0, 1000) };
+        let strong = CombatSimUnit { is_golem: true, golem_type: Some(GolemType::Water), watergolem_regen_pct: 0.09, next_watergolem_regen_at_ms: u32::MAX, ..elementalist("strong_golem", 0, 1000) };
+        let mut golems = vec![weak, strong];
+        select_primary_watergolem(&mut golems);
+        assert_eq!(golems[0].next_watergolem_regen_at_ms, u32::MAX, "the weaker golem must never get its own clock started");
+        assert_eq!(golems[1].next_watergolem_regen_at_ms, WATER_GOLEM_REGEN_INTERVAL_MS, "the strongest golem starts the party's one shared clock");
     }
 
     #[test]
