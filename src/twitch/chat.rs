@@ -57,6 +57,15 @@ impl ChatClient {
             tracing::warn!("Chat message truncated from {len} to {TWITCH_MAX_MESSAGE_LEN} chars: {truncated}");
             full = format!("{truncated}…");
         }
+        // Observability request (2026-08-19, following an audit that
+        // couldn't verify any real announcement's actual chat text since
+        // nothing logged it) - log every bot-originated message, full
+        // text, regardless of outcome. This is the single choke point
+        // every chat message (commands, redemptions, and every game
+        // announcement relayed off the SSE stream) already goes through,
+        // so one log line here covers all of them without touching any
+        // caller.
+        tracing::info!(chars = full.chars().count(), "chat send: {full}");
         if let Err(err) = self.inner.say(self.channel.clone(), full).await {
             tracing::error!("Failed to send chat message: {err}");
         }

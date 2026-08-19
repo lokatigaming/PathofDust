@@ -393,7 +393,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 494,
-      "targetHpAfter": 5025
+      "targetHpAfter": 5025,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -568,7 +569,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 1182,
-      "targetHpAfter": 6207
+      "targetHpAfter": 6207,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -821,7 +823,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 990,
-      "targetHpAfter": 7197
+      "targetHpAfter": 7197,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1152,7 +1155,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 7694
+      "targetHpAfter": 7694,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -1591,7 +1595,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 6095
+      "targetHpAfter": 6095,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2078,7 +2083,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 6592
+      "targetHpAfter": 6592,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -2643,7 +2649,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 7089
+      "targetHpAfter": 7089,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -3286,7 +3293,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 7586
+      "targetHpAfter": 7586,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -3909,7 +3917,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 4365,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -4056,7 +4065,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -4216,7 +4226,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4354,7 +4365,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4492,7 +4504,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4630,7 +4643,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4768,7 +4782,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -4906,7 +4921,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -5079,7 +5095,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5217,7 +5234,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5355,7 +5373,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5493,7 +5512,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5631,7 +5651,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -5769,7 +5790,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -5942,7 +5964,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -6093,7 +6116,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -6244,7 +6268,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -6382,7 +6407,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -6520,7 +6546,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 0,
-      "targetHpAfter": 8375
+      "targetHpAfter": 8375,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -6699,7 +6726,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6017
+      "targetHpAfter": 6017,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -6729,7 +6757,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 6514
+      "targetHpAfter": 6514,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -6880,7 +6909,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6541
+      "targetHpAfter": 6541,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7031,7 +7061,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6568
+      "targetHpAfter": 6568,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7182,7 +7213,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6595
+      "targetHpAfter": 6595,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7333,7 +7365,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6622
+      "targetHpAfter": 6622,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7484,7 +7517,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6649
+      "targetHpAfter": 6649,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7635,7 +7669,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 6676
+      "targetHpAfter": 6676,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
@@ -7665,7 +7700,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 497,
-      "targetHpAfter": 7173
+      "targetHpAfter": 7173,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7829,7 +7865,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 7200
+      "targetHpAfter": 7200,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -7993,7 +8030,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 7227
+      "targetHpAfter": 7227,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -8157,7 +8195,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 7254
+      "targetHpAfter": 7254,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -8321,7 +8360,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 27,
-      "targetHpAfter": 7281
+      "targetHpAfter": 7281,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -8513,7 +8553,8 @@
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
       "amount": 415,
-      "targetHpAfter": 7696
+      "targetHpAfter": 7696,
+      "isRevive": false
     },
     {
       "kind": "attack",

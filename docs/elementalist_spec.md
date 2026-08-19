@@ -264,9 +264,26 @@ fix too (via gear rolls alone, independent of Elemental Focus).
 
 ### Base passive 3: Golem Master
 Grants the ability to summon 1/2/3 golems. Golems have 33% of the
-Elementalist's stats. The Elementalist deals 33% less damage per
-summoned golem, additive — at 3 golems the Elementalist deals 1% of
-their normal damage. Golems attack with a basic unified hit as if they
+Elementalist's FULLY-BUFFED EFFECTIVE stats — the Elementalist's real,
+post-buff numbers at the moment of summon (level, all tree passives
+including per-level Elemental Focus/Scorching Flames, and gear), "as if
+they were a player," not a partial or base-only snapshot. (2026-08-19
+bugfix: the original implementation copied base max hp/atk/crit/evasion/
+DR/block at 33% correctly, but left increased_damage and
+conflagration_dmg_pct at 0 entirely — a real build's own gear/tree
+damage multipliers never reached the golem at all. Fixed by inheriting
+those two at FULL value, not scaled to 33% like the base stats — the
+arithmetic only lands at the intended ~33% per-hit-damage RATIO if a
+multiplicative term passes through whole: `golem_dmg = (atk × 0.33) ×
+(1 + full_increased_damage) = 0.33 × owner_dmg`, exactly, regardless of
+how large that multiplier gets. Scaling the multiplier down to 33% too
+compounds against the already-scaled base stat instead of canceling out,
+converging toward an ~11% ratio at a large dominant multiplier — this
+is what the live audit's own "~3% instead of 33%, an 11x gap" finding
+measured. See `spawn_golem`'s own doc in combat.rs.) The Elementalist
+deals 33% less damage per summoned golem, additive — at 3 golems the
+Elementalist deals 1% of their normal damage. Golems attack with a basic
+unified hit as if they
 were a player with 33% of the Elementalist's stats. Golems take no
 damage unless a golem type specifies otherwise. There are four golem
 types — Basic, Thunder, Flame, Water — assigned per slot via the
@@ -338,3 +355,61 @@ Do not deploy. Branch commits and pushes to `feature/elementalist`
 only — no merge to master, no touching production tasks/processes.
 Merging and deploying happens only after explicit owner go-ahead, after
 review of the passives-page tree/golem-picker UI specifically.
+
+(The above "do not deploy" line is the original Stage 1-6 branch-only
+instruction, kept as written for history — every stage has since been
+merged and deployed; see `ELEMENTALIST_PROGRESS.md` for the actual
+deploy record and every post-deploy bugfix release since.)
+
+---
+
+## Balance projection: combined (self + golem) output vs. the party
+(2026-08-19, written for the golem-stat-inheritance fix above — see
+that entry for the specific bug this projection accounts for)
+
+**Expected band: an Elementalist's TOTAL output (their own attacks +
+every summoned golem's) should land close to 100% of what they'd deal
+running solo with no golems at the same level/build — not a clear top
+performer on the party's damage meters purely from Golem Master, and
+not a clear underperformer either.** This falls out of the design
+being complementary by construction, now that both halves are correct:
+
+- Golem Master's own penalty: the Elementalist deals `1 - 0.33 * golem_count`
+  of their normal damage (33% less per golem, additive) — 67% at 1
+  golem, 34% at 2, 1% at 3.
+- Each golem's own per-hit output (post-fix): ~33% of what the
+  Elementalist would deal per hit, unreduced — see `spawn_golem`'s own
+  doc in combat.rs for why this requires inheriting increased_damage/
+  conflagration_dmg_pct at FULL value, not scaled down too.
+- Summed: 1 golem → 67% + 33% ≈ 100%; 2 golems → 34% + 66% ≈ 100%; 3
+  golems → 1% + 99% ≈ 100%. The two halves are designed to cancel out
+  to roughly the SAME total regardless of golem count — Golem Master
+  trades some of the Elementalist's own damage for build diversity/
+  Thunder Golem's tanking utility, it doesn't inflate or deflate total
+  party contribution.
+
+**Expect real numbers to land a few points BELOW 100%, not above**, for
+a build with meaningful crit investment specifically: golem
+`crit_chance`/`crit_multiplier` are still scaled to 33% each (unchanged
+by this fix, not part of the ruling that prompted it) - at that
+combined scale a golem's own crits contribute little to nothing extra
+over a non-crit hit, unlike the owner's real crit investment, so a
+crit-heavy Elementalist's combined total will trend a bit under the
+clean ~100% figure above. This is a real, currently-unaddressed
+follow-up if it turns out to matter in practice, not something this
+fix attempts to solve.
+
+**Thunder Golem's absorbed damage is separate, additional value on
+top of this projection** - it's tanking contribution, credited to the
+owner's own damage_taken stat per the golem-attribution work, and has
+no bearing on the damage-dealt total above. Expect an Elementalist
+running Thunder Golem to rank disproportionately high on Top Tanks
+specifically (compared to their Top DPS standing) - that's the
+mechanic working as intended, not a balance concern.
+
+**What this projection does NOT cover**: healing output (Water Golem's
+Replenishing, separately rolled up per the golem-attribution work,
+follows its own `heal_power` economy independent of this damage
+projection) and the still-open Thunder-redistribution change queued
+behind this release, whose own tank-credit formula depends on this
+fix's new absorption magnitudes and is out of scope here.

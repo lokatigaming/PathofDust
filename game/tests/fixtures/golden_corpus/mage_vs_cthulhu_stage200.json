@@ -163,7 +163,8 @@
       "healer": "mage_vs_cthulhu_stage200",
       "target": "mage_vs_cthulhu_stage200",
       "amount": 401,
-      "targetHpAfter": 803
+      "targetHpAfter": 803,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -294,7 +295,8 @@
       "healer": "mage_vs_cthulhu_stage200",
       "target": "mage_vs_cthulhu_stage200",
       "amount": 554,
-      "targetHpAfter": 803
+      "targetHpAfter": 803,
+      "isRevive": false
     },
     {
       "kind": "attack",
@@ -478,7 +480,8 @@
       "healer": "mage_vs_cthulhu_stage200",
       "target": "mage_vs_cthulhu_stage200",
       "amount": 524,
-      "targetHpAfter": 643
+      "targetHpAfter": 643,
+      "isRevive": false
     },
     {
       "kind": "buffSnapshot",
