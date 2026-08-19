@@ -297,6 +297,14 @@ pub(crate) fn format_unique_shard_win(event: &super::UniqueShardEvent) -> String
     format!("💎 {} just found a rare Unique Shard!", event.display_name)
 }
 
+/// Divine Dust fight-drop announcement (2026-08-19,
+/// docs/divine_dust_spec.md) - fight drops only, same "rare event" shape
+/// as `format_unique_shard_win` above; the craft recipe's own output is
+/// deliberately silent (routine, not an event).
+pub(crate) fn format_divine_dust_drop(display_name: &str) -> String {
+    format!("✨ {display_name} found a speck of Divine Dust!")
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;

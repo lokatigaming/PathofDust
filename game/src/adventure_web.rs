@@ -341,6 +341,10 @@ struct IndexParams {
     disenchanted: Option<String>,
     dust: Option<u32>,
     dust_max: Option<u32>,
+    /// Set alongside `disenchanted` when the item was Sacred and the
+    /// Divine Dust roll hit - see `DisenchantOutcome::divine_dust`.
+    /// `None`/0 for every ordinary disenchant.
+    divine_dust: Option<u64>,
 }
 
 async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
@@ -450,6 +454,10 @@ fn render_disenchant_popup(params: &IndexParams) -> String {
     let dust = params.dust.unwrap_or(0);
     let dust_max = params.dust_max.unwrap_or(0).max(1);
     let percent = ((dust as f64 / dust_max as f64) * 100.0).round() as u32;
+    // Only shown when the disenchanted item was Sacred AND the Divine
+    // Dust roll actually hit - see `DisenchantOutcome::divine_dust`'s doc.
+    let divine_dust = params.divine_dust.unwrap_or(0);
+    let divine_dust_line = if divine_dust > 0 { format!("<p class=\"modal-tier\">✨ Also yielded {divine_dust} Divine Dust!</p>") } else { String::new() };
     format!(
         "<div class=\"modal-backdrop\" id=\"disenchant-modal\">\
           <div class=\"modal\">\
@@ -457,6 +465,7 @@ fn render_disenchant_popup(params: &IndexParams) -> String {
             <h2>Disenchanted!</h2>\
             <p>Your <strong>{item}</strong> broke down into <strong>{dust} Dust</strong></p>\
             <p class=\"modal-tier\">{percent}% of the {dust_max} possible</p>\
+            {divine_dust_line}\
             <button class=\"btn\" onclick=\"document.getElementById('disenchant-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
           </div>\
         </div>"
@@ -698,10 +707,11 @@ async fn do_disenchant(State(state): State<AppState>, headers: HeaderMap, Form(f
             // Same POST-redirect-GET query-string-carry-through as
             // render_reforge_popup/render_craft_popup.
             let url = format!(
-                "/inventory?disenchanted=1&item={}&dust={}&dust_max={}",
+                "/inventory?disenchanted=1&item={}&dust={}&dust_max={}&divine_dust={}",
                 urlencoding::encode(&outcome.item_name),
                 outcome.dust,
                 outcome.dust_max,
+                outcome.divine_dust,
             );
             return Redirect::to(&url);
         }
@@ -2319,6 +2329,16 @@ struct TunablesForm {
     thunder_redistribution_pct: f64,
     /// See `LiveTunables::thunder_redistribution_window_secs`'s doc.
     thunder_redistribution_window_secs: f64,
+    /// See `LiveTunables::divine_dust_drop_chance`'s doc.
+    divine_dust_drop_chance: f64,
+    /// See `LiveTunables::divine_dust_disenchant_chance`'s doc.
+    divine_dust_disenchant_chance: f64,
+    /// See `LiveTunables::divine_dust_craft_dust_cost`'s doc.
+    divine_dust_craft_dust_cost: u64,
+    /// See `LiveTunables::divine_dust_craft_sand_cost`'s doc.
+    divine_dust_craft_sand_cost: u64,
+    /// See `LiveTunables::divine_dust_craft_output`'s doc.
+    divine_dust_craft_output: u64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -2365,6 +2385,11 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 fight_summary_batch_size: form.fight_summary_batch_size.max(1),
                 thunder_redistribution_pct: form.thunder_redistribution_pct.clamp(0.0, 1.0),
                 thunder_redistribution_window_secs: form.thunder_redistribution_window_secs.max(0.0),
+                divine_dust_drop_chance: form.divine_dust_drop_chance.clamp(0.0, 1.0),
+                divine_dust_disenchant_chance: form.divine_dust_disenchant_chance.clamp(0.0, 1.0),
+                divine_dust_craft_dust_cost: form.divine_dust_craft_dust_cost,
+                divine_dust_craft_sand_cost: form.divine_dust_craft_sand_cost,
+                divine_dust_craft_output: form.divine_dust_craft_output.max(1),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3062,6 +3087,32 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
               <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
             </div>\
+            <h2>Divine Dust</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_drop_chance\">Divine Dust Fight-Drop Chance</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_drop_chance\" name=\"divine_dust_drop_chance\" value=\"{divine_dust_drop_chance}\">\
+              <p class=\"tunable-hint\">0 to 1 — chance per fighting character, per win (boss or basic, same eligibility as sand), of gaining exactly 1 Divine Dust.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_disenchant_chance\">Divine Dust Disenchant Chance</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_disenchant_chance\" name=\"divine_dust_disenchant_chance\" value=\"{divine_dust_disenchant_chance}\">\
+              <p class=\"tunable-hint\">0 to 1 — chance per Sacred item manually disenchanted of gaining 1 Divine Dust. Non-Sacred disenchants never grant any.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_dust_cost\">Divine Dust Recipe: Dust Cost</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_dust_cost\" name=\"divine_dust_craft_dust_cost\" value=\"{divine_dust_craft_dust_cost}\">\
+              <p class=\"tunable-hint\">Dust cost of the /craft recipe (deliberately cheap relative to veteran holdings — sand is the intended pacing constraint).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_sand_cost\">Divine Dust Recipe: Sand Cost</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_sand_cost\" name=\"divine_dust_craft_sand_cost\" value=\"{divine_dust_craft_sand_cost}\">\
+              <p class=\"tunable-hint\">Sand cost of the same recipe.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_output\">Divine Dust Recipe: Output</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"divine_dust_craft_output\" name=\"divine_dust_craft_output\" value=\"{divine_dust_craft_output}\">\
+              <p class=\"tunable-hint\">Divine Dust granted per craft, before the x1/x10/x50 batch multiplier.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -3089,6 +3140,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         fight_summary_batch_size = t.fight_summary_batch_size,
         thunder_redistribution_pct = t.thunder_redistribution_pct,
         thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
+        divine_dust_drop_chance = t.divine_dust_drop_chance,
+        divine_dust_disenchant_chance = t.divine_dust_disenchant_chance,
+        divine_dust_craft_dust_cost = t.divine_dust_craft_dust_cost,
+        divine_dust_craft_sand_cost = t.divine_dust_craft_sand_cost,
+        divine_dust_craft_output = t.divine_dust_craft_output,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
     )
 }

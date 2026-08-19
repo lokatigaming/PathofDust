@@ -122,6 +122,35 @@ pub struct LiveTunables {
     /// Same mechanic - total time (seconds) the 2-tick redistribution DoT
     /// is spread across (tick 1 at half this, tick 2 at the full amount).
     pub thunder_redistribution_window_secs: f64,
+    /// Divine Dust (2026-08-19, docs/divine_dust_spec.md) - chance per
+    /// fighting character, per WIN (boss or basic, same eligibility as
+    /// `sand`'s own unconditional win grant - see `run_encounter`/
+    /// `run_basic_encounter`), of receiving exactly 1 Divine Dust. Same
+    /// shared-value-at-both-encounter-kinds shape as `wings_drop_chance`/
+    /// `celestial_shard_drop_chance`. Default (0.1) is 1/10th of sand's
+    /// own fight-grant rate - sand's grant is UNCONDITIONAL (an implicit
+    /// rate of 1.0), so 1/10th of that is 0.1.
+    pub divine_dust_drop_chance: f64,
+    /// Same mechanic - chance per SACRED item manually disenchanted (see
+    /// `Character::disenchant_from_inventory`/`disenchant_all_from_inventory`;
+    /// never reachable via the auto-disenchant path, since a Sacred item
+    /// always meets every `AutoDisenchantTier` floor) of receiving 1
+    /// Divine Dust. Default (0.1) is 1/10th of `roll_disenchant_sand`'s
+    /// own chance for a Sacred item specifically - that chance is
+    /// `quality_percent() / 100`, and a Sacred item is always `perfect`
+    /// (quality 100%), so sand's own rate here is also an implicit 1.0.
+    pub divine_dust_disenchant_chance: f64,
+    /// Divine Dust craft recipe (docs/divine_dust_spec.md) - dust cost of
+    /// crafting 1 Divine Dust on `/craft` (paired with
+    /// `divine_dust_craft_sand_cost`, x1/x10/x50 batchable). Deliberately
+    /// cheap relative to veteran dust holdings - `divine_dust_craft_sand_cost`
+    /// is the intended pacing constraint, not this.
+    pub divine_dust_craft_dust_cost: u64,
+    /// Same recipe - sand cost.
+    pub divine_dust_craft_sand_cost: u64,
+    /// Same recipe - Divine Dust granted per craft (before the x1/x10/x50
+    /// multiplier, which just repeats the whole recipe that many times).
+    pub divine_dust_craft_output: u64,
 }
 
 impl Default for LiveTunables {
@@ -147,6 +176,11 @@ impl Default for LiveTunables {
             fight_summary_batch_size: 10,
             thunder_redistribution_pct: 0.50,
             thunder_redistribution_window_secs: 2.0,
+            divine_dust_drop_chance: 0.1,
+            divine_dust_disenchant_chance: 0.1,
+            divine_dust_craft_dust_cost: 1000,
+            divine_dust_craft_sand_cost: 10,
+            divine_dust_craft_output: 1,
         }
     }
 }

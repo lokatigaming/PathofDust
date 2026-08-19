@@ -1977,7 +1977,7 @@ impl Character {
     /// `Item::disenchant_protected`) - a server-side backstop matching the
     /// dashboard's own hidden/disabled button for a protected item, in
     /// case of a stale page/direct POST.
-    pub fn disenchant_from_inventory(&mut self, item_id: &str, rng: &mut impl Rng, sand_mult: f64) -> Option<DisenchantOutcome> {
+    pub fn disenchant_from_inventory(&mut self, item_id: &str, rng: &mut impl Rng, sand_mult: f64, divine_dust_disenchant_chance: f64) -> Option<DisenchantOutcome> {
         let pos = self.inventory.iter().position(|i| i.id == item_id)?;
         if self.inventory[pos].disenchant_protected {
             return None;
@@ -1987,7 +1987,13 @@ impl Character {
         let dust = rng.gen_range(1..=6) * multiplier;
         self.dust += dust as u64;
         self.sand += roll_disenchant_sand(item.quality_percent(), rng, sand_mult);
-        Some(DisenchantOutcome { item_name: item.name.clone(), dust, dust_max: 6 * multiplier })
+        // Divine Dust (2026-08-19) - SACRED items only, see
+        // `roll_divine_dust_disenchant`'s doc. Never announced (only fight
+        // drops are - see `AdventureManager::announce_divine_dust_drop`'s
+        // doc), so this is a plain currency grant, same as dust/sand above.
+        let divine_dust = roll_divine_dust_disenchant(item.sacred_affix.is_some(), rng, divine_dust_disenchant_chance);
+        self.divine_dust += divine_dust;
+        Some(DisenchantOutcome { item_name: item.name.clone(), dust, dust_max: 6 * multiplier, divine_dust })
     }
 
     /// Web dashboard: disenchants EVERY bag item at once, except anything
@@ -2002,21 +2008,24 @@ impl Character {
     /// has `disenchant_protected` for that. Returns how many items were
     /// actually disenchanted and the total dust granted (both 0 if
     /// nothing was eligible).
-    pub fn disenchant_all_from_inventory(&mut self, rng: &mut impl Rng, sand_mult: f64) -> (usize, u64) {
+    pub fn disenchant_all_from_inventory(&mut self, rng: &mut impl Rng, sand_mult: f64, divine_dust_disenchant_chance: f64) -> (usize, u64) {
         let mut count = 0usize;
         let mut total_dust = 0u64;
         let mut total_sand = 0u64;
+        let mut total_divine_dust = 0u64;
         self.inventory.retain(|item| {
             if item.disenchant_protected {
                 return true;
             }
             total_dust += (rng.gen_range(1..=6) * item.tier * item.disenchant_multiplier()) as u64;
             total_sand += roll_disenchant_sand(item.quality_percent(), rng, sand_mult);
+            total_divine_dust += roll_divine_dust_disenchant(item.sacred_affix.is_some(), rng, divine_dust_disenchant_chance);
             count += 1;
             false
         });
         self.dust += total_dust;
         self.sand += total_sand;
+        self.divine_dust += total_divine_dust;
         (count, total_dust)
     }
 

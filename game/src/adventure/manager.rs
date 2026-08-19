@@ -2199,6 +2199,16 @@ impl AdventureManager {
         let _ = self.unique_shard_tx.send(event);
     }
 
+    /// Divine Dust fight-drop only (per the spec: "rarer — it should feel
+    /// like an event") - the craft recipe's own output is deliberately
+    /// silent, same "routine vs. event" split `format_loot_line` already
+    /// draws for auto-disenchanted loot. No dedicated event channel (unlike
+    /// `announce_unique_shard_win`'s `unique_shard_tx`) - nothing currently
+    /// subscribes to a Divine Dust drop beyond the chat line itself.
+    fn announce_divine_dust_drop(&self, display_name: String) {
+        let _ = self.announcements_tx.send(format_divine_dust_drop(&display_name));
+    }
+
     /// Current roster + world stage — pushed to a freshly (re)connected
     /// overlay immediately, so it doesn't sit blank until the next change.
     pub async fn snapshot(&self) -> AdventureSnapshot {
@@ -2339,10 +2349,10 @@ impl AdventureManager {
         let character = characters.get_mut(&username.to_lowercase())?;
         // ThreadRng isn't Send, so it can't still be in scope at the
         // broadcast_state().await below - block scope forces it to drop here.
-        let sand_mult = self.live_tunables().sand_mult;
+        let tunables = self.live_tunables();
         let outcome = {
             let mut rng = rand::thread_rng();
-            character.disenchant_from_inventory(item_id, &mut rng, sand_mult)
+            character.disenchant_from_inventory(item_id, &mut rng, tunables.sand_mult, tunables.divine_dust_disenchant_chance)
         };
         if outcome.is_some() {
             self.persist_characters(&characters);
@@ -2359,10 +2369,10 @@ impl AdventureManager {
     pub async fn disenchant_all(&self, username: &str) -> (usize, u64) {
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&username.to_lowercase()) else { return (0, 0) };
-        let sand_mult = self.live_tunables().sand_mult;
+        let tunables = self.live_tunables();
         let (count, dust) = {
             let mut rng = rand::thread_rng();
-            character.disenchant_all_from_inventory(&mut rng, sand_mult)
+            character.disenchant_all_from_inventory(&mut rng, tunables.sand_mult, tunables.divine_dust_disenchant_chance)
         };
         if count > 0 {
             self.persist_characters(&characters);
@@ -4401,6 +4411,13 @@ impl AdventureManager {
                     // all scaled by `sand_mult` (see `LiveTunables`'s doc -
                     // deliberately a separate dial from `loot_mult`).
                     character.sand += ((win_rng.gen_range(1..=3) + win_rng.gen_range(2..=3)) as f64 * tunables.sand_mult).round() as u64;
+                    // Divine Dust fight-drop (2026-08-19) - same
+                    // eligibility as sand's own grant just above (every
+                    // fighting character, every win), see
+                    // `maybe_drop_divine_dust`'s doc.
+                    if maybe_drop_divine_dust(character, &mut win_rng, tunables.divine_dust_drop_chance) {
+                        self.announce_divine_dust_drop(character.display_name.clone());
+                    }
 
                     // Perfect Quality's per-character milestone (see
                     // `received_first_perfect`'s doc) - every character
@@ -4924,6 +4941,12 @@ impl AdventureManager {
                     // on top - this is the lighter filler-fight reward,
                     // scaled by `sand_mult` same as run_encounter's own.
                     character.sand += (rng.gen_range(1..=3) as f64 * tunables.sand_mult).round() as u64;
+                    // Divine Dust fight-drop - same eligibility as sand's
+                    // own grant just above, see `maybe_drop_divine_dust`'s
+                    // doc and `run_encounter`'s identical boss-win roll.
+                    if maybe_drop_divine_dust(character, &mut rng, tunables.divine_dust_drop_chance) {
+                        self.announce_divine_dust_drop(character.display_name.clone());
+                    }
                 }
                 // Deliberately no gear decay here - only real boss fights
                 // wear equipment down (see run_encounter); these lighter
@@ -5562,6 +5585,26 @@ pub(crate) fn maybe_drop_unique_shard(character: &mut Character, rng: &mut impl 
     }
 }
 
+/// Divine Dust's fight-drop roll (2026-08-19, docs/divine_dust_spec.md) -
+/// unlike `maybe_drop_wings`/`maybe_drop_celestial_shard`/
+/// `maybe_drop_unique_shard` above (rolled once per real ITEM handed out
+/// on a loot roll), this mirrors `sand`'s own eligibility instead: called
+/// once per FIGHTING character on every WIN (boss or basic alike, see
+/// `run_encounter`/`run_basic_encounter`'s own sand-grant sites), whether
+/// or not that character personally received any item this fight. See
+/// `LiveTunables::divine_dust_drop_chance`'s doc for the default's
+/// derivation. Grants exactly 1 Divine Dust on a hit - unlike sand's own
+/// variable-amount roll, rarity here lives entirely in the chance, not
+/// the amount.
+pub(crate) fn maybe_drop_divine_dust(character: &mut Character, rng: &mut impl Rng, divine_dust_drop_chance: f64) -> bool {
+    if rng.gen_bool(divine_dust_drop_chance) {
+        character.divine_dust += 1;
+        true
+    } else {
+        false
+    }
+}
+
 /// Median-relative catch-up bonus applied on top of `LOOT_MULT`: a
 /// below-median party member's dust and drop odds scale up, capping at
 /// +200% for whoever's at the group's lowest level, tapering down to
@@ -5641,6 +5684,76 @@ pub(crate) fn roll_disenchant_sand(quality_percent: f64, rng: &mut impl Rng, san
         (rng.gen_range(1..=3) as f64 * sand_mult).round() as u64
     } else {
         0
+    }
+}
+
+/// Divine Dust's disenchant roll (2026-08-19, docs/divine_dust_spec.md) -
+/// `is_sacred` gates it entirely (a non-Sacred disenchant always yields
+/// 0, matching the spec's "non-sacred disenchants yield none"), then a
+/// flat `divine_dust_disenchant_chance` roll grants exactly 1. Unlike
+/// `roll_disenchant_sand`'s own quality-based chance (which a Sacred item
+/// would always pass, since Sacred implies `perfect`/100% quality - see
+/// `LiveTunables::divine_dust_disenchant_chance`'s doc for why that
+/// makes a flat tunable chance the only way to keep this rare), this
+/// takes the gate as a plain bool rather than re-deriving it from
+/// `quality_percent()` - Sacred-ness, not quality, is what this currency
+/// cares about. Shared by `disenchant_from_inventory`/
+/// `disenchant_all_from_inventory` so both stay in sync.
+pub(crate) fn roll_divine_dust_disenchant(is_sacred: bool, rng: &mut impl Rng, divine_dust_disenchant_chance: f64) -> u64 {
+    if is_sacred && rng.gen_bool(divine_dust_disenchant_chance) {
+        1
+    } else {
+        0
+    }
+}
+
+#[cfg(test)]
+mod divine_dust_acquisition_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn maybe_drop_divine_dust_never_grants_at_zero_chance() {
+        let mut character = Character::new("tester".to_string());
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            assert!(!maybe_drop_divine_dust(&mut character, &mut rng, 0.0));
+        }
+        assert_eq!(character.divine_dust, 0);
+    }
+
+    #[test]
+    fn maybe_drop_divine_dust_always_grants_exactly_one_at_full_chance() {
+        let mut character = Character::new("tester".to_string());
+        let mut rng = rand::thread_rng();
+        for _ in 0..25 {
+            assert!(maybe_drop_divine_dust(&mut character, &mut rng, 1.0));
+        }
+        assert_eq!(character.divine_dust, 25, "each hit must grant exactly 1, never a variable amount like sand's own roll");
+    }
+
+    #[test]
+    fn roll_divine_dust_disenchant_is_zero_for_a_non_sacred_item_regardless_of_chance() {
+        // Full chance (1.0) would always hit if is_sacred were ignored -
+        // this is the "non-sacred disenchants yield none" spec rule.
+        let mut rng = rand::thread_rng();
+        for _ in 0..25 {
+            assert_eq!(roll_divine_dust_disenchant(false, &mut rng, 1.0), 0);
+        }
+    }
+
+    #[test]
+    fn roll_divine_dust_disenchant_can_grant_one_for_a_sacred_item() {
+        let mut rng = StdRng::seed_from_u64(1);
+        assert_eq!(roll_divine_dust_disenchant(true, &mut rng, 1.0), 1);
+    }
+
+    #[test]
+    fn roll_divine_dust_disenchant_never_exceeds_one_per_call() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            assert!(roll_divine_dust_disenchant(true, &mut rng, 1.0) <= 1);
+        }
     }
 }
 

@@ -780,6 +780,9 @@ pub struct DisenchantOutcome {
     pub item_name: String,
     pub dust: u32,
     pub dust_max: u32,
+    /// Divine Dust granted alongside the dust roll above - always 0 for a
+    /// non-Sacred item (see `roll_divine_dust_disenchant`).
+    pub divine_dust: u64,
 }
 
 /// Which gear action a `GearCritEvent` came from - main.rs's subscriber
