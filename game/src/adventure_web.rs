@@ -44,6 +44,7 @@ use crate::adventure::{
     NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
 };
 use crate::adventure::default_memory_name;
+use crate::adventure::passive_overrides;
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
 mod api;
@@ -202,6 +203,13 @@ pub async fn start_adventure_web_server(
         .route("/fights.json", get(fights_json))
         .route("/admin/tunables", get(admin_tunables_page))
         .route("/admin/tunables/save", post(do_save_tunables))
+        // Live-tunable passive VALUES (2026-08-19) - see
+        // `render_admin_passives_page` and `adventure::passive_overrides`.
+        // Same `ADMIN_TUNABLES_LOGIN` gate as the page above, applied to
+        // the read and both writes.
+        .route("/admin/passives", get(admin_passives_page))
+        .route("/admin/passives/save", post(do_save_passive_override))
+        .route("/admin/passives/revert", post(do_revert_passive_override))
         .route("/overlay", get(overlay_page))
         .route("/ws", get(overlay_ws_handler))
         .with_state(state)
@@ -2065,6 +2073,217 @@ struct AdminTunablesParams {
     saved: Option<String>,
 }
 
+// ---------------------------------------------------------------------
+// `/admin/passives` (2026-08-19) - live-tunable passive VALUES. Same
+// single-admin gate, same save-then-redirect shape as `/admin/tunables`
+// above; the difference is that this page edits a SPARSE store, so
+// every row also has to show what the compiled-in default was and offer
+// a one-click revert back to it. See `adventure::passive_overrides`.
+// ---------------------------------------------------------------------
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AdminPassivesParams {
+    /// Which archetype's tree to edit. The tree is far too large to put
+    /// all 471 nodes on one page (and a single giant form would make one
+    /// bad input lose every other edit), so the page is scoped to one
+    /// class at a time. Defaults to Warrior.
+    class: Option<Archetype>,
+    saved: Option<String>,
+}
+
+async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminPassivesParams>) -> Html<String> {
+    let session = current_session(&headers, &state).await;
+    let body = match session {
+        Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
+            let viewer = state.adventure.character(&login).await;
+            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some())
+        }
+        // Same generic fallback as `/admin/tunables` - a restricted
+        // page's existence isn't hinted at.
+        _ => "<div class=\"card\"><h1>Not Found</h1></div>".to_string(),
+    };
+    Html(render_page(&body))
+}
+
+fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool) -> String {
+    let nav = top_nav(viewer);
+    let overrides = passive_overrides();
+    let banner = if saved {
+        "<p class=\"muted\">✅ Saved — live immediately, no restart. Takes effect on the very next fight.</p>"
+    } else {
+        ""
+    };
+
+    let class_links: String = ALL_ARCHETYPES
+        .iter()
+        .map(|&a| {
+            let slug = format!("{a:?}").to_lowercase();
+            let tuned = a.passive_nodes().iter().filter(|n| overrides.has_override(n.key)).count();
+            let marker = if tuned > 0 { format!(" ({tuned})") } else { String::new() };
+            let current = if a == archetype { " current" } else { "" };
+            format!("<a class=\"passive-class-link{current}\" href=\"/admin/passives?class={slug}\">{a:?}{marker}</a>")
+        })
+        .collect();
+
+    let rows: String = archetype
+        .passive_nodes()
+        .iter()
+        .map(|n| {
+            let key = n.key;
+            let name = escape_html(n.name);
+            let tier = match n.tier {
+                PassiveTier::Skill => "Skill",
+                PassiveTier::Specialization => "Specialization",
+                PassiveTier::Modifier => "Modifier",
+            };
+            let not_yet = matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented);
+            let pending = !crate::adventure::node_is_tunable(key);
+            let overridden = overrides.has_override(key);
+
+            let defaults: Vec<f64> = (1..=3).map(|r| n.magnitude_at_rank_with(r, &crate::adventure::PassiveOverrides::default())).collect();
+            let current: Vec<f64> = (1..=3).map(|r| n.magnitude_at_rank(r)).collect();
+            let default_text = defaults.iter().map(|v| trim_float(*v)).collect::<Vec<_>>().join(" / ");
+
+            // A node whose mechanic doesn't exist yet, or whose numbers
+            // still live in combat.rs, is shown but NOT offered - an
+            // input that silently does nothing is worse than no input.
+            if not_yet || pending {
+                let why = if not_yet {
+                    "No mechanic yet — nothing reads this node's value, so there is nothing to tune."
+                } else {
+                    "Pending migration — this node's numbers are still hardcoded in combat.rs, so an override here would do nothing. Unlocked by its class's migration batch."
+                };
+                return format!(
+                    "<div class=\"passive-row disabled\">\
+                       <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span></div>\
+                       <div class=\"passive-default\">Default: {default_text}</div>\
+                       <p class=\"tunable-hint\">{why}</p>\
+                     </div>"
+                );
+            }
+
+            let step = if crate::adventure::node_is_integer_count(key) { "1" } else { "any" };
+            let inputs: String = (0..3)
+                .map(|i| {
+                    format!(
+                        "<label class=\"passive-rank\">\
+                           <span>Rank {rank}</span>\
+                           <input type=\"number\" step=\"{step}\" name=\"r{rank}\" value=\"{value}\">\
+                         </label>",
+                        rank = i + 1,
+                        value = trim_float(current[i]),
+                    )
+                })
+                .collect();
+
+            let marker = if overridden { "<span class=\"passive-tuned-badge\">differs from default</span>" } else { "" };
+            let revert = if overridden {
+                format!(
+                    "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\">\
+                       <input type=\"hidden\" name=\"class\" value=\"{slug}\">\
+                       <input type=\"hidden\" name=\"node_key\" value=\"{key}\">\
+                       <button class=\"btn-sm btn-danger\" type=\"submit\">Revert</button>\
+                     </form>",
+                    slug = format!("{archetype:?}").to_lowercase(),
+                )
+            } else {
+                String::new()
+            };
+
+            format!(
+                "<div class=\"passive-row\">\
+                   <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {marker}</div>\
+                   <div class=\"passive-default\">Default: {default_text}</div>\
+                   <div class=\"passive-controls\">\
+                     <form method=\"post\" action=\"/admin/passives/save\" class=\"passive-edit\">\
+                       <input type=\"hidden\" name=\"class\" value=\"{slug}\">\
+                       <input type=\"hidden\" name=\"node_key\" value=\"{key}\">\
+                       {inputs}\
+                       <button class=\"btn-sm\" type=\"submit\">Save</button>\
+                     </form>\
+                     {revert}\
+                   </div>\
+                 </div>",
+                slug = format!("{archetype:?}").to_lowercase(),
+            )
+        })
+        .collect();
+
+    format!(
+        "{nav}\
+        <div class=\"card\">\
+          <h1>🎚️ Passive Values</h1>\
+          <p class=\"muted\">Retune any passive node's numbers live — no rebuild, no restart, effective on the very next fight. \
+          Structure (which nodes exist, their ranks and prerequisites) stays in code and isn't editable here.</p>\
+          {banner}\
+          <div class=\"passive-class-nav\">{class_links}</div>\
+          <h2>{archetype:?}</h2>\
+          <p class=\"tunable-hint\">Every node has three meaningful ranks — a Specialization's 4th point only unlocks its modifiers, so it reuses the rank 3 value. \
+          Revert removes the override entirely and returns the node to its compiled-in numbers.</p>\
+          {rows}\
+        </div>"
+    )
+}
+
+#[derive(Deserialize)]
+struct PassiveOverrideForm {
+    class: Archetype,
+    node_key: String,
+    r1: f64,
+    r2: f64,
+    r3: f64,
+}
+
+#[derive(Deserialize)]
+struct PassiveRevertForm {
+    class: Archetype,
+    node_key: String,
+}
+
+/// Deliberately NOT clamped to per-node bounds - an explicit owner
+/// ruling: this is a single-admin surface and 411 individual sane
+/// ranges would be 411 guesses, so the page takes any finite number and
+/// shows a "differs from default" marker instead. Non-finite input
+/// (NaN/inf, reachable by typing `1e999`) IS rejected, since it would
+/// poison every downstream calculation rather than merely being an odd
+/// balance choice.
+async fn do_save_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveOverrideForm>) -> impl IntoResponse {
+    let slug = format!("{:?}", form.class).to_lowercase();
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        if login == ADMIN_TUNABLES_LOGIN {
+            // Reject a key that isn't in the class being edited - the
+            // page never generates one, so this only fires on a
+            // hand-crafted POST, and a bad key would otherwise sit in
+            // the file forever matching nothing.
+            let known = form.class.passive_nodes().iter().any(|n| n.key == form.node_key);
+            let finite = [form.r1, form.r2, form.r3].iter().all(|v| v.is_finite());
+            if known && finite {
+                let mut overrides = passive_overrides();
+                overrides.nodes.insert(form.node_key.clone(), vec![form.r1, form.r2, form.r3]);
+                if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
+                    tracing::error!("failed to persist passive overrides: {err}");
+                }
+            }
+        }
+    }
+    Redirect::to(&format!("/admin/passives?class={slug}&saved=1"))
+}
+
+async fn do_revert_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveRevertForm>) -> impl IntoResponse {
+    let slug = format!("{:?}", form.class).to_lowercase();
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        if login == ADMIN_TUNABLES_LOGIN {
+            let mut overrides = passive_overrides();
+            overrides.revert(&form.node_key);
+            if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
+                tracing::error!("failed to persist passive overrides: {err}");
+            }
+        }
+    }
+    Redirect::to(&format!("/admin/passives?class={slug}&saved=1"))
+}
+
 async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminTunablesParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
@@ -3276,6 +3495,54 @@ fn passive_archetype_icon_role(a: Archetype) -> (&'static str, &'static str) {
     (icon, role)
 }
 
+/// The "this node has been retuned" line appended to a node's tooltip
+/// wherever a live override is in effect (2026-08-19) - `None` for a
+/// node still at its compiled-in values, which is every node until an
+/// admin changes one.
+///
+/// Exists because a node's `description` is a hardcoded prose string
+/// with its numbers baked in: it cannot reflect an override, so
+/// retuning a value would otherwise leave every tooltip and the wiki
+/// quietly stating the old figure. Rather than templating all 471
+/// description strings (a far larger content migration, deliberately
+/// deferred - see docs/passive_tunables_spec.md), this states the real
+/// per-rank numbers alongside the untouched prose, so a tuned node is
+/// visibly tuned rather than silently divergent.
+///
+/// `pub(crate)` and deliberately free-standing so the wiki's own node
+/// renderer (`adventure_web::wiki::render_wiki_archetype_graph`, a
+/// parallel session's file this session must not edit) can adopt the
+/// identical line by calling it - see the WIKI_IMPACT.md entry.
+pub(crate) fn passive_override_note(node: &PassiveNode) -> Option<String> {
+    let overrides = passive_overrides();
+    if !overrides.has_override(node.key) {
+        return None;
+    }
+    // Every node has at most 3 distinct magnitudes (a Specialization's
+    // 4th point is unlock-only), so the line always reads as 3 values.
+    let fmt = |f: fn(&PassiveNode, u32) -> f64| -> String {
+        (1..=3).map(|r| trim_float(f(node, r))).collect::<Vec<_>>().join(" / ")
+    };
+    let tuned = fmt(|n, r| n.magnitude_at_rank(r));
+    let default = fmt(|n, r| n.magnitude_at_rank_with(r, &crate::adventure::PassiveOverrides::default()));
+    if tuned == default {
+        // An override that happens to restate the defaults exactly is
+        // not worth a line - it changes nothing the player would notice.
+        return None;
+    }
+    Some(format!("<span class=\"passive-tuned\">Tuned: {tuned} (default {default})</span>"))
+}
+
+/// Formats a magnitude for display without trailing-zero noise - `0.5`
+/// rather than `0.50000000000000001`, `3` rather than `3.0`. Values in
+/// this tree are small decimals and small counts, so 4 significant
+/// decimals is plenty and reads far better than `{:?}` on an `f64`.
+fn trim_float(v: f64) -> String {
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() || s == "-" { "0".to_string() } else { s.to_string() }
+}
+
 /// One positioned node in the passive-tree layout (see
 /// `compute_passive_layout`) - shared between the interactive owner's-own
 /// `/passives` page and the read-only `/characters/{login}/passives` view,
@@ -3499,6 +3766,16 @@ fn render_ptree_body(archetype: Archetype, level: u32, allocations: &HashMap<Str
             format!("{} Not yet active - allocating still banks the point for when this mechanic ships.", escape_html(n.description))
         } else {
             escape_html(n.description)
+        };
+        // Live-tunable values (2026-08-19): a node's description is a
+        // hardcoded prose string and cannot know it has been retuned, so
+        // an overridden node gets a generated line stating its real
+        // numbers rather than silently contradicting its own text.
+        // Absent unless an override exists, so an untuned tree reads
+        // exactly as it did before. See `passive_override_note`.
+        let tip = match passive_override_note(n) {
+            Some(note) => format!("{tip} {note}"),
+            None => tip,
         };
         let (kind_class, kind_label) = match n.tier {
             PassiveTier::Skill => ("node-skill", "Tier 1"),
@@ -4974,5 +5251,129 @@ mod memories_render_tests {
         let note = memory_load_note(&changed);
         assert!(note.contains("You're now playing Warrior."));
         assert!(note.contains("1 unspent point."), "singular, not '1 unspent points' - got: {note}");
+    }
+}
+
+/// Stage 1 of the live-tunable passive values build
+/// (docs/passive_tunables_spec.md) - the `/admin/passives` page and the
+/// tuned-value tooltip line.
+///
+/// Rendering and gating only. These deliberately do NOT write the
+/// process-global override store: this crate runs its whole suite in one
+/// process, so a test that saved an override would change what every
+/// other test in the binary sees. The store's own behavior is covered as
+/// pure functions in `adventure::passive_overrides`.
+#[cfg(test)]
+mod admin_passives_tests {
+    use super::*;
+
+    fn node(archetype: Archetype, key: &str) -> &'static PassiveNode {
+        archetype.passive_nodes().iter().find(|n| n.key == key).unwrap_or_else(|| panic!("no node {key:?}"))
+    }
+
+    #[test]
+    fn the_page_lists_every_node_in_the_selected_class_only() {
+        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        for n in Archetype::Warrior.passive_nodes() {
+            assert!(html.contains(n.key), "Warrior node {} must appear", n.key);
+        }
+        assert!(!html.contains(">arcane<"), "a Mage-only node must not leak onto the Warrior page");
+    }
+
+    #[test]
+    fn a_tunable_node_gets_three_rank_inputs_and_shows_its_default() {
+        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        let bulwark_default = (1..=3).map(|r| trim_float(node(Archetype::Warrior, "bulwark").magnitude_at_rank(r))).collect::<Vec<_>>().join(" / ");
+        assert!(html.contains(&format!("Default: {bulwark_default}")), "bulwark's compiled-in values must be visible");
+        assert!(html.contains("name=\"r1\"") && html.contains("name=\"r2\"") && html.contains("name=\"r3\""));
+    }
+
+    #[test]
+    fn a_pending_migration_node_is_shown_but_not_editable() {
+        // An input that silently does nothing is worse than no input.
+        // `payback` is a Warrior node whose numbers still live in
+        // combat.rs - see PENDING_MIGRATION_NODES.
+        assert!(!crate::adventure::node_is_tunable("payback"), "sanity: payback must still be pending");
+        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        assert!(html.contains("payback"), "a pending node must still be listed, so its state is visible");
+        assert!(html.contains("Pending migration"), "and must say why it can't be edited");
+    }
+
+    #[test]
+    fn a_not_yet_implemented_node_is_shown_but_not_editable() {
+        // Searched rather than assumed - Warrior happens to have every
+        // one of its 39 nodes implemented, so hardcoding a class here
+        // would be testing the wrong thing (and did, first time round).
+        let (archetype, inert) = ALL_ARCHETYPES
+            .iter()
+            .find_map(|&a| {
+                a.passive_nodes()
+                    .iter()
+                    .find(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented))
+                    .map(|n| (a, n))
+            })
+            .expect("the tree still has at least one unimplemented node somewhere");
+        let html = render_admin_passives_page(None, archetype, false);
+        assert!(html.contains(inert.key), "{:?}'s inert node {} must still be listed", archetype, inert.key);
+        assert!(html.contains("No mechanic yet"), "an inert node must say why it can't be tuned");
+    }
+
+    #[test]
+    fn every_class_is_reachable_from_the_class_nav() {
+        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        for &a in ALL_ARCHETYPES.iter() {
+            let slug = format!("{a:?}").to_lowercase();
+            assert!(html.contains(&format!("/admin/passives?class={slug}")), "{a:?} must be reachable from the class nav");
+        }
+    }
+
+    #[test]
+    fn the_save_banner_only_appears_after_a_save() {
+        assert!(!render_admin_passives_page(None, Archetype::Warrior, false).contains("Saved"));
+        assert!(render_admin_passives_page(None, Archetype::Warrior, true).contains("Saved"));
+    }
+
+    #[test]
+    fn with_no_overrides_no_node_is_marked_as_differing_from_default() {
+        // The shipping-dark property at the UI layer: an untuned tree
+        // shows no badges and offers no reverts anywhere.
+        for &a in ALL_ARCHETYPES.iter() {
+            let html = render_admin_passives_page(None, a, false);
+            assert!(!html.contains("differs from default"), "{a:?} shows a tuned badge with no overrides loaded");
+            assert!(!html.contains("/admin/passives/revert"), "{a:?} offers a revert with nothing to revert");
+        }
+    }
+
+    // ---- the tooltip note ------------------------------------------
+
+    #[test]
+    fn an_untuned_node_gets_no_override_note() {
+        for &a in ALL_ARCHETYPES.iter() {
+            for n in a.passive_nodes() {
+                assert!(passive_override_note(n).is_none(), "{:?} {} produced a tuned note with no overrides loaded", a, n.key);
+            }
+        }
+    }
+
+    #[test]
+    fn the_passives_page_shows_no_tuned_markup_when_nothing_is_overridden() {
+        let mut c = Character::new("Tester".to_string());
+        c.level = 40;
+        c.archetype = Archetype::Warrior;
+        let page = render_passive_tree_page("Tester", Some(&c), None);
+        // Matched on the markup, not the bare class name - `base.html`
+        // carries a `.passive-tuned` CSS rule, so once this body is
+        // wrapped by `render_page` a looser check would match the
+        // stylesheet and pass whether or not a note was emitted.
+        assert!(!page.contains("class=\"passive-tuned\""), "an untuned tree must render no tuned markup at all");
+    }
+
+    #[test]
+    fn float_display_trims_noise_without_losing_meaning() {
+        assert_eq!(trim_float(0.5), "0.5");
+        assert_eq!(trim_float(3.0), "3");
+        assert_eq!(trim_float(0.0), "0");
+        assert_eq!(trim_float(0.15000000000000002), "0.15", "float arithmetic noise must not reach the page");
+        assert_eq!(trim_float(0.335), "0.335");
     }
 }

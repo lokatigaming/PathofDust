@@ -429,6 +429,44 @@
   .tunable-row label { display: block; font-size: 0.85rem; color: #c9bdf0; margin-bottom: 2px; }
   .tunable-row input { margin: 4px 0 0; }
   .tunable-hint { font-size: 0.75rem; color: #766a99; margin: 2px 0 0; }
+  /* Live-tunable passive VALUES (2026-08-19) - `/admin/passives`, see
+     `render_admin_passives_page`. Sits beside `.tunable-*` above rather
+     than reusing it: that page is a single vertical form, this one is a
+     list of independently-savable per-node rows. */
+  .passive-class-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+  .passive-class-link {
+    font-size: 0.8rem; padding: 5px 11px; border-radius: 999px; text-decoration: none;
+    background: rgba(255,255,255,0.04); color: #c9bdf0; border: 1px solid rgba(160,140,255,0.22);
+  }
+  .passive-class-link:hover { border-color: rgba(160,140,255,0.5); color: #eae6f5; }
+  .passive-class-link.current { background: #7c5cff; border-color: #7c5cff; color: #fff; font-weight: 600; }
+  .passive-row {
+    border: 1px solid rgba(160,140,255,0.18); border-radius: 10px;
+    padding: 12px 14px; margin: 10px 0; background: rgba(255,255,255,0.03);
+  }
+  .passive-row.disabled { opacity: 0.55; border-style: dashed; }
+  .passive-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .passive-row-head code { font-size: 0.78rem; color: #8d80b3; }
+  .passive-tier { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #766a99; }
+  .passive-tuned-badge {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    background: rgba(255,215,106,0.15); color: #ffd76a; padding: 2px 8px; border-radius: 999px;
+  }
+  .passive-default { font-size: 0.8rem; color: #a394c7; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .passive-controls { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .passive-edit { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin: 0; }
+  .passive-revert { margin: 0; }
+  .passive-rank { display: flex; flex-direction: column; gap: 2px; }
+  .passive-rank span { font-size: 0.7rem; color: #8d80b3; text-transform: uppercase; letter-spacing: 0.06em; }
+  .passive-rank input {
+    width: 7.5rem; background: rgba(255,255,255,0.04); color: #eae6f5;
+    border: 1px solid rgba(160,140,255,0.3); border-radius: 8px; padding: 6px 10px;
+    font-size: 0.85rem; font-family: inherit; font-variant-numeric: tabular-nums;
+  }
+  /* The "this node has been retuned" line appended to a node's tooltip
+     on /passives and (once the wiki session adopts it) /wiki/passives -
+     see `passive_override_note`. */
+  .passive-tuned { display: block; margin-top: 4px; color: #ffd76a; font-weight: 600; }
   /* Crafting wiki section (see `render_wiki_crafting`) - own `.wiki-*`
      namespace, same convention as the passive-tree wiki block below.
      `.wiki-wide` opts this one card out of the page's default 640px

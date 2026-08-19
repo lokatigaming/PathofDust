@@ -474,8 +474,37 @@ impl PassiveNode {
     /// Modifiers use their raw rank directly (Skills top out at 3
     /// anyway; Modifiers aren't implemented yet regardless).
     pub fn magnitude_at_rank(&self, rank: u32) -> f64 {
-        let effective_rank = if matches!(self.tier, PassiveTier::Specialization) { rank.min(3) } else { rank };
-        self.effect.magnitude_at(effective_rank)
+        let effective_rank = self.effective_rank(rank);
+        // THE live-tunable hook (2026-08-19) - every numeric read of
+        // every node in the tree funnels through this one method, so an
+        // admin override entering here reaches stat pooling, every
+        // `Special` mechanic in combat.rs, and the dashboard's own stat
+        // display without any of them knowing it exists. No override
+        // stored = the compiled-in value, byte-identically.
+        // See `adventure::passive_overrides`.
+        crate::adventure::passive_override_for(self.key, effective_rank).unwrap_or_else(|| self.effect.magnitude_at(effective_rank))
+    }
+
+    /// `magnitude_at_rank` against an explicit override set instead of
+    /// the process-global one - the whole override behavior as a pure
+    /// function, so it can be tested without writing to global state
+    /// that every other test in this binary shares.
+    pub fn magnitude_at_rank_with(&self, rank: u32, overrides: &crate::adventure::PassiveOverrides) -> f64 {
+        let effective_rank = self.effective_rank(rank);
+        overrides.value_for(self.key, effective_rank).unwrap_or_else(|| self.effect.magnitude_at(effective_rank))
+    }
+
+    /// The rank an override is keyed by, and the rank the magnitude
+    /// formula reads - one definition, so the live path, the pure path
+    /// and the admin page can never disagree about which rank a stored
+    /// value belongs to. See `magnitude_at_rank`'s own doc for why a
+    /// Specialization floors at 3.
+    pub fn effective_rank(&self, rank: u32) -> u32 {
+        if matches!(self.tier, PassiveTier::Specialization) {
+            rank.min(3)
+        } else {
+            rank
+        }
     }
 }
 

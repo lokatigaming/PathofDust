@@ -91,3 +91,5 @@ watchdog.log
 Thumbs.db
 desktop.ini
 target-memories/
+target-tunables/
+adventure-passive-overrides.toml
