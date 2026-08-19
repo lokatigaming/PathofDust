@@ -4497,39 +4497,6 @@
       "kind": "defeat",
       "atMs": 23100,
       "unit": "paladin_vs_cube_stage500"
-    },
-    {
-      "kind": "buffSnapshot",
-      "atMs": 23100,
-      "unit": "paladin_vs_cube_stage500",
-      "buffs": [
-        [
-          "lingering_dot_count",
-          1.0
-        ],
-        [
-          "divine_heal_power_buff_stacks",
-          2.0
-        ]
-      ]
-    },
-    {
-      "kind": "attack",
-      "atMs": 23100,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 771,
-      "unmitigatedDamage": 445,
-      "targetHpAfter": 0,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 1612,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "defeat",
-      "atMs": 23100,
-      "unit": "paladin_vs_cube_stage500"
     }
   ],
   "rolls": [
@@ -6972,78 +6939,6 @@
     {
       "eventId": 1611,
       "hitId": 1604,
-      "atMs": 23100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.462
-    },
-    {
-      "eventId": 1613,
-      "hitId": 1612,
-      "atMs": 23100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.288,
-      "succeeded": false
-    },
-    {
-      "eventId": 1614,
-      "hitId": 1612,
-      "atMs": 23100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.288,
-      "succeeded": false
-    },
-    {
-      "eventId": 1615,
-      "hitId": 1612,
-      "atMs": 23100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1616,
-      "hitId": 1612,
-      "atMs": 23100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.462
-    },
-    {
-      "eventId": 1617,
-      "hitId": 1612,
-      "atMs": 23100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1618,
-      "hitId": 1612,
-      "atMs": 23100,
-      "category": "mitigation",
-      "source": "Gelatinous Cube shred",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": -0.5
-    },
-    {
-      "eventId": 1619,
-      "hitId": 1612,
       "atMs": 23100,
       "category": "mitigation",
       "source": "Boss Pressure",

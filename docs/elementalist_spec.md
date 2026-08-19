@@ -557,3 +557,176 @@ redistributed away. Net effect: an incarnation that dies mid-fight
 leaves `(1 - thunder_redistribution_pct) × absorbed` credited to the
 owner's tank stat; an incarnation still alive at fight end keeps its
 full absorbed amount, since it was never redistributed at all.
+
+---
+
+## Release 1.1 — redistribution + golem derivation hotfix (2026-08-19)
+
+A live verification pass on Release 1's own deploy found redistribution
+delivering roughly 18% of the tunable's intended load. Seven items,
+investigated and resolved as follows.
+
+**Item 1 — redistribution trigger coverage: two real bugs found and
+fixed.**
+1. `apply_hit` had no guard against a target that was ALREADY dead when
+   the call started — every sibling damage site in the file already had
+   one (`apply_reflect_damage`, `apply_volatile_magic_splash`, DoT
+   ticks, Doom's detonation all `return`/`continue` on `!alive`), but
+   the busiest one never did. A boss ability whose splash lands on
+   every unit at once (Dragon's Breath, Cube's 5-target splash) could
+   independently redirect multiple hits onto the SAME already-dead
+   Thunder Golem within one turn — each extra hit re-ran the entire
+   pipeline against a corpse, double-counting
+   `thundergolem_absorbed_this_incarnation` and pushing a second,
+   spurious `Defeat` event. Fixed with an early return matching every
+   sibling site's own convention.
+2. The golem-death sweep (which calls `handle_golem_death`, and
+   therefore any redistribution) only ran once per loop iteration, at
+   the TOP of the iteration AFTER the one where a golem actually died —
+   and the fight-ending `break` check ran BEFORE that sweep. A golem
+   that died in the SAME tick that ended the fight (a full party wipe,
+   or dying alongside the boss's own final blow) never got its sweep at
+   all: the loop broke before reaching it. Fixed by extracting the
+   sweep into `sweep_golem_deaths` and calling it once more, right
+   before the fight-ending `break`, using the same `prev_alive`
+   snapshot the normal sweep would have used.
+
+Verified via `every_golem_death_gets_handle_golem_death_even_on_the_fights_final_tick`
+(a real multi-round fight against every `BossKind`) and
+`apply_hit_against_an_already_dead_target_is_a_complete_no_op`.
+
+**Item 2 — redistribution cadence: no separate bug found.** The
+scheduled gap between a redistribution sequence's own two ticks is
+architecturally exact (`tick_interval_ms = redistribution_window_ms /
+2`, verified by existing tests) — there is no code path that produces a
+non-exact gap for a single, uninterrupted sequence. The observed
+867-1943ms irregularity is very plausibly a downstream symptom of item
+3's own bug (below): a second death landing on a recipient with ticks
+still pending previously OVERWROTE the pending schedule, which (before
+today's fix) could leave a recipient's actual delivered-tick timing
+looking irregular to an external parser reconstructing cadence from raw
+event order, without that parser necessarily being able to tell one
+redistribution sequence's ticks apart from another's. Re-measure after
+this release ships; if a genuine cadence-specific gap remains once
+item 3's fix is live, it needs fresh data to isolate, not further
+speculation.
+
+**Item 3 — thunderNetAbsorbed formula: a real bug found and fixed.**
+`handle_golem_death` scheduled a fresh 2-tick redistribution for every
+recipient by directly OVERWRITING
+`thunder_redistribution_per_tick_amount`/`_ticks_remaining` — if a
+Thunder Golem died twice within the same ~2-second window a single
+death's own ticks are spread across (easily reached at high Growing/
+Terrifying ranks with short reform delays), a recipient with ticks
+still pending from the FIRST death had that entire remaining amount
+silently discarded the moment the SECOND death scheduled its own
+redistribution. `thundergolem_net_absorbed` had already been debited
+for the full theoretical amount at each death (unconditionally, per
+the formula), so the discarded amount showed up exactly as the live
+finding described: net_absorbed sitting well below what
+`absorbed - redistributed` implied, with the gap tracking however much
+redistribution got silently dropped. Fixed by merging (not
+overwriting): a recipient's still-owed amount from an undelivered
+prior schedule is folded into the new one, re-leveled over a fresh
+2 ticks, so nothing is ever lost. Verified two ways -
+`a_second_death_before_the_first_deaths_ticks_finish_loses_nothing`
+(deterministic, drives both deaths' ticks to completion by hand) and
+`thunder_net_absorbed_equals_the_event_logs_own_absorbed_minus_redistributed_sums`
+(a real multi-round fight, reconstructing "absorbed" and
+"redistributed" from the event log alone and checking the formula
+holds, modulo the fight itself ending before the very last
+incarnation's ticks finish delivering — a legitimate, bounded gap, not
+a miscalculation, since the debit happens at death time while delivery
+is spread over the following window).
+
+**Item 4 — golem HP sizing (reopened): investigated at length, not
+reproduced.** The live finding described an implied `1.30×`
+discrepancy between predicted and actual golem base HP, framed as
+golems being sized from a pre-party-buff owner max_hp while
+`CombatUnitInfo.maxHp` reports post-buff. Traced the full construction
+pipeline end to end: `simulate_battle`'s own first pass builds every
+real player's `CombatSimUnit.max_hp` directly from
+`Character::combat_max_hp()` (already the fully-buffed effective
+value — gear, tree, per-level Elemental Focus/Scorching Flames all
+baked in); `spawn_golem` reads that SAME already-built value; nothing
+in `simulate_battle` or its caller (`AdventureManager::run_encounter`)
+ever mutates a real player's `max_hp` again after construction, and
+`CombatUnitInfo.maxHp` is copied from that identical, never-touched
+field at the very end. No "party buff" of any kind exists in this
+pipeline. Reproduced with a real 2-character party, real generated
+gear, and confirmed gigantify=3/growing=3 (matching the live finding's
+own confirmed ranks) via
+`golem_sizing_matches_combat_max_hp_exactly_through_the_real_party_pipeline` -
+the ratio comes out to exactly 1.0000 in every configuration tried.
+**Not resolved as a confirmed code bug** — the discrepancy's source
+remains unidentified; re-flag with the specific fight's own raw
+`CombatUnitInfo` JSON if it persists, since this doc's own
+investigation could not locate a mechanism that produces it.
+
+**Item 5 — golem damage derivation: confirmed already correct, not a
+bug.** The live finding described golem per-hit output staying nearly
+constant across fights while the owner's own per-hit swung
+significantly. Confirmed via code read and a live-derived numeric test
+that this is the intended, already-shipped behavior:
+`golem_summon_dmg_penalty` (the "33% less damage per golem, additive"
+owner-side penalty) is its own independent field, deliberately never
+copied onto a golem by `spawn_golem` (defaults to 0.0 via
+`..zeroed_combat_unit()`) and only ever applied inside `resolve_hit`
+for the OWNER's own hits. A golem's own `atk`/`increased_damage`/
+`conflagration_dmg_pct` are read from the owner's already-fully-buffed,
+UNPENALIZED stats, exactly matching this release's own ruling ("the
+penalty applies only to the Elementalist's own dealt damage, never to
+the stats golems inherit"). Across fights where only golem COUNT (not
+gear) varies, the owner's own logged per-hit legitimately swings with
+however many golems are currently summoned while the golem's own
+per-hit — tied to the SAME unpenalized baseline regardless — stays
+constant. Verified via
+`golem_per_hit_tracks_the_owners_live_unpenalized_output_not_their_penalized_one`,
+which asserts the ratio against a live `resolve_hit`-derived owner
+value, not a snapshot.
+
+**Item 6 — Rising Phoenix skillCast naming: fixed.** The `SkillCast`
+marker named the revived ally; the `Heal` event right next to it
+already correctly named the casting Elementalist. Fixed for
+consistency — both signals now agree on whose action a revival
+actually was. Verified via
+`rising_phoenix_skillcast_names_the_caster_not_the_revived_ally`.
+
+**Item 7 — retaliate proc gates: real bug found and fixed, was
+initially misreported as "verified correct, no bug found."** Both
+gates originally read `counts_as_primary_hit`
+(`!is_followup && !units[attacker_idx].in_splash_resolution`), a flag
+that exists to stop an ATTACKER's own reactive on-hit chain (Twin
+Strikes, Volatile Magic, etc.) from re-triggering off their own splash
+targets. Reusing it for the DEFENDER's own reactive procs was wrong:
+`in_splash_resolution` is set on the attacker for the full duration of
+every splash target's `apply_hit` call, so it made every splash-target
+evade or survived-hit ineligible to proc Retaliation or Voidstep/
+Counterflow/Wild Fury — roughly 95% of evaded hits in a typical fight,
+since splash is the majority damage source. This contradicted the
+spec's explicit ruling that these must trigger on ANY defensive roll,
+including against splash hits, with the tooltip chance applying per
+roll. Fixed by introducing `defender_may_react = !is_followup` (no
+`in_splash_resolution` exclusion) and switching both gates to it —
+`!is_followup` alone is correct and sufficient, since splash targets
+are never themselves follow-ups (`apply_splash` always calls
+`apply_hit` with `is_followup: false` for each target); only an actual
+derived hit (a counter-attack, or a Twin-Strikes-style follow-up) is
+excluded, preventing infinite counter-chains. Regression coverage:
+Retaliation fires on a LANDED hit the target survives (`!outcome.evaded`
+— covers a blocked hit too, since block never sets `evaded`), the
+Voidstep/Counterflow/Wild Fury group fires on an EVADED hit
+(`outcome.evaded`) via one shared field
+(`evade_counter_chance`/`evade_counter_last_fired_at_ms` — reasonable
+given the three skills belong to three different, normally-mutually-
+exclusive archetypes), each "defensive roll" outcome triggers exactly
+its own dedicated group and never the other, a counter-attack can
+never itself re-trigger either gate (`!is_followup`), the shared evade-
+counter group respects its 1-per-second cap, no OTHER passive anywhere
+in the file reads or writes either gate's own fields, AND — the tests
+that specifically prove this fix — an evade against a SPLASH hit
+(attacker's `in_splash_resolution` set) still procs Voidstep/
+Counterflow/Wild Fury, and surviving a LANDED splash hit still procs
+Retaliation. See `retaliate_proc_gate_tests` for the full suite,
+specifically `voidstep_counterflow_wildfury_group_fires_on_an_evade_against_a_splash_hit`
+and `retaliation_fires_on_surviving_a_landed_splash_hit`.
