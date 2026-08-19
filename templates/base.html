@@ -611,17 +611,38 @@
         return;
       }
       if (!raw) return;
-      var state;
+      // Wraps EVERYTHING past parsing, not just the parse itself, and
+      // validates the parsed shape before trusting it (2026-08-19 fix,
+      // same day this shipped) - a stale value left over from either of
+      // the two earlier scroll-restore attempts this replaced (both used
+      // the SAME sessionStorage key convention but stored a bare number,
+      // e.g. "1234", not this shape) parses successfully via JSON.parse
+      // (a bare number is valid JSON) but then `state.inner.length`
+      // threw on `undefined`, an UNCAUGHT exception that aborted this
+      // entire shared <script> tag - silently killing every OTHER inline
+      // script below it on the page (the craft page's x5/x10/x50 repeat-
+      // multiplier JS among them) for any tab that still had an old-
+      // format value sitting in sessionStorage from before this fix
+      // deployed. A malformed/stale value must never be able to take
+      // down the rest of the page's own scripts - restoring scroll
+      // position is a nice-to-have, not worth that.
       try {
-        state = JSON.parse(raw);
+        var state = JSON.parse(raw);
+        if (!state || typeof state !== 'object' || typeof state.x !== 'number' || typeof state.y !== 'number' || !Array.isArray(state.inner)) {
+          return;
+        }
+        window.scrollTo(state.x, state.y);
+        var containers = scrollableContainers();
+        for (var i = 0; i < containers.length && i < state.inner.length; i++) {
+          var pair = state.inner[i];
+          if (Array.isArray(pair) && typeof pair[0] === 'number' && typeof pair[1] === 'number') {
+            containers[i].scrollLeft = pair[0];
+            containers[i].scrollTop = pair[1];
+          }
+        }
       } catch (err) {
-        return;
-      }
-      window.scrollTo(state.x, state.y);
-      var containers = scrollableContainers();
-      for (var i = 0; i < containers.length && i < state.inner.length; i++) {
-        containers[i].scrollLeft = state.inner[i][0];
-        containers[i].scrollTop = state.inner[i][1];
+        // Same spirit as the try/catch above - never let a restore
+        // failure break anything else on the page.
       }
     }
 
