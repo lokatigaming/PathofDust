@@ -6,6 +6,8 @@
       "displayName": "berserker_vs_lich_stage1000",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "berserker",
       "role": "melee",
       "maxHp": 23742
@@ -15,6 +17,8 @@
       "displayName": "The Lich",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 500000
@@ -24,6 +28,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -33,6 +39,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -42,6 +50,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -51,6 +61,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -60,6 +72,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -69,6 +83,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -78,6 +94,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -87,6 +105,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -96,6 +116,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -105,6 +127,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -114,6 +138,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -123,6 +149,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -132,6 +160,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -141,6 +171,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000
@@ -150,6 +182,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 50000

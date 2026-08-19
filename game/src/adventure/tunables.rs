@@ -112,6 +112,16 @@ pub struct LiveTunables {
     /// per-fight behavior, a safe way to fully disable batching without
     /// a separate on/off flag.
     pub fight_summary_batch_size: u32,
+    /// Elementalist's Thunder Golem absorbed-damage redistribution
+    /// (docs/elementalist_spec.md, Release 1 Part B5) - what fraction of
+    /// an incarnation's total absorbed damage (`thundergolem_absorbed_this_incarnation`)
+    /// gets split among the party as an unmitigated DoT when it dies. 0.0
+    /// disables redistribution entirely (nothing ever gets scheduled -
+    /// see `handle_golem_death`'s own `redistribution_pct > 0.0` guard).
+    pub thunder_redistribution_pct: f64,
+    /// Same mechanic - total time (seconds) the 2-tick redistribution DoT
+    /// is spread across (tick 1 at half this, tick 2 at the full amount).
+    pub thunder_redistribution_window_secs: f64,
 }
 
 impl Default for LiveTunables {
@@ -135,6 +145,8 @@ impl Default for LiveTunables {
             pierce_cap: 0.5,
             pierce_h: 2000.0,
             fight_summary_batch_size: 10,
+            thunder_redistribution_pct: 0.50,
+            thunder_redistribution_window_secs: 2.0,
         }
     }
 }

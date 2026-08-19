@@ -298,6 +298,11 @@ pub enum JoinOutcome {
 /// Weakness credit-split (`CURSE_CREDITS_WARLOCK_DAMAGE`) - latent today
 /// since that flag is off, tagged now so enabling it later can't
 /// reintroduce the same double-counted-hit distortion DoT ticks had.
+/// `Environmental` (2026-08-19, Thunder Golem redistribution) is
+/// deliberately unattributable damage - not enemy damage, not the
+/// Elementalist's own - see `apply_thunder_redistribution_tick`'s own
+/// doc for why the `attacker` id is a sentinel no real unit ever has,
+/// so `full_player_fight_stats` silently credits nobody.
 /// `#[serde(default)]` on the `Attack` field below defaults every event
 /// already on disk (and every hand-built test event) to `Direct` - the
 /// correct reading, since that's what all of them were before this field
@@ -311,6 +316,7 @@ pub enum AttackSourceKind {
     Dot,
     Reflect,
     CurseShare,
+    Environmental,
 }
 
 /// One thing that happened during a simulated fight, with the timestamp
@@ -617,6 +623,29 @@ pub struct CombatUnitInfo {
     /// optional field nothing external currently reads.
     #[serde(default)]
     pub golem_summoner_id: Option<String>,
+    /// `Some` for a golem unit (mirrors `CombatSimUnit::golem_type`),
+    /// `None` for everyone else - 2026-08-19, Release 1 Part B6, so
+    /// `full_player_fight_stats`'s golem-rollup can tell a Thunder Golem
+    /// (whose `damage_taken` needs the redistribution-aware
+    /// `thunder_net_absorbed` credit below instead of the plain event-log
+    /// sum every other golem type still uses) apart from a Flame/Water/
+    /// Basic golem without parsing the id string. Same additive/wire-safe
+    /// shape as `golem_summoner_id`'s own doc.
+    #[serde(default)]
+    pub golem_type: Option<GolemType>,
+    /// For a Thunder Golem only (0 for everyone else, including every
+    /// other golem type): this golem's TOTAL damage absorbed across every
+    /// incarnation this fight, net of whatever got redistributed away to
+    /// the party on each incarnation's death (see
+    /// `CombatSimUnit::thundergolem_net_absorbed`'s own doc for the exact
+    /// running computation). `full_player_fight_stats` credits the owner's
+    /// tank stat with THIS instead of the golem's raw event-log
+    /// `damage_taken` - crediting the raw figure as well as the
+    /// redistribution ticks' own separate `damage_taken` (already counted
+    /// on each recipient's own row) would double-count the redistributed
+    /// portion.
+    #[serde(default)]
+    pub thunder_net_absorbed: u64,
     /// `Some` for a real player, `None` for a boss/enemy/mid-fight add -
     /// see `CombatSimUnit::archetype`'s doc for why this is carried
     /// through to persisted fight records at all. `#[serde(default)]` so
@@ -913,6 +942,13 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
                         AttackSourceKind::Reflect | AttackSourceKind::CurseShare => {
                             s.damage_dealt += *damage as u64;
                         }
+                        // Thunder Golem redistribution (2026-08-19, Release 1
+                        // Part B4) - `attacker` here is a sentinel id no real
+                        // unit ever has (see `apply_thunder_redistribution_tick`'s
+                        // own doc for why), so `stats.get_mut(attacker)` above
+                        // never actually finds an entry and this arm never
+                        // runs in practice - kept only for match exhaustiveness.
+                        AttackSourceKind::Environmental => {}
                     }
                 }
                 if let Some(s) = stats.get_mut(target) {
@@ -940,7 +976,16 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
         let Some(owner_id) = &u.golem_summoner_id else { continue };
         if let Some(owner) = stats.get_mut(owner_id) {
             owner.damage_dealt += golem_stats.damage_dealt;
-            owner.damage_taken += golem_stats.damage_taken;
+            // Thunder Golem redistribution (2026-08-19, Release 1 Part B6) -
+            // see `CombatUnitInfo::thunder_net_absorbed`'s own doc for why
+            // a Thunder Golem's tank credit comes from that field instead
+            // of the plain `damage_taken` every other golem type still
+            // uses.
+            if u.golem_type == Some(GolemType::Thunder) {
+                owner.damage_taken += u.thunder_net_absorbed;
+            } else {
+                owner.damage_taken += golem_stats.damage_taken;
+            }
             owner.healing_done += golem_stats.healing_done;
             owner.hits += golem_stats.hits;
             owner.crits += golem_stats.crits;
@@ -5399,15 +5444,25 @@ mod fight_summary_tests {
     use super::*;
 
     fn player(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000, golem_summoner_id: None }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
     }
 
     fn golem(id: &str, owner_id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: format!("{owner_id}'s Golem"), is_boss: false, archetype: None, role: None, max_hp: 330, golem_summoner_id: Some(owner_id.to_string()) }
+        CombatUnitInfo {
+            id: id.to_string(),
+            display_name: format!("{owner_id}'s Golem"),
+            is_boss: false,
+            archetype: None,
+            role: None,
+            max_hp: 330,
+            golem_summoner_id: Some(owner_id.to_string()),
+            golem_type: None,
+            thunder_net_absorbed: 0,
+        }
     }
 
     fn attack(at_ms: u32, attacker: &str, target: &str, damage: u64, unmitigated_damage: u64, is_crit: bool, evaded: bool) -> CombatEvent {
@@ -5688,6 +5743,67 @@ mod fight_summary_tests {
         assert_eq!(owner.damage_taken, 920, "own 20 taken + 900 absorbed by the golem, both credited to the owner's tank stat");
     }
 
+    /// Release 1 Part B6 - a Thunder Golem's tank credit comes from
+    /// `thunder_net_absorbed`, NOT the plain event-log `damage_taken` sum
+    /// the generic rollup above still uses for every other golem type.
+    /// Here the golem's raw `Attack` events sum to 900 (it really did
+    /// absorb that much over the fight), but only 400 of it is still
+    /// "owned" by the golem's own tank credit - the other 500 already got
+    /// redistributed away to the party (and shows up as ITS OWN separate
+    /// damage_taken on whichever real party member(s) received the
+    /// ticks, not exercised here) - crediting the owner the full 900 as
+    /// well would double-count that 500.
+    #[test]
+    fn thunder_golem_tank_credit_uses_net_absorbed_not_the_raw_event_log_sum() {
+        let units = vec![
+            player("lokati_gaming"),
+            CombatUnitInfo {
+                id: "__golem_lokati_gaming_0".to_string(),
+                display_name: "lokati_gaming's Golem".to_string(),
+                is_boss: false,
+                archetype: None,
+                role: None,
+                max_hp: 330,
+                golem_summoner_id: Some("lokati_gaming".to_string()),
+                golem_type: Some(GolemType::Thunder),
+                thunder_net_absorbed: 400,
+            },
+            boss("__enemy_0"),
+        ];
+        let events = vec![attack(0, "__enemy_0", "__golem_lokati_gaming_0", 900, 900, false, false)];
+        let stats = full_player_fight_stats(&units, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        assert_eq!(owner.damage_taken, 400, "net-absorbed credit (400), not the raw 900 the golem's own Attack events summed to");
+    }
+
+    /// Same mechanic, the "survives to fight end, nothing ever
+    /// redistributed" case - `thunder_net_absorbed` equals the full
+    /// absorbed total exactly (nothing was ever subtracted out), so the
+    /// owner's credit matches what the raw event-log sum would have given
+    /// anyway.
+    #[test]
+    fn thunder_golem_that_never_died_credits_its_full_net_absorbed_total() {
+        let units = vec![
+            player("lokati_gaming"),
+            CombatUnitInfo {
+                id: "__golem_lokati_gaming_0".to_string(),
+                display_name: "lokati_gaming's Golem".to_string(),
+                is_boss: false,
+                archetype: None,
+                role: None,
+                max_hp: 330,
+                golem_summoner_id: Some("lokati_gaming".to_string()),
+                golem_type: Some(GolemType::Thunder),
+                thunder_net_absorbed: 900,
+            },
+            boss("__enemy_0"),
+        ];
+        let events = vec![attack(0, "__enemy_0", "__golem_lokati_gaming_0", 900, 900, false, false)];
+        let stats = full_player_fight_stats(&units, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
+        assert_eq!(owner.damage_taken, 900, "nothing was ever redistributed away, so the full absorbed total is credited");
+    }
+
     /// Requirement 3 - a Water Golem's Replenishing heal (a `Heal` event
     /// with the golem as `healer`) credits the owner's heal stat.
     #[test]
@@ -5752,11 +5868,11 @@ mod player_vitals_tests {
     use super::*;
 
     fn player(id: &str, max_hp: u64) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp, golem_summoner_id: None }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
     }
 
     fn hit(at_ms: u32, attacker: &str, target: &str, target_hp_after: u64) -> CombatEvent {

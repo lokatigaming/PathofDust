@@ -309,6 +309,30 @@ behavior and stats.
     `thundergolem_growing_pct`'s own doc in combat.rs.)
   - *Terrifying* — when a Thunder Golem dies, it explodes dealing
     33/66/100% of its health as damage to enemies.
+
+  **Final sizing formula, traced and confirmed correct against the
+  code (2026-08-19, golem integrity audit item A3):**
+  `max_hp_at_spawn = summoner.max_hp × 0.33 × (1.0 + gigantify_pct)`,
+  where `summoner.max_hp` is the Elementalist's own fully-buffed
+  effective max hp at the moment of summon and `gigantify_pct` is
+  0.0/1.0/2.0/3.0 at rank 0/1/2/3 (so rank 3 gives `0.33 × 4.0 = 1.32×`
+  the owner's max hp - matches the "66/99/132%" wording above exactly).
+  On each reform, `max_hp = max_hp_at_spawn × (1.0 + growing_pct ×
+  reform_count)` (see Growing's own entry above for the additive-not-
+  compounding fix). Both halves are covered by their own passing unit
+  tests (`gigantify_raises_thunder_golem_hp_contribution`,
+  `golem_reform_growing_is_additive_not_compounding_across_many_reforms`)
+  proving the formula is internally correct for a KNOWN rank/reform
+  count. A live audit found an apparent ~23% shortfall against a
+  "predicted" 1.32× for one specific character - traced as far as
+  possible without that character's own real `passive_allocations`:
+  the predicted figure assumes rank-3 Gigantify AND rank-3 Growing:
+  if the real character's investment in either is actually lower, the
+  "predicted" comparison figure itself would be wrong, not the code -
+  a rank-2 Growing golem that's reformed several times would
+  legitimately sit well below a rank-3 assumption's own prediction.
+  **Not resolved as a confirmed code bug** - re-flag with the actual
+  character's real Gigantify/Growing ranks if the shortfall persists.
 - **Flame Golem** — base behavior is the standard golem attack; the
   sub-passives are its identity.
   - *Volcanic Ash* — Flame Golems inherit 33/66/100% of the
@@ -413,3 +437,123 @@ follows its own `heal_power` economy independent of this damage
 projection) and the still-open Thunder-redistribution change queued
 behind this release, whose own tank-credit formula depends on this
 fix's new absorption magnitudes and is out of scope here.
+
+---
+
+## Release 1, Part A — golem integrity fixes (2026-08-19)
+
+A verification pass over the shipped golem work found four real gaps,
+fixed together before Part B below (which builds on a Thunder Golem's
+now-accurate absorbed-damage bookkeeping):
+
+- **A1 — golems could self-heal via Festering Wound's leech.** Root
+  cause: `wound_leech_bonus` is a TARGET-side field (Festering Wound's
+  leech applies to WHOEVER attacks a wounded target), independent of
+  the attacker's own `life_leech_pct` (always 0 for a golem, which
+  never inherits leech stats). Not something the earlier stat-
+  inheritance fix caused — golems never had leech fields copied to
+  them — but a real leak regardless. Fixed by gating both
+  `wound_leech_bonus` and the general `effective_leech_pct` leech
+  calculation on `!attacker.is_golem`, and adding `golem_may_produce_heals`
+  as defense-in-depth at every other self-heal site a golem could
+  theoretically reach (Wound Explosion self-leech, Bloodpact Shared
+  Pain/refund) even though those are structurally unreachable for a
+  golem today.
+- **A2 — Thunder Golem's heal/shield immunity only lived inside
+  `apply_heal`.** The existing immunity comment claimed `apply_heal`/
+  `grant_shield` were "the two fully centralized application points
+  every shield/heal source in this file already funnels through" —
+  true for `grant_shield`, false for `apply_heal`: several hand-rolled
+  heal-write sites bypass it entirely, most notably the Guardian
+  Spirit/Undying Fury/Verdant Burst/Soul Stone/Chakra of Life
+  would-kill-save cascade. This exactly matches a live audit finding
+  ("healed a Thunder golem for 865,341 twice"). Fixed with a shared
+  `is_heal_immune`/`golem_may_produce_heals` pair of helpers, applied
+  as a target-side backstop at every direct HP-restoration site in the
+  file (the would-kill save cascade, `apply_heal_splash`,
+  `apply_radiant_smite_heal`, Nature's Embrace splash, `apply_heal_bounce`,
+  Unbroken Prayer bounce, the unified-action heal-lowest-ally pool),
+  not just the two "shared" functions.
+- **A3 — golem HP sizing.** Traced and confirmed mathematically
+  correct against the code — see the sizing-formula callout in Thunder
+  Golem's own entry above. Not a confirmed bug.
+- **A4 — zero-amount heal event bloat.** The Lingering Effect
+  heal-flavor tick (50ms cadence) pushed a `Heal` event unconditionally
+  on every tick, including when the target was already at full hp
+  (`healed == 0`) — unlike `apply_heal`'s own `if healed > 0` push
+  convention. Confirmed as the live audit's own "2,296 of ~2,444 heal
+  events... amount:0" finding. Fixed by nesting the event push inside
+  `if healed > 0`, same as every other heal site. **Not golem-specific**
+  — this fixes event bloat for every heal-flavor Lingering Effect tick
+  regardless of target, so the golden-corpus regression fixtures for
+  every archetype needed regenerating alongside this release, not just
+  the Elementalist ones.
+
+---
+
+## Release 1, Part B — Thunder Golem absorbed-damage redistribution (2026-08-19)
+
+**B1 — the mechanic.** Every incarnation of a Thunder Golem tracks its
+own `thundergolem_absorbed_this_incarnation`: the total damage actually
+applied to its own hp (after its own mitigation), since spawn or since
+its most recent reform, whichever is later. When that incarnation dies,
+`thunder_redistribution_pct` (a live tunable, default 50%) of that total
+splits evenly across every currently-alive REAL party member (never
+another golem — B2) as unmitigated true damage (no evasion/block/DR
+roll), delivered as 2 equal ticks spread across
+`thunder_redistribution_window_secs` (a live tunable, default 2.0s —
+tick 1 at half the window, tick 2 at the full window). A lethal tick
+resolves exactly like any other killing blow (hp hits 0, `Defeat`
+fires, Rising Phoenix eligible) — no special-casing, since the main
+loop's own generic "who died since last iteration" sweep picks it up
+the same as any other death. Zero absorbed damage or a 0%
+`thunder_redistribution_pct` schedules nothing at all. The per-
+incarnation tally resets to 0 on spawn and on every reform — a
+long-lived Thunder Golem's later incarnations only ever redistribute
+what THAT incarnation itself absorbed, not its predecessors'.
+
+**B2 — never lands on a golem.** The recipient pool is built directly
+from currently-alive real party members (`!is_boss && !is_golem`), so
+this bypasses `thunder_golem_redirect` by construction — there is
+nothing to redirect away from, since a golem was never a candidate
+recipient in the first place, even if a second Thunder Golem is alive
+at the same moment.
+
+**B3 — Terrifying's explosion is unchanged and separate.** It fires
+from the same `handle_golem_death` call (outgoing damage to enemies,
+based on `max_hp`) with no interaction with the incoming-damage
+redistribution mechanic below it in the same function.
+
+**B4 — attribution: environmental, not the Elementalist's own.** Every
+redistribution tick's `Attack` event carries a sentinel `attacker` id
+(`__thunder_redistribution__`, no real unit is ever built with that
+shape) tagged with a new `AttackSourceKind::Environmental` variant.
+`full_player_fight_stats`'s `stats.get_mut(attacker)` never finds a
+match for the sentinel, so nobody's own `damage_dealt` is credited —
+it is deliberately unattributed, "not enemy damage, not the
+Elementalist's own." Each death that triggers a redistribution also
+pushes a distinct `SkillCast { skill: "Thunder Golem Redistribution" }`
+observability marker, same convention as the Reform/Righteous
+Fire/Healing Flames markers.
+
+**B5 — tunables.** `LiveTunables::thunder_redistribution_pct` (0.0-1.0,
+default 0.50) and `LiveTunables::thunder_redistribution_window_secs`
+(default 2.0), both live-editable at `/admin/tunables` under a new
+"Elementalist" section, re-read on every death (not cached), so a
+change takes effect on the very next fight.
+
+**B6 — tank-credit formula.** A Thunder Golem's own lifetime
+`thundergolem_net_absorbed` running total is what
+`full_player_fight_stats` rolls up into the owner's `damage_taken`
+stat, NOT the plain event-log sum every other golem type still uses —
+crediting both the full raw absorbed total AND the redistributed
+ticks' own separate `damage_taken` (already counted on each
+recipient's own row) would double-count the redistributed portion.
+Computed incrementally: every absorbed hit adds to
+`thundergolem_net_absorbed` (mirroring `thundergolem_absorbed_this_incarnation`,
+but never reset by a reform — it's a lifetime total), and
+`handle_golem_death` immediately subtracts whatever fraction just got
+redistributed away. Net effect: an incarnation that dies mid-fight
+leaves `(1 - thunder_redistribution_pct) × absorbed` credited to the
+owner's tank stat; an incarnation still alive at fight end keeps its
+full absorbed amount, since it was never redistributed at all.

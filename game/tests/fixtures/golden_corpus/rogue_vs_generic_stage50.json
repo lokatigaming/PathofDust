@@ -6,6 +6,8 @@
       "displayName": "rogue_vs_generic_stage50",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "rogue",
       "role": "melee",
       "maxHp": 371
@@ -15,6 +17,8 @@
       "displayName": "Boss",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 8000

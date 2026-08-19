@@ -1933,6 +1933,10 @@ struct TunablesForm {
     pierce_h: f64,
     /// See `LiveTunables::fight_summary_batch_size`'s doc.
     fight_summary_batch_size: u32,
+    /// See `LiveTunables::thunder_redistribution_pct`'s doc.
+    thunder_redistribution_pct: f64,
+    /// See `LiveTunables::thunder_redistribution_window_secs`'s doc.
+    thunder_redistribution_window_secs: f64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -1977,6 +1981,8 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 pierce_cap: form.pierce_cap.clamp(0.0, 1.0),
                 pierce_h: form.pierce_h.max(1.0),
                 fight_summary_batch_size: form.fight_summary_batch_size.max(1),
+                thunder_redistribution_pct: form.thunder_redistribution_pct.clamp(0.0, 1.0),
+                thunder_redistribution_window_secs: form.thunder_redistribution_window_secs.max(0.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -2663,6 +2669,17 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"1\" min=\"1\" id=\"fight_summary_batch_size\" name=\"fight_summary_batch_size\" value=\"{fight_summary_batch_size}\">\
               <p class=\"tunable-hint\">How many fight results (Basic and Boss alike) accumulate into one batched chat summary. 1 = post every fight individually, same as before batching existed. A partial batch always posts after ~5 minutes even if it hasn't reached this count.</p>\
             </div>\
+            <h2>Elementalist</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
+              <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
+              <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -2688,6 +2705,8 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         pierce_cap = t.pierce_cap,
         pierce_h = t.pierce_h,
         fight_summary_batch_size = t.fight_summary_batch_size,
+        thunder_redistribution_pct = t.thunder_redistribution_pct,
+        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
     )
 }

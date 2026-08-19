@@ -6,6 +6,8 @@
       "displayName": "ranger_vs_lich_stage3000",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "ranger",
       "role": "ranged",
       "maxHp": 155626
@@ -15,6 +17,8 @@
       "displayName": "The Lich",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 2000000
@@ -24,6 +28,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -33,6 +39,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -42,6 +50,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -51,6 +61,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -60,6 +72,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 200000

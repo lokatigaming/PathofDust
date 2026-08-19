@@ -6,6 +6,8 @@
       "displayName": "warlock_vs_dragon_stage500",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "warlock",
       "role": "ranged",
       "maxHp": 5790
@@ -15,6 +17,8 @@
       "displayName": "The Dragon",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 120000

@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 
 /// One archetype-granted combat skill - the extensible framework a live
 /// request to "add lots of skills with different effects" asked for.
@@ -1793,6 +1793,25 @@ pub(crate) struct CombatSimUnit {
     /// "id string, resolved to an index later" convention
     /// `curse_source_id` already uses elsewhere in this file.
     revive_caster_id: String,
+    /// Thunder Golem absorbed-damage redistribution (2026-08-19, Release
+    /// 1 Part B) - for a real party member: `u32::MAX` (nothing pending)
+    /// unless a Thunder Golem's death just scheduled this unit's next
+    /// redistribution DoT tick, in which case this is the timestamp it
+    /// fires at. Checked even on a dead unit in the main loop's scan (see
+    /// that check's own comment) so a second tick still clears its own
+    /// clock if the first one killed the recipient.
+    next_thunder_redistribution_tick_at_ms: u32,
+    /// This unit's own per-tick share of a Thunder Golem's redistributed
+    /// absorption - HALF of their even split of the total (2 ticks per
+    /// the spec), reused unchanged for both ticks. 0.0 when nothing
+    /// pending.
+    thunder_redistribution_per_tick_amount: f64,
+    /// How many redistribution ticks this unit still has coming (2, then
+    /// 1, then 0/cleared). Distinct from `next_thunder_redistribution_tick_at_ms`
+    /// == `u32::MAX` only after the SECOND tick fires - needed so the
+    /// handler knows whether to reschedule for a second tick or clear
+    /// the clock for good.
+    thunder_redistribution_ticks_remaining: u32,
     /// Elementalist's Cleansing Flames - THIS unit's own chance (33/66/
     /// 100%) to cleanse every 4 seconds. 0.0 without it invested, which
     /// also keeps `next_cleansingflames_at_ms` at `u32::MAX`.
@@ -1897,6 +1916,31 @@ pub(crate) struct CombatSimUnit {
     /// handler right before computing the new additive max_hp. 0 for
     /// every non-Thunder-Golem unit.
     thundergolem_reform_count: u32,
+    /// For a Thunder Golem: total damage actually applied to ITS OWN hp
+    /// (after its own mitigation) THIS INCARNATION - since spawn, or
+    /// since its most recent reform, whichever is later. Reset to 0.0 at
+    /// spawn and again on every reform (2026-08-19, Release 1 Part B) -
+    /// what a fraction of gets redistributed to the party as a DoT when
+    /// this incarnation dies (see `handle_golem_death`'s own doc). 0.0
+    /// for every non-Thunder-Golem unit.
+    thundergolem_absorbed_this_incarnation: f64,
+    /// For a Thunder Golem: the LIFETIME (never reset by a reform, unlike
+    /// `thundergolem_absorbed_this_incarnation` above) running total this
+    /// golem's owner should be credited for tanking - every incarnation's
+    /// absorbed damage added in as it lands (same sites as
+    /// `thundergolem_absorbed_this_incarnation`), then whatever fraction
+    /// gets redistributed away on that incarnation's death immediately
+    /// SUBTRACTED back out (`handle_golem_death`) so a died-mid-fight
+    /// incarnation only leaves `(1 - redistribution_pct) * absorbed`
+    /// behind, while an incarnation still alive at fight end keeps its
+    /// full amount uncredited-reduced (2026-08-19, Release 1 Part B6).
+    /// Copied into `CombatUnitInfo::thunder_net_absorbed` at the end of
+    /// the fight for `full_player_fight_stats`'s golem-rollup to read -
+    /// see that field's own doc for why the plain event-log
+    /// `damage_taken` sum can't be reused here (it would double-count the
+    /// redistributed portion, already counted separately on each
+    /// recipient's own row). 0.0 for every non-Thunder-Golem unit.
+    thundergolem_net_absorbed: f64,
     /// For a Thunder Golem: Terrifying's own on-death explosion
     /// fraction of `max_hp`, dealt to every alive enemy - copied from
     /// the summoner's investment at spawn. 0.0 without it invested.
@@ -3115,6 +3159,9 @@ impl Default for CombatSimUnit {
             alive_since_ms: 0,
             revive_at_ms: u32::MAX,
             revive_caster_id: String::new(),
+            next_thunder_redistribution_tick_at_ms: u32::MAX,
+            thunder_redistribution_per_tick_amount: 0.0,
+            thunder_redistribution_ticks_remaining: 0,
             cleansingflames_chance: 0.0,
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
@@ -3131,6 +3178,8 @@ impl Default for CombatSimUnit {
             thundergolem_growing_pct: 0.0,
             thundergolem_reform_base_max_hp: 0,
             thundergolem_reform_count: 0,
+            thundergolem_absorbed_this_incarnation: 0.0,
+            thundergolem_net_absorbed: 0.0,
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
@@ -4767,6 +4816,16 @@ pub(crate) fn apply_reflect_damage(units: &mut [CombatSimUnit], source_idx: usiz
     let final_damage = penalized.round().max(0.0) as i64;
     let new_hp = (units[target_idx].hp - final_damage).max(0);
     units[target_idx].hp = new_hp;
+    // Thunder Golem absorbed-damage redistribution (2026-08-19, Release 1
+    // Part B1) - a Thunder Golem attacking a reflect-carrying boss eats
+    // its own reflect damage here (see this function's own doc for why
+    // that never redirects), which is real damage to its own hp same as
+    // any other site - see `apply_hit`'s own identical increment for the
+    // full doc.
+    if units[target_idx].golem_type == Some(GolemType::Thunder) {
+        units[target_idx].thundergolem_absorbed_this_incarnation += final_damage.max(0) as f64;
+        units[target_idx].thundergolem_net_absorbed += final_damage.max(0) as f64;
+    }
     units[source_idx].damage_dealt_total += final_damage.max(0) as u64;
     let target_id = units[target_idx].id.clone();
     events.push(CombatEvent::Attack {
@@ -4969,21 +5028,43 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
             // and wasted - a real, known limitation, but NOT something to
             // fix by changing this universal base mechanic (see Seed of
             // Life just below for the actual, correctly-scoped fix).
-            let room = (units[target_idx].max_hp as i64 - units[target_idx].hp).max(0);
-            let healed = (dot.amount_per_tick.round().max(0.0) as i64).min(room);
-            units[target_idx].hp += healed;
-            events.push(CombatEvent::Heal { at_ms, healer: dot.source_id.clone(), target: target_id, amount: healed.max(0) as u64, target_hp_after: units[target_idx].hp as u64, is_revive: false });
-            // Seed of Life (Druid-specific, 2026-08-16) - the SOURCE's own
-            // rate, ADDITIONAL to the direct heal above, not a replacement
-            // for it. Off the tick's full `amount_per_tick` (not the
-            // HP-room-clamped `healed`), matching "at the same rate" as
-            // the heal itself per the request, not diminished by whatever
-            // room happened to be left. 0.0 (a no-op) for every source
-            // that isn't a Druid with Seed of Life invested.
-            if let Some(source_idx) = units.iter().position(|u| u.id == dot.source_id) {
-                let seedoflife_pct = units[source_idx].seedoflife_shield_pct;
-                if seedoflife_pct > 0.0 {
-                    grant_shield(units, source_idx, target_idx, dot.amount_per_tick * seedoflife_pct, at_ms, SEEDOFLIFE_SHIELD_DURATION_MS, events);
+            // 2026-08-19 - Thunder Golem heal immunity (see
+            // `is_heal_immune`'s own doc): a heal-flavor tick landing on
+            // a Thunder Golem is a complete no-op (not damage - this
+            // branch still unconditionally `continue`s below, it just
+            // skips the actual hp change/event/Seed-of-Life when immune),
+            // since this writes hp directly and bypasses `apply_heal`
+            // entirely.
+            if !is_heal_immune(&units[target_idx]) {
+                let room = (units[target_idx].max_hp as i64 - units[target_idx].hp).max(0);
+                let healed = (dot.amount_per_tick.round().max(0.0) as i64).min(room);
+                units[target_idx].hp += healed;
+                // 2026-08-19 bugfix (golem integrity audit, item A4) - only
+                // push an event when this tick actually restored hp. At
+                // `LINGERING_EFFECT_TICK_INTERVAL_MS`'s 50ms cadence, a
+                // heal-flavor DoT sitting on an already-full-hp target
+                // (the common case once a HoT catches someone up) used to
+                // push a `Heal { amount: 0 }` event on EVERY tick anyway -
+                // confirmed as the audit's own "2,296 of ~2,444 heal
+                // events... amount:0" finding. `apply_heal` (the shared
+                // pipeline) already only pushes on `healed > 0`; this
+                // hand-rolled site never matched that convention.
+                if healed > 0 {
+                    events.push(CombatEvent::Heal { at_ms, healer: dot.source_id.clone(), target: target_id, amount: healed as u64, target_hp_after: units[target_idx].hp as u64, is_revive: false });
+                }
+                // Seed of Life (Druid-specific, 2026-08-16) - the SOURCE's
+                // own rate, ADDITIONAL to the direct heal above, not a
+                // replacement for it. Off the tick's full `amount_per_tick`
+                // (not the HP-room-clamped `healed`), matching "at the same
+                // rate" as the heal itself per the request, not diminished
+                // by whatever room happened to be left. 0.0 (a no-op) for
+                // every source that isn't a Druid with Seed of Life
+                // invested.
+                if let Some(source_idx) = units.iter().position(|u| u.id == dot.source_id) {
+                    let seedoflife_pct = units[source_idx].seedoflife_shield_pct;
+                    if seedoflife_pct > 0.0 {
+                        grant_shield(units, source_idx, target_idx, dot.amount_per_tick * seedoflife_pct, at_ms, SEEDOFLIFE_SHIELD_DURATION_MS, events);
+                    }
                 }
             }
             continue;
@@ -5555,6 +5636,9 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             alive_since_ms: 0,
             revive_at_ms: u32::MAX,
             revive_caster_id: String::new(),
+            next_thunder_redistribution_tick_at_ms: u32::MAX,
+            thunder_redistribution_per_tick_amount: 0.0,
+            thunder_redistribution_ticks_remaining: 0,
             cleansingflames_chance: 0.0,
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
@@ -5571,6 +5655,8 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             thundergolem_growing_pct: 0.0,
             thundergolem_reform_base_max_hp: 0,
             thundergolem_reform_count: 0,
+            thundergolem_absorbed_this_incarnation: 0.0,
+            thundergolem_net_absorbed: 0.0,
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
@@ -6007,6 +6093,46 @@ pub(crate) fn is_damage_immune(unit: &CombatSimUnit, at_ms: u32) -> bool {
     at_ms <= unit.chakraoflife_immune_until_ms || is_protected_golem(unit)
 }
 
+/// Thunder Golem heal/shield immunity (2026-08-19, golem integrity audit)
+/// - "cannot be shielded or healed by any means," enforced as a TARGET-side
+/// backstop at every direct HP-restoration site, not just `apply_heal`/
+/// `grant_shield`. Those two functions' own doc comments claimed to be
+/// "the two fully centralized application points every shield/heal
+/// source in this file already funnels through" - true for
+/// `grant_shield`, but FALSE for `apply_heal`: several hand-rolled
+/// death-prevention/self-heal/leech mechanics (Guardian Spirit's Final
+/// Blessing, Chakra of Life, Wound Explosion's self-leech, Bloodpact's
+/// refund/Shared Pain, the Slayer leech mechanic below) write hp
+/// directly and push their own `Heal` event, bypassing `apply_heal`
+/// entirely - confirmed via live fight-log audit (a Cleric healed a
+/// Thunder Golem for 865,341 twice in one fight, via one of these
+/// bypass sites, not `apply_heal` itself).
+pub(crate) fn is_heal_immune(unit: &CombatSimUnit) -> bool {
+    unit.golem_type == Some(GolemType::Thunder)
+}
+
+/// Golem healing-behavior restriction (2026-08-19, golem integrity audit,
+/// spec-owner ruling: "golems are attackers only... no leech, no
+/// self-heal, no healing others. Water Golem Replenishing is the sole
+/// exception"). `false` for a non-Water golem acting as a HEALER at any
+/// of the hand-rolled heal-write sites `is_heal_immune`'s own doc lists -
+/// Water Golem's Replenishing is explicitly exempted since it's its own
+/// dedicated mechanic (routes through the generic heal_power-driven
+/// unified-action heal share, the SAME path any other healer archetype
+/// uses, not one of these bypass sites). Confirmed root cause for the
+/// audit's "golem self-heals (88K-237K)" finding: `wound_leech_bonus`
+/// (Festering Wound's per-stack leech bonus) is a TARGET-side field -
+/// whoever attacks a wounded target leeches off it, which used to apply
+/// to a golem attacker exactly as if it had its own `life_leech_pct`
+/// investment (always 0 for a golem) - the archetype-specific fields
+/// this restriction ALSO backstops at (Guardian Spirit, Chakra of Life,
+/// Wound Explosion, Bloodpact) are structurally unreachable for a golem
+/// today (never inherited from the summoner), so this is defense in
+/// depth for them, not a reproduced bug.
+pub(crate) fn golem_may_produce_heals(unit: &CombatSimUnit) -> bool {
+    !unit.is_golem || unit.golem_type == Some(GolemType::Water)
+}
+
 /// Elementalist's Thunder Golem (docs/elementalist_spec.md, Stage 0
 /// resolution #5) - "absorbs all EXTERNALLY-sourced damage the party
 /// would take until it dies." Confirmed via direct investigation there
@@ -6336,13 +6462,63 @@ fn kill_golems_of_dead_summoners(units: &mut [CombatSimUnit], newly_dead_summone
 /// per-iteration death-detection sweep for ANY golem that just died -
 /// combat damage or the summoner-death rule alike - not a per-site
 /// audit.
-fn handle_golem_death(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+#[allow(clippy::too_many_arguments)]
+fn handle_golem_death(
+    units: &mut [CombatSimUnit],
+    golem_idx: usize,
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+    redistribution_pct: f64,
+    redistribution_window_ms: u32,
+) {
     let terrifying_pct = units[golem_idx].thundergolem_terrifying_pct;
     if terrifying_pct > 0.0 {
         let explosion_dmg = units[golem_idx].max_hp as f64 * terrifying_pct;
         let enemies: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
         for enemy_idx in enemies {
             apply_true_damage(units, golem_idx, enemy_idx, explosion_dmg, at_ms, events, rolls, rng);
+        }
+    }
+    // Thunder Golem absorbed-damage redistribution (docs/elementalist_spec.md,
+    // Release 1 Part B) - `redistribution_pct` of whatever THIS incarnation
+    // actually absorbed (`thundergolem_absorbed_this_incarnation`, post-
+    // mitigation, never touched by Terrifying's explosion above - that's
+    // outgoing damage, not incoming) splits EVENLY across every currently
+    // alive REAL party member (B2 - golems are excluded from the
+    // candidate pool outright, so this can never land on another golem
+    // even a second Thunder Golem also currently alive, no
+    // `thunder_golem_redirect` call needed) as a 2-tick unmitigated DoT
+    // spread across `redistribution_window_ms`. Only ever nonzero for a
+    // Thunder Golem (every other golem type never increments
+    // `thundergolem_absorbed_this_incarnation` in the first place), so
+    // this is naturally a no-op for Flame/Water/Basic without its own
+    // type check. Fires on ANY death this function handles - combat damage
+    // or the summoner-death cascade alike, same as Terrifying above - the
+    // Golem doesn't need to still be "in a real fight" for its tank
+    // burden to come due.
+    let absorbed = units[golem_idx].thundergolem_absorbed_this_incarnation;
+    if absorbed > 0.0 && redistribution_pct > 0.0 {
+        let recipients: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && !u.is_golem && u.alive).map(|(i, _)| i).collect();
+        if !recipients.is_empty() {
+            let total_redistributed = absorbed * redistribution_pct;
+            // B6 - this incarnation's contribution to the owner's lifetime
+            // tank credit shrinks by exactly the portion that just got
+            // handed off to the party (see `thundergolem_net_absorbed`'s
+            // own doc) - the recipients' own `damage_taken` already picks
+            // it up separately once the ticks actually land below.
+            units[golem_idx].thundergolem_net_absorbed -= total_redistributed;
+            let per_recipient = total_redistributed / recipients.len() as f64;
+            let per_tick = per_recipient / 2.0;
+            let tick_interval_ms = (redistribution_window_ms / 2).max(1);
+            let golem_id = units[golem_idx].id.clone();
+            events.push(CombatEvent::SkillCast { at_ms, unit: golem_id, skill: "Thunder Golem Redistribution".to_string() });
+            for &recipient_idx in &recipients {
+                units[recipient_idx].next_thunder_redistribution_tick_at_ms = at_ms + tick_interval_ms;
+                units[recipient_idx].thunder_redistribution_per_tick_amount = per_tick;
+                units[recipient_idx].thunder_redistribution_ticks_remaining = 2;
+            }
         }
     }
     let reform_delay = units[golem_idx].thundergolem_reform_delay_ms;
@@ -6389,8 +6565,86 @@ fn reform_thunder_golem(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u3
     units[golem_idx].alive = true;
     units[golem_idx].hp = units[golem_idx].max_hp as i64;
     units[golem_idx].golem_reform_at_ms = u32::MAX;
+    // Thunder Golem absorbed-damage redistribution (2026-08-19, Release 1
+    // Part B1) - a fresh incarnation starts its own absorption tally at
+    // zero; `handle_golem_death` already consumed the PREVIOUS
+    // incarnation's total before scheduling this reform. Deliberately
+    // NOT resetting `thundergolem_net_absorbed` here - that one is
+    // lifetime, never reset by a reform (see its own doc).
+    units[golem_idx].thundergolem_absorbed_this_incarnation = 0.0;
     let golem_id = units[golem_idx].id.clone();
     events.push(CombatEvent::SkillCast { at_ms, unit: golem_id, skill: "Thunder Golem Reform".to_string() });
+}
+
+/// Sentinel `attacker` id for a Thunder Golem redistribution tick's own
+/// `Attack` event (docs/elementalist_spec.md, Release 1 Part B4) - no real
+/// unit's `id` is ever built this way (every real id comes from a Twitch
+/// login or `spawn_golem`'s own `__golem_<owner>_<slot>__` shape), so
+/// `full_player_fight_stats`'s `stats.get_mut(attacker)` never finds a
+/// match and silently credits the damage to nobody - "not enemy damage,
+/// not the Elementalist's own," exactly as specified. A real id string
+/// rather than an empty one purely so the detail-tier combat log still
+/// shows something legible instead of a blank attacker column.
+const THUNDER_REDISTRIBUTION_ATTACKER_ID: &str = "__thunder_redistribution__";
+
+/// Thunder Golem absorbed-damage redistribution's own per-tick payoff
+/// (docs/elementalist_spec.md, Release 1 Part B) - applies THIS unit's
+/// banked `thunder_redistribution_per_tick_amount` as unmitigated true
+/// damage (B1 - no evasion/block/DR roll of any kind, same "a detonation,
+/// not an attack" shape `apply_true_damage`/DoT ticks/Doom's own
+/// detonation already use), decrements `thunder_redistribution_ticks_remaining`,
+/// and either reschedules the second tick (`tick_interval_ms` after this
+/// one) or clears the clock for good. Monk's Chakra of Life full immunity
+/// still applies (`is_damage_immune`) - same "every true-damage site
+/// respects it" convention as every sibling site that helper's own doc
+/// lists; a protected (non-Thunder) golem can never be a recipient in the
+/// first place (`handle_golem_death`'s own candidate pool excludes every
+/// golem outright - B2), so that half of `is_damage_immune` is moot here,
+/// only kept for the shared check's own consistency.
+///
+/// A lethal tick resolves exactly like any other killing blow - hp write,
+/// `Defeat` push, `alive = false` - specifically so the main loop's own
+/// generic "who died since last iteration" sweep (which drives Rising
+/// Phoenix eligibility) picks it up on its very next iteration with no
+/// special-casing needed here (B1 - "deaths resolve normally"). A no-op
+/// against an already-dead recipient (first tick already killed them) -
+/// the clock still advances/clears correctly, it just deals no damage,
+/// same spirit as `next_thunder_redistribution_tick_at_ms`'s own "checked
+/// even on a dead unit" doc in the main loop.
+fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, tick_interval_ms: u32) {
+    let ticks_remaining = units[target_idx].thunder_redistribution_ticks_remaining;
+    if ticks_remaining == 0 {
+        units[target_idx].next_thunder_redistribution_tick_at_ms = u32::MAX;
+        return;
+    }
+    if units[target_idx].alive && !is_damage_immune(&units[target_idx], at_ms) {
+        let final_damage = units[target_idx].thunder_redistribution_per_tick_amount.round().max(0.0) as i64;
+        if final_damage > 0 {
+            let new_hp = (units[target_idx].hp - final_damage).max(0);
+            units[target_idx].hp = new_hp;
+            let target_id = units[target_idx].id.clone();
+            let hit_id = next_hit_id();
+            events.push(CombatEvent::Attack {
+                at_ms,
+                attacker: THUNDER_REDISTRIBUTION_ATTACKER_ID.to_string(),
+                target: target_id.clone(),
+                damage: final_damage.max(0) as u64,
+                unmitigated_damage: final_damage.max(0) as u64,
+                target_hp_after: new_hp as u64,
+                is_crit: false,
+                evaded: false,
+                hit_id,
+                source_kind: AttackSourceKind::Environmental,
+            });
+            if new_hp == 0 {
+                units[target_idx].alive = false;
+                events.push(CombatEvent::Defeat { at_ms, unit: target_id });
+            }
+        }
+    }
+    let remaining = ticks_remaining - 1;
+    units[target_idx].thunder_redistribution_ticks_remaining = remaining;
+    units[target_idx].next_thunder_redistribution_tick_at_ms = if remaining > 0 { at_ms + tick_interval_ms } else { u32::MAX };
 }
 
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
@@ -7962,7 +8216,13 @@ pub(crate) fn apply_hit(
     // this hit's normal wound/leech consequences below entirely (a
     // prevented death reads as a full negation, not a normal hit that
     // also happened to wound/leech on the way through).
-    if !units[target_idx].is_boss && final_damage >= units[target_idx].hp {
+    // 2026-08-19 - Thunder Golem heal immunity (see `is_heal_immune`'s
+    // own doc): excluded from this ENTIRE would-kill save cascade
+    // (Guardian Spirit, Verdant Burst, and whatever else-if branches
+    // follow) so a Thunder Golem about to die always just dies normally
+    // - "cannot be healed by any means" includes implicitly via a
+    // death-prevention save, not just a direct cast heal.
+    if !units[target_idx].is_boss && !is_heal_immune(&units[target_idx]) && final_damage >= units[target_idx].hp {
         // Precomputed once, reused by Verdant Burst's else-if branch below
         // (Druid, 2026-08-16 rework) - total pending (not-yet-delivered)
         // healing from each active heal-flavor Lingering Effect instance
@@ -8137,6 +8397,21 @@ pub(crate) fn apply_hit(
 
     let new_hp = (units[target_idx].hp - final_damage).max(0);
     units[target_idx].hp = new_hp;
+    // Thunder Golem absorbed-damage redistribution (2026-08-19, Release 1
+    // Part B1) - bank the actual (post-mitigation, post-shield) damage
+    // this hit just put on the golem's own hp. This is the normal-hit
+    // fallthrough every enemy-hits-party site funnels through once
+    // `thunder_golem_redirect` has steered `target_idx` onto the golem
+    // (see that function's own doc) - the would-kill save cascade above
+    // never reaches a Thunder Golem target (it's gated on
+    // `!is_heal_immune`, which a Thunder Golem always fails), so this
+    // single site sees every hit that ever lands on one. See
+    // `thundergolem_net_absorbed`'s own doc for the lifetime/tank-credit
+    // half of this bookkeeping.
+    if units[target_idx].golem_type == Some(GolemType::Thunder) {
+        units[target_idx].thundergolem_absorbed_this_incarnation += final_damage.max(0) as f64;
+        units[target_idx].thundergolem_net_absorbed += final_damage.max(0) as f64;
+    }
     // Purely so Cthulhu's ability can find "the top DPS" later - see
     // `damage_dealt_total`'s doc. Harmless to track on a boss/add
     // attacker too, just never read for those. Curse's own share (see
@@ -8348,7 +8623,12 @@ pub(crate) fn apply_hit(
                     hit_id,
                     source_kind: AttackSourceKind::Direct,
                 });
-                if self_leech_pct > 0.0 && final_damage > 0 {
+                // 2026-08-19 - golem healing restriction (see
+                // `golem_may_produce_heals`'s own doc): `self_leech_pct`
+                // is a Slayer-only stat, always 0 for a golem (never
+                // inherited), so this is defense in depth, not a
+                // reproduced bug.
+                if self_leech_pct > 0.0 && final_damage > 0 && golem_may_produce_heals(&units[attacker_idx]) {
                     let self_heal = (final_damage as f64 * self_leech_pct).round().max(0.0) as i64;
                     let healed_hp = (units[attacker_idx].hp + self_heal).min(units[attacker_idx].max_hp as i64);
                     let healed = (healed_hp - units[attacker_idx].hp) as u64;
@@ -8376,13 +8656,20 @@ pub(crate) fn apply_hit(
     // bonus (against a target THIS attacker's own hit just found already
     // wounded) blends into the SAME effective fraction before that cap,
     // rather than a second uncapped heal bolted on afterward.
-    let wound_leech_bonus =
-        if units[target_idx].wound_stacks > 0 && at_ms <= units[target_idx].wound_expires_at_ms {
-            units[target_idx].wound_stacks as f64 * units[target_idx].wound_leech_per_stack
-        } else {
-            0.0
-        };
-    let effective_leech_pct = units[attacker_idx].life_leech_pct + wound_leech_bonus;
+    // 2026-08-19 bugfix (golem integrity audit) - `wound_leech_bonus` is
+    // a TARGET-side field (whoever's wounded), so it applies to WHOEVER
+    // attacks that target next, regardless of the attacker's own
+    // `life_leech_pct` - a golem attacking a Festering-Wound-afflicted
+    // enemy leeched and self-healed exactly as if it had its own leech
+    // investment (always 0), confirmed as the root cause of the audit's
+    // "golem self-heals (88K-237K)" finding. Golems never leech, full
+    // stop - see `golem_may_produce_heals`'s own doc.
+    let wound_leech_bonus = if !units[attacker_idx].is_golem && units[target_idx].wound_stacks > 0 && at_ms <= units[target_idx].wound_expires_at_ms {
+        units[target_idx].wound_stacks as f64 * units[target_idx].wound_leech_per_stack
+    } else {
+        0.0
+    };
+    let effective_leech_pct = if units[attacker_idx].is_golem { 0.0 } else { units[attacker_idx].life_leech_pct + wound_leech_bonus };
     if effective_leech_pct > 0.0 && final_damage > 0 && units[attacker_idx].alive {
         // Slayer's Endless Thirst - a recent FlickerStrike dash can raise
         // (ranks 1-2) or remove entirely (rank 3) the cap below.
@@ -8535,7 +8822,7 @@ pub(crate) fn apply_hit(
                 let embrace_targets = units[druid_idx].naturesembrace_heal_targets;
                 if embrace_targets > 0 {
                     let mut candidates: Vec<usize> =
-                        units.iter().enumerate().filter(|(i, u)| *i != target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64).map(|(i, _)| i).collect();
+                        units.iter().enumerate().filter(|(i, u)| *i != target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u)).map(|(i, _)| i).collect();
                     candidates.sort_by_key(|&i| units[i].hp);
                     events.push(CombatEvent::SkillCast { at_ms, unit: units[druid_idx].id.clone(), skill: "Nature's Embrace".to_string() });
                     for &heal_idx in candidates.iter().take(embrace_targets as usize) {
@@ -8986,12 +9273,24 @@ pub(crate) fn apply_splash(
 /// `amount` rounds to 0 or less).
 pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_idx: usize, amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) -> u64 {
     // Elementalist's Thunder Golem - "cannot be shielded or healed by
-    // any means" (docs/elementalist_spec.md) - see `grant_shield`'s own
-    // doc for why a guard here (this function) is sufficient without
-    // touching every individual heal-source caller. Checked before
+    // any means" (docs/elementalist_spec.md) - see `is_heal_immune`'s own
+    // doc for why this guard alone is NOT sufficient (several OTHER
+    // hand-rolled heal sites bypass this function entirely - each of
+    // those carries the same check individually). Checked before
     // anything else, including the healer's own on-cast side effects
     // (Eternal Light below) - a true no-op, not just "0 hp restored."
-    if units[target_idx].golem_type == Some(GolemType::Thunder) {
+    if is_heal_immune(&units[target_idx]) {
+        return 0;
+    }
+    // Golem healing-behavior restriction (2026-08-19) - "golems are
+    // attackers only... Water Golem Replenishing is the sole exception."
+    // A non-Water golem `healer_idx` reaching this function today would
+    // only ever be via Dark Communion (itself gated on the golem's own
+    // `dark_communion_pct`, always 0 - structurally unreachable) - this
+    // is defense in depth, not a reproduced bug for THIS function
+    // specifically (see `golem_may_produce_heals`'s own doc for the real
+    // one, the leech mechanic's `wound_leech_bonus`).
+    if !golem_may_produce_heals(&units[healer_idx]) {
         return 0;
     }
     // Cleric's Eternal Light (2026-08-17, replacing its old "first heal
@@ -9206,7 +9505,7 @@ pub(crate) fn apply_heal_splash(units: &mut [CombatSimUnit], healer_idx: usize, 
     }
     let max_targets = if splash_fraction > 1.0 { HEAL_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { HEAL_SPLASH_MAX_TARGETS };
     let mut candidates: Vec<usize> =
-        units.iter().enumerate().filter(|(i, u)| *i != primary_target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64).map(|(i, _)| i).collect();
+        units.iter().enumerate().filter(|(i, u)| *i != primary_target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u)).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     for _ in 0..pick_count {
         let pick_at = rng.gen_range(0..candidates.len());
@@ -9233,7 +9532,7 @@ pub(crate) fn apply_radiant_smite_heal(units: &mut [CombatSimUnit], healer_idx: 
     }
     let base_max_targets = HEAL_SPLASH_MAX_TARGETS + extra_targets as usize;
     let max_targets = if splash_fraction > 1.0 { base_max_targets + SPLASH_OVERFLOW_BONUS_TARGETS } else { base_max_targets };
-    let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && u.alive && u.hp < u.max_hp as i64).map(|(i, _)| i).collect();
+    let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u)).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     // United Front - scales the WHOLE cast's heal amount by how many
     // allies it actually reaches, known before the per-target loop below
@@ -9318,7 +9617,7 @@ pub(crate) fn apply_heal_bounce(units: &mut [CombatSimUnit], healer_idx: usize, 
     // must never re-heal whoever the ORIGINAL heal already reached, not
     // just this function's own deterministic bounce candidates.
     let mut candidates: Vec<usize> =
-        units.iter().enumerate().filter(|(i, u)| *i != primary_target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64).map(|(i, _)| i).collect();
+        units.iter().enumerate().filter(|(i, u)| *i != primary_target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u)).map(|(i, _)| i).collect();
     // Compassion (rank 2+) - guarantees the lowest-HP ally is picked
     // first, by sorting the candidate pool ascending by hp before the
     // normal random-pick loop below consumes it front-to-back.
@@ -9370,7 +9669,7 @@ pub(crate) fn apply_heal_bounce(units: &mut [CombatSimUnit], healer_idx: usize, 
             let eligible: Vec<usize> = units
                 .iter()
                 .enumerate()
-                .filter(|(i, u)| !already_reached.contains(i) && !u.is_boss && u.alive && u.hp < u.max_hp as i64)
+                .filter(|(i, u)| !already_reached.contains(i) && !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u))
                 .map(|(i, _)| i)
                 .collect();
             if eligible.is_empty() || !rng.gen_bool(unbroken_chance.clamp(0.0, 1.0)) {
@@ -10403,6 +10702,9 @@ pub(crate) fn simulate_battle(
                 alive_since_ms: 0,
                 revive_at_ms: u32::MAX,
                 revive_caster_id: String::new(),
+                next_thunder_redistribution_tick_at_ms: u32::MAX,
+                thunder_redistribution_per_tick_amount: 0.0,
+                thunder_redistribution_ticks_remaining: 0,
                 cleansingflames_chance: c.passive_node_magnitude("cleansingflames"),
                 next_cleansingflames_at_ms: if c.passive_node_rank("cleansingflames") > 0 { CLEANSING_FLAMES_TICK_INTERVAL_MS } else { u32::MAX },
                 enshroudedfire_evasion_pct: c.passive_node_magnitude("enshroudedfire"),
@@ -10419,6 +10721,8 @@ pub(crate) fn simulate_battle(
                 thundergolem_growing_pct: 0.0,
                 thundergolem_reform_base_max_hp: 0,
                 thundergolem_reform_count: 0,
+                thundergolem_absorbed_this_incarnation: 0.0,
+                thundergolem_net_absorbed: 0.0,
                 thundergolem_terrifying_pct: 0.0,
                 watergolem_shattering_extra_targets: 0,
                 watergolem_singing_pct: 0.0,
@@ -10768,6 +11072,9 @@ pub(crate) fn simulate_battle(
             alive_since_ms: 0,
             revive_at_ms: u32::MAX,
             revive_caster_id: String::new(),
+            next_thunder_redistribution_tick_at_ms: u32::MAX,
+            thunder_redistribution_per_tick_amount: 0.0,
+            thunder_redistribution_ticks_remaining: 0,
             cleansingflames_chance: 0.0,
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
@@ -10784,6 +11091,8 @@ pub(crate) fn simulate_battle(
             thundergolem_growing_pct: 0.0,
             thundergolem_reform_base_max_hp: 0,
             thundergolem_reform_count: 0,
+            thundergolem_absorbed_this_incarnation: 0.0,
+            thundergolem_net_absorbed: 0.0,
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
@@ -11222,6 +11531,7 @@ pub(crate) fn simulate_battle(
         Revive(usize),
         CleansingFlamesTick(usize),
         GolemReform(usize),
+        ThunderRedistributionTick(usize),
     }
 
     // Which player the real boss is currently focus-targeting (see the
@@ -11287,7 +11597,16 @@ pub(crate) fn simulate_battle(
         // summoner-death cascade just above, not just combat deaths.
         for i in 0..units.len() {
             if units[i].is_golem && prev_alive[i] && !units[i].alive {
-                handle_golem_death(&mut units, i, prev_at_ms, &mut events, &mut rolls, &mut rng);
+                handle_golem_death(
+                    &mut units,
+                    i,
+                    prev_at_ms,
+                    &mut events,
+                    &mut rolls,
+                    &mut rng,
+                    tunables.thunder_redistribution_pct,
+                    (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
+                );
             }
         }
         // Water Golem's own Shattering modifier - any enemy that just died.
@@ -11311,6 +11630,15 @@ pub(crate) fn simulate_battle(
             // dead unit" exception as `revive_at_ms` just above.
             if u.golem_reform_at_ms != u32::MAX && (best.is_none() || u.golem_reform_at_ms < best.unwrap().0) {
                 best = Some((u.golem_reform_at_ms, NextEvent::GolemReform(i)));
+            }
+            // Thunder redistribution's own per-recipient tick clock
+            // (2026-08-19) - same "checked even on a dead unit" exception:
+            // if tick 1 kills the recipient, tick 2 still needs to fire
+            // (the handler itself no-ops the actual damage against an
+            // already-dead unit, but the clock must still be visited to
+            // clear it, same as every other one-shot clock here).
+            if u.next_thunder_redistribution_tick_at_ms != u32::MAX && (best.is_none() || u.next_thunder_redistribution_tick_at_ms < best.unwrap().0) {
+                best = Some((u.next_thunder_redistribution_tick_at_ms, NextEvent::ThunderRedistributionTick(i)));
             }
             if !u.alive {
                 continue;
@@ -11467,6 +11795,19 @@ pub(crate) fn simulate_battle(
             }
             NextEvent::GolemReform(golem_idx) => {
                 reform_thunder_golem(&mut units, golem_idx, at_ms, &mut events);
+                continue;
+            }
+            NextEvent::ThunderRedistributionTick(target_idx) => {
+                // Same interval `handle_golem_death` used to schedule tick
+                // 1 - re-derived from the live tunable rather than stored
+                // on the unit, since `redistribution_window_ms` is the
+                // SAME for every recipient/tick of a given death and
+                // storing it again per-unit would be a third field for no
+                // new information (see `thunder_redistribution_ticks_remaining`'s
+                // own doc for why only the amount/remaining-count need to
+                // live on the unit).
+                let tick_interval_ms = (((tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32) / 2).max(1);
+                apply_thunder_redistribution_tick(&mut units, target_idx, at_ms, &mut events, tick_interval_ms);
                 continue;
             }
             NextEvent::Revive(target_idx) => {
@@ -11831,6 +12172,9 @@ pub(crate) fn simulate_battle(
                                 alive_since_ms: 0,
                                 revive_at_ms: u32::MAX,
                                 revive_caster_id: String::new(),
+                                next_thunder_redistribution_tick_at_ms: u32::MAX,
+                                thunder_redistribution_per_tick_amount: 0.0,
+                                thunder_redistribution_ticks_remaining: 0,
                                 cleansingflames_chance: 0.0,
                                 next_cleansingflames_at_ms: u32::MAX,
                                 enshroudedfire_evasion_pct: 0.0,
@@ -11847,6 +12191,8 @@ pub(crate) fn simulate_battle(
                                 thundergolem_growing_pct: 0.0,
                                 thundergolem_reform_base_max_hp: 0,
                                 thundergolem_reform_count: 0,
+                                thundergolem_absorbed_this_incarnation: 0.0,
+                                thundergolem_net_absorbed: 0.0,
                                 thundergolem_terrifying_pct: 0.0,
                                 watergolem_shattering_extra_targets: 0,
                                 watergolem_singing_pct: 0.0,
@@ -12467,8 +12813,13 @@ pub(crate) fn simulate_battle(
                     if let Some(shield_idx) = shield_target {
                         grant_shield(&mut units, actor_idx, shield_idx, shield_amount, at_ms, BLOODPACT_SHIELD_DURATION_MS, &mut events);
                         // Shared Pain - self-heal off the shield's value.
+                        // 2026-08-19 - golem healing restriction (see
+                        // `golem_may_produce_heals`'s own doc): a golem's
+                        // id is never a key in `characters` (it's a real
+                        // player HashMap), so this is already structurally
+                        // 0.0 for a golem `actor_idx` - defense in depth.
                         let sharedpain_pct = characters.get(&units[actor_idx].id).map(|c| c.passive_node_magnitude("sharedpain")).unwrap_or(0.0);
-                        if sharedpain_pct > 0.0 {
+                        if sharedpain_pct > 0.0 && golem_may_produce_heals(&units[actor_idx]) {
                             let self_heal = (shield_amount * sharedpain_pct).round().max(0.0) as i64;
                             let new_hp = (units[actor_idx].hp + self_heal).min(units[actor_idx].max_hp as i64);
                             let healed = (new_hp - units[actor_idx].hp) as u64;
@@ -12559,7 +12910,13 @@ pub(crate) fn simulate_battle(
                         if killed && units[actor_idx].bloodpact_bloodforblood_pct > 0.0 {
                             refund += (units[boss_idx].max_hp as f64 * units[actor_idx].bloodpact_bloodforblood_pct).round().max(0.0) as i64;
                         }
-                        if refund > 0 {
+                        // 2026-08-19 - golem healing restriction (see
+                        // `golem_may_produce_heals`'s own doc): the
+                        // bloodpact_* fields above are Warlock-only,
+                        // always 0 for a golem - refund is already
+                        // structurally 0 without this guard, added for
+                        // consistency/defense in depth.
+                        if refund > 0 && golem_may_produce_heals(&units[actor_idx]) {
                             let new_hp = (units[actor_idx].hp + refund).min(units[actor_idx].max_hp as i64);
                             let healed = (new_hp - units[actor_idx].hp) as u64;
                             units[actor_idx].hp = new_hp;
@@ -12614,12 +12971,17 @@ pub(crate) fn simulate_battle(
                 let heal_target_idx = units
                     .iter()
                     .enumerate()
-                    .filter(|(i, u)| !u.is_boss && u.alive && u.hp < u.max_hp as i64 && *i != actor_idx)
+                    .filter(|(i, u)| !u.is_boss && u.alive && u.hp < u.max_hp as i64 && *i != actor_idx && !is_heal_immune(u))
                     .min_by_key(|(_, u)| u.hp)
                     .map(|(i, _)| i)
                     .or_else(|| {
                         let u = &units[actor_idx];
-                        (u.hp < u.max_hp as i64).then_some(actor_idx)
+                        // Thunder Golems never self-target here either -
+                        // moot in practice (a Thunder Golem never has
+                        // heal_power set, so it's never `actor_idx` in
+                        // this heal-share branch at all), added for
+                        // consistency with the candidate filter above.
+                        (u.hp < u.max_hp as i64 && !is_heal_immune(u)).then_some(actor_idx)
                     })
                     .or_else(|| {
                         // Nobody's hurt at all (2026-08-16, a live request) -
@@ -12809,6 +13171,8 @@ pub(crate) fn simulate_battle(
             role: u.role,
             max_hp: u.max_hp,
             golem_summoner_id: u.golem_summoner_id.clone(),
+            golem_type: u.golem_type,
+            thunder_net_absorbed: u.thundergolem_net_absorbed.round().max(0.0) as u64,
         })
         .collect();
     (won, unit_infos, events, rolls)
@@ -12900,8 +13264,8 @@ mod overlay_event_thinning_tests {
     #[test]
     fn caps_player_and_boss_events_independently_per_second() {
         let units = vec![
-            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None },
-            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100, golem_summoner_id: None },
+            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
+            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
         ];
         let mut events = Vec::new();
         for _ in 0..600 {
@@ -12919,7 +13283,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn different_seconds_each_get_their_own_budget() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
         let mut events = Vec::new();
         for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
             events.push(attack_at(500, "a_player"));
@@ -12933,7 +13297,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn under_the_cap_nothing_is_dropped() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
         let thinned = thin_events_for_overlay(events, &units);
         assert_eq!(thinned.len(), 3);
@@ -13425,8 +13789,8 @@ mod full_detail_combat_log_tests {
         }
         assert!(units[1].lingering_dots.is_empty(), "all ticks should have resolved and the instance dropped");
         let unit_infos = vec![
-            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None },
-            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000, golem_summoner_id: None },
+            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
+            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
         ];
         let stats = full_player_fight_stats(&unit_infos, &events);
         let attacker_stats = stats.iter().find(|s| s.id == "attacker").unwrap();
@@ -14678,6 +15042,34 @@ mod elementalist_stage_6_golem_type_tests {
         assert_eq!(golem.max_hp, 1320, "132% of 1000");
     }
 
+    /// 2026-08-19 (golem integrity audit, item A3) - end-to-end numeric
+    /// proof of the FULL sizing formula documented in
+    /// docs/elementalist_spec.md: spawn-time hp from Gigantify, THEN
+    /// several reforms compounding additively off that same base via
+    /// Growing - both halves in one realistic combined scenario, not
+    /// just each in isolation.
+    #[test]
+    fn full_sizing_formula_gigantify_then_growing_reforms_matches_the_documented_math() {
+        let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 1), ("gigantify", 3), ("growing", 2)], vec![GolemType::Thunder]);
+        let golem = spawn_golem(&summoner(1_000_000, 100, 0.0), "caster", 0, GolemType::Thunder, &c);
+        // Spawn: 1,000,000 * 0.33 * (1 + 3.0) = 1,320,000.
+        assert_eq!(golem.max_hp, 1_320_000, "spawn-time hp = owner_max_hp * 0.33 * (1 + gigantify_pct)");
+        assert_eq!(golem.thundergolem_reform_base_max_hp, 1_320_000, "the reform base must be pinned to the SPAWN-time value, not recomputed later");
+
+        let mut units = vec![golem];
+        let mut events: Vec<CombatEvent> = Vec::new();
+        for _ in 0..3 {
+            units[0].alive = false;
+            reform_thunder_golem(&mut units, 0, 0, &mut events);
+        }
+        // Growing rank 2 = 66.5% per reform (see the existing
+        // thunder_golem_reform_delay_and_growing_and_terrifying_are_copied_from_the_summoner
+        // test for that exact magnitude), 3 reforms:
+        // 1,320,000 * (1 + 0.665 * 3) = 1,320,000 * 2.995 = 3,953,400.
+        let expected = (1_320_000.0_f64 * (1.0 + 0.665 * 3.0)).round() as u64;
+        assert_eq!(units[0].max_hp, expected, "after 3 reforms at rank 2 Growing off the Gigantify-scaled base");
+    }
+
     #[test]
     fn thunder_golem_without_gigantify_still_uses_the_plain_33pct() {
         let c = elementalist_with(&[("golemmaster", 1), ("thundergolem", 1)], vec![GolemType::Thunder]);
@@ -14768,7 +15160,7 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
         assert_eq!(units[0].golem_reform_at_ms, 5_000 + 3_000, "rank 2 reform delay = 3s");
         let expected_dmg = (units[0].max_hp as f64 * 1.0).round() as i64; // terrifying rank 3 = 100%
         assert_eq!(units[1].hp, 1_000_000 - expected_dmg, "enemy a hit by the explosion");
@@ -14839,8 +15231,18 @@ mod elementalist_stage_6_golem_type_tests {
             reform_thunder_golem(&mut units, 0, 5_000, &mut events);
         }
         let unit_infos = vec![
-            CombatUnitInfo { id: "lokati_gaming".to_string(), display_name: "lokati_gaming".to_string(), is_boss: false, archetype: None, role: None, max_hp: 1_000_000, golem_summoner_id: None },
-            CombatUnitInfo { id: golem_id, display_name: "lokati_gaming's Golem".to_string(), is_boss: false, archetype: None, role: None, max_hp: units[0].max_hp, golem_summoner_id: Some("lokati_gaming".to_string()) },
+            CombatUnitInfo { id: "lokati_gaming".to_string(), display_name: "lokati_gaming".to_string(), is_boss: false, archetype: None, role: None, max_hp: 1_000_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
+            CombatUnitInfo {
+                id: golem_id,
+                display_name: "lokati_gaming's Golem".to_string(),
+                is_boss: false,
+                archetype: None,
+                role: None,
+                max_hp: units[0].max_hp,
+                golem_summoner_id: Some("lokati_gaming".to_string()),
+                golem_type: Some(GolemType::Thunder),
+                thunder_net_absorbed: 0,
+            },
         ];
         let stats = full_player_fight_stats(&unit_infos, &events);
         let owner = stats.iter().find(|s| s.id == "lokati_gaming").unwrap();
@@ -14896,7 +15298,7 @@ mod elementalist_stage_6_golem_type_tests {
         units[0].hp = 0;
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
         let expected_dmg = (grown_max_hp as f64 * 0.33).round() as i64; // terrifying rank 1 = 33%
         assert_eq!(units[1].hp, 10_000_000 - expected_dmg, "explosion damage must track the grown hp, not the original spawn-time base");
     }
@@ -14944,6 +15346,168 @@ mod elementalist_stage_6_golem_type_tests {
         let mut units2 = vec![healer(), ally()];
         grant_shield(&mut units2, 0, 1, 100.0, 1_000, 5_000, &mut events);
         assert!((units2[1].shield_hp - 130.0).abs() < 1e-9, "100 base shield * 1.30 Singing bonus");
+    }
+
+    // --- Thunder Golem absorbed-damage redistribution (Release 1 Part B) ---
+
+    fn real_player(id: &str, hp: i64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp: hp as u64, ..Default::default() }
+    }
+
+    fn dead_thunder_golem(absorbed: f64) -> CombatSimUnit {
+        CombatSimUnit {
+            id: "__golem_caster_0".to_string(),
+            display_name: "Caster's Golem".to_string(),
+            alive: false,
+            hp: 0,
+            max_hp: 1000,
+            is_golem: true,
+            golem_type: Some(GolemType::Thunder),
+            thundergolem_absorbed_this_incarnation: absorbed,
+            thundergolem_net_absorbed: absorbed,
+            golem_reform_at_ms: u32::MAX,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn redistribution_splits_evenly_among_living_real_party_members_and_never_a_golem() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 100_000), real_player("bob", 100_000), neutral_golem_for_redistribution_test("basic_golem", GolemType::Basic)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+
+        // 0.5 * 1000 = 500 total, split evenly across the 2 REAL recipients
+        // (alice/bob) - the other golem (index 3) must never receive a
+        // share (B2 - golems are excluded from the candidate pool
+        // outright).
+        for i in [1usize, 2] {
+            assert_eq!(units[i].thunder_redistribution_ticks_remaining, 2, "unit {i} must have 2 ticks scheduled");
+            assert!((units[i].thunder_redistribution_per_tick_amount - 125.0).abs() < 1e-9, "500 total / 2 recipients / 2 ticks = 125 per tick");
+            assert_eq!(units[i].next_thunder_redistribution_tick_at_ms, 5_000 + 1_000, "tick 1 at death + half the 2000ms window");
+        }
+        assert_eq!(units[3].thunder_redistribution_ticks_remaining, 0, "the other golem must never be a redistribution recipient");
+        assert_eq!(units[3].next_thunder_redistribution_tick_at_ms, u32::MAX);
+        assert!(events.iter().any(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Thunder Golem Redistribution")), "must log a distinct observability marker");
+    }
+
+    fn neutral_golem_for_redistribution_test(id: &str, golem_type: GolemType) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 100, max_hp: 100, is_golem: true, golem_type: Some(golem_type), ..Default::default() }
+    }
+
+    #[test]
+    fn reform_resets_the_per_incarnation_counter_but_not_the_lifetime_net_absorbed() {
+        let mut units = vec![dead_thunder_golem(500.0)];
+        let mut events = Vec::new();
+        reform_thunder_golem(&mut units, 0, 10_000, &mut events);
+        assert_eq!(units[0].thundergolem_absorbed_this_incarnation, 0.0, "a fresh incarnation starts its own tally at zero");
+        assert_eq!(units[0].thundergolem_net_absorbed, 500.0, "lifetime credit is untouched by a reform - only handle_golem_death ever adjusts it");
+    }
+
+    #[test]
+    fn a_dead_incarnations_redistributed_share_is_subtracted_from_the_lifetime_net_absorbed() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        assert_eq!(units[0].thundergolem_net_absorbed, 500.0, "500 of the 1000 absorbed got redistributed away, leaving 500 credited to the owner");
+    }
+
+    #[test]
+    fn zero_absorbed_schedules_no_redistribution_and_leaves_net_absorbed_untouched() {
+        let golem = dead_thunder_golem(0.0);
+        let mut units = vec![golem, real_player("alice", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0, "nothing was absorbed, so nothing should ever be scheduled");
+        assert_eq!(units[0].thundergolem_net_absorbed, 0.0);
+        assert!(!events.iter().any(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Thunder Golem Redistribution")));
+    }
+
+    #[test]
+    fn a_zero_redistribution_pct_disables_the_mechanic_entirely() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.0, 2_000);
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0, "pct=0 (the tunable's own disable convention) must schedule nothing");
+        assert_eq!(units[0].thundergolem_net_absorbed, 1000.0, "nothing redistributed away, so nothing subtracted");
+    }
+
+    #[test]
+    fn redistribution_tick_deals_unmitigated_damage_ignoring_the_recipients_own_mitigation_stats() {
+        let mut recipient = real_player("alice", 100_000);
+        // A wall of mitigation stats - none of it should matter, since
+        // B1 specifies "unmitigated" (no evasion/block/DR roll at all).
+        recipient.damage_reduction = 0.99;
+        recipient.evasion = 0.99;
+        recipient.block_chance = 0.99;
+        recipient.thunder_redistribution_per_tick_amount = 250.0;
+        recipient.thunder_redistribution_ticks_remaining = 2;
+        let mut units = vec![recipient];
+        let mut events = Vec::new();
+        apply_thunder_redistribution_tick(&mut units, 0, 5_000, &mut events, 1_000);
+        assert_eq!(units[0].hp, 100_000 - 250, "the full 250 must land - no mitigation applied");
+        assert_eq!(units[0].thunder_redistribution_ticks_remaining, 1, "one tick consumed");
+        assert_eq!(units[0].next_thunder_redistribution_tick_at_ms, 6_000, "tick 2 rescheduled exactly one interval later");
+        let attack_event = events.iter().find(|e| matches!(e, CombatEvent::Attack { .. })).expect("must push an Attack event");
+        if let CombatEvent::Attack { source_kind, attacker, .. } = attack_event {
+            assert_eq!(*source_kind, AttackSourceKind::Environmental, "B4 - tagged distinctly, not Direct/Dot/etc.");
+            assert_eq!(attacker, THUNDER_REDISTRIBUTION_ATTACKER_ID, "B4 - a sentinel id no real unit has, so nobody's own damage_dealt is credited");
+        }
+    }
+
+    #[test]
+    fn second_redistribution_tick_clears_the_clock_for_good() {
+        let mut recipient = real_player("alice", 100_000);
+        recipient.thunder_redistribution_per_tick_amount = 100.0;
+        recipient.thunder_redistribution_ticks_remaining = 1;
+        let mut units = vec![recipient];
+        let mut events = Vec::new();
+        apply_thunder_redistribution_tick(&mut units, 0, 6_000, &mut events, 1_000);
+        assert_eq!(units[0].thunder_redistribution_ticks_remaining, 0);
+        assert_eq!(units[0].next_thunder_redistribution_tick_at_ms, u32::MAX, "no third tick - the clock clears for good");
+    }
+
+    /// B1 - "deaths resolve normally." A lethal tick must resolve exactly
+    /// like any other killing blow (hp hits 0, `alive` flips, a `Defeat`
+    /// event fires) so the main loop's own generic "who died since last
+    /// iteration" sweep can offer Rising Phoenix on its very next
+    /// iteration - no special-casing needed in the tick handler itself.
+    #[test]
+    fn a_lethal_redistribution_tick_kills_normally_and_pushes_defeat() {
+        let mut recipient = real_player("alice", 100);
+        recipient.thunder_redistribution_per_tick_amount = 999.0;
+        recipient.thunder_redistribution_ticks_remaining = 2;
+        let mut units = vec![recipient];
+        let mut events = Vec::new();
+        apply_thunder_redistribution_tick(&mut units, 0, 5_000, &mut events, 1_000);
+        assert_eq!(units[0].hp, 0);
+        assert!(!units[0].alive, "a lethal tick must actually kill the recipient");
+        assert!(events.iter().any(|e| matches!(e, CombatEvent::Defeat { unit, .. } if unit == "alice")), "must push a real Defeat event, same as any other killing blow");
+    }
+
+    #[test]
+    fn a_tick_against_an_already_dead_recipient_deals_no_damage_but_still_advances_the_clock() {
+        let mut recipient = real_player("alice", 100_000);
+        recipient.alive = false;
+        recipient.hp = 0;
+        recipient.thunder_redistribution_per_tick_amount = 250.0;
+        recipient.thunder_redistribution_ticks_remaining = 2;
+        let mut units = vec![recipient];
+        let mut events = Vec::new();
+        apply_thunder_redistribution_tick(&mut units, 0, 5_000, &mut events, 1_000);
+        assert!(!events.iter().any(|e| matches!(e, CombatEvent::Attack { .. })), "an already-dead recipient must take no further damage");
+        assert_eq!(units[0].thunder_redistribution_ticks_remaining, 1, "the clock still advances so tick 2 still fires and clears it");
+        assert_eq!(units[0].next_thunder_redistribution_tick_at_ms, 6_000);
     }
 }
 
@@ -15024,19 +15588,33 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                             *alive = false;
                         }
                     }
-                    CombatEvent::Heal { healer, target, .. } if healer == target => {
-                        // The reform payoff's own event shape (see
-                        // `NextEvent::GolemReform`) - a self-targeted Heal
-                        // is exactly what a reform (or, for a real player,
-                        // Rising Phoenix) looks like in the log.
-                        if let Some(alive) = golem_alive.get_mut(target) {
+                    CombatEvent::SkillCast { unit, skill, .. } if skill == "Thunder Golem Reform" => {
+                        // The reform payoff's own observability marker (see
+                        // `reform_thunder_golem`'s own doc) - reform no
+                        // longer pushes a self-targeted `Heal` event
+                        // (2026-08-19 bugfix part 2, same day this
+                        // isolation test was written), so this is the
+                        // correct signal a golem is alive again, not the
+                        // stale `Heal`-based check this replaced.
+                        if let Some(alive) = golem_alive.get_mut(unit) {
                             *alive = true;
                         }
                     }
                     CombatEvent::Attack { attacker, target, damage, .. } if target == "elementalist" => {
                         let self_inflicted = attacker == target;
+                        // Thunder Golem absorbed-damage redistribution
+                        // (2026-08-19, Release 1 Part B) - a deliberate,
+                        // SPECIFIED exception to this isolation invariant:
+                        // a died incarnation's own redistribution ticks
+                        // land directly on real party members (B2 -
+                        // bypassing redirect entirely) even while ANOTHER
+                        // of the 3 summoned Thunder Golems is still alive.
+                        // Same "explicit, documented exception" spirit as
+                        // `self_inflicted` above (Righteous Fire's own
+                        // self-burn).
+                        let is_redistribution = attacker == THUNDER_REDISTRIBUTION_ATTACKER_ID;
                         let a_thunder_golem_is_up = golem_alive.values().any(|&alive| alive);
-                        if !self_inflicted && a_thunder_golem_is_up && *damage > 0 {
+                        if !self_inflicted && !is_redistribution && a_thunder_golem_is_up && *damage > 0 {
                             violations.push(format!("{boss_kind:?} at_ms={:?}: elementalist took {damage} external damage from {attacker} while a Thunder Golem was alive", event.at_ms()));
                         }
                     }
@@ -15107,6 +15685,104 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             }
             assert!(violations.is_empty(), "{boss_kind:?}: protected golem isolation violated:\n{}", violations.join("\n"));
         }
+    }
+
+    // --- Golem integrity audit (2026-08-19, Release 1 Part A) ---
+
+    fn neutral_golem(id: &str, golem_type: GolemType) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 1000, max_hp: 1000, atk: 1000, is_golem: true, golem_type: Some(golem_type), ..Default::default() }
+    }
+
+    /// A1 - "golems are attackers only... no leech." Root cause: a
+    /// wounded TARGET's own `wound_leech_per_stack` used to leech onto
+    /// whoever hit it next, golem attackers included, entirely
+    /// independent of the attacker's own (always-0) `life_leech_pct`.
+    #[test]
+    fn golem_attacking_a_wounded_target_never_leeches_or_self_heals() {
+        let golem = neutral_golem("golem", GolemType::Basic);
+        let target = CombatSimUnit {
+            id: "boss".to_string(),
+            display_name: "boss".to_string(),
+            alive: true,
+            hp: 1_000_000,
+            max_hp: 1_000_000,
+            is_boss: true,
+            wound_stacks: 5,
+            wound_leech_per_stack: 1.0, // huge, so any leak would be obvious
+            wound_expires_at_ms: 100_000,
+            ..Default::default()
+        };
+        let mut units = vec![golem, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 1000.0, 1, &mut events, &mut rolls, &mut rng, false, false);
+        assert_eq!(units[0].hp, 1000, "the golem's own hp must be completely unaffected");
+        let heal_events = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
+        assert_eq!(heal_events, 0, "no Heal event may be logged for a golem attacker, wounded target or not");
+    }
+
+    /// A2 - "cannot be shielded or healed by any means," enforced at the
+    /// heal-application layer regardless of source. Exercises the
+    /// GUARDIAN SPIRIT death-prevention save specifically (a hand-rolled
+    /// heal site that bypasses `apply_heal` entirely) - the exact shape
+    /// of the audit's own "a Cleric healed a Thunder golem for 865,341"
+    /// finding: a real player's death-save mechanic targeting a Thunder
+    /// Golem about to take a killing blow.
+    #[test]
+    fn thunder_golem_about_to_die_is_never_saved_or_healed_by_guardian_spirit() {
+        let cleric = CombatSimUnit { id: "cleric".to_string(), display_name: "cleric".to_string(), alive: true, hp: 500, max_hp: 500, guardian_spirit_charges: 1, guardian_spirit_heal_pct: 1.0, ..Default::default() };
+        let mut golem = neutral_golem("golem", GolemType::Thunder);
+        golem.hp = 10; // about to die
+        let attacker = CombatSimUnit { id: "boss".to_string(), display_name: "boss".to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, atk: 100_000, is_boss: true, ..Default::default() };
+        let mut units = vec![cleric, golem, attacker];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        // Attacker is the boss (index 2) hitting the golem (index 1) -
+        // thunder_golem_redirect is a no-op here since the golem IS
+        // already the direct target and is itself the alive Thunder
+        // Golem, so this exercises the would-kill/death-prevention
+        // cascade directly against it.
+        apply_hit(&mut units, 2, 1, 100_000.0, 1, &mut events, &mut rolls, &mut rng, false, false);
+        assert_eq!(units[0].guardian_spirit_charges, 1, "Guardian Spirit must never consume a charge trying to save an unhealable Thunder Golem");
+        let heal_events = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
+        assert_eq!(heal_events, 0, "no Heal event may ever target a Thunder Golem, including via a death-prevention save");
+        assert!(!units[1].alive, "the golem must be allowed to die normally, not saved");
+    }
+
+    /// A2 - candidate-pool exclusion: a Thunder Golem must never be
+    /// PICKED as a heal-share target in the first place, not just
+    /// no-op when picked.
+    #[test]
+    fn apply_heal_splash_never_picks_a_thunder_golem_as_a_target() {
+        let mut units = vec![CombatSimUnit { id: "healer".to_string(), display_name: "healer".to_string(), alive: true, hp: 1000, max_hp: 1000, ..Default::default() }];
+        let mut thunder = neutral_golem("thunder_golem", GolemType::Thunder);
+        thunder.hp = 1; // maximally "hurt", the most attractive possible candidate
+        units.push(thunder);
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_heal_splash(&mut units, 0, 0, 500, 2.0, 1, &mut events, &mut rng);
+        assert_eq!(units[1].hp, 1, "the Thunder Golem must never be picked as a splash-heal target");
+    }
+
+    /// A4 - zero-amount heal event suppression: a heal-flavor Lingering
+    /// Effect tick landing on an already-full-hp target must push
+    /// NOTHING, not a `Heal { amount: 0 }` event. Confirmed as the
+    /// audit's own "2,296 of ~2,444 heal events... amount:0" finding at
+    /// LINGERING_EFFECT_TICK_INTERVAL_MS's 50ms cadence.
+    #[test]
+    fn lingering_effect_heal_flavor_tick_on_a_full_hp_target_pushes_no_event() {
+        let mut target = CombatSimUnit { id: "target".to_string(), display_name: "target".to_string(), alive: true, hp: 1000, max_hp: 1000, ..Default::default() };
+        target.lingering_dots.push(LingeringDot { source_id: "healer".to_string(), amount_per_tick: 100.0, is_heal: true, next_tick_at_ms: 1000, remaining_ticks: 1 });
+        let mut units = vec![target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        tick_lingering_dots(&mut units, 0, 1000, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[0].hp, 1000, "already full - nothing to heal");
+        let heal_events = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
+        assert_eq!(heal_events, 0, "a zero-amount heal tick must push no event at all");
     }
 }
 

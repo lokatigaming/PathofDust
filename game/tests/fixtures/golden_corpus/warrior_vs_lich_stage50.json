@@ -6,6 +6,8 @@
       "displayName": "warrior_vs_lich_stage50",
       "isBoss": false,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": "warrior",
       "role": "melee",
       "maxHp": 210
@@ -15,6 +17,8 @@
       "displayName": "The Lich",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 8000
@@ -24,6 +28,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -33,6 +39,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -42,6 +50,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -51,6 +61,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 800
@@ -60,6 +72,8 @@
       "displayName": "Skeleton",
       "isBoss": true,
       "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
       "maxHp": 800
