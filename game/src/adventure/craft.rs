@@ -108,21 +108,40 @@ pub enum CraftAction {
     /// `AdventureManager::choose_veil_outcome`) - each step's pick commits
     /// immediately, even if the pass is never finished.
     Chancing,
-    /// The "unique crafting" mechanic - consumes a Celestial Shard token
-    /// (never dust, see `base_cost`) to grant the target item
-    /// `UniqueAffix::CelestialConversion`, outside the normal 4-modifier
-    /// cap. Deliberately NOT in `ALL_CRAFT_ACTIONS`/`DROPPABLE_CRAFT_ACTIONS` -
-    /// nobody starts with one and it never drops from the normal random
-    /// token roll, only from its own dedicated rare mechanics (see
-    /// `maybe_drop_celestial_shard` and the one-time top-healer award in
-    /// main.rs).
+    /// RETIRED (2026-08-19, Unified Unique Shards) - CelestialShard merged
+    /// into `UniqueShard` below as one currency; this variant is kept
+    /// PERMANENTLY as an inert, non-earnable legacy value purely for save-
+    /// data safety (an old character record can still contain the literal
+    /// string `"celestialshard"` in `craft_tokens` until
+    /// `migrate_celestial_shard_into_unique_shard` next loads it - deleting
+    /// this variant would make that record fail to deserialize at all,
+    /// before the migration ever got a chance to run). Nothing grants it
+    /// anymore (`maybe_drop_celestial_shard` is deleted, the one-time top-
+    /// healer award still targets it as a historical record of what
+    /// actually happened - see `announce_encounter_result` - but that
+    /// marker already fired in production and can never fire again).
+    /// `Character::craft_inner`'s own CelestialShard branch still applies
+    /// it exactly as before (grants `UniqueAffix::CelestialConversion`,
+    /// no picker) purely as a defensive fallback for a not-yet-migrated
+    /// straggler token - unreachable through the UI (see
+    /// `craft_token_count`-gated button visibility), and even if reached,
+    /// the very next character load merges any resulting token into
+    /// `UniqueShard` anyway.
     CelestialShard,
-    /// Split Personality's own grant token (2026-08-17) - same shape as
-    /// CelestialShard in every respect (never dust, not in
-    /// `ALL_CRAFT_ACTIONS`/`DROPPABLE_CRAFT_ACTIONS`, only ever obtained
-    /// via its own rare drop - see `maybe_drop_unique_shard` and the
-    /// reusable one-time launch-giveaway table in main.rs), grants
-    /// `UniqueAffix::SplitPersonality` instead.
+    /// The ONE surviving unique-crafting currency (2026-08-19: merged
+    /// with the old CelestialShard above - "no more celestial shard, only
+    /// Unique Shards"). Consumes one token to grant EITHER
+    /// `UniqueAffix::CelestialConversion` or `UniqueAffix::SplitPersonality`
+    /// to the target item, player's choice at apply time (see
+    /// `AdventureManager::craft_item_ex`'s own UniqueShard branch and
+    /// `ALL_UNIQUE_AFFIXES`) - no dust, no veil surcharge, always shown as
+    /// a deterministic menu (this reuses `PendingVeil`'s storage/lifecycle
+    /// machinery as a data structure, NOT its "pay extra to reveal rolled
+    /// randomness" pricing model - there is no randomness here to reveal).
+    /// Deliberately NOT in `ALL_CRAFT_ACTIONS`/`DROPPABLE_CRAFT_ACTIONS` -
+    /// nobody starts with one, only obtained via its own rare drop (see
+    /// `maybe_drop_unique_shard`) or the reusable one-time launch-giveaway
+    /// table in main.rs.
     UniqueShard,
     /// Polishing (2026-08-15) - a fundamentally different currency shape
     /// from the other 6: costs SAND, not dust (see `Character::sand`'s
@@ -165,10 +184,10 @@ pub enum CraftAction {
 /// (`base_cost`/`required_affix_count`/`is_veilable`/`label`).
 /// `default_cost` is the fallback of record for the 6 real dust-priced
 /// actions (`ALL_CRAFT_ACTIONS`); `adventure-item-balance.toml` can
-/// sparsely override it (see `craft_action_cost`). CelestialShard's
-/// `u64::MAX` sentinel and Polishing/Reforge's `0` are never actually
-/// read as real prices (see their own doc comments below) and are
-/// deliberately NOT exposed to the TOML override file.
+/// sparsely override it (see `craft_action_cost`). CelestialShard/
+/// UniqueShard's `u64::MAX` sentinel and Polishing/Reforge's `0` are never
+/// actually read as real prices (see their own doc comments below) and
+/// are deliberately NOT exposed to the TOML override file.
 pub(crate) struct CraftActionDef {
     label: &'static str,
     required_affix_count: Option<usize>,
@@ -191,12 +210,18 @@ pub(crate) fn craft_action_def(action: CraftAction) -> CraftActionDef {
         // `chance_all_affixes`).
         Annulment => CraftActionDef { label: "Annulment Orb", required_affix_count: None, is_veilable: true, default_cost: 1000 },
         Chancing => CraftActionDef { label: "Chancing", required_affix_count: None, is_veilable: true, default_cost: 800 },
-        // Never affordable in dust alone (see `AdventureManager::
-        // craft_item`'s use_token check) - a Celestial Shard craft ONLY
-        // goes through with the actual token, it was never meant to be
-        // purchasable.
+        // Retired (see the enum variant's own doc) - this arm only still
+        // matters for `Character::craft_inner`'s defensive legacy branch;
+        // never reachable via the UI (no button can show it - see
+        // `craft_token_count`-gated visibility).
         CelestialShard => CraftActionDef { label: "Celestial Shard", required_affix_count: None, is_veilable: false, default_cost: u64::MAX },
-        // Same never-affordable-in-dust shape as CelestialShard above.
+        // Never affordable in dust alone (see `AdventureManager::
+        // craft_item_ex`'s own dedicated UniqueShard branch, which bypasses
+        // this generic token/veil/dust machinery entirely, same shape as
+        // Polishing/Reforge/DivineDust below) - a Unique Shard application
+        // ONLY goes through with the actual token. `is_veilable: false`
+        // here is moot for the same reason it is for Polishing/Reforge/
+        // DivineDust - the picker is unconditional, not gated by this flag.
         UniqueShard => CraftActionDef { label: "Unique Shard", required_affix_count: None, is_veilable: false, default_cost: u64::MAX },
         // Not dust-denominated at all - see Polishing's own doc on the
         // enum. Never actually read (craft_item branches around it
@@ -252,23 +277,28 @@ impl CraftAction {
 
     /// Exact affix count the target item must currently have -
     /// `None` means "no exact-count precondition" (Scour just needs
-    /// ≥1 to actually remove something; Krangle/CelestialShard need
-    /// nothing at all - Krangle per the confirmed design works on any
-    /// unlocked item, CelestialShard's own precondition is "not already
-    /// unique", checked separately in `Character::craft`, not an affix
-    /// count). Polishing works on any unlocked item too (0 affixes just
-    /// means only the quality bump applies, nothing to roll higher).
+    /// ≥1 to actually remove something; Krangle/CelestialShard/UniqueShard
+    /// need nothing at all - Krangle per the confirmed design works on any
+    /// unlocked item, CelestialShard/UniqueShard's own precondition is
+    /// "not already unique", checked separately - see
+    /// `AdventureManager::craft_item_ex`'s own UniqueShard branch and
+    /// `Character::craft_inner`'s legacy CelestialShard one - not an
+    /// affix count). Polishing works on any unlocked item too (0 affixes
+    /// just means only the quality bump applies, nothing to roll higher).
     pub fn required_affix_count(self) -> Option<usize> {
         craft_action_def(self).required_affix_count
     }
 
     /// Whether this action has real randomness worth veiling (see
     /// `PendingVeil`) - Scour is fully deterministic, nothing to choose
-    /// between; CelestialShard always grants the exact same single
-    /// unique affix, equally nothing to choose between. Polishing never
-    /// reaches this check at all (it bypasses `craft_item`'s normal veil
-    /// machinery entirely - see its own doc), so its value here is moot,
-    /// but `false` is the honest answer regardless.
+    /// between; legacy CelestialShard always grants the exact same single
+    /// unique affix, equally nothing to choose between. Polishing/Reforge/
+    /// DivineDust/UniqueShard never reach this check at all (each bypasses
+    /// `craft_item_ex`'s normal veil machinery entirely via its own early
+    /// branch - see their own docs), so its value here is moot for all
+    /// four, but `false` is the honest answer regardless - UniqueShard's
+    /// own picker is unconditional, not an OPTIONAL veil a player pays
+    /// extra for.
     pub fn is_veilable(self) -> bool {
         craft_action_def(self).is_veilable
     }
@@ -355,7 +385,8 @@ pub enum DivineDustCraftError {
 /// Result of a successful currency craft - see `Character::craft`. One
 /// shape covers every action's result: Scour sets `affixes_removed`,
 /// every affix-adding action sets `affix_added`, Krangle also sets
-/// `now_locked`, CelestialShard sets `unique_affix_added`.
+/// `now_locked`, UniqueShard (and the legacy CelestialShard path) sets
+/// `unique_affix_added`.
 #[derive(Debug, Clone)]
 pub struct CraftOutcome {
     pub item_name: String,
@@ -377,8 +408,9 @@ pub struct CraftOutcome {
     pub affix_removed_value: Option<f64>,
     pub affixes_removed: u32,
     pub now_locked: bool,
-    /// Set only by `CraftAction::CelestialShard` - `None` for every
-    /// other action.
+    /// Set by `CraftAction::UniqueShard` (via its apply-time picker - see
+    /// `AdventureManager::craft_item_ex`'s own branch) or the legacy
+    /// `CraftAction::CelestialShard` path - `None` for every other action.
     pub unique_affix_added: Option<UniqueAffix>,
     /// Set only by `CraftAction::Polishing` - which affix(es) got their
     /// roll raised (1 for a normal item, up to 2 for a Perfect one - see

@@ -1491,7 +1491,15 @@ impl Character {
         if action == CraftAction::Chancing {
             return self.chance_all_affixes(item_id, rng);
         }
-        if action == CraftAction::CelestialShard || action == CraftAction::UniqueShard {
+        if action == CraftAction::CelestialShard {
+            // Legacy-only path (2026-08-19, Unified Unique Shards) - see
+            // `CraftAction::CelestialShard`'s own doc for why this stays.
+            // `UniqueShard` never reaches `craft_inner` at all anymore
+            // (see `AdventureManager::craft_item_ex`'s own early branch,
+            // which always builds its apply-time picker instead) - this
+            // arm only exists for a not-yet-migrated straggler token, and
+            // unconditionally grants `CelestialConversion` (the only thing
+            // a real CelestialShard token could ever have meant).
             let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
             // Locked and unique are mutually exclusive in BOTH
             // directions - an already-Krangled item can't receive a
@@ -1512,8 +1520,7 @@ impl Character {
             let slot = item.slot;
             let tier = item.tier;
             let perfect = item.perfect;
-            let unique = if action == CraftAction::UniqueShard { UniqueAffix::SplitPersonality } else { UniqueAffix::CelestialConversion };
-            item.unique_affix = Some(unique);
+            item.unique_affix = Some(UniqueAffix::CelestialConversion);
             return Ok(CraftOutcome {
                 item_name,
                 slot,
@@ -1525,7 +1532,7 @@ impl Character {
                 affix_removed_value: None,
                 affixes_removed: 0,
                 now_locked: false,
-                unique_affix_added: Some(unique),
+                unique_affix_added: Some(UniqueAffix::CelestialConversion),
                 perfect,
                 polished_affixes: Vec::new(),
                 chancing_previous: Vec::new(),
@@ -1712,6 +1719,41 @@ impl Character {
             affixes_removed: 0,
             now_locked: false,
             unique_affix_added: None,
+            polished_affixes: Vec::new(),
+            chancing_previous: Vec::new(),
+            new_quality_percent: None,
+            perfect,
+        })
+    }
+
+    /// Commits `CraftAction::UniqueShard`'s apply-time picker (2026-08-19,
+    /// Unified Unique Shards) - pushes the already-chosen `UniqueAffix`
+    /// onto the item. The commit-time half of the split every veiled
+    /// action uses: `AdventureManager::craft_item_ex`'s own UniqueShard
+    /// branch checks `ItemLocked`/`AlreadyUnique` once, up front, at
+    /// `PendingVeil`-insert time (same point the token itself is
+    /// consumed) - this fn trusts that already happened and just applies
+    /// the pick, same "insert-time validates, commit-time trusts it" split
+    /// `apply_craft_affix` above already uses for an ordinary reroll.
+    pub(crate) fn apply_unique_affix(&mut self, item_id: &str, unique: UniqueAffix) -> Result<CraftOutcome, CraftError> {
+        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+        let item_name = item.name.clone();
+        let slot = item.slot;
+        let tier = item.tier;
+        let perfect = item.perfect;
+        item.unique_affix = Some(unique);
+        Ok(CraftOutcome {
+            item_name,
+            slot,
+            tier,
+            action: CraftAction::UniqueShard,
+            affix_added: None,
+            affix_value: None,
+            affix_removed: None,
+            affix_removed_value: None,
+            affixes_removed: 0,
+            now_locked: false,
+            unique_affix_added: Some(unique),
             polished_affixes: Vec::new(),
             chancing_previous: Vec::new(),
             new_quality_percent: None,

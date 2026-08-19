@@ -19,7 +19,8 @@
 //! this fixture and the script that produced it are committed.
 
 use std::collections::HashMap;
-use twitch_bot_rs::adventure::Character;
+use std::path::PathBuf;
+use twitch_bot_rs::adventure::{AdventureManager, Character, CraftAction};
 
 const FIXTURE_PATH: &str = "tests/fixtures/characters_pseudonymized.json";
 
@@ -69,6 +70,55 @@ fn fixture_roster_size_matches_the_real_file_at_capture_time() {
     // maintenance.
     let characters = load_fixture();
     assert_eq!(characters.len(), 52, "if this changed because you refreshed the fixture from a bigger real file, update this constant to match - if not, investigate");
+}
+
+/// Unified Unique Shards (2026-08-19) - real regression coverage for
+/// `migrate_celestial_shard_into_unique_shard` against real (pseudonymized)
+/// production data, exercised through the actual startup path
+/// (`AdventureManager::new` -> `run_character_migrations`), not the pure
+/// migration function called directly - this is what this whole fixture
+/// harness exists for (see this file's own doc: "reused... at every
+/// future stage that touches Character/Item's shape or the migration
+/// runner"). Confirmed (at the time this test was written) that the real
+/// fixture actually contains both `celestialshard` and `uniqueshard`
+/// `craft_tokens` entries, so this exercises the real merge shape, not a
+/// synthetic one.
+#[tokio::test]
+async fn celestial_shard_into_unique_shard_migration_merges_real_fixture_data_on_load() {
+    let original = load_fixture();
+    let expected_unique_totals: HashMap<String, u32> =
+        original.iter().map(|(login, c)| (login.clone(), c.craft_token_count(CraftAction::CelestialShard) + c.craft_token_count(CraftAction::UniqueShard))).collect();
+    assert!(
+        expected_unique_totals.values().any(|&n| n > 0),
+        "fixture assumption: at least one real character must hold a CelestialShard and/or UniqueShard token, or this test proves nothing"
+    );
+
+    let scratch = std::env::temp_dir().join(format!("celestial_into_unique_migration_{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
+    let characters_path = scratch.join("adventure-characters.json");
+    std::fs::copy(FIXTURE_PATH, &characters_path).expect("failed to seed the scratch characters file from the pseudonymized fixture");
+
+    // `set_data_dir` must run before `AdventureManager::new` (which reads
+    // migration marker files via `data_path`) - this test file's other 4
+    // tests never touch `data_path` at all (pure serde only), so this is
+    // the only caller in this binary's whole process, same "one process,
+    // one OnceLock, one caller" reasoning `http_golden_responses.rs` and
+    // `divine_dust_ui_http.rs` both already document.
+    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
+
+    let manager = AdventureManager::new(characters_path, PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
+
+    for (login, expected_unique) in &expected_unique_totals {
+        let character = manager.character(login).await.unwrap_or_else(|| panic!("migration must not lose character {login:?}"));
+        assert_eq!(character.craft_token_count(CraftAction::CelestialShard), 0, "{login}: CelestialShard must be fully drained by the merge");
+        assert_eq!(
+            character.craft_token_count(CraftAction::UniqueShard),
+            *expected_unique,
+            "{login}: UniqueShard must hold the merged 1:1 total (old CelestialShard + old UniqueShard)"
+        );
+    }
+
+    std::fs::remove_dir_all(&scratch).ok();
 }
 
 #[test]

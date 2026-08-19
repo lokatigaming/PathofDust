@@ -1321,6 +1321,12 @@ fn craft_outcome_change_text(outcome: &CraftOutcome) -> String {
             .map(|(old, (new_a, new_v))| format!("{} → {}", affix_name(*old), affix_display(*new_a, *new_v)))
             .collect();
         if list.is_empty() { "Rerolled".to_string() } else { format!("Rerolled: {}", list.join(", ")) }
+    } else if let Some(unique) = outcome.unique_affix_added {
+        // UniqueShard's picker (and the legacy CelestialShard path) -
+        // this outcome has no `affix_added`/`affix_value` at all, so it
+        // must be checked before the generic fallback below, which would
+        // otherwise render the uninformative "Added a new modifier".
+        format!("Granted {} — {}", unique.name(), unique.description())
     } else {
         let affix_text = match (outcome.affix_added, outcome.affix_value) {
             (Some(a), Some(v)) => {
@@ -3198,7 +3204,7 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
             <div class=\"tunable-row\">\
               <label for=\"celestial_shard_drop_chance\">Unique Shard Drop Rate</label>\
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"celestial_shard_drop_chance\" name=\"celestial_shard_drop_chance\" value=\"{celestial_shard_drop_chance}\">\
-              <p class=\"tunable-hint\">0 to 1 (e.g. 0.001 = 0.1%). One shared rate, rolled independently for the Celestial Shard and Unique Shard tokens on every real item drop - rolls for every archetype.</p>\
+              <p class=\"tunable-hint\">0 to 1 (e.g. 0.002 = 0.2%). One roll on every real item drop, rolls for every archetype. (Celestial Shard and Unique Shard were merged into one currency 2026-08-19 - this used to be two independent rolls at half this rate each.)</p>\
             </div>\
             <h2>Boss Difficulty</h2>\
             <div class=\"tunable-row\">\
@@ -3594,14 +3600,16 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
             .iter()
             .filter(|(_, n)| *n > 0)
             .map(|(action, n)| {
-                // Celestial/Unique Shard's token name doesn't self-describe
+                // Legacy CelestialShard's token name doesn't self-describe
                 // what it grants (unlike Scour/Krangle/etc, which are
-                // self-explanatory) - spell out the unique affix it grants
-                // right in the pill so a held token isn't a mystery, plus
-                // the full tooltip every craft button already gets.
+                // self-explanatory) - spell out the unique affix right in
+                // the pill so a held token isn't a mystery. UniqueShard
+                // (2026-08-19, Unified Unique Shards) no longer grants one
+                // fixed thing - the player picks at apply time - so it
+                // gets no such suffix any more, same as every other
+                // action that isn't a fixed single-outcome grant.
                 let grants = match action {
                     CraftAction::CelestialShard => " \u{2192} Celestial Conversion",
-                    CraftAction::UniqueShard => " \u{2192} Split Personality",
                     _ => "",
                 };
                 format!("<span class=\"token-pill\" data-tip=\"{tip}\">🎫 {label}{grants} ×{n}</span>", tip = escape_html(craft_action_tip(*action)), label = action.label())
@@ -4814,10 +4822,10 @@ fn craft_action_tip(action: CraftAction) -> &'static str {
             "A real chance-orb reroll: every existing modifier gets a brand-new TYPE (not just a new value for its old one), each at a fresh roll range. Unveiled: all of them reroll at once. Veiled: walks them one at a time, showing 3 candidate replacements for each before you commit and move to the next. Works on a Reforge/Recombine crit-bonus modifier too \u{2014} that slot stays marked special under whatever new type it lands on."
         }
         CraftAction::CelestialShard => {
-            "Consumes a Celestial Shard to grant a unique affix, shown above the item's tier \u{2014} outside the normal 4-modifier cap and unaffected by any other crafting. An item can only ever have one; a Krangled item can't receive one, and a unique item can't be Krangled. Needs an actual Celestial Shard \u{2014} can't be bought with dust."
+            "Legacy currency, no longer earnable \u{2014} Celestial Shard merged into Unique Shard. Held tokens are safe and still usable, but nothing drops these any more."
         }
         CraftAction::UniqueShard => {
-            "Consumes a Unique Shard to grant Split Personality, shown above the item's tier \u{2014} same rules as any other unique affix (one per item, mutually exclusive with Krangle). Lets you invest passive points into a 2nd class on /passives. Needs an actual Unique Shard \u{2014} can't be bought with dust."
+            "Consumes a Unique Shard to grant a unique affix, shown above the item's tier \u{2014} outside the normal 4-modifier cap and unaffected by any other crafting. Pick which effect at apply time: Celestial Conversion (bonus damage/follow-up hit) or Split Personality (invest points into a 2nd class on /passives). An item can only ever have one; a Krangled item can't receive one, and a unique item can't be Krangled. Needs an actual Unique Shard \u{2014} can't be bought with dust."
         }
         CraftAction::Polishing => {
             "Costs sand, not dust \u{2014} 1 per 10% quality (12 for a Perfect item). Raises the item's own quality by 5% and bumps one random modifier's roll by 5% of its range, both capped at the max. On an already-Perfect item (nothing left to raise on quality), instead bumps up to 2 random modifiers' rolls by 5%."
@@ -5048,6 +5056,15 @@ fn render_veil_choice_card(pending: &PendingVeil) -> String {
         .enumerate()
         .map(|(i, candidate)| {
             let desc = match candidate {
+                // UniqueShard's picker candidates carry ONLY
+                // `unique_affix_added` (no `affix_added`/`affix_removed`
+                // at all) - checked before the affix-shaped match below,
+                // which would otherwise render every candidate as the
+                // same unhelpful "No change".
+                VeilCandidate::Currency(outcome) if outcome.unique_affix_added.is_some() => {
+                    let unique = outcome.unique_affix_added.expect("checked Some above");
+                    format!("{} — {}", unique.name(), unique.description())
+                }
                 VeilCandidate::Currency(outcome) => match (outcome.affix_added, outcome.affix_value, outcome.affix_removed, outcome.affix_removed_value) {
                     // Chancing's replacement shape - both set at once (see
                     // `AdventureManager::chancing_step_candidates`).
