@@ -230,11 +230,23 @@ pub(crate) fn format_batch_summary(data: &BatchSummaryData) -> String {
     record
 }
 
-/// The separate loot/broken/retreated line - `None` if there's nothing
-/// worth announcing (matches main.rs: this message is only sent when
-/// non-empty). Boss fights skip the loot list itself (per a live
-/// request, "it's just extra spam" on top of the MVP breakdown) - a
-/// Basic encounter's loot line is still its only loot feedback.
+/// The loot line - `None` if there's nothing worth announcing (matches
+/// main.rs: this message is only sent when non-empty). Boss fights skip
+/// the loot list itself (per a live request, "it's just extra spam" on
+/// top of the MVP breakdown) - a Basic encounter's loot line is still
+/// its only loot feedback.
+///
+/// Worn-out-gear and retreat notices used to also post here (2026-08-19,
+/// removed per a live "chat noise cleanup" request - chat spam only,
+/// both mechanics themselves are untouched). Worn-gear still shows on
+/// the /fights dashboard (`adventure_web.rs`'s own direct read of
+/// `EncounterResult.broken`, unrelated to this fn) - only the chat
+/// message stopped. Retreat had no other surface reading it, so
+/// `EncounterResult.retreated` is now write-only from this fn's
+/// perspective (still populated, just never announced) - left as-is
+/// rather than ripped out, since character.rs's own retreat state
+/// (`retreated_since`/`sync_retreat_status`) is the real mechanic and is
+/// completely separate from this per-fight announcement list.
 pub(crate) fn format_loot_line(result: &super::EncounterResult) -> Option<String> {
     let mut loot_msg = String::new();
 
@@ -252,21 +264,6 @@ pub(crate) fn format_loot_line(result: &super::EncounterResult) -> Option<String
         if !parts.is_empty() {
             loot_msg.push_str(&format!("🎁 {}", join_capped(&parts, 3)));
         }
-    }
-
-    if !result.broken.is_empty() {
-        let parts: Vec<String> = result.broken.iter().map(|item| format!("{}'s {}", item.display_name, item.item_name)).collect();
-        if !loot_msg.is_empty() {
-            loot_msg.push_str(" · ");
-        }
-        loot_msg.push_str(&format!("💔 Worn out: {}", join_capped(&parts, 3)));
-    }
-
-    if !result.retreated.is_empty() {
-        if !loot_msg.is_empty() {
-            loot_msg.push_str(" · ");
-        }
-        loot_msg.push_str(&format!("🏳️ Retreated (repair on the dashboard!): {}", join_capped(&result.retreated, 3)));
     }
 
     if loot_msg.is_empty() {
@@ -475,13 +472,10 @@ mod tests {
     }
 
     #[test]
-    fn boss_fight_loot_list_is_suppressed_but_broken_and_retreated_still_show() {
+    fn boss_fight_loot_list_is_suppressed() {
         let mut result = base_result(EncounterKind::Boss, true);
         result.loot = vec![LootDrop { display_name: "Alice".to_string(), item_name: "Sword".to_string(), slot: EquipSlot::Weapon, outcome: ReceiveOutcome::Equipped, tier: 1, affixes: vec![] }];
-        result.retreated = vec!["Bob".to_string()];
-        let line = super::format_loot_line(&result).expect("retreated alone must still produce a line");
-        assert!(!line.contains("Sword"), "boss fights must suppress the loot list itself: {line}");
-        assert!(line.contains("🏳️ Retreated"));
+        assert_eq!(super::format_loot_line(&result), None, "boss fights must suppress the loot list itself, and nothing else announces here anymore");
     }
 
     #[test]
@@ -495,9 +489,28 @@ mod tests {
     #[test]
     fn loot_line_caps_long_lists_with_a_plus_n_more_suffix() {
         let mut result = base_result(EncounterKind::Basic, true);
-        result.retreated = (0..5).map(|i| format!("Player{i}")).collect();
+        result.loot = (0..5)
+            .map(|i| LootDrop { display_name: format!("Player{i}"), item_name: "Sword".to_string(), slot: EquipSlot::Weapon, outcome: ReceiveOutcome::Equipped, tier: 1, affixes: vec![] })
+            .collect();
         let line = super::format_loot_line(&result).expect("must produce a line");
-        assert!(line.contains("+2 more"), "5 retreated names capped at 3 must show '+2 more': {line}");
+        assert!(line.contains("+2 more"), "5 loot entries capped at 3 must show '+2 more': {line}");
+    }
+
+    /// Chat noise cleanup (2026-08-19, a live request) - worn-out gear
+    /// and retreat notices used to post here too; both are gone now,
+    /// even when the underlying `EncounterResult` fields are populated
+    /// (both mechanics themselves are untouched - see this fn's own doc).
+    #[test]
+    fn worn_out_gear_and_retreats_no_longer_announce_to_chat() {
+        let mut result = base_result(EncounterKind::Basic, true);
+        result.broken = vec![BrokenItem { display_name: "Alice".to_string(), item_name: "Sword".to_string(), slot: EquipSlot::Weapon }];
+        result.retreated = vec!["Bob".to_string()];
+        assert_eq!(super::format_loot_line(&result), None, "broken/retreated alone must produce no chat line at all now");
+
+        result.loot = vec![LootDrop { display_name: "Carol".to_string(), item_name: "Shield".to_string(), slot: EquipSlot::Weapon, outcome: ReceiveOutcome::Equipped, tier: 1, affixes: vec![] }];
+        let line = super::format_loot_line(&result).expect("real loot must still produce a line");
+        assert!(!line.contains("Worn out") && !line.contains("Sword"), "broken items must not leak into the line even alongside real loot: {line}");
+        assert!(!line.contains("Retreated") && !line.contains("Bob"), "retreats must not leak into the line even alongside real loot: {line}");
     }
 
     #[test]
