@@ -338,6 +338,41 @@
     background: rgba(255,255,255,0.04); color: #eae6f5; border: 1px solid rgba(160,140,255,0.3);
     border-radius: 8px; padding: 6px 10px; font-size: 0.85rem; font-family: inherit;
   }
+  /* Memories (2026-08-19) - saved passive-tree builds, see
+     `render_memories_section`. Nested inside `.ptree-page` like
+     `.ptree-secondary` above, so it inherits the masthead/subhead rules
+     for free and only needs its own slot-row layout. Shipped WITH its
+     styles deliberately: the golem-slot picker went out unstyled and
+     has stayed that way since. */
+  .ptree-memories { margin: 28px 0 8px; padding: 20px 0 4px; border-top: 1px dashed rgba(160, 140, 255, 0.25); }
+  .ptree-memories .memory-slots { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .ptree-memories .memory-slot {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(160,140,255,0.18);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .ptree-memories .memory-slot.empty { border-style: dashed; }
+  .ptree-memories .memory-head { display: flex; align-items: center; gap: 10px; }
+  .ptree-memories .memory-number {
+    flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(160,140,255,0.18); color: #c9bdf0; font-size: 0.75rem; font-weight: 700;
+  }
+  .ptree-memories .memory-name { color: #eae6f5; font-weight: 600; overflow-wrap: anywhere; }
+  .ptree-memories .memory-name.muted { color: #8d80b3; font-weight: 400; font-style: italic; }
+  .ptree-memories .memory-meta { margin: 6px 0 0 32px; color: #a394c7; font-size: 0.85rem; }
+  .ptree-memories .memory-actions {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 0 32px;
+  }
+  .ptree-memories .memory-actions form { display: flex; align-items: center; gap: 6px; margin: 0; }
+  .ptree-memories .memory-actions input[type="text"] {
+    background: rgba(255,255,255,0.04); color: #eae6f5; border: 1px solid rgba(160,140,255,0.3);
+    border-radius: 8px; padding: 6px 10px; font-size: 0.85rem; font-family: inherit; min-width: 0; flex: 1 1 12rem;
+  }
+  .ptree-memories .memory-rename { flex: 1 1 16rem; }
+  @media (max-width: 600px) {
+    .ptree-memories .memory-meta,
+    .ptree-memories .memory-actions { margin-left: 0; }
+  }
+
   .passive-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 4px; }
   .btn-save {
     font: inherit; font-size: 0.85rem; font-weight: 600; color: #fff;

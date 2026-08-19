@@ -37,12 +37,13 @@ use tokio::sync::Mutex;
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
     AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
-    LiveTunables, PassiveError, PassivePreview, PendingVeil,
+    LiveTunables, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
-    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
+    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
     NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
 };
+use crate::adventure::default_memory_name;
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
 mod api;
@@ -184,6 +185,12 @@ pub async fn start_adventure_web_server(
         .route("/passives/respec", post(do_respec_passives))
         .route("/passives/set-secondary", post(do_set_secondary_archetype))
         .route("/passives/set-golem-type", post(do_set_golem_slot_type))
+        // Memories (2026-08-19) - saved passive-tree builds, see
+        // `render_memories_section` and `AdventureManager::load_memory`.
+        .route("/passives/memories/save", post(do_save_memory))
+        .route("/passives/memories/load", post(do_load_memory))
+        .route("/passives/memories/rename", post(do_rename_memory))
+        .route("/passives/memories/delete", post(do_delete_memory))
         .route("/patch-notes", get(patch_notes))
         .route("/wiki", get(wiki::wiki_page))
         .route("/wiki/passives", get(wiki::wiki_passives_page))
@@ -798,6 +805,14 @@ struct PassivesParams {
     /// pattern `IndexParams::craft_failed` already established for the
     /// Crafting card's identically-shaped silent-failure report.
     passive_failed: Option<String>,
+    /// Set by `do_load_memory` when a Memory load DID apply but produced
+    /// something different from what was saved - a class change, dropped
+    /// stale allocations, a skipped 2nd tree. Deliberately distinct from
+    /// `passive_failed`: this reports a success whose result the player
+    /// should still be told about, not a rejected action. A load that
+    /// applied cleanly sets nothing and redirects silently, same as
+    /// every other action on this page.
+    memory_note: Option<String>,
 }
 
 async fn passives_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<PassivesParams>) -> Html<String> {
@@ -807,7 +822,13 @@ async fn passives_page(State(state): State<AppState>, headers: HeaderMap, Query(
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let preview = state.adventure.pending_passive_preview(&login).await;
-            let popup = if params.passive_failed.is_some() { render_passive_error_popup(&params) } else { String::new() };
+            let popup = if params.passive_failed.is_some() {
+                render_passive_error_popup(&params)
+            } else if params.memory_note.is_some() {
+                render_memory_note_popup(&params)
+            } else {
+                String::new()
+            };
             format!("{popup}{}", render_passive_tree_page(&display_name, character.as_ref(), preview.as_ref()))
         }
     };
@@ -942,6 +963,148 @@ async fn do_set_secondary_archetype(State(state): State<AppState>, headers: Head
                 SetSecondaryArchetypeError::SameAsPrimary => "Your 2nd class can't be the same as your primary class.",
             };
             return Redirect::to(&passive_error_popup_url(reason));
+        }
+    }
+    Redirect::to("/passives")
+}
+
+// ---------------------------------------------------------------------
+// Memories (2026-08-19) - saved passive-tree builds. Same
+// POST-redirect-GET-with-popup-on-error shape as every other action on
+// this page; `do_load_memory` adds the one thing nothing else here
+// needed, a popup on SUCCESS (see `PassivesParams::memory_note`).
+// ---------------------------------------------------------------------
+
+/// Player-facing reason a Memory action didn't go through.
+fn memory_error_text(err: MemoryError) -> String {
+    match err {
+        MemoryError::NotJoined => "You haven't joined the adventure yet.".to_string(),
+        MemoryError::SlotOutOfRange => "That Memory slot doesn't exist.".to_string(),
+        MemoryError::SlotEmpty => "There's nothing saved in that Memory slot yet.".to_string(),
+        MemoryError::InCombat => "You can't swap builds during a fight - try again once it's over.".to_string(),
+        MemoryError::NoBuildToSave => "Pick an Archetype on your dashboard first - Commoner has no build to save.".to_string(),
+        MemoryError::InvalidName(rejection) => match rejection {
+            NameRejection::Empty => "Give your Memory a name first.".to_string(),
+            NameRejection::TooLong => format!("That name is too long - {MEMORY_NAME_MAX_LEN} characters max."),
+            NameRejection::Unprintable => "That name contains characters that aren't allowed.".to_string(),
+            // Deliberately does NOT quote the offending word back at the
+            // player or name which entry tripped: echoing it would put
+            // exactly the string the filter exists to suppress back onto
+            // the page (and into the URL).
+            NameRejection::Blocked => "That name isn't allowed - please pick another.".to_string(),
+        },
+    }
+}
+
+/// Turns a load's `MemoryLoadReport` into the prose the note popup
+/// shows. Only ever called when `is_noteworthy()` - a clean load says
+/// nothing at all.
+fn memory_load_note(report: &MemoryLoadReport) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if report.class_changed {
+        parts.push(format!("You're now playing {:?}.", report.archetype));
+    }
+    if report.secondary_skipped {
+        parts.push("Your saved 2nd class tree wasn't applied - Split Personality isn't equipped any more.".to_string());
+    }
+    if !report.dropped.is_empty() {
+        let total: u32 = report.dropped.iter().map(|d| d.rank).sum();
+        let names: Vec<&str> = report.dropped.iter().map(|d| d.node_key.as_str()).collect();
+        parts.push(format!(
+            "{total} point{} refunded - {} couldn't be applied ({}).",
+            if total == 1 { "" } else { "s" },
+            if names.len() == 1 { "one node" } else { "some nodes" },
+            names.join(", "),
+        ));
+    }
+    parts.push(format!("You have {} unspent point{}.", report.unspent, if report.unspent == 1 { "" } else { "s" }));
+    parts.join(" ")
+}
+
+/// Query string for `render_memory_note_popup`.
+fn memory_note_popup_url(note: &str) -> String {
+    format!("/passives?memory_note={}", urlencoding::encode(note))
+}
+
+/// Shown once after a Memory load that applied but produced something
+/// different from what was saved - see `PassivesParams::memory_note`.
+/// Same modal shape as `render_passive_error_popup`, worded as
+/// information rather than failure.
+fn render_memory_note_popup(params: &PassivesParams) -> String {
+    let note = escape_html(params.memory_note.as_deref().unwrap_or_default());
+    format!(
+        "<div class=\"modal-backdrop\" id=\"memory-note-modal\">\
+          <div class=\"modal\">\
+            <div class=\"modal-icon\">\u{1F9E0}</div>\
+            <h2>Memory Loaded</h2>\
+            <p>{note}</p>\
+            <button class=\"btn\" onclick=\"document.getElementById('memory-note-modal').remove(); history.replaceState(null, '', '/passives');\">OK</button>\
+          </div>\
+        </div>"
+    )
+}
+
+#[derive(Deserialize)]
+struct MemorySaveForm {
+    slot: usize,
+    /// The player's typed name. Empty means "use the default" - an empty
+    /// text input is the natural way to say "I don't mind what it's
+    /// called", not an error. Anything non-empty goes through
+    /// `validate_memory_name` inside the manager.
+    #[serde(default)]
+    name: String,
+}
+
+async fn do_save_memory(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<MemorySaveForm>) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        let name = if form.name.trim().is_empty() { None } else { Some(form.name.as_str()) };
+        if let Err(err) = state.adventure.save_memory(&login, form.slot, name).await {
+            return Redirect::to(&passive_error_popup_url(&memory_error_text(err)));
+        }
+    }
+    Redirect::to("/passives")
+}
+
+#[derive(Deserialize)]
+struct MemorySlotForm {
+    slot: usize,
+}
+
+/// Unlike every other handler on this page, a SUCCESS here can still
+/// warrant a popup: a load that changed class, dropped stale
+/// allocations, or skipped a 2nd tree produced a build that differs
+/// from the one saved, and silently swapping something else in would be
+/// worse than saying so. A clean load redirects silently like the rest.
+async fn do_load_memory(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<MemorySlotForm>) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        match state.adventure.load_memory(&login, form.slot).await {
+            Err(err) => return Redirect::to(&passive_error_popup_url(&memory_error_text(err))),
+            Ok(report) if report.is_noteworthy() => return Redirect::to(&memory_note_popup_url(&memory_load_note(&report))),
+            Ok(_) => {}
+        }
+    }
+    Redirect::to("/passives")
+}
+
+#[derive(Deserialize)]
+struct MemoryRenameForm {
+    slot: usize,
+    name: String,
+}
+
+async fn do_rename_memory(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<MemoryRenameForm>) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        if let Err(err) = state.adventure.rename_memory(&login, form.slot, &form.name).await {
+            return Redirect::to(&passive_error_popup_url(&memory_error_text(err)));
+        }
+    }
+    Redirect::to("/passives")
+}
+
+async fn do_delete_memory(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<MemorySlotForm>) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        if let Err(err) = state.adventure.delete_memory(&login, form.slot).await {
+            return Redirect::to(&passive_error_popup_url(&memory_error_text(err)));
         }
     }
     Redirect::to("/passives")
@@ -3428,6 +3591,100 @@ fn render_ptree_meta_legend() -> String {
         .to_string()
 }
 
+/// The Memories card on `/passives` (2026-08-19) - one row per slot,
+/// showing what's saved and offering Load/Rename/Delete, or a name field
+/// and Save Current Build for an empty one.
+///
+/// Rendered for every non-Commoner character rather than hidden until
+/// first use (unlike the golem/Split Personality sections, which gate on
+/// something the player may not have): empty slots ARE the feature's
+/// entry point, so hiding them would hide the feature.
+///
+/// **Escaping**: a Memory name is player-authored text. `escape_html`
+/// does not escape `'`, and minijinja autoescaping is off for this
+/// template (see `render::render_template`'s doc), so every name goes
+/// into a DOUBLE-quoted attribute or element text only - never a
+/// single-quoted attribute, and never interpolated into the inline
+/// `confirm()` string, whose text is deliberately static.
+fn render_memories_section(c: &Character) -> String {
+    let slots = c.memories_padded();
+    let rows: String = slots
+        .iter()
+        .enumerate()
+        .map(|(slot, saved)| {
+            let number = slot + 1;
+            match saved {
+                Some(memory) => {
+                    let name = escape_html(&memory.name);
+                    let spent: u32 = memory.passive_allocations.values().sum::<u32>() + memory.secondary_passive_allocations.values().sum::<u32>();
+                    let class_line = match memory.secondary_archetype {
+                        Some(secondary) => format!("{:?} &amp; {secondary:?}", memory.archetype),
+                        None => format!("{:?}", memory.archetype),
+                    };
+                    format!(
+                        "<div class=\"memory-slot filled\">\
+                           <div class=\"memory-head\">\
+                             <span class=\"memory-number\">{number}</span>\
+                             <span class=\"memory-name\">{name}</span>\
+                           </div>\
+                           <div class=\"memory-meta\">{class_line} &middot; {spent} point{plural} spent</div>\
+                           <div class=\"memory-actions\">\
+                             <form method=\"post\" action=\"/passives/memories/load\">\
+                               <input type=\"hidden\" name=\"slot\" value=\"{slot}\">\
+                               <button class=\"btn-sm\" type=\"submit\">Load</button>\
+                             </form>\
+                             <form method=\"post\" action=\"/passives/memories/save\" onsubmit=\"return confirm('Overwrite this Memory with your current build?');\">\
+                               <input type=\"hidden\" name=\"slot\" value=\"{slot}\">\
+                               <input type=\"hidden\" name=\"name\" value=\"{name}\">\
+                               <button class=\"btn-sm\" type=\"submit\">Overwrite</button>\
+                             </form>\
+                             <form method=\"post\" action=\"/passives/memories/rename\" class=\"memory-rename\">\
+                               <input type=\"hidden\" name=\"slot\" value=\"{slot}\">\
+                               <input type=\"text\" name=\"name\" value=\"{name}\" maxlength=\"{MEMORY_NAME_MAX_LEN}\" aria-label=\"Rename Memory {number}\">\
+                               <button class=\"btn-sm\" type=\"submit\">Rename</button>\
+                             </form>\
+                             <form method=\"post\" action=\"/passives/memories/delete\" onsubmit=\"return confirm('Delete this Memory? This cannot be undone.');\">\
+                               <input type=\"hidden\" name=\"slot\" value=\"{slot}\">\
+                               <button class=\"btn-sm btn-danger\" type=\"submit\">Delete</button>\
+                             </form>\
+                           </div>\
+                         </div>",
+                        plural = if spent == 1 { "" } else { "s" },
+                    )
+                }
+                None => {
+                    let placeholder = escape_html(&default_memory_name(c.archetype, c.effective_secondary_archetype()));
+                    format!(
+                        "<div class=\"memory-slot empty\">\
+                           <div class=\"memory-head\">\
+                             <span class=\"memory-number\">{number}</span>\
+                             <span class=\"memory-name muted\">Empty slot</span>\
+                           </div>\
+                           <form method=\"post\" action=\"/passives/memories/save\" class=\"memory-actions\">\
+                             <input type=\"hidden\" name=\"slot\" value=\"{slot}\">\
+                             <input type=\"text\" name=\"name\" placeholder=\"{placeholder}\" maxlength=\"{MEMORY_NAME_MAX_LEN}\" aria-label=\"Name for Memory {number}\">\
+                             <button class=\"btn-sm\" type=\"submit\">Save Current Build</button>\
+                           </form>\
+                         </div>"
+                    )
+                }
+            }
+        })
+        .collect();
+
+    format!(
+        "<div class=\"ptree-memories\">\
+          <div class=\"masthead\">\
+            <h1>Memories</h1>\
+            <p class=\"subhead\">Save your whole build - class, both trees, and golem types - and swap back to it later for free. \
+            Loading is free and skips the usual respec and class-change costs, but only works outside a fight. \
+            Points you've earned since saving are left unspent for you to place.</p>\
+          </div>\
+          <div class=\"memory-slots\">{rows}</div>\
+        </div>"
+    )
+}
+
 fn render_passive_tree_page(display_name: &str, character: Option<&Character>, preview: Option<&PassivePreview>) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
@@ -3452,6 +3709,7 @@ fn render_passive_tree_page(display_name: &str, character: Option<&Character>, p
     let available = total_points.saturating_sub(spent);
 
     let (archetype_icon, archetype_role) = passive_archetype_icon_role(c.archetype);
+    let memories_section = render_memories_section(c);
     let primary_meta_legend = render_ptree_meta_legend();
     let primary_body = render_ptree_body(c.archetype, c.level, primary_allocations, true, false, available);
 
@@ -3575,7 +3833,7 @@ fn render_passive_tree_page(display_name: &str, character: Option<&Character>, p
           <div class=\"masthead\">\
             <div class=\"eyebrow\">Live &middot; {archetype:?}</div>\
             <h1>Passives</h1>\
-            <p class=\"subhead\">1 point from the start, +1 every 5 levels. Points spent on a node marked (inactive) are banked, not wasted - they'll activate once that mechanic ships.</p>\
+            <p class=\"subhead\">1 point from the start, +1 every 4 levels. Points spent on a node marked (inactive) are banked, not wasted - they'll activate once that mechanic ships.</p>\
           </div>\
           <div class=\"current-row\">\
             <div class=\"class-strip\">\
@@ -3591,10 +3849,11 @@ fn render_passive_tree_page(display_name: &str, character: Option<&Character>, p
               </div>\
               {preview_note}\
               <form method=\"post\" action=\"/passives/respec\"><button class=\"btn-respec\" type=\"submit\"{respec_disabled}>{respec_label}</button></form>\
-              <p class=\"points-formula\">1 point from the start, +1 every 5 levels &mdash; level {level} gives you {total_points} to spend.</p>\
+              <p class=\"points-formula\">1 point from the start, +1 every 4 levels &mdash; level {level} gives you {total_points} to spend.</p>\
               {free_respec_note}\
             </div>\
           </div>\
+          {memories_section}\
           {primary_meta_legend}\
           {primary_body}\
           {golem_slot_section}\
@@ -4566,3 +4825,154 @@ fn render_page(body: &str) -> String {
     render::render_template("base.html", minijinja::context! { body => body })
 }
 
+/// Stage C of the Memories build (docs/memories_spec.md) - the
+/// `/passives` card. Rendering only; the save/load rules themselves are
+/// covered in `adventure::memory` and `AdventureManager`'s own tests.
+///
+/// The escaping tests here are the point of this module: a Memory name
+/// is the first genuinely free-form player-authored string this page
+/// renders, `escape_html` deliberately does not escape `'`, and
+/// minijinja autoescaping is off for this template.
+#[cfg(test)]
+mod memories_render_tests {
+    use super::*;
+
+    fn warrior_with_points() -> Character {
+        let mut c = Character::new("Tester".to_string());
+        c.level = 40;
+        c.archetype = Archetype::Warrior;
+        c.passive_allocations.insert("bulwark".to_string(), 3);
+        c.passive_allocations.insert("unbreakable".to_string(), 4);
+        c
+    }
+
+    #[test]
+    fn every_slot_renders_even_when_nothing_is_saved_yet() {
+        // Empty slots ARE the feature's entry point, so unlike the golem
+        // and Split Personality sections this one is never hidden.
+        let html = render_memories_section(&warrior_with_points());
+        // Matched with the trailing space so the `memory-slots`
+        // CONTAINER (which has `memory-slot` as a substring) isn't
+        // counted as a fourth row.
+        assert_eq!(html.matches("class=\"memory-slot ").count(), 3, "a fresh character must see all 3 slots");
+        assert_eq!(html.matches("Save Current Build").count(), 3);
+        assert!(!html.contains("Load</button>"), "there is nothing to load yet");
+    }
+
+    #[test]
+    fn an_empty_slot_offers_the_default_name_as_its_placeholder() {
+        let html = render_memories_section(&warrior_with_points());
+        assert!(html.contains("placeholder=\"Memories of a Warrior\""), "the suggested name must be pre-filled as a placeholder, got: {html}");
+    }
+
+    #[test]
+    fn a_filled_slot_shows_its_name_class_and_spend() {
+        let mut c = warrior_with_points();
+        c.memories = vec![Some(c.snapshot_build("Tank Build".to_string(), 0))];
+
+        let html = render_memories_section(&c);
+        assert!(html.contains("Tank Build"));
+        assert!(html.contains("Warrior"));
+        assert!(html.contains("7 points spent"), "3 + 4 across the tree, got: {html}");
+        assert!(html.contains("/passives/memories/load"));
+        assert!(html.contains("/passives/memories/delete"));
+    }
+
+    #[test]
+    fn a_split_personality_build_names_both_classes_in_its_summary() {
+        let mut c = warrior_with_points();
+        let mut memory = c.snapshot_build("Hybrid".to_string(), 0);
+        memory.secondary_archetype = Some(Archetype::Druid);
+        c.memories = vec![Some(memory)];
+
+        let html = render_memories_section(&c);
+        assert!(html.contains("Warrior &amp; Druid"), "both classes must show, got: {html}");
+    }
+
+    #[test]
+    fn a_one_point_build_is_not_described_as_one_points() {
+        let mut c = warrior_with_points();
+        c.passive_allocations.clear();
+        c.passive_allocations.insert("bulwark".to_string(), 1);
+        c.memories = vec![Some(c.snapshot_build("Minimal".to_string(), 0))];
+
+        assert!(render_memories_section(&c).contains("1 point spent"));
+    }
+
+    #[test]
+    fn a_memory_name_containing_html_is_escaped_everywhere_it_is_rendered() {
+        // A name reaches the page in two places - as element text and as
+        // a double-quoted `value=` attribute on the rename field - and
+        // both must be escaped. `<` and `"` are the two that matter:
+        // unescaped `"` would break out of the attribute.
+        let mut c = warrior_with_points();
+        c.memories = vec![Some(c.snapshot_build("<script>alert(1)</script>\" onfocus=\"x".to_string(), 0))];
+
+        let html = render_memories_section(&c);
+        assert!(!html.contains("<script>"), "a name must never render as a live tag, got: {html}");
+        assert!(html.contains("&lt;script&gt;"), "the name must appear escaped instead");
+        assert!(!html.contains("\" onfocus=\""), "an unescaped quote would break out of the value attribute");
+        assert!(html.contains("&quot; onfocus=&quot;"));
+    }
+
+    #[test]
+    fn a_name_containing_an_apostrophe_never_reaches_the_inline_confirm_script() {
+        // `escape_html` does NOT escape `'` (see its own doc, and the
+        // one existing call site that strips quotes by hand). The
+        // confirm() strings are therefore deliberately static - no name
+        // is interpolated into them - so an apostrophe in a name can
+        // never terminate the JS string literal and break the handler.
+        let mut c = warrior_with_points();
+        c.memories = vec![Some(c.snapshot_build("Bob's Build'); alert(1); //".to_string(), 0))];
+
+        let html = render_memories_section(&c);
+        assert!(html.contains("onsubmit=\"return confirm('Delete this Memory? This cannot be undone.');\""), "the confirm text must be exactly the static string");
+        assert!(!html.contains("alert(1); //');"), "no part of a name may end up inside the confirm() argument, got: {html}");
+    }
+
+    #[test]
+    fn the_memories_card_appears_on_the_passives_page_but_not_for_a_commoner() {
+        let warrior = warrior_with_points();
+        let page = render_passive_tree_page("Tester", Some(&warrior), None);
+        assert!(page.contains("ptree-memories"), "the card must be on the page");
+        assert!(page.contains("Save Current Build"));
+
+        // Commoner has no tree at all, so `render_passive_tree_page`
+        // early-returns before any of this - nothing to snapshot.
+        let commoner = Character::new("Newbie".to_string());
+        let commoner_page = render_passive_tree_page("Newbie", Some(&commoner), None);
+        assert!(!commoner_page.contains("ptree-memories"), "a Commoner has no build to save");
+    }
+
+    #[test]
+    fn the_points_per_level_copy_matches_the_real_formula() {
+        // `points_for_level` moved from every 5 levels to every 4 on
+        // 2026-08-16 and this copy never followed - it said "+1 every 5
+        // levels" in two places until 2026-08-19. Pinned so the prose
+        // and the formula can't drift apart silently again.
+        let page = render_passive_tree_page("Tester", Some(&warrior_with_points()), None);
+        assert!(!page.contains("every 5 levels"), "stale points-per-level copy is back on the page");
+        assert_eq!(page.matches("+1 every 4 levels").count(), 2);
+        // And the claim itself is true: level 40 -> 1 + 40/4 = 11.
+        assert_eq!(crate::passive_tree::points_for_level(40), 11);
+    }
+
+    #[test]
+    fn a_clean_load_produces_no_note_but_a_changed_one_explains_itself() {
+        let clean = MemoryLoadReport {
+            name: "Tank Build".to_string(),
+            archetype: Archetype::Warrior,
+            class_changed: false,
+            dropped: Vec::new(),
+            secondary_skipped: false,
+            unspent: 0,
+        };
+        assert!(!clean.is_noteworthy(), "a clean same-class load must redirect silently");
+
+        let changed = MemoryLoadReport { class_changed: true, unspent: 1, ..clean };
+        assert!(changed.is_noteworthy());
+        let note = memory_load_note(&changed);
+        assert!(note.contains("You're now playing Warrior."));
+        assert!(note.contains("1 unspent point."), "singular, not '1 unspent points' - got: {note}");
+    }
+}
