@@ -18,6 +18,8 @@ patreon-tokens.json
 # Pre-Elementalist-deploy rollback backup (both binaries + data files),
 # same "backup before overwrite" discipline as backup-pre-bake above.
 /backup-pre-elementalist
+# Pre-fight-announcement-batching-deploy rollback backup, same discipline.
+/backup-pre-fight-batching
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
