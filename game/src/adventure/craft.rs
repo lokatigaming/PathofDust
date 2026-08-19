@@ -145,6 +145,18 @@ pub enum CraftAction {
     /// `ALL_CRAFT_ACTIONS`/`DROPPABLE_CRAFT_ACTIONS`, same reason as
     /// Polishing.
     Reforge,
+    /// Divine Dust apply/reroll (2026-08-19, docs/divine_dust_spec.md) -
+    /// same "fundamentally different currency shape" pattern as Polishing/
+    /// Reforge: priced at `2 × item.tier` DIVINE DUST (not dust or sand),
+    /// bypasses `AdventureManager::craft_item_ex`'s normal machinery
+    /// entirely via its own early branch, and its result is a
+    /// `DivineDustOutcome`, not a `CraftOutcome` - see
+    /// `CraftResult::DivineDustApplied` and `Character::apply_divine_dust`.
+    /// Deliberately NOT in `ALL_CRAFT_ACTIONS`/`DROPPABLE_CRAFT_ACTIONS`,
+    /// same reason as Polishing/Reforge - it doesn't fit either array's
+    /// shared "flat dust cost, can drop as a token" assumption, and Divine
+    /// Dust craft tokens were never part of this feature's design.
+    DivineDust,
 }
 
 /// Everything about one `CraftAction` variant - label, precondition,
@@ -193,6 +205,10 @@ pub(crate) fn craft_action_def(action: CraftAction) -> CraftActionDef {
         // Priced at `30 * tier` instead - see Reforge's own doc on the
         // enum. Never actually read, same reason as Polishing above.
         Reforge => CraftActionDef { label: "Reforge", required_affix_count: None, is_veilable: false, default_cost: 0 },
+        // Priced at `2 * item.tier` DIVINE DUST instead - see DivineDust's
+        // own doc on the enum. Never actually read, same reason as
+        // Polishing/Reforge above.
+        DivineDust => CraftActionDef { label: "Divine Dust", required_affix_count: None, is_veilable: false, default_cost: 0 },
     }
 }
 
@@ -227,7 +243,9 @@ pub(crate) fn craft_action_cost(action: CraftAction) -> u64 {
 impl CraftAction {
     pub fn base_cost(self) -> u64 {
         match self {
-            CraftAction::CelestialShard | CraftAction::UniqueShard | CraftAction::Polishing | CraftAction::Reforge => craft_action_def(self).default_cost,
+            CraftAction::CelestialShard | CraftAction::UniqueShard | CraftAction::Polishing | CraftAction::Reforge | CraftAction::DivineDust => {
+                craft_action_def(self).default_cost
+            }
             _ => craft_action_cost(self),
         }
     }
@@ -305,6 +323,33 @@ pub enum CraftError {
     /// deducted, unlike every other precondition here which just happens
     /// to also be checked first.
     NothingToPolish,
+    /// `CraftAction::DivineDust` only - not enough Divine Dust to apply/
+    /// reroll a sacred affix (cost is `2 × item.tier`, see
+    /// `AdventureManager::craft_item_ex`'s Divine Dust branch).
+    InsufficientDivineDust(u64),
+    /// `CraftAction::DivineDust` only, reroll case - the valid replacement
+    /// pool (every `Affix` except the item's current sacred affix) is
+    /// empty. Unreachable today (`Affix` has 17 variants, so excluding
+    /// just one always leaves 16), but the spec calls for the guard
+    /// explicitly, so it's implemented and tested defensively rather than
+    /// assumed away.
+    NoValidRerollTarget,
+}
+
+/// Why `AdventureManager::craft_divine_dust` (the dust+sand → Divine Dust
+/// recipe, `/craft`'s "Craft Divine Dust" row) didn't go through. Its own
+/// error type, not folded into `CraftError` above - the recipe is a pure
+/// currency conversion with no target item at all, so none of
+/// `CraftError`'s item-shaped variants (`ItemNotFound`/`ItemLocked`/
+/// `PreconditionNotMet`/etc.) could ever apply to it.
+#[derive(Debug, Clone, Copy)]
+pub enum DivineDustCraftError {
+    /// Hasn't `!join`ed the adventure yet.
+    NotJoined,
+    /// Not enough dust — carries the cost that was needed.
+    InsufficientDust(u64),
+    /// Not enough sand — carries the cost that was needed.
+    InsufficientSand(u64),
 }
 
 /// Result of a successful currency craft - see `Character::craft`. One
@@ -368,12 +413,15 @@ pub struct CraftOutcome {
 /// `Reforged` when `action` was `CraftAction::Reforge` - it never
 /// produces a `CraftOutcome` at all (see `Character::reforge_item`),
 /// so it gets its own result shape instead of trying to force a
-/// `ReforgeOutcome` into `CraftOutcome`'s fields.
+/// `ReforgeOutcome` into `CraftOutcome`'s fields. `DivineDustApplied`
+/// is the same idea for `CraftAction::DivineDust` - see
+/// `Character::apply_divine_dust`/`DivineDustOutcome`.
 #[derive(Debug, Clone)]
 pub enum CraftResult {
     Applied(CraftOutcome),
     PendingChoice,
     Reforged(ReforgeOutcome),
+    DivineDustApplied(DivineDustOutcome),
 }
 
 /// What kind of craft is behind an in-progress veiled choice - see

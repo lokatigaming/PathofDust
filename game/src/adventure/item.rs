@@ -769,6 +769,23 @@ pub struct ReforgeOutcome {
     pub bonus_affix: Option<Affix>,
 }
 
+/// Result of a successful `CraftAction::DivineDust` apply/reroll - see
+/// `Character::apply_divine_dust`. `became_sacred: true` (with
+/// `old_affix: None`) is the "item wasn't sacred yet" path; `false` (with
+/// `old_affix: Some(...)`) is a reroll of an already-sacred item's affix.
+/// `new_affix`/`new_value` are set either way - always exactly one sacred
+/// affix on the item afterward.
+#[derive(Debug, Clone)]
+pub struct DivineDustOutcome {
+    pub item_name: String,
+    pub slot: EquipSlot,
+    pub tier: u32,
+    pub became_sacred: bool,
+    pub old_affix: Option<Affix>,
+    pub new_affix: Affix,
+    pub new_value: f64,
+}
+
 /// Result of a successful single-item disenchant — see
 /// `Character::disenchant_from_inventory`. `dust_max` is what the same
 /// item would've granted on the best possible roll (`6 * tier *
@@ -780,6 +797,9 @@ pub struct DisenchantOutcome {
     pub item_name: String,
     pub dust: u32,
     pub dust_max: u32,
+    /// Divine Dust granted alongside the dust roll above - always 0 for a
+    /// non-Sacred item (see `roll_divine_dust_disenchant`).
+    pub divine_dust: u64,
 }
 
 /// Which gear action a `GearCritEvent` came from - main.rs's subscriber

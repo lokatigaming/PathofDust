@@ -36,7 +36,7 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
@@ -341,6 +341,18 @@ struct IndexParams {
     disenchanted: Option<String>,
     dust: Option<u32>,
     dust_max: Option<u32>,
+    /// Set alongside `disenchanted` when the item was Sacred and the
+    /// Divine Dust roll hit - see `DisenchantOutcome::divine_dust`.
+    /// `None`/0 for every ordinary disenchant.
+    divine_dust: Option<u64>,
+    /// Set by `do_craft`/`do_craft_divine_dust_batch` after the Divine
+    /// Dust craft recipe actually grants at least 1 - see
+    /// `render_divine_dust_craft_popup`. Own marker/amount field, distinct
+    /// from `crafted`/`tier` above (the recipe has no item/slot/tier at
+    /// all) - reuses `change` for the same "(x{completed} of {times} —
+    /// ran out)" batch-shortfall prefix `do_craft_batch` already uses.
+    divine_dust_crafted: Option<String>,
+    divine_dust_amount: Option<u64>,
 }
 
 async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
@@ -372,16 +384,19 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let pending_veil = state.adventure.pending_veil(&login).await;
+            let tunables = state.adventure.live_tunables();
             let popup = if params.crafted.is_some() {
                 render_craft_popup(&params)
             } else if params.craft_failed.is_some() {
                 render_craft_error_popup(&params)
             } else if params.disenchanted.is_some() {
                 render_disenchant_popup(&params)
+            } else if params.divine_dust_crafted.is_some() {
+                render_divine_dust_craft_popup(&params)
             } else {
                 String::new()
             };
-            format!("{popup}{}", render_inventory_page(&display_name, character.as_ref(), pending_veil.as_ref()))
+            format!("{popup}{}", render_inventory_page(&display_name, character.as_ref(), pending_veil.as_ref(), &tunables))
         }
     };
     Html(render_page(&body))
@@ -450,6 +465,10 @@ fn render_disenchant_popup(params: &IndexParams) -> String {
     let dust = params.dust.unwrap_or(0);
     let dust_max = params.dust_max.unwrap_or(0).max(1);
     let percent = ((dust as f64 / dust_max as f64) * 100.0).round() as u32;
+    // Only shown when the disenchanted item was Sacred AND the Divine
+    // Dust roll actually hit - see `DisenchantOutcome::divine_dust`'s doc.
+    let divine_dust = params.divine_dust.unwrap_or(0);
+    let divine_dust_line = if divine_dust > 0 { format!("<p class=\"modal-tier\">✨ Also yielded {divine_dust} Divine Dust!</p>") } else { String::new() };
     format!(
         "<div class=\"modal-backdrop\" id=\"disenchant-modal\">\
           <div class=\"modal\">\
@@ -457,7 +476,30 @@ fn render_disenchant_popup(params: &IndexParams) -> String {
             <h2>Disenchanted!</h2>\
             <p>Your <strong>{item}</strong> broke down into <strong>{dust} Dust</strong></p>\
             <p class=\"modal-tier\">{percent}% of the {dust_max} possible</p>\
+            {divine_dust_line}\
             <button class=\"btn\" onclick=\"document.getElementById('disenchant-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
+          </div>\
+        </div>"
+    )
+}
+
+/// Shown once after the Divine Dust craft recipe (`/craft`'s "Craft
+/// Divine Dust" row) actually grants at least 1 - see `do_craft`/
+/// `do_craft_divine_dust_batch`. Same popup pattern as
+/// `render_disenchant_popup` above; `change` carries the x1/x10/x50
+/// batch's own "(x{completed} of {times} — ran out)" shortfall prefix
+/// when present, same convention `do_craft_batch` already uses.
+fn render_divine_dust_craft_popup(params: &IndexParams) -> String {
+    let amount = params.divine_dust_amount.unwrap_or(0);
+    let change = escape_html(params.change.as_deref().unwrap_or(""));
+    format!(
+        "<div class=\"modal-backdrop\" id=\"divine-dust-craft-modal\">\
+          <div class=\"modal\">\
+            <div class=\"modal-icon\">✨</div>\
+            <h2>Crafted!</h2>\
+            <p>Gained <strong>{amount} Divine Dust</strong></p>\
+            <p class=\"modal-tier\">{change}</p>\
+            <button class=\"btn\" onclick=\"document.getElementById('divine-dust-craft-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
           </div>\
         </div>"
     )
@@ -698,10 +740,11 @@ async fn do_disenchant(State(state): State<AppState>, headers: HeaderMap, Form(f
             // Same POST-redirect-GET query-string-carry-through as
             // render_reforge_popup/render_craft_popup.
             let url = format!(
-                "/inventory?disenchanted=1&item={}&dust={}&dust_max={}",
+                "/inventory?disenchanted=1&item={}&dust={}&dust_max={}&divine_dust={}",
                 urlencoding::encode(&outcome.item_name),
                 outcome.dust,
                 outcome.dust_max,
+                outcome.divine_dust,
             );
             return Redirect::to(&url);
         }
@@ -1208,6 +1251,7 @@ fn parse_craft_action(s: &str) -> Option<CraftAction> {
         "unique shard" => Some(CraftAction::UniqueShard),
         "polishing" => Some(CraftAction::Polishing),
         "reforge" => Some(CraftAction::Reforge),
+        "divine dust" => Some(CraftAction::DivineDust),
         _ => None,
     }
 }
@@ -1222,6 +1266,13 @@ fn craft_popup_url(item_name: &str, slot: EquipSlot, tier: u32, change: &str) ->
         tier,
         urlencoding::encode(change),
     )
+}
+
+/// Query string for `render_divine_dust_craft_popup` - `change` carries
+/// the same "(x{completed} of {times} — ran out)" batch-shortfall prefix
+/// `do_craft_batch`'s own popups use, empty for a plain x1 craft.
+fn divine_dust_craft_popup_url(amount: u64, change: &str) -> String {
+    format!("/inventory?divine_dust_crafted=1&divine_dust_amount={amount}&change={}", urlencoding::encode(change))
 }
 
 /// One-line "what changed" for a currency craft's popup - Scour reports
@@ -1285,6 +1336,18 @@ fn reforge_outcome_change_text(outcome: &ReforgeOutcome) -> String {
     }
 }
 
+/// One-line "what changed" for `CraftAction::DivineDust`'s popup - see
+/// `DivineDustOutcome`.
+fn divine_dust_outcome_change_text(outcome: &DivineDustOutcome) -> String {
+    let new_line = format!("Sacred affix: {}", affix_display(outcome.new_affix, outcome.new_value));
+    if outcome.became_sacred {
+        format!("Became Sacred! {new_line}")
+    } else {
+        let old = outcome.old_affix.map(affix_name).unwrap_or("—");
+        format!("{old} → {new_line}")
+    }
+}
+
 /// One-line "what changed" for a recombine's popup - just the bonus
 /// modifier when the rare recomb crit landed (see `RecombineOutcome`,
 /// which doesn't carry the full surviving-affix list, only the crit) -
@@ -1333,6 +1396,20 @@ fn craft_error_text(err: CraftError) -> String {
         CraftError::CannotKrangleUnique => "An item with a unique affix can't be Krangled.".to_string(),
         CraftError::InsufficientSand(cost) => format!("Not enough sand — this needs {cost}."),
         CraftError::NothingToPolish => "That item's already maxed out — nothing left for Polishing to improve.".to_string(),
+        CraftError::InsufficientDivineDust(cost) => format!("Not enough Divine Dust — this needs {cost}."),
+        CraftError::NoValidRerollTarget => "No other sacred affix is available to reroll into.".to_string(),
+    }
+}
+
+/// Player-facing reason the Divine Dust craft recipe didn't go through -
+/// own error type/text fn from `craft_error_text` above (see
+/// `DivineDustCraftError`'s own doc for why), same message wording
+/// convention as `CraftError::InsufficientDust`/`InsufficientSand`.
+fn divine_dust_craft_error_text(err: DivineDustCraftError) -> String {
+    match err {
+        DivineDustCraftError::NotJoined => "You haven't joined the adventure yet.".to_string(),
+        DivineDustCraftError::InsufficientDust(cost) => format!("Not enough dust — this needs {cost}."),
+        DivineDustCraftError::InsufficientSand(cost) => format!("Not enough sand — this needs {cost}."),
     }
 }
 
@@ -1370,6 +1447,21 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
             }
         } else if form.action == "hideout warrior" {
             return do_hideout_warrior(&state, &login, &form.item_a, form.hideout_krangle.is_some()).await;
+        } else if form.action == "divine dust craft" {
+            // Currency-only recipe, no item involved at all - a third
+            // string-matched pseudo-action alongside "recombine"/"hideout
+            // warrior" above, rather than forcing it through
+            // parse_craft_action/craft_item (which assume a target item -
+            // see `DivineDustCraftError`'s own doc). Same x1/x10/x50
+            // `times` field every other batchable action reads.
+            let times = form.times.unwrap_or(1).clamp(1, 50);
+            if times > 1 {
+                return do_craft_divine_dust_batch(&state, &login, times).await;
+            }
+            match state.adventure.craft_divine_dust(&login).await {
+                Ok(amount) => return Redirect::to(&divine_dust_craft_popup_url(amount, "")),
+                Err(err) => return Redirect::to(&craft_error_popup_url(&divine_dust_craft_error_text(err))),
+            }
         } else if let Some(action) = parse_craft_action(&form.action) {
             // Only Polishing/Reforge get the x5/x10/x50 batch treatment
             // (see the dedicated section in render_crafting_card) - every
@@ -1392,6 +1484,10 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
                     let change = reforge_outcome_change_text(&outcome);
                     return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
                 }
+                Ok(CraftResult::DivineDustApplied(outcome)) => {
+                    let change = divine_dust_outcome_change_text(&outcome);
+                    return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &change));
+                }
                 Ok(CraftResult::PendingChoice) => {}
                 Err(err) => return Redirect::to(&craft_error_popup_url(&craft_error_text(err))),
             }
@@ -1410,6 +1506,10 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
     let mut completed = 0u32;
     let mut last_applied: Option<CraftOutcome> = None;
     let mut last_reforged: Option<ReforgeOutcome> = None;
+    // DivineDust is never batch-eligible today (see the `times` gate in
+    // `do_craft`, Polishing/Reforge only) - tracked anyway so this match
+    // stays correct, not just exhaustive, if that ever changes.
+    let mut last_divine_dust: Option<DivineDustOutcome> = None;
     // Reforge's own popup text (`reforge_outcome_change_text`) shows a
     // single craft's own old_tier -> new_tier - called on just the LAST
     // iteration's outcome, that would show only that one iteration's
@@ -1435,6 +1535,10 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
                     reforge_bonus_affix = outcome.bonus_affix;
                 }
                 last_reforged = Some(outcome);
+            }
+            Ok(CraftResult::DivineDustApplied(outcome)) => {
+                completed += 1;
+                last_divine_dust = Some(outcome);
             }
             Ok(CraftResult::PendingChoice) => break,
             Err(err) => {
@@ -1462,7 +1566,42 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
         let change = format!("{prefix}{change_body}");
         return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
     }
+    if let Some(outcome) = last_divine_dust {
+        let change = format!("{prefix}{}", divine_dust_outcome_change_text(&outcome));
+        return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &change));
+    }
     Redirect::to("/inventory")
+}
+
+/// Repeats the Divine Dust craft recipe `times` in a row (the x1/x10/x50
+/// radios) - exact same stop-on-shortfall convention as `do_craft_batch`
+/// above: stops as soon as one iteration errors (out of dust or sand),
+/// whatever already landed stays applied (each iteration is its own
+/// atomic dust+sand deduction, see `AdventureManager::craft_divine_dust`),
+/// and the popup reports how many of the requested repeats actually
+/// landed vs. how many were asked for.
+async fn do_craft_divine_dust_batch(state: &AppState, login: &str, times: u32) -> Redirect {
+    let mut completed = 0u32;
+    let mut total: u64 = 0;
+    let mut error: Option<DivineDustCraftError> = None;
+    for _ in 0..times {
+        match state.adventure.craft_divine_dust(login).await {
+            Ok(amount) => {
+                completed += 1;
+                total += amount;
+            }
+            Err(err) => {
+                error = Some(err);
+                break;
+            }
+        }
+    }
+    if completed == 0 {
+        let reason = error.map(divine_dust_craft_error_text).unwrap_or_else(|| "Nothing happened.".to_string());
+        return Redirect::to(&craft_error_popup_url(&reason));
+    }
+    let prefix = if completed < times { format!("(x{completed} of {times} — ran out)") } else { format!("(x{completed})") };
+    Redirect::to(&divine_dust_craft_popup_url(total, &prefix))
 }
 
 /// The fixed 5-step chain Hideout Warrior runs, in order - the only
@@ -1494,7 +1633,10 @@ async fn do_hideout_warrior(state: &AppState, login: &str, item_id: &str, includ
     for action in steps {
         match state.adventure.craft_item_ex(login, item_id, *action, false, false).await {
             Ok(CraftResult::Applied(outcome)) => completed.push(outcome),
-            Ok(CraftResult::PendingChoice) | Ok(CraftResult::Reforged(_)) => {}
+            // DivineDustApplied is unreachable here - DivineDust is never
+            // one of HIDEOUT_WARRIOR_STEPS - but the match must stay
+            // exhaustive regardless.
+            Ok(CraftResult::PendingChoice) | Ok(CraftResult::Reforged(_)) | Ok(CraftResult::DivineDustApplied(_)) => {}
             Err(err @ (CraftError::NotJoined | CraftError::ItemNotFound | CraftError::InsufficientDust(_))) => {
                 hard_error = Some(err);
                 break;
@@ -2321,6 +2463,16 @@ struct TunablesForm {
     thunder_redistribution_window_secs: f64,
     /// See `LiveTunables::reactive_proc_cap_ms`'s doc.
     reactive_proc_cap_ms: u32,
+    /// See `LiveTunables::divine_dust_drop_chance`'s doc.
+    divine_dust_drop_chance: f64,
+    /// See `LiveTunables::divine_dust_disenchant_chance`'s doc.
+    divine_dust_disenchant_chance: f64,
+    /// See `LiveTunables::divine_dust_craft_dust_cost`'s doc.
+    divine_dust_craft_dust_cost: u64,
+    /// See `LiveTunables::divine_dust_craft_sand_cost`'s doc.
+    divine_dust_craft_sand_cost: u64,
+    /// See `LiveTunables::divine_dust_craft_output`'s doc.
+    divine_dust_craft_output: u64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -2368,6 +2520,11 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 thunder_redistribution_pct: form.thunder_redistribution_pct.clamp(0.0, 1.0),
                 thunder_redistribution_window_secs: form.thunder_redistribution_window_secs.max(0.0),
                 reactive_proc_cap_ms: form.reactive_proc_cap_ms,
+                divine_dust_drop_chance: form.divine_dust_drop_chance.clamp(0.0, 1.0),
+                divine_dust_disenchant_chance: form.divine_dust_disenchant_chance.clamp(0.0, 1.0),
+                divine_dust_craft_dust_cost: form.divine_dust_craft_dust_cost,
+                divine_dust_craft_sand_cost: form.divine_dust_craft_sand_cost,
+                divine_dust_craft_output: form.divine_dust_craft_output.max(1),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -2758,6 +2915,7 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
                 <div class=\"stat\"><div class=\"stat-label\">Win rate</div><div class=\"stat-value\">{winrate}</div></div>\
                 <div class=\"stat\"><div class=\"stat-label\">Dust</div><div class=\"stat-value\">{dust}</div></div>\
                 <div class=\"stat\"><div class=\"stat-label\">Sand</div><div class=\"stat-value\">{sand}</div></div>\
+                <div class=\"stat\"><div class=\"stat-label\">Divine Dust</div><div class=\"stat-value\">{divine_dust}</div></div>\
               </div>\
             </div>\
           </div>\
@@ -2774,6 +2932,7 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
         losses = format_number(c.losses as f64),
         dust = format_number(c.dust as f64),
         sand = format_number(c.sand as f64),
+        divine_dust = format_number(c.divine_dust as f64),
         xp = format_number(c.xp as f64),
         xp_needed = format_number(c.xp_needed() as f64),
     )
@@ -3071,6 +3230,32 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"1\" min=\"0\" id=\"reactive_proc_cap_ms\" name=\"reactive_proc_cap_ms\" value=\"{reactive_proc_cap_ms}\">\
               <p class=\"tunable-hint\">Minimum time between real counter-attacks for the shared Rogue's Voidstep / Monk's Counterflow / Druid's Wild Fury group (Warrior's Retaliation is uncapped). Default 1000ms = at most 1 real trigger per second.</p>\
             </div>\
+            <h2>Divine Dust</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_drop_chance\">Divine Dust Fight-Drop Chance</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_drop_chance\" name=\"divine_dust_drop_chance\" value=\"{divine_dust_drop_chance}\">\
+              <p class=\"tunable-hint\">0 to 1 — chance per fighting character, per win (boss or basic, same eligibility as sand), of gaining exactly 1 Divine Dust.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_disenchant_chance\">Divine Dust Disenchant Chance</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_disenchant_chance\" name=\"divine_dust_disenchant_chance\" value=\"{divine_dust_disenchant_chance}\">\
+              <p class=\"tunable-hint\">0 to 1 — chance per Sacred item manually disenchanted of gaining 1 Divine Dust. Non-Sacred disenchants never grant any.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_dust_cost\">Divine Dust Recipe: Dust Cost</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_dust_cost\" name=\"divine_dust_craft_dust_cost\" value=\"{divine_dust_craft_dust_cost}\">\
+              <p class=\"tunable-hint\">Dust cost of the /craft recipe (deliberately cheap relative to veteran holdings — sand is the intended pacing constraint).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_sand_cost\">Divine Dust Recipe: Sand Cost</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_sand_cost\" name=\"divine_dust_craft_sand_cost\" value=\"{divine_dust_craft_sand_cost}\">\
+              <p class=\"tunable-hint\">Sand cost of the same recipe.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_output\">Divine Dust Recipe: Output</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"divine_dust_craft_output\" name=\"divine_dust_craft_output\" value=\"{divine_dust_craft_output}\">\
+              <p class=\"tunable-hint\">Divine Dust granted per craft, before the x1/x10/x50 batch multiplier.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -3099,6 +3284,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         thunder_redistribution_pct = t.thunder_redistribution_pct,
         thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
         reactive_proc_cap_ms = t.reactive_proc_cap_ms,
+        divine_dust_drop_chance = t.divine_dust_drop_chance,
+        divine_dust_disenchant_chance = t.divine_dust_disenchant_chance,
+        divine_dust_craft_dust_cost = t.divine_dust_craft_dust_cost,
+        divine_dust_craft_sand_cost = t.divine_dust_craft_sand_cost,
+        divine_dust_craft_output = t.divine_dust_craft_output,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
     )
 }
@@ -3122,11 +3312,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
 fn top_nav(character: Option<&Character>) -> String {
     let stats = character.map_or(String::new(), |c| {
         format!(
-            "<span class=\"top-nav-stats\">Lv {level} {archetype:?} · 💰 {dust} · \u{1FAB5} {sand}</span>",
+            "<span class=\"top-nav-stats\">Lv {level} {archetype:?} · 💰 {dust} · \u{1FAB5} {sand} · ✨ {divine_dust}</span>",
             level = c.level,
             archetype = c.archetype,
             dust = format_number(c.dust as f64),
             sand = format_number(c.sand as f64),
+            divine_dust = format_number(c.divine_dust as f64),
         )
     });
     format!(
@@ -3249,6 +3440,7 @@ fn render_dashboard(
                     <div class=\"stat\"><div class=\"stat-label\">Win rate</div><div class=\"stat-value\">{winrate}</div></div>\
                     <div class=\"stat\"><div class=\"stat-label\">Dust</div><div class=\"stat-value\">{dust}</div></div>\
                     <div class=\"stat\"><div class=\"stat-label\">Sand</div><div class=\"stat-value\">{sand}</div></div>\
+                    <div class=\"stat\"><div class=\"stat-label\">Divine Dust</div><div class=\"stat-value\">{divine_dust}</div></div>\
                   </div>\
                 </div>\
               </div>\
@@ -3285,6 +3477,7 @@ fn render_dashboard(
         xp_needed = format_number(c.xp_needed() as f64),
         dust = format_number(c.dust as f64),
         sand = format_number(c.sand as f64),
+        divine_dust = format_number(c.divine_dust as f64),
     )
 }
 
@@ -3293,7 +3486,7 @@ fn render_dashboard(
 /// prompt if `character` is `None`, same as the dashboard does, since
 /// this page is reachable straight from `top_nav`'s links regardless of
 /// join state.
-fn render_inventory_page(display_name: &str, character: Option<&Character>, pending_veil: Option<&PendingVeil>) -> String {
+fn render_inventory_page(display_name: &str, character: Option<&Character>, pending_veil: Option<&PendingVeil>, tunables: &LiveTunables) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
     let Some(c) = character else {
@@ -3363,7 +3556,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
     let nickname_prompt_html = render_nickname_prompt(c);
     let crafting_card_html = match pending_veil {
         Some(pending) => render_veil_choice_card(pending),
-        None => render_crafting_card(c),
+        None => render_crafting_card(c, tunables),
     };
 
     // Combat Stats (2026-08-17, a live request) - same shared card the
@@ -4468,7 +4661,7 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
     };
     let slot_prefix = if show_slot { format!("{:?}, ", item.slot) } else { String::new() };
     format!(
-        "<option value=\"{id}\" data-affixes=\"{mods}\" data-tier=\"{tier}\" data-quality=\"{quality:.0}\" data-perfect=\"{perfect}\" data-polish-room=\"{polish_room}\"{selected}>{name} ({slot_prefix}T{tier}, {mods} mod{plural}{quality_tag}){lock}{unique_mark}</option>",
+        "<option value=\"{id}\" data-affixes=\"{mods}\" data-tier=\"{tier}\" data-quality=\"{quality:.0}\" data-perfect=\"{perfect}\" data-polish-room=\"{polish_room}\" data-sacred=\"{sacred}\"{selected}>{name} ({slot_prefix}T{tier}, {mods} mod{plural}{quality_tag}){lock}{unique_mark}</option>",
         id = item.id,
         name = escape_html(&item.display_name()),
         tier = item.tier,
@@ -4476,6 +4669,7 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
         plural = if mods == 1 { "" } else { "s" },
         perfect = if item.perfect { "1" } else { "0" },
         polish_room = if item.has_polish_room() { "1" } else { "0" },
+        sacred = if item.sacred_affix.is_some() { "1" } else { "0" },
     )
 }
 
@@ -4574,6 +4768,9 @@ fn craft_action_tip(action: CraftAction) -> &'static str {
         CraftAction::Reforge => {
             "Rerolls this item to a new (usually higher) tier, same as the Reforge Gear channel points reward, but costs dust instead \u{2014} 30 per tier of the item \u{2014} and targets this specific item, with a small chance at a bonus modifier."
         }
+        CraftAction::DivineDust => {
+            "Costs Divine Dust, not dust or sand \u{2014} 2 per tier of the item. Not yet Sacred: makes it Sacred (also Perfect, if it wasn't already) and grants one random sacred affix. Already Sacred: rerolls its sacred affix to a different one."
+        }
     }
 }
 
@@ -4583,10 +4780,48 @@ const VEIL_TIP: &str = "Turns this craft's randomness into a choice: pay extra d
 
 const HIDEOUT_WARRIOR_TIP: &str = "Runs Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle on this item in order, skipping any step that isn't eligible right now, paying each step's normal dust cost as it goes \u{2014} always in full, never a banked token. Stops early if you run out of dust; whatever already landed stays. Never veiled, regardless of the checkbox above. Reaching the Krangle step permanently locks the item, same as using Krangle directly \u{2014} uncheck \"Include Krangle\" to stop after Exalt and leave the item unlocked.";
 
-fn render_crafting_card(c: &Character) -> String {
+/// The Divine Dust craft recipe row (docs/divine_dust_spec.md) - a
+/// separate, standalone `<form>` from the main item-crafting one below
+/// (its own `times` x1/x10/x50 radio group under the SAME `name`, which
+/// is safe precisely because it's a different `<form>` element - each
+/// form only ever submits its own descendant inputs). Deliberately not
+/// gated on the character owning any items at all: this recipe converts
+/// dust+sand into Divine Dust and never touches an item, so unlike every
+/// other action on this card it has nothing to be empty-inventory-gated
+/// on (2026-08-19, explicit requirement - always visible).
+fn render_divine_dust_recipe_row(c: &Character, tunables: &LiveTunables) -> String {
+    let dust_cost = tunables.divine_dust_craft_dust_cost;
+    let sand_cost = tunables.divine_dust_craft_sand_cost;
+    let output = tunables.divine_dust_craft_output;
+    let cost_tip = "Costs dust + sand, not Divine Dust itself \u{2014} a currency conversion, not an apply/reroll. x1/x10/x50 repeats the whole recipe that many times, stopping early (keeping whatever already landed) if you run out of either currency partway through.";
+    format!(
+        "<form method=\"post\" action=\"/craft\">\
+          <input type=\"hidden\" name=\"action\" value=\"divine dust craft\">\
+          <div class=\"craft-actions\">\
+            <span class=\"muted\" data-tip=\"{cost_tip}\">Craft Divine Dust ({dust_cost}d + {sand_cost}s \u{2192} {output} \u{2728}):</span>\
+            <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"1\" checked> x1</label>\
+            <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"10\"> x10</label>\
+            <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"50\"> x50</label>\
+            <button class=\"btn-sm\" type=\"submit\"{disabled}>Craft</button>\
+          </div>\
+        </form>",
+        disabled = if c.dust < dust_cost || c.sand < sand_cost { " disabled" } else { "" },
+    )
+}
+
+fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
     let items = all_items(c);
+    let divine_dust_recipe_html = render_divine_dust_recipe_row(c, tunables);
     if items.is_empty() {
-        return String::new();
+        return format!(
+            "<div class=\"card\" id=\"crafting-card\">\
+              <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
+              {divine_dust_recipe_html}\
+            </div>",
+            dust = format_number(c.dust as f64),
+            sand = format_number(c.sand as f64),
+            divine_dust = format_number(c.divine_dust as f64),
+        );
     }
     let options_a = craft_item_options(c, &items, false, c.last_crafted_item_id.as_deref());
     let options_b = craft_item_options(c, &items, true, None);
@@ -4654,8 +4889,6 @@ fn render_crafting_card(c: &Character) -> String {
             format!(" data-base=\"0\" data-label=\"Recombine\" data-veil-extra=\"{VEIL_EXTRA_COST}\" data-recombine=\"1\""),
         )
     };
-    let dust = format_number(c.dust as f64);
-    let sand = format_number(c.sand as f64);
     // Hidden entirely (not just disabled) until the player actually has
     // one - unlike the 6 normal actions, showing a permanently-disabled
     // "Celestial Shard (18446744073709551615d)" button (its real
@@ -4685,10 +4918,24 @@ fn render_crafting_card(c: &Character) -> String {
         "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"reforge\" data-reforge=\"1\" data-dust=\"{}\" data-tip=\"{reforge_tip}\">Reforge</button>",
         c.dust,
     );
+    // Divine Dust apply/reroll (2026-08-19) - same "price depends on the
+    // selected item" shape as Polish/Reforge above (2 x item_a's own
+    // tier, in Divine Dust rather than sand/dust), so its cost text is
+    // also computed client-side (see updateSpecialCosts' own
+    // data-divine-dust-apply handling) rather than server-side. Never
+    // batched (x1/x10/x50 is the craft RECIPE's own thing, a separate
+    // form below) - applying/rerolling a specific item one at a time is
+    // the natural unit here.
+    let divine_dust_apply_tip = craft_action_tip(CraftAction::DivineDust);
+    let divine_dust_apply_btn = format!(
+        "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"divine dust\" data-divine-dust-apply=\"1\" data-divine-dust=\"{}\" data-tip=\"{divine_dust_apply_tip}\">Apply Divine Dust</button>",
+        c.divine_dust,
+    );
     format!(
         "<div class=\"card\" id=\"crafting-card\">\
-          <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand</span></div>\
+          <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
           <p class=\"muted\">Pick your item(s) below, then hover any button for exactly what it does.</p>\
+          {divine_dust_recipe_html}\
           <form method=\"post\" action=\"/craft\">\
             <select name=\"item_a\">{options_a}</select>\
             <select name=\"item_b\">{options_b}</select>\
@@ -4705,13 +4952,16 @@ fn render_crafting_card(c: &Character) -> String {
               {polish_btn}{reforge_btn}\
             </div>\
             <div class=\"craft-actions\">\
-              {scour}{celestial_btn}{unique_shard_btn}\
+              {scour}{celestial_btn}{unique_shard_btn}{divine_dust_apply_btn}\
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"recombine\" data-tip=\"{RECOMBINE_TIP}\"{recombine_attrs}{recombine_disabled}>Recombine ({recombine_cost_label})</button>\
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"hideout warrior\" data-confirm=\"1\" data-tip=\"{HIDEOUT_WARRIOR_TIP}\">Hideout Warrior</button>\
               <label class=\"veil-check\" data-tip=\"Leave checked to end on Krangle (permanently locks the item). Uncheck to stop after Exalt and leave it unlocked.\"><input type=\"checkbox\" name=\"hideout_krangle\" value=\"1\" checked> Include Krangle</label>\
             </div>\
           </form>\
         </div>",
+        dust = format_number(c.dust as f64),
+        sand = format_number(c.sand as f64),
+        divine_dust = format_number(c.divine_dust as f64),
         transmute = action_btn(CraftAction::Transmute),
         scour = action_btn(CraftAction::Scour),
         augment = action_btn(CraftAction::Augment),

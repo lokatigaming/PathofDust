@@ -386,6 +386,17 @@ pub struct Character {
     /// doc for why that action uses this currency instead of dust.
     #[serde(default)]
     pub sand: u64,
+    /// Divine Dust (2026-08-19) - a per-character currency for making an
+    /// item Sacred and rerolling its sacred affix (see
+    /// `AdventureManager::craft_item_ex`'s `CraftAction::DivineDust`
+    /// branch), on top of its own dust+sand craft recipe. Three
+    /// acquisition sources, all additive: a chance per fighting character
+    /// on every win (`LiveTunables::divine_dust_drop_chance`, same
+    /// eligibility as `sand`'s own win grant), a chance per SACRED item
+    /// manually disenchanted (`LiveTunables::divine_dust_disenchant_chance`),
+    /// and the craft recipe itself. See `docs/divine_dust_spec.md`.
+    #[serde(default)]
+    pub divine_dust: u64,
     /// Set the moment every equipped, non-indestructible item hits 0%
     /// durability (see `all_gear_worn_out`) — while set, this character
     /// sits out every encounter (boss and basic alike), same exclusion
@@ -944,6 +955,16 @@ pub(crate) fn default_free_passive_respecs() -> u32 {
     STARTING_FREE_PASSIVE_RESPECS
 }
 
+/// Valid reroll targets for `Character::apply_divine_dust`'s already-
+/// sacred path - every entry of `all` except `current`. Factored out of
+/// `apply_divine_dust` itself so the empty-pool guard
+/// (`CraftError::NoValidRerollTarget`) is directly testable against an
+/// arbitrary pool, independent of `ALL_AFFIXES`'s real (currently 17,
+/// never empty after excluding 1) size.
+pub(crate) fn divine_dust_reroll_pool(current: Affix, all: &[Affix]) -> Vec<Affix> {
+    all.iter().copied().filter(|&a| a != current).collect()
+}
+
 impl Character {
     /// New characters start fully kitted out (a basic tier-1 item in
     /// every slot) rather than naked — see `AdventureManager::new`'s
@@ -965,6 +986,7 @@ impl Character {
             inventory: Vec::new(),
             dust: 0,
             sand: 0,
+            divine_dust: 0,
             retreated_since: None,
             model: None,
             free_model_changes: STARTING_FREE_MODEL_CHANGES,
@@ -1921,6 +1943,67 @@ impl Character {
         Ok(ReforgeOutcome { item_name, slot, old_tier, new_tier, bonus_affix })
     }
 
+    /// `CraftAction::DivineDust` (docs/divine_dust_spec.md) - apply/reroll
+    /// a sacred affix, costing `2 × item.tier` Divine Dust (computed and
+    /// checked by the caller, `AdventureManager::craft_item_ex`, same
+    /// split as Polishing/Reforge above: this fn only validates/mutates,
+    /// the manager deducts on success). Two paths:
+    ///
+    /// - Not yet Sacred: sacralized in place - EXACTLY the effect
+    ///   `make_item_sacred` already gives a natural drop (Perfect quality
+    ///   PLUS one random maxed-roll sacred affix from the FULL
+    ///   `ALL_AFFIXES` pool, ignoring slot eligibility, same as a natural
+    ///   Sacred drop). Deliberately not a lesser "just add the affix"
+    ///   effect - `Sacred implies Perfect` is a load-bearing invariant
+    ///   elsewhere in this codebase (`Item::meets_auto_disenchant_floor`'s
+    ///   Quality%-Perfect-Sacred ordering, `disenchant_multiplier`'s
+    ///   Sacred(N) == Perfect(N+1) equivalence, and this very feature's
+    ///   own `roll_divine_dust_disenchant` default derivation, which
+    ///   assumes a Sacred item's `quality_percent()` is always exactly
+    ///   100 - see `LiveTunables::divine_dust_disenchant_chance`'s doc) -
+    ///   letting a player mint a "Sacred but not Perfect" item via this
+    ///   path would quietly break all three. A judgment call (the spec
+    ///   text only said "becomes sacred, gains one random sacred affix"),
+    ///   recorded in docs/divine_dust_spec.md's decisions log.
+    /// - Already Sacred: the existing sacred affix rerolls to a DIFFERENT
+    ///   random affix (current excluded), at the same "max jitter ×
+    ///   `PERFECT_QUALITY_MULT`" roll `make_item_sacred` uses. Empty pool
+    ///   (`CraftError::NoValidRerollTarget`) is unreachable today (`Affix`
+    ///   has 17 variants, excluding 1 always leaves 16) but implemented
+    ///   and tested per the spec's explicit call for the guard.
+    pub(crate) fn apply_divine_dust(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<DivineDustOutcome, CraftError> {
+        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+        if item.locked {
+            return Err(CraftError::ItemLocked);
+        }
+        let item_name = item.name.clone();
+        let slot = item.slot;
+        let tier = item.tier;
+        if let Some((current_affix, _)) = item.sacred_affix {
+            let pool = divine_dust_reroll_pool(current_affix, &ALL_AFFIXES);
+            if pool.is_empty() {
+                return Err(CraftError::NoValidRerollTarget);
+            }
+            let new_affix = pool[rng.gen_range(0..pool.len())];
+            let new_value = affix_base_value(new_affix, tier) * 1.15 * PERFECT_QUALITY_MULT;
+            item.sacred_affix = Some((new_affix, new_value));
+            Ok(DivineDustOutcome { item_name, slot, tier, became_sacred: false, old_affix: Some(current_affix), new_affix, new_value })
+        } else {
+            if !item.perfect {
+                item.power_roll = POWER_ROLL_RANGE.end;
+                item.power = compute_power(slot, tier, item.power_roll) * PERFECT_QUALITY_MULT;
+                for (_, value) in item.affixes.iter_mut() {
+                    *value *= PERFECT_QUALITY_MULT;
+                }
+                item.perfect = true;
+            }
+            let new_affix = ALL_AFFIXES[rng.gen_range(0..ALL_AFFIXES.len())];
+            let new_value = affix_base_value(new_affix, tier) * 1.15 * PERFECT_QUALITY_MULT;
+            item.sacred_affix = Some((new_affix, new_value));
+            Ok(DivineDustOutcome { item_name, slot, tier, became_sacred: true, old_affix: None, new_affix, new_value })
+        }
+    }
+
     /// Web dashboard: equips a specific bag item (by id) into its slot,
     /// swapping whatever was equipped there back into the bag. Can never
     /// fail on bag capacity - exactly one item leaves the bag for every
@@ -1965,7 +2048,7 @@ impl Character {
     /// `Item::disenchant_protected`) - a server-side backstop matching the
     /// dashboard's own hidden/disabled button for a protected item, in
     /// case of a stale page/direct POST.
-    pub fn disenchant_from_inventory(&mut self, item_id: &str, rng: &mut impl Rng, sand_mult: f64) -> Option<DisenchantOutcome> {
+    pub fn disenchant_from_inventory(&mut self, item_id: &str, rng: &mut impl Rng, sand_mult: f64, divine_dust_disenchant_chance: f64) -> Option<DisenchantOutcome> {
         let pos = self.inventory.iter().position(|i| i.id == item_id)?;
         if self.inventory[pos].disenchant_protected {
             return None;
@@ -1975,7 +2058,13 @@ impl Character {
         let dust = rng.gen_range(1..=6) * multiplier;
         self.dust += dust as u64;
         self.sand += roll_disenchant_sand(item.quality_percent(), rng, sand_mult);
-        Some(DisenchantOutcome { item_name: item.name.clone(), dust, dust_max: 6 * multiplier })
+        // Divine Dust (2026-08-19) - SACRED items only, see
+        // `roll_divine_dust_disenchant`'s doc. Never announced (only fight
+        // drops are - see `AdventureManager::announce_divine_dust_drop`'s
+        // doc), so this is a plain currency grant, same as dust/sand above.
+        let divine_dust = roll_divine_dust_disenchant(item.sacred_affix.is_some(), rng, divine_dust_disenchant_chance);
+        self.divine_dust += divine_dust;
+        Some(DisenchantOutcome { item_name: item.name.clone(), dust, dust_max: 6 * multiplier, divine_dust })
     }
 
     /// Web dashboard: disenchants EVERY bag item at once, except anything
@@ -1990,21 +2079,24 @@ impl Character {
     /// has `disenchant_protected` for that. Returns how many items were
     /// actually disenchanted and the total dust granted (both 0 if
     /// nothing was eligible).
-    pub fn disenchant_all_from_inventory(&mut self, rng: &mut impl Rng, sand_mult: f64) -> (usize, u64) {
+    pub fn disenchant_all_from_inventory(&mut self, rng: &mut impl Rng, sand_mult: f64, divine_dust_disenchant_chance: f64) -> (usize, u64) {
         let mut count = 0usize;
         let mut total_dust = 0u64;
         let mut total_sand = 0u64;
+        let mut total_divine_dust = 0u64;
         self.inventory.retain(|item| {
             if item.disenchant_protected {
                 return true;
             }
             total_dust += (rng.gen_range(1..=6) * item.tier * item.disenchant_multiplier()) as u64;
             total_sand += roll_disenchant_sand(item.quality_percent(), rng, sand_mult);
+            total_divine_dust += roll_divine_dust_disenchant(item.sacred_affix.is_some(), rng, divine_dust_disenchant_chance);
             count += 1;
             false
         });
         self.dust += total_dust;
         self.sand += total_sand;
+        self.divine_dust += total_divine_dust;
         (count, total_dust)
     }
 
@@ -3234,6 +3326,114 @@ impl Character {
 }
 
 #[cfg(test)]
+mod divine_dust_apply_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn character_with_item(item: Item) -> (Character, String) {
+        let mut character = Character::new("dust_wielder".to_string());
+        character.inventory.clear();
+        let id = item.id.clone();
+        character.inventory.push(item);
+        (character, id)
+    }
+
+    #[test]
+    fn sacralizing_a_plain_item_grants_perfect_and_one_sacred_affix() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let item = generate_item_at_tier_with_roll(EquipSlot::Weapon, 20, 1.0, &mut rng);
+        assert!(!item.perfect, "sanity: a freshly generated item must not start Perfect");
+        let (mut character, id) = character_with_item(item);
+
+        let mut roll_rng = StdRng::seed_from_u64(2);
+        let outcome = character.apply_divine_dust(&id, &mut roll_rng).expect("must sacralize a bare item");
+        assert!(outcome.became_sacred);
+        assert!(outcome.old_affix.is_none(), "sacralizing (not rerolling) must never report an old affix");
+
+        let updated = character.find_item_by_id(&id).unwrap();
+        assert!(updated.perfect, "sacralizing must also make the item Perfect - Sacred implies Perfect throughout this codebase");
+        assert_eq!(updated.power_roll, POWER_ROLL_RANGE.end);
+        assert_eq!(updated.sacred_affix.map(|(a, _)| a), Some(outcome.new_affix));
+        assert_eq!(updated.sacred_affix.map(|(_, v)| v), Some(outcome.new_value));
+    }
+
+    #[test]
+    fn sacralizing_an_already_perfect_item_does_not_double_apply_the_quality_bonus() {
+        let mut rng = StdRng::seed_from_u64(3);
+        let item = make_item_perfect(generate_item_at_tier_with_roll(EquipSlot::Helm, 10, 1.0, &mut rng));
+        let power_before = item.power;
+        let affixes_before = item.affixes.clone();
+        let (mut character, id) = character_with_item(item);
+
+        let mut roll_rng = StdRng::seed_from_u64(4);
+        character.apply_divine_dust(&id, &mut roll_rng).expect("must sacralize an already-perfect item");
+
+        let updated = character.find_item_by_id(&id).unwrap();
+        assert_eq!(updated.power, power_before, "power must be untouched - it was already Perfect, PERFECT_QUALITY_MULT must not apply twice");
+        assert_eq!(updated.affixes, affixes_before, "existing affix values must be untouched - only sacred_affix is new");
+    }
+
+    #[test]
+    fn rerolling_a_sacred_affix_excludes_the_current_one_across_many_rolls() {
+        let mut rng = StdRng::seed_from_u64(5);
+        let base = generate_item_at_tier_with_roll(EquipSlot::Boots, 15, 1.0, &mut rng);
+        let mut sacred_rng = StdRng::seed_from_u64(6);
+        let item = make_item_sacred(base, &mut sacred_rng);
+        let (original_affix, _) = item.sacred_affix.expect("make_item_sacred must set sacred_affix");
+        let (mut character, id) = character_with_item(item);
+
+        for seed in 0..30u64 {
+            let mut roll_rng = StdRng::seed_from_u64(100 + seed);
+            let outcome = character.apply_divine_dust(&id, &mut roll_rng).expect("reroll must succeed");
+            assert!(!outcome.became_sacred, "the item was already sacred - this must be the reroll path");
+            assert_eq!(outcome.old_affix, Some(original_affix));
+            assert_ne!(outcome.new_affix, original_affix, "reroll must never land back on the affix it just replaced");
+            // Reset for the next iteration so every roll starts from the
+            // same known current affix.
+            character.find_item_by_id_mut(&id).unwrap().sacred_affix = Some((original_affix, 1.0));
+        }
+    }
+
+    #[test]
+    fn applying_to_a_locked_item_is_rejected_and_changes_nothing() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut item = generate_item_at_tier_with_roll(EquipSlot::Gloves, 5, 1.0, &mut rng);
+        item.locked = true;
+        let (mut character, id) = character_with_item(item);
+
+        let mut roll_rng = StdRng::seed_from_u64(8);
+        let err = character.apply_divine_dust(&id, &mut roll_rng).expect_err("a Krangled item must reject Divine Dust");
+        assert!(matches!(err, CraftError::ItemLocked));
+        assert!(character.find_item_by_id(&id).unwrap().sacred_affix.is_none(), "a rejected application must not touch the item");
+    }
+
+    #[test]
+    fn applying_to_a_missing_item_is_rejected() {
+        let mut character = Character::new("nobody".to_string());
+        character.inventory.clear();
+        let mut rng = StdRng::seed_from_u64(9);
+        let err = character.apply_divine_dust("does-not-exist", &mut rng).expect_err("no such item must be rejected");
+        assert!(matches!(err, CraftError::ItemNotFound));
+    }
+
+    #[test]
+    fn reroll_pool_excludes_only_the_current_affix() {
+        let pool = divine_dust_reroll_pool(Affix::CritChance, &ALL_AFFIXES);
+        assert_eq!(pool.len(), ALL_AFFIXES.len() - 1);
+        assert!(!pool.contains(&Affix::CritChance));
+    }
+
+    #[test]
+    fn reroll_pool_is_empty_when_the_only_candidate_is_the_current_affix() {
+        // The degenerate case `CraftError::NoValidRerollTarget` guards
+        // against - unreachable against the real ALL_AFFIXES (17 variants)
+        // but proven correct here against an arbitrary single-entry pool.
+        let pool = divine_dust_reroll_pool(Affix::Leech, &[Affix::Leech]);
+        assert!(pool.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod crit_lineage_tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
@@ -3885,6 +4085,26 @@ mod memory_persistence_tests {
         assert_eq!(restored.memory_slots, STARTING_MEMORY_SLOTS, "an existing character is granted the default slots on load");
         assert_eq!(restored.memories_padded().len(), 3, "the stored vec is short, but reading it must still show 3 slots");
         assert!(restored.memories_padded().iter().all(|m| m.is_none()));
+    }
+
+    #[test]
+    fn divine_dust_round_trips_through_json() {
+        let mut character = Character::new("dust_hoarder".to_string());
+        character.divine_dust = 42;
+        let json = serde_json::to_string(&character).expect("must serialize");
+        let restored: Character = serde_json::from_str(&json).expect("must deserialize");
+        assert_eq!(restored.divine_dust, 42);
+    }
+
+    #[test]
+    fn a_character_saved_before_divine_dust_existed_still_loads_with_zero() {
+        // Same additive-schema precedent as
+        // `a_character_saved_before_memories_existed_still_loads_with_three_empty_slots`
+        // - a save file predating `divine_dust` entirely must still
+        // deserialize, defaulting to 0 rather than failing to parse.
+        let old_save_json = r#"{"display_name":"pre_divine_dust","level":10,"xp":0,"wins":0,"losses":0,"archetype":"warrior"}"#;
+        let restored: Character = serde_json::from_str(old_save_json).expect("a pre-Divine-Dust save must still deserialize");
+        assert_eq!(restored.divine_dust, 0);
     }
 
     #[test]
