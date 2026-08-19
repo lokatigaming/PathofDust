@@ -78,10 +78,12 @@ pub enum Affix {
     /// per the live request, i.e. whichever action type this swing
     /// actually was, not an archetype gate. `LightningDamage`/
     /// `DivineDamage` below don't touch a defense stat at all - see their
-    /// own docs. Only rollable on Weapon/Helm (see `is_eligible_for_slot`) -
-    /// the two slots with an attacking implicit, representing that
-    /// implicit being retyped from plain physical to this element instead
-    /// of literally replacing it with a separate mechanic.
+    /// own docs. Rollable on every slot (2026-08-19 widen, a live
+    /// request - previously Weapon/Helm only, "the two slots with an
+    /// attacking implicit" per the original rationale; see
+    /// `is_eligible_for_slot`). Existing items are unaffected - this only
+    /// changes what a NEW roll can produce, nothing re-validates an
+    /// item's already-rolled affixes against eligibility.
     ColdDamage,
     /// Same shape as `ColdDamage` (see its own doc) - debuffs the
     /// target's damage reduction on a hit, buffs the healed ally's
@@ -109,8 +111,12 @@ pub enum Affix {
 
 impl Affix {
     /// Whether `self` can appear on an item in `slot` at all - every
-    /// affix except the 5 damage types is slot-agnostic. See
-    /// `ColdDamage`'s doc for why those 5 are Weapon/Helm only.
+    /// affix is slot-agnostic (2026-08-19: the 5 elemental damage types
+    /// were previously Weapon/Helm only - see `ColdDamage`'s own doc for
+    /// the widen). `make_item_sacred`/`Character::apply_divine_dust`'s
+    /// sacred-affix roll has always ignored this check entirely (draws
+    /// from the full `ALL_AFFIXES` pool regardless of slot), so this
+    /// widen is a no-op for those two paths.
     pub(crate) fn is_eligible_for_slot(self, slot: EquipSlot) -> bool {
         affix_def(self).eligible_slots.map_or(true, |slots| slots.contains(&slot))
     }
@@ -170,9 +176,11 @@ pub(crate) struct AffixDef {
     /// false only for FlatLife (raw hp number, no `%`/no `*100`).
     is_percent: bool,
     /// `None` = every slot; `Some(&[...])` = only these - was
-    /// `is_eligible_for_slot`. Only the 5 elemental damage types
-    /// restrict this today (Weapon/Helm only - see `Affix::ColdDamage`'s
-    /// doc for why).
+    /// `is_eligible_for_slot`. Every affix is `None` as of 2026-08-19 -
+    /// the 5 elemental damage types were the only ones ever restricted
+    /// (Weapon/Helm only, see `Affix::ColdDamage`'s own doc for the
+    /// widen) - kept as a real `Option` rather than deleted, so a future
+    /// affix can still restrict itself the same way.
     eligible_slots: Option<&'static [EquipSlot]>,
     /// Per-tier coefficient - was `affix_base_value`'s per-arm value.
     default_per_tier: f64,
@@ -183,7 +191,6 @@ pub(crate) struct AffixDef {
 
 pub(crate) fn affix_def(affix: Affix) -> AffixDef {
     use Affix::*;
-    const ELEMENTAL_SLOTS: &[EquipSlot] = &[EquipSlot::Weapon, EquipSlot::Helm];
     match affix {
         DamageReduction => AffixDef { name: "damage taken reduction", label: "dmg taken reduction", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.02, default_weight: 1.0 },
         BlockChance => AffixDef { name: "block chance", label: "block chance", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.02, default_weight: 1.0 },
@@ -231,12 +238,14 @@ pub(crate) fn affix_def(affix: Affix) -> AffixDef {
         // to ALSO contributing flat increased damage again (see
         // `Character::combat_increased_damage`) - both changes together
         // meant the tiny 0.0003x scale was leaving proc chances (and the
-        // restored flat damage) far too small to matter.
-        ColdDamage => AffixDef { name: "cold damage dealt", label: "cold damage (evasion debuff chance)", decimals: 2, is_percent: true, eligible_slots: Some(ELEMENTAL_SLOTS), default_per_tier: 0.0225, default_weight: 1.0 },
-        FireDamage => AffixDef { name: "fire damage dealt", label: "fire damage (dmg reduction debuff chance)", decimals: 2, is_percent: true, eligible_slots: Some(ELEMENTAL_SLOTS), default_per_tier: 0.0225, default_weight: 1.0 },
-        LightningDamage => AffixDef { name: "lightning damage dealt", label: "lightning damage (dmg taken debuff chance)", decimals: 2, is_percent: true, eligible_slots: Some(ELEMENTAL_SLOTS), default_per_tier: 0.0225, default_weight: 1.0 },
-        DivineDamage => AffixDef { name: "divine damage dealt", label: "divine damage (heal debuff/buff chance)", decimals: 2, is_percent: true, eligible_slots: Some(ELEMENTAL_SLOTS), default_per_tier: 0.0225, default_weight: 1.0 },
-        ChaosDamage => AffixDef { name: "chaos damage dealt", label: "chaos damage (block debuff chance)", decimals: 2, is_percent: true, eligible_slots: Some(ELEMENTAL_SLOTS), default_per_tier: 0.0225, default_weight: 1.0 },
+        // restored flat damage) far too small to matter. `eligible_slots`
+        // widened to every slot 2026-08-19 (was Weapon/Helm only) - see
+        // Affix::ColdDamage's own doc.
+        ColdDamage => AffixDef { name: "cold damage dealt", label: "cold damage (evasion debuff chance)", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.0225, default_weight: 1.0 },
+        FireDamage => AffixDef { name: "fire damage dealt", label: "fire damage (dmg reduction debuff chance)", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.0225, default_weight: 1.0 },
+        LightningDamage => AffixDef { name: "lightning damage dealt", label: "lightning damage (dmg taken debuff chance)", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.0225, default_weight: 1.0 },
+        DivineDamage => AffixDef { name: "divine damage dealt", label: "divine damage (heal debuff/buff chance)", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.0225, default_weight: 1.0 },
+        ChaosDamage => AffixDef { name: "chaos damage dealt", label: "chaos damage (block debuff chance)", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.0225, default_weight: 1.0 },
     }
 }
 
@@ -463,5 +472,59 @@ pub(crate) fn roll_affixes(slot: EquipSlot, tier: u32, rng: &mut impl Rng) -> Ve
             (affix, affix_base_value(affix, tier) * jitter)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod elemental_slot_widen_tests {
+    use super::*;
+
+    const ELEMENTAL_AFFIXES: [Affix; 5] = [Affix::ColdDamage, Affix::FireDamage, Affix::LightningDamage, Affix::DivineDamage, Affix::ChaosDamage];
+    const ALL_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
+
+    #[test]
+    fn every_elemental_affix_is_now_eligible_on_every_slot() {
+        for affix in ELEMENTAL_AFFIXES {
+            for slot in ALL_SLOTS {
+                assert!(affix.is_eligible_for_slot(slot), "{affix:?} must be eligible on {slot:?} after the 2026-08-19 widen");
+            }
+        }
+    }
+
+    #[test]
+    fn every_slot_now_has_the_full_17_affix_pool() {
+        for slot in ALL_SLOTS {
+            let eligible: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| a.is_eligible_for_slot(slot)).collect();
+            assert_eq!(eligible.len(), ALL_AFFIXES.len(), "{slot:?}'s eligible pool must now match ALL_AFFIXES exactly, got {eligible:?}");
+        }
+    }
+
+    #[test]
+    fn non_elemental_affixes_are_unaffected_by_the_widen() {
+        // Sanity check the widen touched only the 5 elemental variants -
+        // every other affix was already slot-agnostic and must stay so.
+        for affix in ALL_AFFIXES {
+            if ELEMENTAL_AFFIXES.contains(&affix) {
+                continue;
+            }
+            for slot in ALL_SLOTS {
+                assert!(affix.is_eligible_for_slot(slot), "{affix:?} was already eligible everywhere and must remain so on {slot:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn leechs_rarity_weight_is_unchanged_by_the_widen() {
+        // The widen dilutes every affix's REALIZED pick-share on Body/
+        // Gloves/Boots (bigger pool, same total-weight-relative draw),
+        // but must never touch the underlying weight values themselves -
+        // Leech's 10x-rarer-than-everything-else ratio is a property of
+        // affix_weight, not of pool size.
+        assert_eq!(affix_weight(Affix::Leech), 0.1);
+        for affix in ALL_AFFIXES {
+            if affix != Affix::Leech {
+                assert_eq!(affix_weight(affix), 1.0, "{affix:?} must still be the default weight");
+            }
+        }
+    }
 }
 
