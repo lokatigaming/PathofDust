@@ -15,6 +15,9 @@ patreon-tokens.json
 /target-elementalist
 # Pre-cutover rollback backups (real player data + a binary) - never tracked.
 /backup-pre-bake
+# Pre-Elementalist-deploy rollback backup (both binaries + data files),
+# same "backup before overwrite" discipline as backup-pre-bake above.
+/backup-pre-elementalist
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
