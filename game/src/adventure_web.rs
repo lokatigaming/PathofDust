@@ -2319,6 +2319,8 @@ struct TunablesForm {
     thunder_redistribution_pct: f64,
     /// See `LiveTunables::thunder_redistribution_window_secs`'s doc.
     thunder_redistribution_window_secs: f64,
+    /// See `LiveTunables::reactive_proc_cap_ms`'s doc.
+    reactive_proc_cap_ms: u32,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -2365,6 +2367,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 fight_summary_batch_size: form.fight_summary_batch_size.max(1),
                 thunder_redistribution_pct: form.thunder_redistribution_pct.clamp(0.0, 1.0),
                 thunder_redistribution_window_secs: form.thunder_redistribution_window_secs.max(0.0),
+                reactive_proc_cap_ms: form.reactive_proc_cap_ms,
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3062,6 +3065,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
               <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
             </div>\
+            <h2>Reactive Procs</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"reactive_proc_cap_ms\">Reactive Counter Cap (ms)</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"reactive_proc_cap_ms\" name=\"reactive_proc_cap_ms\" value=\"{reactive_proc_cap_ms}\">\
+              <p class=\"tunable-hint\">Minimum time between real counter-attacks for the shared Rogue's Voidstep / Monk's Counterflow / Druid's Wild Fury group (Warrior's Retaliation is uncapped). Default 1000ms = at most 1 real trigger per second.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -3089,6 +3098,7 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         fight_summary_batch_size = t.fight_summary_batch_size,
         thunder_redistribution_pct = t.thunder_redistribution_pct,
         thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
+        reactive_proc_cap_ms = t.reactive_proc_cap_ms,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
     )
 }

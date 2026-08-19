@@ -122,6 +122,14 @@ pub struct LiveTunables {
     /// Same mechanic - total time (seconds) the 2-tick redistribution DoT
     /// is spread across (tick 1 at half this, tick 2 at the full amount).
     pub thunder_redistribution_window_secs: f64,
+    /// Warrior's Retaliation / the shared Rogue's Voidstep, Monk's
+    /// Counterflow, Druid's Wild Fury group - the deliberate "at most one
+    /// real counter-attack per this many ms" cap on the evade-counter
+    /// group specifically (see `evade_counter_last_fired_at_ms`'s own
+    /// doc; Retaliation itself has no such cap). Release 1.2 spec-owner
+    /// ruling (2026-08-19): a LiveTunable, default matches the previous
+    /// hardcoded 1000ms exactly - no behavior change at default.
+    pub reactive_proc_cap_ms: u32,
 }
 
 impl Default for LiveTunables {
@@ -147,6 +155,7 @@ impl Default for LiveTunables {
             fight_summary_batch_size: 10,
             thunder_redistribution_pct: 0.50,
             thunder_redistribution_window_secs: 2.0,
+            reactive_proc_cap_ms: 1_000,
         }
     }
 }
