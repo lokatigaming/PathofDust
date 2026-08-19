@@ -175,77 +175,44 @@ pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()
 /// `docs/passive_tunables_spec.md` for the audit table and the
 /// per-class batch order.
 pub const PENDING_MIGRATION_NODES: &[&str] = &[
-    // Berserker (10)
-    "bloodrush",
-    "bloodscent",
-    "crush",
-    "deathwish",
-    "frenzy",
-    "gloriousdeath",
-    "lastlaugh",
-    "neverending",
-    "reckless",
-    "shatter",
-    // Cleric (4)
-    "chainoflight",
-    "compassion",
-    "guardianspirit",
-    "sanctifiedtouch",
-    // Druid (1)
-    "unitedpack",
-    // Mage (7)
-    "absolutezero",
-    "arcaneinstability",
-    "empoweredbolt",
-    "eternalmoment",
-    "infiniteloop",
-    "perpetualmotion",
-    "stormcaller",
-    // Monk (7)
-    "clarity",
-    "eternalflow",
-    "onehundredhands",
-    "relentlessassault",
-    "sharedstrength",
-    "stillwater",
-    "widecircle",
-    // Paladin (2)
-    "finaljudgment",
-    "risingblaze",
-    // Ranger (6)
-    "finalblow",
-    "piercingshots",
-    "stormofarrows",
-    "widerburst",
-    "widerpack",
-    "windborn",
-    // Rogue (8)
-    "assassinate",
-    "doubletap",
-    "markedfordeath",
-    "opportunist",
-    "quickdraw",
-    "surgicalstrike",
-    "vitalstrike",
-    "windrunner",
-    // Slayer (6)
-    "arterialspray",
-    "blooddebt",
-    "bloodsac",
-    "lastrites",
-    "plaguebearer",
-    "undying",
-    // Warlock (4)
-    "chaostheory",
-    "covenant",
-    "plagueoflocusts",
-    "ravage",
-    // Warrior (5)
-    "payback",
-    "secondwind",
-    "stonewall",
-    "undyingwill",
-    "unstoppable",
+"absolutezero", // mage
+    "arcaneinstability", // mage
+    "assassinate", // rogue
+    "bloodrush", // berserker
+    "bloodscent", // berserker
+    "chainoflight", // cleric
+    "chaostheory", // warlock
+    "clarity", // monk
+    "compassion", // cleric
+    "covenant", // warlock
+    "crush", // berserker
+    "deathwish", // berserker
+    "doubletap", // rogue
+    "empoweredbolt", // mage
+    "eternalmoment", // mage
+    "finalblow", // ranger
+    "finaljudgment", // paladin
+    "frenzy", // berserker
+    "gloriousdeath", // berserker
+    "guardianspirit", // monk
+    "infiniteloop", // mage
+    "lastlaugh", // berserker
+    "lastrites", // slayer
+    "markedfordeath", // rogue
+    "neverending", // berserker
+    "payback", // warrior
+    "piercingshots", // ranger
+    "quickdraw", // rogue
+    "ravage", // warlock
+    "reckless", // berserker
+    "relentlessassault", // monk
+    "sanctifiedtouch", // cleric
+    "secondwind", // warrior
+    "shatter", // berserker
+    "surgicalstrike", // rogue
+    "undying", // slayer
+    "undyingwill", // warrior
+    "vitalstrike", // rogue
 ];
 
 /// Nodes whose magnitude is a COUNT (extra targets, extra hits, banked
@@ -269,16 +236,72 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
 ///
 /// Every entry here is therefore added by the batch that migrates its
 /// node, at the point where the node's actual `combat.rs` code has been
-/// read and its shape is known rather than guessed. Nothing is lost by
-/// starting empty: every candidate is currently in
-/// `PENDING_MIGRATION_NODES`, so none of them is tunable yet anyway.
-pub const INTEGER_COUNT_NODES: &[&str] = &[];
+/// read and its shape is known rather than guessed - which is exactly
+/// how the entries below arrived (Stage 2, 2026-08-20): each one was
+/// confirmed to be a plain arithmetic count at its own call site before
+/// being listed.
+pub const INTEGER_COUNT_NODES: &[&str] = &[
+    "arterialspray",
+    "blooddebt",
+    "bloodsac",
+    "eternalflow",
+    "onehundredhands",
+    "opportunist",
+    "perpetualmotion",
+    "plaguebearer",
+    "plagueoflocusts",
+    "sharedstrength",
+    "stonewall",
+    "stormcaller",
+    "stormofarrows",
+    "unitedpack",
+    "unstoppable",
+    "widecircle",
+    "widerburst",
+    "widerpack",
+    "windborn",
+    "windrunner",
+];
+
+/// Nodes that declare a real per-rank effect which **nothing in the
+/// codebase reads** - no `passive_node_magnitude`, no
+/// `passive_node_rank`, no call site of any kind.
+///
+/// Distinct from `PENDING_MIGRATION_NODES` (whose values DO reach the
+/// game, just via hardcoded constants awaiting migration) and from
+/// `NotYetImplemented` (which declares no value at all). These sit in
+/// between: the value exists in the declaration, and overriding it
+/// would change nothing, because no mechanic consumes it yet.
+///
+/// Found in Stage 2 (2026-08-20) while dumping every migration
+/// candidate's call sites: both were listed as pending migration, but
+/// have no consumer to migrate. Listed separately so `/admin/passives`
+/// can say the accurate thing rather than promising a batch that would
+/// have nothing to do.
+pub const UNWIRED_NODES: &[&str] = &[
+    "risingblaze", // paladin - "Holy Fire strikes 1 additional random enemy per rank"
+    "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
+];
 
 /// Whether an override on `key` would actually reach the game today.
-/// `false` means the node still hardcodes its numbers in `combat.rs`
-/// and is waiting on its migration batch.
+/// `false` means either the node still hardcodes its numbers in
+/// `combat.rs` and is waiting on its migration batch
+/// (`PENDING_MIGRATION_NODES`), or nothing reads its value at all
+/// (`UNWIRED_NODES`).
 pub fn node_is_tunable(key: &str) -> bool {
-    !PENDING_MIGRATION_NODES.contains(&key)
+    !PENDING_MIGRATION_NODES.contains(&key) && !UNWIRED_NODES.contains(&key)
+}
+
+/// Why `key` cannot be tuned, for the admin page to show - `None` when
+/// it can be.
+pub fn node_untunable_reason(key: &str) -> Option<&'static str> {
+    if PENDING_MIGRATION_NODES.contains(&key) {
+        Some("Pending migration — this node's numbers are still hardcoded in combat.rs, so an override here would do nothing. Unlocked by its class's migration batch.")
+    } else if UNWIRED_NODES.contains(&key) {
+        Some("Declared but unread — this node has real per-rank values, but no code consumes them yet, so there is nothing an override could change.")
+    } else {
+        None
+    }
 }
 
 /// Whether `key`'s magnitude is a count, and so must be tuned in whole
@@ -480,14 +503,101 @@ mod passive_override_tests {
         // combat.rs rather than in their own declaration. If this
         // changes without a migration batch landing, the list has
         // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 60);
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 38, "Stage 2 migrated 20 and reclassified 2 as unwired, from the original 60");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 60, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 38, "the pending list must not contain duplicates");
     }
 
     #[test]
     fn tunability_is_reported_correctly_for_both_kinds_of_node() {
         assert!(!node_is_tunable("frenzy"), "frenzy hardcodes its numbers in combat.rs");
         assert!(node_is_tunable("bulwark"), "bulwark reads its value through the accessor");
+    }
+
+    // ---- Stage 2 (2026-08-20): the count-node migration -------------
+
+    #[test]
+    fn every_migrated_count_node_is_now_tunable() {
+        // The point of the batch. Each of these read
+        // `passive_node_rank` directly before Stage 2 and now reads
+        // `passive_node_count`, which routes through the override hook.
+        for key in INTEGER_COUNT_NODES {
+            assert!(node_is_tunable(key), "{key:?} was migrated in Stage 2 and must no longer be listed as pending");
+            assert!(node_untunable_reason(key).is_none(), "{key:?} must have no untunable reason");
+        }
+    }
+
+    #[test]
+    fn a_migrated_count_node_reads_its_override_as_a_whole_number() {
+        // `magnitude_at_rank` is f64; the count call sites need a u32.
+        // Rounding (not truncation) is what makes a tuned 2.999 read as
+        // 3 rather than silently becoming 2.
+        let node = node(Archetype::Ranger, "widerburst");
+        let o = overrides(&[("widerburst", &[2.0, 2.999, 4.0])]);
+        assert_eq!(node.magnitude_at_rank_with(1, &o).round() as u32, 2);
+        assert_eq!(node.magnitude_at_rank_with(2, &o).round() as u32, 3);
+        assert_eq!(node.magnitude_at_rank_with(3, &o).round() as u32, 4);
+    }
+
+    #[test]
+    fn a_negative_override_on_a_count_floors_at_zero_rather_than_wrapping() {
+        // `as u32` on a negative f64 saturates to 0 in Rust, but the
+        // explicit `.max(0.0)` in `passive_node_count` states the intent
+        // rather than relying on that - a huge wrapped count would be a
+        // spectacular way to break a fight.
+        let node = node(Archetype::Ranger, "widerburst");
+        let o = overrides(&[("widerburst", &[-5.0, -5.0, -5.0])]);
+        assert_eq!(node.magnitude_at_rank_with(1, &o).round().max(0.0) as u32, 0);
+    }
+
+    #[test]
+    fn at_default_values_every_migrated_count_still_equals_its_rank() {
+        // Why the batch is behavior-neutral: each migrated node declares
+        // `1.0 / 1.0`, so `1.0 + 1.0 * (rank - 1) == rank` exactly, and
+        // swapping the rank read for a magnitude read cannot move a
+        // number. Asserted rather than argued - the golden corpus proves
+        // it end to end, this proves it at the source.
+        let empty = PassiveOverrides::default();
+        for key in INTEGER_COUNT_NODES {
+            let (_, n) = crate::adventure::ALL_ARCHETYPES
+                .iter()
+                .find_map(|&a| a.passive_nodes().iter().find(|n| n.key == *key).map(|n| (a, n)))
+                .unwrap_or_else(|| panic!("{key:?} must exist"));
+            for rank in 1..=n.max_rank {
+                let expected = n.effective_rank(rank) as f64;
+                assert_eq!(n.magnitude_at_rank_with(rank, &empty), expected, "{key:?} rank {rank} must equal its effective rank exactly");
+            }
+        }
+    }
+
+    #[test]
+    fn unwired_nodes_are_not_offered_as_tunable_and_say_why() {
+        // These declare real per-rank values that nothing reads, so an
+        // override would silently do nothing - a different situation
+        // from "pending migration", and the page must not conflate them.
+        for key in UNWIRED_NODES {
+            assert!(!node_is_tunable(key), "{key:?} has no consumer, so it must not be offered");
+            let reason = node_untunable_reason(key).expect("an unwired node must explain itself");
+            assert!(reason.contains("Declared but unread"), "{key:?} must get the unwired reason, not the migration one, got: {reason}");
+        }
+    }
+
+    #[test]
+    fn the_three_node_classifications_never_overlap() {
+        for key in PENDING_MIGRATION_NODES {
+            assert!(!UNWIRED_NODES.contains(key), "{key:?} cannot be both pending migration and unwired");
+            assert!(!INTEGER_COUNT_NODES.contains(key), "{key:?} cannot be both pending migration and already migrated");
+        }
+        for key in UNWIRED_NODES {
+            assert!(!INTEGER_COUNT_NODES.contains(key), "{key:?} cannot be both unwired and migrated");
+        }
+    }
+
+    #[test]
+    fn every_unwired_key_still_exists_in_the_tree() {
+        for key in UNWIRED_NODES {
+            let found = crate::adventure::ALL_ARCHETYPES.iter().any(|a| a.passive_nodes().iter().any(|n| n.key == *key));
+            assert!(found, "{key:?} is listed as unwired but no longer exists in any archetype's tree");
+        }
     }
 }

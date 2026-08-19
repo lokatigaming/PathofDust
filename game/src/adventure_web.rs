@@ -2327,9 +2327,12 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             // input that silently does nothing is worse than no input.
             if not_yet || pending {
                 let why = if not_yet {
-                    "No mechanic yet — nothing reads this node's value, so there is nothing to tune."
+                    "No mechanic yet — this node declares no value, so there is nothing to tune."
                 } else {
-                    "Pending migration — this node's numbers are still hardcoded in combat.rs, so an override here would do nothing. Unlocked by its class's migration batch."
+                    // `pending` is true here, so a reason always exists.
+                    // The fallback keeps this total rather than panicking
+                    // if the two predicates ever drift apart.
+                    crate::adventure::node_untunable_reason(key).unwrap_or("Not tunable yet.")
                 };
                 return format!(
                     "<div class=\"passive-row disabled\">\

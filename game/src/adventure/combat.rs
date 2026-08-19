@@ -10495,7 +10495,7 @@ pub(crate) fn simulate_battle(
             // `u32::MAX` (never invested) for every other archetype.
             let bloodpact_invested = c.has_archetype(Archetype::Slayer) && c.passive_node_rank("sacrifice") > 0;
             let bloodpact_cooldown_ms =
-                if bloodpact_invested { (BLOODPACT_BASE_COOLDOWN_MS as f64 - c.passive_node_rank("bloodsac") as f64 * 500.0).max(2000.0) as u32 } else { u32::MAX };
+                if bloodpact_invested { (BLOODPACT_BASE_COOLDOWN_MS as f64 - c.passive_node_count("bloodsac") as f64 * 500.0).max(2000.0) as u32 } else { u32::MAX };
             // Paladin's Divine Shield - see `CombatSimUnit`'s doc. Gated
             // to Paladin specifically so this never accidentally reads a
             // same-keyed "shield" node on a different archetype.
@@ -10752,7 +10752,7 @@ pub(crate) fn simulate_battle(
                 own_symbiosis_dr_pct: c.passive_node_magnitude("symbiosis") + c.passive_node_magnitude("livingbond"),
                 // United Pack/Rooted Network extend the same "protect N
                 // allies" count Shared Strength already established.
-                sharedstrength_extra_targets: c.passive_node_rank("sharedstrength") + c.passive_node_rank("unitedpack") + c.passive_node_rank("rootednetwork"),
+                sharedstrength_extra_targets: c.passive_node_count("sharedstrength") + c.passive_node_count("unitedpack") + c.passive_node_rank("rootednetwork"),
                 // Wild Guardian/Nature's Embrace extend the same periodic
                 // protected-ally heal Guardian Spirit already established.
                 templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian") + c.passive_node_magnitude("naturesembrace"),
@@ -10943,14 +10943,14 @@ pub(crate) fn simulate_battle(
                 temp_attack_speed_debuff: 0.0,
                 temp_attack_speed_debuff_expires_at_ms: 0,
                 infernalpact_heal_pct: c.passive_node_magnitude("infernalpact"),
-                stormcaller_extra_targets: c.passive_node_rank("stormcaller"),
+                stormcaller_extra_targets: c.passive_node_count("stormcaller"),
                 piercing_shots_crit_chance_bonus: if c.passive_node_rank("piercingshots") >= 3 { 0.10 } else { 0.0 },
                 windpierce_splash_crit_pct: c.passive_node_magnitude("windpierce"),
                 armorbreaker_dr_shred_pct: c.passive_node_magnitude("armorbreaker"),
                 scorchedearth_dmg_debuff_pct: c.passive_node_magnitude("scorchedearth"),
                 truestrike_primary_crit_pct: c.passive_node_magnitude("truestrike"),
-                stormofarrows_extra_targets: c.passive_node_rank("stormofarrows"),
-                widerburst_extra_targets: c.passive_node_rank("widerburst"),
+                stormofarrows_extra_targets: c.passive_node_count("stormofarrows"),
+                widerburst_extra_targets: c.passive_node_count("widerburst"),
                 inner_focus_heal_pct: c.passive_node_magnitude("innerfocus"),
                 // Inner Peace - extends Meditation's per-10%-evasion rate.
                 inner_focus_meditation_bonus: c.passive_node_magnitude("meditation") + c.passive_node_magnitude("innerpeace"),
@@ -10959,7 +10959,7 @@ pub(crate) fn simulate_battle(
                 // Unmovable - extends Serenity's own DR magnitude.
                 inner_focus_serenity_dr_pct: c.passive_node_magnitude("serenity") + c.passive_node_magnitude("unmovable"),
                 risingtide_heal_power_pct: c.passive_node_magnitude("risingtide"),
-                widecircle_extra_targets: c.passive_node_rank("widecircle"),
+                widecircle_extra_targets: c.passive_node_count("widecircle"),
                 harmonize_dr_pct: c.passive_node_magnitude("harmonize"),
                 serenity_dr_duration_ms: SERENITY_DR_DURATION_MS + (c.passive_node_magnitude("unshakable") * 1000.0).round() as u32,
                 clarity_triggers_on_block: c.passive_node_rank("clarity") >= 2,
@@ -10978,7 +10978,7 @@ pub(crate) fn simulate_battle(
                 warcry_party_speed_pct: c.passive_node_magnitude("warcry"),
                 neverending_invested: c.passive_node_rank("neverending") > 0,
                 bloodlust_stack_expiries: Vec::new(),
-                opportunist_guaranteed_hits: c.passive_node_rank("opportunist"),
+                opportunist_guaranteed_hits: c.passive_node_count("opportunist"),
                 hits_landed_this_fight: 0,
                 ambush_dr_cut_pct: c.passive_node_magnitude("ambush"),
                 openingmove_cooldown_ms: (c.passive_node_magnitude("openingmove") * 1000.0).round() as u32,
@@ -11008,17 +11008,17 @@ pub(crate) fn simulate_battle(
                 // every other archetype and for a Slayer without a point
                 // in `wound` yet.
                 wound_deal_leech_per_stack: c.passive_node_magnitude("wound"),
-                wound_deal_max_stacks: if c.passive_node_rank("wound") > 0 { 5 + c.passive_node_rank("blooddebt") } else { 0 },
+                wound_deal_max_stacks: if c.passive_node_rank("wound") > 0 { 5 + c.passive_node_count("blooddebt") } else { 0 },
                 wound_deal_duration_ms: (WOUND_BASE_DURATION_MS as f64 * (1.0 + c.passive_node_magnitude("festering"))).round() as u32,
                 wound_deal_damage_dealt_debuff: c.passive_node_magnitude("necrotic"),
                 wound_deal_heal_received_debuff: c.passive_node_magnitude("rot") + c.passive_node_magnitude("witheringtouch"),
                 wound_deal_explosion_pct: c.passive_node_magnitude("hemorrhage"),
                 wound_deal_explosion_self_leech_pct: c.passive_node_magnitude("overflow"),
-                wound_deal_explosion_extra_targets: c.passive_node_rank("arterialspray"),
+                wound_deal_explosion_extra_targets: c.passive_node_count("arterialspray"),
                 wound_deal_spreads_to_splash: c.passive_node_rank("festering") > 0,
                 contagion_chance: c.passive_node_magnitude("contagion"),
                 gravechill_speed_debuff_pct: c.passive_node_magnitude("gravechill"),
-                plaguebearer_extra_targets: c.passive_node_rank("plaguebearer"),
+                plaguebearer_extra_targets: c.passive_node_count("plaguebearer"),
                 // Open Wound, defender-side (current status inflicted ON
                 // this unit) - nobody starts a fight already wounded.
                 wound_stacks: 0,
@@ -11259,7 +11259,7 @@ pub(crate) fn simulate_battle(
                 spike_retribution_chance: c.passive_node_magnitude("retribution"),
                 spike_unyielding_chance: c.passive_node_magnitude("unyielding"),
                 block_damage_reduction_pct: if c.passive_node_rank("secondskin") > 0 { c.passive_node_magnitude("secondskin") } else { BLOCK_DAMAGE_REDUCTION },
-                stonewall_auto_block_hits: c.passive_node_rank("stonewall"),
+                stonewall_auto_block_hits: c.passive_node_count("stonewall"),
                 hits_taken_this_fight: 0,
                 // Warrior's Momentum / Rogue's Fleetfoot / Berserker's
                 // Bloodlust / Ranger's Relentless Pursuit / Mage's Flow
@@ -11287,20 +11287,20 @@ pub(crate) fn simulate_battle(
                 stack_speed_max_stacks: if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("momentum") > 0 {
                     // Unstoppable - +1 max stack per rank, up to 8 (from
                     // the base 5).
-                    (MOMENTUM_STACK_MAX + c.passive_node_rank("unstoppable")).min(8)
+                    (MOMENTUM_STACK_MAX + c.passive_node_count("unstoppable")).min(8)
                 } else if c.has_archetype(Archetype::Rogue) && c.passive_node_rank("fleetfoot") > 0 {
                     // Windrunner - +1 max stack per rank, up to 6 (from
                     // the base 3).
-                    (FLEETFOOT_STACK_MAX + c.passive_node_rank("windrunner")).min(6)
+                    (FLEETFOOT_STACK_MAX + c.passive_node_count("windrunner")).min(6)
                 } else if c.has_archetype(Archetype::Berserker) && c.passive_node_rank("bloodlust") > 0 {
                     BLOODLUST_STACK_MAX
                 } else if c.has_archetype(Archetype::Ranger) && c.passive_node_rank("relentlesspursuit") > 0 {
                     // Windborn - +1 max stack per rank, up to 8 (from the
                     // base 5).
-                    (RELENTLESS_PURSUIT_STACK_MAX + c.passive_node_rank("windborn")).min(8)
+                    (RELENTLESS_PURSUIT_STACK_MAX + c.passive_node_count("windborn")).min(8)
                 } else if c.has_archetype(Archetype::Mage) && c.passive_node_rank("flowstate") > 0 {
                     // Perpetual Motion - +1 max stack per rank, up to 8.
-                    (FLOWSTATE_STACK_MAX + c.passive_node_rank("perpetualmotion")).min(8)
+                    (FLOWSTATE_STACK_MAX + c.passive_node_count("perpetualmotion")).min(8)
                 } else {
                     0
                 },
@@ -11377,7 +11377,7 @@ pub(crate) fn simulate_battle(
                 risingstorm_dmg_pct: c.passive_node_magnitude("risingstorm"),
                 nervestrike_crit_mult_bonus: c.passive_node_magnitude("nervestrike"),
                 vitalpoints_shred_per_stack: c.passive_node_magnitude("vitalpoints"),
-                eternalflow_bonus_stacks: c.passive_node_rank("eternalflow"),
+                eternalflow_bonus_stacks: c.passive_node_count("eternalflow"),
                 // `.min(3)` because this reads the RAW rank, and Flow like
                 // Water became a Specialization (max_rank 4) in the
                 // 2026-08-18 swap - without the clamp its 4th point would
@@ -11386,7 +11386,7 @@ pub(crate) fn simulate_battle(
                 // modifiers (what `magnitude_at_rank` enforces for every
                 // magnitude-based spec) and contradicting this node's own
                 // "up to 3 at 3/3" text.
-                onehundredhands_bonus_stacks: c.passive_node_rank("onehundredhands").min(3),
+                onehundredhands_bonus_stacks: c.passive_node_count("onehundredhands").min(3),
                 stormfront_splash_pct: c.passive_node_magnitude("stormfront"),
                 flowing_current: 0,
                 flowing_expires_at_ms: 0,
@@ -11462,7 +11462,7 @@ pub(crate) fn simulate_battle(
                 // independent magnitude.
                 own_mark_ally_crit_mult: (c.passive_node_magnitude("predatorseye") + c.passive_node_magnitude("apexhunter"))
                     * (c.passive_node_rank("huntersfocus") as f64 / 3.0),
-                own_mark_spread_count: c.passive_node_rank("widerpack"),
+                own_mark_spread_count: c.passive_node_count("widerpack"),
                 killzone_threshold: if c.passive_node_rank("finalblow") >= 3 {
                     0.45
                 } else if c.passive_node_rank("finalblow") >= 2 {
@@ -11477,7 +11477,7 @@ pub(crate) fn simulate_battle(
                 // Warlock's Curse of Weakness - Amplify Curse's bonus
                 // folds directly into the base magnitude.
                 own_curse_dmg_taken: c.passive_node_magnitude("curse") + c.passive_node_magnitude("amplifycurse") + c.passive_node_magnitude("hexmastery"),
-                own_curse_spread_count: c.passive_node_magnitude("contagiouscurse").round() as u32 + c.passive_node_rank("plagueoflocusts"),
+                own_curse_spread_count: c.passive_node_magnitude("contagiouscurse").round() as u32 + c.passive_node_count("plagueoflocusts"),
                 own_doom_detonate_pct: c.passive_node_magnitude("doom") + c.passive_node_magnitude("harbinger"),
                 own_curse_heal_reduction_pct: c.passive_node_magnitude("witheringcurse"),
                 own_curse_spread_bonus_pct: c.passive_node_magnitude("epidemic"),
