@@ -16199,30 +16199,49 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         assert!(absorbed > 0, "the golem never absorbed anything this fight - test would be vacuous");
         assert!(redistributed > 0, "the golem never redistributed anything this fight - test would be vacuous (weakens the test to only the trivial absorbed==net_absorbed case)");
 
-        // `<=`, not `==` - the fight can end before the FINAL incarnation's
-        // scheduled 2 ticks both get a chance to fire (redistribution
-        // ticks land up to `redistribution_window_ms` after the death
-        // that scheduled them; nothing guarantees the fight runs that
-        // much longer). `thundergolem_net_absorbed` debits the FULL
-        // theoretical amount unconditionally at death time (B1's own
-        // "dying incarnations credit absorbed x (1-pct)" - a death-time
-        // computation, not a delivery-time one), so a death very close to
-        // the fight's own end can legitimately leave net_absorbed LOWER
-        // than what the (necessarily truncated) delivered-ticks sum alone
-        // would imply. `net_absorbed` must never be HIGHER than that,
-        // though - nothing should ever manufacture credit back.
+        // `<=` with a small rounding tolerance, not exact `<=`/`==` - two
+        // independent sources of slack, both legitimate:
+        // 1. The fight can end before the FINAL incarnation's scheduled 2
+        //    ticks both get a chance to fire (redistribution ticks land up
+        //    to `redistribution_window_ms` after the death that scheduled
+        //    them; nothing guarantees the fight runs that much longer).
+        //    `thundergolem_net_absorbed` debits the FULL theoretical
+        //    amount unconditionally at death time (a death-time
+        //    computation, not a delivery-time one), so a death very close
+        //    to the fight's own end can legitimately leave net_absorbed
+        //    LOWER than what the (necessarily truncated) delivered-ticks
+        //    sum alone would imply.
+        // 2. Release 1.2 item 3's own dead-recipient redirect fix means
+        //    MORE ticks actually fire now (previously-dropped ticks
+        //    redirect instead of vanishing) - each one independently
+        //    `.round()`s its own fractional per-tick amount
+        //    (`apply_thunder_redistribution_tick`'s own `final_damage`),
+        //    so summing many INDEPENDENTLY-rounded pieces can drift a few
+        //    units above the single, less-rounded `net_absorbed` figure
+        //    (accumulated in f64 until its own final display conversion) -
+        //    confirmed empirically: rerunning this exact test many times
+        //    (this fixture's own multi-character HashMap construction has
+        //    genuine run-to-run iteration-order non-determinism, a
+        //    pre-existing characteristic - see golden_corpus.rs's own
+        //    doc) shows the gap always landing within a few units per
+        //    ~10-25 ticks, never a large, systematic miscalculation.
         let golem_info = unit_infos.iter().find(|u| u.id == golem_id).unwrap();
+        let tick_count = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, source_kind: AttackSourceKind::Environmental, .. } if attacker == THUNDER_REDISTRIBUTION_ATTACKER_ID)).count();
+        // At most 0.5 rounding error per independently-rounded tick - a
+        // precise, derived bound, not an arbitrary fudge factor.
+        let rounding_tolerance = (tick_count as f64 * 0.5).ceil() as u64;
         assert!(
-            golem_info.thunder_net_absorbed <= absorbed - redistributed,
-            "thunderNetAbsorbed ({}) must never exceed (event-log absorbed - event-log redistributed) ({}): absorbed={absorbed} redistributed={redistributed}",
+            golem_info.thunder_net_absorbed <= (absorbed - redistributed).saturating_add(rounding_tolerance),
+            "thunderNetAbsorbed ({}) must never exceed (event-log absorbed - event-log redistributed) ({}) by more than {tick_count} ticks' worth of rounding ({rounding_tolerance}): absorbed={absorbed} redistributed={redistributed}",
             golem_info.thunder_net_absorbed,
             absorbed - redistributed
         );
-        // And the gap (if any) must be small - at most one incarnation's
-        // worth of redistribution left undelivered by the fight ending,
-        // never a large, systematic miscalculation. `absorbed` itself is
-        // a safe, generous upper bound for "one incarnation's share".
-        let gap = (absorbed - redistributed) - golem_info.thunder_net_absorbed;
+        // And any SHORTFALL (net_absorbed below the log-derived figure)
+        // must be small too - at most one incarnation's worth of
+        // redistribution left undelivered by the fight ending, never a
+        // large, systematic miscalculation. `absorbed` itself is a safe,
+        // generous upper bound for "one incarnation's share".
+        let gap = (absorbed - redistributed).saturating_sub(golem_info.thunder_net_absorbed);
         assert!(gap <= absorbed, "the gap between the expected and actual net_absorbed ({gap}) is implausibly large for a single truncated incarnation - looks like a real miscalculation, not end-of-fight truncation");
     }
 
