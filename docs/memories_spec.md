@@ -102,6 +102,20 @@ per-slot summary. **No chat commands this pass.**
 empty → reject over `MEMORY_NAME_MAX_LEN` (150) **characters** → reject
 control characters and the zero-width/bidi ranges → blocklist.
 
+## Interaction with live-tunable passive values (2026-08-19)
+
+A Memory stores **ranks**, never values — `replay_snapshot` reads only
+`max_rank`, `parent` and `unlock_at`, all of which are structure. So
+retuning a node from `/admin/passives` (see
+`docs/passive_tunables_spec.md`) cannot affect whether a Memory loads
+correctly.
+
+It does mean **a saved build's power changes when a node it invests in
+is retuned.** That is intended: a Memory is "this allocation", not "this
+power level" — the same way a build's power already changes when gear or
+a class formula changes underneath it. Recorded here so it is never
+later read as a bug.
+
 ---
 
 ## Economy note (accepted, recorded deliberately)

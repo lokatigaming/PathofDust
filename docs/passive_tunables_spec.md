@@ -1,0 +1,158 @@
+# Live-tunable passive values — spec
+
+**Source of truth for this feature.** Read this in full before touching
+the override store, the hook, or `/admin/passives`. If an implementation
+needs to deviate, document why in the commit message and add a numbered
+entry to the Decisions log below.
+
+Branch: `feature/live-tunables` off `master` at `45ca8a4` (the commit
+containing the Memories merge). Companion execution log:
+`LIVE_TUNABLES_PROGRESS.md`.
+
+---
+
+## Goal and scope guard
+
+Change the **numeric values** of any passive node — any class, any rank
+— from an admin page, applied live with no rebuild and no restart. The
+`/admin/tunables` pattern, generalized to the tree.
+
+**VALUES ONLY.** Node structure — keys, max ranks, parents, unlock
+gating, which nodes exist at all — stays code-defined in
+`passive_tree.rs` and is deliberately unreachable from the override
+store. **No character-data changes of any kind.**
+
+## The audit that sized this
+
+Of 471 nodes: **351 are tunable the moment the hook lands** (47
+`FlatStat` + 13 `OverflowConversion` pooled generically, 265 `Special`
+reading `passive_node_magnitude`, 26 reading magnitude for the value
+with `rank > 0` only as a gate). **60 need migration** — they read
+`passive_node_rank` and hardcode their numbers in `combat.rs`. 60
+`NotYetImplemented` nodes have no values to tune.
+
+The 60, by shape: 36 declare `1.0 / 1.0` so magnitude equals rank
+exactly (trivial swap); 7 declare `0.0 / 0.0` with the real numbers only
+in `combat.rs`; 15 have real declared values the code ignores; 2 are
+odd (`guardianspirit`, `secondwind`).
+
+Per-class counts (total / trivial / hardcoded / care): Berserker
+10/1/3/6 · Rogue 8/5/1/2 · Mage 7/5/0/2 · Monk 7/6/1/0 · Slayer 6/4/0/2
+· Ranger 6/5/1/0 · Warrior 5/3/0/1(+1 odd) · Warlock 4/3/0/1 · Cleric
+4/2/1/0(+1 odd) · Paladin 2/1/0/1 · Druid 1/1/0/0 · Elementalist 0.
+
+## Design
+
+**Store** — a sparse `node_key → per-rank values` map, TOML-persisted to
+`adventure-passive-overrides.toml`, held in a `std::sync::RwLock` so
+edits apply with no restart. Absent key, or absent rank within a key,
+falls through to the compiled-in value.
+
+**Hook** — `PassiveNode::magnitude_at_rank`. That one method is the
+tree's entire numeric read path, so an override entering there reaches
+stat pooling, every `Special` mechanic in `combat.rs`, and the dashboard
+stat display without any of them knowing it exists.
+
+**Display** — a node's `description` is a hardcoded prose string and
+cannot reflect an override. An overridden node therefore gets a
+generated `Tuned: X (default Y)` line beside the untouched prose. See
+Decision 5.
+
+---
+
+## Decisions log (newest last)
+
+1. **Per-rank arrays, not overridden formula coefficients.**
+   `PassiveEffect`'s magnitude formula is strictly linear, but 27 nodes
+   are implemented as non-linear per-rank tables (typically "inert at
+   rank 1, then two different values"). Coefficient overrides could
+   never express those, locking them out of tuning permanently. A
+   per-rank array expresses both shapes.
+2. **Three values per node, always.** Every node has at most three
+   *distinct* magnitudes: Skills and Modifiers cap at rank 3, and a
+   Specialization's 4th point is unlock-only (`effective_rank` floors it
+   at 3). Overrides are keyed by effective rank, so a 4th entry is never
+   needed and rank 4 reads the rank 3 value.
+3. **Rank 0 is never overridable.** An unallocated node is worth nothing
+   by definition; letting an override change that would grant a player a
+   passive they never invested in.
+4. **A global, not a manager field.** The read path has no manager to
+   reach — `magnitude_at_rank` is an inherent method on a `'static` node
+   definition, and `Character::passive_node_magnitude` is a plain sync
+   method called from the web layer as well as combat. Threading a store
+   parameter through would mean changing every caller of every `combat_*`
+   getter. `LazyLock<RwLock<_>>`: the sparse-override data shape of
+   `adventure-item-balance.toml`, with the live-update semantics of
+   `LiveTunables`.
+5. **Display: the computed value line (Option 2).** Templating all 471
+   description strings was considered and rejected as a far larger
+   content migration in the wiki session's territory; accepting silent
+   drift was rejected as putting the wiki's accuracy work permanently at
+   odds with the admin page. The generated line leaves the templating
+   door open later. **It ships with Stage 1, not after** — Stage 1 is
+   what makes overrides settable, so shipping them apart would leave a
+   window of exactly the silent divergence this exists to prevent.
+6. **The wiki adopts the line by calling the same helper.**
+   `passive_override_note` is free-standing and `pub(crate)` precisely
+   so `adventure_web::wiki::render_wiki_archetype_graph` can call it.
+   That file belongs to the parallel wiki session and is not edited from
+   this branch; requested via `WIKI_IMPACT.md`.
+7. **Untunable nodes are shown but not offered an input**, with the
+   reason stated — an input that silently does nothing is worse than no
+   input. Covers both the 60 pending-migration nodes and the
+   `NotYetImplemented` ones.
+8. **No per-node bounds** (owner ruling): a permissive numeric range
+   plus a visible "differs from default" marker, on a single-admin
+   surface. Non-finite input **is** rejected — NaN/inf would poison
+   every downstream calculation rather than merely being an odd balance
+   choice — as is a node key not in the class being edited.
+9. **`INTEGER_COUNT_NODES` ships empty and is populated per batch.**
+   Seeding it from the 36 nodes declaring `1.0 / 1.0` is wrong for 12 of
+   them (`lastlaugh`, `compassion`, `quickdraw`, `markedfordeath`,
+   `absolutezero`, `arcaneinstability`, `clarity`, `covenant`,
+   `empoweredbolt`, `finalblow`, `ravage`, `surgicalstrike` are boolean
+   thresholds, not counts of anything). Entries are added by the batch
+   that migrates each node, once its actual code has been read. Nothing
+   is lost: every candidate is pending, so none is tunable yet anyway.
+10. **The page is scoped to one class at a time.** 471 nodes on one page
+    would be unusable, and one giant form would make a single bad input
+    lose every other edit. Each node is an independently-savable row.
+11. **Migrate bucket C from what the CODE does, never the declared
+    values** (owner ruling). For those nodes the declaration is unread
+    and follows a different convention — `crush` declares `0.50/0.15`
+    (linear .50/.65/.80) while the code does 0/.50/.65, and the prose
+    description agrees with the *code* ("unlocked at rank 2"). Each
+    migration corrects the declaration to the real per-rank table, so
+    declarations become trustworthy going forward.
+
+---
+
+## Staged plan
+
+- **Stage 1 — store, hook, admin page, value line.** Zero behavior
+  change; overrides-file-absent is byte-identical to before. Makes 351
+  nodes tunable on its own. **Done.**
+- **Stage 2 — bucket A**, the 36 nodes where magnitude equals rank by
+  construction. Mechanical, provably identical at defaults.
+- **Stage 3 — buckets B, C, D**, the 24 real ones, batched per class so
+  each batch maps onto the golden-corpus fixture that protects it.
+  Includes **adding an Elementalist corpus scenario** — a fixture
+  ADDITION, never a regeneration — to close the one archetype-coverage
+  gap (11 of 12 are covered; Elementalist's golem code is unprotected).
+
+**Ask before starting each migration batch** — the owner may reorder for
+balancing appetite. Approved risk order: Druid, Paladin, Warlock → Monk,
+Ranger, Mage → Rogue, Slayer, Warrior, Cleric → Berserker last.
+
+## Verification
+
+- `cargo build --release --workspace --target-dir target-tunables`
+  (`--workspace` required; a separate target dir is mandatory —
+  `target/release/` holds live, file-locked production binaries).
+- `cargo test --workspace --all-targets --target-dir target-tunables`.
+- `cargo clippy` clean on touched code.
+- **No `cargo fmt`** — no `rustfmt.toml`; a blanket run rewrites
+  unrelated code (`ELEMENTALIST_PROGRESS.md` Decision 6).
+- **Golden-corpus fixtures are neither regenerated nor deleted.** Each
+  migration batch must leave its class's fixture byte-identical; that is
+  the behavior-neutrality proof.
