@@ -5,6 +5,7 @@
       "id": "ranger_vs_lich_stage3000",
       "displayName": "ranger_vs_lich_stage3000",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "ranger",
       "role": "ranged",
       "maxHp": 155626
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "The Lich",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 2000000
@@ -21,6 +23,7 @@
       "id": "__enemy_0__-add-0",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -29,6 +32,7 @@
       "id": "__enemy_0__-add-1",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -37,6 +41,7 @@
       "id": "__enemy_0__-add-2",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -45,6 +50,7 @@
       "id": "__enemy_0__-add-3",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 200000
@@ -53,6 +59,7 @@
       "id": "__enemy_0__-add-4",
       "displayName": "Skeleton",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 200000

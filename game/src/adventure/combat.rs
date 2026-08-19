@@ -12714,7 +12714,15 @@ pub(crate) fn simulate_battle(
     // twice but did not see any summons").
     let unit_infos: Vec<CombatUnitInfo> = units
         .iter()
-        .map(|u| CombatUnitInfo { id: u.id.clone(), display_name: u.display_name.clone(), is_boss: u.is_boss, archetype: u.archetype, role: u.role, max_hp: u.max_hp })
+        .map(|u| CombatUnitInfo {
+            id: u.id.clone(),
+            display_name: u.display_name.clone(),
+            is_boss: u.is_boss,
+            archetype: u.archetype,
+            role: u.role,
+            max_hp: u.max_hp,
+            golem_summoner_id: u.golem_summoner_id.clone(),
+        })
         .collect();
     (won, unit_infos, events, rolls)
 }
@@ -12805,8 +12813,8 @@ mod overlay_event_thinning_tests {
     #[test]
     fn caps_player_and_boss_events_independently_per_second() {
         let units = vec![
-            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 },
-            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100 },
+            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None },
+            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100, golem_summoner_id: None },
         ];
         let mut events = Vec::new();
         for _ in 0..600 {
@@ -12824,7 +12832,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn different_seconds_each_get_their_own_budget() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None }];
         let mut events = Vec::new();
         for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
             events.push(attack_at(500, "a_player"));
@@ -12838,7 +12846,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn under_the_cap_nothing_is_dropped() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None }];
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
         let thinned = thin_events_for_overlay(events, &units);
         assert_eq!(thinned.len(), 3);
@@ -13330,8 +13338,8 @@ mod full_detail_combat_log_tests {
         }
         assert!(units[1].lingering_dots.is_empty(), "all ticks should have resolved and the instance dropped");
         let unit_infos = vec![
-            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100 },
-            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000 },
+            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None },
+            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000, golem_summoner_id: None },
         ];
         let stats = full_player_fight_stats(&unit_infos, &events);
         let attacker_stats = stats.iter().find(|s| s.id == "attacker").unwrap();

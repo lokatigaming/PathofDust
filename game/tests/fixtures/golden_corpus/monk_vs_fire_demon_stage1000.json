@@ -5,6 +5,7 @@
       "id": "monk_vs_fire_demon_stage1000",
       "displayName": "monk_vs_fire_demon_stage1000",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "monk",
       "role": "melee",
       "maxHp": 30430
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "The Fire Demon",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 500000

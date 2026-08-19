@@ -5,6 +5,7 @@
       "id": "slayer_vs_tough_boss_stage3000",
       "displayName": "slayer_vs_tough_boss_stage3000",
       "isBoss": false,
+      "golemSummonerId": null,
       "archetype": "slayer",
       "role": "melee",
       "maxHp": 8375
@@ -13,6 +14,7 @@
       "id": "__enemy_0__",
       "displayName": "The Dragon",
       "isBoss": true,
+      "golemSummonerId": null,
       "archetype": null,
       "role": null,
       "maxHp": 2000000
