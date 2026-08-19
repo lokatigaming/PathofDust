@@ -384,6 +384,7 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let pending_veil = state.adventure.pending_veil(&login).await;
+            let tunables = state.adventure.live_tunables();
             let popup = if params.crafted.is_some() {
                 render_craft_popup(&params)
             } else if params.craft_failed.is_some() {
@@ -395,7 +396,7 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
             } else {
                 String::new()
             };
-            format!("{popup}{}", render_inventory_page(&display_name, character.as_ref(), pending_veil.as_ref()))
+            format!("{popup}{}", render_inventory_page(&display_name, character.as_ref(), pending_veil.as_ref(), &tunables))
         }
     };
     Html(render_page(&body))
@@ -2911,6 +2912,7 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
                 <div class=\"stat\"><div class=\"stat-label\">Win rate</div><div class=\"stat-value\">{winrate}</div></div>\
                 <div class=\"stat\"><div class=\"stat-label\">Dust</div><div class=\"stat-value\">{dust}</div></div>\
                 <div class=\"stat\"><div class=\"stat-label\">Sand</div><div class=\"stat-value\">{sand}</div></div>\
+                <div class=\"stat\"><div class=\"stat-label\">Divine Dust</div><div class=\"stat-value\">{divine_dust}</div></div>\
               </div>\
             </div>\
           </div>\
@@ -2927,6 +2929,7 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
         losses = format_number(c.losses as f64),
         dust = format_number(c.dust as f64),
         sand = format_number(c.sand as f64),
+        divine_dust = format_number(c.divine_dust as f64),
         xp = format_number(c.xp as f64),
         xp_needed = format_number(c.xp_needed() as f64),
     )
@@ -3299,11 +3302,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
 fn top_nav(character: Option<&Character>) -> String {
     let stats = character.map_or(String::new(), |c| {
         format!(
-            "<span class=\"top-nav-stats\">Lv {level} {archetype:?} · 💰 {dust} · \u{1FAB5} {sand}</span>",
+            "<span class=\"top-nav-stats\">Lv {level} {archetype:?} · 💰 {dust} · \u{1FAB5} {sand} · ✨ {divine_dust}</span>",
             level = c.level,
             archetype = c.archetype,
             dust = format_number(c.dust as f64),
             sand = format_number(c.sand as f64),
+            divine_dust = format_number(c.divine_dust as f64),
         )
     });
     format!(
@@ -3426,6 +3430,7 @@ fn render_dashboard(
                     <div class=\"stat\"><div class=\"stat-label\">Win rate</div><div class=\"stat-value\">{winrate}</div></div>\
                     <div class=\"stat\"><div class=\"stat-label\">Dust</div><div class=\"stat-value\">{dust}</div></div>\
                     <div class=\"stat\"><div class=\"stat-label\">Sand</div><div class=\"stat-value\">{sand}</div></div>\
+                    <div class=\"stat\"><div class=\"stat-label\">Divine Dust</div><div class=\"stat-value\">{divine_dust}</div></div>\
                   </div>\
                 </div>\
               </div>\
@@ -3462,6 +3467,7 @@ fn render_dashboard(
         xp_needed = format_number(c.xp_needed() as f64),
         dust = format_number(c.dust as f64),
         sand = format_number(c.sand as f64),
+        divine_dust = format_number(c.divine_dust as f64),
     )
 }
 
@@ -3470,7 +3476,7 @@ fn render_dashboard(
 /// prompt if `character` is `None`, same as the dashboard does, since
 /// this page is reachable straight from `top_nav`'s links regardless of
 /// join state.
-fn render_inventory_page(display_name: &str, character: Option<&Character>, pending_veil: Option<&PendingVeil>) -> String {
+fn render_inventory_page(display_name: &str, character: Option<&Character>, pending_veil: Option<&PendingVeil>, tunables: &LiveTunables) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
     let Some(c) = character else {
@@ -3540,7 +3546,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
     let nickname_prompt_html = render_nickname_prompt(c);
     let crafting_card_html = match pending_veil {
         Some(pending) => render_veil_choice_card(pending),
-        None => render_crafting_card(c),
+        None => render_crafting_card(c, tunables),
     };
 
     // Combat Stats (2026-08-17, a live request) - same shared card the
@@ -4645,7 +4651,7 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
     };
     let slot_prefix = if show_slot { format!("{:?}, ", item.slot) } else { String::new() };
     format!(
-        "<option value=\"{id}\" data-affixes=\"{mods}\" data-tier=\"{tier}\" data-quality=\"{quality:.0}\" data-perfect=\"{perfect}\" data-polish-room=\"{polish_room}\"{selected}>{name} ({slot_prefix}T{tier}, {mods} mod{plural}{quality_tag}){lock}{unique_mark}</option>",
+        "<option value=\"{id}\" data-affixes=\"{mods}\" data-tier=\"{tier}\" data-quality=\"{quality:.0}\" data-perfect=\"{perfect}\" data-polish-room=\"{polish_room}\" data-sacred=\"{sacred}\"{selected}>{name} ({slot_prefix}T{tier}, {mods} mod{plural}{quality_tag}){lock}{unique_mark}</option>",
         id = item.id,
         name = escape_html(&item.display_name()),
         tier = item.tier,
@@ -4653,6 +4659,7 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
         plural = if mods == 1 { "" } else { "s" },
         perfect = if item.perfect { "1" } else { "0" },
         polish_room = if item.has_polish_room() { "1" } else { "0" },
+        sacred = if item.sacred_affix.is_some() { "1" } else { "0" },
     )
 }
 
@@ -4763,10 +4770,48 @@ const VEIL_TIP: &str = "Turns this craft's randomness into a choice: pay extra d
 
 const HIDEOUT_WARRIOR_TIP: &str = "Runs Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle on this item in order, skipping any step that isn't eligible right now, paying each step's normal dust cost as it goes \u{2014} always in full, never a banked token. Stops early if you run out of dust; whatever already landed stays. Never veiled, regardless of the checkbox above. Reaching the Krangle step permanently locks the item, same as using Krangle directly \u{2014} uncheck \"Include Krangle\" to stop after Exalt and leave the item unlocked.";
 
-fn render_crafting_card(c: &Character) -> String {
+/// The Divine Dust craft recipe row (docs/divine_dust_spec.md) - a
+/// separate, standalone `<form>` from the main item-crafting one below
+/// (its own `times` x1/x10/x50 radio group under the SAME `name`, which
+/// is safe precisely because it's a different `<form>` element - each
+/// form only ever submits its own descendant inputs). Deliberately not
+/// gated on the character owning any items at all: this recipe converts
+/// dust+sand into Divine Dust and never touches an item, so unlike every
+/// other action on this card it has nothing to be empty-inventory-gated
+/// on (2026-08-19, explicit requirement - always visible).
+fn render_divine_dust_recipe_row(c: &Character, tunables: &LiveTunables) -> String {
+    let dust_cost = tunables.divine_dust_craft_dust_cost;
+    let sand_cost = tunables.divine_dust_craft_sand_cost;
+    let output = tunables.divine_dust_craft_output;
+    let cost_tip = "Costs dust + sand, not Divine Dust itself \u{2014} a currency conversion, not an apply/reroll. x1/x10/x50 repeats the whole recipe that many times, stopping early (keeping whatever already landed) if you run out of either currency partway through.";
+    format!(
+        "<form method=\"post\" action=\"/craft\">\
+          <input type=\"hidden\" name=\"action\" value=\"divine dust craft\">\
+          <div class=\"craft-actions\">\
+            <span class=\"muted\" data-tip=\"{cost_tip}\">Craft Divine Dust ({dust_cost}d + {sand_cost}s \u{2192} {output} \u{2728}):</span>\
+            <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"1\" checked> x1</label>\
+            <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"10\"> x10</label>\
+            <label class=\"batch-check\"><input type=\"radio\" name=\"times\" value=\"50\"> x50</label>\
+            <button class=\"btn-sm\" type=\"submit\"{disabled}>Craft</button>\
+          </div>\
+        </form>",
+        disabled = if c.dust < dust_cost || c.sand < sand_cost { " disabled" } else { "" },
+    )
+}
+
+fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
     let items = all_items(c);
+    let divine_dust_recipe_html = render_divine_dust_recipe_row(c, tunables);
     if items.is_empty() {
-        return String::new();
+        return format!(
+            "<div class=\"card\" id=\"crafting-card\">\
+              <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
+              {divine_dust_recipe_html}\
+            </div>",
+            dust = format_number(c.dust as f64),
+            sand = format_number(c.sand as f64),
+            divine_dust = format_number(c.divine_dust as f64),
+        );
     }
     let options_a = craft_item_options(c, &items, false, c.last_crafted_item_id.as_deref());
     let options_b = craft_item_options(c, &items, true, None);
@@ -4834,8 +4879,6 @@ fn render_crafting_card(c: &Character) -> String {
             format!(" data-base=\"0\" data-label=\"Recombine\" data-veil-extra=\"{VEIL_EXTRA_COST}\" data-recombine=\"1\""),
         )
     };
-    let dust = format_number(c.dust as f64);
-    let sand = format_number(c.sand as f64);
     // Hidden entirely (not just disabled) until the player actually has
     // one - unlike the 6 normal actions, showing a permanently-disabled
     // "Celestial Shard (18446744073709551615d)" button (its real
@@ -4865,10 +4908,24 @@ fn render_crafting_card(c: &Character) -> String {
         "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"reforge\" data-reforge=\"1\" data-dust=\"{}\" data-tip=\"{reforge_tip}\">Reforge</button>",
         c.dust,
     );
+    // Divine Dust apply/reroll (2026-08-19) - same "price depends on the
+    // selected item" shape as Polish/Reforge above (2 x item_a's own
+    // tier, in Divine Dust rather than sand/dust), so its cost text is
+    // also computed client-side (see updateSpecialCosts' own
+    // data-divine-dust-apply handling) rather than server-side. Never
+    // batched (x1/x10/x50 is the craft RECIPE's own thing, a separate
+    // form below) - applying/rerolling a specific item one at a time is
+    // the natural unit here.
+    let divine_dust_apply_tip = craft_action_tip(CraftAction::DivineDust);
+    let divine_dust_apply_btn = format!(
+        "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"divine dust\" data-divine-dust-apply=\"1\" data-divine-dust=\"{}\" data-tip=\"{divine_dust_apply_tip}\">Apply Divine Dust</button>",
+        c.divine_dust,
+    );
     format!(
         "<div class=\"card\" id=\"crafting-card\">\
-          <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand</span></div>\
+          <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
           <p class=\"muted\">Pick your item(s) below, then hover any button for exactly what it does.</p>\
+          {divine_dust_recipe_html}\
           <form method=\"post\" action=\"/craft\">\
             <select name=\"item_a\">{options_a}</select>\
             <select name=\"item_b\">{options_b}</select>\
@@ -4885,13 +4942,16 @@ fn render_crafting_card(c: &Character) -> String {
               {polish_btn}{reforge_btn}\
             </div>\
             <div class=\"craft-actions\">\
-              {scour}{celestial_btn}{unique_shard_btn}\
+              {scour}{celestial_btn}{unique_shard_btn}{divine_dust_apply_btn}\
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"recombine\" data-tip=\"{RECOMBINE_TIP}\"{recombine_attrs}{recombine_disabled}>Recombine ({recombine_cost_label})</button>\
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"hideout warrior\" data-confirm=\"1\" data-tip=\"{HIDEOUT_WARRIOR_TIP}\">Hideout Warrior</button>\
               <label class=\"veil-check\" data-tip=\"Leave checked to end on Krangle (permanently locks the item). Uncheck to stop after Exalt and leave it unlocked.\"><input type=\"checkbox\" name=\"hideout_krangle\" value=\"1\" checked> Include Krangle</label>\
             </div>\
           </form>\
         </div>",
+        dust = format_number(c.dust as f64),
+        sand = format_number(c.sand as f64),
+        divine_dust = format_number(c.divine_dust as f64),
         transmute = action_btn(CraftAction::Transmute),
         scour = action_btn(CraftAction::Scour),
         augment = action_btn(CraftAction::Augment),

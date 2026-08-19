@@ -817,6 +817,11 @@
     // computed here instead of server-side.
     var polishBtn = document.querySelector('.craft-actions button[data-polish], .polish-reforge-actions button[data-polish]');
     var reforgeBtn = document.querySelector('.craft-actions button[data-reforge], .polish-reforge-actions button[data-reforge]');
+    // Divine Dust apply/reroll (2026-08-19) - same "prices off item_a
+    // alone, own currency" shape as Polish/Reforge above (2 x tier, in
+    // Divine Dust). Never batched, so it's not part of batchChecks/
+    // currentTimes below - always a single application per click.
+    var divineDustBtn = document.querySelector('.craft-actions button[data-divine-dust-apply]');
     // x1/x5/x10/x50 batch picker for Polish/Reforge only - real
     // `name="times"` radio inputs (2026-08-19, rebuilt from nameless
     // checkboxes + a JS-managed hidden input after a live report that
@@ -867,6 +872,15 @@
         var dustHave = parseInt(reforgeBtn.getAttribute('data-dust') || '0', 10);
         reforgeBtn.textContent = 'Reforge' + suffix + ' (' + dustCost + 'd)';
         reforgeBtn.disabled = dustHave < dustCost;
+      }
+      if (divineDustBtn) {
+        var ddTier = itemASelect && itemASelect.selectedOptions.length ? parseInt(itemASelect.selectedOptions[0].getAttribute('data-tier') || '0', 10) : 0;
+        var ddSacred = itemASelect && itemASelect.selectedOptions.length && itemASelect.selectedOptions[0].getAttribute('data-sacred') === '1';
+        var ddCost = 2 * ddTier;
+        var ddHave = parseInt(divineDustBtn.getAttribute('data-divine-dust') || '0', 10);
+        var ddLabel = ddSacred ? 'Reroll Sacred Affix' : 'Apply Divine Dust';
+        divineDustBtn.textContent = ddLabel + ' (' + ddCost + ' ✨)';
+        divineDustBtn.disabled = ddHave < ddCost;
       }
     };
     if (itemASelect) itemASelect.addEventListener('change', updateSpecialCosts);
