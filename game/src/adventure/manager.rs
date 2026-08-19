@@ -3652,6 +3652,39 @@ impl AdventureManager {
         Ok(CraftResult::Applied(outcome))
     }
 
+    /// The Divine Dust craft recipe (`/craft`'s "Craft Divine Dust" row,
+    /// docs/divine_dust_spec.md) - `LiveTunables::divine_dust_craft_dust_cost`
+    /// dust + `divine_dust_craft_sand_cost` sand → `divine_dust_craft_output`
+    /// Divine Dust, ONE unit. Never touches an item, so it bypasses
+    /// `craft_item_ex` entirely rather than trying to force a currency-only
+    /// conversion through machinery built around a target item id - see
+    /// `DivineDustCraftError`'s own doc. Batched x1/x10/x50 by
+    /// `do_craft_divine_dust_batch` in adventure_web.rs, one call per unit,
+    /// same "each call is its own atomic pass" shape `do_craft_batch`
+    /// already uses for Polishing/Reforge. Both costs are checked and
+    /// deducted together - insufficient EITHER currency fails the whole
+    /// unit before anything is consumed (no spending dust alone on a sand
+    /// shortfall, or vice versa).
+    pub async fn craft_divine_dust(&self, username: &str) -> Result<u64, DivineDustCraftError> {
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&username.to_lowercase()).ok_or(DivineDustCraftError::NotJoined)?;
+        let tunables = self.live_tunables();
+        if character.dust < tunables.divine_dust_craft_dust_cost {
+            return Err(DivineDustCraftError::InsufficientDust(tunables.divine_dust_craft_dust_cost));
+        }
+        if character.sand < tunables.divine_dust_craft_sand_cost {
+            return Err(DivineDustCraftError::InsufficientSand(tunables.divine_dust_craft_sand_cost));
+        }
+        character.dust -= tunables.divine_dust_craft_dust_cost;
+        character.sand -= tunables.divine_dust_craft_sand_cost;
+        character.divine_dust += tunables.divine_dust_craft_output;
+        let output = tunables.divine_dust_craft_output;
+        self.persist_characters(&characters);
+        drop(characters);
+        self.broadcast_state().await;
+        Ok(output)
+    }
+
     /// Web dashboard: read-only check for whether `username` currently
     /// has a veiled craft awaiting a choice - lets the dashboard show
     /// the "pick your outcome" view instead of the normal crafting form.
@@ -6978,6 +7011,117 @@ mod memory_manager_tests {
         assert_eq!(character.total_passive_points(), 21);
         assert_eq!(report.unspent, 12, "the 12 newly earned points are left unspent");
         assert!(report.dropped.is_empty());
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+}
+
+/// `AdventureManager::craft_divine_dust`'s own currency arithmetic and
+/// atomicity - same disposable-manager-with-scratch-paths harness as
+/// `memory_manager_tests` above, for the same "racing `set_data_dir` is
+/// flaky" reason. Deliberately relies on `LiveTunables::default()`
+/// (1000 dust/10 sand/1 output - no `adventure-live-tunables.toml` exists
+/// in a fresh scratch dir) rather than writing an override file, so these
+/// tests never touch `save_live_tunables`'s own disk write either.
+#[cfg(test)]
+mod divine_dust_craft_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("divine_dust_craft_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    async fn joined_with_currency(manager: &Arc<AdventureManager>, login: &str, dust: u64, sand: u64) {
+        manager.join(login, login).await;
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.dust = dust;
+        character.sand = sand;
+    }
+
+    #[tokio::test]
+    async fn craft_divine_dust_succeeds_and_deducts_both_currencies_atomically() {
+        let (manager, scratch) = disposable_manager("success");
+        joined_with_currency(&manager, "crafter", 2000, 50).await;
+
+        let amount = manager.craft_divine_dust("crafter").await.expect("2000 dust/50 sand covers the default 1000/10 recipe");
+        assert_eq!(amount, 1, "default output is 1 per craft");
+
+        let character = manager.character("crafter").await.expect("still joined");
+        assert_eq!(character.dust, 1000, "1000 dust must be deducted");
+        assert_eq!(character.sand, 40, "10 sand must be deducted");
+        assert_eq!(character.divine_dust, 1);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn craft_divine_dust_insufficient_dust_consumes_nothing() {
+        let (manager, scratch) = disposable_manager("insufficient_dust");
+        joined_with_currency(&manager, "poor", 500, 50).await;
+
+        let err = manager.craft_divine_dust("poor").await.expect_err("500 dust is below the default 1000 cost");
+        assert!(matches!(err, DivineDustCraftError::InsufficientDust(1000)));
+
+        let character = manager.character("poor").await.expect("still joined");
+        assert_eq!(character.dust, 500, "a failed craft must not touch dust");
+        assert_eq!(character.sand, 50, "a failed craft must not touch sand either");
+        assert_eq!(character.divine_dust, 0);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn craft_divine_dust_insufficient_sand_consumes_nothing_even_with_plenty_of_dust() {
+        // The atomicity requirement: plenty of dust must not get spent
+        // just because the (later-checked) sand side falls short.
+        let (manager, scratch) = disposable_manager("insufficient_sand");
+        joined_with_currency(&manager, "sandless", 5000, 5).await;
+
+        let err = manager.craft_divine_dust("sandless").await.expect_err("5 sand is below the default 10 cost");
+        assert!(matches!(err, DivineDustCraftError::InsufficientSand(10)));
+
+        let character = manager.character("sandless").await.expect("still joined");
+        assert_eq!(character.dust, 5000, "dust must be untouched - sand insufficiency must not partially spend the other currency");
+        assert_eq!(character.sand, 5);
+        assert_eq!(character.divine_dust, 0);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn repeated_calls_match_the_batch_stop_on_shortfall_convention() {
+        // `do_craft_divine_dust_batch` (adventure_web.rs) is exactly this
+        // loop - call craft_divine_dust up to N times, stop at the first
+        // Err, keep whatever already landed. 2500 dust/25 sand affords
+        // exactly 2 units (2000 dust/20 sand) before a 3rd fails.
+        let (manager, scratch) = disposable_manager("batch");
+        joined_with_currency(&manager, "batcher", 2500, 25).await;
+
+        let mut completed = 0u32;
+        let mut total = 0u64;
+        for _ in 0..5 {
+            match manager.craft_divine_dust("batcher").await {
+                Ok(amount) => {
+                    completed += 1;
+                    total += amount;
+                }
+                Err(_) => break,
+            }
+        }
+        assert_eq!(completed, 2, "must stop right after the 2nd unit, not attempt all 5");
+        assert_eq!(total, 2);
+
+        let character = manager.character("batcher").await.expect("still joined");
+        assert_eq!(character.dust, 500, "2 successful units spend 2000, leaving 500 - the failed 3rd attempt spends nothing more");
+        assert_eq!(character.sand, 5);
+        assert_eq!(character.divine_dust, 2);
 
         std::fs::remove_dir_all(&scratch).ok();
     }

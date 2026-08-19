@@ -305,6 +305,33 @@ pub enum CraftError {
     /// deducted, unlike every other precondition here which just happens
     /// to also be checked first.
     NothingToPolish,
+    /// `CraftAction::DivineDust` only - not enough Divine Dust to apply/
+    /// reroll a sacred affix (cost is `2 × item.tier`, see
+    /// `AdventureManager::craft_item_ex`'s Divine Dust branch).
+    InsufficientDivineDust(u64),
+    /// `CraftAction::DivineDust` only, reroll case - the valid replacement
+    /// pool (every `Affix` except the item's current sacred affix) is
+    /// empty. Unreachable today (`Affix` has 17 variants, so excluding
+    /// just one always leaves 16), but the spec calls for the guard
+    /// explicitly, so it's implemented and tested defensively rather than
+    /// assumed away.
+    NoValidRerollTarget,
+}
+
+/// Why `AdventureManager::craft_divine_dust` (the dust+sand → Divine Dust
+/// recipe, `/craft`'s "Craft Divine Dust" row) didn't go through. Its own
+/// error type, not folded into `CraftError` above - the recipe is a pure
+/// currency conversion with no target item at all, so none of
+/// `CraftError`'s item-shaped variants (`ItemNotFound`/`ItemLocked`/
+/// `PreconditionNotMet`/etc.) could ever apply to it.
+#[derive(Debug, Clone, Copy)]
+pub enum DivineDustCraftError {
+    /// Hasn't `!join`ed the adventure yet.
+    NotJoined,
+    /// Not enough dust — carries the cost that was needed.
+    InsufficientDust(u64),
+    /// Not enough sand — carries the cost that was needed.
+    InsufficientSand(u64),
 }
 
 /// Result of a successful currency craft - see `Character::craft`. One

@@ -36,7 +36,7 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
@@ -345,6 +345,14 @@ struct IndexParams {
     /// Divine Dust roll hit - see `DisenchantOutcome::divine_dust`.
     /// `None`/0 for every ordinary disenchant.
     divine_dust: Option<u64>,
+    /// Set by `do_craft`/`do_craft_divine_dust_batch` after the Divine
+    /// Dust craft recipe actually grants at least 1 - see
+    /// `render_divine_dust_craft_popup`. Own marker/amount field, distinct
+    /// from `crafted`/`tier` above (the recipe has no item/slot/tier at
+    /// all) - reuses `change` for the same "(x{completed} of {times} —
+    /// ran out)" batch-shortfall prefix `do_craft_batch` already uses.
+    divine_dust_crafted: Option<String>,
+    divine_dust_amount: Option<u64>,
 }
 
 async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
@@ -382,6 +390,8 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
                 render_craft_error_popup(&params)
             } else if params.disenchanted.is_some() {
                 render_disenchant_popup(&params)
+            } else if params.divine_dust_crafted.is_some() {
+                render_divine_dust_craft_popup(&params)
             } else {
                 String::new()
             };
@@ -467,6 +477,28 @@ fn render_disenchant_popup(params: &IndexParams) -> String {
             <p class=\"modal-tier\">{percent}% of the {dust_max} possible</p>\
             {divine_dust_line}\
             <button class=\"btn\" onclick=\"document.getElementById('disenchant-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
+          </div>\
+        </div>"
+    )
+}
+
+/// Shown once after the Divine Dust craft recipe (`/craft`'s "Craft
+/// Divine Dust" row) actually grants at least 1 - see `do_craft`/
+/// `do_craft_divine_dust_batch`. Same popup pattern as
+/// `render_disenchant_popup` above; `change` carries the x1/x10/x50
+/// batch's own "(x{completed} of {times} — ran out)" shortfall prefix
+/// when present, same convention `do_craft_batch` already uses.
+fn render_divine_dust_craft_popup(params: &IndexParams) -> String {
+    let amount = params.divine_dust_amount.unwrap_or(0);
+    let change = escape_html(params.change.as_deref().unwrap_or(""));
+    format!(
+        "<div class=\"modal-backdrop\" id=\"divine-dust-craft-modal\">\
+          <div class=\"modal\">\
+            <div class=\"modal-icon\">✨</div>\
+            <h2>Crafted!</h2>\
+            <p>Gained <strong>{amount} Divine Dust</strong></p>\
+            <p class=\"modal-tier\">{change}</p>\
+            <button class=\"btn\" onclick=\"document.getElementById('divine-dust-craft-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
           </div>\
         </div>"
     )
@@ -1234,6 +1266,13 @@ fn craft_popup_url(item_name: &str, slot: EquipSlot, tier: u32, change: &str) ->
     )
 }
 
+/// Query string for `render_divine_dust_craft_popup` - `change` carries
+/// the same "(x{completed} of {times} — ran out)" batch-shortfall prefix
+/// `do_craft_batch`'s own popups use, empty for a plain x1 craft.
+fn divine_dust_craft_popup_url(amount: u64, change: &str) -> String {
+    format!("/inventory?divine_dust_crafted=1&divine_dust_amount={amount}&change={}", urlencoding::encode(change))
+}
+
 /// One-line "what changed" for a currency craft's popup - Scour reports
 /// how many modifiers it stripped; every affix-adding action reports the
 /// one it added (plus a permanent-lock note for Krangle specifically).
@@ -1343,6 +1382,20 @@ fn craft_error_text(err: CraftError) -> String {
         CraftError::CannotKrangleUnique => "An item with a unique affix can't be Krangled.".to_string(),
         CraftError::InsufficientSand(cost) => format!("Not enough sand — this needs {cost}."),
         CraftError::NothingToPolish => "That item's already maxed out — nothing left for Polishing to improve.".to_string(),
+        CraftError::InsufficientDivineDust(cost) => format!("Not enough Divine Dust — this needs {cost}."),
+        CraftError::NoValidRerollTarget => "No other sacred affix is available to reroll into.".to_string(),
+    }
+}
+
+/// Player-facing reason the Divine Dust craft recipe didn't go through -
+/// own error type/text fn from `craft_error_text` above (see
+/// `DivineDustCraftError`'s own doc for why), same message wording
+/// convention as `CraftError::InsufficientDust`/`InsufficientSand`.
+fn divine_dust_craft_error_text(err: DivineDustCraftError) -> String {
+    match err {
+        DivineDustCraftError::NotJoined => "You haven't joined the adventure yet.".to_string(),
+        DivineDustCraftError::InsufficientDust(cost) => format!("Not enough dust — this needs {cost}."),
+        DivineDustCraftError::InsufficientSand(cost) => format!("Not enough sand — this needs {cost}."),
     }
 }
 
@@ -1380,6 +1433,21 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
             }
         } else if form.action == "hideout warrior" {
             return do_hideout_warrior(&state, &login, &form.item_a, form.hideout_krangle.is_some()).await;
+        } else if form.action == "divine dust craft" {
+            // Currency-only recipe, no item involved at all - a third
+            // string-matched pseudo-action alongside "recombine"/"hideout
+            // warrior" above, rather than forcing it through
+            // parse_craft_action/craft_item (which assume a target item -
+            // see `DivineDustCraftError`'s own doc). Same x1/x10/x50
+            // `times` field every other batchable action reads.
+            let times = form.times.unwrap_or(1).clamp(1, 50);
+            if times > 1 {
+                return do_craft_divine_dust_batch(&state, &login, times).await;
+            }
+            match state.adventure.craft_divine_dust(&login).await {
+                Ok(amount) => return Redirect::to(&divine_dust_craft_popup_url(amount, "")),
+                Err(err) => return Redirect::to(&craft_error_popup_url(&divine_dust_craft_error_text(err))),
+            }
         } else if let Some(action) = parse_craft_action(&form.action) {
             // Only Polishing/Reforge get the x5/x10/x50 batch treatment
             // (see the dedicated section in render_crafting_card) - every
@@ -1473,6 +1541,37 @@ async fn do_craft_batch(state: &AppState, login: &str, item_id: &str, action: Cr
         return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
     }
     Redirect::to("/inventory")
+}
+
+/// Repeats the Divine Dust craft recipe `times` in a row (the x1/x10/x50
+/// radios) - exact same stop-on-shortfall convention as `do_craft_batch`
+/// above: stops as soon as one iteration errors (out of dust or sand),
+/// whatever already landed stays applied (each iteration is its own
+/// atomic dust+sand deduction, see `AdventureManager::craft_divine_dust`),
+/// and the popup reports how many of the requested repeats actually
+/// landed vs. how many were asked for.
+async fn do_craft_divine_dust_batch(state: &AppState, login: &str, times: u32) -> Redirect {
+    let mut completed = 0u32;
+    let mut total: u64 = 0;
+    let mut error: Option<DivineDustCraftError> = None;
+    for _ in 0..times {
+        match state.adventure.craft_divine_dust(login).await {
+            Ok(amount) => {
+                completed += 1;
+                total += amount;
+            }
+            Err(err) => {
+                error = Some(err);
+                break;
+            }
+        }
+    }
+    if completed == 0 {
+        let reason = error.map(divine_dust_craft_error_text).unwrap_or_else(|| "Nothing happened.".to_string());
+        return Redirect::to(&craft_error_popup_url(&reason));
+    }
+    let prefix = if completed < times { format!("(x{completed} of {times} — ran out)") } else { format!("(x{completed})") };
+    Redirect::to(&divine_dust_craft_popup_url(total, &prefix))
 }
 
 /// The fixed 5-step chain Hideout Warrior runs, in order - the only
