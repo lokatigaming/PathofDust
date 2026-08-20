@@ -99,6 +99,21 @@ struct Scenario {
     /// `AdventureManager` would drag async and persistence into a pure,
     /// seeded snapshot. `scenario_allocations_are_reachable` enforces
     /// the rules instead.
+    ///
+    /// **KNOWN LIMIT - solo scenarios cannot cover ally-targeted
+    /// passives.** Every scenario here is solo, because
+    /// `simulate_battle` builds its unit list from a `HashMap` whose
+    /// iteration order Rust randomizes per process (see this module's
+    /// own doc). That is a hard determinism requirement, but it means a
+    /// passive whose effect targets an ALLY simply never fires: there is
+    /// no ally. `covenant`, `compassion`, `chainoflight`,
+    /// `sharedstrength` and `unitedpack` are all in that category, among
+    /// others. Their allocation still pins whatever stat contribution
+    /// they make, but their ally-targeting branch is NOT under snapshot
+    /// coverage and cannot be until multi-character fights are
+    /// deterministic. Do not read a green corpus as proof that those
+    /// branches are unchanged - that is precisely the over-reading this
+    /// whole field exists to correct.
     passives: &'static [(&'static str, u32)],
     /// Elementalist's golem slot types. Any unlocked slot this doesn't
     /// name falls back to `GolemType::Basic`, per that field's own
@@ -183,6 +198,70 @@ fn scenarios() -> Vec<Scenario> {
                 ("incinerate", 3),
             ],
             golem_slots: &[GolemType::Thunder, GolemType::Thunder, GolemType::Thunder],
+            boss: boss(500_000, 2_000, 1100),
+        },
+        // One scenario per class whose nodes an upcoming migration batch
+        // will touch, each allocating those exact nodes at meaningful
+        // ranks so the batch has something to be measured against.
+        //
+        // Paladin's batch is a single node, `finaljudgment`, which is a
+        // Modifier under Judgment - so Judgment has to reach 4/4 to
+        // unlock it at all. Divine Shield and Guardian's Oath come along
+        // to put the class's periodic-cast and intervene paths in the
+        // fixture too, rather than pinning one narrow branch.
+        Scenario {
+            name: "paladin_passives_vs_fire_demon_stage500",
+            seed: 13,
+            stage: 500,
+            archetype: Archetype::Paladin,
+            level: 64,
+            boss_kind: Some(BossKind::FireDemon),
+            passives: &[("smite", 3), ("judgment", 4), ("finaljudgment", 3), ("shield", 3), ("oath", 3)],
+            golem_slots: &[],
+            boss: boss(120_000, 900, 1100),
+        },
+        // Warlock's batch is three nodes across three different
+        // Specialization chains (`chaostheory` under Unstable Power,
+        // `covenant` under Dark Communion, `ravage` under Fel Rush), so
+        // all three parents need 4/4. Two of the three are boolean
+        // rank-threshold nodes, which is exactly the shape Stage 2
+        // deliberately left for a later batch.
+        Scenario {
+            name: "warlock_passives_vs_dragon_stage1000",
+            seed: 14,
+            stage: 1000,
+            archetype: Archetype::Warlock,
+            level: 108,
+            boss_kind: Some(BossKind::Dragon),
+            passives: &[
+                ("pact", 3),
+                ("unstablepower", 4),
+                ("chaostheory", 3),
+                ("felrush", 4),
+                ("ravage", 3),
+                ("siphon", 3),
+                ("darkcommunion", 4),
+                ("covenant", 3),
+            ],
+            golem_slots: &[],
+            boss: boss(500_000, 2_000, 1100),
+        },
+        // Druid has NO pending migration nodes left - its only one
+        // (`unitedpack`) was migrated in Stage 2 - so unlike the two
+        // above, this scenario protects no upcoming batch. It is here
+        // for general passive coverage: Druid's heal-over-time, pack and
+        // thorns branches are all already-tunable `Special` nodes with
+        // no snapshot coverage whatsoever, and the same large `combat.rs`
+        // changes threaten them.
+        Scenario {
+            name: "druid_passives_vs_lich_stage1000",
+            seed: 15,
+            stage: 1000,
+            archetype: Archetype::Druid,
+            level: 68,
+            boss_kind: Some(BossKind::Lich),
+            passives: &[("regrowth", 3), ("rejuvenation", 3), ("instinct", 3), ("packinstinct", 3), ("barrier", 3), ("bramblegrowth", 3)],
+            golem_slots: &[],
             boss: boss(500_000, 2_000, 1100),
         },
     ]
