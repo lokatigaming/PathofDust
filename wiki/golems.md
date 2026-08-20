@@ -130,9 +130,11 @@ heal-boosting effects. Running more than one Water Golem doesn't stack this
   of the *dead* enemy's own health - currently 1% at every rank, admin-
   tunable, so treat that figure as the current default rather than a fixed
   number. Icicle damage is **Environmental**: mitigated only by the target's
-  own damage reduction (never evasion or block), can never crit, and draws
-  nothing from the Water Golem's - or its owner's - own damage stats, buffs,
-  or on-hit effects. It hits the same regardless of how strong your build
+  own damage reduction (never evasion or block, and never past the universal
+  95% DR cap - see [Combat](/wiki/combat#block-and-dr), so a target can never
+  become fully immune to it), can never crit, and draws nothing from the
+  Water Golem's - or its owner's - own damage stats, buffs, or on-hit
+  effects. It hits the same regardless of how strong your build
   is; only the dead enemy's health and the target's own DR matter.
 
 Your support unit: the passive party-wide regen alone makes it worth
