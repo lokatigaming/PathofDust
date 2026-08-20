@@ -1984,6 +1984,16 @@ pub(crate) struct CombatSimUnit {
     /// at spawn. 0 for every non-Water-Golem unit or without Shattering
     /// invested.
     watergolem_shattering_extra_targets: u32,
+    /// For a Water Golem: Shattering's own damage basis, as a fraction of
+    /// the dead enemy's max HP - copied from the summoner's
+    /// `passive_node_magnitude("shattering")` at spawn (2026-08-20,
+    /// Release B - previously a hardcoded 0.01 constant; the node's own
+    /// per-rank `Special` table was otherwise unused for real game logic
+    /// - see the node's own doc - so it's now live-tunable on
+    /// `/admin/passives` like any other node value, default 0.01 at
+    /// every rank, matching the original spec). 0.0 for every non-Water-
+    /// Golem unit or without Shattering invested.
+    watergolem_shattering_pct: f64,
     /// For a Water Golem: Singing's own magnitude, copied from the
     /// summoner's investment at spawn - read once, fight-wide, by the
     /// golem-spawning pass to snapshot `received_healing_bonus_pct` onto
@@ -3240,6 +3250,7 @@ impl Default for CombatSimUnit {
             thundergolem_net_absorbed: 0.0,
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
+            watergolem_shattering_pct: 0.0,
             watergolem_singing_pct: 0.0,
             watergolem_regen_pct: 0.0,
             next_watergolem_regen_at_ms: u32::MAX,
@@ -5736,6 +5747,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             thundergolem_net_absorbed: 0.0,
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
+            watergolem_shattering_pct: 0.0,
             watergolem_singing_pct: 0.0,
             watergolem_regen_pct: 0.0,
             next_watergolem_regen_at_ms: u32::MAX,
@@ -6192,6 +6204,7 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
                 golem.next_action_at_ms = golem.attack_interval_ms;
             }
             golem.watergolem_shattering_extra_targets = c.passive_node_rank("shattering");
+            golem.watergolem_shattering_pct = c.passive_node_magnitude("shattering");
             golem.watergolem_singing_pct = c.passive_node_magnitude("singing");
             // Elementalist rework item 6 (2026-08-19) - Water Golem's
             // new base effect. `next_watergolem_regen_at_ms` stays at
@@ -6296,6 +6309,7 @@ fn clear_non_inheritable_for_golem(golem: &mut CombatSimUnit) {
     golem.thunder_redistribution_per_tick_amount = 0.0;
     golem.thunder_redistribution_ticks_remaining = 0;
     golem.watergolem_shattering_extra_targets = 0;
+    golem.watergolem_shattering_pct = 0.0;
     golem.watergolem_singing_pct = 0.0;
     golem.watergolem_regen_pct = 0.0;
     golem.next_watergolem_regen_at_ms = u32::MAX;
@@ -7223,10 +7237,74 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
     units[target_idx].next_thunder_redistribution_tick_at_ms = if remaining > 0 { at_ms + tick_interval_ms } else { u32::MAX };
 }
 
+/// Water Golem's Shattering icicle damage (2026-08-20, Release B) -
+/// dedicated resolution, deliberately NOT `apply_hit`. The target's own
+/// `damage_reduction` still applies (mitigable, the original ask), but
+/// this does NOT run `roll_attacker_damage` at all, so none of the
+/// attacking golem's own crit/increased-damage/elemental-proc stack
+/// multiplies the base - same "a detonation, not an attack" shape
+/// `apply_righteous_fire_self_damage` already established for RF's
+/// self-burn, reused here because the failure mode was identical: an
+/// earlier version of this function routed icicles through the full
+/// `apply_hit` pipeline, letting a fully-inherited golem's ENTIRE
+/// damage-multiplier stack compound on top of an already-large "1% of a
+/// dead enemy's max HP" base - confirmed live as a real 110,000x
+/// excursion. Tagged `AttackSourceKind::Environmental`, and - just as
+/// important - deliberately does NOT touch `curse_damage_taken_total`
+/// at all (see that field's own doc): Doom's accumulation only ever
+/// happens inside `apply_hit`'s own body, so simply not being
+/// `apply_hit` closes that leak completely on its own - this was the
+/// second half of the same live incident (a golem-less Warlock's Doom
+/// getting inflated 196x by icicle damage landing on their own cursed
+/// target). No evasion/block/shield consultation either, same reasoning
+/// RF's self-burn already documents - this is a detonation, not
+/// something the target actively defends against.
+fn apply_shattering_icicle_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, raw_amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) -> bool {
+    if raw_amount <= 0.0 || !units[target_idx].alive || is_damage_immune(&units[target_idx], at_ms) {
+        return false;
+    }
+    let mut dr_sources = vec![units[target_idx].damage_reduction];
+    if units[target_idx].temp_damage_reduction_bonus > 0.0 && at_ms <= units[target_idx].temp_damage_reduction_bonus_expires_at_ms {
+        dr_sources.push(units[target_idx].temp_damage_reduction_bonus);
+    }
+    let combined_dr = combine_reduction_sources(&dr_sources);
+    let mitigated = raw_amount * (1.0 - combined_dr);
+    let final_damage = mitigated.round().max(0.0) as i64;
+    if final_damage <= 0 {
+        return false;
+    }
+    let hit_id = next_hit_id();
+    let new_hp = (units[target_idx].hp - final_damage).max(0);
+    units[target_idx].hp = new_hp;
+    let source_id = units[source_idx].id.clone();
+    let target_id = units[target_idx].id.clone();
+    events.push(CombatEvent::Attack {
+        at_ms,
+        attacker: source_id,
+        target: target_id.clone(),
+        damage: final_damage.max(0) as u64,
+        unmitigated_damage: raw_amount.round().max(0.0) as u64,
+        target_hp_after: new_hp as u64,
+        is_crit: false,
+        evaded: false,
+        hit_id,
+        source_kind: AttackSourceKind::Environmental,
+    });
+    if new_hp != 0 {
+        return false;
+    }
+    units[target_idx].alive = false;
+    events.push(CombatEvent::Defeat { at_ms, unit: target_id });
+    fire_on_kill(units, source_idx, at_ms, events, rolls, rng);
+    true
+}
+
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
 /// Stage 6) - "when an enemy dies in the Water Golem's presence, it
 /// explodes, sending icicles at (splash + rank) nearby enemies, each
-/// dealing 1% of the dead enemy's health." Since the golem-inheritance
+/// dealing [node-tunable]% of the dead enemy's health" (see
+/// `CombatSimUnit::watergolem_shattering_pct`'s own doc - default 1%,
+/// live-tunable on `/admin/passives`). Since the golem-inheritance
 /// rework (2026-08-20), golems inherit their summoner's real `splash`
 /// stat like every other gear/tree stat - the old "golems never invest
 /// splash themselves (always 0.0)" premise no longer holds, so
@@ -7236,13 +7314,9 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// enemy that just died, matching Ashes to Ashes' own "any enemy" reach
 /// - no per-site audit needed, same reasoning as the rest of this
 /// stage's death-triggered mechanics. A no-op unless an alive Water
-/// Golem with Shattering invested is present. Icicle damage is normal,
-/// mitigable damage (2026-08-20 - see `apply_hit`), not
-/// `apply_true_damage` - it goes through the target's own crit/evasion/
-/// DR resolution same as any other hit landed on a boss, it just
-/// doesn't count as a primary hit (`is_followup: true`, same "a
-/// detonation, not a turn" treatment `apply_splash` gives its own
-/// targets) so it can't itself trigger a chained on-hit proc.
+/// Golem with Shattering invested is present. Icicle damage resolution
+/// - see `apply_shattering_icicle_damage`'s own doc for why this is a
+/// dedicated function, not `apply_hit`.
 /// Non-stacking across multiple Water Golems - only the first alive one
 /// with Shattering invested fires per death, same one-effect-per-fight-
 /// tick spirit as `select_primary_watergolem`'s explicit "highest rank
@@ -7269,13 +7343,13 @@ fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx:
         return;
     };
     let max_targets = (units[water_golem_idx].splash.floor() as u32 + units[water_golem_idx].watergolem_shattering_extra_targets) as usize;
-    let icicle_dmg = dead_enemy_max_hp as f64 * 0.01;
+    let icicle_dmg = dead_enemy_max_hp as f64 * units[water_golem_idx].watergolem_shattering_pct;
     let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != dead_enemy_idx && u.is_boss && u.alive).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     for _ in 0..pick_count {
         let pick_at = rng.gen_range(0..candidates.len());
         let target_idx = candidates.remove(pick_at);
-        apply_hit(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng, false, true);
+        apply_shattering_icicle_damage(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng);
     }
 }
 
@@ -11544,6 +11618,7 @@ pub(crate) fn simulate_battle(
                 thundergolem_net_absorbed: 0.0,
                 thundergolem_terrifying_pct: 0.0,
                 watergolem_shattering_extra_targets: 0,
+                watergolem_shattering_pct: 0.0,
                 watergolem_singing_pct: 0.0,
                 watergolem_regen_pct: 0.0,
                 next_watergolem_regen_at_ms: u32::MAX,
@@ -11922,6 +11997,7 @@ pub(crate) fn simulate_battle(
             thundergolem_net_absorbed: 0.0,
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
+            watergolem_shattering_pct: 0.0,
             watergolem_singing_pct: 0.0,
             watergolem_regen_pct: 0.0,
             next_watergolem_regen_at_ms: u32::MAX,
@@ -13064,6 +13140,7 @@ pub(crate) fn simulate_battle(
                                 thundergolem_net_absorbed: 0.0,
                                 thundergolem_terrifying_pct: 0.0,
                                 watergolem_shattering_extra_targets: 0,
+                                watergolem_shattering_pct: 0.0,
                                 watergolem_singing_pct: 0.0,
                                 watergolem_regen_pct: 0.0,
                                 next_watergolem_regen_at_ms: u32::MAX,
@@ -16571,6 +16648,7 @@ mod elementalist_stage_6_golem_type_tests {
         let c = elementalist_with(&[("golemmaster", 1), ("shattering", 2), ("singing", 3)], vec![GolemType::Water]);
         let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &c);
         assert_eq!(golem.watergolem_shattering_extra_targets, 2);
+        assert!((golem.watergolem_shattering_pct - 0.01).abs() < 1e-9, "default node magnitude is flat 1% regardless of rank");
         assert!((golem.watergolem_singing_pct - 0.30).abs() < 1e-9);
     }
 
@@ -16742,7 +16820,7 @@ mod elementalist_stage_6_golem_type_tests {
         let hit_count = units[2..].iter().filter(|u| u.hp < 1_000_000).count();
         assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (this summoner has 0 splash invested)");
         for u in &units[2..] {
-            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100 - now via apply_hit, but a zero-stat golem/boss pair mitigates to the identical flat value");
+            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100 - via apply_shattering_icicle_damage's own DR-only mitigation, a zero-DR boss takes the exact flat value");
         }
     }
 
@@ -16769,6 +16847,97 @@ mod elementalist_stage_6_golem_type_tests {
         for u in &units[2..] {
             assert_eq!(u.hp, 1_000_000, "no icicle damage of any kind while the kill-switch is off");
         }
+    }
+
+    /// Release B requirement - icicle damage must equal EXACTLY
+    /// `node_pct * dead_enemy_max_hp * (1 - target_dr)`, with zero
+    /// contribution from the attacking golem's own crit/increased-
+    /// damage/elemental stack. A maxed-out attacker (guaranteed crit,
+    /// huge crit multiplier, huge increased damage) must produce the
+    /// SAME output as a zero-stat one - this is the direct regression
+    /// test for the 110,000x live excursion.
+    #[test]
+    fn release_b_icicle_damage_is_exactly_pct_times_maxhp_times_dr_with_zero_attacker_stack_contribution() {
+        let mut water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+        water_golem.alive = true;
+        // A maxed-out attacker profile - if any of this leaked into the
+        // icicle's own damage, the assertion below would fail loudly.
+        water_golem.crit_chance = 1.0;
+        water_golem.crit_multiplier = 50.0;
+        water_golem.increased_damage = 100.0;
+        water_golem.watergolem_shattering_pct = 0.02; // 2%, an explicit non-default value
+
+        let mut target = boss("target", 1_000_000);
+        target.damage_reduction = 0.25;
+
+        let mut units = vec![water_golem, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let dead_enemy_max_hp = 500_000u64;
+        let expected = (dead_enemy_max_hp as f64 * 0.02 * (1.0 - 0.25)).round() as i64;
+        let killed = apply_shattering_icicle_damage(&mut units, 0, 1, dead_enemy_max_hp as f64 * 0.02, 5_000, &mut events, &mut rolls, &mut rng);
+        assert!(!killed);
+        assert_eq!(units[1].hp, 1_000_000 - expected, "must be exactly node_pct * maxHp * (1 - DR) - no crit, no increased_damage, no elemental bonus contribution");
+        assert!(!events.iter().any(|e| matches!(e, CombatEvent::Attack { is_crit: true, .. })), "an icicle can never crit - roll_attacker_damage is never invoked");
+    }
+
+    /// Release B requirement - a Doom-cursed target's `curse_damage_taken_total`
+    /// (the pool Doom's own detonation consumes) must be COMPLETELY
+    /// unaffected by an icicle hit, even though the icicle deals real
+    /// damage to that same target. This is the direct regression test
+    /// for the 196x golem-less-Warlock inflation.
+    #[test]
+    fn release_b_doom_pool_is_unchanged_by_an_icicle_hit_on_a_cursed_target() {
+        let water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+        let mut target = boss("cursed_target", 1_000_000);
+        target.curse_expires_at_ms = u32::MAX; // actively Doom-tracked
+        target.curse_damage_taken_total = 0.0;
+        let mut units = vec![water_golem, target];
+        units[0].alive = true;
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let killed = apply_shattering_icicle_damage(&mut units, 0, 1, 50_000.0, 5_000, &mut events, &mut rolls, &mut rng);
+        assert!(!killed);
+        assert!(units[1].hp < 1_000_000, "sanity check: the icicle must have actually dealt real damage");
+        assert_eq!(units[1].curse_damage_taken_total, 0.0, "Doom's own accumulation pool must be completely untouched by icicle damage");
+        assert!(matches!(events.last(), Some(CombatEvent::Attack { source_kind: AttackSourceKind::Environmental, .. })), "the icicle's own event must be tagged Environmental");
+    }
+
+    /// Release B requirement - the icicle's damage basis is now the
+    /// `shattering` node's own live-tunable magnitude, not a hardcoded
+    /// constant. An admin override (simulated here directly on the
+    /// spawned golem, same as `passive_node_magnitude` would read from
+    /// an `adventure-passive-overrides.toml` entry) must change real
+    /// icicle output.
+    #[test]
+    fn release_b_a_node_value_override_changes_icicle_damage_live() {
+        let mut default_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+        default_golem.alive = true;
+        assert!((default_golem.watergolem_shattering_pct - 0.01).abs() < 1e-9, "shipped default must be 1%, matching the original spec");
+
+        let default_pct = default_golem.watergolem_shattering_pct;
+        let mut units = vec![default_golem, boss("target", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        apply_shattering_icicle_damage(&mut units, 0, 1, 1_000_000.0 * default_pct, 5_000, &mut events, &mut rolls, &mut rng);
+        let default_damage = 1_000_000 - units[1].hp;
+
+        // Same setup, but as if an admin had overridden the node's own
+        // magnitude to 5% instead of the shipped 1% default.
+        let mut overridden_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+        overridden_golem.alive = true;
+        overridden_golem.watergolem_shattering_pct = 0.05;
+        let overridden_pct = overridden_golem.watergolem_shattering_pct;
+        let mut units2 = vec![overridden_golem, boss("target", 1_000_000)];
+        let mut events2 = Vec::new();
+        let mut rolls2 = Vec::new();
+        apply_shattering_icicle_damage(&mut units2, 0, 1, 1_000_000.0 * overridden_pct, 5_000, &mut events2, &mut rolls2, &mut rng);
+        let overridden_damage = 1_000_000 - units2[1].hp;
+
+        assert_eq!(overridden_damage, default_damage * 5, "a 5% override must deal exactly 5x the 1% default's damage");
     }
 
     #[test]

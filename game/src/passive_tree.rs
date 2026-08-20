@@ -2116,10 +2116,18 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "watergolem",
         "Shattering",
         "When an enemy dies in the Water Golem's presence, it explodes, sending icicles at (splash + 1) nearby enemies at rank 1 - +1 per additional rank (splash + 3 at 3/3), each dealing damage equal to 1% of the dead enemy's health.",
-        // A COUNT (1/2/3, added to splash's own target count), not a
-        // magnitude - read via `passive_node_rank` directly at the real
-        // call site.
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Two independent reads off this SAME node (2026-08-20, Release
+        // B) - target count is still a COUNT (1/2/3, added to splash's
+        // own target count), read via `passive_node_rank` directly at
+        // the real call site, unchanged. The magnitude table below was
+        // previously unused for real game logic (icicle damage was a
+        // hardcoded 0.01 constant) - it's now the icicle's own damage
+        // basis (fraction of the dead enemy's max HP), read via
+        // `passive_node_magnitude`, live-tunable on `/admin/passives`
+        // like any other node value. 0.01 at every rank (flat, not
+        // scaling with rank) matches the original spec exactly - only
+        // an admin override changes it.
+        Special { at_rank_1: 0.01, per_additional_rank: 0.0 },
     ),
 ];
 
@@ -2498,10 +2506,17 @@ mod tree_shape_tests {
     }
 
     #[test]
-    fn elementalist_shattering_reaches_3_extra_targets_at_max_rank() {
+    fn elementalist_shattering_damage_pct_is_flat_1pct_at_every_rank() {
+        // Target count (1/2/3 extra) is a separate read via
+        // `passive_node_rank` at the real call site, unaffected by this
+        // node's own magnitude table - see the node's own doc (Release
+        // B, 2026-08-20). The magnitude table itself is now the
+        // icicle's damage basis, live-tunable on /admin/passives,
+        // shipped flat at 1% regardless of rank to match the original
+        // spec exactly.
         let node = node_by_key(Archetype::Elementalist, "shattering");
-        assert_eq!(node.magnitude_at_rank(1), 1.0);
-        assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);
+        assert!((node.magnitude_at_rank(1) - 0.01).abs() < 1e-9);
+        assert!((node.magnitude_at_rank(3) - 0.01).abs() < 1e-9);
     }
 
     fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {
