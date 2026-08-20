@@ -57,6 +57,9 @@ patreon-tokens.json
 /backup-pre-elementalist-corrective
 # Pre-elemental-damage-all-slots-deploy rollback backup, same discipline.
 /backup-pre-elemental-slots
+# Pre-unified-unique-shards-deploy rollback backup (binaries + the
+# standard pre-migration character-data backup), same discipline.
+/backup-pre-unified-unique-shards
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
