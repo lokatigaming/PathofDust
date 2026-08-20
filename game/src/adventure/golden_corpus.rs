@@ -70,6 +70,32 @@ struct Scenario {
     stage: u32,
     archetype: Archetype,
     level: u32,
+    /// Passive-tree investment, as `(node key, rank)` pairs written
+    /// straight into `passive_allocations` (2026-08-20).
+    ///
+    /// **Every scenario carrying a non-empty list here exists because
+    /// the corpus previously had NO passive coverage at all.**
+    /// `Scenario` had no way to express investment, so every node sat at
+    /// rank 0 in every fixture and not one passive mechanic fired. A
+    /// corpus run proved only that non-passive combat was unchanged -
+    /// far weaker than it appeared - and left the entire passive surface
+    /// unprotected against exactly the kind of large `combat.rs` change
+    /// these fixtures exist to catch.
+    ///
+    /// Allocations must be REACHABLE ones: a Specialization needs its
+    /// parent Skill invested, a Modifier needs its parent Specialization
+    /// at 4/4, and the total must fit `points_for_level(level)`. A
+    /// fixture built from a state the game could never produce would be
+    /// pinning fiction. Deliberately NOT routed through the allocation
+    /// validator - this is a fixture definition, and going through
+    /// `AdventureManager` would drag async and persistence into a pure,
+    /// seeded snapshot. `scenario_allocations_are_reachable` enforces
+    /// the rules instead.
+    passives: &'static [(&'static str, u32)],
+    /// Elementalist's golem slot types. Any unlocked slot this doesn't
+    /// name falls back to `GolemType::Basic`, per that field's own
+    /// documented default.
+    golem_slots: &'static [GolemType],
     boss_kind: Option<BossKind>,
     boss: BossStats,
 }
@@ -88,20 +114,69 @@ fn tough_boss(hp: u64, atk: u64, attack_interval_ms: u32) -> BossStats {
 
 fn scenarios() -> Vec<Scenario> {
     vec![
-        Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), boss: boss(8_000, 150, 1100) },
-        Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, archetype: Archetype::Rogue, level: 10, boss_kind: None, boss: boss(8_000, 150, 1100) },
-        Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), boss: boss(40_000, 400, 1100) },
-        Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), boss: tough_boss(40_000, 400, 1100) },
-        Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), boss: boss(120_000, 900, 1100) },
-        Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), boss: boss(120_000, 900, 1100) },
+        Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], boss: boss(8_000, 150, 1100) },
+        Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], boss: boss(8_000, 150, 1100) },
+        Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], boss: boss(40_000, 400, 1100) },
+        Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], boss: tough_boss(40_000, 400, 1100) },
+        Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], boss: boss(120_000, 900, 1100) },
+        Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], boss: boss(120_000, 900, 1100) },
         // High stage - exercises the late-stage damage penalty AND boss
         // pierce together (see WIKI_IMPACT.md's pierce entry - both are
         // stage^2/(stage^2+h^2)-shaped ramps, both real at this stage).
-        Scenario { name: "ranger_vs_lich_stage3000", seed: 7, stage: 3000, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), boss: boss(2_000_000, 6_000, 1100) },
-        Scenario { name: "slayer_vs_tough_boss_stage3000", seed: 8, stage: 3000, archetype: Archetype::Slayer, level: 80, boss_kind: Some(BossKind::Dragon), boss: tough_boss(2_000_000, 6_000, 1100) },
-        Scenario { name: "druid_vs_generic_stage1000", seed: 9, stage: 1000, archetype: Archetype::Druid, level: 60, boss_kind: None, boss: boss(500_000, 2_000, 1100) },
-        Scenario { name: "monk_vs_fire_demon_stage1000", seed: 10, stage: 1000, archetype: Archetype::Monk, level: 60, boss_kind: Some(BossKind::FireDemon), boss: boss(500_000, 2_000, 1100) },
-        Scenario { name: "berserker_vs_lich_stage1000", seed: 11, stage: 1000, archetype: Archetype::Berserker, level: 60, boss_kind: Some(BossKind::Lich), boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "ranger_vs_lich_stage3000", seed: 7, stage: 3000, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], boss: boss(2_000_000, 6_000, 1100) },
+        Scenario { name: "slayer_vs_tough_boss_stage3000", seed: 8, stage: 3000, archetype: Archetype::Slayer, level: 80, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], boss: tough_boss(2_000_000, 6_000, 1100) },
+        Scenario { name: "druid_vs_generic_stage1000", seed: 9, stage: 1000, archetype: Archetype::Druid, level: 60, boss_kind: None, passives: &[], golem_slots: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "monk_vs_fire_demon_stage1000", seed: 10, stage: 1000, archetype: Archetype::Monk, level: 60, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "berserker_vs_lich_stage1000", seed: 11, stage: 1000, archetype: Archetype::Berserker, level: 60, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], boss: boss(500_000, 2_000, 1100) },
+        // ---- passive-allocating scenarios (2026-08-20) ----
+        //
+        // The eleven above allocate nothing, so no passive mechanic
+        // fires in any of them - see `Scenario::passives`. Everything
+        // below exists to close that gap.
+        //
+        // FIRST and most urgent: Elementalist with three Thunder Golems.
+        // This is the single densest concentration of at-risk passive
+        // machinery in the game - golem spawning, golem stat
+        // INHERITANCE from the summoner, Righteous Fire's self-burn and
+        // its healing/regen counterpart, and Thunder Golem's
+        // absorbed-damage redistribution on death. A large `combat.rs`
+        // change to `spawn_golem` would otherwise land with none of it
+        // under snapshot coverage.
+        //
+        // Level 140 because the build below spends 33 points and
+        // `points_for_level` grants `1 + level / 4` - 36 at this level.
+        // Solo, like every scenario here, per this module's own
+        // HashMap-iteration-order rule.
+        Scenario {
+            name: "elementalist_thunder_golems_vs_dragon_stage1000",
+            seed: 12,
+            stage: 1000,
+            archetype: Archetype::Elementalist,
+            level: 140,
+            boss_kind: Some(BossKind::Dragon),
+            passives: &[
+                // Golem Master 3/3 -> three summon slots, all Thunder.
+                ("golemmaster", 3),
+                // Thunder Golem 4/4 -> unlocks its own modifiers below.
+                ("thundergolem", 4),
+                ("gigantify", 3),
+                ("growing", 3),
+                // Righteous Fire: the self-damage half...
+                ("righteousfire", 3),
+                // ...and Healing Flames 4/4 for the regen half plus
+                // Rising Phoenix, so a death-and-revival path is live.
+                ("healingflames", 4),
+                ("risingphoenix", 3),
+                // Elemental Focus into fire, which Righteous Fire scales
+                // with - exercises the focus/RF interaction, not just
+                // each in isolation.
+                ("elementalfocus", 3),
+                ("scorchingfocus", 4),
+                ("incinerate", 3),
+            ],
+            golem_slots: &[GolemType::Thunder, GolemType::Thunder, GolemType::Thunder],
+            boss: boss(500_000, 2_000, 1100),
+        },
     ]
 }
 
@@ -124,6 +199,14 @@ fn run_scenario(s: &Scenario) -> GoldenSnapshot {
     character.body = Some(generate_item(EquipSlot::Body, s.stage, &mut rng));
     character.gloves = Some(generate_item(EquipSlot::Gloves, s.stage, &mut rng));
     character.boots = Some(generate_item(EquipSlot::Boots, s.stage, &mut rng));
+    // Passive investment (2026-08-20) - see `Scenario::passives`. An
+    // empty list leaves the character exactly as every pre-2026-08-20
+    // fixture captured it, which is what keeps those eleven fixtures
+    // byte-identical through this change.
+    for (key, rank) in s.passives {
+        character.passive_allocations.insert((*key).to_string(), *rank);
+    }
+    character.golem_slot_types = s.golem_slots.to_vec();
 
     let mut characters: HashMap<String, Character> = HashMap::new();
     characters.insert(s.name.to_string(), character);
@@ -187,6 +270,67 @@ fn approx_eq(a: &serde_json::Value, b: &serde_json::Value) -> bool {
         }
         (serde_json::Value::Array(aa), serde_json::Value::Array(ba)) => aa.len() == ba.len() && aa.iter().zip(ba.iter()).all(|(x, y)| approx_eq(x, y)),
         _ => a == b,
+    }
+}
+
+/// Every scenario's passive investment must be a build the game could
+/// actually produce (2026-08-20) - see `Scenario::passives`.
+///
+/// `run_scenario` writes allocations straight into the map rather than
+/// going through the allocation validator, which keeps the snapshot pure
+/// and seeded but also means nothing would otherwise stop a fixture from
+/// pinning an impossible build: a Modifier under an un-specialized
+/// parent, a rank above a node's cap, or more points than the level
+/// grants. A fixture like that would look authoritative while describing
+/// a state no player can reach, which is worse than no fixture at all.
+#[test]
+fn scenario_allocations_are_reachable() {
+    for s in scenarios() {
+        if s.passives.is_empty() {
+            continue;
+        }
+        let nodes = s.archetype.passive_nodes();
+        let ranks: HashMap<&str, u32> = s.passives.iter().copied().collect();
+
+        let mut spent = 0u32;
+        for (key, rank) in s.passives {
+            let node = nodes.iter().find(|n| n.key == *key).unwrap_or_else(|| panic!("{}: node {key:?} is not in {:?}'s tree", s.name, s.archetype));
+            assert!(*rank > 0, "{}: {key:?} is allocated at rank 0 - drop it from the list instead", s.name);
+            assert!(*rank <= node.max_rank, "{}: {key:?} at rank {rank} exceeds its max_rank of {}", s.name, node.max_rank);
+            if let Some(parent) = node.parent {
+                let required = node.unlock_at.unwrap_or(1);
+                let parent_rank = ranks.get(parent).copied().unwrap_or(0);
+                assert!(
+                    parent_rank >= required,
+                    "{}: {key:?} needs its parent {parent:?} at rank {required}, but the scenario allocates it at {parent_rank}",
+                    s.name
+                );
+            }
+            spent += rank;
+        }
+
+        let budget = crate::passive_tree::points_for_level(s.level);
+        assert!(spent <= budget, "{}: spends {spent} points but level {} only grants {budget}", s.name, s.level);
+    }
+}
+
+/// A passive-allocating scenario has to actually EXERCISE its passives -
+/// a fixture whose mechanics never fire would pass forever while
+/// protecting nothing, which is precisely the trap the corpus fell into
+/// before these scenarios existed.
+#[test]
+fn passive_scenarios_actually_fire_their_mechanics() {
+    for s in scenarios() {
+        if s.passives.is_empty() {
+            continue;
+        }
+        let snapshot = run_scenario(&s);
+        assert!(!snapshot.events.is_empty(), "{}: produced no events at all", s.name);
+
+        if s.archetype == Archetype::Elementalist && s.passives.iter().any(|(k, _)| *k == "golemmaster") {
+            let golems = snapshot.units.iter().filter(|u| u.golem_summoner_id.is_some()).count();
+            assert!(golems > 0, "{}: invests in Golem Master but no golem was ever summoned - the fixture protects nothing", s.name);
+        }
     }
 }
 
