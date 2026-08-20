@@ -1120,7 +1120,14 @@ the full picture, source push through binary swap.
    `GameProcess-Watchdog` → start `TwitchBotRS`, verify healthy (curl
    its ports) → re-enable `TwitchBotRS-Watchdog`. Game always comes up
    and is verified healthy before the bot starts — never the other
-   order.
+   order. While in this same stop window (2026-08-20 addition): copy
+   `adventure-fights-summary/` as it stands at stop time into that
+   deploy's `backup-pre-<name>/` dir as a pinned pre-deploy snapshot.
+   The live summary corpus is capped at 200 files, so pre-deploy fight
+   records otherwise age out within roughly 3 hours — this has already
+   blocked before/after verification twice. It's one file copy inside a
+   stop window the deploy is already taking, and gives every release a
+   permanent baseline to diff against.
 5. `git push origin master` — pod-qa syncs from GitHub, not this local
    repo directly, so this step is never optional even if everything
    "looks" deployed locally.
@@ -1134,3 +1141,16 @@ the full picture, source push through binary swap.
 9. Report: what shipped, the patch-notes entry added, all relevant
    hashes (merge/final commit, old/new binary SHA-256), rollback backup
    location, and the pod-qa HEAD match/mismatch.
+
+**Worktree housekeeping (2026-08-20 addition):** once a feature branch
+is merged into master AND deployed, its standalone `C:\PathofDust-<name>`
+worktree (and the `target-<name>` build cache inside it) is removable —
+the work is preserved in master's history, the worktree itself is just
+disposable build state. Removable worktrees pile up fast (six at once
+reclaimed ~68GB on 2026-08-20) and aren't urgent to clean immediately,
+but should be swept in the next housekeeping pass rather than left
+indefinitely. A session resuming that branch's work later creates a
+fresh worktree from master rather than reviving the old one. Any
+restart outside a documented deploy step (§13 step 4, or an explicit
+one-off live-data fix) gets one line in that deploy's report stating
+why — intent should never have to be inferred from timestamps alone.

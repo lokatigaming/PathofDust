@@ -11,6 +11,7 @@ use super::*;
 /// truth for which archetype grants which skill(s); `CombatSimUnit::skills`
 /// is just that list copied in at fight-build time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub enum ArchetypeSkill {
     /// Berserker - a killing blow has a chance to grant this unit one
     /// immediate extra attack against a fresh random target on the
@@ -742,6 +743,17 @@ pub(crate) fn trigger_doom_on_death(units: &mut [CombatSimUnit], victim_idx: usi
 /// A living combatant during `simulate_battle` — built fresh from
 /// `Character`'s derived combat stats for players, or `BossStats` for the
 /// one boss unit. Nothing here persists between fights.
+///
+/// Design-intent correction (2026-08-20), golem-inheritance denylist
+/// inversion - `#[derive(Clone)]` exists specifically so `spawn_golem`
+/// can `summoner.clone()` and inherit every field by default, with
+/// `clear_non_inheritable_for_golem` as the ONLY hand-maintained
+/// exclusion list. The `#[cfg_attr(test, ...)]` Serialize/Deserialize
+/// pair exists ONLY for the completeness sentinel test (a generic,
+/// reflection-style JSON round-trip that needs every field addressable
+/// by name) - never used in production, never persisted.
+#[derive(Clone)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct CombatSimUnit {
     id: String,
     display_name: String,
@@ -3485,6 +3497,7 @@ impl Default for CombatSimUnit {
 /// matters for whatever ticks haven't landed yet - the HEAL flavor has
 /// no equivalent mitigation concept, so its ticks land at full value.
 #[derive(Clone)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct LingeringDot {
     source_id: String,
     amount_per_tick: f64,
@@ -5994,156 +6007,105 @@ fn blazing_attack_speed_pct(rank: u32) -> f64 {
 /// Elementalist's Golem Master (docs/elementalist_spec.md, Stages 5-6) -
 /// builds one golem unit holding `GOLEM_STAT_SCALE` (33%, or more with
 /// Thunder Golem's own Gigantify) of `summoner`'s own core BASE combat
-/// stats (max hp, attack power, evasion, damage reduction, block chance
-/// - "as if they were a player with 33% of your stats"). Attack cadence
-/// is copied AS-IS, not scaled - the spec never says golems act 33% as
-/// often, only that their NUMBERS are 33%.
+/// stats (max hp, attack power, evasion, damage reduction, block
+/// chance - "as if they were a player with 33% of your stats"). Attack
+/// cadence and EVERY other stat/multiplier/tree-passive effect the
+/// summoner carries inherit at FULL value via `summoner.clone()` -
+/// design-intent correction (2026-08-20), denylist inversion.
 ///
-/// Design-intent correction (2026-08-20), item 3 - EVERY other
-/// stat/multiplier/tree-passive effect the summoner carries (crit,
-/// increased damage, elemental damage_pct, splash, lingering effect,
-/// Righteous Fire, the Focus/Aegis trio, the Righteous Fire branch's
-/// own sub-passives, etc.) is inherited at FULL value, not scaled by
-/// `GOLEM_STAT_SCALE` - "33% of stats" only ever applied to the base
-/// stats named above, never to a passive's own effect magnitude. Basic
-/// golems get exactly this: full stat+passive inheritance, no type-
-/// specific bonus of their own. Thunder/Flame/Water each ADD their own
-/// type-specific fields/stats on top, read from `c` (the summoner's
-/// real `Character`, for the sub-tree ranks `CombatSimUnit` alone
-/// doesn't carry) rather than threaded through as individual
-/// parameters.
+/// `summoner` is already the fully-buffed effective unit at this point
+/// (built earlier in `simulate_battle`'s own construction pass, gear +
+/// BOTH trees - primary and Split Personality secondary, per the
+/// archetype-gate fix elsewhere in this release - fully baked in), so
+/// cloning it is a genuine, complete "as if they were a player with
+/// your build" copy, not the 33-field hand-picked allowlist this used
+/// to be (three separate inheritance bugs fixed by enumeration in two
+/// days - increased_damage, crit_chance, lingering_effect_pct - was
+/// the signal that the allowlist shape itself was the bug). See
+/// `clear_non_inheritable_for_golem`'s own doc for the ONLY
+/// hand-maintained exception list, and the completeness sentinel test
+/// (`golem_inherits_every_field_or_its_named_in_the_exclusion_list`)
+/// that keeps it honest against every future field. Thunder/Flame/
+/// Water each ADD their own type-specific fields/stats on top, read
+/// from `c` (the summoner's real `Character`, for the sub-tree ranks
+/// `CombatSimUnit` alone doesn't carry) rather than threaded through as
+/// individual parameters.
+///
+/// Prerequisite 1 (2026-08-20) - `golem_slot_types` durability. An
+/// empty/missing slot (a fresh Golem Master rank with no type assigned
+/// yet, or a save/Memory that predates typed slots) used to default to
+/// `GolemType::default()` (Basic) unconditionally via `unwrap_or_default`
+/// - a silently inert fallback for any character who'd actually
+/// invested in a typed sub-tree (Thunder/Flame/Water) but hadn't (yet,
+/// or ever again, after a Memory wipe - see the load_memory fix
+/// alongside this one) explicitly assigned it to a slot. Instead,
+/// default to whichever typed sub-tree the character has the MOST
+/// points invested in (ties broken by enum declaration order: Thunder,
+/// then Flame, then Water) - Basic only when NONE of the three has any
+/// investment at all, which is the only case where "no real choice has
+/// been made yet" is actually true.
+fn default_golem_type_for(c: &Character) -> GolemType {
+    let thunder = c.passive_node_rank("thundergolem");
+    let flame = c.passive_node_rank("flamegolem");
+    let water = c.passive_node_rank("watergolem");
+    let best = thunder.max(flame).max(water);
+    if best == 0 {
+        GolemType::Basic
+    } else if thunder == best {
+        GolemType::Thunder
+    } else if flame == best {
+        GolemType::Flame
+    } else {
+        GolemType::Water
+    }
+}
+
 fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_type: GolemType, c: &Character) -> CombatSimUnit {
+    let mut golem = summoner.clone();
+
+    // 1. Identity - never inherited.
+    golem.id = golem_unit_id(summoner_id, slot);
+    golem.display_name = format!("{}'s Golem", summoner.display_name);
+    golem.archetype = None;
+    golem.is_boss = false;
+    golem.is_golem = true;
+    golem.golem_summoner_id = Some(summoner_id.to_string());
+    golem.golem_type = Some(golem_type);
+
+    // 2. Role - assigned by golem type, NOT inherited. Thunder maps to
+    // Melee rather than a new Tank variant: its tanking is already
+    // fully mechanical via `thunder_golem_redirect` (absorbs all party
+    // damage regardless of role), and `CombatFunction` only gates two
+    // things in combat (the Celestial Conversion check and the
+    // CombatUnitInfo export) - adding a variant for a label change
+    // would touch the serde wire format and the overlay for no
+    // mechanical gain. Basic defaults to Melee too (no bespoke role of
+    // its own).
+    golem.role = Some(match golem_type {
+        GolemType::Thunder => CombatFunction::Melee,
+        GolemType::Flame => CombatFunction::Ranged,
+        GolemType::Water => CombatFunction::Heal,
+        GolemType::Basic => CombatFunction::Melee,
+    });
+
+    // 3. Base pools - scaled, not copied (unchanged from today).
     // Gigantify - Thunder Golem's own hp-contribution multiplier (base
     // 33% -> 66/99/132% at rank 1/2/3). 0.0 (no effect) for every other
     // golem type, since it's read off "thundergolem"'s own child key
     // regardless of `golem_type` - only relevant when it actually IS one.
     let hp_scale = if golem_type == GolemType::Thunder { GOLEM_STAT_SCALE * (1.0 + c.passive_node_magnitude("gigantify")) } else { GOLEM_STAT_SCALE };
     let scaled_max_hp = ((summoner.max_hp as f64) * hp_scale).round().max(1.0) as u64;
-    let scaled_atk = ((summoner.atk as f64) * GOLEM_STAT_SCALE).round().max(0.0) as u64;
-    let mut golem = CombatSimUnit {
-        id: golem_unit_id(summoner_id, slot),
-        display_name: format!("{}'s Golem", summoner.display_name),
-        alive: true,
-        hp: scaled_max_hp as i64,
-        max_hp: scaled_max_hp,
-        atk: scaled_atk,
-        // A one-time snapshot of the summoner's BASE cadence at spawn -
-        // Flame Golem's own Blazing bonus (below) still shrinks this
-        // once, permanently. The summoner's LIVE, accumulating speed
-        // buffs (Momentum, Flowing Strikes, etc.) are NOT snapshotted
-        // here (they'd be stale the instant the owner's own stacks grew
-        // past this point) - see the main event loop's own
-        // `speed_source_idx` fix (design-intent correction, 2026-08-20,
-        // item 4) for how the golem's live effective interval tracks
-        // the owner's own current speed instead.
-        attack_interval_ms: summoner.attack_interval_ms,
-        next_action_at_ms: summoner.attack_interval_ms,
-        evasion: summoner.evasion * GOLEM_STAT_SCALE,
-        damage_reduction: summoner.damage_reduction * GOLEM_STAT_SCALE,
-        block_chance: summoner.block_chance * GOLEM_STAT_SCALE,
-        // 2026-08-19 bugfix (golem stat inheritance) - "33% of the
-        // Elementalist's stats" was missing the summoner's own
-        // increased_damage/conflagration_dmg_pct entirely (defaulting to
-        // 0.0 via zeroed_combat_unit() below), leaving a golem's per-hit
-        // output far below the intended 33% for any build with real
-        // gear/tree damage multipliers invested - confirmed via live
-        // fight-log audit (golem hits measured at ~3% of owner output,
-        // not 33%). `summoner` is already the fully-buffed effective unit
-        // at this point (built earlier in `simulate_battle`'s own
-        // construction pass, gear+tree+per-level Elemental Focus/
-        // Scorching Flames all baked in).
-        //
-        // DELIBERATELY inherited at FULL value here, NOT scaled by
-        // GOLEM_STAT_SCALE like the base stats above - these are
-        // MULTIPLIERS, not base stats, and the arithmetic only lands
-        // near the intended ~33% per-hit-damage RATIO if they're passed
-        // through whole: golem_dmg = (atk * 0.33) * (1 + full_ID) *
-        // (1 + full_CD) = 0.33 * owner_dmg, exactly, regardless of how
-        // large ID/CD get. Scaling them down to 33% too would instead
-        // converge toward a ~11% ratio in the limit of a large dominant
-        // multiplier (0.33 base * 0.33 multiplier) - verified against
-        // the audit's own "an 11x gap" finding, which is consistent with
-        // exactly this compounding-scale-down error, not with a single
-        // missing-field omission alone.
-        increased_damage: summoner.increased_damage,
-        conflagration_dmg_pct: summoner.conflagration_dmg_pct,
-        // Release 1.2 item 2 (2026-08-19) - crit_chance/crit_multiplier
-        // were STILL being scaled by GOLEM_STAT_SCALE (this bug's own
-        // sibling, missed in the increased_damage/conflagration_dmg_pct
-        // fix above) despite functioning as the exact same kind of
-        // MULTIPLIER on `base_damage` (`roll_attacker_damage`'s own
-        // `dmg = base_damage * crit_bonus_mult`, where `crit_bonus_mult`
-        // is derived from crit_chance/crit_multiplier together) - the
-        // same compounding error the comment above already explains for
-        // increased_damage/conflagration_dmg_pct applies identically
-        // here: scaling BOTH the chance AND the multiplier down by 0.33
-        // each doesn't converge toward a 33% ratio, it collapses crit's
-        // whole contribution toward roughly zero (0.33 crit_multiplier
-        // often lands below 1.0, making a golem's own "crit" contribute
-        // LESS than a normal hit), consistent with the live finding's
-        // ~4x shortfall (21.9-28.5% of the 33%-plus-golem-multipliers
-        // target) and its near-constant per-hit figure despite the
-        // owner's own crit-driven swings - a golem whose crit
-        // contribution is pinned near zero doesn't reflect the owner's
-        // crit variance at all. Inherited at FULL value now, matching
-        // increased_damage/conflagration_dmg_pct exactly.
-        crit_chance: summoner.crit_chance,
-        crit_multiplier: summoner.crit_multiplier,
-        // Design-intent correction (2026-08-20), item 3 - "ALL stats and
-        // ALL tree passives at full value... every effect/multiplier/
-        // passive inherits at full value," the same pattern as
-        // increased_damage/crit_chance/crit_multiplier above, applied
-        // exhaustively rather than as a short hand-picked list. Every
-        // field below is either a per-hit/per-cast MAGNITUDE the golem's
-        // OWN attacks/procs read generically (fire/cold/lightning/chaos/
-        // divine damage_pct, splash, lingering_effect_pct,
-        // righteousfire_pct, the Focus/Aegis trio), or a value read only
-        // when `tick_righteous_fire`/`tick_cleansing_flames` runs with
-        // THIS unit as the actor - which never happens for a golem
-        // (its own `next_righteousfire_tick_at_ms`/`next_cleansingflames_at_ms`
-        // stay at `zeroed_combat_unit()`'s `u32::MAX` default, never set
-        // here), so those are inert-but-correctly-inherited data rather
-        // than a way to make a golem cast its own Righteous Fire tick.
-        //
-        // Deliberately EXCLUDED: `risingphoenix_max_revives`. Unlike
-        // every field above, it's read via a GENERIC scan across every
-        // non-boss alive unit in `try_schedule_rising_phoenix_revival`
-        // (not gated to a specific scheduled actor_idx) - inheriting it
-        // would make a golem itself an eligible Rising Phoenix CASTER,
-        // a real new mechanic (revival credited to a golem's own id,
-        // and a second revive-eligibility source beyond the owner's own
-        // rank) rather than a dormant, correctly-inherited value. Out of
-        // scope for a "golems hit as hard as the owner" correction.
-        fire_damage_pct: summoner.fire_damage_pct,
-        cold_damage_pct: summoner.cold_damage_pct,
-        lightning_damage_pct: summoner.lightning_damage_pct,
-        chaos_damage_pct: summoner.chaos_damage_pct,
-        divine_damage_pct: summoner.divine_damage_pct,
-        splash: summoner.splash,
-        lingering_effect_pct: summoner.lingering_effect_pct,
-        righteousfire_pct: summoner.righteousfire_pct,
-        shockingfocus_pct: summoner.shockingfocus_pct,
-        chillingfocus_pct: summoner.chillingfocus_pct,
-        scorchingfocus_pct: summoner.scorchingfocus_pct,
-        lightningaegis_shield_pct: summoner.lightningaegis_shield_pct,
-        chillingaegis_shield_pct: summoner.chillingaegis_shield_pct,
-        scorchingaegis_shield_pct: summoner.scorchingaegis_shield_pct,
-        relentlessflames_pct_per_stack: summoner.relentlessflames_pct_per_stack,
-        cauterizingflames_pct: summoner.cauterizingflames_pct,
-        ashestoashes_pct: summoner.ashestoashes_pct,
-        healingflames_pct: summoner.healingflames_pct,
-        fanningflames_pct: summoner.fanningflames_pct,
-        shieldingflames_pct: summoner.shieldingflames_pct,
-        cleansingflames_chance: summoner.cleansingflames_chance,
-        enshroudedfire_evasion_pct: summoner.enshroudedfire_evasion_pct,
-        guardianfire_dr_pct: summoner.guardianfire_dr_pct,
-        shieldingfire_block_pct: summoner.shieldingfire_block_pct,
-        is_boss: false,
-        is_golem: true,
-        golem_summoner_id: Some(summoner_id.to_string()),
-        golem_type: Some(golem_type),
-        ..zeroed_combat_unit()
-    };
+    golem.max_hp = scaled_max_hp;
+    golem.hp = scaled_max_hp as i64;
+    golem.atk = ((summoner.atk as f64) * GOLEM_STAT_SCALE).round().max(0.0) as u64;
+    golem.evasion = summoner.evasion * GOLEM_STAT_SCALE;
+    golem.damage_reduction = summoner.damage_reduction * GOLEM_STAT_SCALE;
+    golem.block_chance = summoner.block_chance * GOLEM_STAT_SCALE;
+
+    // 4. Enumerated exclusions - the ONLY hand-maintained list.
+    clear_non_inheritable_for_golem(&mut golem);
+
+    // 5. Golem-type branch, layers on top of the full-inheritance clone.
     match golem_type {
         GolemType::Basic => {}
         GolemType::Thunder => {
@@ -6194,25 +6156,38 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
             golem.increased_damage += c.passive_node_magnitude("surging");
         }
         GolemType::Water => {
-            // Replenishing - "convert ALL damage dealt into healing, at
-            // a 100/200/300% rate". heal_power=1.0+ is the "ALL" (see
-            // `heal_power`'s own `damage_fraction = 1.0 - heal_power`
-            // read in the main Turn branch - clamped at 0, so 100% of
-            // output becomes healing). The per-cast heal AMOUNT is
-            // separately capped at `heal_power.min(1.0)` there too (see
-            // that site's own comment: "heal_power past 100% no longer
-            // makes THIS number bigger, it already made this unit's
-            // attack_interval_ms shorter instead" - Character::attack_interval_ms's
-            // own `heal_excess` divisor). Replicating that EXACT excess-
-            // heal-power divisor here (rather than a new mechanism) is
-            // what makes 200%/300% actually mean something: 2x/3x more
-            // heal-share casts per unit time at the same capped size -
-            // "100/200/300% rate" reads as total healing throughput, not
-            // per-cast size.
+            // Design-intent correction (2026-08-20), ruling (c) - Water
+            // is now the Heal role's own golem type, so heal_power
+            // inherits ADDITIVELY (the owner's own baseline, e.g. a
+            // Cleric secondary's Divine Grace/Radiant Light, PLUS
+            // Replenishing's own contribution) rather than replacing it
+            // outright - "was: = replenishing_pct". Unconditional, not
+            // gated on Replenishing being invested at all: a Water Golem
+            // is a real Heal-role unit by type, same as a Cleric player
+            // heals off their own baseline heal_power with or without
+            // any specific heal-boosting modifier invested.
+            //
+            // Downstream coupling (Character::attack_interval_ms's own
+            // `damage_fraction = (1.0 - heal_power).max(0.0)`, read
+            // generically for ANY unit's turn, golems included): an
+            // owner already at heal_power >= 1.0 makes their Water
+            // Golem deal zero damage and heal only - correct for a
+            // Heal-role golem, but it means the excess-heal-power
+            // divisor below is doing more work than before, and the
+            // excess can be larger than it used to be. Not pre-tuned
+            // per the "no balance pass" ruling - watch the first fight.
             let replenishing_pct = c.passive_node_magnitude("replenishing");
-            if replenishing_pct > 0.0 {
-                golem.heal_power = replenishing_pct;
-                let heal_excess = (replenishing_pct - 1.0).max(0.0);
+            golem.heal_power = summoner.heal_power + replenishing_pct;
+            // "100/200/300% rate" reads as total healing THROUGHPUT, not
+            // per-cast size: heal_power past 100% no longer makes a
+            // single heal-share bigger (capped at `heal_power.min(1.0)`
+            // at the real read site), so the excess instead speeds up
+            // how often this golem casts at all - same
+            // `base / (1.0 + heal_excess)` shape
+            // `Character::attack_interval_ms` already uses for a real
+            // Cleric/Druid/Paladin's own gear/tree heal-power investment.
+            let heal_excess = (golem.heal_power - 1.0).max(0.0);
+            if heal_excess > 0.0 {
                 golem.attack_interval_ms = ((summoner.attack_interval_ms as f64) / (1.0 + heal_excess)).round().max(50.0) as u32;
                 golem.next_action_at_ms = golem.attack_interval_ms;
             }
@@ -6220,15 +6195,178 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
             golem.watergolem_singing_pct = c.passive_node_magnitude("singing");
             // Elementalist rework item 6 (2026-08-19) - Water Golem's
             // new base effect. `next_watergolem_regen_at_ms` stays at
-            // its default `u32::MAX` here (set by `..zeroed_combat_unit()`
-            // above) - only the "primary" golem among all summoned Water
-            // Golems (selected by the golem-spawning pass, see its own
-            // doc) actually gets a live clock, enforcing "highest rank
+            // its default `u32::MAX` here (zeroed by
+            // `clear_non_inheritable_for_golem` above, category D) -
+            // only the "primary" golem among all summoned Water Golems
+            // (selected by the golem-spawning pass, see its own doc)
+            // actually gets a live clock, enforcing "highest rank
             // applies once, non-stacking."
             golem.watergolem_regen_pct = c.passive_node_magnitude("watergolem");
         }
     }
     golem
+}
+
+/// Design-intent correction (2026-08-20), golem-inheritance denylist
+/// inversion - the ONLY hand-maintained exception list against
+/// `spawn_golem`'s `summoner.clone()`. Everything NOT reset here
+/// inherits at full value. Adding a field to this list requires a
+/// stated reason; the mechanical test for whether a field belongs
+/// here, from the log-analysis session's own audit:
+///
+/// **A field is excluded if it is read by SCANNING ALL UNITS rather
+/// than by INDEXING THE ACTING UNIT.** `risingphoenix_max_revives` is
+/// the reference case: `try_schedule_rising_phoenix_revival` finds ANY
+/// alive non-boss unit with a nonzero count, not gated to a specific
+/// scheduled actor_idx - inheriting it would make a golem itself an
+/// eligible Rising Phoenix CASTER (revival credited to a golem's own
+/// id, a second revive-eligibility source beyond the owner's own
+/// rank), a real new mechanic rather than a dormant inherited value.
+/// `guardian_spirit_charges` and its siblings below have the identical
+/// shape (`units.iter().position(|u| ... u.guardian_spirit_charges > 0)`)
+/// - under a naive clone, a rank-3 Cleric with 3 golems would go from 2
+/// party-wide death saves to 8.
+///
+/// Categories, matching the log-analysis session's own exclusion list:
+///
+/// - **Generic-scan mechanics** (the rule above): guardian_spirit_charges,
+///   frenzy_undying_charges, soul_stone_uses_this_fight,
+///   bloodpact_uses_this_fight, assassinate_charges, wildroar_charges,
+///   verdantburst_charges, risingphoenix_max_revives.
+/// - **Golem machinery**: thundergolem_*, golem_reform_at_ms,
+///   thunder_redistribution_*, watergolem_*, next_watergolem_regen_at_ms,
+///   received_healing_bonus_pct - a golem's own type-specific state, set
+///   fresh by this function's own type branch, never copied from a
+///   summoner who was never a golem.
+/// - **Tick schedulers** (u32::MAX, "never fires"): every `next_*_at_ms`
+///   clock the main event loop's own best-picker or Turn-handler reads
+///   to independently trigger a scheduled action for `!u.is_boss` units
+///   generically (Righteous Fire, Cleansing Flames, Helm, Boots, Flicker
+///   Strike, Bloodpact, Divine Shield, Chakra of Life expiry, Curse
+///   expiry, Temple Guardian heal, Thick Hide cleanse) - EXCLUDING
+///   `next_action_at_ms` itself (the golem's own basic-attack turn
+///   clock, which must stay live) and `next_ability_at_ms` (boss-only,
+///   structurally inert for a golem regardless). Today's code got the
+///   two RF/Cleansing-Flames clocks right by omission (they were never
+///   in the old allowlist); under a clone every one of these needs to be
+///   explicit, since the summoner's own values are now real, not
+///   defaulted zero.
+/// - **Live/transient state**: harmless to inherit AT SPAWN TIME
+///   specifically (fight hasn't started, so a fresh summoner's own
+///   shield/buffs/debuffs/stacks are already at their fight-start
+///   values) - zeroed anyway, for the same forward-durability reason as
+///   golem machinery: a future mid-fight golem-respawn mechanic (Thunder
+///   Golem reform already re-derives its own state rather than
+///   re-cloning) must not silently inherit stale live combat state.
+///   Shields, every `temp_*` timed buff/debuff pair, proc/kill/hit
+///   stack COUNTERS (not their per-stack VALUE, which is a real,
+///   inheritable multiplier - see the doc split on `stack_speed_current`
+///   below), recent-attacker history, Divine heal-power/reduction proc
+///   histories.
+/// - **heal_power**: excluded unconditionally here (zeroed for every
+///   golem type), then explicitly set by the type branch above - Water
+///   Golems inherit it additively (owner's own baseline + Replenishing),
+///   Thunder/Flame/Basic golems stay at 0 (attackers only, no partial
+///   heal-share waste). See ruling (c) and `spawn_golem`'s own Water arm.
+fn clear_non_inheritable_for_golem(golem: &mut CombatSimUnit) {
+    // heal_power - see this function's own doc. Re-set by the Water arm.
+    golem.heal_power = 0.0;
+
+    // Generic-scan mechanics.
+    golem.guardian_spirit_charges = 0;
+    golem.frenzy_undying_charges = 0;
+    golem.soul_stone_uses_this_fight = 0;
+    golem.bloodpact_uses_this_fight = 0;
+    golem.assassinate_charges = 0;
+    golem.wildroar_charges = 0;
+    golem.verdantburst_charges = 0;
+    golem.risingphoenix_max_revives = 0;
+
+    // Golem machinery - a fresh type branch sets whichever of these it
+    // actually needs; every golem starts with none of them.
+    golem.thundergolem_reform_delay_ms = 0;
+    golem.thundergolem_growing_pct = 0.0;
+    golem.thundergolem_reform_base_max_hp = 0;
+    golem.thundergolem_reform_count = 0;
+    golem.thundergolem_absorbed_this_incarnation = 0.0;
+    golem.thundergolem_net_absorbed = 0.0;
+    golem.thundergolem_terrifying_pct = 0.0;
+    golem.golem_reform_at_ms = u32::MAX;
+    golem.next_thunder_redistribution_tick_at_ms = u32::MAX;
+    golem.thunder_redistribution_per_tick_amount = 0.0;
+    golem.thunder_redistribution_ticks_remaining = 0;
+    golem.watergolem_shattering_extra_targets = 0;
+    golem.watergolem_singing_pct = 0.0;
+    golem.watergolem_regen_pct = 0.0;
+    golem.next_watergolem_regen_at_ms = u32::MAX;
+    golem.received_healing_bonus_pct = 0.0;
+
+    // Tick schedulers - see this function's own doc for the mechanical
+    // rule (every `next_*_at_ms` clock the main loop reads generically
+    // for `!u.is_boss` units, except `next_action_at_ms` itself).
+    golem.next_righteousfire_tick_at_ms = u32::MAX;
+    golem.next_cleansingflames_at_ms = u32::MAX;
+    golem.next_helm_at_ms = u32::MAX;
+    golem.next_boots_at_ms = u32::MAX;
+    golem.next_flicker_at_ms = u32::MAX;
+    golem.next_bloodpact_at_ms = u32::MAX;
+    golem.next_divine_shield_at_ms = u32::MAX;
+    golem.next_chakraoflife_expiry_at_ms = u32::MAX;
+    golem.next_curse_expiry_at_ms = u32::MAX;
+    golem.next_templeguardian_heal_at_ms = u32::MAX;
+    golem.next_thickhide_cleanse_at_ms = u32::MAX;
+
+    // Live/transient state.
+    golem.shield_hp = 0.0;
+    golem.shield_expires_at_ms = 0;
+    golem.temp_heal_power_bonus = 0.0;
+    golem.temp_heal_power_bonus_expires_at_ms = 0;
+    golem.temp_damage_reduction_bonus = 0.0;
+    golem.temp_damage_reduction_bonus_expires_at_ms = 0;
+    golem.temp_heal_reduction_pct = 0.0;
+    golem.temp_heal_reduction_expires_at_ms = 0;
+    golem.temp_damage_dealt_debuff = 0.0;
+    golem.temp_damage_dealt_debuff_expires_at_ms = 0;
+    golem.temp_shieldingfire_block_pct = 0.0;
+    golem.temp_shieldingfire_block_pct_expires_at_ms = 0;
+    golem.temp_reckless_immunity_expires_at_ms = 0;
+    golem.temp_evasion_debuff = 0.0;
+    golem.temp_evasion_debuff_expires_at_ms = 0;
+    golem.temp_attack_speed_debuff = 0.0;
+    golem.temp_attack_speed_debuff_expires_at_ms = 0;
+    golem.temp_party_attack_speed_bonus = 0.0;
+    golem.temp_party_attack_speed_bonus_expires_at_ms = 0;
+    golem.temp_party_increased_damage_bonus = 0.0;
+    golem.temp_party_increased_damage_bonus_expires_at_ms = 0;
+    golem.temp_party_damage_reduction_bonus = 0.0;
+    golem.temp_party_damage_reduction_bonus_expires_at_ms = 0;
+    golem.temp_evasion_buff = 0.0;
+    golem.temp_evasion_buff_expires_at_ms = 0;
+    golem.temp_crit_chance_buff = 0.0;
+    golem.temp_crit_chance_buff_expires_at_ms = 0;
+    golem.recent_attackers = Vec::new();
+    golem.divine_heal_power_buff = Vec::new();
+    golem.divine_heal_reduction = Vec::new();
+    // Live stack COUNTS - not the per-stack VALUE config fields
+    // (stack_speed_per_stack, stack_dmg_per_stack, flowing_speed_per_stack,
+    // etc.), which are real inheritable multipliers describing "how much
+    // one stack is worth," same doctrine as any other tree passive.
+    golem.stack_speed_current = 0;
+    golem.stack_speed_expires_at_ms = 0;
+    golem.flowing_current = 0;
+    golem.flowing_expires_at_ms = 0;
+    golem.flowing_last_target = 0;
+    golem.helm_stack_bonus = 0.0;
+    golem.boss_focus_stacks = 0.0;
+    golem.cthulhu_debuff_stacks = 0;
+    golem.cthulhu_debuff_expires_at_ms = 0;
+    golem.wound_stacks = 0;
+    golem.wound_expires_at_ms = 0;
+    golem.thornedhide_stacks = 0;
+    golem.thornedhide_expires_at_ms = 0;
+    golem.relentlessflames_dmg_taken_pct = 0.0;
+    golem.curse_dmg_taken_bonus = 0.0;
+    golem.curse_damage_taken_total = 0.0;
 }
 
 /// True for any golem that is NOT a Thunder Golem (Basic/Flame/Water) -
@@ -6279,21 +6417,24 @@ pub(crate) fn is_heal_immune(unit: &CombatSimUnit) -> bool {
 /// Golem healing-behavior restriction (2026-08-19, golem integrity audit,
 /// spec-owner ruling: "golems are attackers only... no leech, no
 /// self-heal, no healing others. Water Golem Replenishing is the sole
-/// exception"). `false` for a non-Water golem acting as a HEALER at any
-/// of the hand-rolled heal-write sites `is_heal_immune`'s own doc lists -
-/// Water Golem's Replenishing is explicitly exempted since it's its own
-/// dedicated mechanic (routes through the generic heal_power-driven
-/// unified-action heal share, the SAME path any other healer archetype
-/// uses, not one of these bypass sites). Confirmed root cause for the
-/// audit's "golem self-heals (88K-237K)" finding: `wound_leech_bonus`
-/// (Festering Wound's per-stack leech bonus) is a TARGET-side field -
-/// whoever attacks a wounded target leeches off it, which used to apply
-/// to a golem attacker exactly as if it had its own `life_leech_pct`
-/// investment (always 0 for a golem) - the archetype-specific fields
-/// this restriction ALSO backstops at (Guardian Spirit, Chakra of Life,
-/// Wound Explosion, Bloodpact) are structurally unreachable for a golem
-/// today (never inherited from the summoner), so this is defense in
-/// depth for them, not a reproduced bug.
+/// exception"). `false` for a non-Water golem at every site that still
+/// calls this directly (self-leech, Shared Pain, Bloodpact refund - see
+/// each call site's own comment) - Water Golem's Replenishing is
+/// explicitly exempted since it's its own dedicated mechanic (routes
+/// through the generic heal_power-driven unified-action heal share, not
+/// one of these bypass sites).
+///
+/// Design-intent correction (2026-08-20) - under the golem-inheritance
+/// denylist inversion, `self_leech_pct`/`sharedpain_pct`/Bloodpact's own
+/// refund fields are NO LONGER structurally zero for a golem (they
+/// inherit at full value from the summoner like any other tree passive
+/// now); this function is the one remaining, INTENTIONAL policy gate
+/// that keeps "golems are attackers only" true for those three
+/// mechanics specifically, not defense-in-depth for an unreachable case
+/// any more. It no longer gates `apply_heal`'s own healer-check (see
+/// that function's own comment) - `heal_power` being explicitly zeroed
+/// for Thunder/Flame/Basic golems (`clear_non_inheritable_for_golem`)
+/// serves that purpose upstream instead.
 pub(crate) fn golem_may_produce_heals(unit: &CombatSimUnit) -> bool {
     !unit.is_golem || unit.golem_type == Some(GolemType::Water)
 }
@@ -6983,14 +7124,33 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
 /// Stage 6) - "when an enemy dies in the Water Golem's presence, it
 /// explodes, sending icicles at (splash + rank) nearby enemies, each
-/// dealing 1% of the dead enemy's health." Golems never invest splash
-/// themselves (always 0.0), so this reduces to exactly `rank` targets in
-/// practice - kept as `splash + rank` anyway for spec fidelity. Called
-/// from the same per-iteration death sweep for ANY enemy that just
-/// died, matching Ashes to Ashes' own "any enemy" reach - no per-site
-/// audit needed, same reasoning as the rest of this stage's death-
-/// triggered mechanics. A no-op unless an alive Water Golem with
-/// Shattering invested is present.
+/// dealing 1% of the dead enemy's health." Since the golem-inheritance
+/// rework (2026-08-20), golems inherit their summoner's real `splash`
+/// stat like every other gear/tree stat - the old "golems never invest
+/// splash themselves (always 0.0)" premise no longer holds, so
+/// `splash + rank` can now genuinely exceed `rank` targets for a
+/// summoner with real splash investment, not just spec fidelity for its
+/// own sake. Called from the same per-iteration death sweep for ANY
+/// enemy that just died, matching Ashes to Ashes' own "any enemy" reach
+/// - no per-site audit needed, same reasoning as the rest of this
+/// stage's death-triggered mechanics. A no-op unless an alive Water
+/// Golem with Shattering invested is present. Icicle damage is normal,
+/// mitigable damage (2026-08-20 - see `apply_hit`), not
+/// `apply_true_damage` - it goes through the target's own crit/evasion/
+/// DR resolution same as any other hit landed on a boss, it just
+/// doesn't count as a primary hit (`is_followup: true`, same "a
+/// detonation, not a turn" treatment `apply_splash` gives its own
+/// targets) so it can't itself trigger a chained on-hit proc.
+/// Non-stacking across multiple Water Golems - only the first alive one
+/// with Shattering invested fires per death, same one-effect-per-fight-
+/// tick spirit as `select_primary_watergolem`'s explicit "highest rank
+/// wins" selection for the regen effect. Unlike that mechanic, this
+/// picks the first match by unit order rather than the highest rank -
+/// deliberately left that way rather than copying the max-by pattern,
+/// because every Water Golem belonging to one Elementalist inherits
+/// this magnitude identically from the same summoner post-inheritance,
+/// so which one is picked can only ever affect event attribution
+/// (whose `id` shows as the icicle's source), never the damage dealt.
 fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx: usize, dead_enemy_max_hp: u64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
     let water_golem_idx = units
         .iter()
@@ -7007,7 +7167,7 @@ fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx:
     for _ in 0..pick_count {
         let pick_at = rng.gen_range(0..candidates.len());
         let target_idx = candidates.remove(pick_at);
-        apply_true_damage(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng);
+        apply_hit(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng, false, true);
     }
 }
 
@@ -9810,17 +9970,18 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     if is_heal_immune(&units[target_idx]) {
         return 0;
     }
-    // Golem healing-behavior restriction (2026-08-19) - "golems are
-    // attackers only... Water Golem Replenishing is the sole exception."
-    // A non-Water golem `healer_idx` reaching this function today would
-    // only ever be via Dark Communion (itself gated on the golem's own
-    // `dark_communion_pct`, always 0 - structurally unreachable) - this
-    // is defense in depth, not a reproduced bug for THIS function
-    // specifically (see `golem_may_produce_heals`'s own doc for the real
-    // one, the leech mechanic's `wound_leech_bonus`).
-    if !golem_may_produce_heals(&units[healer_idx]) {
-        return 0;
-    }
+    // Design-intent correction (2026-08-20), ruling (c) - the
+    // `golem_may_produce_heals` gate that used to live here is removed:
+    // `heal_power` is now explicitly zeroed for Thunder/Flame/Basic
+    // golems by `clear_non_inheritable_for_golem` (only Water inherits
+    // it), which is what actually keeps a non-Water golem from ever
+    // reaching this function as `healer_idx` with a real amount to heal
+    // in the first place - the old gate was redundant defense-in-depth
+    // for a case that's now structurally prevented upstream instead.
+    // `golem_may_produce_heals` itself is unchanged and still gates the
+    // UNRELATED self-leech/Shared Pain/Bloodpact-refund sites elsewhere
+    // in this file (see that function's own doc) - this removal is
+    // scoped to apply_heal's own healer-check only.
     // Cleric's Eternal Light (2026-08-17, replacing its old "first heal
     // only, once per fight" premise - Radiant Light is a PERMANENT stat
     // stack, not a temporary buff, so there was nothing to "persist";
@@ -10319,20 +10480,20 @@ pub(crate) fn simulate_battle(
             // unrelated "frenzy" skill), so this Slayer gate is now just
             // defense in depth rather than the only thing preventing a
             // cross-archetype key collision.
-            let flicker_cooldown_ms = if c.archetype == Archetype::Slayer {
+            let flicker_cooldown_ms = if c.has_archetype(Archetype::Slayer) {
                 (FLICKER_STRIKE_COOLDOWN_MS as f64 * (1.0 - c.passive_node_magnitude("vampiricfrenzy").clamp(0.0, 0.9))).round().max(200.0) as u32
             } else {
                 FLICKER_STRIKE_COOLDOWN_MS
             };
             // Slayer's Bloodpact - see `next_bloodpact_at_ms`'s doc.
             // `u32::MAX` (never invested) for every other archetype.
-            let bloodpact_invested = c.archetype == Archetype::Slayer && c.passive_node_rank("sacrifice") > 0;
+            let bloodpact_invested = c.has_archetype(Archetype::Slayer) && c.passive_node_rank("sacrifice") > 0;
             let bloodpact_cooldown_ms =
                 if bloodpact_invested { (BLOODPACT_BASE_COOLDOWN_MS as f64 - c.passive_node_rank("bloodsac") as f64 * 500.0).max(2000.0) as u32 } else { u32::MAX };
             // Paladin's Divine Shield - see `CombatSimUnit`'s doc. Gated
             // to Paladin specifically so this never accidentally reads a
             // same-keyed "shield" node on a different archetype.
-            let divine_shield_invested = c.archetype == Archetype::Paladin && c.passive_node_rank("shield") > 0;
+            let divine_shield_invested = c.has_archetype(Archetype::Paladin) && c.passive_node_rank("shield") > 0;
             let divine_shield_amount_pct = if divine_shield_invested {
                 DIVINE_SHIELD_BASE_AMOUNT_PCT + c.passive_node_magnitude("bulwarkoflight")
             } else {
@@ -10596,15 +10757,15 @@ pub(crate) fn simulate_battle(
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
-                wildroar_charges: if c.archetype == Archetype::Druid { c.passive_node_rank("livingbond") } else { 0 },
-                naturesembrace_heal_targets: if c.archetype == Archetype::Druid { c.passive_node_rank("naturesembrace") } else { 0 },
-                thickhide_cycle_ms: if c.archetype == Archetype::Druid && c.passive_node_rank("symbiosis") > 0 { c.passive_node_magnitude("symbiosis") as u32 } else { 0 },
+                wildroar_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("livingbond") } else { 0 },
+                naturesembrace_heal_targets: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("naturesembrace") } else { 0 },
+                thickhide_cycle_ms: if c.has_archetype(Archetype::Druid) && c.passive_node_rank("symbiosis") > 0 { c.passive_node_magnitude("symbiosis") as u32 } else { 0 },
                 next_thickhide_cleanse_at_ms: 0,
                 // Rooted Network - its own rank PLUS 1 more protected
                 // target for every 100% splash the Druid has (splash is
                 // stored as a 0.0-1.0+ fraction, so `.floor()` directly
                 // gives "how many full 100%s").
-                thickhide_target_count: if c.archetype == Archetype::Druid && c.passive_node_rank("symbiosis") > 0 {
+                thickhide_target_count: if c.has_archetype(Archetype::Druid) && c.passive_node_rank("symbiosis") > 0 {
                     1 + c.passive_node_magnitude("rootednetwork") as u32 + c.combat_splash().floor() as u32
                 } else {
                     0
@@ -10743,9 +10904,9 @@ pub(crate) fn simulate_battle(
                 retaliation_surge_pct: c.passive_node_magnitude("adrenalinesurge"),
                 hardened_stacks: 0,
                 hardened_pct_per_stack: c.passive_node_magnitude("hardened"),
-                retaliation_secondwind_threshold: if c.archetype == Archetype::Warrior && c.passive_node_rank("secondwind") >= 3 {
+                retaliation_secondwind_threshold: if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("secondwind") >= 3 {
                     0.65
-                } else if c.archetype == Archetype::Warrior && c.passive_node_rank("secondwind") >= 2 {
+                } else if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("secondwind") >= 2 {
                     0.50
                 } else {
                     0.0
@@ -10885,26 +11046,26 @@ pub(crate) fn simulate_battle(
                 // Shield-absorb reflect - see `shield_reflect_pct`'s doc
                 // for why these three archetypes share the fields but not
                 // identical semantics.
-                shield_reflect_pct: if c.archetype == Archetype::Cleric && c.passive_node_rank("sacredbarrier") > 0 {
+                shield_reflect_pct: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("sacredbarrier") > 0 {
                     0.20
-                } else if c.archetype == Archetype::Paladin && c.passive_node_rank("retributionaura") > 0 {
+                } else if c.has_archetype(Archetype::Paladin) && c.passive_node_rank("retributionaura") > 0 {
                     c.passive_node_magnitude("retributionaura") + c.passive_node_magnitude("holyvengeance")
-                } else if c.archetype == Archetype::Slayer && c.passive_node_rank("guardiansblood") > 0 {
+                } else if c.has_archetype(Archetype::Slayer) && c.passive_node_rank("guardiansblood") > 0 {
                     c.passive_node_magnitude("guardiansblood")
                 } else {
                     0.0
                 },
-                shield_reflect_chance: if c.archetype == Archetype::Cleric && c.passive_node_rank("sacredbarrier") > 0 {
+                shield_reflect_chance: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("sacredbarrier") > 0 {
                     c.passive_node_magnitude("sacredbarrier")
                 } else {
                     1.0
                 },
-                shield_reflect_requires_full_absorb: c.archetype == Archetype::Paladin && c.passive_node_rank("retributionaura") > 0,
+                shield_reflect_requires_full_absorb: c.has_archetype(Archetype::Paladin) && c.passive_node_rank("retributionaura") > 0,
                 // Druid's Unyielding Roots (2026-08-16 rework) - see
                 // `unyieldingroots_cycle_ms`'s own doc. `magnitude_at_rank`
                 // already gives 8000/6000/4000 directly (Special{8000,-2000}
                 // in passive_tree.rs), no manual rank match needed.
-                unyieldingroots_cycle_ms: if c.archetype == Archetype::Druid && c.passive_node_rank("unyieldingroots") > 0 {
+                unyieldingroots_cycle_ms: if c.has_archetype(Archetype::Druid) && c.passive_node_rank("unyieldingroots") > 0 {
                     c.passive_node_magnitude("unyieldingroots") as u32
                 } else {
                     0
@@ -10986,13 +11147,13 @@ pub(crate) fn simulate_battle(
                 // formula): 0 below rank 2, 1 at rank 2, 2 at rank 3,
                 // matching the node's own "unlocked at rank 2... rank 3
                 // grants a second use" text.
-                guardian_spirit_charges: if c.archetype == Archetype::Cleric {
+                guardian_spirit_charges: if c.has_archetype(Archetype::Cleric) {
                     match c.passive_node_rank("guardianspirit") {
                         0 | 1 => 0,
                         2 => 1,
                         _ => 2,
                     }
-                } else if c.archetype == Archetype::Slayer && c.passive_node_rank("lastrites") > 0 {
+                } else if c.has_archetype(Archetype::Slayer) && c.passive_node_rank("lastrites") > 0 {
                     // Last Rites - a party-wide "prevent one death" charge,
                     // same shared mechanic Guardian Spirit uses (its own
                     // per-rank CHANCE collapses to "invested at all grants
@@ -11002,14 +11163,14 @@ pub(crate) fn simulate_battle(
                 } else {
                     0
                 },
-                guardian_spirit_heal_pct: if c.archetype == Archetype::Cleric && c.passive_node_rank("guardianspirit") >= 2 {
+                guardian_spirit_heal_pct: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("guardianspirit") >= 2 {
                     0.20 + c.passive_node_magnitude("secondchance")
                 } else {
                     0.0
                 },
                 guardian_spirit_save_dr_pct: c.passive_node_magnitude("divineintervention"),
                 guardian_spirit_save_heal_power_pct: c.passive_node_magnitude("finalblessing"),
-                verdantburst_charges: if c.archetype == Archetype::Druid { c.passive_node_rank("verdantburst") } else { 0 },
+                verdantburst_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("verdantburst") } else { 0 },
                 temp_heal_power_bonus: 0.0,
                 temp_heal_power_bonus_expires_at_ms: 0,
                 eternallight_bonus_pct: c.passive_node_magnitude("eternallight"),
@@ -11034,16 +11195,16 @@ pub(crate) fn simulate_battle(
                 // `bloomstrike`/`wildinstinct` are Holy Crit/Divine
                 // Clarity's Druid-side twins, `verdantburst` sums into the
                 // same splash field as `radiance`.
-                heal_crit_bonus_mult: if c.archetype == Archetype::Cleric && c.passive_node_rank("sanctifiedtouch") >= 2 {
+                heal_crit_bonus_mult: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("sanctifiedtouch") >= 2 {
                     0.50 + c.passive_node_magnitude("holycrit")
-                } else if c.archetype == Archetype::Druid && c.passive_node_rank("naturesblessing") >= 2 {
+                } else if c.has_archetype(Archetype::Druid) && c.passive_node_rank("naturesblessing") >= 2 {
                     0.50 + c.passive_node_magnitude("bloomstrike")
                 } else {
                     0.0
                 },
-                heal_crit_chance_bonus: if c.archetype == Archetype::Cleric && c.passive_node_rank("sanctifiedtouch") >= 3 {
+                heal_crit_chance_bonus: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("sanctifiedtouch") >= 3 {
                     0.10 + c.passive_node_magnitude("divineclarity")
-                } else if c.archetype == Archetype::Druid && c.passive_node_rank("naturesblessing") >= 3 {
+                } else if c.has_archetype(Archetype::Druid) && c.passive_node_rank("naturesblessing") >= 3 {
                     0.10 + c.passive_node_magnitude("wildinstinct")
                 } else {
                     0.0
@@ -11058,9 +11219,9 @@ pub(crate) fn simulate_battle(
                 // `seedoflife`/`evergrowth` are Chain of Light/Swift
                 // Mending/Merciful Touch's Druid-side twins.
                 prayer_chance: c.passive_node_magnitude("prayer") + c.passive_node_magnitude("swiftmending") + c.passive_node_magnitude("rejuvenation") + c.passive_node_magnitude("seedoflife"),
-                prayer_bounce_targets: if c.archetype == Archetype::Cleric && c.passive_node_rank("prayer") > 0 {
+                prayer_bounce_targets: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("prayer") > 0 {
                     (1 + c.passive_node_rank("chainoflight") + c.passive_node_magnitude("wideningcircle").round() as u32).min(5)
-                } else if c.archetype == Archetype::Druid && c.passive_node_rank("rejuvenation") > 0 {
+                } else if c.has_archetype(Archetype::Druid) && c.passive_node_rank("rejuvenation") > 0 {
                     (1 + c.passive_node_rank("bloomingfield")).min(3)
                 } else {
                     0
@@ -11117,40 +11278,40 @@ pub(crate) fn simulate_battle(
                 stack_splash_per_stack: c.passive_node_magnitude("hurricane") + c.passive_node_magnitude("huntersstride"),
                 windfury_chance: c.passive_node_magnitude("windfury"),
                 stack_shred_per_stack: c.passive_node_magnitude("overwhelm"),
-                stack_speed_max_stacks: if c.archetype == Archetype::Warrior && c.passive_node_rank("momentum") > 0 {
+                stack_speed_max_stacks: if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("momentum") > 0 {
                     // Unstoppable - +1 max stack per rank, up to 8 (from
                     // the base 5).
                     (MOMENTUM_STACK_MAX + c.passive_node_rank("unstoppable")).min(8)
-                } else if c.archetype == Archetype::Rogue && c.passive_node_rank("fleetfoot") > 0 {
+                } else if c.has_archetype(Archetype::Rogue) && c.passive_node_rank("fleetfoot") > 0 {
                     // Windrunner - +1 max stack per rank, up to 6 (from
                     // the base 3).
                     (FLEETFOOT_STACK_MAX + c.passive_node_rank("windrunner")).min(6)
-                } else if c.archetype == Archetype::Berserker && c.passive_node_rank("bloodlust") > 0 {
+                } else if c.has_archetype(Archetype::Berserker) && c.passive_node_rank("bloodlust") > 0 {
                     BLOODLUST_STACK_MAX
-                } else if c.archetype == Archetype::Ranger && c.passive_node_rank("relentlesspursuit") > 0 {
+                } else if c.has_archetype(Archetype::Ranger) && c.passive_node_rank("relentlesspursuit") > 0 {
                     // Windborn - +1 max stack per rank, up to 8 (from the
                     // base 5).
                     (RELENTLESS_PURSUIT_STACK_MAX + c.passive_node_rank("windborn")).min(8)
-                } else if c.archetype == Archetype::Mage && c.passive_node_rank("flowstate") > 0 {
+                } else if c.has_archetype(Archetype::Mage) && c.passive_node_rank("flowstate") > 0 {
                     // Perpetual Motion - +1 max stack per rank, up to 8.
                     (FLOWSTATE_STACK_MAX + c.passive_node_rank("perpetualmotion")).min(8)
                 } else {
                     0
                 },
-                stack_speed_duration_ms: if c.archetype == Archetype::Warrior && c.passive_node_rank("momentum") > 0 {
+                stack_speed_duration_ms: if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("momentum") > 0 {
                     // Rampage - +2s per rank.
                     MOMENTUM_STACK_DURATION_MS + (c.passive_node_magnitude("rampage") * 1000.0).round() as u32
-                } else if c.archetype == Archetype::Rogue && c.passive_node_rank("fleetfoot") > 0 {
+                } else if c.has_archetype(Archetype::Rogue) && c.passive_node_rank("fleetfoot") > 0 {
                     FLEETFOOT_STACK_DURATION_MS
-                } else if c.archetype == Archetype::Berserker && c.passive_node_rank("bloodlust") > 0 {
+                } else if c.has_archetype(Archetype::Berserker) && c.passive_node_rank("bloodlust") > 0 {
                     BLOODLUST_STACK_DURATION_MS + (c.passive_node_magnitude("unendingrage") * 1000.0).round() as u32
-                } else if c.archetype == Archetype::Ranger && c.passive_node_rank("relentlesspursuit") > 0 {
+                } else if c.has_archetype(Archetype::Ranger) && c.passive_node_rank("relentlesspursuit") > 0 {
                     // Never Winded - approximated as extending the shared
                     // expiry window rather than true "only holds longer
                     // once already at max" logic (same simplification
                     // spirit as Warrior's Rampage/Unbroken Chain).
                     RELENTLESS_PURSUIT_STACK_DURATION_MS + (c.passive_node_magnitude("neverwinded") * 1000.0).round() as u32
-                } else if c.archetype == Archetype::Mage && c.passive_node_rank("flowstate") > 0 {
+                } else if c.has_archetype(Archetype::Mage) && c.passive_node_rank("flowstate") > 0 {
                     // Unbroken Rhythm - approximated as extending the
                     // shared expiry window (see Warrior's Rampage /
                     // Ranger's Never Winded for the same simplification).
@@ -11165,9 +11326,9 @@ pub(crate) fn simulate_battle(
                 // Quickdraw (Rogue) - free Fleetfoot stacks on entering
                 // combat, 1 at rank 2 / 2 at rank 3 (non-linear, matching
                 // its own text).
-                stack_speed_current: if c.archetype == Archetype::Berserker {
+                stack_speed_current: if c.has_archetype(Archetype::Berserker) {
                     c.passive_node_magnitude("tempo").round() as u32
-                } else if c.archetype == Archetype::Rogue {
+                } else if c.has_archetype(Archetype::Rogue) {
                     match c.passive_node_rank("quickdraw") {
                         0 | 1 => 0,
                         2 => 1,
@@ -11176,9 +11337,9 @@ pub(crate) fn simulate_battle(
                 } else {
                     0
                 },
-                stack_speed_expires_at_ms: if c.archetype == Archetype::Berserker && c.passive_node_rank("tempo") > 0 {
+                stack_speed_expires_at_ms: if c.has_archetype(Archetype::Berserker) && c.passive_node_rank("tempo") > 0 {
                     BLOODLUST_STACK_DURATION_MS + (c.passive_node_magnitude("unendingrage") * 1000.0).round() as u32
-                } else if c.archetype == Archetype::Rogue && c.passive_node_rank("quickdraw") >= 2 {
+                } else if c.has_archetype(Archetype::Rogue) && c.passive_node_rank("quickdraw") >= 2 {
                     FLEETFOOT_STACK_DURATION_MS
                 } else {
                     0
@@ -11189,7 +11350,7 @@ pub(crate) fn simulate_battle(
                 // Windwalker extends the per-stack speed rate directly.
                 flowing_speed_per_stack: c.passive_node_magnitude("flowingstrikes") + c.passive_node_magnitude("windwalker"),
                 flowing_crit_per_stack: c.passive_node_magnitude("pressurepoint"),
-                flowing_max_stacks: if c.archetype == Archetype::Monk && c.passive_node_rank("flowingstrikes") > 0 {
+                flowing_max_stacks: if c.has_archetype(Archetype::Monk) && c.passive_node_rank("flowingstrikes") > 0 {
                     FLOWING_STACK_BASE_MAX + c.passive_node_magnitude("hundredfists").round() as u32
                 } else {
                     0
@@ -11199,7 +11360,7 @@ pub(crate) fn simulate_battle(
                 // a missed hit" and Unending Cycle's "extended duration"
                 // both cash out as more real time before the streak
                 // resets, in this event-driven sim's terms).
-                flowing_duration_ms: if c.archetype == Archetype::Monk && c.passive_node_rank("flowingstrikes") > 0 {
+                flowing_duration_ms: if c.has_archetype(Archetype::Monk) && c.passive_node_rank("flowingstrikes") > 0 {
                     FLOWING_STACK_DURATION_MS
                         + if c.passive_node_rank("relentlessassault") >= 3 { 2_000 } else { 0 }
                         + (c.passive_node_magnitude("unbrokenchain") * 1000.0).round() as u32
@@ -11391,7 +11552,7 @@ pub(crate) fn simulate_battle(
             continue;
         };
         for slot in 0..golem_count {
-            let golem_type = c.golem_slot_types.get(slot as usize).copied().unwrap_or_default();
+            let golem_type = c.golem_slot_types.get(slot as usize).copied().unwrap_or_else(|| default_golem_type_for(c));
             golems_to_add.push(spawn_golem(summoner, id, slot, golem_type, c));
         }
     }
@@ -11982,7 +12143,7 @@ pub(crate) fn simulate_battle(
             continue;
         }
         if let Some(c) = characters.get(&u.id) {
-            if c.archetype == Archetype::Cleric {
+            if c.has_archetype(Archetype::Cleric) {
                 party_max_hp_pct += c.passive_node_magnitude("resilience");
                 // Warding Prayer's "vs bosses specifically" clause
                 // approximated as a flat party DR bonus, same construction-
@@ -12002,7 +12163,7 @@ pub(crate) fn simulate_battle(
             // Paladin's Vow of Protection - the same party-wide broadcast
             // shape as Cleric's Sanctuary, just a different source archetype
             // summing into the SAME `party_damage_reduction_pct` total.
-            if c.archetype == Archetype::Paladin {
+            if c.has_archetype(Archetype::Paladin) {
                 // Beacon of Light extends Vow of Protection's own
                 // magnitude directly. Hallowed Ground's "vs bosses
                 // specifically" clause is approximated as a flat party DR
@@ -13825,27 +13986,77 @@ pub(crate) fn compress_events(events: Vec<CombatEvent>) -> (Vec<CombatEvent>, u3
 ///
 /// Buckets already-`compress_events`-rescaled events into 1-second
 /// windows of the FINAL display timeline, and independently caps how many
-/// PLAYER-caused vs BOSS-caused events survive each window (classified by
-/// `CombatEvent::actor_id`'s presence in `units`' `is_boss` set) -
-/// dropping the overflow once a window's cap is hit, keeping insertion
-/// (chronological) order for everything that survives.
+/// PLAYER-caused vs BOSS-caused `Attack` events survive each window
+/// (classified by `CombatEvent::actor_id`'s presence in `units`'
+/// `is_boss` set).
+///
+/// Priority-tiered, not a flat head-keep (2026-08-20 fix, from an event-
+/// census finding: the old "keep the first N per second across every
+/// event kind, chronologically" version dropped 100% of `Heal` events -
+/// healing was invisible on the overlay - and 74% of `Defeat` events -
+/// downed characters kept rendering alive - while `Shield`/
+/// `BuffSnapshot`, which `overlay.html`'s `fireEvent` has NO branch for
+/// at all (verified against its actual 4 branches: attack/heal/defeat/
+/// skillCast), silently consumed budget for events that could never
+/// have rendered anyway).
+/// 1. `Heal`/`Defeat`/`SkillCast` are exempt from the budget entirely -
+///    `fireEvent` has a real handler for each, and together they're a
+///    negligible fraction of a fight's event volume next to `Attack`.
+/// 2. `Shield`/`BuffSnapshot` are never broadcast at all - `fireEvent`
+///    can't do anything with them, so a copy sent over the wire was
+///    pure waste that could still displace a real, renderable event
+///    under the old shared budget. `save_last_fight` and every audit
+///    path still get the full, untouched `events` - this only ever
+///    touches the copy broadcast to the overlay (see this function's
+///    own callers).
+/// 3. The per-second/per-side budget applies only to `Attack` events
+///    now, via deterministic stride sampling (spread evenly across the
+///    second) rather than head-keep, so a burst late in a second (e.g.
+///    Frenzy multi-strikes right before the second rolls over) isn't
+///    systematically annihilated the way "first N, chronologically"
+///    always annihilated everything after the cap.
 pub(crate) const OVERLAY_MAX_PLAYER_EVENTS_PER_SEC: usize = 500;
 pub(crate) const OVERLAY_MAX_BOSS_EVENTS_PER_SEC: usize = 1000;
 
 pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatUnitInfo]) -> Vec<CombatEvent> {
     let boss_ids: std::collections::HashSet<&str> = units.iter().filter(|u| u.is_boss).map(|u| u.id.as_str()).collect();
-    let mut player_count_by_sec: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
-    let mut boss_count_by_sec: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
-    events
-        .into_iter()
-        .filter(|e| {
+
+    // Pass 1: how many Attack events actually land in each (second, is_boss)
+    // bucket - stride sampling in pass 2 needs each bucket's real total up
+    // front to spread survivors evenly across it.
+    let mut attack_totals: std::collections::HashMap<(u32, bool), usize> = std::collections::HashMap::new();
+    for e in &events {
+        if matches!(e, CombatEvent::Attack { .. }) {
             let sec = e.at_ms() / 1_000;
             let is_boss_actor = boss_ids.contains(e.actor_id());
-            let (counter, cap) =
-                if is_boss_actor { (&mut boss_count_by_sec, OVERLAY_MAX_BOSS_EVENTS_PER_SEC) } else { (&mut player_count_by_sec, OVERLAY_MAX_PLAYER_EVENTS_PER_SEC) };
-            let entry = counter.entry(sec).or_insert(0);
-            *entry += 1;
-            *entry <= cap
+            *attack_totals.entry((sec, is_boss_actor)).or_insert(0) += 1;
+        }
+    }
+
+    let mut attack_seen: std::collections::HashMap<(u32, bool), usize> = std::collections::HashMap::new();
+    events
+        .into_iter()
+        .filter(|e| match e {
+            CombatEvent::Heal { .. } | CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } => true,
+            CombatEvent::Shield { .. } | CombatEvent::BuffSnapshot { .. } => false,
+            CombatEvent::Attack { .. } => {
+                let sec = e.at_ms() / 1_000;
+                let is_boss_actor = boss_ids.contains(e.actor_id());
+                let cap = if is_boss_actor { OVERLAY_MAX_BOSS_EVENTS_PER_SEC } else { OVERLAY_MAX_PLAYER_EVENTS_PER_SEC };
+                let total = *attack_totals.get(&(sec, is_boss_actor)).unwrap_or(&0);
+                if total <= cap {
+                    return true;
+                }
+                let seen = attack_seen.entry((sec, is_boss_actor)).or_insert(0);
+                let idx = *seen;
+                *seen += 1;
+                // Bresenham-style even spread: keep index i exactly when
+                // it crosses into a new cap-sized bucket of the second's
+                // real total, so survivors land roughly evenly-spaced
+                // across the whole second instead of all clustered at
+                // its start.
+                (idx * cap) / total != ((idx + 1) * cap) / total
+            }
         })
         .collect()
 }
@@ -13909,6 +14120,48 @@ mod overlay_event_thinning_tests {
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
         let thinned = thin_events_for_overlay(events, &units);
         assert_eq!(thinned.len(), 3);
+    }
+
+    #[test]
+    fn heal_defeat_and_skillcast_are_never_dropped_even_deep_past_the_attack_cap() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let mut events = Vec::new();
+        for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4) {
+            events.push(attack_at(500, "a_player"));
+        }
+        events.push(CombatEvent::Heal { at_ms: 500, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5, target_hp_after: 50, is_revive: false });
+        events.push(CombatEvent::Defeat { at_ms: 500, unit: "a_player".to_string() });
+        events.push(CombatEvent::SkillCast { at_ms: 500, unit: "a_player".to_string(), skill: "Flicker Strike".to_string() });
+        let thinned = thin_events_for_overlay(events, &units);
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::Heal { .. })), "a Heal must survive regardless of how saturated the Attack budget is");
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::Defeat { .. })), "a Defeat must survive regardless of how saturated the Attack budget is");
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::SkillCast { .. })), "a SkillCast must survive regardless of how saturated the Attack budget is");
+    }
+
+    #[test]
+    fn shield_and_buffsnapshot_are_never_broadcast_even_under_the_cap() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let events = vec![
+            CombatEvent::Shield { at_ms: 0, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5 },
+            CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("test".to_string(), 1.0)] },
+        ];
+        let thinned = thin_events_for_overlay(events, &units);
+        assert!(thinned.is_empty(), "overlay.html's fireEvent has no branch for either kind - broadcasting them is pure waste");
+    }
+
+    #[test]
+    fn attack_overflow_is_spread_across_the_second_not_clustered_at_the_start() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        // 4x the cap, spread evenly across the second (ms 0..1000) by
+        // send order - old head-keep would drop every event past ms 250
+        // outright; stride sampling must let some of the LAST ms's
+        // events survive too.
+        let total = OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4;
+        let events: Vec<CombatEvent> = (0..total).map(|i| attack_at((i * 1_000 / total) as u32, "a_player")).collect();
+        let thinned = thin_events_for_overlay(events, &units);
+        assert_eq!(thinned.len(), OVERLAY_MAX_PLAYER_EVENTS_PER_SEC, "still caps to exactly the per-second budget");
+        let last_kept_ms = thinned.iter().map(|e| e.at_ms()).max().unwrap();
+        assert!(last_kept_ms > 500, "a survivor must land past the second's midpoint - head-keep would cluster every survivor before ms 250");
     }
 }
 
@@ -16377,9 +16630,9 @@ mod elementalist_stage_6_golem_type_tests {
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
         handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng);
         let hit_count = units[2..].iter().filter(|u| u.hp < 1_000_000).count();
-        assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (splash is always 0 for golems)");
+        assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (this summoner has 0 splash invested)");
         for u in &units[2..] {
-            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100");
+            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100 - now via apply_hit, but a zero-stat golem/boss pair mitigates to the identical flat value");
         }
     }
 
@@ -16789,8 +17042,20 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             // redistribute to (the existing, deliberate
             // `recipients.is_empty()` guard in `handle_golem_death`), so
             // those are excluded from the "must redistribute" expectation
-            // below rather than miscounted as a coverage failure.
+            // below rather than miscounted as a coverage failure. Also
+            // excludes a golem death whose incarnation absorbed nothing
+            // (2026-08-20 flaky-test fix - `handle_golem_death`'s own
+            // redistribution block is gated on `absorbed > 0.0`; a
+            // Thunder Golem that reforms and dies again before ever
+            // tanking a hit legitimately produces no redistribution, and
+            // the previous version of this test didn't track absorbed
+            // per incarnation, so it intermittently over-counted that
+            // case as a missing redistribution - a real ~29%-of-runs
+            // flake tied to which unit order a HashMap-backed party
+            // happened to iterate in for a given process, not a game
+            // logic bug).
             let mut real_player_alive: std::collections::HashMap<String, bool> = real_player_ids.iter().map(|id| (id.clone(), true)).collect();
+            let mut absorbed_since_reform: std::collections::HashMap<String, f64> = golem_ids.iter().map(|id| (id.clone(), 0.0)).collect();
             let mut redistributable_golem_deaths = 0u32;
             let mut redistributions = 0u32;
             let mut events_by_tick: std::collections::BTreeMap<u32, Vec<&CombatEvent>> = std::collections::BTreeMap::new();
@@ -16798,6 +17063,13 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                 events_by_tick.entry(event.at_ms()).or_default().push(event);
             }
             for (_at_ms, tick_events) in events_by_tick {
+                for event in &tick_events {
+                    if let CombatEvent::Attack { target, damage, .. } = event {
+                        if let Some(absorbed) = absorbed_since_reform.get_mut(target) {
+                            *absorbed += *damage as f64;
+                        }
+                    }
+                }
                 let golem_deaths_this_tick: Vec<&String> =
                     tick_events.iter().filter_map(|e| if let CombatEvent::Defeat { unit, .. } = e { golem_ids.contains(unit).then_some(unit) } else { None }).collect();
                 for &unit in &tick_events {
@@ -16807,15 +17079,22 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                         }
                     }
                 }
-                if !golem_deaths_this_tick.is_empty() && real_player_alive.values().any(|&a| a) {
-                    redistributable_golem_deaths += golem_deaths_this_tick.len() as u32;
+                if real_player_alive.values().any(|&a| a) {
+                    for golem_id in &golem_deaths_this_tick {
+                        if absorbed_since_reform.get(*golem_id).copied().unwrap_or(0.0) > 0.0 {
+                            redistributable_golem_deaths += 1;
+                        }
+                    }
+                }
+                for golem_id in &golem_deaths_this_tick {
+                    absorbed_since_reform.insert((*golem_id).clone(), 0.0);
                 }
                 redistributions += tick_events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Thunder Golem Redistribution")).count() as u32;
             }
             assert!(redistributable_golem_deaths > 0, "{boss_kind:?}: fixture produced no redistributable golem deaths at all - test would be vacuous");
             assert_eq!(
                 redistributions, redistributable_golem_deaths,
-                "{boss_kind:?}: every golem death with at least one real player still alive after that same tick must trigger a redistribution - {redistributions} of {redistributable_golem_deaths}"
+                "{boss_kind:?}: every golem death that absorbed damage this incarnation, with at least one real player still alive after that same tick, must trigger a redistribution - {redistributions} of {redistributable_golem_deaths}"
             );
         }
     }
