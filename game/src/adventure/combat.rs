@@ -523,7 +523,16 @@ impl ArchetypeSkill {
     /// `CombatEvent::SkillCast` regardless of whether any hit actually
     /// lands, so the overlay's dash effect plays even against a
     /// nearly-empty enemy side.
-    pub(crate) fn on_periodic_tick(self, units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+    pub(crate) fn on_periodic_tick(
+        self,
+        units: &mut [CombatSimUnit],
+        actor_idx: usize,
+        at_ms: u32,
+        events: &mut Vec<CombatEvent>,
+        rolls: &mut Vec<RollEvent>,
+        rng: &mut impl Rng,
+        tunables: &LiveTunables,
+    ) {
         match self {
             ArchetypeSkill::Frenzy => {}
             ArchetypeSkill::FlickerStrike => {
@@ -618,7 +627,7 @@ impl ArchetypeSkill {
                         units[actor_idx].reapers_momentum_banked += units[actor_idx].reapers_momentum_per_kill;
                     }
                     let boosted_splash = units[actor_idx].splash + FLICKER_STRIKE_BONUS_SPLASH;
-                    apply_splash(units, actor_idx, target_idx, base_damage, boosted_splash, PLAYER_SPLASH_MAX_TARGETS, None, at_ms, events, rolls, rng);
+                    apply_splash(units, actor_idx, target_idx, base_damage, boosted_splash, tunables.splash_extra_targets as usize, None, at_ms, events, rolls, rng, tunables);
                     // Insatiable - a chance for this hit to extend Endless
                     // Thirst's leech-cap bonus by 2s.
                     let insatiable_chance = units[actor_idx].insatiable_extend_chance;
@@ -3521,17 +3530,35 @@ pub const BLOCK_DAMAGE_REDUCTION: f64 = 0.5;
 /// is actually dealt in that window. See `apply_hit`'s leech handling.
 pub const LIFE_LEECH_CAP_PER_SEC: f64 = 0.20;
 /// How many OTHER alive enemies a player's splash also hits, on top of
-/// the primary target - a fixed cap, not scaled by the splash % itself
-/// (see `apply_splash`).
+/// the primary target. RETIRED from live use (2026-08-20, splash
+/// redesign) - see `LiveTunables::splash_extra_targets`'s own doc (kept
+/// defined, at its old value, only for `adventure_web/wiki.rs`'s sake -
+/// same reasoning as `SPLASH_OVERFLOW_BONUS_TARGETS`'s own doc). Unlike
+/// `ENEMY_SPLASH_MAX_TARGETS`/`CUBE_SPLASH_MAX_TARGETS` below, this one
+/// really is fully superseded - boss-side base counts stay their own
+/// live constants under the "Option A - additive, caller-neutral"
+/// ruling, but the player-side base moved to a tunable so admins can
+/// retune it without a rebuild.
 pub const PLAYER_SPLASH_MAX_TARGETS: usize = 2;
 /// Same idea in reverse - a boss with splash (its own "cleave") hits up
 /// to this many extra players, kept lower than the player-side cap since
-/// this is a threat, not a reward.
+/// this is a threat, not a reward. STILL LIVE (2026-08-20 splash
+/// redesign, "Option A - additive, caller-neutral" ruling) - passed to
+/// `roll_splash` as its own `base_extra_targets`, exactly as before;
+/// only the roll/floor/overcap/ladder LAYER on top is shared with the
+/// player-side tunables now, this boss-specific base is not unified
+/// into them.
 pub const ENEMY_SPLASH_MAX_TARGETS: usize = 1;
 /// Gelatinous Cube's splash - 4 ADDITIONAL targets beyond whichever player
 /// its normal attack already targeted (`apply_splash`'s own `max_targets`
 /// excludes the primary), giving 5 TOTAL players hit per swing per the
-/// "hits 5 random players" request.
+/// "hits 5 random players" request. STILL LIVE, same reasoning as
+/// `ENEMY_SPLASH_MAX_TARGETS` above - Cube's own base count is
+/// deliberately preserved, not folded into the player-side tunables.
+/// Cube always forces `splash_fraction` to exactly `1.0` (guaranteed
+/// roll, never the overcap/ladder branch), so this stays the Cube's
+/// real, unchanged total regardless of the redesign - see
+/// `roll_splash`'s own doc for why `1.0` can never cross into overcap.
 pub const CUBE_SPLASH_MAX_TARGETS: usize = 4;
 
 pub(crate) struct HitOutcome {
@@ -6735,18 +6762,23 @@ fn apply_righteous_fire_self_damage(units: &mut [CombatSimUnit], actor_idx: usiz
 /// Fire is bonus damage on the Elementalist's regular unified hit, not
 /// a separate attack: `righteousfire_pct` is now consumed directly
 /// inside `resolve_hit` as an independent multiplicative layer (same
-/// shape as `conflagration_dmg_pct`). This tick still selects up to
-/// `PLAYER_SPLASH_MAX_TARGETS` (+ overflow past 100% splash) enemies at
-/// random, same convention `apply_splash` uses for "a number of
-/// enemies based on splash" - but only to apply Relentless Flames/
-/// Cauterizing Flames' own debuffs to that subset (both spec'd with the
-/// identical "nearby enemies based on splash" language, read as the
-/// same aura's own reach rather than 3 separate triggers) - no damage
-/// of its own is dealt in this loop any more. Ashes to Ashes is the one
-/// exception: "ANY enemy in range" (not "a number... based on splash")
-/// reads as unconditional, so it sweeps every alive enemy regardless of
-/// this tick's random splash picks.
-pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+/// shape as `conflagration_dmg_pct`). This tick still selects a splash-
+/// keyed subset of enemies at random, same convention `apply_splash`
+/// uses for "a number of enemies based on splash" - but only to apply
+/// Relentless Flames/Cauterizing Flames' own debuffs to that subset
+/// (both spec'd with the identical "nearby enemies based on splash"
+/// language, read as the same aura's own reach rather than 3 separate
+/// triggers) - no damage of its own is dealt in this loop any more.
+/// 2026-08-20 FINAL SPLASH TABLE: this subset is now one of the four
+/// SUPPORT splash sites, rolled via `roll_splash` with
+/// `LiveTunables::splash_support_floor_targets` as its floor - a
+/// zero-splash or missed-roll Elementalist still applies these debuffs
+/// to the floor count of enemies, never zero, unlike the two ATTACK
+/// splash sites. Ashes to Ashes is the one exception: "ANY enemy in
+/// range" (not "a number... based on splash") reads as unconditional,
+/// so it sweeps every alive enemy regardless of this tick's own splash
+/// roll.
+pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng, tunables: &LiveTunables) {
     if !units[actor_idx].alive {
         return;
     }
@@ -6782,7 +6814,7 @@ pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize,
         apply_heal(units, actor_idx, actor_idx, regen_amount, at_ms, events, rng);
         let fanningflames_pct = units[actor_idx].fanningflames_pct;
         if fanningflames_pct > 0.0 {
-            apply_heal_splash(units, actor_idx, actor_idx, regen_amount.round() as u32, fanningflames_pct, at_ms, events, rng);
+            apply_heal_splash(units, actor_idx, actor_idx, regen_amount.round() as u32, fanningflames_pct, at_ms, events, rng, tunables);
         }
         let shieldingflames_pct = units[actor_idx].shieldingflames_pct;
         if shieldingflames_pct > 0.0 && units[actor_idx].alive {
@@ -6790,7 +6822,7 @@ pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize,
         }
     }
     let splash = units[actor_idx].splash;
-    let max_targets = if splash > 1.0 { PLAYER_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { PLAYER_SPLASH_MAX_TARGETS };
+    let (max_targets, _) = roll_splash(splash, tunables.splash_extra_targets as usize, tunables.splash_support_floor_targets as usize, tunables, rng);
     let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     let relentless_pct = units[actor_idx].relentlessflames_pct_per_stack;
@@ -7424,15 +7456,22 @@ fn any_real_player_alive(units: &[CombatSimUnit]) -> bool {
 
 /// Elementalist's Cleansing Flames branch (docs/elementalist_spec.md) -
 /// once every `CLEANSING_FLAMES_TICK_INTERVAL_MS`: a probabilistic
-/// cleanse of the caster + up to `HEAL_SPLASH_MAX_TARGETS` (+overflow)
-/// nearby allies (see `cleanse_player_debuffs`'s own doc for exactly
-/// what "all debuffs" covers here), then an UNCONDITIONAL refresh of
-/// Enshrouded Fire/Guardian Fire/Shielding Fire's own buffs onto the
-/// same-shaped ally subset - none of those 3 modifiers are spec'd with
-/// their own chance/interval, so they ride this cadence as a flat
-/// periodic reapplication rather than gating on the cleanse roll's own
-/// success.
-pub(crate) fn tick_cleansing_flames(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) {
+/// cleanse of the caster + a splash-rolled subset of nearby allies (see
+/// `cleanse_player_debuffs`'s own doc for exactly what "all debuffs"
+/// covers here), then a refresh of Enshrouded Fire/Guardian Fire/
+/// Shielding Fire's own buffs onto a SEPARATE, independently-rolled
+/// splash subset - none of those 3 modifiers are spec'd with their own
+/// chance/interval, so they ride this cadence as a periodic
+/// reapplication rather than gating on the cleanse roll's own success.
+/// 2026-08-20 FINAL SPLASH TABLE: both the cleanse-count subset and the
+/// buff-refresh subset are now SUPPORT splash sites in their own right,
+/// each rolled independently via `roll_splash` with
+/// `LiveTunables::splash_support_floor_targets` as its floor - NEITHER
+/// is unconditional any more (the buff-refresh doc above previously
+/// called this "UNCONDITIONAL" - that's now false: a 0%-splash or
+/// missed-roll Elementalist still gets the floor count, never a fixed
+/// `HEAL_SPLASH_MAX_TARGETS`).
+pub(crate) fn tick_cleansing_flames(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng, tunables: &LiveTunables) {
     if !units[actor_idx].alive {
         return;
     }
@@ -7441,7 +7480,7 @@ pub(crate) fn tick_cleansing_flames(units: &mut [CombatSimUnit], actor_idx: usiz
         cleanse_player_debuffs(&mut units[actor_idx]);
         events.push(CombatEvent::SkillCast { at_ms, unit: units[actor_idx].id.clone(), skill: "Cleansing Flames".to_string() });
         let splash = units[actor_idx].splash;
-        let max_targets = if splash > 1.0 { HEAL_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { HEAL_SPLASH_MAX_TARGETS };
+        let (max_targets, _) = roll_splash(splash, tunables.splash_extra_targets as usize, tunables.splash_support_floor_targets as usize, tunables, rng);
         let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != actor_idx && !u.is_boss && u.alive).map(|(i, _)| i).collect();
         let pick_count = max_targets.min(candidates.len());
         for _ in 0..pick_count {
@@ -7457,7 +7496,7 @@ pub(crate) fn tick_cleansing_flames(units: &mut [CombatSimUnit], actor_idx: usiz
         return;
     }
     let splash = units[actor_idx].splash;
-    let max_targets = if splash > 1.0 { HEAL_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { HEAL_SPLASH_MAX_TARGETS };
+    let (max_targets, _) = roll_splash(splash, tunables.splash_extra_targets as usize, tunables.splash_support_floor_targets as usize, tunables, rng);
     let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != actor_idx && !u.is_boss && u.alive).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     for _ in 0..pick_count {
@@ -9993,23 +10032,142 @@ pub(crate) fn fire_frenzy(
     }
 }
 
-/// How many extra splash targets 100%+ of overflow splash buys, on top
-/// of the normal max-targets cap - see `apply_splash`/`apply_heal_splash`.
+/// How many extra splash targets 100%+ of overflow splash used to buy,
+/// on top of the normal max-targets cap. RETIRED (2026-08-20, splash
+/// redesign) - no longer read by any live combat code; see
+/// `LiveTunables::splash_overcap_bonus_targets` for the real, live value
+/// (default 1, not this constant's old 2). Kept defined, at its old
+/// value, ONLY because `adventure_web/wiki.rs`'s placeholder
+/// substitution still reads it by name and that module is off-limits to
+/// this feature (parallel wiki session's workspace) - see this
+/// feature's WIKI_IMPACT.md entry for the "wiki now shows a stale
+/// number, needs a live-value read path" gap this leaves, same shape as
+/// the existing `pierce_cap`/`pierce_h` precedent.
 pub const SPLASH_OVERFLOW_BONUS_TARGETS: usize = 2;
 
-/// After a normal attack's primary hit resolves, splashes a fraction of
-/// that SAME base roll (not the primary hit's actual post-mitigation
-/// result - each splash target rolls its own crit/evasion/block/
-/// reduction fresh via `apply_hit`, same as the primary did) onto up to
-/// `max_targets` other currently-alive units on the primary target's
-/// side, chosen at random from the above-median-level pool first when
-/// splashing onto players (`median_level: Some(...)` - see
-/// `prioritize_above_median`'s doc; always `None` when players splash
-/// onto enemies, since that side has no "level" to prioritize by) -
-/// plus `SPLASH_OVERFLOW_BONUS_TARGETS` more if `splash_fraction` is
-/// over 1.0 (see `Character::combat_splash`'s doc). A no-op whenever
-/// `splash_fraction <= 0` (basic-encounter mobs always have splash 0.0,
-/// so this is naturally inert for them without any special-casing).
+/// Rolls how many extra targets a splash-keyed action/effect hits this
+/// time, and what fraction of the primary hit/heal each one takes
+/// (2026-08-20 splash redesign; 2026-08-20 FINAL SPLASH TABLE addendum,
+/// "Option A - additive, caller-neutral" owner ruling - see
+/// docs/splash_overcap_spec.md). Splash % is the CHANCE the effect's
+/// extra targets happen at all, not a damage-scaling fraction of a
+/// guaranteed hit - replaces the old "always happens, count/damage
+/// scaled by %" shape all 6 of this function's callers used to
+/// reimplement independently (the retired `SPLASH_OVERFLOW_BONUS_TARGETS`
+/// constant above).
+///
+/// `base_extra_targets` is the CALLER's own pre-roll target count -
+/// `LiveTunables::splash_extra_targets` for the player-side base
+/// mechanics, that same tunable plus a caller-specific additive bonus
+/// already summed in by the caller (Radiant Smite's `smite_extra_targets`,
+/// Storm of Arrows/Wider Burst/Stormcaller's bonus splash), or a
+/// boss-specific base (`ENEMY_SPLASH_MAX_TARGETS`, `CUBE_SPLASH_MAX_TARGETS`,
+/// a full-party sweep). This function NEVER overwrites that count with
+/// a flat tunable value - it only decides the ROLL/FLOOR outcome and
+/// the OVERCAP+LADDER addition, both layered on top of the caller's own
+/// base. This is what keeps Cube/Dragon (and Storm of Arrows/Wider
+/// Burst/Stormcaller/Zealotry) neutral under the redesign - see each
+/// call site.
+///
+/// `floor_targets` is what this call returns on a splash-fraction-<=0
+/// no-roll or a failed roll. The two ATTACK splash sites
+/// (`apply_splash`/`apply_heal_splash`) pass a literal `0` - by explicit
+/// owner ruling these "never do anything" for a zero-splash character,
+/// splash investment being the reliability stat for attack splash. The
+/// four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing
+/// Flames, Cleansing Flames' cleanse-count and buff-refresh) pass
+/// `LiveTunables::splash_support_floor_targets` (default 1) - these
+/// "never do nothing" instead, by the FINAL SPLASH TABLE's explicit
+/// two-floors ruling; both floors live here so the distinction is
+/// structural, not per-site drift.
+///
+/// - `splash_fraction <= 0.0`: `floor_targets`, always - no roll,
+///   nothing to roll for.
+/// - `0.0 < splash_fraction <= 1.0`: a roll, `rng.gen_bool(chance)` with
+///   `chance = splash_fraction.min(1.0)` - all-or-nothing: success
+///   returns `base_extra_targets` unchanged, failure returns
+///   `floor_targets`. The `chance >= 1.0` case (splash_fraction exactly
+///   `1.0`) short-circuits without touching `rng` at all - deliberate,
+///   so a forced-`1.0` caller (Gelatinous Cube's own splash, the
+///   Dragon's full-party sweep) never perturbs the RNG sequence with an
+///   always-true roll it structurally can't fail, exactly preserving
+///   their pre-redesign behavior (no RNG draw for the count decision,
+///   only for WHICH targets - unchanged either way), AND never crosses
+///   into the overcap branch below (`1.0` is not `> 1.0`) - Cube/Dragon
+///   neutrality holds BY CONSTRUCTION, not coincidence.
+/// - `splash_fraction > 1.0` (strictly - matches the OLD overcap
+///   threshold exactly): guaranteed, no roll. Returns
+///   `base_extra_targets + LiveTunables::splash_overcap_bonus_targets +
+///   (ladder_steps * LiveTunables::splash_ladder_targets_per_step)`,
+///   where `ladder_steps = floor(splash_pct / LiveTunables::splash_ladder_step_pct)`
+///   (0 below the first ladder step, e.g. below 1000% at the default
+///   step size) - the +1-per-1000% ladder, built this pass per the
+///   FINAL SPLASH TABLE (supersedes the earlier "document only, don't
+///   build" deferral).
+///
+/// Returns `(target_count, damage_pct)`. `damage_pct` is always
+/// `LiveTunables::splash_damage_pct` (flat - no longer derived from
+/// `splash_fraction`) - only meaningful to `apply_splash`/
+/// `apply_heal_splash`, which multiply a damage/heal amount by it; the
+/// other 4 callers (debuff/buff-only, or an already-fixed-value heal)
+/// ignore it.
+pub(crate) fn roll_splash(splash_fraction: f64, base_extra_targets: usize, floor_targets: usize, tunables: &LiveTunables, rng: &mut impl Rng) -> (usize, f64) {
+    let damage_pct = tunables.splash_damage_pct;
+    if splash_fraction <= 0.0 {
+        return (floor_targets, damage_pct);
+    }
+    if splash_fraction > 1.0 {
+        return (splash_overcap_target_count(base_extra_targets, splash_fraction, tunables), damage_pct);
+    }
+    let chance = splash_fraction.min(1.0);
+    if chance >= 1.0 || rng.gen_bool(chance) {
+        (base_extra_targets, damage_pct)
+    } else {
+        (floor_targets, damage_pct)
+    }
+}
+
+/// The overcap+ladder target-count math shared by `roll_splash`'s own
+/// `splash_fraction > 1.0` branch and the Volley/Chain-Lightning damage-
+/// bonus sizing line (the one deliberate exception that sizes a flat
+/// passive bonus off the SAME formula without going through a real
+/// `roll_splash` call - see that call site's own comment). Factored out
+/// so the two can never drift apart - `base_extra_targets + LiveTunables::splash_overcap_bonus_targets +
+/// (ladder_steps * LiveTunables::splash_ladder_targets_per_step)`, where
+/// `ladder_steps = floor(splash_pct / LiveTunables::splash_ladder_step_pct)`
+/// (0 below the first ladder step, e.g. below 1000% at the default step
+/// size) - the +1-per-1000% ladder, built this pass per the FINAL
+/// SPLASH TABLE (supersedes the earlier "document only, don't build"
+/// deferral). Callers are responsible for only calling this when
+/// `splash_fraction > 1.0` actually holds (Cube/Dragon's neutrality
+/// depends on never reaching here at exactly `1.0`).
+fn splash_overcap_target_count(base_extra_targets: usize, splash_fraction: f64, tunables: &LiveTunables) -> usize {
+    let splash_pct = splash_fraction * 100.0;
+    let ladder_steps = if tunables.splash_ladder_step_pct > 0 && splash_pct >= tunables.splash_ladder_step_pct as f64 {
+        (splash_pct / tunables.splash_ladder_step_pct as f64).floor() as usize
+    } else {
+        0
+    };
+    base_extra_targets + tunables.splash_overcap_bonus_targets as usize + ladder_steps * tunables.splash_ladder_targets_per_step as usize
+}
+
+/// After a normal attack's primary hit resolves, rolls whether it ALSO
+/// splashes this time (see `roll_splash` - 2026-08-20 redesign: `splash_fraction`
+/// is now the CHANCE, not a guaranteed-hit damage-scaling fraction) onto
+/// up to `max_targets` (+ overcap bonus on a successful overcapped roll)
+/// other currently-alive units on the primary target's side, each for
+/// `LiveTunables::splash_damage_pct` of the SAME base roll (not the
+/// primary hit's actual post-mitigation result - each splash target
+/// rolls its own crit/evasion/block/reduction fresh via `apply_hit`,
+/// same as the primary did), chosen at random from the above-median-
+/// level pool first when splashing onto players (`median_level: Some(...)` -
+/// see `prioritize_above_median`'s doc; always `None` when players
+/// splash onto enemies, since that side has no "level" to prioritize
+/// by). A no-op whenever `max_targets == 0` or the roll misses -
+/// including, LITERALLY, at `splash_fraction <= 0` (zero splash
+/// investment is a 0% roll, never a guaranteed one - basic-encounter
+/// mobs always have splash 0.0, so this stays naturally inert for them
+/// without any special-casing, same as before the redesign).
 pub(crate) fn apply_splash(
     units: &mut [CombatSimUnit],
     attacker_idx: usize,
@@ -10022,17 +10180,24 @@ pub(crate) fn apply_splash(
     events: &mut Vec<CombatEvent>,
     rolls: &mut Vec<RollEvent>,
     rng: &mut impl Rng,
+    tunables: &LiveTunables,
 ) {
-    if splash_fraction <= 0.0 || max_targets == 0 {
+    if max_targets == 0 {
+        return;
+    }
+    let (max_targets, damage_pct) = roll_splash(splash_fraction, max_targets, 0, tunables, rng);
+    if max_targets == 0 {
         return;
     }
     // Reentrancy guard (2026-08-16, a crash fix - see `in_splash_resolution`'s
     // own doc for the full bug) - saved/restored rather than blindly reset
     // to `false` at the end, so this stays correct even if some future
-    // caller ever nests one attacker's splash inside another's.
+    // caller ever nests one attacker's splash inside another's. Set only
+    // once `roll_splash` has confirmed this swing actually splashes -
+    // a missed roll never touches the flag, same as the old
+    // `splash_fraction <= 0.0` early return never did.
     let was_in_splash_resolution = units[attacker_idx].in_splash_resolution;
     units[attacker_idx].in_splash_resolution = true;
-    let max_targets = if splash_fraction > 1.0 { max_targets + SPLASH_OVERFLOW_BONUS_TARGETS } else { max_targets };
     let target_side_is_boss = units[primary_target_idx].is_boss;
     // Protected (non-Thunder) golems (see `is_protected_golem`) are
     // excluded from the candidate pool itself - splash damage against them
@@ -10047,7 +10212,7 @@ pub(crate) fn apply_splash(
         Some(median) if !target_side_is_boss => prioritize_above_median(&all_candidates, units, median),
         _ => all_candidates,
     };
-    let splash_damage = primary_base_damage * splash_fraction.min(1.0);
+    let splash_damage = primary_base_damage * damage_pct;
     // Ranger's Piercing Shots (rank 3 only - rank 1/2's "splash can crit
     // independently" clause is already true unconditionally, since every
     // `apply_hit` call - splash included - already rolls its own
@@ -10351,28 +10516,34 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     healed
 }
 
-/// How many OTHER injured allies a Heal-function unit's splash also
-/// heals, on top of the primary heal target - same fixed-cap idea as
-/// `apply_splash`, just for healing (see `Affix::Splash`'s doc).
+/// How many OTHER injured allies a Heal-function unit's splash used to
+/// always heal, on top of the primary heal target - same fixed-cap idea
+/// as `apply_splash`, just for healing (see `Affix::Splash`'s doc).
+/// RETIRED (2026-08-20, splash redesign) - see
+/// `LiveTunables::splash_extra_targets`'s own doc (kept defined, at its
+/// old value, only for `adventure_web/wiki.rs`'s sake - same reasoning
+/// as `SPLASH_OVERFLOW_BONUS_TARGETS`'s own doc).
 pub const HEAL_SPLASH_MAX_TARGETS: usize = 2;
 
-/// After a heal's primary target resolves, splashes the same fraction of
-/// that heal onto up to `HEAL_SPLASH_MAX_TARGETS` OTHER currently-hurt
-/// allies (excluding the primary target and the healer's own already-
-/// resolved turn), chosen at random - plus `SPLASH_OVERFLOW_BONUS_TARGETS`
-/// more if `splash_fraction` is over 1.0 (see `Character::combat_splash`'s
-/// doc). A no-op whenever `splash_fraction` is 0 (every non-Heal-function
-/// unit's splash never reaches this - only called from the heal branch
-/// below).
-pub(crate) fn apply_heal_splash(units: &mut [CombatSimUnit], healer_idx: usize, primary_target_idx: usize, base_heal: u32, splash_fraction: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) {
-    if splash_fraction <= 0.0 {
+/// After a heal's primary target resolves, rolls whether it ALSO
+/// splashes this time (see `roll_splash` - 2026-08-20 redesign) onto up
+/// to `LiveTunables::splash_extra_targets` (+ overcap bonus on a
+/// successful overcapped roll) OTHER currently-hurt allies (excluding
+/// the primary target and the healer's own already-resolved turn),
+/// chosen at random, each for `LiveTunables::splash_damage_pct` of the
+/// primary heal. A no-op whenever the roll misses - including,
+/// LITERALLY, at `splash_fraction <= 0` (every non-Heal-function unit's
+/// splash never reaches this - only called from the heal branch below -
+/// and zero splash investment is a 0% roll, never a guaranteed one).
+pub(crate) fn apply_heal_splash(units: &mut [CombatSimUnit], healer_idx: usize, primary_target_idx: usize, base_heal: u32, splash_fraction: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng, tunables: &LiveTunables) {
+    let (max_targets, damage_pct) = roll_splash(splash_fraction, tunables.splash_extra_targets as usize, 0, tunables, rng);
+    if max_targets == 0 {
         return;
     }
-    let splash_heal = (base_heal as f64 * splash_fraction.min(1.0)).round() as u32;
+    let splash_heal = (base_heal as f64 * damage_pct).round() as u32;
     if splash_heal == 0 {
         return;
     }
-    let max_targets = if splash_fraction > 1.0 { HEAL_SPLASH_MAX_TARGETS + SPLASH_OVERFLOW_BONUS_TARGETS } else { HEAL_SPLASH_MAX_TARGETS };
     let mut candidates: Vec<usize> =
         units.iter().enumerate().filter(|(i, u)| *i != primary_target_idx && !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u)).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
@@ -10384,23 +10555,28 @@ pub(crate) fn apply_heal_splash(units: &mut [CombatSimUnit], healer_idx: usize, 
 }
 
 /// Paladin's Radiant Smite - fires once per unified action (see
-/// `smite_heal_pct`'s doc), healing up to `HEAL_SPLASH_MAX_TARGETS`
-/// (+`smite_extra_targets`, +`SPLASH_OVERFLOW_BONUS_TARGETS` past 100%
-/// splash) hurt allies - candidates include `healer_idx` themselves
-/// ("targets around the Paladin" per the live design conversation this
-/// was built from, unlike `apply_heal_splash`'s primary-heal-adjacent
-/// splash which deliberately excludes the primary target/self) - each for
-/// the FULL `heal_pct` of the healer's own max HP, not a diminishing
-/// splash fraction of a primary target's heal (there IS no primary target
-/// here - every hit target gets the identical amount). Returns the TOTAL
-/// actually restored across every target, which Holy Fire (see
-/// `smite_holyfire_dmg_pct`'s doc) needs to know how much damage to deal.
-pub(crate) fn apply_radiant_smite_heal(units: &mut [CombatSimUnit], healer_idx: usize, heal_pct: f64, splash_fraction: f64, extra_targets: u32, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng) -> u64 {
+/// `smite_heal_pct`'s doc), rolling (see `roll_splash` - 2026-08-20
+/// FINAL SPLASH TABLE, this is one of the four SUPPORT splash sites, so
+/// a missed roll or 0% splash still hits the `LiveTunables::splash_support_floor_targets`
+/// floor - Radiant Smite never does nothing) up to `HEAL_SPLASH_MAX_TARGETS`
+/// (+`smite_extra_targets`, Zealotry's own bonus, fully preserved per
+/// the "Option A - additive, caller-neutral" ruling, +overcap/ladder
+/// past 100% splash) hurt allies - candidates include `healer_idx`
+/// themselves ("targets around the Paladin" per the live design
+/// conversation this was built from, unlike `apply_heal_splash`'s
+/// primary-heal-adjacent splash which deliberately excludes the primary
+/// target/self) - each for the FULL `heal_pct` of the healer's own max
+/// HP, not a diminishing splash fraction of a primary target's heal
+/// (there IS no primary target here - every hit target gets the
+/// identical amount). Returns the TOTAL actually restored across every
+/// target, which Holy Fire (see `smite_holyfire_dmg_pct`'s doc) needs to
+/// know how much damage to deal.
+pub(crate) fn apply_radiant_smite_heal(units: &mut [CombatSimUnit], healer_idx: usize, heal_pct: f64, splash_fraction: f64, extra_targets: u32, at_ms: u32, events: &mut Vec<CombatEvent>, rng: &mut impl Rng, tunables: &LiveTunables) -> u64 {
     if heal_pct <= 0.0 {
         return 0;
     }
     let base_max_targets = HEAL_SPLASH_MAX_TARGETS + extra_targets as usize;
-    let max_targets = if splash_fraction > 1.0 { base_max_targets + SPLASH_OVERFLOW_BONUS_TARGETS } else { base_max_targets };
+    let (max_targets, _) = roll_splash(splash_fraction, base_max_targets, tunables.splash_support_floor_targets as usize, tunables, rng);
     let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && u.alive && u.hp < u.max_hp as i64 && !is_heal_immune(u)).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     // United Front - scales the WHOLE cast's heal amount by how many
@@ -12733,7 +12909,7 @@ pub(crate) fn simulate_battle(
                 // silently reverting to the full 5s cadence forever
                 // after).
                 units[actor_idx].next_flicker_at_ms += units[actor_idx].flicker_cooldown_ms;
-                ArchetypeSkill::FlickerStrike.on_periodic_tick(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                ArchetypeSkill::FlickerStrike.on_periodic_tick(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng, tunables);
                 continue;
             }
             NextEvent::DivineShield(actor_idx) => {
@@ -12785,12 +12961,12 @@ pub(crate) fn simulate_battle(
                 continue;
             }
             NextEvent::RighteousFireTick(actor_idx) => {
-                tick_righteous_fire(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng);
+                tick_righteous_fire(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng, tunables);
                 units[actor_idx].next_righteousfire_tick_at_ms += RIGHTEOUS_FIRE_TICK_INTERVAL_MS;
                 continue;
             }
             NextEvent::CleansingFlamesTick(actor_idx) => {
-                tick_cleansing_flames(&mut units, actor_idx, at_ms, &mut events, &mut rng);
+                tick_cleansing_flames(&mut units, actor_idx, at_ms, &mut events, &mut rng, tunables);
                 units[actor_idx].next_cleansingflames_at_ms += CLEANSING_FLAMES_TICK_INTERVAL_MS;
                 continue;
             }
@@ -13710,7 +13886,7 @@ pub(crate) fn simulate_battle(
                         (splash, ENEMY_SPLASH_MAX_TARGETS, Some(median_level))
                     }
                 };
-                apply_splash(&mut units, actor_idx, target_idx, base_damage, splash, max_splash_targets, splash_median, at_ms, &mut events, &mut rolls, &mut rng);
+                apply_splash(&mut units, actor_idx, target_idx, base_damage, splash, max_splash_targets, splash_median, at_ms, &mut events, &mut rolls, &mut rng, tunables);
                 if units[actor_idx].boss_ability == Some(BossKind::Dragon) {
                     events.push(CombatEvent::SkillCast { at_ms, unit: units[actor_idx].id.clone(), skill: "Dragon's Breath".to_string() });
                 }
@@ -13882,7 +14058,28 @@ pub(crate) fn simulate_battle(
                     let volley_per_target = units[actor_idx].volley_dmg_per_target_pct;
                     if volley_per_target > 0.0 {
                         let splash = units[actor_idx].splash + stack_splash_bonus(&units[actor_idx], at_ms) + stormfront_splash_bonus(&units[actor_idx], at_ms);
-                        let max_splash_targets = PLAYER_SPLASH_MAX_TARGETS + if splash > 1.0 { SPLASH_OVERFLOW_BONUS_TARGETS } else { 0 };
+                        // 2026-08-20 splash redesign; 2026-08-20 FINAL
+                        // SPLASH TABLE addendum ("Option A") - this sizes a
+                        // flat PASSIVE damage bonus, not a real target pick
+                        // (no discrete splash event to roll for), so it
+                        // deliberately does NOT go through `roll_splash`'s
+                        // chance gate - it inherits only the tunable-driven
+                        // COUNT formula (base + overcap + ladder, via the
+                        // shared `splash_overcap_target_count` helper so
+                        // this can never drift from `roll_splash`'s own
+                        // overcap math). `extra_splash_targets` (Storm of
+                        // Arrows/Wider Burst/Stormcaller) is the SAME
+                        // caller-side bonus the real `apply_splash` call
+                        // below uses as its own base - this sizing line has
+                        // to match it or Volley/Chain-Lightning would size
+                        // itself off a smaller reachable-target count than
+                        // the attack it's pricing actually hits.
+                        let extra_splash_targets = (units[actor_idx].stormofarrows_extra_targets
+                            + units[actor_idx].widerburst_extra_targets
+                            + units[actor_idx].stormcaller_extra_targets) as usize;
+                        let base_extra_targets = tunables.splash_extra_targets as usize + extra_splash_targets;
+                        let max_splash_targets =
+                            if splash > 1.0 { splash_overcap_target_count(base_extra_targets, splash, tunables) } else { base_extra_targets };
                         let max_targets_reachable = 1 + max_splash_targets;
                         units[actor_idx].splash_target_dmg_bonus = volley_per_target * max_targets_reachable as f64;
                     } else {
@@ -13954,7 +14151,7 @@ pub(crate) fn simulate_battle(
                     // splash targets on top of the base cap.
                     let extra_splash_targets =
                         (units[actor_idx].stormofarrows_extra_targets + units[actor_idx].widerburst_extra_targets + units[actor_idx].stormcaller_extra_targets) as usize;
-                    apply_splash(&mut units, actor_idx, boss_idx, damage_base, splash, PLAYER_SPLASH_MAX_TARGETS + extra_splash_targets, None, at_ms, &mut events, &mut rolls, &mut rng);
+                    apply_splash(&mut units, actor_idx, boss_idx, damage_base, splash, tunables.splash_extra_targets as usize + extra_splash_targets, None, at_ms, &mut events, &mut rolls, &mut rng, tunables);
                     // Berserker's Frenzy - a chance for THIS attack to
                     // strike the same target extra times (see
                     // `fire_frenzy`'s doc). `damage_base` (not
@@ -14080,11 +14277,11 @@ pub(crate) fn simulate_battle(
                         // of) the unit's own gear-based Splash below.
                         let heal_crit_splash_pct = units[actor_idx].heal_crit_splash_pct;
                         if is_crit && heal_crit_splash_pct > 0.0 {
-                            apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_crit_splash_pct, at_ms, &mut events, &mut rng);
+                            apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_crit_splash_pct, at_ms, &mut events, &mut rng, tunables);
                         }
                     }
                     let heal_splash = units[actor_idx].splash;
-                    apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_splash, at_ms, &mut events, &mut rng);
+                    apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_splash, at_ms, &mut events, &mut rng, tunables);
                     // Prayer of Mending - a chance for this same heal to
                     // chain onward to more hurt allies.
                     apply_heal_bounce(&mut units, actor_idx, target_idx, heal, at_ms, &mut events, &mut rng);
@@ -14128,7 +14325,7 @@ pub(crate) fn simulate_battle(
                 }
                 let splash = units[actor_idx].splash + stack_splash_bonus(&units[actor_idx], at_ms) + stormfront_splash_bonus(&units[actor_idx], at_ms);
                 let extra_targets = units[actor_idx].smite_extra_targets;
-                let smite_healed = apply_radiant_smite_heal(&mut units, actor_idx, heal_pct, splash, extra_targets, at_ms, &mut events, &mut rng);
+                let smite_healed = apply_radiant_smite_heal(&mut units, actor_idx, heal_pct, splash, extra_targets, at_ms, &mut events, &mut rng, tunables);
                 // Holy Fire - the heal-power share's restored amount AND
                 // Smite's own heal, combined, converted into damage dealt
                 // to every alive enemy.
@@ -15559,7 +15756,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].hp, 900, "10% of 1000 max hp = 100 self-burn");
         assert!(units[0].alive);
     }
@@ -15572,7 +15769,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].hp, 0);
         assert!(!units[0].alive);
         let defeats = events.iter().filter(|e| matches!(e, CombatEvent::Defeat { unit, .. } if unit == "elementalist")).count();
@@ -15590,7 +15787,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         let casts = events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { unit, skill, .. } if unit == "elementalist" && skill == "Righteous Fire")).count();
         assert_eq!(casts, 1, "exactly one Righteous Fire marker per tick");
     }
@@ -15606,7 +15803,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         let casts = events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { unit, skill, .. } if unit == "elementalist" && skill == "Healing Flames")).count();
         assert_eq!(casts, 1, "exactly one Healing Flames marker per tick");
     }
@@ -15620,7 +15817,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         let healing_flames_casts = events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Healing Flames")).count();
         assert_eq!(healing_flames_casts, 0);
         let rf_casts = events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Righteous Fire")).count();
@@ -15630,12 +15827,16 @@ mod elementalist_stage_3_tests {
     /// Design-intent correction (2026-08-20) - RF's enemy-facing damage
     /// moved out of this tick entirely (see `tick_righteous_fire`'s own
     /// doc), but Relentless Flames/Cauterizing Flames still ride the
-    /// SAME randomly-chosen, splash-limited subset each tick. Replaces
-    /// the old `enemy_damage_hits_at_most_player_splash_max_targets_enemies`,
+    /// SAME splash-rolled subset each tick. Replaces the old
+    /// `enemy_damage_hits_at_most_player_splash_max_targets_enemies`,
     /// which asserted hp loss that no longer happens here - this proves
     /// (a) no enemy takes any hp damage from this tick directly any
-    /// more, and (b) at most PLAYER_SPLASH_MAX_TARGETS enemies receive
-    /// the Relentless Flames debuff stack.
+    /// more, and (b) with `atk.splash` left at its default 0.0, the
+    /// SUPPORT floor applies (this is one of the four FINAL SPLASH TABLE
+    /// support sites, see `LiveTunables::splash_support_floor_targets`) -
+    /// exactly the floor count of enemies receive the Relentless Flames
+    /// debuff stack, not zero (this subset never does nothing) and not
+    /// the old flat `PLAYER_SPLASH_MAX_TARGETS`.
     #[test]
     fn splash_subset_still_applies_relentless_flames_but_deals_no_damage_of_its_own() {
         let mut atk = elementalist(0.10);
@@ -15644,12 +15845,17 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(7);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        let tunables = LiveTunables::default();
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &tunables);
         for u in &units[1..] {
             assert_eq!(u.hp, 1_000_000, "no enemy should take any hp damage from this tick any more - RF's own damage now lives in resolve_hit");
         }
         let debuffed_count = units[1..].iter().filter(|u| u.relentlessflames_dmg_taken_pct > 0.0).count();
-        assert_eq!(debuffed_count, PLAYER_SPLASH_MAX_TARGETS, "exactly PLAYER_SPLASH_MAX_TARGETS enemies should receive the Relentless Flames stack");
+        assert_eq!(
+            debuffed_count,
+            tunables.splash_support_floor_targets as usize,
+            "atk.splash is 0.0 (default) - the support floor applies, not the old flat PLAYER_SPLASH_MAX_TARGETS"
+        );
     }
 
     #[test]
@@ -15660,9 +15866,9 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert!((units[1].relentlessflames_dmg_taken_pct - 0.01).abs() < 1e-9, "one tick = one stack");
-        tick_righteous_fire(&mut units, 0, 2_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 2_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert!((units[1].relentlessflames_dmg_taken_pct - 0.02).abs() < 1e-9, "must keep accumulating, never reset between ticks");
     }
 
@@ -15694,7 +15900,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert!((units[1].temp_heal_reduction_pct - 0.05).abs() < 1e-9);
         assert_eq!(units[1].temp_heal_reduction_expires_at_ms, 5_000 + CAUTERIZING_FLAMES_DEBUFF_DURATION_MS);
     }
@@ -15711,7 +15917,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(3);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert!(!units[1].alive, "500 < 1000 threshold - must be executed");
         assert!(!units[2].alive, "999 < 1000 threshold - must be executed");
         assert!(units[3].alive && units[3].hp == 2_000, "2000 >= threshold - untouched");
@@ -15726,7 +15932,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert!(units[1].alive, "0.0 ashestoashes_pct must never execute anyone");
     }
 
@@ -15743,7 +15949,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].hp, 700, "self-burn must use rf_self_damage_pct (30%), not righteousfire_pct (10%)");
     }
 
@@ -15763,7 +15969,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         // combine_reduction_sources([0.5, 0.2]) = 1 - (1-0.5)*(1-0.2) = 0.6
         // raw = 100, mitigated = 100 * (1 - 0.6) = 40
         assert_eq!(units[0].hp, 960, "40 self-burn after 60% combined DR (multiplicative stacking, not additive)");
@@ -15781,7 +15987,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].hp, 900, "evasion/block must never reduce or avoid the self-burn tick");
     }
 
@@ -15799,7 +16005,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         // raw/mitigated = 100 (no DR), shield absorbs 60, remaining 40 to hp.
         assert_eq!(units[0].hp, 960, "shield absorbs 60 of the 100 self-burn, 40 remainder hits hp");
         assert_eq!(units[0].shield_hp, 0.0, "shield fully consumed");
@@ -15829,7 +16035,7 @@ mod elementalist_stage_3_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units_no_golems, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units_no_golems, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
 
         let atk_with_golems = elementalist(0.10);
         let golem_a = CombatSimUnit { id: "golem_a".to_string(), alive: true, is_golem: true, ..elementalist(0.0) };
@@ -15839,7 +16045,7 @@ mod elementalist_stage_3_tests {
         let mut events2 = Vec::new();
         let mut rolls2 = Vec::new();
         let mut rng2 = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units_with_golems, 0, 1_000, &mut events2, &mut rolls2, &mut rng2);
+        tick_righteous_fire(&mut units_with_golems, 0, 1_000, &mut events2, &mut rolls2, &mut rng2, &LiveTunables::default());
 
         assert_eq!(units_no_golems[0].hp, units_with_golems[0].hp, "self-burn tick must be identical regardless of golem count");
     }
@@ -15876,7 +16082,7 @@ mod elementalist_stage_4_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].hp, 600, "10% of 1000 max hp = 100 regen");
     }
 
@@ -15889,7 +16095,7 @@ mod elementalist_stage_4_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[1].hp, 600, "100% of the 100-hp regen shared onto the injured ally");
     }
 
@@ -15902,7 +16108,7 @@ mod elementalist_stage_4_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[1].hp, 1000, "apply_heal_splash only picks currently-hurt allies");
     }
 
@@ -15916,7 +16122,7 @@ mod elementalist_stage_4_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].hp, 600, "the heal still happens");
         assert!((units[0].shield_hp - 50.0).abs() < 1e-9, "50% of the 100-hp regen = 50 shield, on top of the heal");
     }
@@ -16062,7 +16268,7 @@ mod elementalist_stage_4_tests {
         let mut units = vec![atk];
         let mut events = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng);
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng, &LiveTunables::default());
         assert_eq!(units[0].boss_focus_stacks, 0.0);
         assert_eq!(units[0].cube_shred_stacks, 0);
         assert_eq!(units[0].wound_stacks, 0);
@@ -16077,7 +16283,7 @@ mod elementalist_stage_4_tests {
         let mut units = vec![atk, debuffed_ally];
         let mut events = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng);
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng, &LiveTunables::default());
         assert_eq!(units[1].boss_focus_stacks, 0.0);
     }
 
@@ -16094,7 +16300,7 @@ mod elementalist_stage_4_tests {
         let mut units = vec![atk, ally("buffed", 1000, 1000)];
         let mut events = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng);
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut rng, &LiveTunables::default());
         assert!((units[1].temp_evasion_buff - 0.09).abs() < 1e-9);
         assert!((units[1].temp_damage_reduction_bonus - 0.09).abs() < 1e-9);
         assert!((units[1].temp_shieldingfire_block_pct - 0.65).abs() < 1e-9);
@@ -18235,7 +18441,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         units.push(thunder);
         let mut events = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        apply_heal_splash(&mut units, 0, 0, 500, 2.0, 1, &mut events, &mut rng);
+        apply_heal_splash(&mut units, 0, 0, 500, 2.0, 1, &mut events, &mut rng, &LiveTunables::default());
         assert_eq!(units[1].hp, 1, "the Thunder Golem must never be picked as a splash-heal target");
     }
 
@@ -18304,6 +18510,391 @@ mod leech_leaky_bucket_tests {
         // Only 1/1000th of the cap (0.1) should have drained - nowhere
         // close to the full reset-to-zero the old bug effectively granted.
         assert!(after >= cap - 1.0, "only ~1ms of drain should have occurred between hits 1ms apart, got room for {} more", cap - after);
+    }
+}
+
+/// Full coverage for the 2026-08-20 splash redesign + FINAL SPLASH
+/// TABLE addendum ("Option A - additive, caller-neutral" owner ruling) -
+/// `roll_splash`'s own boundary table, the two-floor distinction, the
+/// +1-per-1000% ladder, every caller keeping its own base target count
+/// (Cube, default cleave, Volley/Storm of Arrows, Radiant Smite/
+/// Zealotry) instead of collapsing onto a flat tunable, and each of the
+/// four newly-gated SUPPORT sites (Radiant Smite heal, Relentless/
+/// Cauterizing Flames, Cleansing Flames' cleanse-count and buff-refresh)
+/// exercised directly. See `roll_splash`'s own doc for the design this
+/// verifies.
+#[cfg(test)]
+mod splash_overcap_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn player(id: &str) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 1000, max_hp: 1000, atk: 100, ..Default::default() }
+    }
+
+    fn boss(id: &str, hp: u64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: hp as i64, max_hp: hp, is_boss: true, atk: 10, ..Default::default() }
+    }
+
+    fn attack_count_from(events: &[CombatEvent], attacker_id: &str) -> usize {
+        events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, .. } if attacker == attacker_id)).count()
+    }
+
+    // ---- roll_splash: the boundary table ----
+
+    #[test]
+    fn zero_splash_attack_floor_is_zero_no_roll() {
+        let tunables = LiveTunables::default();
+        let mut rng_a = StdRng::seed_from_u64(42);
+        let mut rng_b = StdRng::seed_from_u64(42);
+        let (count, pct) = roll_splash(0.0, 2, 0, &tunables, &mut rng_a);
+        assert_eq!(count, 0, "attack sites pass floor_targets=0 - zero splash never does anything");
+        assert_eq!(pct, tunables.splash_damage_pct);
+        // No roll means no RNG draw at all - a fresh, identically-seeded
+        // rng must still agree on its next value.
+        assert_eq!(rng_a.gen_range(0..1_000_000u32), rng_b.gen_range(0..1_000_000u32));
+    }
+
+    #[test]
+    fn zero_splash_support_floor_is_the_tunable_no_roll() {
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(42);
+        let (count, _) = roll_splash(0.0, 2, tunables.splash_support_floor_targets as usize, &tunables, &mut rng);
+        assert_eq!(count, tunables.splash_support_floor_targets as usize, "support sites never do nothing, even at 0% splash");
+    }
+
+    #[test]
+    fn guaranteed_100_percent_returns_the_callers_own_base_and_never_touches_rng() {
+        // Cube/Dragon neutrality depends on exactly this property - see
+        // `roll_splash`'s own doc.
+        let tunables = LiveTunables::default();
+        let mut rng_a = StdRng::seed_from_u64(42);
+        let mut rng_b = StdRng::seed_from_u64(42);
+        let (count, _) = roll_splash(1.0, 4, 0, &tunables, &mut rng_a);
+        assert_eq!(count, 4, "splash_fraction == 1.0 is guaranteed - the CALLER's own base (4), not a flat tunable value");
+        assert_eq!(rng_a.gen_range(0..1_000_000u32), rng_b.gen_range(0..1_000_000u32), "a guaranteed roll must never consume an RNG draw");
+    }
+
+    #[test]
+    fn partial_roll_is_genuinely_all_or_nothing_across_many_seeds() {
+        let tunables = LiveTunables::default();
+        let (mut saw_floor, mut saw_base) = (false, false);
+        for seed in 0..200u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (count, _) = roll_splash(0.5, 2, 1, &tunables, &mut rng);
+            assert!(count == 1 || count == 2, "all-or-nothing: only the floor (1) or the caller's own base (2), nothing between");
+            saw_floor |= count == 1;
+            saw_base |= count == 2;
+        }
+        assert!(saw_floor && saw_base, "a 50% roll across 200 seeds should hit both outcomes at least once");
+    }
+
+    #[test]
+    fn partial_roll_is_seeded_deterministic() {
+        let tunables = LiveTunables::default();
+        for seed in [1u64, 7, 999] {
+            let mut rng1 = StdRng::seed_from_u64(seed);
+            let mut rng2 = StdRng::seed_from_u64(seed);
+            let a = roll_splash(0.55, 2, 0, &tunables, &mut rng1);
+            let b = roll_splash(0.55, 2, 0, &tunables, &mut rng2);
+            assert_eq!(a, b, "the same seed at the same splash % must resolve identically (seed {seed})");
+        }
+    }
+
+    #[test]
+    fn attack_floor_zero_vs_support_floor_one_on_the_same_missed_roll() {
+        // Same seed, same chance -> the SAME roll outcome either way; the
+        // ONLY difference allowed is which floor a miss falls back to.
+        let tunables = LiveTunables::default();
+        for seed in 0..200u64 {
+            let (attack_count, _) = roll_splash(0.5, 2, 0, &tunables, &mut StdRng::seed_from_u64(seed));
+            let (support_count, _) = roll_splash(0.5, 2, tunables.splash_support_floor_targets as usize, &tunables, &mut StdRng::seed_from_u64(seed));
+            if attack_count == 0 {
+                assert_eq!(support_count, tunables.splash_support_floor_targets as usize, "seed {seed}: a missed roll - attack falls to 0, support falls to its own floor");
+            } else {
+                assert_eq!(attack_count, 2);
+                assert_eq!(support_count, 2, "seed {seed}: a successful roll grants the SAME base count regardless of floor category");
+            }
+        }
+    }
+
+    #[test]
+    fn overcap_101_to_999_percent_is_guaranteed_base_plus_overcap_bonus_no_ladder_yet() {
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(7);
+        for splash_pct in [101u32, 500, 999] {
+            let (count, _) = roll_splash(splash_pct as f64 / 100.0, 2, 0, &tunables, &mut rng);
+            assert_eq!(count, 2 + tunables.splash_overcap_bonus_targets as usize, "{splash_pct}%: base + overcap bonus, no ladder rung yet");
+        }
+    }
+
+    #[test]
+    fn ladder_boundaries_1000_1999_2000_3000_percent() {
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(7);
+        let base = 2usize;
+        let overcap = tunables.splash_overcap_bonus_targets as usize;
+        assert_eq!(roll_splash(10.0, base, 0, &tunables, &mut rng).0, base + overcap + 1, "1000%: +1 ladder rung");
+        assert_eq!(roll_splash(19.99, base, 0, &tunables, &mut rng).0, base + overcap + 1, "1999%: still +1 rung");
+        assert_eq!(roll_splash(20.0, base, 0, &tunables, &mut rng).0, base + overcap + 2, "2000%: +2 rungs");
+        assert_eq!(roll_splash(30.0, base, 0, &tunables, &mut rng).0, base + overcap + 3, "3000%: +3 rungs");
+    }
+
+    #[test]
+    fn full_boundary_table_support_site() {
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(7);
+        let base = 2usize;
+        let floor = tunables.splash_support_floor_targets as usize;
+        let overcap = tunables.splash_overcap_bonus_targets as usize;
+        assert_eq!(roll_splash(0.0, base, floor, &tunables, &mut rng).0, floor, "0%: floor");
+        assert_eq!(roll_splash(1.01, base, floor, &tunables, &mut rng).0, base + overcap, "101%: guaranteed base+overcap");
+        assert_eq!(roll_splash(9.99, base, floor, &tunables, &mut rng).0, base + overcap, "999%: still no ladder rung");
+        assert_eq!(roll_splash(10.0, base, floor, &tunables, &mut rng).0, base + overcap + 1, "1000%: +1 rung");
+    }
+
+    #[test]
+    fn every_splash_tunable_actually_changes_roll_splash_output() {
+        let mut tunables = LiveTunables::default();
+        tunables.splash_extra_targets = 5;
+        tunables.splash_support_floor_targets = 3;
+        tunables.splash_overcap_bonus_targets = 10;
+        tunables.splash_ladder_step_pct = 500;
+        tunables.splash_ladder_targets_per_step = 2;
+        tunables.splash_damage_pct = 0.25;
+
+        let (count, pct) = roll_splash(1.0, tunables.splash_extra_targets as usize, 0, &tunables, &mut StdRng::seed_from_u64(1));
+        assert_eq!(count, 5, "guaranteed roll returns the caller's own base - here fed from the retuned splash_extra_targets");
+        assert_eq!(pct, 0.25, "splash_damage_pct retune flows straight through");
+
+        let (count, _) = roll_splash(0.0, 5, tunables.splash_support_floor_targets as usize, &tunables, &mut StdRng::seed_from_u64(1));
+        assert_eq!(count, 3, "retuned support floor");
+
+        // 600% at a retuned 500%-per-rung ladder = 1 rung of 2 targets.
+        let (count, _) = roll_splash(6.0, 5, 0, &tunables, &mut StdRng::seed_from_u64(1));
+        assert_eq!(count, 5 + 10 + 1 * 2, "retuned overcap bonus (10) + one retuned ladder rung (2)");
+    }
+
+    // ---- Cube/Dragon/default-cleave: base target counts preserved (Option A) ----
+
+    #[test]
+    fn cube_splash_keeps_its_own_4_not_the_player_side_tunable() {
+        let tunables = LiveTunables::default(); // splash_extra_targets is 2 - Cube must NOT collapse onto this
+        let mut units = vec![boss("cube", 100_000), player("p0"), player("p1"), player("p2"), player("p3"), player("p4")];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        // Mirrors the real Cube call site: splash forced to exactly 1.0,
+        // base = CUBE_SPLASH_MAX_TARGETS, median: None.
+        apply_splash(&mut units, 0, 1, 50.0, 1.0, CUBE_SPLASH_MAX_TARGETS, None, 0, &mut events, &mut rolls, &mut rng, &tunables);
+        // apply_splash only produces events for the SPLASH targets (the
+        // primary hit is the caller's own, separate attack, applied
+        // before this function is ever called) - so this is Cube's own
+        // 4, not 1+4.
+        assert_eq!(attack_count_from(&events, "cube"), CUBE_SPLASH_MAX_TARGETS, "Cube's own 4 splash targets - the \"hits 5 random players\" design (1 primary + 4 here), untouched by the redesign");
+    }
+
+    #[test]
+    fn default_enemy_cleave_keeps_its_own_1_and_is_now_genuinely_roll_gated() {
+        let tunables = LiveTunables::default();
+        // Guaranteed (1.0) first - proves the base itself (ENEMY_SPLASH_MAX_TARGETS,
+        // not the player tunable) is preserved.
+        let mut units = vec![boss("enemy", 100_000), player("p0"), player("p1")];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_splash(&mut units, 0, 1, 50.0, 1.0, ENEMY_SPLASH_MAX_TARGETS, Some(0.0), 0, &mut events, &mut rolls, &mut rng, &tunables);
+        assert_eq!(attack_count_from(&events, "enemy"), ENEMY_SPLASH_MAX_TARGETS, "the boss's own 1 splash target, not the player-side tunable");
+
+        // Now a real, non-guaranteed chance (a live boss can carry
+        // splash < 100%, e.g. stacked debuffs) - a boss's own cleave is a
+        // real ATTACK splash site under the redesign too, so it must be
+        // able to miss entirely, same as a player's.
+        let mut saw_miss = false;
+        for seed in 0..100u64 {
+            let mut units = vec![boss("enemy", 100_000), player("p0"), player("p1")];
+            let mut events = Vec::new();
+            let mut rolls = Vec::new();
+            let mut rng = StdRng::seed_from_u64(seed);
+            apply_splash(&mut units, 0, 1, 50.0, 0.5, ENEMY_SPLASH_MAX_TARGETS, Some(0.0), 0, &mut events, &mut rolls, &mut rng, &tunables);
+            if attack_count_from(&events, "enemy") == 0 {
+                saw_miss = true;
+                break;
+            }
+        }
+        assert!(saw_miss, "a boss's own splash % is a chance too now - some seeds must miss entirely");
+    }
+
+    #[test]
+    fn volley_style_caller_bonus_still_adds_onto_the_player_base() {
+        // Storm of Arrows/Wider Burst/Stormcaller's own additive bonus
+        // (summed by the caller into `extra_splash_targets`, same shape
+        // as the real Volley/Chain-Lightning call site) must still stack
+        // on top of `splash_extra_targets`, not get replaced by it.
+        let tunables = LiveTunables::default();
+        let extra_splash_targets = 3usize; // e.g. Storm of Arrows
+        let mut units = vec![player("attacker"), boss("b0", 100_000), boss("b1", 100_000), boss("b2", 100_000), boss("b3", 100_000), boss("b4", 100_000), boss("b5", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_splash(
+            &mut units,
+            0,
+            1,
+            50.0,
+            1.0,
+            tunables.splash_extra_targets as usize + extra_splash_targets,
+            None,
+            0,
+            &mut events,
+            &mut rolls,
+            &mut rng,
+            &tunables,
+        );
+        assert_eq!(
+            attack_count_from(&events, "attacker"),
+            tunables.splash_extra_targets as usize + extra_splash_targets,
+            "the tunable base + the caller's own passive bonus, both preserved"
+        );
+    }
+
+    // ---- Radiant Smite heal: newly roll-gated, own base + Zealotry preserved ----
+
+    fn hurt_ally(id: &str) -> CombatSimUnit {
+        let mut u = player(id);
+        u.hp = 1;
+        u
+    }
+
+    #[test]
+    fn radiant_smite_heal_zero_splash_falls_back_to_the_support_floor() {
+        let tunables = LiveTunables::default();
+        let mut units = vec![player("healer")];
+        for i in 0..6 {
+            units.push(hurt_ally(&format!("ally{i}")));
+        }
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        // splash_fraction 0.0, no smite_extra_targets - this used to be
+        // completely unconditional (no gate at all); now it falls back
+        // to the support floor, never zero.
+        apply_radiant_smite_heal(&mut units, 0, 0.1, 0.0, 0, 0, &mut events, &mut rng, &tunables);
+        let healed_count = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
+        assert_eq!(healed_count, tunables.splash_support_floor_targets as usize, "0% splash - Radiant Smite still heals the support floor, never zero, never the old flat HEAL_SPLASH_MAX_TARGETS");
+    }
+
+    #[test]
+    fn radiant_smite_heal_keeps_its_own_base_plus_zealotrys_bonus_on_a_guaranteed_roll() {
+        let tunables = LiveTunables::default();
+        let mut units = vec![player("healer")];
+        for i in 0..6 {
+            units.push(hurt_ally(&format!("ally{i}")));
+        }
+        let mut events = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        let zealotry_extra_targets = 1u32; // Zealotry's own bonus
+        apply_radiant_smite_heal(&mut units, 0, 0.1, 1.0, zealotry_extra_targets, 0, &mut events, &mut rng, &tunables);
+        let healed_count = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
+        assert_eq!(healed_count, HEAL_SPLASH_MAX_TARGETS + zealotry_extra_targets as usize, "HEAL_SPLASH_MAX_TARGETS (2) + Zealotry's own +1 - not a flat tunable value");
+    }
+
+    // ---- The four newly-gated SUPPORT sites (Option B -> Option A refinement) ----
+
+    #[test]
+    fn relentless_flames_zero_splash_still_debuffs_the_support_floor() {
+        let mut atk = player("elementalist");
+        atk.relentlessflames_pct_per_stack = 0.01;
+        // atk.splash left at its default 0.0.
+        let mut units = vec![atk, boss("a", 1_000_000), boss("b", 1_000_000), boss("c", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let tunables = LiveTunables::default();
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut StdRng::seed_from_u64(1), &tunables);
+        let debuffed = units[1..].iter().filter(|u| u.relentlessflames_dmg_taken_pct > 0.0).count();
+        assert_eq!(debuffed, tunables.splash_support_floor_targets as usize, "0% splash - still debuffs the support floor, never zero");
+    }
+
+    #[test]
+    fn relentless_flames_guaranteed_splash_hits_the_player_base() {
+        let mut atk = player("elementalist");
+        atk.relentlessflames_pct_per_stack = 0.01;
+        atk.splash = 1.0; // guaranteed
+        let mut units = vec![atk, boss("a", 1_000_000), boss("b", 1_000_000), boss("c", 1_000_000), boss("d", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let tunables = LiveTunables::default();
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut StdRng::seed_from_u64(1), &tunables);
+        let debuffed = units[1..].iter().filter(|u| u.relentlessflames_dmg_taken_pct > 0.0).count();
+        assert_eq!(debuffed, tunables.splash_extra_targets as usize, "guaranteed roll - the player-side base target count");
+    }
+
+    #[test]
+    fn cauterizing_flames_zero_splash_still_debuffs_the_support_floor() {
+        let mut atk = player("elementalist");
+        atk.cauterizingflames_pct = 0.05;
+        let mut units = vec![atk, boss("a", 1_000_000), boss("b", 1_000_000), boss("c", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let tunables = LiveTunables::default();
+        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut StdRng::seed_from_u64(1), &tunables);
+        let debuffed = units[1..].iter().filter(|u| u.temp_heal_reduction_pct > 0.0).count();
+        assert_eq!(debuffed, tunables.splash_support_floor_targets as usize, "0% splash - still debuffs the support floor, never zero");
+    }
+
+    #[test]
+    fn cleansing_flames_cleanse_count_zero_splash_still_cleanses_the_support_floor() {
+        let mut atk = player("elementalist");
+        atk.cleansingflames_chance = 1.0; // guaranteed cleanse roll itself
+        let mut debuffed_allies: Vec<CombatSimUnit> = (0..3)
+            .map(|i| {
+                let mut a = player(&format!("ally{i}"));
+                a.boss_focus_stacks = 0.20;
+                a
+            })
+            .collect();
+        let mut units = vec![atk];
+        units.append(&mut debuffed_allies);
+        let mut events = Vec::new();
+        let tunables = LiveTunables::default();
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut StdRng::seed_from_u64(1), &tunables);
+        let cleansed = units[1..].iter().filter(|u| u.boss_focus_stacks == 0.0).count();
+        assert_eq!(cleansed, tunables.splash_support_floor_targets as usize, "0% splash - the cleanse-count subset falls back to the support floor, never zero, never the old flat HEAL_SPLASH_MAX_TARGETS");
+    }
+
+    #[test]
+    fn cleansing_flames_buff_refresh_zero_splash_is_not_actually_unconditional() {
+        // The pre-2026-08-20 doc comment called this refresh
+        // "UNCONDITIONAL" - true only in the narrow sense of "not gated
+        // on the cleanse roll's own success." It was always
+        // HEAL_SPLASH_MAX_TARGETS-limited, and is now support-floor-
+        // limited instead - never truly every injured ally.
+        let mut atk = player("elementalist");
+        atk.cleansingflames_chance = 0.0; // cleanse itself never invested/rolled
+        atk.enshroudedfire_evasion_pct = 0.09;
+        let mut allies: Vec<CombatSimUnit> = (0..3).map(|i| player(&format!("ally{i}"))).collect();
+        let mut units = vec![atk];
+        units.append(&mut allies);
+        let mut events = Vec::new();
+        let tunables = LiveTunables::default();
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut StdRng::seed_from_u64(1), &tunables);
+        let buffed = units[1..].iter().filter(|u| u.temp_evasion_buff > 0.0).count();
+        assert_eq!(buffed, tunables.splash_support_floor_targets as usize, "0% splash - only the support floor gets buffed, not all 3 injured allies");
+    }
+
+    #[test]
+    fn cleansing_flames_buff_refresh_guaranteed_splash_hits_the_player_base() {
+        let mut atk = player("elementalist");
+        atk.cleansingflames_chance = 0.0;
+        atk.enshroudedfire_evasion_pct = 0.09;
+        atk.splash = 1.0; // guaranteed
+        let mut allies: Vec<CombatSimUnit> = (0..3).map(|i| player(&format!("ally{i}"))).collect();
+        let mut units = vec![atk];
+        units.append(&mut allies);
+        let mut events = Vec::new();
+        let tunables = LiveTunables::default();
+        tick_cleansing_flames(&mut units, 0, 1_000, &mut events, &mut StdRng::seed_from_u64(1), &tunables);
+        let buffed = units[1..].iter().filter(|u| u.temp_evasion_buff > 0.0).count();
+        assert_eq!(buffed, tunables.splash_extra_targets as usize, "guaranteed roll - the player-side base target count");
     }
 }
 

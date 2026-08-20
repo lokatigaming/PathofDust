@@ -227,6 +227,84 @@ pub struct LiveTunables {
     pub shattering_damage_pct_rank2: f64,
     /// Same mechanic - rank 3.
     pub shattering_damage_pct_rank3: f64,
+    /// Splash redesign (2026-08-20, owner ruling - splash % becomes the
+    /// CHANCE a splash-keyed effect happens at all, capped at 100%, per
+    /// action - see `roll_splash`, `combat.rs`). This is how many extra
+    /// targets a SUCCESSFUL roll hits, before any overcap bonus. Was the
+    /// hardcoded `PLAYER_SPLASH_MAX_TARGETS`/`HEAL_SPLASH_MAX_TARGETS`
+    /// constants (both 2, now retired from live use - kept defined,
+    /// unread by combat code, only because `adventure_web/wiki.rs`'s
+    /// placeholder substitution still reads them by name and that module
+    /// is off-limits to this feature; see this feature's WIKI_IMPACT.md
+    /// entry). Unified into ONE tunable since nothing in this codebase
+    /// has ever actually wanted the attack-splash and heal-splash base
+    /// counts to differ. THIS IS A BASE, NOT A UNIVERSAL REPLACEMENT
+    /// (2026-08-20 addendum, "Option A - additive, caller-neutral" owner
+    /// ruling): a caller's own additive bonus on top (Radiant Smite's
+    /// `smite_extra_targets`, Storm of Arrows/Wider Burst/Stormcaller's
+    /// bonus splash) still applies on top of this, fully preserved and
+    /// unaffected by the redesign - `roll_splash` takes each caller's own
+    /// (base + bonus) as `base_extra_targets` and only layers the
+    /// roll/floor/overcap/ladder decision on top, it never overwrites a
+    /// caller's count with this field's value directly. Boss-side base
+    /// caps (`ENEMY_SPLASH_MAX_TARGETS`/`CUBE_SPLASH_MAX_TARGETS`/the
+    /// Dragon's whole-party sweep) are likewise deliberately NOT unified
+    /// into this field - they stay their own, smaller/larger, mechanic-
+    /// specific caps, passed to `roll_splash` as ITS `base_extra_targets`
+    /// too. Only the roll/floor/overcap/ladder LAYER is shared.
+    pub splash_extra_targets: u32,
+    /// The floor target count for the four SUPPORT splash sites (Radiant
+    /// Smite heal, Relentless Flames, Cauterizing Flames, Cleansing
+    /// Flames' cleanse-count and buff-refresh) when a roll fails or
+    /// splash is 0% - these four "never do nothing" by owner ruling
+    /// (2026-08-20 FINAL SPLASH TABLE), unlike the two ATTACK splash
+    /// sites (`apply_splash`/`apply_heal_splash`), which get 0 extra
+    /// targets on a miss/zero splash and so never pass this floor to
+    /// `roll_splash` (they pass a literal `0`). Default 1: a zero-splash
+    /// character still affects exactly 1 target with these four
+    /// mechanics, just never more, until splash is invested.
+    pub splash_support_floor_targets: u32,
+    /// Same mechanic - extra targets ADDED when splash is overcapped
+    /// (strictly above 100%, i.e. `splash_fraction > 1.0` - matches the
+    /// OLD overcap threshold exactly) - see `roll_splash`. Retires the
+    /// old hardcoded `SPLASH_OVERFLOW_BONUS_TARGETS` constant (was 2,
+    /// always added; this is 1 by default, i.e. an overcapped hit is 3
+    /// extra targets on TOP of the caller's own base - not the old flat
+    /// 4). A deliberate owner ruling, made with the Slayer Flicker Strike
+    /// interaction (built specifically to push a Rogue into overflow
+    /// territory) explicitly flagged and NOT preserved. Shared by every
+    /// splash consumer including boss-side splash (Cube/Dragon are
+    /// pinned at exactly `splash_fraction == 1.0`, which is not `> 1.0`,
+    /// so neither ever triggers this OR the ladder below - by
+    /// construction, not coincidence - unaffected either way).
+    pub splash_overcap_bonus_targets: u32,
+    /// The ladder step size, in whole splash percentage points, for
+    /// additional overcap targets beyond the flat `splash_overcap_bonus_targets`
+    /// (2026-08-20 FINAL SPLASH TABLE - built this pass, superseding the
+    /// earlier "document only" deferral). Default 1000 (i.e. every full
+    /// 1000% of splash, on TOP of the >100% overcap threshold, adds
+    /// another `splash_ladder_targets_per_step`): 101-999% = the flat
+    /// overcap bonus only (no ladder step yet), 1000-1999% = +1 step,
+    /// 2000-2999% = +2 steps, and so on, uncapped. `0` disables the
+    /// ladder term entirely (treated as "no step ever reached").
+    pub splash_ladder_step_pct: u32,
+    /// Targets added per ladder step above - see `splash_ladder_step_pct`.
+    /// Default 1.
+    pub splash_ladder_targets_per_step: u32,
+    /// Same mechanic - the fraction of the primary hit/heal's own amount
+    /// each splash target takes on a successful roll, now FLAT
+    /// regardless of the roll's own percentage (was
+    /// `splash_fraction.min(1.0)` - damage/heal used to scale down with
+    /// less investment; now every successful splash is worth the same
+    /// fixed fraction of the primary, default 1.0 = full value, per the
+    /// owner's "each takes FULL primary damage" ruling). Only consumed
+    /// by `apply_splash`/`apply_heal_splash` - the other 4 splash-keyed
+    /// mechanics (Radiant Smite, Relentless/Cauterizing Flames,
+    /// Cleansing Flames' cleanse count and its Enshrouded/Guardian/
+    /// Shielding Fire buff-refresh) apply a debuff/buff/their own
+    /// already-full-value heal, not a splash-scaled amount, so this
+    /// field is irrelevant to them regardless of its value.
+    pub splash_damage_pct: f64,
 }
 
 impl Default for LiveTunables {
@@ -265,6 +343,12 @@ impl Default for LiveTunables {
             shattering_damage_pct_rank1: 0.01,
             shattering_damage_pct_rank2: 0.01,
             shattering_damage_pct_rank3: 0.01,
+            splash_extra_targets: 2,
+            splash_support_floor_targets: 1,
+            splash_overcap_bonus_targets: 1,
+            splash_ladder_step_pct: 1000,
+            splash_ladder_targets_per_step: 1,
+            splash_damage_pct: 1.0,
         }
     }
 }
