@@ -27,3 +27,4 @@ base64 = "0.22"
 pulldown-cmark = "0.12"
 minijinja = { version = "2", features = ["loader"] }
 minijinja-autoreload = "2"
+flate2 = "1"

@@ -2087,8 +2087,9 @@ async fn overlay_page(State(state): State<AppState>, headers: HeaderMap, Query(p
 /// OBS-only overlay server's own "push-only, no login" shape) - this
 /// feed is the same fight/roster snapshot data an anonymous OBS Browser
 /// Source already gets, nothing account-specific.
-async fn overlay_ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| crate::adventure_overlay_server::handle_socket(socket, state.adventure.clone()))
+async fn overlay_ws_handler(ws: WebSocketUpgrade, Query(params): Query<crate::adventure_overlay_server::WsParams>, State(state): State<AppState>) -> impl IntoResponse {
+    let compress = params.wants_compression();
+    ws.on_upgrade(move |socket| crate::adventure_overlay_server::handle_socket(socket, state.adventure.clone(), compress))
 }
 
 /// Browse every character that's ever `!join`ed - login-gated same as

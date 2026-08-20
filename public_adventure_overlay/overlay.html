@@ -2315,22 +2315,103 @@
 
   requestAnimationFrame(draw);
 
-  function connect() {
+  // Same encounter/state message shape whether it arrives over our own
+  // /ws socket or (embed mode below) via postMessage from a parent frame.
+  function handleOverlayMessage(payload) {
+    const msg = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    if (msg.type === 'state') {
+      applyState(msg);
+    } else if (msg.type === 'encounter') {
+      applyEncounter(msg);
+    }
+  }
+
+  // ?wire=deflate (2026-08-20, overlay-bandwidth work phase 1 item 1) -
+  // opt-in application-layer compression, NOT the WebSocket protocol's
+  // own permessage-deflate extension (see adventure_overlay_server.rs's
+  // own doc for why - the underlying stack has no such extension to
+  // negotiate). This exact key/value is a hard contract with
+  // PathOfDust_Desktop 2.6.0's already-shipped client, not a free
+  // choice. Requested by default here since OBS Browser Sources and
+  // direct viewers (this page's own two audiences that actually scale)
+  // are both Chromium/modern-browser and support DecompressionStream -
+  // this is what captures the wire-bytes win immediately, per the
+  // census. `useCompression` starts `true` and only ever downgrades to
+  // `false` (via the fallback below), never the other way - a session
+  // that had to fall back stays on plain text for its own remaining
+  // reconnects rather than retrying compression forever.
+  function connect(useCompression) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    const wireParam = useCompression ? '?wire=deflate' : '';
+    const ws = new WebSocket(`${proto}//${location.host}/ws${wireParam}`);
+    ws.binaryType = 'arraybuffer';
+    // Guards against `onclose`'s own auto-reconnect ALSO firing when we
+    // deliberately close this socket to fall back - without this, a
+    // fallback could race its own onclose handler into reconnecting
+    // with compression still on.
+    let fallingBack = false;
+    function fallBackToPlain() {
+      if (fallingBack) return;
+      fallingBack = true;
+      ws.close();
+      connect(false);
+    }
     ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'state') {
-        applyState(msg);
-      } else if (msg.type === 'encounter') {
-        applyEncounter(msg);
+      if (typeof event.data === 'string') {
+        handleOverlayMessage(event.data);
+        return;
       }
+      // A binary frame - the server only ever sends one of these when
+      // this connection asked for `wire=deflate`, so decompress before
+      // parsing. Falls back to a plain reconnect if the API is missing
+      // or a decompress attempt ever fails, rather than silently going
+      // blank.
+      if (typeof DecompressionStream === 'undefined') {
+        fallBackToPlain();
+        return;
+      }
+      const stream = new Blob([event.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      new Response(stream)
+        .text()
+        .then(handleOverlayMessage)
+        .catch(fallBackToPlain);
     };
-    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onclose = () => {
+      if (fallingBack) return;
+      setTimeout(() => connect(useCompression), 2000);
+    };
     ws.onerror = () => ws.close();
   }
 
-  connect();
+  // ?feed=parent (2026-08-20, overlay-bandwidth work phase 1 item 2) -
+  // when the overlay is embedded in the desktop app's own iframe rather
+  // than loaded standalone (OBS Browser Source, a direct viewer), skip
+  // opening our own socket entirely and instead listen for the SAME
+  // encounter/state payloads via window.postMessage from the parent -
+  // the desktop app owns one real /ws connection and bridges it into
+  // every embedded overlay instance instead of each one opening its
+  // own. Deliberately NOT `?embed=app` - every desktop already installed
+  // sends that on its iframe URL today (pre-existing, unrelated to this
+  // work), so suppressing on it would blank every live desktop's
+  // overlay the instant this deploys, before their own hot-pull update
+  // lands. `feed=parent` is a fresh key the desktop-side PR will only
+  // start sending once its own bridge is actually in place, making
+  // deploy order irrelevant. No origin check: this page carries no
+  // auth/session and has never gated /ws on one either (see
+  // overlay_ws_handler's own doc) - the only effect of a message is
+  // what gets drawn on screen. Default behavior (OBS, direct viewers,
+  // and every existing ?embed=app desktop) is completely unchanged -
+  // this is additive, gated entirely behind the new query param.
+  const feedMode = new URLSearchParams(location.search).get('feed');
+  if (feedMode === 'parent') {
+    window.addEventListener('message', (event) => {
+      if (event.data && (typeof event.data === 'object' || typeof event.data === 'string')) {
+        handleOverlayMessage(event.data);
+      }
+    });
+  } else {
+    connect(true);
+  }
 </script>
 </body>
 </html>

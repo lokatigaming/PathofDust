@@ -57,3 +57,4 @@ zstd = "0.13"
 pulldown-cmark = "0.12"
 minijinja = { version = "2", features = ["loader"] }
 minijinja-autoreload = "2"
+flate2 = "1"

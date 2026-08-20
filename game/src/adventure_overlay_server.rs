@@ -9,11 +9,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
+use flate2::write::DeflateEncoder;
+use flate2::Compression;
 use futures_util::{SinkExt, StreamExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::io::Write;
 use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
 
@@ -78,8 +81,33 @@ async fn serve_index(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state.manager))
+/// Opt-in compression negotiation (2026-08-20, overlay-bandwidth work
+/// phase 1 item 1 - see `handle_socket`'s own doc for the full "why not
+/// permessage-deflate" reasoning). `?wire=deflate` on the `/ws` URL is
+/// the entire negotiation - deliberately NOT a WebSocket subprotocol
+/// (`Sec-WebSocket-Protocol`), since a query param needs no client-side
+/// API most consumers here don't already reach for, and keeps the
+/// negotiation visible in a plain URL for debugging. The exact key/value
+/// (`wire=deflate`, not e.g. `compress=1`) is a hard contract with the
+/// already-shipped PathOfDust_Desktop 2.6.0 client, which sends this
+/// literal string - it is NOT a free choice on this side. Any other
+/// value (including absent) means plain text frames, exactly today's
+/// behavior - this is the hard requirement the opt-in itself depends on.
+#[derive(Deserialize)]
+pub(crate) struct WsParams {
+    #[serde(default)]
+    wire: String,
+}
+
+impl WsParams {
+    pub(crate) fn wants_compression(&self) -> bool {
+        self.wire == "deflate"
+    }
+}
+
+async fn ws_handler(ws: WebSocketUpgrade, Query(params): Query<WsParams>, State(state): State<AppState>) -> impl IntoResponse {
+    let compress = params.wants_compression();
+    ws.on_upgrade(move |socket| handle_socket(socket, state.manager, compress))
 }
 
 #[derive(Serialize)]
@@ -98,19 +126,54 @@ struct EncounterEnvelope<'a> {
     result: &'a EncounterResult,
 }
 
+/// `compress: false` sends the exact same `Message::Text(json)` frame as
+/// before this feature existed. `compress: true` raw-deflate-compresses
+/// `json` (RFC 1951, no zlib/gzip header or trailer) and wraps it as a
+/// binary frame instead - matches exactly what the browser's
+/// `DecompressionStream('deflate-raw')` expects on the other end (see
+/// overlay.html's own decompression code).
+fn send_ready_message(json: String, compress: bool) -> Message {
+    if !compress {
+        return Message::Text(json);
+    }
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+    // Writing to a Vec<u8> and dropping the encoder's own error type
+    // (`io::Error`) can't actually fail here - infallible in practice,
+    // matching the same "the sink is in memory" reasoning `io::Write`
+    // impls for `Vec` always carry.
+    let _ = encoder.write_all(json.as_bytes());
+    let compressed = encoder.finish().unwrap_or_default();
+    Message::Binary(compressed)
+}
+
 /// `pub(crate)` (not just `fn`) - adventure_web.rs's own `/ws` route
 /// reuses this exact function so the public dashboard (port 4005,
 /// already tunneled to adventure.lokati.net) can serve the SAME overlay
 /// page/feed without needing its own separate public port/DNS entry -
 /// see adventure_web.rs's own `/overlay` route doc.
-pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManager>) {
+///
+/// `compress` (2026-08-20, overlay-bandwidth work phase 1 item 1) - an
+/// opt-in, per-client application-layer compression scheme, NOT the
+/// WebSocket protocol's own permessage-deflate extension: neither axum
+/// 0.7 nor the tungstenite 0.21 it wraps implement that extension at
+/// all (verified directly against both crates' source - there's no
+/// config hook to flip), so the same ~16x wire-byte reduction the
+/// overlay-bandwidth census measured is delivered here instead, one
+/// layer up. `false` (the default for any client that doesn't ask,
+/// including every consumer that predates this - installed desktops,
+/// OBS shells, anything else on the public socket) sends the exact
+/// same `Message::Text(json)` frames as before this change, byte for
+/// byte - the hard requirement this whole feature was built around.
+/// `true` sends the identical JSON, raw-deflate compressed, as a
+/// binary frame instead (see `compressed_message`).
+pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManager>, compress: bool) {
     let (mut sink, mut stream) = socket.split();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
 
     // Send the current roster/stage immediately so a freshly (re)connected
     // overlay doesn't sit blank until the next change or encounter.
     if let Ok(json) = serde_json::to_string(&StateEnvelope { kind: "state", snapshot: &manager.snapshot().await }) {
-        let _ = out_tx.send(Message::Text(json));
+        let _ = out_tx.send(send_ready_message(json, compress));
     }
 
     let mut sink_task = tokio::spawn(async move {
@@ -127,7 +190,7 @@ pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManag
         tokio::spawn(async move {
             while let Ok(snapshot) = rx.recv().await {
                 let Ok(json) = serde_json::to_string(&StateEnvelope { kind: "state", snapshot: &snapshot }) else { continue };
-                if out_tx.send(Message::Text(json)).is_err() {
+                if out_tx.send(send_ready_message(json, compress)).is_err() {
                     break;
                 }
             }
@@ -140,7 +203,7 @@ pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManag
         tokio::spawn(async move {
             while let Ok(result) = rx.recv().await {
                 let Ok(json) = serde_json::to_string(&EncounterEnvelope { kind: "encounter", result: &result }) else { continue };
-                if out_tx.send(Message::Text(json)).is_err() {
+                if out_tx.send(send_ready_message(json, compress)).is_err() {
                     break;
                 }
             }
@@ -162,4 +225,55 @@ pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManag
     state_task.abort();
     encounter_task.abort();
     recv_task.abort();
+}
+
+#[cfg(test)]
+mod compression_opt_in_tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn absent_or_wrong_wire_value_means_no_compression() {
+        assert!(!WsParams { wire: String::new() }.wants_compression());
+        assert!(!WsParams { wire: "1".to_string() }.wants_compression());
+        assert!(!WsParams { wire: "gzip".to_string() }.wants_compression());
+        assert!(!WsParams { wire: "DEFLATE".to_string() }.wants_compression(), "exact match only - no case-insensitivity, matching the desktop client's own literal string");
+        assert!(WsParams { wire: "deflate".to_string() }.wants_compression());
+    }
+
+    #[test]
+    fn compress_false_sends_the_exact_same_text_frame_as_before_this_feature() {
+        let json = r#"{"type":"state","stage":42}"#.to_string();
+        let msg = send_ready_message(json.clone(), false);
+        assert_eq!(msg, Message::Text(json), "the plain path must be byte-for-byte unchanged for a client that never opts in");
+    }
+
+    #[test]
+    fn compress_true_round_trips_to_the_exact_original_json() {
+        let json = r#"{"type":"encounter","units":[{"id":"a","hp":100},{"id":"b","hp":200}],"events":[]}"#.to_string();
+        let msg = send_ready_message(json.clone(), true);
+        let Message::Binary(compressed) = msg else { panic!("compress: true must send a Binary frame, not Text") };
+        assert!(compressed.len() < json.len(), "a real JSON payload should actually shrink, not just change format");
+        let mut decoder = flate2::read::DeflateDecoder::new(&compressed[..]);
+        let mut decompressed = String::new();
+        decoder.read_to_string(&mut decompressed).expect("must decompress as valid raw deflate - no zlib/gzip header, matching DecompressionStream('deflate-raw')");
+        assert_eq!(decompressed, json, "round-tripped JSON must be byte-for-byte identical to the original");
+    }
+
+    #[test]
+    fn a_realistic_repeated_payload_compresses_well_past_the_census_target() {
+        // Real fight payloads are highly repetitive (the same field names,
+        // similar unit shapes, over and over) - a synthetic stand-in here,
+        // not a claim this matches the real 16x figure exactly (that's
+        // measured against a real encounter separately, see the deploy
+        // report), just a sanity check that THIS mechanism is capable of
+        // real-world-shaped compression ratios, not just round-tripping
+        // trivially on tiny inputs.
+        let unit = r#"{"id":"unit_id","hp":123456,"maxHp":200000,"atk":9999,"role":"melee"}"#;
+        let json = format!(r#"{{"type":"encounter","units":[{}]}}"#, vec![unit; 200].join(","));
+        let msg = send_ready_message(json.clone(), true);
+        let Message::Binary(compressed) = msg else { panic!("expected Binary") };
+        let ratio = json.len() as f64 / compressed.len() as f64;
+        assert!(ratio > 15.0, "expected >15x on a realistically repetitive payload, got {ratio:.1}x ({} -> {} bytes)", json.len(), compressed.len());
+    }
 }
