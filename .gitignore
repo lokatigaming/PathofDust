@@ -66,6 +66,9 @@ patreon-tokens.json
 /backup-pre-golem-inheritance
 # Pre-shattering-toggle-deploy rollback backup, same discipline.
 /backup-pre-shattering-toggle
+# Pre-vitals-fix-deploy rollback backup (release A - thunder_golem_redirect
+# ownership scoping), same discipline.
+/backup-pre-vitals-fix
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
