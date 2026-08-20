@@ -2526,6 +2526,12 @@ struct TunablesForm {
     /// unchecked convention as `permanent_rampage` above.
     #[serde(default)]
     shattering_enabled: Option<String>,
+    /// See `LiveTunables::shattering_damage_pct_rank1`'s doc.
+    shattering_damage_pct_rank1: f64,
+    /// See `LiveTunables::shattering_damage_pct_rank2`'s doc.
+    shattering_damage_pct_rank2: f64,
+    /// See `LiveTunables::shattering_damage_pct_rank3`'s doc.
+    shattering_damage_pct_rank3: f64,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2577,6 +2583,9 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 rf_self_damage_pct_rank1: form.rf_self_damage_pct_rank1.clamp(0.0, 1.0),
                 rf_self_damage_pct_rank2: form.rf_self_damage_pct_rank2.clamp(0.0, 1.0),
                 rf_self_damage_pct_rank3: form.rf_self_damage_pct_rank3.clamp(0.0, 1.0),
+                shattering_damage_pct_rank1: form.shattering_damage_pct_rank1.clamp(0.0, 1.0),
+                shattering_damage_pct_rank2: form.shattering_damage_pct_rank2.clamp(0.0, 1.0),
+                shattering_damage_pct_rank3: form.shattering_damage_pct_rank3.clamp(0.0, 1.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3330,6 +3339,22 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
             <h2>Water Golem Shattering</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
             <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
+            <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
+              <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
+              <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
+              <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+            </div>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
@@ -3365,6 +3390,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
         shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
+        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
+        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
+        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
     )
 }
 

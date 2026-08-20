@@ -2116,9 +2116,18 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "watergolem",
         "Shattering",
         "When an enemy dies in the Water Golem's presence, it explodes, sending icicles at (splash + 1) nearby enemies at rank 1 - +1 per additional rank (splash + 3 at 3/3), each dealing damage equal to 1% of the dead enemy's health.",
-        // A COUNT (1/2/3, added to splash's own target count), not a
-        // magnitude - read via `passive_node_rank` directly at the real
-        // call site.
+        // This node's PRIMARY value is target count (2026-08-20 revised
+        // convention - see `LiveTunables`'s own doc for the general
+        // rule: a node's magnitude carries its primary numeric aspect,
+        // additional aspects get named per-rank LiveTunables). A COUNT
+        // (1/2/3, added to splash's own target count), read via
+        // `passive_node_rank` directly at the real call site - not this
+        // magnitude table, which exists for display/tooltip consistency
+        // (an admin retuning this node's own magnitude has no effect on
+        // target count, by design - rank IS the count here). The
+        // icicle's damage basis is a SEPARATE aspect, no longer read
+        // from this node at all - see `LiveTunables::shattering_damage_pct_rank1`'s
+        // own doc.
         Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
 ];
@@ -2499,6 +2508,11 @@ mod tree_shape_tests {
 
     #[test]
     fn elementalist_shattering_reaches_3_extra_targets_at_max_rank() {
+        // Target count is this node's PRIMARY value (2026-08-20 revised
+        // convention) - read via `passive_node_rank` at the real call
+        // site, not this magnitude table directly, but shipped matching
+        // it 1:1 for display/tooltip consistency. Damage pct lives on
+        // its own named LiveTunables now, not this node at all.
         let node = node_by_key(Archetype::Elementalist, "shattering");
         assert_eq!(node.magnitude_at_rank(1), 1.0);
         assert!((node.magnitude_at_rank(3) - 3.0).abs() < 1e-9);

@@ -6451,16 +6451,26 @@ pub(crate) fn golem_may_produce_heals(unit: &CombatSimUnit) -> bool {
 /// party site ultimately funnels through) rather than a targeting
 /// preference. A no-op when `target_idx` is already boss-side (damage TO
 /// an enemy never redirects) or already IS a Thunder Golem (it doesn't
-/// redirect its own incoming damage onto itself). 2026-08-19 bugfix -
-/// otherwise redirects to an alive Thunder Golem on `target_idx`'s own
-/// side if one exists (the original behavior); if none exists AND
-/// `target_idx` is itself a protected (non-Thunder) golem, redirects to a
-/// random alive REAL player instead (never another golem - see
-/// `is_protected_golem`) so a reform-gap hit that happened to be aimed
-/// directly at e.g. a Water Golem still can't land on it. Falls through to
-/// `target_idx` unchanged only in the degenerate case where no real player
-/// is alive either - `apply_hit`'s own downstream `is_damage_immune` check
-/// (via `resolve_hit`) is the final backstop even then.
+/// redirect its own incoming damage onto itself).
+///
+/// **Reverted back to party-wide (2026-08-20) - owner-scoping (briefly
+/// live as the #33 "fix") was itself a regression, not a fix.** The
+/// owner ruling: Thunder Golem absorption is PARTY-WIDE per the
+/// founding spec ("absorbs all damage the party takes until it dies") -
+/// confirmed against both `docs/elementalist_spec.md`'s own Stage 0
+/// design (this function steers a hit to "an alive Thunder Golem's
+/// index on that side" - the whole party's side, not owner-scoped) and
+/// wiki/golems.md's standing player-facing text. The playerVitals
+/// regression this was built to fix (#33 - most players in a shared
+/// encounter pinned at 1-2 hpSamples) is NOT a bug: flat party
+/// hpSamples during Thunder Golem uptime are the truthful picture of
+/// party-wide immunity actually working, punctuated by real
+/// redistribution bursts whenever a Thunder Golem dies. Tank-credit
+/// attribution (`thundergolem_absorbed_this_incarnation`/
+/// `thundergolem_net_absorbed`, consumed by the redistribution
+/// mechanic) stays per-golem to its own owner regardless of whose
+/// damage it absorbed - that accounting was never scoped by this
+/// function and needed no change either direction.
 pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize, rng: &mut impl Rng) -> usize {
     if units[target_idx].is_boss || units[target_idx].golem_type == Some(GolemType::Thunder) {
         return target_idx;
@@ -6475,6 +6485,87 @@ pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize,
         }
     }
     target_idx
+}
+
+#[cfg(test)]
+mod thunder_golem_redirect_party_wide_tests {
+    use super::*;
+
+    fn player(id: &str) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 1000, max_hp: 1000, ..Default::default() }
+    }
+
+    fn thunder_golem(id: &str, summoner_id: &str) -> CombatSimUnit {
+        CombatSimUnit {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            alive: true,
+            hp: 500,
+            max_hp: 500,
+            is_golem: true,
+            golem_type: Some(GolemType::Thunder),
+            golem_summoner_id: Some(summoner_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn water_golem(id: &str, summoner_id: &str) -> CombatSimUnit {
+        CombatSimUnit {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            alive: true,
+            hp: 500,
+            max_hp: 500,
+            is_golem: true,
+            golem_type: Some(GolemType::Water),
+            golem_summoner_id: Some(summoner_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_players_own_thunder_golem_absorbs_the_hit() {
+        let units = vec![player("alice"), thunder_golem("alice_golem", "alice")];
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        assert_eq!(thunder_golem_redirect(&units, 0, &mut rng), 1);
+    }
+
+    #[test]
+    fn party_wide_restored_2026_08_20_another_summoners_thunder_golem_absorbs_a_strangers_damage() {
+        // The owner's ruling (2026-08-20): Thunder Golem absorption is
+        // PARTY-WIDE by design, per the founding spec ("absorbs all
+        // damage the party takes until it dies") - bob has no Thunder
+        // Golem of his own, but alice's is alive elsewhere in the same
+        // encounter, and it must still absorb bob's damage. A brief
+        // owner-scoped "fix" (#33) reversed this exact case; this is the
+        // direct regression test for that reversal.
+        let units = vec![player("bob"), player("alice"), thunder_golem("alice_golem", "alice")];
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        assert_eq!(thunder_golem_redirect(&units, 0, &mut rng), 2, "bob's damage must redirect to alice's Thunder Golem - party-wide protection, not owner-scoped");
+    }
+
+    #[test]
+    fn a_protected_golem_redirects_to_any_alive_thunder_golem_even_a_strangers() {
+        let units = vec![player("bob"), thunder_golem("alice_thunder", "alice"), water_golem("bob_water", "bob")];
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        assert_eq!(thunder_golem_redirect(&units, 2, &mut rng), 1, "a hit aimed at bob's own Water Golem redirects to ANY alive Thunder Golem, even one belonging to a different summoner");
+    }
+
+    #[test]
+    fn a_protected_golem_with_no_thunder_golem_anywhere_falls_back_to_a_random_real_player() {
+        let units = vec![player("bob"), player("alice"), water_golem("alice_water", "alice")];
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let redirected = thunder_golem_redirect(&units, 2, &mut rng);
+        assert!(redirected == 0 || redirected == 1, "falls back to SOME real player when no Thunder Golem exists anywhere");
+    }
+
+    #[test]
+    fn a_boss_target_and_a_thunder_golems_own_incoming_damage_are_both_no_ops() {
+        let units = vec![player("alice"), thunder_golem("alice_golem", "alice"), CombatSimUnit { id: "boss".to_string(), is_boss: true, alive: true, hp: 1, max_hp: 1, ..Default::default() }];
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        assert_eq!(thunder_golem_redirect(&units, 2, &mut rng), 2, "damage to a boss never redirects");
+        assert_eq!(thunder_golem_redirect(&units, 1, &mut rng), 1, "a Thunder Golem doesn't redirect its own incoming damage onto itself");
+    }
 }
 
 /// Healing Flames' own per-rank regen fraction (docs/elementalist_spec.md)
@@ -7121,11 +7212,78 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
     units[target_idx].next_thunder_redistribution_tick_at_ms = if remaining > 0 { at_ms + tick_interval_ms } else { u32::MAX };
 }
 
+/// Water Golem's Shattering icicle damage (2026-08-20, Release B) -
+/// dedicated resolution, deliberately NOT `apply_hit`. The target's own
+/// `damage_reduction` still applies (mitigable, the original ask), but
+/// this does NOT run `roll_attacker_damage` at all, so none of the
+/// attacking golem's own crit/increased-damage/elemental-proc stack
+/// multiplies the base - same "a detonation, not an attack" shape
+/// `apply_righteous_fire_self_damage` already established for RF's
+/// self-burn, reused here because the failure mode was identical: an
+/// earlier version of this function routed icicles through the full
+/// `apply_hit` pipeline, letting a fully-inherited golem's ENTIRE
+/// damage-multiplier stack compound on top of an already-large "1% of a
+/// dead enemy's max HP" base - confirmed live as a real 110,000x
+/// excursion. Tagged `AttackSourceKind::Environmental`, and - just as
+/// important - deliberately does NOT touch `curse_damage_taken_total`
+/// at all (see that field's own doc): Doom's accumulation only ever
+/// happens inside `apply_hit`'s own body, so simply not being
+/// `apply_hit` closes that leak completely on its own - this was the
+/// second half of the same live incident (a golem-less Warlock's Doom
+/// getting inflated 196x by icicle damage landing on their own cursed
+/// target). No evasion/block/shield consultation either, same reasoning
+/// RF's self-burn already documents - this is a detonation, not
+/// something the target actively defends against.
+fn apply_shattering_icicle_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, raw_amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) -> bool {
+    if raw_amount <= 0.0 || !units[target_idx].alive || is_damage_immune(&units[target_idx], at_ms) {
+        return false;
+    }
+    let mut dr_sources = vec![units[target_idx].damage_reduction];
+    if units[target_idx].temp_damage_reduction_bonus > 0.0 && at_ms <= units[target_idx].temp_damage_reduction_bonus_expires_at_ms {
+        dr_sources.push(units[target_idx].temp_damage_reduction_bonus);
+    }
+    let combined_dr = combine_reduction_sources(&dr_sources);
+    let mitigated = raw_amount * (1.0 - combined_dr);
+    let final_damage = mitigated.round().max(0.0) as i64;
+    if final_damage <= 0 {
+        return false;
+    }
+    let hit_id = next_hit_id();
+    let new_hp = (units[target_idx].hp - final_damage).max(0);
+    units[target_idx].hp = new_hp;
+    let source_id = units[source_idx].id.clone();
+    let target_id = units[target_idx].id.clone();
+    events.push(CombatEvent::Attack {
+        at_ms,
+        attacker: source_id,
+        target: target_id.clone(),
+        damage: final_damage.max(0) as u64,
+        unmitigated_damage: raw_amount.round().max(0.0) as u64,
+        target_hp_after: new_hp as u64,
+        is_crit: false,
+        evaded: false,
+        hit_id,
+        source_kind: AttackSourceKind::Environmental,
+    });
+    if new_hp != 0 {
+        return false;
+    }
+    units[target_idx].alive = false;
+    events.push(CombatEvent::Defeat { at_ms, unit: target_id });
+    fire_on_kill(units, source_idx, at_ms, events, rolls, rng);
+    true
+}
+
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
 /// Stage 6) - "when an enemy dies in the Water Golem's presence, it
 /// explodes, sending icicles at (splash + rank) nearby enemies, each
-/// dealing 1% of the dead enemy's health." Since the golem-inheritance
-/// rework (2026-08-20), golems inherit their summoner's real `splash`
+/// dealing [tunable]% of the dead enemy's health" (see
+/// `LiveTunables::shattering_damage_pct_rank1`'s own doc - default 1%
+/// at every rank, live-tunable on `/admin/tunables`; target count
+/// stays this node's own magnitude, live-tunable on `/admin/passives` -
+/// two independent knobs, see `LiveTunables`'s own doc for why they're
+/// split this way). Since the golem-inheritance rework (2026-08-20),
+/// golems inherit their summoner's real `splash`
 /// stat like every other gear/tree stat - the old "golems never invest
 /// splash themselves (always 0.0)" premise no longer holds, so
 /// `splash + rank` can now genuinely exceed `rank` targets for a
@@ -7134,13 +7292,9 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// enemy that just died, matching Ashes to Ashes' own "any enemy" reach
 /// - no per-site audit needed, same reasoning as the rest of this
 /// stage's death-triggered mechanics. A no-op unless an alive Water
-/// Golem with Shattering invested is present. Icicle damage is normal,
-/// mitigable damage (2026-08-20 - see `apply_hit`), not
-/// `apply_true_damage` - it goes through the target's own crit/evasion/
-/// DR resolution same as any other hit landed on a boss, it just
-/// doesn't count as a primary hit (`is_followup: true`, same "a
-/// detonation, not a turn" treatment `apply_splash` gives its own
-/// targets) so it can't itself trigger a chained on-hit proc.
+/// Golem with Shattering invested is present. Icicle damage resolution
+/// - see `apply_shattering_icicle_damage`'s own doc for why this is a
+/// dedicated function, not `apply_hit`.
 /// Non-stacking across multiple Water Golems - only the first alive one
 /// with Shattering invested fires per death, same one-effect-per-fight-
 /// tick spirit as `select_primary_watergolem`'s explicit "highest rank
@@ -7154,7 +7308,17 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// `shattering_enabled` is a live kill-switch (see
 /// `LiveTunables::shattering_enabled`'s own doc) - `false` makes this a
 /// complete no-op, checked first before anything else.
-fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx: usize, dead_enemy_max_hp: u64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng, shattering_enabled: bool) {
+fn handle_shattering_on_enemy_death(
+    units: &mut [CombatSimUnit],
+    dead_enemy_idx: usize,
+    dead_enemy_max_hp: u64,
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+    shattering_enabled: bool,
+    tunables: &LiveTunables,
+) {
     if !shattering_enabled {
         return;
     }
@@ -7167,13 +7331,23 @@ fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx:
         return;
     };
     let max_targets = (units[water_golem_idx].splash.floor() as u32 + units[water_golem_idx].watergolem_shattering_extra_targets) as usize;
-    let icicle_dmg = dead_enemy_max_hp as f64 * 0.01;
+    // `watergolem_shattering_extra_targets` numerically equals the
+    // summoner's own invested rank in `shattering` (1/2/3) - see that
+    // field's own doc - reused here rather than adding a duplicate rank
+    // field just for this lookup.
+    let damage_pct = match units[water_golem_idx].watergolem_shattering_extra_targets {
+        1 => tunables.shattering_damage_pct_rank1,
+        2 => tunables.shattering_damage_pct_rank2,
+        3 => tunables.shattering_damage_pct_rank3,
+        _ => 0.0,
+    };
+    let icicle_dmg = dead_enemy_max_hp as f64 * damage_pct;
     let mut candidates: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != dead_enemy_idx && u.is_boss && u.alive).map(|(i, _)| i).collect();
     let pick_count = max_targets.min(candidates.len());
     for _ in 0..pick_count {
         let pick_at = rng.gen_range(0..candidates.len());
         let target_idx = candidates.remove(pick_at);
-        apply_hit(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng, false, true);
+        apply_shattering_icicle_damage(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng);
     }
 }
 
@@ -10405,11 +10579,26 @@ pub(crate) fn apply_heal_bounce(units: &mut [CombatSimUnit], healer_idx: usize, 
 /// its own before this change; a test can instead pass a seeded
 /// `StdRng` for a genuinely reproducible fight, which the un-injectable
 /// `thread_rng()` this used to build internally could never give.
+/// `fight_seed` (2026-08-20) - the fight's own identity, used ONLY to
+/// order the party deterministically. See the sort-then-shuffle at the
+/// end of the unit construction below for the full reasoning. It is
+/// deliberately NOT mixed into `rng`: this function must consume exactly
+/// the same draws from `rng` as it did before this parameter existed, or
+/// every committed golden-corpus fixture would move.
+/// Fixed `fight_seed` for every in-crate test that runs a battle.
+/// Party ORDER only (see `simulate_battle`) - a constant keeps those
+/// tests deterministic, which is the entire point of the parameter.
+/// Deliberately not varied per test: nothing here asserts on ordering
+/// itself, only on outcomes that must not depend on it.
+#[cfg(test)]
+pub(crate) const TEST_FIGHT_SEED: u64 = 0;
+
 pub(crate) fn simulate_battle(
     characters: &HashMap<String, Character>,
     enemies: Vec<(BossStats, Option<BossKind>, f64)>,
     stage: u32,
     tunables: &LiveTunables,
+    fight_seed: u64,
     mut rng: &mut impl Rng,
 ) -> (bool, Vec<CombatUnitInfo>, Vec<CombatEvent>, Vec<RollEvent>) {
     // Fixed for the whole fight (not recomputed as players die) - see
@@ -11550,6 +11739,45 @@ pub(crate) fn simulate_battle(
             }
         })
         .collect();
+    // DETERMINISTIC PARTY ORDER (2026-08-20). `characters` is a
+    // `HashMap`, and Rust seeds hash ordering per PROCESS - so before
+    // this, the same fight with the same seeded `rng` indexed its units
+    // differently in every run. Unit index drives "random alive player"
+    // target selection, first-mover and same-tick tie-breaks, so a fight
+    // was never actually reproducible with more than one participant.
+    // That is why `golden_corpus.rs` could only ever hold SOLO scenarios,
+    // and why any test combining a party with an exact assertion is
+    // inherently flaky.
+    //
+    // Sort THEN shuffle, and the order matters:
+    //
+    // - The sort erases the `HashMap`'s per-process ordering, giving a
+    //   stable base. Shuffling straight off the raw iteration order
+    //   would be shuffling something already random - deterministic
+    //   permutation of a nondeterministic input is still
+    //   nondeterministic.
+    // - The shuffle then permutes that stable base from the FIGHT's own
+    //   identity, so no player owns a permanent index position. A plain
+    //   id sort alone would hand alphabetically-early logins a fixed
+    //   seat forever, turning today's evenly-spread accident into a
+    //   systematic, name-correlated bias.
+    //
+    // `order_rng` is a SEPARATE generator seeded from `fight_seed`. It
+    // must never be `rng`: drawing from `rng` here would shift every
+    // subsequent roll in the fight and move all eleven committed solo
+    // fixtures, converting a zero-churn change into a regeneration of
+    // the very baseline those fixtures exist to protect.
+    //
+    // Solo fights are provably unaffected - sorting and shuffling a
+    // one-element slice are both no-ops - which is what lets every
+    // existing fixture keep matching byte for byte.
+    {
+        use rand::seq::SliceRandom;
+        use rand::SeedableRng;
+        let mut order_rng = rand::rngs::StdRng::seed_from_u64(fight_seed);
+        units.sort_by(|a, b| a.id.cmp(&b.id));
+        units.shuffle(&mut order_rng);
+    }
     // Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
     // a second pass over `characters` (rather than folded into the
     // `.map()` above) since each golem needs to read its summoner's
@@ -11559,7 +11787,18 @@ pub(crate) fn simulate_battle(
     // the golem summon damage penalty was removed entirely) - this pass
     // only spawns the golem units themselves.
     let mut golems_to_add: Vec<CombatSimUnit> = Vec::new();
-    for (id, c) in characters.iter() {
+    // Iterated in sorted-id order for the same reason the party above is
+    // ordered deliberately: a raw `characters.iter()` here would append
+    // golems in per-process `HashMap` order, so with two summoners the
+    // golem indices - and therefore which golem a targeting or
+    // redistribution pass reaches first - varied run to run. Sorted
+    // rather than shuffled because a golem's position is not a fairness
+    // question: each belongs to one summoner, and the party order that
+    // decides between summoners has already been settled above.
+    let mut summoner_ids: Vec<&String> = characters.keys().collect();
+    summoner_ids.sort();
+    for id in summoner_ids {
+        let c = &characters[id];
         if c.archetype != Archetype::Elementalist {
             continue;
         }
@@ -12385,7 +12624,7 @@ pub(crate) fn simulate_battle(
         for i in 0..units.len() {
             if units[i].is_boss && prev_alive[i] && !units[i].alive {
                 let dead_enemy_max_hp = units[i].max_hp;
-                handle_shattering_on_enemy_death(&mut units, i, dead_enemy_max_hp, prev_at_ms, &mut events, &mut rolls, &mut rng, tunables.shattering_enabled);
+                handle_shattering_on_enemy_death(&mut units, i, dead_enemy_max_hp, prev_at_ms, &mut events, &mut rolls, &mut rng, tunables.shattering_enabled, tunables);
             }
         }
         prev_alive = units.iter().map(|u| u.alive).collect();
@@ -16649,11 +16888,11 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true);
+        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true, &LiveTunables::default());
         let hit_count = units[2..].iter().filter(|u| u.hp < 1_000_000).count();
         assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (this summoner has 0 splash invested)");
         for u in &units[2..] {
-            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100 - now via apply_hit, but a zero-stat golem/boss pair mitigates to the identical flat value");
+            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100 - via apply_shattering_icicle_damage's own DR-only mitigation, a zero-DR boss takes the exact flat value");
         }
     }
 
@@ -16663,7 +16902,7 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_shattering_on_enemy_death(&mut units, 0, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true);
+        handle_shattering_on_enemy_death(&mut units, 0, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true, &LiveTunables::default());
         assert_eq!(units[1].hp, 1_000_000);
     }
 
@@ -16675,11 +16914,107 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, false);
+        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, false, &LiveTunables::default());
         assert!(events.is_empty(), "shattering_enabled: false must be a complete no-op, even with an invested, alive Water Golem present");
         for u in &units[2..] {
             assert_eq!(u.hp, 1_000_000, "no icicle damage of any kind while the kill-switch is off");
         }
+    }
+
+    /// Release B requirement - icicle damage must equal EXACTLY
+    /// `node_pct * dead_enemy_max_hp * (1 - target_dr)`, with zero
+    /// contribution from the attacking golem's own crit/increased-
+    /// damage/elemental stack. A maxed-out attacker (guaranteed crit,
+    /// huge crit multiplier, huge increased damage) must produce the
+    /// SAME output as a zero-stat one - this is the direct regression
+    /// test for the 110,000x live excursion.
+    #[test]
+    fn release_b_icicle_damage_is_exactly_pct_times_maxhp_times_dr_with_zero_attacker_stack_contribution() {
+        let mut water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+        water_golem.alive = true;
+        // A maxed-out attacker profile - if any of this leaked into the
+        // icicle's own damage, the assertion below would fail loudly.
+        water_golem.crit_chance = 1.0;
+        water_golem.crit_multiplier = 50.0;
+        water_golem.increased_damage = 100.0;
+
+        let mut target = boss("target", 1_000_000);
+        target.damage_reduction = 0.25;
+
+        let mut units = vec![water_golem, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let dead_enemy_max_hp = 500_000u64;
+        let expected = (dead_enemy_max_hp as f64 * 0.02 * (1.0 - 0.25)).round() as i64;
+        let killed = apply_shattering_icicle_damage(&mut units, 0, 1, dead_enemy_max_hp as f64 * 0.02, 5_000, &mut events, &mut rolls, &mut rng);
+        assert!(!killed);
+        assert_eq!(units[1].hp, 1_000_000 - expected, "must be exactly node_pct * maxHp * (1 - DR) - no crit, no increased_damage, no elemental bonus contribution");
+        assert!(!events.iter().any(|e| matches!(e, CombatEvent::Attack { is_crit: true, .. })), "an icicle can never crit - roll_attacker_damage is never invoked");
+    }
+
+    /// Release B requirement - a Doom-cursed target's `curse_damage_taken_total`
+    /// (the pool Doom's own detonation consumes) must be COMPLETELY
+    /// unaffected by an icicle hit, even though the icicle deals real
+    /// damage to that same target. This is the direct regression test
+    /// for the 196x golem-less-Warlock inflation.
+    #[test]
+    fn release_b_doom_pool_is_unchanged_by_an_icicle_hit_on_a_cursed_target() {
+        let water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+        let mut target = boss("cursed_target", 1_000_000);
+        target.curse_expires_at_ms = u32::MAX; // actively Doom-tracked
+        target.curse_damage_taken_total = 0.0;
+        let mut units = vec![water_golem, target];
+        units[0].alive = true;
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        let killed = apply_shattering_icicle_damage(&mut units, 0, 1, 50_000.0, 5_000, &mut events, &mut rolls, &mut rng);
+        assert!(!killed);
+        assert!(units[1].hp < 1_000_000, "sanity check: the icicle must have actually dealt real damage");
+        assert_eq!(units[1].curse_damage_taken_total, 0.0, "Doom's own accumulation pool must be completely untouched by icicle damage");
+        assert!(matches!(events.last(), Some(CombatEvent::Attack { source_kind: AttackSourceKind::Environmental, .. })), "the icicle's own event must be tagged Environmental");
+    }
+
+    /// Priority-release requirement (2026-08-20) - the icicle's damage
+    /// basis is a NAMED per-rank LiveTunable
+    /// (`shattering_damage_pct_rank1`), not the passive node's own
+    /// magnitude (which carries target count instead - see
+    /// `LiveTunables`'s own doc for why these are two independent
+    /// knobs). Proven end-to-end through the real
+    /// `handle_shattering_on_enemy_death` entry point, not just
+    /// `apply_shattering_icicle_damage` directly, so this also covers
+    /// the rank-to-tunable lookup itself.
+    #[test]
+    fn a_shattering_damage_pct_tunable_override_changes_real_icicle_damage_live() {
+        fn run(tunables: &LiveTunables) -> i64 {
+            let water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 1)], vec![GolemType::Water]));
+            let mut units = vec![water_golem, boss("dying", 10_000), boss("target", 1_000_000)];
+            units[0].alive = true;
+            let mut events = Vec::new();
+            let mut rolls = Vec::new();
+            let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+            handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true, tunables);
+            1_000_000 - units[2].hp
+        }
+
+        let default_damage = run(&LiveTunables::default());
+        assert_eq!(default_damage, 100, "shipped default: 1% of the dead enemy's 10,000 max hp = 100");
+
+        let overridden = LiveTunables { shattering_damage_pct_rank1: 0.05, ..Default::default() };
+        let overridden_damage = run(&overridden);
+        assert_eq!(overridden_damage, default_damage * 5, "a rank-1 override to 5% must deal exactly 5x the 1% default's damage");
+    }
+
+    /// Confirms the node's own magnitude (target count, its primary
+    /// value per the revised convention) still works after damage pct
+    /// moved off it - target count is unaffected by the
+    /// `shattering_damage_pct_rank*` tunables above.
+    #[test]
+    fn shattering_target_count_node_value_is_unaffected_by_the_damage_pct_tunables() {
+        let c = elementalist_with(&[("golemmaster", 1), ("shattering", 3)], vec![GolemType::Water]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &c);
+        assert_eq!(golem.watergolem_shattering_extra_targets, 3, "rank 3 = 3 extra targets, read via passive_node_rank, independent of any LiveTunables value");
     }
 
     #[test]
@@ -16945,7 +17280,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             };
             let tunables = LiveTunables::default();
             let mut rng = StdRng::seed_from_u64(1000 + seed as u64);
-            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
             // Sanity check on the fixture itself, not the mechanic under
             // test - if nobody ever got hit at all (e.g. a broken
@@ -17055,7 +17390,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             };
             let tunables = LiveTunables::default();
             let mut rng = StdRng::seed_from_u64(2000 + seed as u64);
-            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
             let golem_ids: Vec<String> = unit_infos.iter().filter(|u| !u.is_boss && u.golem_summoner_id.is_some()).map(|u| u.id.clone()).collect();
             assert_eq!(golem_ids.len(), 3, "{boss_kind:?}: expected exactly 3 summoned Thunder Golems");
@@ -17135,6 +17470,111 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         }
     }
 
+    /// #33 disposition (2026-08-20, owner ruling): NOT A BUG. Thunder
+    /// Golem absorption is party-wide by design, proven here end-to-end
+    /// through the REAL `simulate_battle` -> `build_player_vitals`
+    /// pipeline, not just the unit-level tests next to
+    /// `thunder_golem_redirect` itself. `no_thunder_golem` has no
+    /// Thunder Golem of their own, but shares the encounter with two
+    /// Elementalists who do - their damage is CORRECTLY absorbed by
+    /// whichever Thunder Golem is alive, same as everyone else's. A flat
+    /// hp timeline here is the truthful picture of party-wide immunity
+    /// working, not a data-loss bug - this test replaces the earlier,
+    /// incorrect version of itself that asserted the opposite.
+    #[test]
+    fn thunder_golem_party_wide_protection_covers_a_player_with_no_golem_of_their_own() {
+        fn thunder_elementalist(id: &str) -> Character {
+            let mut c = Character::new(id.to_string());
+            c.archetype = Archetype::Elementalist;
+            c.level = 100;
+            c.passive_allocations.insert("golemmaster".to_string(), 3);
+            c.passive_allocations.insert("thundergolem".to_string(), 4);
+            c.golem_slot_types = vec![GolemType::Thunder, GolemType::Thunder, GolemType::Thunder];
+            c
+        }
+        let mut no_thunder_golem = Character::new("no_thunder_golem".to_string());
+        no_thunder_golem.archetype = Archetype::Cleric;
+        no_thunder_golem.level = 100;
+
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist_a".to_string(), thunder_elementalist("elementalist_a"));
+        characters.insert("elementalist_b".to_string(), thunder_elementalist("elementalist_b"));
+        characters.insert("no_thunder_golem".to_string(), no_thunder_golem);
+
+        let boss_stats = BossStats {
+            hp: 2_000_000_000,
+            atk: 15,
+            attack_interval_ms: 900,
+            damage_reduction: 0.15,
+            block_chance: 0.10,
+            evasion: 0.05,
+            increased_damage: 0.20,
+            crit_chance: 0.15,
+            crit_multiplier: 0.50,
+            splash: 1.0,
+        };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(4242);
+        let (_won, units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+        let vitals = build_player_vitals(&units, &events);
+
+        // `elementalist_a`/`elementalist_b` are EXPECTED to show a near-flat
+        // timeline themselves - their own 3x Thunder Golem loadout tanking
+        // essentially everything meant for them is the mechanic working
+        // correctly, not the regression. The actual regression signature
+        // is `no_thunder_golem` - a player with NO Thunder Golem of their
+        // own, whose damage the old unscoped `position()` search could
+        // still redirect onto a COMPLETELY UNRELATED summoner's golem
+        // purely by unit order, collapsing their vitals to the seed+death
+        // pair despite real hits landing on them all fight.
+        let no_thunder_golem = vitals.iter().find(|p| p.id == "no_thunder_golem").expect("no_thunder_golem missing from playerVitals entirely");
+        assert!(
+            no_thunder_golem.hp_samples.len() > 2,
+            "no_thunder_golem: expected a real hp timeline (more than just seed + death), got {} samples - regression #33 would collapse this to 2 by redirecting their damage onto an unrelated summoner's Thunder Golem",
+            no_thunder_golem.hp_samples.len()
+        );
+    }
+
+    /// Ticket #24 verification (2026-08-20) - the parser's report claimed
+    /// `rf_self_damage_pct_rank*` never actually reaches
+    /// `apply_righteous_fire_self_damage` (the tunable "reads 0 at
+    /// runtime"), through the real `LiveTunables` → `simulate_battle` →
+    /// `CombatSimUnit.rf_self_damage_pct` wiring - not the shortcut
+    /// `elementalist(pct)` test helper `self_burn_deals_a_flat_10pct_...`
+    /// uses, which sets the field directly and so could never have
+    /// caught a real plumbing gap. Built with rank3 = 0.6, the actual
+    /// production-live value in `adventure-live-tunables.toml` as of
+    /// this deploy - if the tunable really weren't reaching the sim,
+    /// this would show zero self-damage events over an entire fight.
+    #[test]
+    fn ticket_24_rf_self_damage_tunable_actually_reaches_the_real_sim_pipeline() {
+        let mut character = Character::new("elementalist".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.level = 100;
+        character.passive_allocations.insert("righteousfire".to_string(), 3);
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist".to_string(), character);
+
+        let boss_stats = BossStats {
+            hp: 2_000_000_000,
+            atk: 10,
+            attack_interval_ms: 900,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables { rf_self_damage_pct_rank1: 0.2, rf_self_damage_pct_rank2: 0.4, rf_self_damage_pct_rank3: 0.6, ..Default::default() };
+        let mut rng = StdRng::seed_from_u64(99);
+        let (_won, _units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+
+        let self_damage_events = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, target, damage, .. } if attacker == "elementalist" && target == "elementalist" && *damage > 0)).count();
+        assert!(self_damage_events > 0, "rank-3 Righteous Fire must produce real self-damage Attack events over a full fight - the tunable is reaching the sim correctly if this passes");
+    }
+
     /// Release 1.1 item 3's own required regression coverage - a numeric
     /// test tied to the event log's own absorbed/redistributed sums, not
     /// a snapshot of internal state. Deliberately a SOLO golem slot (not
@@ -17194,7 +17634,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(4242);
-        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let golem_id = unit_infos.iter().find(|u| u.golem_type == Some(GolemType::Thunder)).map(|u| u.id.clone()).expect("fixture produced no Thunder Golem - test would be vacuous");
 
@@ -17534,7 +17974,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         let boss_stats = BossStats { hp: 1, atk: 0, attack_interval_ms: 100_000, ..Default::default() };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(1);
-        let (_won, unit_infos, _events, _rolls) = simulate_battle(&characters, vec![(boss_stats, None, 1.0)], 100, &tunables, &mut rng);
+        let (_won, unit_infos, _events, _rolls) = simulate_battle(&characters, vec![(boss_stats, None, 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let owner_info = unit_infos.iter().find(|u| u.id == "elementalist").unwrap();
         assert_eq!(owner_info.max_hp, predicted_owner_max_hp as u64, "sanity check - the fight record's own maxHp must match Character::combat_max_hp() exactly");
@@ -17600,7 +18040,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         let boss_stats = BossStats { hp: 500_000_000, atk: boss_atk, attack_interval_ms: 1_200, ..Default::default() };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(4242);
-        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let owner_info = unit_infos.iter().find(|u| u.id == "elementalist").unwrap();
         let expected_owner_post_buff_max_hp = owner_pre_buff_max_hp + (owner_pre_buff_max_hp * party_max_hp_pct).round();
@@ -17709,7 +18149,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             };
             let tunables = LiveTunables::default();
             let mut rng = StdRng::seed_from_u64(2000 + seed as u64);
-            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
             let any_attack_at_all = events.iter().any(|e| matches!(e, CombatEvent::Attack { .. }));
             assert!(any_attack_at_all, "{boss_kind:?}: fixture produced no Attack events at all - test would be vacuous");
