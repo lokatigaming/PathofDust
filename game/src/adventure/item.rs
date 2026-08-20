@@ -1091,34 +1091,41 @@ mod golden_item_baseline {
         // captured 2026-08-16 immediately before Phase 2 of the item
         // balance refactor, with power_roll pinned to 1.0 and a fixed
         // RNG seed so every draw (name/max_uses/id/affix roll) is
-        // reproducible.
+        // reproducible. Body/Gloves/Boots' expected affix updated
+        // 2026-08-19 (was Affix::Intervene) - the elemental-damage-on-
+        // all-slots widen (see Affix::ColdDamage's own doc) made their
+        // eligible pool identical to Weapon/Helm's, so the same seed now
+        // draws the same affix (ColdDamage) on every slot - an EXPECTED
+        // fallout of the widen, not a regression (see the two dilution
+        // notes in docs/, this file's own git history for the previous
+        // values, and the pool composition this seed now walks).
         let cases: &[(u32, EquipSlot, f64, Affix, f64)] = &[
             (1, EquipSlot::Weapon, 12.0, Affix::Evasion, 0.016620838),
             (1, EquipSlot::Helm, 4.0, Affix::ColdDamage, 0.024857448),
-            (1, EquipSlot::Body, 12.0, Affix::Intervene, 0.011047755),
-            (1, EquipSlot::Gloves, 0.009, Affix::Intervene, 0.011047755),
-            (1, EquipSlot::Boots, 13.0, Affix::Intervene, 0.011047755),
+            (1, EquipSlot::Body, 12.0, Affix::ColdDamage, 0.024857448),
+            (1, EquipSlot::Gloves, 0.009, Affix::ColdDamage, 0.024857448),
+            (1, EquipSlot::Boots, 13.0, Affix::ColdDamage, 0.024857448),
             (5, EquipSlot::Weapon, 60.0, Affix::Evasion, 0.083104192),
             (5, EquipSlot::Helm, 20.0, Affix::ColdDamage, 0.124287242),
-            (5, EquipSlot::Body, 60.0, Affix::Intervene, 0.055238774),
-            (5, EquipSlot::Gloves, 0.045, Affix::Intervene, 0.055238774),
-            (5, EquipSlot::Boots, 65.0, Affix::Intervene, 0.055238774),
+            (5, EquipSlot::Body, 60.0, Affix::ColdDamage, 0.124287242),
+            (5, EquipSlot::Gloves, 0.045, Affix::ColdDamage, 0.124287242),
+            (5, EquipSlot::Boots, 65.0, Affix::ColdDamage, 0.124287242),
             (10, EquipSlot::Weapon, 120.0, Affix::Evasion, 0.166208384),
             (10, EquipSlot::Helm, 40.0, Affix::ColdDamage, 0.248574483),
-            (10, EquipSlot::Body, 120.0, Affix::Intervene, 0.110477548),
-            (10, EquipSlot::Gloves, 0.09, Affix::Intervene, 0.110477548),
-            (10, EquipSlot::Boots, 130.0, Affix::Intervene, 0.110477548),
+            (10, EquipSlot::Body, 120.0, Affix::ColdDamage, 0.248574483),
+            (10, EquipSlot::Gloves, 0.09, Affix::ColdDamage, 0.248574483),
+            (10, EquipSlot::Boots, 130.0, Affix::ColdDamage, 0.248574483),
             (20, EquipSlot::Weapon, 240.0, Affix::Evasion, 0.332416767),
             (20, EquipSlot::Helm, 80.0, Affix::ColdDamage, 0.497148967),
-            (20, EquipSlot::Body, 240.0, Affix::Intervene, 0.220955096),
+            (20, EquipSlot::Body, 240.0, Affix::ColdDamage, 0.497148967),
             // Gloves' power is uncapped as of the 2026-08-16 speed-scaling
             // fix, AND the base coefficient was cut 5x (0.045 -> 0.009)
             // the same day after the uncapped version tested too strong
             // in practice (0.009 * 20 * 1.0 = 0.18, no longer clamped to
             // 0.55 and no longer using the original 0.045 coefficient
             // either) - this case exercises both changes together.
-            (20, EquipSlot::Gloves, 0.18, Affix::Intervene, 0.220955096),
-            (20, EquipSlot::Boots, 260.0, Affix::Intervene, 0.220955096),
+            (20, EquipSlot::Gloves, 0.18, Affix::ColdDamage, 0.497148967),
+            (20, EquipSlot::Boots, 260.0, Affix::ColdDamage, 0.497148967),
         ];
 
         for &(tier, slot, expected_power, expected_affix, expected_value) in cases {
