@@ -169,10 +169,15 @@ test('a bundle demanding a newer reader is refused rather than misread', () => {
   assert.ok(errors.some((e) => e.includes('minReaderVersion')), errors.join('\n'));
 });
 
-test('a malformed bundle never throws', () => {
-  // The rule readers must obey: degrade and report, never throw.
+test('a malformed bundle is rejected, and never throws', () => {
+  // "Degrade and report, never throw" is TWO claims, and asserting only
+  // doesNotThrow checks one of them: a regression that started returning
+  // ok:true on junk would sail through. Both are pinned here.
   for (const junk of [null, undefined, 42, 'string', [], {}, { manifest: null }, { manifest: {} }]) {
-    assert.doesNotThrow(() => validateBundle(junk), `threw on ${JSON.stringify(junk)}`);
+    let result;
+    assert.doesNotThrow(() => { result = validateBundle(junk); }, `threw on ${JSON.stringify(junk)}`);
+    assert.equal(result.ok, false, `accepted junk: ${JSON.stringify(junk)}`);
+    assert.ok(result.errors.length > 0, `reported no errors for ${JSON.stringify(junk)}`);
   }
 });
 
@@ -214,13 +219,16 @@ test('the bundle the Rust writer actually produced validates', () => {
 });
 
 test("the writer's pinned playerVitals keeps its key order, not just its keys", () => {
-  // Byte-level, deliberately. Members are serialized once and carried as raw
-  // bytes so key order is stable; routing them through a serde_json::Value
-  // sorts keys alphabetically and rewrites {id, hpSamples, diedAtMs} as
-  // {diedAtMs, hpSamples, id} - valid JSON, identical values, and a broken
-  // pin. That regression was real and this is what catches it.
-  const raw = readFileSync(join(here, '..', 'game', 'tests', 'fixtures', 'replay_bundle', 'writer-output.v1.json'), 'utf8');
-  const vitals = JSON.parse(raw).members.playerVitals;
+  // Key ORDER, deliberately - not just the key set. Members are serialized
+  // once and carried as raw bytes so that order is stable; routing them
+  // through a serde_json::Value sorts keys alphabetically and rewrites
+  // {id, hpSamples, diedAtMs} as {diedAtMs, hpSamples, id} - valid JSON,
+  // identical values, and a broken pin. That regression was real and this
+  // is what catches it: JSON.parse preserves insertion order for
+  // non-integer string keys, so comparing Object.keys compares order.
+  const vitals = JSON.parse(
+    readFileSync(join(here, '..', 'game', 'tests', 'fixtures', 'replay_bundle', 'writer-output.v1.json'), 'utf8'),
+  ).members.playerVitals;
   assert.ok(Array.isArray(vitals) && vitals.length > 0, 'the golden bundle must carry playerVitals');
   assert.deepEqual(Object.keys(vitals[0]), ['id', 'hpSamples', 'diedAtMs'], 'pinned key ORDER changed');
 });
