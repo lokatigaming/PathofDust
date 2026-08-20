@@ -69,6 +69,9 @@ patreon-tokens.json
 # Pre-vitals-fix-deploy rollback backup (release A - thunder_golem_redirect
 # ownership scoping), same discipline.
 /backup-pre-vitals-fix
+# Pre-shattering-fix-deploy rollback backup (release B - damage-
+# multiplier + Doom leak fixes, re-enable), same discipline.
+/backup-pre-shattering-fix
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
