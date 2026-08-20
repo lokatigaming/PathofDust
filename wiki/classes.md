@@ -137,9 +137,14 @@ crit, and on-proc shields for their own element.
 damage on top of their normal damage - not a separate periodic tick, it's
 folded directly into every hit you land. Separately, and still very real,
 you take ongoing self-damage every second while it's active: reduced by your
-own damage reduction, with whatever's left absorbed by your active shield
-before it touches your HP - evasion and block never apply to it (you can't
-dodge your own fire). This is meant to be offset by the branch's own
+own damage reduction, with whatever's left after that absorbed by your
+active shield before it touches your HP - evasion and block never apply to
+it (you can't dodge your own fire). Damage reduction can never fully cancel
+this out, by design - it caps at mitigating 95% of the tick (see
+[Combat](/wiki/combat#block-and-dr) for the universal DR cap this follows),
+so at least 5% of the raw self-damage always lands even on an extremely
+tanky build, and your shield absorbs that post-cap remainder, not the full
+pre-mitigation amount. This is meant to be offset by the branch's own
 healing/shield/DR investment (Healing Flames' self-regen, Shielding Flames,
 Lightning/Chilling/Scorching Aegis's on-proc shields) rather than avoided
 outright - a tanky or shield-generating Righteous Fire build can sustain it

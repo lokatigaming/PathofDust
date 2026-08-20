@@ -57,6 +57,10 @@ immunity. Both Block and DR (combined with each other) are hard-capped well
 short of 100% - a landed hit against you always deals *some* damage, no matter
 how defensive your build gets.
 
+<p class="muted"><strong>Damage reduction specifically caps at mitigating 95% of a hit - currently, since it's an admin tunable - and this is universal doctrine, not just a normal-attack rule.</strong> No character, golem, or enemy can ever become immune to damage through damage reduction, full stop: this applies to every damage source DR touches, including self-inflicted damage like Righteous Fire's own self-burn (see Classes &amp; Passives) and Water Golem's Shattering icicles (see Golems). Evasion, Block, and Paladin's Intervene are separate mechanics with their own unrelated caps and are NOT part of this doctrine - only damage reduction itself is universally capped this way.</p>
+
+<p class="muted">Raw damage reduction stacking well past 100% (before the cap applies) is intentional, not wasted investment - a real boss fight ignores a growing slice of your Block/DR/Evasion the longer it drags on (below), so excess raw DR is your buffer against that shred, not overcap waste.</p>
+
 <p class="muted">Real world bosses additionally ignore a growing slice of your Block/DR/Evasion the longer a fight against them drags on, though never enough to push you below a floor relative to your own natural value - a deliberate anti-stalling pressure on very long fights.</p>
 
 <h3 id="evasion">Evasion</h3>
