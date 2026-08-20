@@ -2370,7 +2370,7 @@
         fallBackToPlain();
         return;
       }
-      const stream = new Blob([event.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      const stream = new Blob([event.data]).stream().pipeThrough(new DecompressionStream('deflate'));
       new Response(stream)
         .text()
         .then(handleOverlayMessage)
@@ -2404,11 +2404,34 @@
   // this is additive, gated entirely behind the new query param.
   const feedMode = new URLSearchParams(location.search).get('feed');
   if (feedMode === 'parent') {
+    // Bridge-fix (2026-08-20) - PathOfDust_Desktop 2.6.0 relays frames
+    // wrapped in its own envelope: {source:'pod-app', v:1, type:'ws',
+    // data:<payload>}. The original feed=parent listener only matched
+    // bare state/encounter payloads, so every enveloped frame silently
+    // no-op'd inside handleOverlayMessage (type 'ws' matches neither
+    // 'state' nor 'encounter') - the bridge was dormant even though the
+    // page loaded and rendered fine standalone. Unwrap envelopes from
+    // exactly this source before handing off to the same
+    // handleOverlayMessage the /ws path already uses; bare payloads
+    // (e.g. a future/alternate bridge that doesn't envelope) still work
+    // unchanged; anything else (wrong source, or an envelope-shaped
+    // object from elsewhere) is deliberately ignored, not guessed at.
     window.addEventListener('message', (event) => {
-      if (event.data && (typeof event.data === 'object' || typeof event.data === 'string')) {
-        handleOverlayMessage(event.data);
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object' && typeof msg !== 'string') return;
+      if (typeof msg === 'object' && msg.type === 'ws') {
+        if (msg.source === 'pod-app') handleOverlayMessage(msg.data);
+        return;
       }
+      handleOverlayMessage(msg);
     });
+    // The 2.6.0 contract's own ready handshake - the desktop doesn't
+    // start relaying frames until this arrives, which is exactly why
+    // installed desktops were silently running their old pre-bridge
+    // path: the page never posted it. Sent once, right after the
+    // listener above is registered, so nothing the parent sends before
+    // this line could ever be missed.
+    window.parent.postMessage({ source: 'pod-overlay', type: 'ready' }, '*');
   } else {
     connect(true);
   }

@@ -12,7 +12,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
-use flate2::write::DeflateEncoder;
+use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -127,16 +127,24 @@ struct EncounterEnvelope<'a> {
 }
 
 /// `compress: false` sends the exact same `Message::Text(json)` frame as
-/// before this feature existed. `compress: true` raw-deflate-compresses
-/// `json` (RFC 1951, no zlib/gzip header or trailer) and wraps it as a
-/// binary frame instead - matches exactly what the browser's
-/// `DecompressionStream('deflate-raw')` expects on the other end (see
-/// overlay.html's own decompression code).
+/// before this feature existed. `compress: true` zlib-compresses `json`
+/// (RFC 1950 - a 2-byte zlib header, e.g. `0x78 ..`, then a raw deflate
+/// stream, then an Adler-32 trailer) and wraps it as a binary frame
+/// instead. Bridge-fix (2026-08-20): this was originally raw deflate
+/// (RFC 1951, no header) matching `DecompressionStream('deflate-raw')`
+/// - correct for the OBS/direct-viewer overlay.html client, but
+/// PathOfDust_Desktop 2.6.0's own already-shipped client expects zlib
+/// specifically (`DecompressionStream('deflate')`), throws on a raw
+/// stream's missing header, and silently falls back to plain JSON -
+/// the desktop's own bandwidth win was never actually happening.
+/// overlay.html switched to `DecompressionStream('deflate')` in the
+/// SAME release this changed, so both clients stay correct together -
+/// see that file's own decompression code.
 fn send_ready_message(json: String, compress: bool) -> Message {
     if !compress {
         return Message::Text(json);
     }
-    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     // Writing to a Vec<u8> and dropping the encoder's own error type
     // (`io::Error`) can't actually fail here - infallible in practice,
     // matching the same "the sink is in memory" reasoning `io::Write`
@@ -254,9 +262,10 @@ mod compression_opt_in_tests {
         let msg = send_ready_message(json.clone(), true);
         let Message::Binary(compressed) = msg else { panic!("compress: true must send a Binary frame, not Text") };
         assert!(compressed.len() < json.len(), "a real JSON payload should actually shrink, not just change format");
-        let mut decoder = flate2::read::DeflateDecoder::new(&compressed[..]);
+        assert_eq!(compressed[0], 0x78, "the first compressed frame must begin with the zlib header byte (0x78) - a regression back to raw deflate must fail THIS assertion, not just decompress silently wrong on the desktop client");
+        let mut decoder = flate2::read::ZlibDecoder::new(&compressed[..]);
         let mut decompressed = String::new();
-        decoder.read_to_string(&mut decompressed).expect("must decompress as valid raw deflate - no zlib/gzip header, matching DecompressionStream('deflate-raw')");
+        decoder.read_to_string(&mut decompressed).expect("must decompress as valid zlib (RFC 1950), matching DecompressionStream('deflate') on both clients");
         assert_eq!(decompressed, json, "round-tripped JSON must be byte-for-byte identical to the original");
     }
 

@@ -52,9 +52,10 @@ async fn a_connection_without_wire_deflate_gets_text_only_even_while_a_compresse
     let Message::Binary(compressed_bytes) = compressed_first else {
         panic!("a client that DID present ?wire=deflate must receive a Binary frame, got {compressed_first:?}");
     };
-    let mut decoder = flate2::read::DeflateDecoder::new(&compressed_bytes[..]);
+    assert_eq!(compressed_bytes[0], 0x78, "the first compressed frame must begin with the zlib header byte (0x78) - a regression back to raw deflate must fail THIS assertion");
+    let mut decoder = flate2::read::ZlibDecoder::new(&compressed_bytes[..]);
     let mut decompressed = String::new();
-    std::io::Read::read_to_string(&mut decoder, &mut decompressed).expect("compressed frame must be valid raw deflate, matching DecompressionStream('deflate-raw')");
+    std::io::Read::read_to_string(&mut decoder, &mut decompressed).expect("compressed frame must be valid zlib (RFC 1950), matching DecompressionStream('deflate') on both the OBS/direct-viewer client and PathOfDust_Desktop 2.6.0");
     assert!(decompressed.contains("\"type\":\"state\""), "decompressed payload must be the real state envelope, got: {decompressed}");
 
     // Plain client connects while the compressed one is still open.
