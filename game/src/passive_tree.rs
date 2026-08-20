@@ -1347,7 +1347,7 @@ static WARLOCK_NODES: &[PassiveNode] = &[
     modifier_with_effect("chaostheory", "unstablepower", "Chaos Theory", "Unstable Power's threshold is lowered by 10% per rank, converting excess starting at 90%/80%/70% attack speed (70% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("warpspeed", "felrush", "Warp Speed", "Fel Rush's duration is increased by 2s per rank (up to +6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
     modifier_with_effect("deathmarch", "felrush", "Death March", "Fel Rush's bonus is increased by another 8% per rank (up to +24% at 3/3).", Special { at_rank_1: 0.08, per_additional_rank: 0.08 }),
-    modifier_with_effect("ravage", "felrush", "Ravage", "Each kill while Fel Rush is active refreshes its full duration, unlocked at rank 2 - rank 3 also stacks its bonus additively.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    modifier_with_effect("ravage", "felrush", "Ravage", "Each kill while Fel Rush is active refreshes its full duration, unlocked at rank 2 - rank 3 also stacks its bonus additively.", Special { at_rank_1: 0.5, per_additional_rank: 0.0 }),
     modifier_with_effect("witheringcurse", "amplifycurse", "Withering Curse", "Amplify Curse also reduces the target's healing received by 10% per rank (up to -30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("hexmastery", "amplifycurse", "Hex Mastery", "Amplify Curse's bonus is increased by another 8% per rank (up to +24% at 3/3).", Special { at_rank_1: 0.08, per_additional_rank: 0.08 }),
     // Real (2026-08-17) - repurposed from its former "persist after Doom's
@@ -1389,7 +1389,7 @@ static WARLOCK_NODES: &[PassiveNode] = &[
     modifier_with_effect("demonicresilience", "lifetap", "Demonic Resilience", "Life Tap also grants +5% damage reduction per rank for the rest of the fight (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("soulexchange", "lifetap", "Soul Exchange", "Life Tap's damage bonus is increased by another 4% per rank (up to +12% at 3/3).", Special { at_rank_1: 0.04, per_additional_rank: 0.04 }),
     modifier_with_effect("sharedsuffering", "darkcommunion", "Shared Suffering", "Dark Communion's value is increased by another 25% per rank (up to +75% at 3/3).", Special { at_rank_1: 0.25, per_additional_rank: 0.25 }),
-    modifier_with_effect("covenant", "darkcommunion", "Covenant", "Dark Communion also applies to your 2nd-lowest-HP ally, unlocked at rank 2 (half value) - rank 3 brings it to full value.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    modifier_with_effect("covenant", "darkcommunion", "Covenant", "Dark Communion also applies to your 2nd-lowest-HP ally, unlocked at rank 2 (half value) - rank 3 brings it to full value.", Special { at_rank_1: 0.0, per_additional_rank: 0.5 }),
     modifier_with_effect("unbreakablebond", "darkcommunion", "Unbreakable Bond", "Dark Communion's heal also grants the ally +5% damage reduction per rank for 3s (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
 ];
 

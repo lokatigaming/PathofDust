@@ -180,15 +180,12 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "assassinate", // rogue
     "bloodrush", // berserker
     "bloodscent", // berserker
-    "chaostheory", // warlock
     "clarity", // monk
     "compassion", // cleric
-    "covenant", // warlock
     "crush", // berserker
     "deathwish", // berserker
     "doubletap", // rogue
     "empoweredbolt", // mage
-    "eternalmoment", // mage
     "finalblow", // ranger
     "frenzy", // berserker
     "gloriousdeath", // berserker
@@ -201,7 +198,6 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "payback", // warrior
     "piercingshots", // ranger
     "quickdraw", // rogue
-    "ravage", // warlock
     "reckless", // berserker
     "relentlessassault", // monk
     "sanctifiedtouch", // cleric
@@ -502,9 +498,9 @@ mod passive_override_tests {
         // combat.rs rather than in their own declaration. If this
         // changes without a migration batch landing, the list has
         // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 36, "Stage 3 Paladin batch migrated finaljudgment, from Stage 2's 37");
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 32, "Stage 3 Warlock batch migrated chaostheory/covenant/ravage plus eternalmoment, which shares a call site");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 36, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 32, "the pending list must not contain duplicates");
     }
 
     #[test]

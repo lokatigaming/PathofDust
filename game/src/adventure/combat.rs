@@ -76,6 +76,36 @@ pub(crate) const BLOODPACT_BASE_COOLDOWN_MS: u32 = 4_000;
 /// of hardcoding the sums, and keeps the base a single quantity rather
 /// than one that has to be re-derived from those literals.
 pub(crate) const JUDGMENT_BASE_THRESHOLD: f64 = 0.5;
+/// Mage's Temporal Rift / Warlock's Unstable Power - the attack-speed
+/// fraction above which the excess converts, BEFORE Eternal Moment or
+/// Chaos Theory lower it. 1.0 = "only speed past 100% converts".
+pub(crate) const SPEED_OVERFLOW_BASE_THRESHOLD: f64 = 1.0;
+
+/// The attack-speed threshold above which Temporal Rift / Unstable
+/// Power convert the excess - `SPEED_OVERFLOW_BASE_THRESHOLD` lowered by
+/// Eternal Moment's (Mage) or Chaos Theory's (Warlock) own declared
+/// per-rank delta, whichever is larger.
+///
+/// Extracted 2026-08-20 (Stage 3 Warlock batch) from two sites that had
+/// the same 0.90/0.80/0.70 ladder written out separately - one for the
+/// live threshold, one for Entropic Force's splash bonus. Both now read
+/// the nodes' own magnitudes, which is what makes them tunable, and
+/// sharing one function means the two can no longer drift apart.
+///
+/// Behavior-neutral at default values: both nodes declare
+/// `0.10 / 0.10`, so the deltas are 0.10/0.20/0.30 and
+/// `1.0 - delta` reproduces 0.90/0.80/0.70 exactly (bit-exact even at
+/// rank 3, where the delta itself carries float noise).
+///
+/// **`eternalmoment` is a MAGE node migrated early**, out of its own
+/// batch order, because it shares this expression with Chaos Theory -
+/// migrating only the Warlock half would have left one `if` mixing a
+/// magnitude read against a rank ladder. Noted in the Warlock batch
+/// report; the Mage batch is one node lighter for it.
+pub(crate) fn speed_overflow_threshold_for(c: &Character) -> f64 {
+    let delta = c.passive_node_magnitude("eternalmoment").max(c.passive_node_magnitude("chaostheory"));
+    SPEED_OVERFLOW_BASE_THRESHOLD - delta
+}
 /// Slayer's Warlord's Resolve - how long its party-wide increased-damage
 /// grant lasts, per its own "for 10s" text.
 pub(crate) const BLOODPACT_WARLORDSRESOLVE_DURATION_MS: u32 = 10_000;
@@ -10806,7 +10836,7 @@ pub(crate) fn simulate_battle(
                 // "duplicated computation, no shared param" approach
                 // Paradox's crit-chance half takes).
                 splash: c.combat_splash()
-                    + (c.combat_attack_speed_pct() - if c.passive_node_rank("chaostheory") >= 3 { 0.70 } else if c.passive_node_rank("chaostheory") >= 2 { 0.80 } else if c.passive_node_rank("chaostheory") >= 1 { 0.90 } else { 1.0 }).max(0.0) * c.passive_node_magnitude("entropicforce"),
+                    + (c.combat_attack_speed_pct() - speed_overflow_threshold_for(c)).max(0.0) * c.passive_node_magnitude("entropicforce"),
                 late_stage_damage_penalty_pct: 0.0,
                 boss_pierce_pct: 0.0,
                 boss_focus_stacks: 0.0,
@@ -10902,15 +10932,7 @@ pub(crate) fn simulate_battle(
                 // Dilation extends Temporal Rift's own conversion rate.
                 speed_overflow_dmg_pct: c.passive_node_magnitude("temporalrift") + c.passive_node_magnitude("unstablepower") + c.passive_node_magnitude("dilation") + c.passive_node_magnitude("voidenergy"),
                 speed_overflow_crit_pct: c.passive_node_magnitude("paradox"),
-                speed_overflow_threshold: if c.passive_node_rank("eternalmoment") >= 3 || c.passive_node_rank("chaostheory") >= 3 {
-                    0.70
-                } else if c.passive_node_rank("eternalmoment") >= 2 || c.passive_node_rank("chaostheory") >= 2 {
-                    0.80
-                } else if c.passive_node_rank("eternalmoment") >= 1 || c.passive_node_rank("chaostheory") >= 1 {
-                    0.90
-                } else {
-                    1.0
-                },
+                speed_overflow_threshold: speed_overflow_threshold_for(c),
                 // Rogue's Twin Strikes / Mage's Spell Echo - share one
                 // field bundle (mutually exclusive by archetype). The
                 // follow-up strike's damage share starts at Twin Strikes/
@@ -11084,13 +11106,15 @@ pub(crate) fn simulate_battle(
                 dark_communion_pct: c.passive_node_magnitude("darkcommunion") + c.passive_node_magnitude("sharedsuffering"),
                 compassion_prioritize_lowest: c.passive_node_rank("compassion") >= 2,
                 compassion_dr_pct: if c.passive_node_rank("compassion") >= 3 { 0.05 } else { 0.0 },
-                covenant_pct: if c.passive_node_rank("covenant") >= 3 {
-                    1.0
-                } else if c.passive_node_rank("covenant") >= 2 {
-                    0.5
-                } else {
-                    0.0
-                },
+                // Migrated to the tunable value path (2026-08-20, Stage 3
+                // Warlock batch). The ladder encoded 0 / 0.5 / 1.0 -
+                // "unlocked at rank 2 at half value, full at rank 3" -
+                // which its declaration now states directly as
+                // `at_rank_1: 0.0, per_additional_rank: 0.5` rather than
+                // the placeholder 1.0/1.0 it carried while nothing read
+                // it. Reading the magnitude is exactly equivalent and
+                // makes the node tunable.
+                covenant_pct: c.passive_node_magnitude("covenant"),
                 unbreakablebond_dr_pct: c.passive_node_magnitude("unbreakablebond"),
                 vigor_heal_pct: c.passive_node_magnitude("vigor") + c.passive_node_magnitude("bloodpump"),
                 vengefulblood_shield_pct: c.passive_node_magnitude("vengefulblood"),
@@ -11731,7 +11755,18 @@ pub(crate) fn simulate_battle(
                 // Rush's own flat bonus, one stack per kill while active,
                 // capped modestly (real approximation of "stacks
                 // additively" without unbounded growth).
-                ravage_stack_pct: if c.passive_node_rank("ravage") >= 3 { c.passive_node_magnitude("felrush") * 0.5 } else { 0.0 },
+                // The `rank >= 3` gate stays a RANK read - "unlocked at
+                // rank 3" is structure, which is code-defined by the
+                // scope guard. Only the 0.5 multiplier was a VALUE, and
+                // it now comes off the node itself (declared
+                // `at_rank_1: 0.5, per_additional_rank: 0.0`, flat
+                // across ranks since the gate already decides whether it
+                // applies at all). Behavior-neutral at defaults.
+                ravage_stack_pct: if c.passive_node_rank("ravage") >= 3 {
+                    c.passive_node_magnitude("felrush") * c.passive_node_magnitude("ravage")
+                } else {
+                    0.0
+                },
                 fel_rush_stacks: 0,
                 fel_rush_expires_at_ms: 0,
                 early_fight_speed_bonus_pct,
