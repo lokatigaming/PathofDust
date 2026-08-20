@@ -131,3 +131,4 @@ target-elemental-slots/
 target-unique-shards/
 adventure-passive-overrides.toml
 target-corpus/
+target-det/

@@ -4502,7 +4502,15 @@ impl AdventureManager {
             boss_kinds.iter().map(|&kind| (boss_stats_for(stage, fighting.len(), avg_level, power_mult, &tunables), Some(kind), power_mult)).collect();
         let boss_stats_snapshot: Vec<BossStats> = bosses.iter().map(|(s, _, _)| s.clone()).collect();
 
-        let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, &mut rand::thread_rng());
+        // Party-ordering seed (2026-08-20) - see `simulate_battle`'s own
+        // `fight_seed` doc. Wall-clock at fight start, so two fights
+        // never share an order and no player keeps a fixed index. It is
+        // NOT a full replay seed: production still rolls the fight
+        // itself from `thread_rng()`, so a live fight is not reproducible
+        // from this alone - ordering is simply no longer a SECOND,
+        // independent source of irreproducibility on top of that.
+        let fight_seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, fight_seed, &mut rand::thread_rng());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         let (events, display_duration_ms) = compress_events(events);
 
@@ -5055,8 +5063,10 @@ impl AdventureManager {
         let enemy_stats = split_into_enemies(group_stats, num_enemies);
         let enemy_name = BASIC_ENEMY_NAMES[rand::thread_rng().gen_range(0..BASIC_ENEMY_NAMES.len())].to_string();
 
+        // Same party-ordering seed as the boss path above.
+        let fight_seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
         let (won, units, events, rolls) =
-            simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, &mut rand::thread_rng());
+            simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, fight_seed, &mut rand::thread_rng());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         let (events, display_duration_ms) = compress_events(events);
 
