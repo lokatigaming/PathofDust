@@ -82,6 +82,9 @@ patreon-tokens.json
 # Pre-dr-cap-38-deploy rollback backup (damage reduction hard-cap
 # doctrine, universal, no exemptions), same discipline.
 /backup-pre-dr-cap-38
+# Pre-bridge-fix-deploy rollback backup (emergency - desktop envelope
+# mismatch + zlib compression format), same discipline.
+/backup-pre-bridge-fix
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
