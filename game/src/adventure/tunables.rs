@@ -14,6 +14,21 @@ use super::*;
 /// request - not the full ~20+ constant list, just the ones actually worth
 /// tuning day-to-day; the dynamic-difficulty rubber-band internals and the
 /// hard safety caps stay compile-time constants for now).
+///
+/// **Convention for a passive node with multiple numeric aspects
+/// (2026-08-20, established while fixing Shattering)**: a passive tree
+/// node's own per-rank magnitude (`PassiveEffect::Special`/etc., editable
+/// via `/admin/passives`) carries that node's PRIMARY value only - the
+/// one thing the node's own name/description is really about. Any
+/// ADDITIONAL numeric aspect the same mechanic depends on gets its own
+/// named per-rank field(s) here instead, same shape as
+/// `rf_self_damage_pct_rank1`/`shattering_damage_pct_rank1` below - never
+/// hardcoded as a bare constant in `combat.rs`. Reasoning: a node has
+/// exactly one magnitude table, so a SECOND numeric knob crammed into it
+/// (as Shattering's damage-pct briefly was) either silently overloads
+/// what the admin panel's own per-rank display actually represents, or
+/// loses live-tunability entirely once the magnitude slot is already
+/// spoken for.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LiveTunables {
@@ -194,6 +209,24 @@ pub struct LiveTunables {
     /// unaffected and instantly resumes working the moment this flips
     /// back to `true`.
     pub shattering_enabled: bool,
+    /// Water Golem's Shattering - the icicle's damage basis, as a
+    /// fraction of the dead enemy's max HP (2026-08-20). Picked by the
+    /// caster's own invested RANK in `shattering` (a modifier node,
+    /// capped at 3) - same `rank1` at 1/3, `rank2` at 2/3, `rank3` at
+    /// 3/3 convention `rf_self_damage_pct_rank*` already uses. This is a
+    /// SEPARATE aspect from the node's own magnitude (which carries
+    /// target count, this node's primary value - see `LiveTunables`'s
+    /// own doc for the general convention). Defaults match the original
+    /// spec exactly (1% at every rank) - zero behavior change unless an
+    /// admin retunes one. Full formula, for reference: targets = splash
+    /// + node_rank_value (the node's own magnitude - splash needs no
+    /// separate knob, it's already a real stat), damage = pct (this
+    /// field) × dead enemy maxHp × (1 − target's damage_reduction).
+    pub shattering_damage_pct_rank1: f64,
+    /// Same mechanic - rank 2.
+    pub shattering_damage_pct_rank2: f64,
+    /// Same mechanic - rank 3.
+    pub shattering_damage_pct_rank3: f64,
 }
 
 impl Default for LiveTunables {
@@ -229,6 +262,9 @@ impl Default for LiveTunables {
             rf_self_damage_pct_rank2: 0.20,
             rf_self_damage_pct_rank3: 0.30,
             shattering_enabled: true,
+            shattering_damage_pct_rank1: 0.01,
+            shattering_damage_pct_rank2: 0.01,
+            shattering_damage_pct_rank3: 0.01,
         }
     }
 }

@@ -421,6 +421,25 @@ type-specific bonuses of their own beyond the full inheritance above.
   dies (external damage only — see Stage 0 resolution #3). Cannot be
   shielded or healed by any means. Reforms 4/3/2 seconds after dying
   and rejoins combat.
+
+  **PARTY-WIDE, not owner-scoped (confirmed 2026-08-20, live ticket
+  #33's actual disposition).** Any alive Thunder Golem in a shared
+  encounter absorbs external damage for EVERY real player in it, not
+  just its own summoner — this is the founding design, unchanged since
+  Stage 0. A brief same-day "fix" scoped absorption down to
+  owner-only, reasoning that a companion app's flat party health
+  timelines during Thunder uptime looked like lost data; it was
+  reverted the same day once checked against this section's own text.
+  **Flat party hpSamples while a Thunder Golem is alive are the
+  truthful picture of party-wide immunity working**, not a data-loss
+  bug — expect real timeline movement to resume in bursts whenever a
+  Thunder Golem actually dies (its absorbed damage redistributes to
+  the party at that point, per the Absorbed-Damage Redistribution
+  mechanic below). Tank-credit accounting
+  (`thundergolem_absorbed_this_incarnation`/`thundergolem_net_absorbed`,
+  what the redistribution mechanic consumes) stays scoped to each
+  golem's own owner regardless of whose damage it absorbed — that was
+  never affected either direction.
   - *Gigantify* — Thunder Golems get 100/200/300% more contribution
     from your health pool (base 33% of your health → 66/99/132%).
 
