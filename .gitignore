@@ -72,6 +72,10 @@ patreon-tokens.json
 # Pre-shattering-fix-deploy rollback backup (release B - damage-
 # multiplier + Doom leak fixes, re-enable), same discipline.
 /backup-pre-shattering-fix
+# Pre-thunder-golem-party-wide-deploy rollback backup (Thunder Golem
+# revert to party-wide + Shattering tunable restructure), same
+# discipline.
+/backup-pre-thunder-golem-party-wide
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
