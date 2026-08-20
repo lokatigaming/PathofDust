@@ -284,10 +284,35 @@ pub(crate) fn migrate_flowlikewater_swap(character: &mut Character) {
     }
 }
 
+/// Unified Unique Shards (2026-08-19) - Celestial Shard merges into
+/// Unique Shard as one currency (see `CraftAction::UniqueShard`'s own
+/// doc). 1:1 merge, per the owner's ruling: adds a held `CelestialShard`
+/// count straight onto `UniqueShard`'s own, then removes the
+/// `CelestialShard` entry entirely - no character can hold a nonzero
+/// `CelestialShard` count after this runs. No-op (and safe to re-run,
+/// though the marker file already prevents that in practice) for a
+/// character with no `CelestialShard` tokens at all.
+///
+/// Deliberately does NOT touch `Item::unique_affix` anywhere - only the
+/// unspent CURRENCY migrates. An item that already carries
+/// `UniqueAffix::CelestialConversion` (granted before this merge existed)
+/// keeps it exactly as-is; there is nothing to remap on the item side.
+pub(crate) fn migrate_celestial_shard_into_unique_shard(character: &mut Character) {
+    let celestial = character.craft_token_count(CraftAction::CelestialShard);
+    if celestial == 0 {
+        return;
+    }
+    character.add_craft_token(CraftAction::UniqueShard, celestial);
+    character.craft_tokens.retain(|(action, _)| *action != CraftAction::CelestialShard);
+}
+
 /// Character-level counterpart to `ITEM_MIGRATIONS` - same
 /// (marker filename, mutation) shape, for one-time corrections that touch
 /// a character's own fields rather than their gear.
-pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[("adventure-flowlikewater-swap-marker.json", migrate_flowlikewater_swap)];
+pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[
+    ("adventure-flowlikewater-swap-marker.json", migrate_flowlikewater_swap),
+    ("adventure-celestial-shard-into-unique-shard-marker.json", migrate_celestial_shard_into_unique_shard),
+];
 
 /// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -
 /// same save-then-mark-done-per-migration crash-safety contract
@@ -660,6 +685,69 @@ mod flowlikewater_swap_tests {
             assert_eq!(node.parent, Some(expected_parent), "{child} should hang off {expected_parent}");
             assert_eq!(max_rank_of(expected_parent), 4, "{child}'s parent {expected_parent} must be able to reach rank 4 or {child} can never unlock");
         }
+    }
+}
+
+#[cfg(test)]
+mod celestial_shard_into_unique_shard_tests {
+    use super::*;
+
+    fn character_with_tokens(tokens: &[(CraftAction, u32)]) -> Character {
+        let mut c = Character::new("test".to_string());
+        c.craft_tokens = tokens.to_vec();
+        c
+    }
+
+    #[test]
+    fn merges_celestial_count_onto_unique_and_removes_celestial_entry() {
+        let mut c = character_with_tokens(&[(CraftAction::CelestialShard, 3), (CraftAction::UniqueShard, 2)]);
+        migrate_celestial_shard_into_unique_shard(&mut c);
+        assert_eq!(c.craft_token_count(CraftAction::CelestialShard), 0, "CelestialShard must be fully drained");
+        assert_eq!(c.craft_token_count(CraftAction::UniqueShard), 5, "1:1 merge - 3 + 2 = 5");
+        assert!(!c.craft_tokens.iter().any(|(a, _)| *a == CraftAction::CelestialShard), "the CelestialShard entry itself must be removed, not just zeroed");
+    }
+
+    #[test]
+    fn merges_onto_a_character_who_never_held_unique_shard_at_all() {
+        let mut c = character_with_tokens(&[(CraftAction::CelestialShard, 4)]);
+        migrate_celestial_shard_into_unique_shard(&mut c);
+        assert_eq!(c.craft_token_count(CraftAction::UniqueShard), 4, "a fresh UniqueShard entry must be created, not silently dropped");
+        assert_eq!(c.craft_token_count(CraftAction::CelestialShard), 0);
+    }
+
+    #[test]
+    fn is_a_no_op_for_a_character_who_never_held_celestial_shard() {
+        let mut c = character_with_tokens(&[(CraftAction::UniqueShard, 7), (CraftAction::Transmute, 1)]);
+        migrate_celestial_shard_into_unique_shard(&mut c);
+        assert_eq!(c.craft_token_count(CraftAction::UniqueShard), 7, "an already-held UniqueShard balance must be untouched when there's nothing to merge");
+        assert_eq!(c.craft_token_count(CraftAction::Transmute), 1, "unrelated tokens must be untouched");
+        assert!(!c.craft_tokens.iter().any(|(a, _)| *a == CraftAction::CelestialShard));
+    }
+
+    #[test]
+    fn is_idempotent_on_rerun() {
+        // The marker file is what actually prevents a real re-run in
+        // production, but the migration itself must also be safe to call
+        // twice - defense in depth, same convention
+        // `migrate_crit_flag_to_affix_tracking_tests` establishes.
+        let mut c = character_with_tokens(&[(CraftAction::CelestialShard, 3), (CraftAction::UniqueShard, 2)]);
+        migrate_celestial_shard_into_unique_shard(&mut c);
+        migrate_celestial_shard_into_unique_shard(&mut c);
+        assert_eq!(c.craft_token_count(CraftAction::UniqueShard), 5, "a second run must not double-count - there's nothing left to merge after the first run");
+        assert_eq!(c.craft_token_count(CraftAction::CelestialShard), 0);
+    }
+
+    #[test]
+    fn never_touches_item_unique_affix() {
+        // Only the unspent CURRENCY migrates - an item that already
+        // carries the granted effect keeps it exactly as-is (see the
+        // migration's own doc for why there's nothing to remap there).
+        let mut c = character_with_tokens(&[(CraftAction::CelestialShard, 1)]);
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        item.unique_affix = Some(UniqueAffix::CelestialConversion);
+        c.weapon = Some(item);
+        migrate_celestial_shard_into_unique_shard(&mut c);
+        assert_eq!(c.weapon.as_ref().unwrap().unique_affix, Some(UniqueAffix::CelestialConversion), "an already-granted unique affix must never be touched by the currency migration");
     }
 }
 

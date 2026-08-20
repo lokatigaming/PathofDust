@@ -102,6 +102,16 @@ pub enum UniqueAffix {
     SplitPersonality,
 }
 
+/// Every `UniqueAffix` variant - what `AdventureManager::craft_item_ex`'s
+/// `CraftAction::UniqueShard` picker offers one candidate per (2026-08-19,
+/// Unified Unique Shards). Data-driven deliberately: a future 3rd variant
+/// only needs its own `name()`/`description()` arm plus whatever combat
+/// effect it implements - the picker itself (candidate building,
+/// `choose_veil_outcome`'s apply, `render_veil_choice_card`'s display)
+/// needs no changes, since all three already iterate/branch on
+/// `Option<UniqueAffix>` generically rather than naming a variant.
+pub const ALL_UNIQUE_AFFIXES: [UniqueAffix; 2] = [UniqueAffix::CelestialConversion, UniqueAffix::SplitPersonality];
+
 /// Fraction of a heal `UniqueAffix::CelestialConversion` also deals as
 /// bonus damage to a random enemy - flat, not tier-scaled (unlike normal
 /// affixes) since a unique affix's whole point is being a fixed, iconic
@@ -684,11 +694,18 @@ pub struct RecombineRoll {
     /// treatment as `was_indestructible` right above (a unique affix is
     /// an intrinsic property, not a normal modifier competing for one of
     /// the 4 `affixes` slots, so it isn't part of that pool's
-    /// guaranteed/optional/truncation logic at all). If BOTH sources
-    /// happened to carry a (currently impossible, with only one
-    /// `UniqueAffix` variant existing) DIFFERENT one, item_a's wins -
-    /// arbitrary, revisit once a second unique affix makes this a real
-    /// choice.
+    /// guaranteed/optional/truncation logic at all). Stale-doc fix
+    /// (2026-08-19): this comment used to claim BOTH sources carrying a
+    /// DIFFERENT `UniqueAffix` was "currently impossible, with only one
+    /// variant existing" and that item_a's would arbitrarily win - both
+    /// claims were already wrong by the time `SplitPersonality` shipped
+    /// (2026-08-17), and stayed wrong since: `Character::roll_recombine`
+    /// actually REJECTS that combination outright
+    /// (`RecombineError::IncompatibleUniqueAffixes`), it never reaches
+    /// this field at all in that case. `unique_affix` here is only ever
+    /// `item_a.unique_affix.or(item_b.unique_affix)` - well-defined
+    /// (at most one source can be `Some` by the time this runs) regardless
+    /// of how many `UniqueAffix` variants exist.
     pub unique_affix: Option<UniqueAffix>,
     pub affixes: Vec<(Affix, f64)>,
     pub bonus_affix: Option<Affix>,

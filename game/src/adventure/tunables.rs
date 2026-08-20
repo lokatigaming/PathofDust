@@ -27,7 +27,17 @@ pub struct LiveTunables {
     pub sand_mult: f64,
     /// Was `WINGS_DROP_CHANCE`.
     pub wings_drop_chance: f64,
-    /// Was `CELESTIAL_SHARD_DROP_CHANCE`.
+    /// Was `CELESTIAL_SHARD_DROP_CHANCE`. Field NAME kept unchanged after
+    /// the 2026-08-19 Unique Shard merge (Celestial Shard + the old
+    /// Split-Personality-only "Unique Shard" became one currency - see
+    /// `maybe_drop_unique_shard`'s own doc) specifically so an admin's
+    /// already-saved override in `adventure-live-tunables.toml` keeps
+    /// resolving to the same key. Default doubled 0.001 -> 0.002 (was two
+    /// independent 0.001 rolls, now one 0.002 roll - same total expected
+    /// income, see `maybe_drop_unique_shard`'s doc for the math) - a live
+    /// override predating the merge does NOT get this doubling applied
+    /// automatically and needs a manual bump if the deploy wants the
+    /// "same total income" property to hold on the real server.
     pub celestial_shard_drop_chance: f64,
     /// Consolidated (2026-08-16) from 5 overlapping dials that all used to
     /// multiply into boss HP together (`difficulty_mult`,
@@ -181,7 +191,7 @@ impl Default for LiveTunables {
             loot_mult: 1.3,
             sand_mult: 1.0,
             wings_drop_chance: 0.0001,
-            celestial_shard_drop_chance: 0.001,
+            celestial_shard_drop_chance: 0.002,
             // Plain 1.0 baseline now that this is a single consolidated
             // dial (see the field's own doc) - the base HP/ATK coefficients
             // in `boss_stats_for` already encode the intended starting

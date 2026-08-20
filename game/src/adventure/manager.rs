@@ -2054,6 +2054,17 @@ impl AdventureManager {
             // launched gets a Celestial Shard - reads `result.summary.players`
             // directly (not the top-3-only `fight_summary_from_snapshot`
             // view), since granting needs the actual character id.
+            //
+            // Deliberately UNCHANGED by the 2026-08-19 Unified Unique
+            // Shards merge (CraftAction::CelestialShard is retired, see
+            // that variant's own doc) - this marker already fired in
+            // production and can never fire again, so it stays a
+            // historical record of what actually happened rather than
+            // being rewritten to grant UniqueShard instead. If this path
+            // ever DID run again (a reset marker, a fresh test instance),
+            // the resulting CelestialShard token is harmless - the very
+            // next character load merges it into UniqueShard anyway (see
+            // `migrate_celestial_shard_into_unique_shard`).
             const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
             if crate::state::load_json::<bool>(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
                 if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
@@ -3478,6 +3489,70 @@ impl AdventureManager {
             self.broadcast_state().await;
             return Ok(CraftResult::DivineDustApplied(outcome));
         }
+        if action == CraftAction::UniqueShard {
+            // Unified Unique Shards (2026-08-19) - own early branch, same
+            // "bypasses the generic token/veil/dust machinery entirely"
+            // shape as Polishing/Reforge/DivineDust above, because this
+            // action's own machinery differs in a way the generic path
+            // can't express: it's ALWAYS a multi-choice picker (never an
+            // optional veil a player pays extra for - there's no
+            // randomness here to reveal, just a deterministic menu of
+            // every `UniqueAffix`), so it always inserts a `PendingVeil`
+            // regardless of the `veiled` argument, and never returns
+            // `CraftResult::Applied` directly.
+            let has_token = allow_token_use && character.craft_token_count(action) > 0;
+            if !has_token {
+                // Same u64::MAX-cost sentinel shape every other token-only
+                // action uses (see `CraftAction::UniqueShard`'s own
+                // `base_cost`) - this is a defensive backstop for a stale
+                // page/direct POST, since the real button is hidden
+                // entirely until a token is actually held.
+                return Err(CraftError::InsufficientDust(u64::MAX));
+            }
+            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
+            if item.locked {
+                return Err(CraftError::ItemLocked);
+            }
+            if item.unique_affix.is_some() {
+                return Err(CraftError::AlreadyUnique);
+            }
+            let (item_name, slot, tier, perfect) = (item.name.clone(), item.slot, item.tier, item.perfect);
+            let candidates: Vec<VeilCandidate> = ALL_UNIQUE_AFFIXES
+                .into_iter()
+                .map(|unique| {
+                    VeilCandidate::Currency(CraftOutcome {
+                        item_name: item_name.clone(),
+                        slot,
+                        tier,
+                        action,
+                        affix_added: None,
+                        affix_value: None,
+                        affix_removed: None,
+                        affix_removed_value: None,
+                        affixes_removed: 0,
+                        now_locked: false,
+                        unique_affix_added: Some(unique),
+                        polished_affixes: Vec::new(),
+                        chancing_previous: Vec::new(),
+                        new_quality_percent: None,
+                        perfect,
+                    })
+                })
+                .collect();
+            // Token consumed at insert time, same convention every other
+            // veiled craft already uses (see the generic veiled branch
+            // below) - nothing about the target item is mutated until
+            // `choose_veil_outcome` applies the picked candidate.
+            character.consume_craft_token(action);
+            self.pending_veils.lock().await.insert(
+                username.to_lowercase(),
+                PendingVeil { action: PendingVeilAction::Currency { item_id: item_id.to_string(), action }, candidates, chancing_remaining: Vec::new(), chancing_committed: Vec::new() },
+            );
+            self.persist_characters(&characters);
+            drop(characters);
+            self.broadcast_state().await;
+            return Ok(CraftResult::PendingChoice);
+        }
         let has_token = allow_token_use && character.craft_token_count(action) > 0;
         // Token crafts always veil, when there's real randomness to
         // choose between (see `CraftAction::is_veilable` - Scour has
@@ -3778,11 +3853,15 @@ impl AdventureManager {
             }
             (PendingVeilAction::Currency { item_id, action }, VeilCandidate::Currency(outcome)) => {
                 // Currency veil candidates either ADD an affix (every
-                // action except Annulment) or REMOVE one (Annulment only,
-                // see `CraftAction::Annulment`'s doc) - never both.
-                let applied = match (outcome.affix_added, outcome.affix_value, outcome.affix_removed) {
-                    (Some(affix), Some(value), _) => character.apply_craft_affix(item_id, *action, affix, value),
-                    (_, _, Some(affix)) => character.apply_annulment_removal(item_id, affix),
+                // action except Annulment/UniqueShard), REMOVE one
+                // (Annulment only, see `CraftAction::Annulment`'s doc), or
+                // grant a UNIQUE affix (UniqueShard's own picker, see
+                // `ALL_UNIQUE_AFFIXES`) - never more than one of the three
+                // per candidate.
+                let applied = match (outcome.affix_added, outcome.affix_value, outcome.affix_removed, outcome.unique_affix_added) {
+                    (Some(affix), Some(value), _, _) => character.apply_craft_affix(item_id, *action, affix, value),
+                    (_, _, Some(affix), _) => character.apply_annulment_removal(item_id, affix),
+                    (_, _, _, Some(unique)) => character.apply_unique_affix(item_id, unique),
                     _ => Err(CraftError::ItemNotFound),
                 };
                 if let Ok(applied) = applied {
@@ -4611,7 +4690,6 @@ impl AdventureManager {
                     let item_affixes = item.affixes.clone();
                     let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                     maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                    maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                     if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
                         self.announce_unique_shard_win(character.display_name.clone());
                     }
@@ -4679,7 +4757,6 @@ impl AdventureManager {
                         let item_affixes = item.affixes.clone();
                         let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                         maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                        maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                         if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
                             self.announce_unique_shard_win(character.display_name.clone());
                         }
@@ -5018,7 +5095,6 @@ impl AdventureManager {
                     let item_affixes = item.affixes.clone();
                     let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                     maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                    maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                     if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
                         self.announce_unique_shard_win(character.display_name.clone());
                     }
@@ -5062,7 +5138,6 @@ impl AdventureManager {
                         let item_affixes = item.affixes.clone();
                         let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                         maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                        maybe_drop_celestial_shard(character, &mut rng, tunables.celestial_shard_drop_chance);
                         if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
                             self.announce_unique_shard_win(character.display_name.clone());
                         }
@@ -5576,46 +5651,31 @@ pub(crate) fn maybe_drop_wings(character: &mut Character, rng: &mut impl Rng, wi
     }
 }
 
-/// Celestial Shard's ongoing rare drop rate - "give it a rare drop for
-/// all players with healing power at a .1% drop rate" per the request,
-/// 10x more common than Wings' own default drop chance (still rare, just
-/// not "essentially never" rare - a crafting material meant to actually be
-/// used eventually, not a one-of-a-kind cosmetic). Was a flat const; now
-/// `LiveTunables::celestial_shard_drop_chance`, passed in by the caller.
-///
-/// Rolls the rare Celestial Shard drop - same "called right after every
-/// `receive_item` in the loot-roll/pity paths" precedent as
-/// `maybe_drop_wings`. Used to be gated to characters with some healing
-/// power invested (a pure damage-dealer had no use for a unique affix that
-/// only converted healing into bonus damage) - removed 2026-08-16 per a
-/// live request ("make sure the shard can roll for everyone") once
-/// `UniqueAffix::CelestialConversion` got a real non-Heal effect too (see
-/// its own doc / `apply_hit`'s DPS-side Celestial Shard block): every
-/// archetype can equally roll and make use of it now. Unlike Wings, not a
-/// one-per-character cap - a character could earn several over time
-/// (nothing stops banking multiple Celestial Shard tokens, only EQUIPPING
-/// more than one active copy of the affix at once is restricted - see
-/// `Character::has_conflicting_unique_affix`). Silent by design, same
-/// reasoning as Wings.
-pub(crate) fn maybe_drop_celestial_shard(character: &mut Character, rng: &mut impl Rng, celestial_shard_drop_chance: f64) -> bool {
-    if rng.gen_bool(celestial_shard_drop_chance) {
-        character.add_craft_token(CraftAction::CelestialShard, 1);
-        true
-    } else {
-        false
-    }
-}
-
-/// Rolls the rare Unique Shard drop (2026-08-17, grants
-/// `UniqueAffix::SplitPersonality`) - same shape/call sites as
-/// `maybe_drop_celestial_shard` above, an independent roll each time it's
-/// called. Takes the rate as an explicit parameter rather than reading
-/// `LiveTunables::celestial_shard_drop_chance` itself, even though every
-/// current call site happens to pass that same field (see the admin page's
-/// "Unique Shard Drop Rate" label, which now covers both shards under one
-/// number per a live request) - so splitting this into its own tunable
-/// later is a one-field-add plus swapping the argument at each call site,
-/// not a signature change here.
+/// Unique Shard's rare drop rate (2026-08-19: Celestial Shard and the old
+/// Split-Personality-only "Unique Shard" merged into ONE currency - see
+/// `craft_item_ex`'s own `CraftAction::UniqueShard` branch for the
+/// apply-time picker). Was two independent rolls at the same rate
+/// (`maybe_drop_celestial_shard`, deleted, + this fn); now one roll at
+/// double the old default (0.001 -> 0.002), preserving the SAME total
+/// expected income per roll-opportunity a player used to get from the two
+/// separate 0.001 rolls combined (`E[sum of two independent Bernoulli(p)]
+/// = 2p`, exactly what one Bernoulli(2p) roll also gives - the two shapes
+/// only differ in variance, e.g. the old "both hit at once" case, never
+/// in expectation). `LiveTunables::celestial_shard_drop_chance`'s own
+/// field name is kept as-is (not renamed) specifically so an admin's
+/// already-saved override in `adventure-live-tunables.toml` keeps
+/// resolving to the same key - only the CODE DEFAULT changed; a live
+/// override predating this merge needs a manual bump by whoever deploys
+/// if they want the "same total income" property to hold on the actually-
+/// running server (an explicit TOML value always wins over the code
+/// default). Not a one-per-character cap - a character can bank several
+/// over time (see `Character::has_conflicting_unique_affix` for the
+/// separate "only one EQUIPPED at a time" rule). Silent by design
+/// (`maybe_drop_wings`'s reasoning) for the ROLL itself; unlike before the
+/// merge, this now ALWAYS announces on success via `announce_unique_shard_win`
+/// at every call site (2026-08-19 owner ruling: "no more celestial shard -
+/// only Unique Shards, the old silence rationale retires with the old
+/// currency").
 pub(crate) fn maybe_drop_unique_shard(character: &mut Character, rng: &mut impl Rng, unique_shard_drop_chance: f64) -> bool {
     if rng.gen_bool(unique_shard_drop_chance) {
         character.add_craft_token(CraftAction::UniqueShard, 1);
@@ -7179,6 +7239,143 @@ mod divine_dust_craft_tests {
         let character = manager.character("poor_applier").await.expect("still joined");
         assert_eq!(character.divine_dust, 10, "a failed application must not touch the balance");
         assert!(character.find_item_by_id(&id).expect("item still present").sacred_affix.is_none(), "a failed application must not touch the item");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+}
+
+/// Unified Unique Shards (2026-08-19) - `CraftAction::UniqueShard`'s
+/// apply-time picker, exercised through the real `craft_item_ex`/
+/// `choose_veil_outcome` manager API, same disposable-manager harness
+/// every other feature's own manager-level test module here already uses.
+#[cfg(test)]
+mod unique_shard_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("unique_shard_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    /// Joins `login`, grants `tokens` UniqueShard tokens, and gives them a
+    /// single bagged item - returns its id for `craft_item_ex` to target.
+    async fn joined_with_unique_shard_and_item(manager: &Arc<AdventureManager>, login: &str, tokens: u32) -> String {
+        manager.join(login, login).await;
+        let mut rng = rand::thread_rng();
+        let item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rng);
+        let id = item.id.clone();
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.add_craft_token(CraftAction::UniqueShard, tokens);
+        character.inventory.push(item);
+        id
+    }
+
+    #[tokio::test]
+    async fn applying_without_a_token_is_rejected_and_creates_no_pending_choice() {
+        let (manager, scratch) = disposable_manager("no_token");
+        let id = joined_with_unique_shard_and_item(&manager, "poor", 0).await;
+
+        let err = manager.craft_item_ex("poor", &id, CraftAction::UniqueShard, false, true).await.expect_err("no token held");
+        assert!(matches!(err, CraftError::InsufficientDust(u64::MAX)), "same u64::MAX sentinel every other token-only action uses");
+        assert!(manager.pending_veil("poor").await.is_none(), "a rejected attempt must not create a pending choice");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn applying_builds_a_pending_choice_offering_every_unique_affix_and_consumes_the_token() {
+        let (manager, scratch) = disposable_manager("builds_choice");
+        let id = joined_with_unique_shard_and_item(&manager, "chooser", 1).await;
+
+        let result = manager.craft_item_ex("chooser", &id, CraftAction::UniqueShard, false, true).await.expect("must succeed with a token held");
+        assert!(matches!(result, CraftResult::PendingChoice));
+
+        let character = manager.character("chooser").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 0, "the token is consumed at insert time, before any choice is made - same convention every veiled craft already uses");
+
+        let pending = manager.pending_veil("chooser").await.expect("a pending choice must exist");
+        assert_eq!(pending.candidates.len(), ALL_UNIQUE_AFFIXES.len(), "one candidate per UniqueAffix variant - data-driven, not hardcoded to 2");
+        let offered: Vec<UniqueAffix> = pending
+            .candidates
+            .iter()
+            .map(|c| match c {
+                VeilCandidate::Currency(outcome) => outcome.unique_affix_added.expect("every UniqueShard candidate must carry a unique affix"),
+                other => panic!("expected a Currency candidate, got {other:?}"),
+            })
+            .collect();
+        for &expected in ALL_UNIQUE_AFFIXES.iter() {
+            assert!(offered.contains(&expected), "missing a candidate for {expected:?}");
+        }
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn applying_to_a_locked_item_is_rejected_and_does_not_consume_the_token() {
+        let (manager, scratch) = disposable_manager("locked");
+        let id = joined_with_unique_shard_and_item(&manager, "locker", 1).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            characters.get_mut("locker").unwrap().find_item_by_id_mut(&id).unwrap().locked = true;
+        }
+
+        let err = manager.craft_item_ex("locker", &id, CraftAction::UniqueShard, false, true).await.expect_err("a locked item must reject");
+        assert!(matches!(err, CraftError::ItemLocked));
+
+        let character = manager.character("locker").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a rejected precondition check must not consume the token - checked BEFORE insert");
+        assert!(manager.pending_veil("locker").await.is_none());
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn applying_to_an_already_unique_item_is_rejected() {
+        let (manager, scratch) = disposable_manager("already_unique");
+        let id = joined_with_unique_shard_and_item(&manager, "dupe", 1).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            characters.get_mut("dupe").unwrap().find_item_by_id_mut(&id).unwrap().unique_affix = Some(UniqueAffix::CelestialConversion);
+        }
+
+        let err = manager.craft_item_ex("dupe", &id, CraftAction::UniqueShard, false, true).await.expect_err("an already-unique item must reject");
+        assert!(matches!(err, CraftError::AlreadyUnique));
+
+        let character = manager.character("dupe").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a rejected precondition check must not consume the token");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn choosing_a_candidate_grants_exactly_that_unique_affix_and_clears_the_pending_choice() {
+        let (manager, scratch) = disposable_manager("choose");
+        let id = joined_with_unique_shard_and_item(&manager, "decider", 1).await;
+        manager.craft_item_ex("decider", &id, CraftAction::UniqueShard, false, true).await.expect("must build a pending choice");
+
+        let pending = manager.pending_veil("decider").await.expect("pending choice must exist");
+        let split_index = pending
+            .candidates
+            .iter()
+            .position(|c| matches!(c, VeilCandidate::Currency(outcome) if outcome.unique_affix_added == Some(UniqueAffix::SplitPersonality)))
+            .expect("SplitPersonality must be one of the offered candidates");
+
+        let outcome = manager.choose_veil_outcome("decider", split_index).await.expect("choosing a valid candidate must succeed");
+        match outcome {
+            VeilChosenOutcome::Currency(outcome) => assert_eq!(outcome.unique_affix_added, Some(UniqueAffix::SplitPersonality)),
+            other => panic!("expected VeilChosenOutcome::Currency, got {other:?}"),
+        }
+
+        let character = manager.character("decider").await.expect("still joined");
+        let item = character.find_item_by_id(&id).expect("item still present");
+        assert_eq!(item.unique_affix, Some(UniqueAffix::SplitPersonality), "the picked effect, and only the picked one, must be applied");
+        assert!(manager.pending_veil("decider").await.is_none(), "the pending choice must be cleared once committed");
 
         std::fs::remove_dir_all(&scratch).ok();
     }
