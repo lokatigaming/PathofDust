@@ -181,6 +181,10 @@ export const SCHEMA = {
           "summary": {
             "type": "object"
           },
+          "bossStats": {
+            "type": "array",
+            "items": "object"
+          },
           "startedAtUnixMs": {
             "type": "integer"
           }
@@ -197,6 +201,9 @@ export const SCHEMA = {
           "heal",
           "defeat",
           "skillCast"
+        ],
+        "sourceKindExcludes": [
+          "dot"
         ]
       },
       "buffs": {

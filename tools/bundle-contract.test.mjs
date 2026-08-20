@@ -196,3 +196,31 @@ test('the committed validator is in sync with the IDL', () => {
     'replay-bundle-validator.js is stale - run: node tools/gen-bundle-validator.mjs',
   );
 });
+
+// ------------------------------------------ 5. the Rust writer's real output
+
+test('the bundle the Rust writer actually produced validates', () => {
+  // writer-output.v1.json is committed verbatim from build_bundle, and a Rust
+  // test asserts the writer still reproduces it byte for byte. So this is the
+  // real cross-repo contract: one artifact, checked from the writer's side
+  // there and the reader's side here, rather than two prose descriptions that
+  // agree until they quietly don't.
+  const produced = JSON.parse(
+    readFileSync(join(here, '..', 'game', 'tests', 'fixtures', 'replay_bundle', 'writer-output.v1.json'), 'utf8'),
+  );
+  const { ok, errors } = validateBundle(produced);
+  assert.deepEqual(errors, [], 'the writer produced a bundle this reader rejects');
+  assert.equal(ok, true);
+});
+
+test("the writer's pinned playerVitals keeps its key order, not just its keys", () => {
+  // Byte-level, deliberately. Members are serialized once and carried as raw
+  // bytes so key order is stable; routing them through a serde_json::Value
+  // sorts keys alphabetically and rewrites {id, hpSamples, diedAtMs} as
+  // {diedAtMs, hpSamples, id} - valid JSON, identical values, and a broken
+  // pin. That regression was real and this is what catches it.
+  const raw = readFileSync(join(here, '..', 'game', 'tests', 'fixtures', 'replay_bundle', 'writer-output.v1.json'), 'utf8');
+  const vitals = JSON.parse(raw).members.playerVitals;
+  assert.ok(Array.isArray(vitals) && vitals.length > 0, 'the golden bundle must carry playerVitals');
+  assert.deepEqual(Object.keys(vitals[0]), ['id', 'hpSamples', 'diedAtMs'], 'pinned key ORDER changed');
+});

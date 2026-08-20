@@ -42,6 +42,8 @@ pub(crate) const SUMMARY_FIGHTS_DIR: &str = "adventure-fights-summary";
 const COARSE_SEQ_PATH: &str = "adventure-fights-coarse-seq.json";
 const DETAIL_SEQ_PATH: &str = "adventure-fights-detail-seq.json";
 const SUMMARY_SEQ_PATH: &str = "adventure-fights-summary-seq.json";
+pub(crate) const BUNDLE_FIGHTS_DIR: &str = "adventure-fights-bundle";
+const BUNDLE_SEQ_PATH: &str = "adventure-fights-bundle-seq.json";
 
 /// Lowered 100 -> 10 -> 5 (2026-08-17 Phase 2, then again 2026-08-18)
 /// as real on-disk sizes kept outrunning the estimates: the Phase 2 cut
@@ -68,6 +70,13 @@ pub(crate) const DETAIL_FIGHTS_CAPACITY: usize = 3;
 /// also gives `/fights.json`'s own `?limit=` a genuinely useful range
 /// again, independent of the coarse tier's own much smaller retention.
 pub const SUMMARY_FIGHTS_CAPACITY: usize = 200;
+/// Replay bundles, written ALONGSIDE the legacy tiers during the
+/// dual-write window (Stage 4 of the replay-bundle work) - so this
+/// capacity is pure additional disk on top of what the tiers above
+/// already hold, and is deliberately conservative until the byte-budget
+/// retention work lands and replaces these count caps with the ratified
+/// 2 GB detail budget (and the separate 256 MB pinned cap).
+pub(crate) const BUNDLE_FIGHTS_CAPACITY: usize = 3;
 
 /// Bumps and persists the next sequence number for a tier, used to name
 /// that fight's own file - zero-padded so plain filename sorting is
@@ -163,6 +172,49 @@ pub(crate) fn save_detail_fight(detail: &DetailFightSnapshot) {
 /// log's whole-file read on every request.
 pub(crate) fn recent_coarse_fights(limit: usize) -> Vec<LastFightSnapshot> {
     read_recent(&resolved(COARSE_FIGHTS_DIR), limit)
+}
+
+/// Like `write_and_prune`, but hands the sequence number to `build`
+/// first. A replay bundle names itself in its own manifest (`fightId`),
+/// so it cannot be constructed until its number is known - and drawing
+/// that number twice would desynchronise the tier.
+pub(crate) fn write_and_prune_seeded<T: Serialize>(
+    dir: &str,
+    seq_path: &str,
+    capacity: usize,
+    build: impl FnOnce(u64) -> T,
+) {
+    if let Err(err) = std::fs::create_dir_all(dir) {
+        tracing::error!("Failed to create fight log directory {dir}: {err}");
+        return;
+    }
+    let seq = next_seq(seq_path);
+    let path = fight_file_path(dir, seq);
+    if let Err(err) = crate::state::save_json_compact(&path, &build(seq)) {
+        tracing::error!("Failed to persist fight file {}: {err}", path.display());
+        return;
+    }
+    let files = list_fight_files(dir);
+    if files.len() > capacity {
+        for old in &files[..files.len() - capacity] {
+            if let Err(err) = std::fs::remove_file(old) {
+                tracing::error!("Failed to prune old fight file {}: {err}", old.display());
+            }
+        }
+    }
+}
+
+/// Writes one replay bundle. Failure here is logged and dropped: the
+/// legacy tiers are written FIRST and independently (see
+/// `save_last_fight`), so a bundle that cannot be written must never
+/// cost the fight its real archive.
+pub(crate) fn save_bundle_fight<T: Serialize>(build: impl FnOnce(u64) -> T) {
+    write_and_prune_seeded(
+        &resolved(BUNDLE_FIGHTS_DIR),
+        &resolved(BUNDLE_SEQ_PATH),
+        BUNDLE_FIGHTS_CAPACITY,
+        build,
+    );
 }
 
 pub(crate) fn save_summary_fight(summary: &FightSummarySnapshot) {

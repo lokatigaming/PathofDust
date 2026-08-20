@@ -87,6 +87,226 @@ pub(crate) fn sequence_events(events: &[CombatEvent]) -> Vec<SequencedEvent<'_>>
         .collect()
 }
 
+
+// ---------------------------------------------------------------------------
+// The bundle writer (Stage 4: dual-write).
+// ---------------------------------------------------------------------------
+//
+// Written ALONGSIDE the legacy tiers, never instead of them. The legacy
+// writes happen first and are untouched by anything here; `build_bundle`
+// takes `&EncounterResult` so it cannot perturb what they serialize, and a
+// test pins the legacy bytes as identical either side of a bundle build.
+//
+// Member split, per the ratified design:
+//
+//   core          everything that is not an event stream (<0.1% of a file)
+//   replay        attack (NOT dot) / heal / defeat / skillCast
+//   dot           attack where sourceKind == dot, split out because it is
+//                 58% of archive event records on its own
+//   buffs         shield / buffSnapshot - 25.16% of archive event bytes,
+//                 deliberately off the public wire since 2026-08-20
+//   rolls         66.8% of an archive file, operator tier, never public
+//   playerVitals  pinned byte-for-byte
+//
+// replay and dot are disjoint, and both carry `seq` from the FULL log, so a
+// reader merges them back into true log order by sorting on it. That is the
+// whole reason the sequence key exists.
+
+use std::collections::BTreeMap;
+
+use serde_json::value::RawValue;
+use sha2::{Digest, Sha256};
+
+use super::{fight_storage, AttackSourceKind, BossStats, EncounterResult};
+
+const SCHEMA_VERSION: u32 = 1;
+const MIN_READER_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MemberEntry {
+    pub(crate) v: u32,
+    pub(crate) state: &'static str,
+    pub(crate) tier: &'static str,
+    pub(crate) bytes: usize,
+    pub(crate) sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) pinned_shape: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Manifest {
+    pub(crate) schema_version: u32,
+    pub(crate) min_reader_version: u32,
+    pub(crate) fight_id: String,
+    pub(crate) started_at_unix_ms: u64,
+    pub(crate) real_duration_ms: u32,
+    pub(crate) display_duration_ms: u32,
+    pub(crate) pinned: bool,
+    pub(crate) members: BTreeMap<String, MemberEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct Bundle {
+    pub(crate) manifest: Manifest,
+    pub(crate) members: BTreeMap<String, Box<RawValue>>,
+}
+
+/// The `core` member. Built field by field rather than by subtracting the
+/// event streams from `EncounterResult`, so a field added to that struct
+/// later cannot silently appear in a public-tier member without someone
+/// deciding it should.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Core<'a> {
+    kind: &'a super::EncounterKind,
+    stage: u32,
+    won: bool,
+    participants: &'a [String],
+    units: &'a [super::CombatUnitInfo],
+    display_duration_ms: u32,
+    real_duration_ms: u32,
+    loot: &'a [super::LootDrop],
+    broken: &'a [super::BrokenItem],
+    enemy_name: &'a Option<String>,
+    enemy_count: &'a Option<u32>,
+    retreated: &'a [String],
+    boss_sprites: &'a [String],
+    summary: &'a super::FightSummarySnapshot,
+    boss_stats: &'a [BossStats],
+    started_at_unix_ms: u64,
+}
+
+fn is_dot(event: &CombatEvent) -> bool {
+    matches!(event, CombatEvent::Attack { source_kind: AttackSourceKind::Dot, .. })
+}
+
+/// Serializes one member and records its size and digest.
+///
+/// The digest covers exactly the bytes a reader will receive, so it stays
+/// meaningful once Stage 5 serves members as individual HTTP resources.
+fn member(
+    members: &mut BTreeMap<String, Box<RawValue>>,
+    entries: &mut BTreeMap<String, MemberEntry>,
+    name: &str,
+    tier: &'static str,
+    state: &'static str,
+    pinned_shape: Option<bool>,
+    value: &impl Serialize,
+) {
+    // Serialized ONCE, and those exact bytes are what the bundle carries.
+    //
+    // Deliberately NOT via serde_json::Value: a Value is a BTreeMap, so a
+    // round-trip through one sorts every object's keys alphabetically.
+    // That silently rewrote playerVitals from {id, hpSamples, diedAtMs}
+    // to {diedAtMs, hpSamples, id} - still valid JSON, still parses, and
+    // exactly the byte-level drift the pin on that member exists to
+    // prevent. RawValue holds the bytes as serialized instead, so a member
+    // is byte-identical to serializing its source type directly, and the
+    // size and digest below describe precisely the bytes a reader gets.
+    let serialized = serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
+    let bytes = serialized.len();
+    let sha256 = format!("{:x}", Sha256::digest(serialized.as_bytes()));
+    let raw = RawValue::from_string(serialized).unwrap_or_else(|_| RawValue::from_string("null".to_string()).expect("null is valid JSON"));
+    entries.insert(
+        name.to_string(),
+        MemberEntry { v: 1, state, tier, bytes, sha256, pinned_shape },
+    );
+    members.insert(name.to_string(), raw);
+}
+
+/// Builds the bundle for one finished fight.
+///
+/// MUST be called on the full, pre-thinning `result` - the same caller
+/// contract `build_player_vitals` documents. `save_last_fight` is that
+/// point, and `thin_events_for_overlay` runs strictly after it.
+pub(crate) fn build_bundle(
+    result: &EncounterResult,
+    boss_stats: &[BossStats],
+    started_at_unix_ms: u64,
+    fight_id: String,
+) -> Bundle {
+    let sequenced = sequence_events(&result.events);
+
+    let mut replay = Vec::new();
+    let mut dot = Vec::new();
+    let mut buffs = Vec::new();
+    for record in &sequenced {
+        match record.event {
+            CombatEvent::Shield { .. } | CombatEvent::BuffSnapshot { .. } => buffs.push(record),
+            event if is_dot(event) => dot.push(record),
+            _ => replay.push(record),
+        }
+    }
+
+    let mut members = BTreeMap::new();
+    let mut entries = BTreeMap::new();
+    member(
+        &mut members,
+        &mut entries,
+        "core",
+        "public",
+        "present",
+        None,
+        &Core {
+            kind: &result.kind,
+            stage: result.stage,
+            won: result.won,
+            participants: &result.participants,
+            units: &result.units,
+            display_duration_ms: result.display_duration_ms,
+            real_duration_ms: result.real_duration_ms,
+            loot: &result.loot,
+            broken: &result.broken,
+            enemy_name: &result.enemy_name,
+            enemy_count: &result.enemy_count,
+            retreated: &result.retreated,
+            boss_sprites: &result.boss_sprites,
+            summary: &result.summary,
+            boss_stats,
+            started_at_unix_ms,
+        },
+    );
+
+    member(&mut members, &mut entries, "replay", "public", "present", None, &replay);
+
+    // "present", not "aggregated": this writes dot at full fidelity. The
+    // measured 98.34% aggregation is a separate, lossy transform and lands
+    // as its own change - the manifest's `state` field exists precisely so
+    // that switch needs no format change.
+    member(&mut members, &mut entries, "dot", "participant", "present", None, &dot);
+
+    member(&mut members, &mut entries, "buffs", "participant", "present", None, &buffs);
+
+    member(&mut members, &mut entries, "rolls", "operator", "present", None, &result.rolls);
+
+    member(&mut members, &mut entries, "playerVitals", "public", "present", Some(true), &result.player_vitals);
+
+    Bundle {
+        manifest: Manifest {
+            schema_version: SCHEMA_VERSION,
+            min_reader_version: MIN_READER_VERSION,
+            fight_id,
+            started_at_unix_ms,
+            real_duration_ms: result.real_duration_ms,
+            display_duration_ms: result.display_duration_ms,
+            pinned: false,
+            members: entries,
+        },
+        members,
+    }
+}
+
+/// Dual-write entry point. Called from `save_last_fight` AFTER every legacy
+/// tier has been written, so a failure here can never cost a fight its real
+/// archive.
+pub(crate) fn save_bundle(result: &EncounterResult, boss_stats: &[BossStats], started_at_unix_ms: u64) {
+    fight_storage::save_bundle_fight(|seq| {
+        build_bundle(result, boss_stats, started_at_unix_ms, format!("{seq:010}"))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,5 +639,334 @@ mod schema_conformance {
         // died_at_ms is Option and serializes as null rather than being
         // omitted; the IDL marks it nullable to match.
         assert_eq!(json["diedAtMs"], Value::Null);
+    }
+}
+
+/// Dual-write safety.
+///
+/// The condition on this stage was that enabling the bundle must not move a
+/// single byte of what the legacy tiers write. These tests prove that
+/// against real files written by the real writer, not against values held in
+/// memory, because "the file is identical" is the claim that matters.
+#[cfg(test)]
+mod dual_write {
+    use super::*;
+    use crate::adventure::{
+        AttackSourceKind, BossStats, CombatUnitInfo, DetailFightSnapshot, EncounterKind,
+        EncounterResult, FightSummarySnapshot, LastFightSnapshot, PlayerVitals,
+        RollCategory, RollEvent,
+    };
+
+    fn attack(at_ms: u32, hit_id: u64, source_kind: AttackSourceKind) -> CombatEvent {
+        CombatEvent::Attack {
+            at_ms,
+            attacker: "a_player".to_string(),
+            target: "__enemy_0__".to_string(),
+            damage: 10,
+            unmitigated_damage: 20,
+            target_hp_after: 90,
+            is_crit: false,
+            evaded: false,
+            hit_id,
+            source_kind,
+        }
+    }
+
+    /// A fight with every member populated and, deliberately, several events
+    /// sharing one at_ms across different members - the case a naive
+    /// reassembly gets wrong.
+    fn fixture() -> EncounterResult {
+        EncounterResult {
+            kind: EncounterKind::Boss,
+            stage: 2056,
+            won: false,
+            participants: vec!["a_player".to_string()],
+            units: vec![CombatUnitInfo {
+                id: "a_player".to_string(),
+                display_name: "A Player".to_string(),
+                is_boss: false,
+                archetype: None,
+                role: None,
+                max_hp: 100,
+                golem_summoner_id: None,
+                golem_type: None,
+                thunder_net_absorbed: 0,
+            }],
+            events: vec![
+                CombatEvent::SkillCast { at_ms: 0, unit: "a_player".to_string(), skill: "Doom".to_string() },
+                attack(0, 1, AttackSourceKind::Direct),
+                CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("curse".to_string(), 0.68)] },
+                attack(0, 2, AttackSourceKind::Dot),
+                CombatEvent::Shield { at_ms: 0, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5 },
+                attack(100, 3, AttackSourceKind::Splash),
+                attack(100, 4, AttackSourceKind::Dot),
+                CombatEvent::Heal { at_ms: 200, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 7, target_hp_after: 97, is_revive: false },
+                CombatEvent::Defeat { at_ms: 300, unit: "a_player".to_string() },
+            ],
+            display_duration_ms: 6000,
+            real_duration_ms: 2800,
+            loot: vec![],
+            broken: vec![],
+            enemy_name: Some("The Hollow Choir".to_string()),
+            enemy_count: Some(1),
+            retreated: vec![],
+            boss_sprites: vec!["hollow-choir".to_string()],
+            rolls: vec![RollEvent {
+                event_id: 10,
+                hit_id: 1,
+                caused_by: None,
+                at_ms: 0,
+                category: RollCategory::Crit,
+                source: "Crit chance".into(),
+                actor: "a_player".to_string(),
+                target: Some("__enemy_0__".to_string()),
+                probability: Some(0.25),
+                succeeded: Some(false),
+                magnitude: None,
+            }],
+            summary: FightSummarySnapshot::default(),
+            player_vitals: vec![PlayerVitals {
+                id: "a_player".to_string(),
+                hp_samples: vec![(0, 100), (300, 0)],
+                died_at_ms: Some(300),
+            }],
+        }
+    }
+
+    /// Members are held as raw serialized bytes, so a test that wants to
+    /// inspect records parses them back first.
+    fn member_array(bundle: &Bundle, name: &str) -> Vec<serde_json::Value> {
+        serde_json::from_str(bundle.members[name].get()).expect("member must be valid JSON")
+    }
+
+    pub(super) fn sample_bundle() -> Bundle {
+        build_bundle(&fixture(), &[BossStats::default()], 1_755_690_000_000, "0000004154".to_string())
+    }
+
+    fn legacy_files(result: &EncounterResult, tag: &str) -> (Vec<u8>, Vec<u8>) {
+        // Exactly what save_last_fight writes to the coarse and detail tiers.
+        let snapshot = LastFightSnapshot {
+            result: result.clone(),
+            boss_stats: vec![BossStats::default()],
+            started_at_unix_ms: 1_755_690_000_000,
+        };
+        let detail = DetailFightSnapshot {
+            snapshot: LastFightSnapshot {
+                result: result.clone(),
+                boss_stats: vec![BossStats::default()],
+                started_at_unix_ms: 1_755_690_000_000,
+            },
+            rolls: result.rolls.clone(),
+        };
+
+        let dir = std::env::temp_dir();
+        let coarse_path = dir.join(format!("pod-dualwrite-coarse-{tag}.json"));
+        let detail_path = dir.join(format!("pod-dualwrite-detail-{tag}.json"));
+        crate::state::save_json_compact(&coarse_path, &snapshot).expect("coarse must write");
+        crate::state::save_json_compact(&detail_path, &detail).expect("detail must write");
+        let coarse = std::fs::read(&coarse_path).expect("coarse must read back");
+        let detail_bytes = std::fs::read(&detail_path).expect("detail must read back");
+        let _ = std::fs::remove_file(&coarse_path);
+        let _ = std::fs::remove_file(&detail_path);
+        (coarse, detail_bytes)
+    }
+
+    /// CONDITION 1. Real files, written by the real writer, either side of a
+    /// bundle build.
+    #[test]
+    fn legacy_bytes_are_identical_either_side_of_a_bundle_build() {
+        let result = fixture();
+        let boss_stats = vec![BossStats::default()];
+
+        let (coarse_before, detail_before) = legacy_files(&result, "before");
+        let bundle = build_bundle(&result, &boss_stats, 1_755_690_000_000, "0000000001".to_string());
+        let (coarse_after, detail_after) = legacy_files(&result, "after");
+
+        assert_eq!(coarse_before, coarse_after, "the coarse tier's bytes moved when the bundle was built");
+        assert_eq!(detail_before, detail_after, "the detail tier's bytes moved when the bundle was built");
+        assert!(!coarse_before.is_empty() && !detail_before.is_empty(), "the fixture must actually produce files");
+        // And the bundle really was built - otherwise this passes vacuously.
+        assert_eq!(bundle.manifest.members.len(), 6);
+    }
+
+    /// CONDITION 2. The pinned member must be the legacy shape byte for
+    /// byte, not merely a shape that parses the same.
+    #[test]
+    fn pinned_player_vitals_member_is_byte_for_byte_the_legacy_serialization() {
+        let result = fixture();
+        let bundle = build_bundle(&result, &[], 0, "0000000001".to_string());
+
+        let legacy = serde_json::to_string(&result.player_vitals).expect("legacy vitals must serialize");
+        let in_bundle = bundle.members["playerVitals"].get().to_string();
+
+        assert_eq!(in_bundle, legacy, "the pinned member diverged from the legacy serialization");
+        assert_eq!(bundle.manifest.members["playerVitals"].pinned_shape, Some(true));
+        assert_eq!(bundle.manifest.members["playerVitals"].tier, "public");
+    }
+
+    /// The split's core correctness: no event lost, none duplicated.
+    #[test]
+    fn every_event_lands_in_exactly_one_member() {
+        let result = fixture();
+        let bundle = build_bundle(&result, &[], 0, "0000000001".to_string());
+
+        let count = |name: &str| member_array(&bundle, name).len();
+        assert_eq!(
+            count("replay") + count("dot") + count("buffs"),
+            result.events.len(),
+            "events were lost or duplicated across the member split",
+        );
+
+        let mut seqs: Vec<u64> = Vec::new();
+        for name in ["replay", "dot", "buffs"] {
+            for record in member_array(&bundle, name) {
+                seqs.push(record["seq"].as_u64().expect("every record carries seq"));
+            }
+        }
+        seqs.sort_unstable();
+        seqs.dedup();
+        assert_eq!(seqs.len(), result.events.len(), "seq values collided across members");
+        assert_eq!(seqs, (0..result.events.len() as u64).collect::<Vec<_>>(), "seq must be dense over the whole log");
+    }
+
+    /// Merging the members back by seq must reproduce the original log
+    /// exactly - including the same-at_ms run the fixture opens with, which
+    /// is the case at_ms and hit_id both get wrong.
+    #[test]
+    fn merging_members_by_seq_reproduces_the_original_log() {
+        let result = fixture();
+        let bundle = build_bundle(&result, &[], 0, "0000000001".to_string());
+
+        let mut merged: Vec<(u64, serde_json::Value)> = Vec::new();
+        for name in ["replay", "dot", "buffs"] {
+            for record in member_array(&bundle, name) {
+                merged.push((record["seq"].as_u64().expect("seq"), record.clone()));
+            }
+        }
+        merged.sort_by_key(|(seq, _)| *seq);
+
+        for (index, (_, record)) in merged.iter().enumerate() {
+            let original = serde_json::to_value(&result.events[index]).expect("event serializes");
+            for (key, value) in original.as_object().expect("event object") {
+                assert_eq!(
+                    record.get(key),
+                    Some(value),
+                    "event {index} field {key:?} differs after a member round-trip",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dot_is_split_out_of_replay_and_neither_leaks_into_the_other() {
+        let result = fixture();
+        let bundle = build_bundle(&result, &[], 0, "0000000001".to_string());
+
+        for record in member_array(&bundle, "replay") {
+            assert_ne!(record["sourceKind"].as_str(), Some("dot"), "a dot attack leaked into replay");
+            let kind = record["kind"].as_str().expect("kind");
+            assert!(matches!(kind, "attack" | "heal" | "defeat" | "skillCast"), "replay carries {kind}");
+        }
+        for record in member_array(&bundle, "dot") {
+            assert_eq!(record["sourceKind"].as_str(), Some("dot"));
+        }
+        for record in member_array(&bundle, "buffs") {
+            let kind = record["kind"].as_str().expect("kind");
+            assert!(matches!(kind, "shield" | "buffSnapshot"), "buffs carries {kind}");
+        }
+        assert_eq!(member_array(&bundle, "dot").len(), 2);
+        assert_eq!(member_array(&bundle, "buffs").len(), 2);
+    }
+
+    /// shield/buffSnapshot are off the public wire on purpose. If the split
+    /// ever put them in a public-tier member they would be back on it.
+    #[test]
+    fn tiers_match_the_ratified_exposure_model() {
+        let bundle = build_bundle(&fixture(), &[], 0, "0000000001".to_string());
+        let tier = |name: &str| bundle.manifest.members[name].tier;
+
+        assert_eq!(tier("core"), "public");
+        assert_eq!(tier("replay"), "public");
+        assert_eq!(tier("playerVitals"), "public");
+        assert_eq!(tier("buffs"), "participant");
+        assert_eq!(tier("dot"), "participant");
+        assert_eq!(tier("rolls"), "operator", "full roll logs must never be public");
+    }
+
+    #[test]
+    fn manifest_sizes_and_digests_describe_the_bytes_a_reader_receives() {
+        use serde_json::value::RawValue;
+use sha2::{Digest, Sha256};
+        let bundle = build_bundle(&fixture(), &[], 0, "0000000001".to_string());
+
+        for (name, entry) in &bundle.manifest.members {
+            let serialized = bundle.members[name].get().to_string();
+            assert_eq!(entry.bytes, serialized.len(), "{name}: manifest byte count is wrong");
+            let digest = format!("{:x}", Sha256::digest(bundle.members[name].get().as_bytes()));
+            assert_eq!(entry.sha256, digest, "{name}: manifest digest is wrong");
+            assert_eq!(entry.v, 1);
+            assert_eq!(entry.state, "present");
+        }
+    }
+
+    /// The bundle names itself, and that name has to be the file it is
+    /// written as, or a manifest cannot be matched to its own archive entry.
+    #[test]
+    fn the_manifest_carries_both_clocks_and_its_own_id() {
+        let bundle = build_bundle(&fixture(), &[], 1_755_690_000_000, "0000004154".to_string());
+        assert_eq!(bundle.manifest.fight_id, "0000004154");
+        assert_eq!(bundle.manifest.started_at_unix_ms, 1_755_690_000_000);
+        // Both clocks: recovering real DoT tick times means inverting the
+        // display compression, which is impossible with only one of them.
+        assert_eq!(bundle.manifest.real_duration_ms, 2800);
+        assert_eq!(bundle.manifest.display_duration_ms, 6000);
+        assert_eq!(bundle.manifest.schema_version, 1);
+        assert_eq!(bundle.manifest.min_reader_version, 1);
+    }
+
+    /// The written artifact must be the shape the JS validator and the
+    /// golden fixture both expect: { manifest, members }.
+    #[test]
+    fn the_written_bundle_has_the_shape_the_validator_expects() {
+        let bundle = build_bundle(&fixture(), &[], 0, "0000000001".to_string());
+        let value = serde_json::to_value(&bundle).expect("bundle serializes");
+        let object = value.as_object().expect("a bundle is an object");
+        assert_eq!(object.keys().collect::<Vec<_>>(), vec!["manifest", "members"]);
+        for name in ["core", "replay", "dot", "buffs", "rolls", "playerVitals"] {
+            assert!(value["members"].get(name).is_some(), "member {name} missing from the payload");
+            assert!(value["manifest"]["members"].get(name).is_some(), "member {name} missing from the manifest");
+        }
+    }
+}
+
+#[cfg(test)]
+mod writer_golden {
+    use super::*;
+
+    /// The cross-repo golden contract, from this side.
+    ///
+    /// `writer-output.v1.json` is what `build_bundle` actually produced,
+    /// committed verbatim. The JavaScript contract suite validates that same
+    /// file from the reader's side, so both repos are checked against one
+    /// artifact rather than against each other's prose. If the writer changes
+    /// shape this fails here AND there, which is the point: a shared schema
+    /// file on its own enforces nothing.
+    ///
+    /// This is also what pins key ORDER. Members are serialized once and
+    /// carried as raw bytes precisely so that order is stable; a refactor
+    /// back through serde_json::Value would sort every object's keys and
+    /// break the pinned playerVitals shape without changing a single value.
+    #[test]
+    fn the_writer_still_produces_the_committed_golden_bundle() {
+        let produced = serde_json::to_string(&super::dual_write::sample_bundle())
+            .expect("the bundle must serialize");
+        let committed = include_str!("../../tests/fixtures/replay_bundle/writer-output.v1.json");
+
+        assert_eq!(
+            produced, committed,
+            "the writer no longer produces the committed golden bundle - if that is intended, \
+             update game/tests/fixtures/replay_bundle/writer-output.v1.json and re-run the \
+             JavaScript contract suite before shipping it",
+        );
     }
 }

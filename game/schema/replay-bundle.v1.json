@@ -69,6 +69,7 @@
         "retreated": { "type": "array", "items": "string" },
         "bossSprites": { "type": "array", "items": "string" },
         "summary": { "type": "object" },
+        "bossStats": { "type": "array", "items": "object" },
         "startedAtUnixMs": { "type": "integer" }
       }
     },
@@ -78,7 +79,8 @@
       "kind": "eventStream",
       "$comment": "One merged, ordered stream. These four kinds are exactly what overlay.html's fireEvent has branches for, and exactly what the server still broadcasts after the 2026-08-20 thinning rework.",
       "sequenceKey": "seq",
-      "eventKinds": ["attack", "heal", "defeat", "skillCast"]
+      "eventKinds": ["attack", "heal", "defeat", "skillCast"],
+      "sourceKindExcludes": ["dot"]
     },
 
     "buffs": {

@@ -35,6 +35,7 @@
       "retreated": [],
       "bossSprites": ["hollow-choir"],
       "summary": { "stage": 2056, "won": false },
+      "bossStats": [{ "id": "__enemy_0__", "damageTaken": 96444 }],
       "startedAtUnixMs": 1755690000000
     },
     "replay": [
