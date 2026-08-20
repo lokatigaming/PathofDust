@@ -51,6 +51,10 @@ patreon-tokens.json
 # Pre-Elementalist-rework-deploy rollback backup (RF self-damage mitigation
 # + golem synergy), same discipline.
 /backup-pre-rf-self-damage-mitigation
+# Pre-corrective-Elementalist-release rollback backup (golem penalty
+# removed, RF re-homed, full inheritance, live golem speed), same
+# discipline.
+/backup-pre-elementalist-corrective
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
