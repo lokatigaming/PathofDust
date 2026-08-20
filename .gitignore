@@ -64,6 +64,8 @@ patreon-tokens.json
 # pinned pre-deploy fight-summary snapshot, per §13's new step), same
 # discipline.
 /backup-pre-golem-inheritance
+# Pre-shattering-toggle-deploy rollback backup, same discipline.
+/backup-pre-shattering-toggle
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
