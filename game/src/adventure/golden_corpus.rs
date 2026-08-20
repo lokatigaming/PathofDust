@@ -359,6 +359,41 @@ fn scenarios() -> Vec<Scenario> {
             // than by inspection.
             boss: tough_boss(6_000_000, 1_400, 1_100),
         },
+        // Mage, for its own migration batch (2026-08-20). All four of
+        // its nodes are non-linear `SpecialPerRank` tables - Absolute
+        // Zero 0/0.50/0.65, Arcane Instability 0.05/0.09/0.12, Empowered
+        // Bolt 0/0/0.20, Infinite Loop 3/6/9 - so this fixture is what
+        // checks those tables against a real fight rather than only
+        // against their own declarations.
+        //
+        // Reaching all four means taking three Specializations to 4/4
+        // under Arcane plus one under Surge, which is 34 points; level
+        // 136 grants 35. Tanky boss for the same reason the party
+        // scenario needed one - a Mage at this level with current gear
+        // deletes an ordinary boss before its own mechanics can fire.
+        Scenario {
+            name: "mage_passives_vs_cthulhu_stage1000",
+            seed: 17,
+            stage: 1000,
+            archetype: Archetype::Mage,
+            level: 136,
+            boss_kind: Some(BossKind::Cthulhu),
+            passives: &[
+                ("arcane", 3),
+                ("overload", 4),
+                ("arcaneinstability", 3),
+                ("criticalmass", 4),
+                ("empoweredbolt", 3),
+                ("spellecho", 4),
+                ("infiniteloop", 3),
+                ("surge", 3),
+                ("frostnova", 4),
+                ("absolutezero", 3),
+            ],
+            golem_slots: &[],
+            party: &[],
+            boss: tough_boss(4_000_000, 1_600, 1_100),
+        },
     ]
 }
 

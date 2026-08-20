@@ -80,6 +80,12 @@ pub(crate) const JUDGMENT_BASE_THRESHOLD: f64 = 0.5;
 /// fraction above which the excess converts, BEFORE Eternal Moment or
 /// Chaos Theory lower it. 1.0 = "only speed past 100% converts".
 pub(crate) const SPEED_OVERFLOW_BASE_THRESHOLD: f64 = 1.0;
+/// Mage's Arcane Instability - the enemy-HP fraction ABOVE which its
+/// bonus applies. Named 2026-08-20 (Stage 3 Mage batch): it was a bare
+/// 0.65 at its one site. Unlike the per-rank bonus beside it, this does
+/// not scale with rank at all - it is a fixed property of the mechanic,
+/// so it stays a constant rather than becoming a tunable node value.
+pub(crate) const ARCANE_INSTABILITY_HP_THRESHOLD: f64 = 0.65;
 
 /// The attack-speed threshold above which Temporal Rift / Unstable
 /// Power convert the excess - `SPEED_OVERFLOW_BASE_THRESHOLD` lowered by
@@ -10962,7 +10968,7 @@ pub(crate) fn simulate_battle(
                 // no longer paired with a separate chance field - repeats
                 // reuse the base `twin_strike_chance` (see
                 // `finiteloop_max_repeats`'s own doc).
-                finiteloop_max_repeats: c.passive_node_rank("infiniteloop") * 3,
+                finiteloop_max_repeats: c.passive_node_count("infiniteloop"),
                 doubletap_max_repeats: c.passive_node_rank("doubletap") * 3,
                 in_splash_resolution: false,
                 // Druid's Pack Instinct / Symbiosis - see `apply_hit`'s
@@ -11075,18 +11081,10 @@ pub(crate) fn simulate_battle(
                 },
                 finalcut_speed_pct: c.passive_node_magnitude("finalcut"),
                 empoweredbolt_invested: c.passive_node_rank("empoweredbolt") >= 2,
-                empoweredbolt_crit_mult_bonus: if c.passive_node_rank("empoweredbolt") >= 3 { 0.20 } else { 0.0 },
+                empoweredbolt_crit_mult_bonus: c.passive_node_magnitude("empoweredbolt"),
                 volatilemagic_splash_pct: c.passive_node_magnitude("volatilemagic"),
-                arcaneinstability_threshold: if c.passive_node_rank("arcaneinstability") >= 1 { 0.65 } else { 0.0 },
-                arcaneinstability_bonus_pct: if c.passive_node_rank("arcaneinstability") >= 3 {
-                    0.12
-                } else if c.passive_node_rank("arcaneinstability") >= 2 {
-                    0.09
-                } else if c.passive_node_rank("arcaneinstability") >= 1 {
-                    0.05
-                } else {
-                    0.0
-                },
+                arcaneinstability_threshold: if c.passive_node_rank("arcaneinstability") >= 1 { ARCANE_INSTABILITY_HP_THRESHOLD } else { 0.0 },
+                arcaneinstability_bonus_pct: c.passive_node_magnitude("arcaneinstability"),
                 premeditation_refund_chance: c.passive_node_magnitude("premeditation"),
                 stack_evasion_per_stack: c.passive_node_magnitude("silentsteps"),
                 huntersinstinct_crit_vs_boss_pct: c.passive_node_magnitude("huntersinstinct"),
@@ -11164,13 +11162,10 @@ pub(crate) fn simulate_battle(
                 // Blizzard extends Frost Nova's own magnitude directly.
                 frostnova_evasion_debuff_pct: c.passive_node_magnitude("frostnova") + c.passive_node_magnitude("blizzard"),
                 frostnova_duration_ms: FROSTNOVA_DEBUFF_DURATION_MS + (c.passive_node_magnitude("permafrost") * 1000.0).round() as u32,
-                absolutezero_threshold: if c.passive_node_rank("absolutezero") >= 3 {
-                    0.65
-                } else if c.passive_node_rank("absolutezero") >= 2 {
-                    0.50
-                } else {
-                    0.0
-                },
+                // Migrated 2026-08-20 (Stage 3 Mage batch). The 0 / 0.50 / 0.65
+                // ladder is non-linear, so the node now declares it as a
+                // SpecialPerRank table and this reads it directly.
+                absolutezero_threshold: c.passive_node_magnitude("absolutezero"),
                 staticfield_speed_debuff_pct: c.passive_node_magnitude("staticfield"),
                 temp_attack_speed_debuff: 0.0,
                 temp_attack_speed_debuff_expires_at_ms: 0,

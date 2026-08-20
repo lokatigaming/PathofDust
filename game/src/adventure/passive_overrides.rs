@@ -175,8 +175,6 @@ pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()
 /// `docs/passive_tunables_spec.md` for the audit table and the
 /// per-class batch order.
 pub const PENDING_MIGRATION_NODES: &[&str] = &[
-"absolutezero", // mage
-    "arcaneinstability", // mage
     "assassinate", // rogue
     "bloodrush", // berserker
     "bloodscent", // berserker
@@ -185,12 +183,10 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "crush", // berserker
     "deathwish", // berserker
     "doubletap", // rogue
-    "empoweredbolt", // mage
     "finalblow", // ranger
     "frenzy", // berserker
     "gloriousdeath", // berserker
     "guardianspirit", // monk
-    "infiniteloop", // mage
     "lastlaugh", // berserker
     "lastrites", // slayer
     "markedfordeath", // rogue
@@ -235,6 +231,7 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
 /// confirmed to be a plain arithmetic count at its own call site before
 /// being listed.
 pub const INTEGER_COUNT_NODES: &[&str] = &[
+    "infiniteloop",
     "chainoflight",
     "arterialspray",
     "blooddebt",
@@ -498,9 +495,9 @@ mod passive_override_tests {
         // combat.rs rather than in their own declaration. If this
         // changes without a migration batch landing, the list has
         // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 32, "Stage 3 Warlock batch migrated chaostheory/covenant/ravage plus eternalmoment, which shares a call site");
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 28, "Stage 3 Mage batch migrated absolutezero/arcaneinstability/empoweredbolt/infiniteloop");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 32, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 28, "the pending list must not contain duplicates");
     }
 
     #[test]
@@ -546,14 +543,43 @@ mod passive_override_tests {
     }
 
     #[test]
-    fn at_default_values_every_migrated_count_still_equals_its_rank() {
-        // Why the batch is behavior-neutral: each migrated node declares
-        // `1.0 / 1.0`, so `1.0 + 1.0 * (rank - 1) == rank` exactly, and
-        // swapping the rank read for a magnitude read cannot move a
-        // number. Asserted rather than argued - the golden corpus proves
-        // it end to end, this proves it at the source.
+    fn every_integer_count_node_has_a_whole_number_default() {
+        // The invariant that actually matters for a COUNT node: its
+        // default magnitude is a whole number at every rank, so the
+        // admin page's integer-only input round-trips it and
+        // `passive_node_count`'s conversion never truncates anything.
+        //
+        // This used to assert the stronger "magnitude EQUALS the rank",
+        // which held only because every node Stage 2 migrated happened
+        // to declare `1.0 / 1.0`. That was a property of THAT batch, not
+        // of counts in general - `infiniteloop` counts in threes (3/6/9)
+        // and broke it the moment the Mage batch migrated it. Per-batch
+        // neutrality proofs now live with their own batches; this guards
+        // the property the list itself exists for.
         let empty = PassiveOverrides::default();
         for key in INTEGER_COUNT_NODES {
+            let (_, n) = crate::adventure::ALL_ARCHETYPES
+                .iter()
+                .find_map(|&a| a.passive_nodes().iter().find(|n| n.key == *key).map(|n| (a, n)))
+                .unwrap_or_else(|| panic!("{key:?} must exist"));
+            for rank in 1..=n.max_rank {
+                let mag = n.magnitude_at_rank_with(rank, &empty);
+                assert_eq!(mag, mag.round(), "{key:?} rank {rank} is listed as an integer count but its default magnitude {mag} is not whole");
+                assert!(mag >= 0.0, "{key:?} rank {rank} has a negative count default");
+            }
+        }
+    }
+
+    #[test]
+    fn stage_2_count_nodes_still_equal_their_rank_exactly() {
+        // Stage 2's own neutrality proof, kept now that the general
+        // count invariant above no longer implies it. Every node Stage 2
+        // migrated declares `1.0 / 1.0`, so magnitude == rank exactly and
+        // swapping a rank read for a magnitude read could not move a
+        // number. `infiniteloop` is excluded - it was migrated later, by
+        // the Mage batch, and counts in threes.
+        let empty = PassiveOverrides::default();
+        for key in INTEGER_COUNT_NODES.iter().filter(|k| **k != "infiniteloop") {
             let (_, n) = crate::adventure::ALL_ARCHETYPES
                 .iter()
                 .find_map(|&a| a.passive_nodes().iter().find(|n| n.key == *key).map(|n| (a, n)))
@@ -563,6 +589,42 @@ mod passive_override_tests {
                 assert_eq!(n.magnitude_at_rank_with(rank, &empty), expected, "{key:?} rank {rank} must equal its effective rank exactly");
             }
         }
+    }
+
+    #[test]
+    fn infinite_loop_migration_is_exactly_behavior_neutral() {
+        // The site read `rank * 3`; the node now declares that 3 / 6 / 9
+        // table directly.
+        let node = node(Archetype::Mage, "infiniteloop");
+        let empty = PassiveOverrides::default();
+        for rank in 1..=3u32 {
+            assert_eq!(node.magnitude_at_rank_with(rank, &empty), (rank * 3) as f64, "infiniteloop rank {rank} must reproduce rank * 3");
+        }
+    }
+
+    #[test]
+    fn the_mage_batch_per_rank_tables_reproduce_their_old_ladders() {
+        // The three non-linear Mage nodes, each asserted against the
+        // exact literals its `combat.rs` ladder used before migration.
+        // These are why `SpecialPerRank` exists: not one of them can be
+        // written as `at_rank_1 + per_additional_rank * (rank - 1)`.
+        let empty = PassiveOverrides::default();
+        for (key, expected) in [("absolutezero", [0.0, 0.50, 0.65]), ("arcaneinstability", [0.05, 0.09, 0.12]), ("empoweredbolt", [0.0, 0.0, 0.20])] {
+            let n = node(Archetype::Mage, key);
+            for (i, want) in expected.iter().enumerate() {
+                let rank = i as u32 + 1;
+                assert_eq!(n.magnitude_at_rank_with(rank, &empty), *want, "{key} rank {rank} must reproduce its old ladder value exactly");
+            }
+        }
+    }
+
+    #[test]
+    fn a_per_rank_table_reads_zero_outside_its_range() {
+        // `SpecialPerRank` indexes by effective rank; rank 0, and any
+        // rank past the table's end, must read 0.0 - the same thing an
+        // unallocated node reads - rather than panicking or saturating.
+        let empty = PassiveOverrides::default();
+        assert_eq!(node(Archetype::Mage, "absolutezero").magnitude_at_rank_with(0, &empty), 0.0);
     }
 
     #[test]

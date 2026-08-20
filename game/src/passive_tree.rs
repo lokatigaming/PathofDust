@@ -431,6 +431,30 @@ pub enum PassiveEffect {
     /// `passive_node_magnitude` in adventure.rs, and their call sites in
     /// `simulate_battle`) looks the node up by `key` directly instead.
     Special { at_rank_1: f64, per_additional_rank: f64 },
+    /// Like `Special`, but for a node whose real per-rank values are NOT
+    /// linear and therefore cannot be expressed as
+    /// `at_rank_1 + per_additional_rank * (rank - 1)` at all.
+    ///
+    /// Added 2026-08-20 (Stage 3 Mage batch) because the linear shape had
+    /// become the binding constraint on the whole live-tunable-values
+    /// project. **18 of the 31 nodes still awaiting migration are
+    /// implemented in `combat.rs` as a `rank >= 2` / `rank >= 3` ladder
+    /// with a different constant on each branch** - Absolute Zero's
+    /// 0 / 0.50 / 0.65, Arcane Instability's 0.05 / 0.09 / 0.12, Empowered
+    /// Bolt's 0 / 0 / 0.20. None of those is linear, so with only
+    /// `Special` available their true defaults had nowhere to live and
+    /// they could never have been migrated without changing behavior.
+    ///
+    /// The override store was always per-rank precisely so it could hold
+    /// shapes like these (see `adventure::passive_overrides`); this is
+    /// the same idea applied to the compiled-in DEFAULT, closing the last
+    /// gap between what can be tuned and what can be declared.
+    ///
+    /// `values` is indexed by effective rank - index 0 is rank 1 - and a
+    /// rank past its end reads 0.0, same as an unallocated node. Purely
+    /// additive: no existing node uses this variant, so nothing changes
+    /// by its introduction.
+    SpecialPerRank { values: &'static [f64] },
     /// A real, designed mechanic (proc, stacking buff, conditional,
     /// amplify-a-sibling-node, party-wide grant, etc.) with no
     /// implementation yet - see the module doc. Points invested here are
@@ -448,6 +472,11 @@ impl PassiveEffect {
             PassiveEffect::FlatStat { at_rank_1, per_additional_rank, .. }
             | PassiveEffect::OverflowConversion { at_rank_1, per_additional_rank, .. }
             | PassiveEffect::Special { at_rank_1, per_additional_rank } => at_rank_1 + per_additional_rank * (effective_rank - 1) as f64,
+            // Index 0 is rank 1. A rank past the table's end reads 0.0
+            // rather than panicking or saturating - the same thing an
+            // unallocated node reads, and the safe direction if a table
+            // is ever shorter than its node's `max_rank`.
+            PassiveEffect::SpecialPerRank { values } => values.get(effective_rank as usize - 1).copied().unwrap_or(0.0),
             PassiveEffect::NotYetImplemented => 0.0,
         }
     }
@@ -532,7 +561,7 @@ const fn modifier_with_effect(key: &'static str, parent: &'static str, name: &'s
     PassiveNode { key, tier: PassiveTier::Modifier, parent: Some(parent), max_rank: 3, unlock_at: Some(4), name, description, effect }
 }
 
-use PassiveEffect::{FlatStat, OverflowConversion, Special};
+use PassiveEffect::{FlatStat, OverflowConversion, Special, SpecialPerRank};
 use PassiveStat::*;
 
 impl Archetype {
@@ -1229,10 +1258,10 @@ static MAGE_NODES: &[PassiveNode] = &[
     spec("frostnova", "surge", "Frost Nova", "Elemental Surge's splash also reduces the target's evasion by 5% per rank (up to -15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("manasurge", "criticalmass", "Mana Surge", "Critical Mass's crit chance bonus is increased by another 3% per rank (up to +9% at 3/3).", FlatStat { stat: CritChance, at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("arcaneshield", "criticalmass", "Arcane Shield", "A crit grants you a shield worth 5% max HP per rank (up to 15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
-    modifier_with_effect("empoweredbolt", "criticalmass", "Empowered Bolt", "Critical Mass's first hit each fight is a guaranteed crit, unlocked at rank 2 - rank 3 also grants it +20% crit damage.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    modifier_with_effect("empoweredbolt", "criticalmass", "Empowered Bolt", "Critical Mass's first hit each fight is a guaranteed crit, unlocked at rank 2 - rank 3 also grants it +20% crit damage.", SpecialPerRank { values: &[0.0, 0.0, 0.20] }),
     modifier_with_effect("cataclysm", "overload", "Cataclysm", "Overload's bonus is increased by another 3% per rank (up to +9% at 3/3).", FlatStat { stat: CritMultiplier, at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("volatilemagic", "overload", "Volatile Magic", "A critical strike splashes 10% of its damage per rank to nearby enemies (up to 30% at 3/3) - this is not a hit and won't trigger any other on-hit effects.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    modifier_with_effect("arcaneinstability", "overload", "Arcane Instability", "Critical damage is increased by 5%/9%/12% (rank 1/2/3) against targets above 65% HP.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    modifier_with_effect("arcaneinstability", "overload", "Arcane Instability", "Critical damage is increased by 5%/9%/12% (rank 1/2/3) against targets above 65% HP.", SpecialPerRank { values: &[0.05, 0.09, 0.12] }),
     modifier_with_effect("echoingpower", "spellecho", "Echoing Power", "Spell Echo's re-cast damage is increased from 50% per rank (up to 95% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("resonance", "spellecho", "Resonance", "Spell Echo's trigger chance is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     // Finite Loop (renamed from "Infinite Loop" 2026-08-16 - the old name
@@ -1245,7 +1274,7 @@ static MAGE_NODES: &[PassiveNode] = &[
     // Spell Echo trigger chance for every repeat roll (no separate chance
     // layer) and caps at `finiteloop_max_repeats` (3/6/9) - see
     // `combat.rs`'s construction-site doc.
-    modifier_with_effect("infiniteloop", "spellecho", "Finite Loop", "Spell Echo's re-cast can itself trigger Spell Echo again, at the same chance as the first trigger - can repeat up to 3/6/9 times (rank 1/2/3) before the chain ends.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    modifier_with_effect("infiniteloop", "spellecho", "Finite Loop", "Spell Echo's re-cast can itself trigger Spell Echo again, at the same chance as the first trigger - can repeat up to 3/6/9 times (rank 1/2/3) before the chain ends.", SpecialPerRank { values: &[3.0, 6.0, 9.0] }),
     modifier_with_effect("haste", "quickcast", "Haste", "Quickcast's bonus is increased by another 5% per rank (up to +15% at 3/3).", FlatStat { stat: AttackSpeed, at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("acceleration", "quickcast", "Acceleration", "Quickcast also grants +5% splash per rank (up to +15% at 3/3).", FlatStat { stat: Splash, at_rank_1: 0.05, per_additional_rank: 0.05 }),
     // Still NotYetImplemented - Quickcast's bonus is a baseline-only
@@ -1287,7 +1316,7 @@ static MAGE_NODES: &[PassiveNode] = &[
     modifier_with_effect("infernalpact", "wildfire", "Infernal Pact", "Wildfire also heals you for 3% max HP per rank per enemy hit (up to 9% per enemy at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("blizzard", "frostnova", "Blizzard", "Frost Nova's evasion reduction is increased by another 5% per rank (up to -15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("permafrost", "frostnova", "Permafrost", "Frost Nova's effect lasts 2 additional seconds per rank (up to +6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
-    modifier_with_effect("absolutezero", "frostnova", "Absolute Zero", "Frost Nova's evasion reduction is doubled against enemies below 50% HP, unlocked at rank 2 - rank 3 lowers this threshold to 65%.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    modifier_with_effect("absolutezero", "frostnova", "Absolute Zero", "Frost Nova's evasion reduction is doubled against enemies below 50% HP, unlocked at rank 2 - rank 3 lowers this threshold to 65%.", SpecialPerRank { values: &[0.0, 0.50, 0.65] }),
 ];
 
 // ---------------------------------------------------------------------
