@@ -10,24 +10,32 @@
 //! change in a fight's exact outcome shows up as a failing test instead
 //! of a live report weeks later.
 //!
-//! **Determinism, and why every scenario here is solo (one character)**:
-//! `simulate_battle` takes `characters: &HashMap<String, Character>` and
-//! builds its initial unit list via `characters.iter()` - std's default
-//! `HashMap` iteration order is randomized per-process (a different
-//! random seed each run), so with more than one character, WHICH player
-//! a boss's "random alive player" targeting or first-mover-tie-break
-//! picks can differ run-to-run even with an identical seeded `rng`
-//! passed to `simulate_battle` itself. A solo party (exactly one
-//! `Character`) sidesteps this entirely - there's only ever one possible
-//! target/mover, so the whole fight is fully reproducible from the seed
-//! alone. This is a real, deliberate scoping limit, not an oversight:
-//! multi-player-specific mechanics (Intervene, party-heal-lowest-ally
-//! targeting, Pack Instinct/Symbiosis, curse-splitting across several
-//! targets) aren't covered by exact-snapshot comparison here. Making
-//! them reproducible would mean either threading a custom deterministic
-//! hasher through `simulate_battle`'s own signature (a bigger production
-//! change than this harness-building stage should make unilaterally) or
-//! accepting non-determinism - left as a follow-up, not solved here.
+//! **Determinism, and why scenarios here USED to be solo-only**
+//! (resolved 2026-08-20): `simulate_battle` takes
+//! `characters: &HashMap<String, Character>`, and std's `HashMap`
+//! iteration order is randomized per-PROCESS. It built its unit list
+//! straight off `characters.iter()`, so with more than one character
+//! WHICH player a boss's "random alive player" targeting or a
+//! first-mover tie-break picked differed run-to-run even with an
+//! identical seeded `rng`. Every scenario here was therefore solo -
+//! exactly one possible target/mover - which left every
+//! multi-player-specific mechanic (Intervene, party-heal-lowest-ally
+//! targeting, Pack Instinct/Symbiosis, curse-splitting, golem
+//! redistribution across survivors) outside snapshot coverage
+//! entirely, and made any test pairing a party with an exact assertion
+//! inherently flaky rather than merely unlucky.
+//!
+//! `simulate_battle` now takes a `fight_seed` and orders its party by
+//! sorting on id and then shuffling from that seed with a SEPARATE
+//! generator - see its own doc. A multi-character fight is now fully
+//! reproducible from `(fight_seed, rng)`, so **party scenarios are
+//! allowed here and are the right way to cover the mechanics listed
+//! above**. Solo stays fine wherever a party isn't needed; it is simply
+//! no longer a constraint.
+//!
+//! Every fixture committed before that change still matches byte for
+//! byte: sorting and shuffling a one-element slice are both no-ops, and
+//! no draw was added to or removed from `rng`.
 //!
 //! Boss stats are hand-authored fixed values, NOT `boss_stats_for`/
 //! `basic_enemy_stats_for` - those two apply their own un-seeded
@@ -212,7 +220,7 @@ fn run_scenario(s: &Scenario) -> GoldenSnapshot {
     characters.insert(s.name.to_string(), character);
 
     let tunables = LiveTunables::default();
-    let (won, units, events, rolls) = simulate_battle(&characters, vec![(s.boss.clone(), s.boss_kind, 1.0)], s.stage, &tunables, &mut rng);
+    let (won, units, events, rolls) = simulate_battle(&characters, vec![(s.boss.clone(), s.boss_kind, 1.0)], s.stage, &tunables, s.seed, &mut rng);
     GoldenSnapshot { won, units, events, rolls }
 }
 

@@ -10507,11 +10507,26 @@ pub(crate) fn apply_heal_bounce(units: &mut [CombatSimUnit], healer_idx: usize, 
 /// its own before this change; a test can instead pass a seeded
 /// `StdRng` for a genuinely reproducible fight, which the un-injectable
 /// `thread_rng()` this used to build internally could never give.
+/// `fight_seed` (2026-08-20) - the fight's own identity, used ONLY to
+/// order the party deterministically. See the sort-then-shuffle at the
+/// end of the unit construction below for the full reasoning. It is
+/// deliberately NOT mixed into `rng`: this function must consume exactly
+/// the same draws from `rng` as it did before this parameter existed, or
+/// every committed golden-corpus fixture would move.
+/// Fixed `fight_seed` for every in-crate test that runs a battle.
+/// Party ORDER only (see `simulate_battle`) - a constant keeps those
+/// tests deterministic, which is the entire point of the parameter.
+/// Deliberately not varied per test: nothing here asserts on ordering
+/// itself, only on outcomes that must not depend on it.
+#[cfg(test)]
+pub(crate) const TEST_FIGHT_SEED: u64 = 0;
+
 pub(crate) fn simulate_battle(
     characters: &HashMap<String, Character>,
     enemies: Vec<(BossStats, Option<BossKind>, f64)>,
     stage: u32,
     tunables: &LiveTunables,
+    fight_seed: u64,
     mut rng: &mut impl Rng,
 ) -> (bool, Vec<CombatUnitInfo>, Vec<CombatEvent>, Vec<RollEvent>) {
     // Fixed for the whole fight (not recomputed as players die) - see
@@ -11639,6 +11654,45 @@ pub(crate) fn simulate_battle(
             }
         })
         .collect();
+    // DETERMINISTIC PARTY ORDER (2026-08-20). `characters` is a
+    // `HashMap`, and Rust seeds hash ordering per PROCESS - so before
+    // this, the same fight with the same seeded `rng` indexed its units
+    // differently in every run. Unit index drives "random alive player"
+    // target selection, first-mover and same-tick tie-breaks, so a fight
+    // was never actually reproducible with more than one participant.
+    // That is why `golden_corpus.rs` could only ever hold SOLO scenarios,
+    // and why any test combining a party with an exact assertion is
+    // inherently flaky.
+    //
+    // Sort THEN shuffle, and the order matters:
+    //
+    // - The sort erases the `HashMap`'s per-process ordering, giving a
+    //   stable base. Shuffling straight off the raw iteration order
+    //   would be shuffling something already random - deterministic
+    //   permutation of a nondeterministic input is still
+    //   nondeterministic.
+    // - The shuffle then permutes that stable base from the FIGHT's own
+    //   identity, so no player owns a permanent index position. A plain
+    //   id sort alone would hand alphabetically-early logins a fixed
+    //   seat forever, turning today's evenly-spread accident into a
+    //   systematic, name-correlated bias.
+    //
+    // `order_rng` is a SEPARATE generator seeded from `fight_seed`. It
+    // must never be `rng`: drawing from `rng` here would shift every
+    // subsequent roll in the fight and move all eleven committed solo
+    // fixtures, converting a zero-churn change into a regeneration of
+    // the very baseline those fixtures exist to protect.
+    //
+    // Solo fights are provably unaffected - sorting and shuffling a
+    // one-element slice are both no-ops - which is what lets every
+    // existing fixture keep matching byte for byte.
+    {
+        use rand::seq::SliceRandom;
+        use rand::SeedableRng;
+        let mut order_rng = rand::rngs::StdRng::seed_from_u64(fight_seed);
+        units.sort_by(|a, b| a.id.cmp(&b.id));
+        units.shuffle(&mut order_rng);
+    }
     // Elementalist's Golem Master (docs/elementalist_spec.md, Stage 5) -
     // a second pass over `characters` (rather than folded into the
     // `.map()` above) since each golem needs to read its summoner's
@@ -11648,7 +11702,18 @@ pub(crate) fn simulate_battle(
     // the golem summon damage penalty was removed entirely) - this pass
     // only spawns the golem units themselves.
     let mut golems_to_add: Vec<CombatSimUnit> = Vec::new();
-    for (id, c) in characters.iter() {
+    // Iterated in sorted-id order for the same reason the party above is
+    // ordered deliberately: a raw `characters.iter()` here would append
+    // golems in per-process `HashMap` order, so with two summoners the
+    // golem indices - and therefore which golem a targeting or
+    // redistribution pass reaches first - varied run to run. Sorted
+    // rather than shuffled because a golem's position is not a fairness
+    // question: each belongs to one summoner, and the party order that
+    // decides between summoners has already been settled above.
+    let mut summoner_ids: Vec<&String> = characters.keys().collect();
+    summoner_ids.sort();
+    for id in summoner_ids {
+        let c = &characters[id];
         if c.archetype != Archetype::Elementalist {
             continue;
         }
@@ -17034,7 +17099,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             };
             let tunables = LiveTunables::default();
             let mut rng = StdRng::seed_from_u64(1000 + seed as u64);
-            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
             // Sanity check on the fixture itself, not the mechanic under
             // test - if nobody ever got hit at all (e.g. a broken
@@ -17144,7 +17209,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             };
             let tunables = LiveTunables::default();
             let mut rng = StdRng::seed_from_u64(2000 + seed as u64);
-            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
             let golem_ids: Vec<String> = unit_infos.iter().filter(|u| !u.is_boss && u.golem_summoner_id.is_some()).map(|u| u.id.clone()).collect();
             assert_eq!(golem_ids.len(), 3, "{boss_kind:?}: expected exactly 3 summoned Thunder Golems");
@@ -17271,7 +17336,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(4242);
-        let (_won, units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let (_won, units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
         let vitals = build_player_vitals(&units, &events);
 
         // `elementalist_a`/`elementalist_b` are EXPECTED to show a near-flat
@@ -17325,7 +17390,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         };
         let tunables = LiveTunables { rf_self_damage_pct_rank1: 0.2, rf_self_damage_pct_rank2: 0.4, rf_self_damage_pct_rank3: 0.6, ..Default::default() };
         let mut rng = StdRng::seed_from_u64(99);
-        let (_won, _units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let (_won, _units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let self_damage_events = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, target, damage, .. } if attacker == "elementalist" && target == "elementalist" && *damage > 0)).count();
         assert!(self_damage_events > 0, "rank-3 Righteous Fire must produce real self-damage Attack events over a full fight - the tunable is reaching the sim correctly if this passes");
@@ -17390,7 +17455,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(4242);
-        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let golem_id = unit_infos.iter().find(|u| u.golem_type == Some(GolemType::Thunder)).map(|u| u.id.clone()).expect("fixture produced no Thunder Golem - test would be vacuous");
 
@@ -17730,7 +17795,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         let boss_stats = BossStats { hp: 1, atk: 0, attack_interval_ms: 100_000, ..Default::default() };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(1);
-        let (_won, unit_infos, _events, _rolls) = simulate_battle(&characters, vec![(boss_stats, None, 1.0)], 100, &tunables, &mut rng);
+        let (_won, unit_infos, _events, _rolls) = simulate_battle(&characters, vec![(boss_stats, None, 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let owner_info = unit_infos.iter().find(|u| u.id == "elementalist").unwrap();
         assert_eq!(owner_info.max_hp, predicted_owner_max_hp as u64, "sanity check - the fight record's own maxHp must match Character::combat_max_hp() exactly");
@@ -17796,7 +17861,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         let boss_stats = BossStats { hp: 500_000_000, atk: boss_atk, attack_interval_ms: 1_200, ..Default::default() };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(4242);
-        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
         let owner_info = unit_infos.iter().find(|u| u.id == "elementalist").unwrap();
         let expected_owner_post_buff_max_hp = owner_pre_buff_max_hp + (owner_pre_buff_max_hp * party_max_hp_pct).round();
@@ -17905,7 +17970,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             };
             let tunables = LiveTunables::default();
             let mut rng = StdRng::seed_from_u64(2000 + seed as u64);
-            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, &mut rng);
+            let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(*boss_kind), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
 
             let any_attack_at_all = events.iter().any(|e| matches!(e, CombatEvent::Attack { .. }));
             assert!(any_attack_at_all, "{boss_kind:?}: fixture produced no Attack events at all - test would be vacuous");
