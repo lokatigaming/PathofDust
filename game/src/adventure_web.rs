@@ -2530,6 +2530,8 @@ struct TunablesForm {
     shattering_damage_pct_rank2: f64,
     /// See `LiveTunables::shattering_damage_pct_rank3`'s doc.
     shattering_damage_pct_rank3: f64,
+    /// See `LiveTunables::defensive_stat_hard_cap`'s doc.
+    defensive_stat_hard_cap: f64,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2584,6 +2586,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 shattering_damage_pct_rank1: form.shattering_damage_pct_rank1.clamp(0.0, 1.0),
                 shattering_damage_pct_rank2: form.shattering_damage_pct_rank2.clamp(0.0, 1.0),
                 shattering_damage_pct_rank3: form.shattering_damage_pct_rank3.clamp(0.0, 1.0),
+                defensive_stat_hard_cap: form.defensive_stat_hard_cap.clamp(0.0, 1.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3353,6 +3356,13 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
               <p class=\"tunable-hint\">Same, rank 3/3.</p>\
             </div>\
+            <h2>Defensive Stat Hard Cap</h2>\
+            <p class=\"tunable-hint\">Owner doctrine: maximum damage mitigation from damage reduction, applies universally — no character, golem, or enemy may ever be immune to any damage source through DR. Does NOT cover evasion, block, or Intervene (separate mechanics, their own caps) or Thunder Golem absorption/redirect (not damage reduction at all).</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"defensive_stat_hard_cap\">Max DR Mitigation</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"defensive_stat_hard_cap\" name=\"defensive_stat_hard_cap\" value=\"{defensive_stat_hard_cap}\">\
+              <p class=\"tunable-hint\">0 to 1 — a landed hit always deals at least (1 − this) of its raw mitigable damage, however stacked a defender's DR sources get. Default 0.95.</p>\
+            </div>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
@@ -3391,6 +3401,7 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
         shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
         shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
+        defensive_stat_hard_cap = t.defensive_stat_hard_cap,
     )
 }
 

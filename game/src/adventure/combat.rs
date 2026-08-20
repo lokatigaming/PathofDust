@@ -824,6 +824,22 @@ pub(crate) struct CombatSimUnit {
     /// (`BossStats`' matching fields); a basic-encounter mob's are all
     /// zero (see `basic_enemy_stats_for`).
     damage_reduction: f64,
+    /// Ceiling on how much of `damage_reduction`'s own combined
+    /// mitigation can actually apply to a hit against THIS unit
+    /// (2026-08-20, owner doctrine: damage reduction caps at
+    /// `LiveTunables::defensive_stat_hard_cap` in EVERY situation - no
+    /// character, golem, or enemy may ever be immune to any damage
+    /// source through DR, no exemptions). Baked onto every unit at
+    /// construction time from the live tunable (same idiom
+    /// `rf_self_damage_pct` already uses for a per-fight tunable read
+    /// deep inside `resolve_hit`'s own call graph, which is called far
+    /// too many times per fight to thread a fresh parameter through
+    /// `apply_hit`/`resolve_hit`/`apply_splash` and their ~70 combined
+    /// call sites instead). Deliberately does NOT gate evasion/block/
+    /// Intervene - those are separate mechanics with their own existing
+    /// caps, out of scope for this doctrine (see
+    /// `LiveTunables::defensive_stat_hard_cap`'s own doc).
+    defensive_stat_hard_cap: f64,
     block_chance: f64,
     evasion: f64,
     increased_damage: f64,
@@ -2999,6 +3015,7 @@ impl Default for CombatSimUnit {
             hp: 0,
             max_hp: 0,
             atk: 0,
+            defensive_stat_hard_cap: 0.95,
             heal_power: 0.0,
             intervene: 0.0,
             attack_interval_ms: 0,
@@ -4726,7 +4743,7 @@ pub(crate) fn resolve_hit(
     // mitigation" is just capping this one combined value - a landed
     // (non-evaded) hit always deals at least 5% of its raw damage,
     // however stacked a defender's block+DR sources get.
-    let dr_pre_boss = combine_reduction_sources(&sources.iter().map(|(_, v)| *v).collect::<Vec<_>>()).min(DEFENSIVE_STAT_HARD_CAP);
+    let dr_pre_boss = combine_reduction_sources(&sources.iter().map(|(_, v)| *v).collect::<Vec<_>>()).min(def.defensive_stat_hard_cap);
     let boss_ignore_dr = boss_defense_ignore(atk, at_ms);
     if boss_ignore_dr > 0.0 {
         sources.push(("Boss Pressure", -boss_ignore_dr));
@@ -4748,7 +4765,7 @@ pub(crate) fn resolve_hit(
     // OWN pressure can never push this defender's effective DR below 25%
     // if they naturally had at least that much, never raises it if they
     // didn't.
-    let dr_combined = combine_reduction_sources(&source_values).min(DEFENSIVE_STAT_HARD_CAP).max(dr_pre_boss.min(0.25));
+    let dr_combined = combine_reduction_sources(&source_values).min(def.defensive_stat_hard_cap).max(dr_pre_boss.min(0.25));
     // `mitigable_raw_dmg` (not `raw_dmg`) - the pierce portion already
     // carved off above never runs through DR at all, by design.
     let mut dmg = mitigable_raw_dmg * (1.0 - dr_combined);
@@ -4772,7 +4789,7 @@ pub(crate) fn resolve_hit(
     // each other.
     let curse_bonus_damage = if let Some(idx) = curse_source_idx {
         let source_values_without_curse: Vec<f64> = source_values.iter().enumerate().filter(|(i, _)| *i != idx).map(|(_, &v)| v).collect();
-        let dmg_without_curse = mitigable_raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse)) * (1.0 + def.boss_focus_stacks + def.relentlessflames_dmg_taken_pct);
+        let dmg_without_curse = mitigable_raw_dmg * (1.0 - combine_reduction_sources(&source_values_without_curse).min(def.defensive_stat_hard_cap)) * (1.0 + def.boss_focus_stacks + def.relentlessflames_dmg_taken_pct);
         (dmg - dmg_without_curse).max(0.0)
     } else {
         0.0
@@ -5083,7 +5100,7 @@ pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize
     // block used to include here is gone for the same reason its
     // `resolve_hit` counterpart is - see `unyieldingroots_cycle_ms`'s doc).
     let source_values: Vec<f64> = sources.iter().map(|(_, v)| *v).collect();
-    let reduction = combine_reduction_sources(&source_values);
+    let reduction = combine_reduction_sources(&source_values).min(def.defensive_stat_hard_cap);
 
     let mut due_indices = Vec::new();
     for (i, dot) in units[target_idx].lingering_dots.iter().enumerate() {
@@ -5495,6 +5512,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             hp: 0,
             max_hp: 0,
             atk: 0,
+            defensive_stat_hard_cap: 0.0,
             heal_power: 0.0,
             intervene: 0.0,
             attack_interval_ms: 0,
@@ -6674,7 +6692,7 @@ fn apply_righteous_fire_self_damage(units: &mut [CombatSimUnit], actor_idx: usiz
     if units[actor_idx].temp_damage_reduction_bonus > 0.0 && at_ms <= units[actor_idx].temp_damage_reduction_bonus_expires_at_ms {
         dr_sources.push(units[actor_idx].temp_damage_reduction_bonus);
     }
-    let combined_dr = combine_reduction_sources(&dr_sources);
+    let combined_dr = combine_reduction_sources(&dr_sources).min(units[actor_idx].defensive_stat_hard_cap);
     let mitigated = raw_amount * (1.0 - combined_dr);
     let hit_id = next_hit_id();
     let mut final_damage = mitigated.round().max(0.0) as i64;
@@ -7242,7 +7260,7 @@ fn apply_shattering_icicle_damage(units: &mut [CombatSimUnit], source_idx: usize
     if units[target_idx].temp_damage_reduction_bonus > 0.0 && at_ms <= units[target_idx].temp_damage_reduction_bonus_expires_at_ms {
         dr_sources.push(units[target_idx].temp_damage_reduction_bonus);
     }
-    let combined_dr = combine_reduction_sources(&dr_sources);
+    let combined_dr = combine_reduction_sources(&dr_sources).min(units[target_idx].defensive_stat_hard_cap);
     let mitigated = raw_amount * (1.0 - combined_dr);
     let final_damage = mitigated.round().max(0.0) as i64;
     if final_damage <= 0 {
@@ -10739,6 +10757,7 @@ pub(crate) fn simulate_battle(
                 is_boss: false,
                 archetype: Some(c.archetype),
                 spawned_at_ms: 0,
+                defensive_stat_hard_cap: tunables.defensive_stat_hard_cap,
                 role: Some(c.archetype.combat_function()),
                 // Warlock's Life Tap - drains a flat % of max HP once at
                 // construction (same "the trade is just always on" spirit
@@ -11859,6 +11878,7 @@ pub(crate) fn simulate_battle(
                 None => format!("Enemy {}", i + 1),
             },
             is_boss: true,
+            defensive_stat_hard_cap: tunables.defensive_stat_hard_cap,
             archetype: None,
             spawned_at_ms: 0,
             role: None,
@@ -13001,6 +13021,7 @@ pub(crate) fn simulate_battle(
                                 id: add_unit_id(&boss_id, (lich_summon_count + j) as usize),
                                 display_name: "Skeleton".to_string(),
                                 is_boss: true,
+                                defensive_stat_hard_cap: tunables.defensive_stat_hard_cap,
                                 archetype: None,
                                 spawned_at_ms: at_ms,
                                 role: None,
@@ -15562,6 +15583,98 @@ mod elementalist_stage_3_tests {
         tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
         assert_eq!(units[0].hp, 900, "10% of 1000 max hp = 100 self-burn");
         assert!(units[0].alive);
+    }
+
+    /// #38 requirement (a) - a character at >=100% raw DR takes EXACTLY
+    /// (1 - defensive_stat_hard_cap) of raw damage per RF tick, never
+    /// less. Parser's own expected figure: 152,100/tick on a 5.07M max
+    /// hp pool at rank-3 tuned 0.6 self-damage - 5,070,000 * 0.6 =
+    /// 3,042,000 raw, capped at 95% mitigation = 3,042,000 * 0.05 =
+    /// 152,100 exactly, regardless of how far past 100% the raw DR
+    /// stacks (200% here, deliberately absurd, to prove the cap - not
+    /// the DR value itself - is what's actually limiting this).
+    #[test]
+    fn a_character_at_or_above_100pct_raw_dr_still_takes_exactly_1_minus_cap_of_raw_rf_damage() {
+        let mut atk = CombatSimUnit { id: "elementalist".to_string(), display_name: "Elementalist".to_string(), alive: true, hp: 5_070_000, max_hp: 5_070_000, damage_reduction: 2.0, rf_self_damage_pct: 0.6, ..Default::default() };
+        assert!((atk.defensive_stat_hard_cap - 0.95).abs() < 1e-9, "sanity check: default cap must be 0.95");
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let raw_amount = atk.max_hp as f64 * atk.rf_self_damage_pct;
+        let dealt = apply_righteous_fire_self_damage(std::slice::from_mut(&mut atk), 0, raw_amount, 5_000, &mut events, &mut rolls);
+        assert!(!dealt, "5,070,000 max hp survives a 152,100 tick");
+        assert_eq!(5_070_000 - atk.hp, 152_100, "must be exactly raw * (1 - 0.95), not floored toward zero by 200% raw DR");
+    }
+
+    /// #38 requirement (b) - the shield-absorb branch must still be
+    /// reachable once the DR cap is in play, and must absorb from the
+    /// POST-cap remainder (152,100), not the pre-cap raw amount
+    /// (3,042,000) - a shield sized between those two numbers proves
+    /// which one the absorb roll actually saw.
+    #[test]
+    fn shield_absorb_is_reachable_at_high_dr_and_absorbs_the_post_cap_remainder() {
+        let mut atk = CombatSimUnit {
+            id: "elementalist".to_string(),
+            display_name: "Elementalist".to_string(),
+            alive: true,
+            hp: 5_070_000,
+            max_hp: 5_070_000,
+            damage_reduction: 2.0,
+            rf_self_damage_pct: 0.6,
+            shield_hp: 100_000.0,
+            shield_expires_at_ms: u32::MAX,
+            ..Default::default()
+        };
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let raw_amount = atk.max_hp as f64 * atk.rf_self_damage_pct;
+        apply_righteous_fire_self_damage(std::slice::from_mut(&mut atk), 0, raw_amount, 5_000, &mut events, &mut rolls);
+        // Post-cap remainder is 152,100 - a 100,000 shield absorbs all of
+        // it, leaving 52,100 to actually land on hp. If the shield had
+        // instead been rolled against the PRE-cap 3,042,000 raw amount,
+        // it would have been fully consumed with damage still landing
+        // near the full 152,100 (a 100k shield can't dent a 3.04M pool
+        // meaningfully) - the exact 52,100 remainder is only possible if
+        // the absorb roll saw the post-cap figure.
+        assert_eq!(atk.shield_hp, 0.0, "a 100k shield must be fully consumed by a 152,100 post-cap hit");
+        assert_eq!(5_070_000 - atk.hp, 52_100, "post-cap (152,100) minus the shield's 100,000 = 52,100 actually landing on hp");
+    }
+
+    /// #38 requirement (c) - the tunable overrides the cap end-to-end at
+    /// RF self-damage (the one representative site), proven through the
+    /// REAL construction wiring (`defensive_stat_hard_cap:
+    /// tunables.defensive_stat_hard_cap`, the exact line the real player-
+    /// construction site in `simulate_battle` uses - see that field's
+    /// own doc) feeding the real `apply_righteous_fire_self_damage`
+    /// function, not a hand-picked field value disconnected from any
+    /// tunable. A high, deliberately-saturating raw DR isolates the cap
+    /// itself as the only variable - real DR-STAT computation (gear/
+    /// passives feeding `Character::combat_damage_reduction`) is a
+    /// separate, already-covered concern, not what this test is for.
+    #[test]
+    fn defensive_stat_hard_cap_tunable_override_changes_real_rf_self_damage() {
+        fn run(tunables: &LiveTunables) -> i64 {
+            let mut atk = CombatSimUnit {
+                id: "elementalist".to_string(),
+                display_name: "Elementalist".to_string(),
+                alive: true,
+                hp: 1_000_000,
+                max_hp: 1_000_000,
+                damage_reduction: 1.0,
+                rf_self_damage_pct: 0.6,
+                defensive_stat_hard_cap: tunables.defensive_stat_hard_cap,
+                ..Default::default()
+            };
+            let mut events = Vec::new();
+            let mut rolls = Vec::new();
+            let raw_amount = atk.max_hp as f64 * atk.rf_self_damage_pct;
+            apply_righteous_fire_self_damage(std::slice::from_mut(&mut atk), 0, raw_amount, 5_000, &mut events, &mut rolls);
+            1_000_000 - atk.hp
+        }
+
+        let default_burn = run(&LiveTunables::default());
+        let overridden_burn = run(&LiveTunables { defensive_stat_hard_cap: 0.50, ..Default::default() });
+        assert!(overridden_burn > default_burn, "a lower cap (50% max mitigation instead of 95%) must let more RF self-damage through - got default={default_burn} overridden={overridden_burn}");
+        assert_eq!(overridden_burn, (600_000.0_f64 * 0.5).round() as i64, "50% cap on a saturating 100% raw DR must let exactly half the raw amount through");
     }
 
     #[test]

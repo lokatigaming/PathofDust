@@ -227,6 +227,25 @@ pub struct LiveTunables {
     pub shattering_damage_pct_rank2: f64,
     /// Same mechanic - rank 3.
     pub shattering_damage_pct_rank3: f64,
+    /// Owner doctrine (2026-08-20): maximum damage mitigation from
+    /// DAMAGE REDUCTION, applied universally - no character, golem, or
+    /// enemy may ever be immune to any damage source through DR, no
+    /// exemptions. Baked onto every `CombatSimUnit` at construction time
+    /// (see that field's own doc for why - `resolve_hit`/`apply_hit`'s
+    /// combined ~70 call sites are far too many to thread a fresh
+    /// parameter through per fight). Scope is DR only - evasion, block,
+    /// and Paladin's Intervene are separate mechanics with their own
+    /// existing, unrelated caps (75%/75%/50% respectively) and are
+    /// deliberately untouched by this doctrine; so is Thunder Golem
+    /// absorption/redirect and a golem's own take-no-damage base rule,
+    /// neither of which is damage reduction at all. Evasion happens to
+    /// reuse this SAME 0.95 ceiling via the separate compile-time
+    /// `DEFENSIVE_STAT_HARD_CAP` constant (unconverted, deliberately not
+    /// wired to this tunable - out of scope) purely because the two
+    /// numbers coincide, not because they're the same knob. Default
+    /// 0.95 matches that constant's own shipped value exactly - zero
+    /// behavior change at defaults.
+    pub defensive_stat_hard_cap: f64,
 }
 
 impl Default for LiveTunables {
@@ -265,6 +284,7 @@ impl Default for LiveTunables {
             shattering_damage_pct_rank1: 0.01,
             shattering_damage_pct_rank2: 0.01,
             shattering_damage_pct_rank3: 0.01,
+            defensive_stat_hard_cap: 0.95,
         }
     }
 }
