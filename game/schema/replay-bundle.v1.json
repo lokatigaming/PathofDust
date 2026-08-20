@@ -1,0 +1,209 @@
+{
+  "$comment": "IDL for the Path of Dust replay bundle. THIS FILE IS THE SOURCE OF TRUTH. The Rust conformance checks (game/src/adventure/replay_bundle/schema.rs) and the JavaScript validator (replay-bundle-validator.js, delivered to PathOfDust_Desktop by PR) are both derived from it; a test fails the build if either drifts. Hand-edit this, then run tools/gen-bundle-validator.mjs.",
+
+  "schemaVersion": 1,
+  "minReaderVersion": 1,
+
+  "readerRules": {
+    "$comment": "Forward compatibility is mandatory, not optional: four surfaces version independently (Rust server, overlay.html which deploys with it, the desktop's hot-pulled index.html, and server.mjs which runs until restart), so an old reader and a new writer are always live at the same time.",
+    "unknownMembersAreIgnored": true,
+    "unknownEventKindsAreIgnored": true,
+    "unknownFieldsAreIgnored": true,
+    "missingOptionalMemberIsNotAnError": true,
+    "readersMustNotThrow": true
+  },
+
+  "memberStates": {
+    "$comment": "A reader that only sees a missing key cannot tell 'this aged out' from 'this was never produced'. Those are different answers to an audit question, so the manifest names the state explicitly.",
+    "values": ["present", "aggregated", "expired", "never-written"]
+  },
+
+  "tiers": {
+    "$comment": "Exposure tiers. /overlay and /ws are public and unauthenticated by design; anything above public must never be reachable from them.",
+    "values": ["public", "participant", "operator"]
+  },
+
+  "manifest": {
+    "required": ["schemaVersion", "minReaderVersion", "fightId", "startedAtUnixMs", "realDurationMs", "displayDurationMs", "pinned", "members"],
+    "fields": {
+      "schemaVersion": { "type": "integer" },
+      "minReaderVersion": { "type": "integer" },
+      "fightId": { "type": "string" },
+      "startedAtUnixMs": { "type": "integer" },
+      "realDurationMs": { "type": "integer", "$comment": "BOTH durations ride the manifest. events[].atMs is display-compressed while rolls[].atMs is real; recovering real tick times means inverting that transform, which is impossible without the ratio." },
+      "displayDurationMs": { "type": "integer" },
+      "pinned": { "type": "boolean", "$comment": "Pinned bundles are exempt from per-member expiry and carry their own 256 MB cap, separate from the 2 GB detail budget." },
+      "members": { "type": "object", "$comment": "member name -> entry" }
+    },
+    "memberEntry": {
+      "required": ["v", "state", "tier"],
+      "fields": {
+        "v": { "type": "integer", "$comment": "Per-member version, so one member can evolve alone." },
+        "state": { "type": "enum", "values": ["present", "aggregated", "expired", "never-written"] },
+        "tier": { "type": "enum", "values": ["public", "participant", "operator"] },
+        "bytes": { "type": "integer", "optional": true },
+        "sha256": { "type": "string", "optional": true },
+        "expiredAtUnixMs": { "type": "integer", "optional": true },
+        "pinnedShape": { "type": "boolean", "optional": true, "$comment": "true only on playerVitals: its shape never advances without an explicit external-consumer migration." }
+      }
+    }
+  },
+
+  "members": {
+    "core": {
+      "v": 1, "requiredMember": true, "tier": "public",
+      "kind": "object",
+      "$comment": "Everything about the fight that is not an event stream. Measured at under 0.1% of an archive file, so nothing here is worth splitting further.",
+      "fields": {
+        "kind": { "type": "string" },
+        "stage": { "type": "integer" },
+        "won": { "type": "boolean" },
+        "participants": { "type": "array", "items": "string" },
+        "units": { "type": "array", "items": "object" },
+        "displayDurationMs": { "type": "integer" },
+        "realDurationMs": { "type": "integer" },
+        "loot": { "type": "array", "items": "object" },
+        "broken": { "type": "array", "items": "object" },
+        "enemyName": { "type": "string", "nullable": true },
+        "enemyCount": { "type": "integer", "nullable": true },
+        "retreated": { "type": "array", "items": "string" },
+        "bossSprites": { "type": "array", "items": "string" },
+        "summary": { "type": "object" },
+        "startedAtUnixMs": { "type": "integer" }
+      }
+    },
+
+    "replay": {
+      "v": 1, "requiredMember": true, "tier": "public",
+      "kind": "eventStream",
+      "$comment": "One merged, ordered stream. These four kinds are exactly what overlay.html's fireEvent has branches for, and exactly what the server still broadcasts after the 2026-08-20 thinning rework.",
+      "sequenceKey": "seq",
+      "eventKinds": ["attack", "heal", "defeat", "skillCast"]
+    },
+
+    "buffs": {
+      "v": 1, "requiredMember": false, "tier": "participant",
+      "kind": "eventStream",
+      "$comment": "Split out of replay deliberately. shield+buffSnapshot are 25.16% of archive event bytes and were removed from the public broadcast on purpose; they come back only behind a session, never onto /ws. The companion app has live code for both and is starved of them today.",
+      "sequenceKey": "seq",
+      "eventKinds": ["shield", "buffSnapshot"]
+    },
+
+    "dot": {
+      "v": 1, "requiredMember": false, "tier": "participant",
+      "kind": "eventStream",
+      "$comment": "Aggregated in the archive per (attacker,target) window - measured 98.34% fewer records. Full fidelity on the wire subset, which the per-second attack budget has already capped.",
+      "sequenceKey": "seq",
+      "eventKinds": ["attack"],
+      "sourceKindFilter": "dot",
+      "aggregatable": true
+    },
+
+    "rolls": {
+      "v": 1, "requiredMember": false, "tier": "operator",
+      "kind": "rollStream",
+      "$comment": "Never aggregated, never public. 66.8% of an archive file. Joins back to replay on eventId.",
+      "fields": {
+        "eventId": { "type": "integer" },
+        "hitId": { "type": "integer" },
+        "causedBy": { "type": "integer", "optional": true, "nullable": true },
+        "atMs": { "type": "integer" },
+        "category": { "type": "string" },
+        "source": { "type": "string" },
+        "actor": { "type": "string" },
+        "target": { "type": "string" },
+        "probability": { "type": "number", "optional": true },
+        "succeeded": { "type": "boolean", "optional": true },
+        "magnitude": { "type": "number", "optional": true }
+      }
+    },
+
+    "playerVitals": {
+      "v": 1, "requiredMember": true, "tier": "public", "pinnedShape": true,
+      "kind": "array",
+      "$comment": "PINNED BYTE-FOR-BYTE at its current shape and path. The external consumer is PathOfDust_Desktop; this release does not touch it, and its version never advances without an explicit migration agreed with that consumer. It is 0.01% of an archive file - there is no saving here worth breaking someone else's app for.",
+      "item": {
+        "required": ["id", "hpSamples"],
+        "fields": {
+          "id": { "type": "string" },
+          "hpSamples": { "type": "array", "items": "pair<integer,integer>", "$comment": "[atMs, hp] pairs, bucketed to 100ms, last-write-wins inside a bucket." },
+          "diedAtMs": { "type": "integer", "optional": true, "nullable": true }
+        }
+      }
+    }
+  },
+
+  "eventKinds": {
+    "$comment": "Every record additionally carries the member's sequenceKey (seq): a fight-scoped, dense, monotonic index stamped from the events array at write time. atMs is NOT unique and hitId is absent on five of these six kinds and non-monotonic besides, so neither can order a replay - measured 2026-08-20.",
+    "attack": {
+      "required": ["seq", "kind", "atMs", "attacker", "target", "damage", "targetHpAfter"],
+      "fields": {
+        "seq": { "type": "integer" },
+        "kind": { "type": "const", "value": "attack" },
+        "atMs": { "type": "integer" },
+        "attacker": { "type": "string" },
+        "target": { "type": "string" },
+        "damage": { "type": "integer" },
+        "unmitigatedDamage": { "type": "integer", "optional": true },
+        "targetHpAfter": { "type": "integer" },
+        "isCrit": { "type": "boolean", "optional": true },
+        "evaded": { "type": "boolean", "optional": true },
+        "hitId": { "type": "integer", "optional": true },
+        "sourceKind": { "type": "enum", "values": ["direct", "splash", "dot", "reflect", "curseShare", "environmental"], "optional": true, "default": "direct" }
+      }
+    },
+    "heal": {
+      "required": ["seq", "kind", "atMs", "healer", "target", "amount", "targetHpAfter"],
+      "fields": {
+        "seq": { "type": "integer" },
+        "kind": { "type": "const", "value": "heal" },
+        "atMs": { "type": "integer" },
+        "healer": { "type": "string" },
+        "target": { "type": "string" },
+        "amount": { "type": "integer" },
+        "targetHpAfter": { "type": "integer" },
+        "isRevive": { "type": "boolean", "optional": true, "default": false }
+      }
+    },
+    "defeat": {
+      "required": ["seq", "kind", "atMs", "unit"],
+      "fields": {
+        "seq": { "type": "integer" },
+        "kind": { "type": "const", "value": "defeat" },
+        "atMs": { "type": "integer" },
+        "unit": { "type": "string" }
+      }
+    },
+    "skillCast": {
+      "required": ["seq", "kind", "atMs", "unit", "skill"],
+      "fields": {
+        "seq": { "type": "integer" },
+        "kind": { "type": "const", "value": "skillCast" },
+        "atMs": { "type": "integer" },
+        "unit": { "type": "string" },
+        "skill": { "type": "string" }
+      }
+    },
+    "shield": {
+      "required": ["seq", "kind", "atMs", "healer", "target", "amount"],
+      "fields": {
+        "seq": { "type": "integer" },
+        "kind": { "type": "const", "value": "shield" },
+        "atMs": { "type": "integer" },
+        "healer": { "type": "string" },
+        "target": { "type": "string" },
+        "amount": { "type": "integer" }
+      }
+    },
+    "buffSnapshot": {
+      "required": ["seq", "kind", "atMs", "unit", "buffs"],
+      "fields": {
+        "seq": { "type": "integer" },
+        "kind": { "type": "const", "value": "buffSnapshot" },
+        "atMs": { "type": "integer" },
+        "unit": { "type": "string" },
+        "buffs": { "type": "array", "items": "pair<string,number>" }
+      }
+    }
+  }
+}

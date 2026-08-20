@@ -239,3 +239,185 @@ mod tests {
         }
     }
 }
+
+/// Conformance between the Rust types and the IDL.
+///
+/// The IDL (`game/schema/replay-bundle.v1.json`) is the source of truth for
+/// both repos, but nothing in Rust reads it at runtime - so without these
+/// tests a field could be renamed here, every Rust test would still pass,
+/// and the drift would only surface as a parse failure in somebody else's
+/// app. That is the failure this stage exists to make impossible.
+#[cfg(test)]
+mod schema_conformance {
+    use super::*;
+    use crate::adventure::{AttackSourceKind, PlayerVitals};
+    use serde_json::Value;
+
+    const IDL: &str = include_str!("../../schema/replay-bundle.v1.json");
+
+    fn idl() -> Value {
+        serde_json::from_str(IDL).expect("the IDL must be valid JSON")
+    }
+
+    /// Serializes one event through `SequencedEvent`, exactly as a bundle
+    /// member would, and returns its JSON object.
+    fn record(event: &CombatEvent) -> serde_json::Map<String, Value> {
+        let sequenced = SequencedEvent { seq: 0, event };
+        match serde_json::to_value(&sequenced).expect("must serialize") {
+            Value::Object(map) => map,
+            other => panic!("a sequenced event must serialize to an object, got {other}"),
+        }
+    }
+
+    fn every_variant() -> Vec<CombatEvent> {
+        vec![
+            CombatEvent::Attack {
+                at_ms: 0,
+                attacker: "a".to_string(),
+                target: "b".to_string(),
+                damage: 1,
+                unmitigated_damage: 2,
+                target_hp_after: 3,
+                is_crit: true,
+                evaded: false,
+                hit_id: 4,
+                source_kind: AttackSourceKind::Dot,
+            },
+            CombatEvent::Heal {
+                at_ms: 1,
+                healer: "a".to_string(),
+                target: "b".to_string(),
+                amount: 5,
+                target_hp_after: 6,
+                is_revive: false,
+            },
+            CombatEvent::Shield { at_ms: 2, healer: "a".to_string(), target: "b".to_string(), amount: 7 },
+            CombatEvent::Defeat { at_ms: 3, unit: "a".to_string() },
+            CombatEvent::SkillCast { at_ms: 4, unit: "a".to_string(), skill: "Doom".to_string() },
+            CombatEvent::BuffSnapshot { at_ms: 5, unit: "a".to_string(), buffs: vec![("curse".to_string(), 0.68)] },
+        ]
+    }
+
+    #[test]
+    fn the_idl_describes_every_event_kind_the_game_can_emit() {
+        let idl = idl();
+        let kinds = idl["eventKinds"].as_object().expect("eventKinds must be an object");
+        for event in every_variant() {
+            let json = record(&event);
+            let kind = json["kind"].as_str().expect("every event serializes a kind tag").to_string();
+            assert!(kinds.contains_key(&kind), "the IDL has no entry for event kind {kind:?}");
+        }
+    }
+
+    #[test]
+    fn every_field_the_game_emits_is_declared_in_the_idl() {
+        let idl = idl();
+        for event in every_variant() {
+            let json = record(&event);
+            let kind = json["kind"].as_str().expect("kind tag").to_string();
+            let declared = idl["eventKinds"][&kind]["fields"]
+                .as_object()
+                .unwrap_or_else(|| panic!("the IDL declares no fields for {kind:?}"));
+            for field in json.keys() {
+                assert!(
+                    declared.contains_key(field),
+                    "{kind}.{field} is emitted by the game but absent from the IDL - add it there and regenerate the validator",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_field_the_idl_requires_is_actually_emitted() {
+        let idl = idl();
+        for event in every_variant() {
+            let json = record(&event);
+            let kind = json["kind"].as_str().expect("kind tag").to_string();
+            let required = idl["eventKinds"][&kind]["required"]
+                .as_array()
+                .unwrap_or_else(|| panic!("the IDL declares no required list for {kind:?}"));
+            for field in required {
+                let field = field.as_str().expect("required entries are strings");
+                assert!(
+                    json.contains_key(field),
+                    "the IDL requires {kind}.{field}, but the game does not emit it",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_idl_knows_every_attack_source_kind() {
+        let idl = idl();
+        let declared: Vec<String> = idl["eventKinds"]["attack"]["fields"]["sourceKind"]["values"]
+            .as_array()
+            .expect("sourceKind must declare its values")
+            .iter()
+            .map(|v| v.as_str().expect("values are strings").to_string())
+            .collect();
+
+        // Every variant, spelled the way serde will actually emit it.
+        for variant in [
+            AttackSourceKind::Direct,
+            AttackSourceKind::Splash,
+            AttackSourceKind::Dot,
+            AttackSourceKind::Reflect,
+            AttackSourceKind::CurseShare,
+            AttackSourceKind::Environmental,
+        ] {
+            let emitted = serde_json::to_value(variant).expect("must serialize");
+            let emitted = emitted.as_str().expect("source kinds serialize as strings");
+            assert!(
+                declared.iter().any(|d| d == emitted),
+                "AttackSourceKind::{variant:?} serializes as {emitted:?}, which the IDL does not list",
+            );
+        }
+    }
+
+    /// playerVitals is pinned byte-for-byte, so this is the strictest check
+    /// in the file: the emitted key set must equal the IDL's declared key
+    /// set exactly. Not a subset either way - an added field breaks the
+    /// external consumer, a removed one breaks the contract.
+    #[test]
+    fn pinned_player_vitals_shape_matches_the_idl_exactly() {
+        let idl = idl();
+        let vitals = PlayerVitals {
+            id: "a_player".to_string(),
+            hp_samples: vec![(0, 100), (100, 50)],
+            died_at_ms: Some(100),
+        };
+        let json = match serde_json::to_value(&vitals).expect("must serialize") {
+            Value::Object(map) => map,
+            other => panic!("playerVitals entries must be objects, got {other}"),
+        };
+
+        let declared = idl["members"]["playerVitals"]["item"]["fields"]
+            .as_object()
+            .expect("the IDL must declare the pinned shape");
+
+        let mut emitted_keys: Vec<&str> = json.keys().map(String::as_str).collect();
+        let mut declared_keys: Vec<&str> = declared.keys().map(String::as_str).collect();
+        emitted_keys.sort_unstable();
+        declared_keys.sort_unstable();
+
+        assert_eq!(
+            emitted_keys, declared_keys,
+            "the pinned playerVitals shape changed - this member may not evolve without an explicit migration agreed with PathOfDust_Desktop",
+        );
+        assert_eq!(idl["members"]["playerVitals"]["pinnedShape"], Value::Bool(true));
+    }
+
+    #[test]
+    fn hp_samples_are_at_ms_hp_pairs() {
+        let vitals = PlayerVitals {
+            id: "a_player".to_string(),
+            hp_samples: vec![(0, 790822), (300, 786612)],
+            died_at_ms: None,
+        };
+        let json = serde_json::to_value(&vitals).expect("must serialize");
+        assert_eq!(json["hpSamples"], serde_json::json!([[0, 790822], [300, 786612]]));
+        // died_at_ms is Option and serializes as null rather than being
+        // omitted; the IDL marks it nullable to match.
+        assert_eq!(json["diedAtMs"], Value::Null);
+    }
+}
