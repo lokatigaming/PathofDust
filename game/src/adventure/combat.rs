@@ -6451,30 +6451,132 @@ pub(crate) fn golem_may_produce_heals(unit: &CombatSimUnit) -> bool {
 /// party site ultimately funnels through) rather than a targeting
 /// preference. A no-op when `target_idx` is already boss-side (damage TO
 /// an enemy never redirects) or already IS a Thunder Golem (it doesn't
-/// redirect its own incoming damage onto itself). 2026-08-19 bugfix -
-/// otherwise redirects to an alive Thunder Golem on `target_idx`'s own
-/// side if one exists (the original behavior); if none exists AND
-/// `target_idx` is itself a protected (non-Thunder) golem, redirects to a
-/// random alive REAL player instead (never another golem - see
-/// `is_protected_golem`) so a reform-gap hit that happened to be aimed
-/// directly at e.g. a Water Golem still can't land on it. Falls through to
-/// `target_idx` unchanged only in the degenerate case where no real player
-/// is alive either - `apply_hit`'s own downstream `is_damage_immune` check
-/// (via `resolve_hit`) is the final backstop even then.
-pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize, rng: &mut impl Rng) -> usize {
+/// redirect its own incoming damage onto itself).
+///
+/// **Scoped to the same owning Elementalist (2026-08-20 fix, live
+/// playerVitals regression #33).** Since this function's very first
+/// version (`91bf62e`), the Thunder Golem search here had NO ownership
+/// scoping at all - `units.iter().position(...)` picked the first alive
+/// Thunder Golem ANYWHERE in the whole encounter, meaning in any fight
+/// with multiple real players sharing one boss, damage meant for a
+/// player with no Thunder Golem of their own could still get redirected
+/// onto a COMPLETELY UNRELATED player's golem, simply because it
+/// happened to come first in unit order. Confirmed live: a real fight
+/// with ~50 players showed the large majority pinned at 1-2 hpSamples
+/// despite hundreds of real hits each, while 2-3 players' own Thunder
+/// Golems absorbed almost the entire encounter's damage between them.
+/// This bug predates every release this session touched - it was never
+/// caused by the golem-inheritance mechanism change (which never
+/// touched this function) - it simply became severe once Thunder Golem
+/// builds got common (the golem-damage-penalty removal made 3-Thunder-
+/// Golem loadouts free). Now: a hit is only ever redirected to a
+/// Thunder Golem belonging to the SAME player whose damage this is -
+/// the target itself if it's a real player, or that golem's own
+/// `golem_summoner_id` if the target is itself a protected (non-Thunder)
+/// golem. A protected golem with no OWN alive Thunder Golem now falls
+/// back to its OWN summoner (if still alive) rather than a random
+/// unrelated player - same "protects its own owner, not the whole
+/// encounter" scoping throughout. Falls through to `target_idx`
+/// unchanged only when neither a scoped Thunder Golem nor the owning
+/// player is available - `apply_hit`'s own downstream `is_damage_immune`
+/// check (via `resolve_hit`) is the final backstop even then.
+fn owning_player_id(units: &[CombatSimUnit], idx: usize) -> Option<&str> {
+    if units[idx].is_golem {
+        units[idx].golem_summoner_id.as_deref()
+    } else {
+        Some(units[idx].id.as_str())
+    }
+}
+
+pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize) -> usize {
     if units[target_idx].is_boss || units[target_idx].golem_type == Some(GolemType::Thunder) {
         return target_idx;
     }
-    if let Some(thunder_idx) = units.iter().position(|u| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder)) {
+    let Some(owner_id) = owning_player_id(units, target_idx) else { return target_idx };
+    if let Some(thunder_idx) =
+        units.iter().position(|u| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder) && u.golem_summoner_id.as_deref() == Some(owner_id))
+    {
         return thunder_idx;
     }
     if is_protected_golem(&units[target_idx]) {
-        let real_players: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && !u.is_golem && u.alive).map(|(i, _)| i).collect();
-        if !real_players.is_empty() {
-            return real_players[rng.gen_range(0..real_players.len())];
+        if let Some(owner_idx) = units.iter().position(|u| !u.is_boss && !u.is_golem && u.alive && u.id == owner_id) {
+            return owner_idx;
         }
     }
     target_idx
+}
+
+#[cfg(test)]
+mod thunder_golem_redirect_scoping_tests {
+    use super::*;
+
+    fn player(id: &str) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 1000, max_hp: 1000, ..Default::default() }
+    }
+
+    fn thunder_golem(id: &str, summoner_id: &str) -> CombatSimUnit {
+        CombatSimUnit {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            alive: true,
+            hp: 500,
+            max_hp: 500,
+            is_golem: true,
+            golem_type: Some(GolemType::Thunder),
+            golem_summoner_id: Some(summoner_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn water_golem(id: &str, summoner_id: &str) -> CombatSimUnit {
+        CombatSimUnit {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            alive: true,
+            hp: 500,
+            max_hp: 500,
+            is_golem: true,
+            golem_type: Some(GolemType::Water),
+            golem_summoner_id: Some(summoner_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_players_own_thunder_golem_absorbs_the_hit() {
+        let units = vec![player("alice"), thunder_golem("alice_golem", "alice")];
+        assert_eq!(thunder_golem_redirect(&units, 0), 1);
+    }
+
+    #[test]
+    fn regression_33_another_players_thunder_golem_never_absorbs_an_unrelated_hit() {
+        // The live bug: bob has no Thunder Golem of his own, but alice's
+        // is alive elsewhere in the same encounter - before this fix,
+        // `position()` would find alice's golem first (unit order) and
+        // wrongly redirect bob's own damage onto it, leaving bob's
+        // hpSamples flat despite real hits landing.
+        let units = vec![player("bob"), player("alice"), thunder_golem("alice_golem", "alice")];
+        assert_eq!(thunder_golem_redirect(&units, 0), 0, "bob's damage must land on bob - alice's golem is not his");
+    }
+
+    #[test]
+    fn a_protected_golem_redirects_to_its_own_owners_thunder_golem() {
+        let units = vec![player("alice"), thunder_golem("alice_thunder", "alice"), water_golem("alice_water", "alice")];
+        assert_eq!(thunder_golem_redirect(&units, 2), 1, "a hit aimed at alice's own Water Golem redirects to alice's own Thunder Golem");
+    }
+
+    #[test]
+    fn a_protected_golem_with_no_own_thunder_golem_falls_back_to_its_own_summoner_not_a_stranger() {
+        let units = vec![player("bob"), player("alice"), water_golem("alice_water", "alice")];
+        assert_eq!(thunder_golem_redirect(&units, 2), 1, "falls back to alice (its own summoner), never to bob");
+    }
+
+    #[test]
+    fn a_boss_target_and_a_thunder_golems_own_incoming_damage_are_both_no_ops() {
+        let units = vec![player("alice"), thunder_golem("alice_golem", "alice"), CombatSimUnit { id: "boss".to_string(), is_boss: true, alive: true, hp: 1, max_hp: 1, ..Default::default() }];
+        assert_eq!(thunder_golem_redirect(&units, 2), 2, "damage to a boss never redirects");
+        assert_eq!(thunder_golem_redirect(&units, 1), 1, "a Thunder Golem doesn't redirect its own incoming damage onto itself");
+    }
 }
 
 /// Healing Flames' own per-rank regen fraction (docs/elementalist_spec.md)
@@ -7926,7 +8028,7 @@ pub(crate) fn apply_hit(
     // `thunder_golem_redirect`'s own doc for the "external damage only"
     // scoping, which is what excludes Righteous Fire's self-burn too -
     // that goes through `apply_true_damage`, never this function).
-    let target_idx = if units[attacker_idx].is_boss { thunder_golem_redirect(units, target_idx, rng) } else { target_idx };
+    let target_idx = if units[attacker_idx].is_boss { thunder_golem_redirect(units, target_idx) } else { target_idx };
     // An already-dead target (2026-08-19, Release 1.1 item 1 root cause) -
     // every other direct damage-application site in this file already
     // guards this (`apply_reflect_damage`, `apply_volatile_magic_splash`,
@@ -17120,6 +17222,113 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                 "{boss_kind:?}: every golem death that absorbed damage this incarnation, with at least one real player still alive after that same tick, must trigger a redistribution - {redistributions} of {redistributable_golem_deaths}"
             );
         }
+    }
+
+    /// End-to-end regression coverage for live playerVitals bug #33
+    /// (2026-08-20) - `thunder_golem_redirect`'s per-owner scoping fix,
+    /// proven through the REAL `simulate_battle` pipeline into
+    /// `build_player_vitals`, not just the unit-level scoping tests next
+    /// to `thunder_golem_redirect` itself. Two independent Elementalists,
+    /// each with their OWN maxed Thunder Golem loadout, plus a third real
+    /// player with none, all sharing one encounter - the exact shape the
+    /// live regression was found in (many summoners, many Thunder
+    /// Golems, one shared boss). Before the fix, `no_thunder_golem`'s
+    /// damage (and much of `elementalist_b`'s own) could get silently
+    /// redirected onto `elementalist_a`'s golem purely by unit order,
+    /// collapsing their own hpSamples to the seed + death entries alone
+    /// despite real hits landing on them all fight.
+    #[test]
+    fn playervitals_regression_33_every_real_player_still_gets_a_real_hp_timeline_with_multiple_thunder_golem_owners_present() {
+        fn thunder_elementalist(id: &str) -> Character {
+            let mut c = Character::new(id.to_string());
+            c.archetype = Archetype::Elementalist;
+            c.level = 100;
+            c.passive_allocations.insert("golemmaster".to_string(), 3);
+            c.passive_allocations.insert("thundergolem".to_string(), 4);
+            c.golem_slot_types = vec![GolemType::Thunder, GolemType::Thunder, GolemType::Thunder];
+            c
+        }
+        let mut no_thunder_golem = Character::new("no_thunder_golem".to_string());
+        no_thunder_golem.archetype = Archetype::Cleric;
+        no_thunder_golem.level = 100;
+
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist_a".to_string(), thunder_elementalist("elementalist_a"));
+        characters.insert("elementalist_b".to_string(), thunder_elementalist("elementalist_b"));
+        characters.insert("no_thunder_golem".to_string(), no_thunder_golem);
+
+        let boss_stats = BossStats {
+            hp: 2_000_000_000,
+            atk: 15,
+            attack_interval_ms: 900,
+            damage_reduction: 0.15,
+            block_chance: 0.10,
+            evasion: 0.05,
+            increased_damage: 0.20,
+            crit_chance: 0.15,
+            crit_multiplier: 0.50,
+            splash: 1.0,
+        };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(4242);
+        let (_won, units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+        let vitals = build_player_vitals(&units, &events);
+
+        // `elementalist_a`/`elementalist_b` are EXPECTED to show a near-flat
+        // timeline themselves - their own 3x Thunder Golem loadout tanking
+        // essentially everything meant for them is the mechanic working
+        // correctly, not the regression. The actual regression signature
+        // is `no_thunder_golem` - a player with NO Thunder Golem of their
+        // own, whose damage the old unscoped `position()` search could
+        // still redirect onto a COMPLETELY UNRELATED summoner's golem
+        // purely by unit order, collapsing their vitals to the seed+death
+        // pair despite real hits landing on them all fight.
+        let no_thunder_golem = vitals.iter().find(|p| p.id == "no_thunder_golem").expect("no_thunder_golem missing from playerVitals entirely");
+        assert!(
+            no_thunder_golem.hp_samples.len() > 2,
+            "no_thunder_golem: expected a real hp timeline (more than just seed + death), got {} samples - regression #33 would collapse this to 2 by redirecting their damage onto an unrelated summoner's Thunder Golem",
+            no_thunder_golem.hp_samples.len()
+        );
+    }
+
+    /// Ticket #24 verification (2026-08-20) - the parser's report claimed
+    /// `rf_self_damage_pct_rank*` never actually reaches
+    /// `apply_righteous_fire_self_damage` (the tunable "reads 0 at
+    /// runtime"), through the real `LiveTunables` → `simulate_battle` →
+    /// `CombatSimUnit.rf_self_damage_pct` wiring - not the shortcut
+    /// `elementalist(pct)` test helper `self_burn_deals_a_flat_10pct_...`
+    /// uses, which sets the field directly and so could never have
+    /// caught a real plumbing gap. Built with rank3 = 0.6, the actual
+    /// production-live value in `adventure-live-tunables.toml` as of
+    /// this deploy - if the tunable really weren't reaching the sim,
+    /// this would show zero self-damage events over an entire fight.
+    #[test]
+    fn ticket_24_rf_self_damage_tunable_actually_reaches_the_real_sim_pipeline() {
+        let mut character = Character::new("elementalist".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.level = 100;
+        character.passive_allocations.insert("righteousfire".to_string(), 3);
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist".to_string(), character);
+
+        let boss_stats = BossStats {
+            hp: 2_000_000_000,
+            atk: 10,
+            attack_interval_ms: 900,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables { rf_self_damage_pct_rank1: 0.2, rf_self_damage_pct_rank2: 0.4, rf_self_damage_pct_rank3: 0.6, ..Default::default() };
+        let mut rng = StdRng::seed_from_u64(99);
+        let (_won, _units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, &mut rng);
+
+        let self_damage_events = events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, target, damage, .. } if attacker == "elementalist" && target == "elementalist" && *damage > 0)).count();
+        assert!(self_damage_events > 0, "rank-3 Righteous Fire must produce real self-damage Attack events over a full fight - the tunable is reaching the sim correctly if this passes");
     }
 
     /// Release 1.1 item 3's own required regression coverage - a numeric
