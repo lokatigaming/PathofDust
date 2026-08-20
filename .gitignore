@@ -60,6 +60,10 @@ patreon-tokens.json
 # Pre-unified-unique-shards-deploy rollback backup (binaries + the
 # standard pre-migration character-data backup), same discipline.
 /backup-pre-unified-unique-shards
+# Pre-golem-inheritance-deploy rollback backup (binaries + the first
+# pinned pre-deploy fight-summary snapshot, per §13's new step), same
+# discipline.
+/backup-pre-golem-inheritance
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
