@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 
-import { validateBundle, SCHEMA, SCHEMA_VERSION } from '../game/schema/replay-bundle-validator.js';
+import { validateBundle, SCHEMA, SCHEMA_VERSION } from '../game/schema/replay-bundle-validator.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(here, '..', 'game', 'tests', 'fixtures', 'replay_bundle', 'golden-bundle.v1.json');
@@ -182,18 +182,18 @@ test('the committed validator is in sync with the IDL', () => {
   // The generator is the only thing allowed to write the validator. If the
   // IDL moved and nobody regenerated, the two repos would be validating
   // against different contracts while both looked fine.
-  const committed = readFileSync(join(here, '..', 'game', 'schema', 'replay-bundle-validator.js'), 'utf8');
+  const committed = readFileSync(join(here, '..', 'game', 'schema', 'replay-bundle-validator.mjs'), 'utf8');
   const scratch = mkdtempSync(join(tmpdir(), 'pod-bundle-'));
   const backup = join(scratch, 'validator.js');
   writeFileSync(backup, committed);
 
   execFileSync(process.execPath, [join(here, 'gen-bundle-validator.mjs')], { stdio: 'pipe' });
-  const regenerated = readFileSync(join(here, '..', 'game', 'schema', 'replay-bundle-validator.js'), 'utf8');
+  const regenerated = readFileSync(join(here, '..', 'game', 'schema', 'replay-bundle-validator.mjs'), 'utf8');
 
   assert.equal(
     regenerated,
     committed,
-    'replay-bundle-validator.js is stale - run: node tools/gen-bundle-validator.mjs',
+    'replay-bundle-validator.mjs is stale - run: node tools/gen-bundle-validator.mjs',
   );
 });
 

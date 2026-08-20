@@ -3,7 +3,7 @@
 //   node tools/gen-bundle-validator.mjs
 //
 // The IDL (game/schema/replay-bundle.v1.json) is the source of truth. This
-// writes game/schema/replay-bundle-validator.js, which is the artifact
+// writes game/schema/replay-bundle-validator.mjs, which is the artifact
 // delivered to PathOfDust_Desktop by PR. A Rust test
 // (replay_bundle::schema) fails the build if the committed output no longer
 // matches what this produces, so the two cannot drift in silence - a shared
@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const idlPath = join(here, '..', 'game', 'schema', 'replay-bundle.v1.json');
-const outPath = join(here, '..', 'game', 'schema', 'replay-bundle-validator.js');
+const outPath = join(here, '..', 'game', 'schema', 'replay-bundle-validator.mjs');
 
 const idl = JSON.parse(readFileSync(idlPath, 'utf8'));
 
