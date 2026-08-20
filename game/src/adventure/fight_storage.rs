@@ -111,7 +111,11 @@ pub(crate) fn write_and_prune<T: Serialize>(dir: &str, seq_path: &str, capacity:
     }
     let seq = next_seq(seq_path);
     let path = fight_file_path(dir, seq);
-    if let Err(err) = crate::state::save_json(&path, value) {
+    // Compact, not pretty: these are machine-written and machine-read,
+    // and indentation was measured at 33.1% of every archive byte
+    // (see `state::save_json_compact`). Files already on disk in the
+    // pretty form keep parsing unchanged - this needs no migration.
+    if let Err(err) = crate::state::save_json_compact(&path, value) {
         tracing::error!("Failed to persist fight file {}: {err}", path.display());
         return;
     }
