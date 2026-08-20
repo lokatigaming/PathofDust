@@ -97,7 +97,7 @@ later and you resume right where you left off.
 
 <p class="muted">A full respec (above) only clears your primary tree - today, unequipping Split Personality's item is the only way to reset the secondary tree specifically.</p>
 
-<p class="muted">Your secondary tree's stat and passive investments (crit chance/multiplier, evasion, block, damage reduction, attack speed, splash, max HP%, heal power, Intervene, and every other generic stat/passive node type) now correctly apply in combat, not just on your character sheet. This was a real bug fixed after launch - some node types worked all along, others silently did nothing until this fix. If your secondary tree ever felt like it wasn't doing anything, it's fixed now.</p>
+<p class="muted">Your secondary tree's passives now work everywhere they should, not just partially. Two separate bugs existed after launch and both are fixed: first, generic stat nodes (crit chance/multiplier, evasion, block, damage reduction, attack speed, splash, max HP%, heal power, Intervene) weren't applying in combat from a secondary tree; then, more broadly, dozens of passive and aura checks across the game were only ever asking "is this character archetype X," which silently ignored your secondary class entirely - so most of a secondary class's own unique passives and auras weren't firing at all, only its plain stat nodes were (after the first fix). Both are resolved now: your secondary class functions as a real second class, not a partial one.</p>
 
 <h4>Dual-Archetype Interactions</h4>
 

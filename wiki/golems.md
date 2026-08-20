@@ -16,6 +16,8 @@ you're playing Elementalist with at least one point in Golem Master, and only
 shows as many slots as you've actually unlocked. Changing a slot's type is
 free and takes effect on your next fight.
 
+<p class="muted">Your per-slot type assignments are saved and restored correctly when you save or load a <a href="/wiki/passives">Memory</a> - loading an older Memory that predates typed golem slots no longer resets your live slot types back to default.</p>
+
 <h3 id="stats">Stats &amp; Inheritance</h3>
 
 A golem's **base stats** - max HP, attack, evasion, damage reduction, block
@@ -24,7 +26,9 @@ post-buff numbers at the moment it's summoned (level, every passive-tree
 bonus including Elemental Focus/Scorching Flames' per-level scaling, and
 gear), not a base-stats-only snapshot.
 
-<p class="muted"><strong>Everything else you have inherits at FULL value, not 33%.</strong> Crit chance/multiplier, increased damage, Conflagration, your fire/cold/lightning/chaos/divine damage bonuses, splash, Lingering Effect, Righteous Fire's damage bonus, and every other multiplier or tree-passive effect you carry - all pass through to a golem exactly as strong as they are on you. Base stats are the <em>only</em> thing scaled down to 33%; a golem is otherwise a full copy of your build's output, not a diluted one.</p>
+<p class="muted"><strong>Everything else you have inherits at FULL value, not 33%.</strong> A golem is built as a full copy of you - your whole build, including a second class's tree if you're running <a href="/wiki/classes#split-personality">Split Personality</a> - with only base stats scaled down and a short list of things stripped off because they don't make sense on a golem (your temp buffs/shields at the exact moment you summoned it, a golem's own reform/tick machinery, and a handful of mechanics that only work by scanning the whole roster for their real owner specifically, like Guardian Spirit and Rising Phoenix). Assume full inheritance of anything you've built unless you have a specific reason to think otherwise, rather than checking it field by field.</p>
+
+<p class="muted">Heal power is the one stat with real per-type behavior instead of a flat rule: it's zeroed out on Thunder, Flame, and Basic golems (they don't heal, so there's nothing for it to affect), and additive on a Water Golem (your own heal power plus its own Replenishing bonus) - which is why gearing heal power meaningfully strengthens a Water Golem's output specifically, not the other three types.</p>
 
 <strong>Golems fight at your own pace, live.</strong> A golem's base attack
 speed is a one-time snapshot taken at summon time, but any speed buff you
@@ -45,14 +49,21 @@ you run one, that's working as intended.
 
 <h3 id="roles">Golem Roles at a Glance</h3>
 
+Each golem type is also assigned one of the game's own combat roles - the
+same Melee/Ranged/Heal categories your own archetype has (see
+[Combat](/wiki/combat#timing)) - which sets its base attack pace before any
+speed buffs apply: **Thunder and Basic are Melee, Flame is Ranged, Water is
+Heal** (naturally the fastest and slowest base paces respectively, same as
+for a player).
+
 <div class="wiki-table-wrap">
 
-| Type | Role | Why |
-|---|---|---|
-| Basic | Baseline | No sub-tree, no type bonus - still a full second copy of your output at 33% base stats. |
-| Thunder | Tank | Absorbs all external party damage while it's up; can't be healed or shielded. |
-| Flame | Damage | Multiplies its own inherited elemental damage further; attacks faster; hits harder. |
-| Water | Healer/Support | Passively heals the whole party every second; boosts everyone's healing and shields received. |
+| Type | Combat Role | Practical Role | Why |
+|---|---|---|---|
+| Basic | Melee | Baseline | No sub-tree, no type bonus - still a full second copy of your output at 33% base stats. |
+| Thunder | Melee | Tank | Absorbs all external party damage while it's up; can't be healed or shielded. |
+| Flame | Ranged | Damage | Multiplies its own inherited elemental damage further; attacks faster; hits harder. |
+| Water | Heal | Healer/Support | Passively heals the whole party every second; boosts everyone's healing and shields received. |
 
 </div>
 
@@ -74,7 +85,14 @@ self-burn - that's still yours to manage.
 - **Growing** - permanently grows its max HP a bit more every time it reforms within the same fight, additively off its original spawn HP (not compounding on its already-grown value).
 - **Terrifying** - explodes for a fraction of its own HP as damage to nearby enemies when it dies.
 
-<p class="muted"><strong>⚠️ Balance in flux:</strong> Thunder Golem balance is under active tuning - an absorbed-damage redistribution-on-death mechanic is coming (what happens to damage it soaked up right as it dies). No numbers for that yet; don't build around specific figures for Thunder Golem changing soon.</p>
+When a Thunder Golem dies, half of everything it had absorbed doesn't just
+disappear - it splits evenly across your whole party as real, unavoidable
+damage over the following 2 seconds (the other half is forgiven). Losing a
+Thunder Golem has real weight: the more it was tanking, the more your party
+feels its death. This can down a party member exactly like any other lethal
+damage.
+
+<p class="muted"><strong>⚠️ Balance in flux:</strong> the redistributed amount is still being tuned - it's currently landing a bit short of the intended 50% share in some cases, with a follow-up fix in progress. Treat the exact delivery numbers as not final; the mechanic itself (half absorbed, half forgiven, on-death) is.</p>
 
 <h3 id="flame">Flame Golem</h3>
 
@@ -108,7 +126,10 @@ heal-boosting effects. Running more than one Water Golem doesn't stack this
 - **Singing** - the whole party gets 10/20/30% more effect from heals and
   shields they receive.
 - **Shattering** - when an enemy dies near it, sends damaging icicles at
-  nearby enemies.
+  nearby enemies, normal mitigable damage (subject to the target's own
+  evasion/block/damage reduction, same as any other hit).
+
+<p class="muted"><strong>⚠️ Balance in flux:</strong> Shattering is temporarily switched off while a rework lands - any point invested in it is fully banked, not wasted, and it'll resume firing the moment it's switched back on, no action needed on your end. Expected back shortly with the mitigable-damage behavior described above.</p>
 
 Your support unit: the passive party-wide regen alone makes it worth
 running even before its modifiers turn it into real sustain (Replenishing)
