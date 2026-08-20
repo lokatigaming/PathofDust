@@ -2363,7 +2363,6 @@ pub(crate) struct CombatSimUnit {
     /// computation) - not a bonus this unit ever grants itself. 0.0
     /// without either invested.
     own_pack_instinct_evasion_pct: f64,
-    own_symbiosis_dr_pct: f64,
     /// Shared Strength - extra allies (beyond the base 1) Temple Guardian
     /// protects at once. 0 without it invested.
     sharedstrength_extra_targets: u32,
@@ -3336,7 +3335,7 @@ impl Default for CombatSimUnit {
             doubletap_max_repeats: 0,
             in_splash_resolution: false,
             own_pack_instinct_evasion_pct: 0.0,
-            own_symbiosis_dr_pct: 0.0,
+            
             sharedstrength_extra_targets: 0,
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
@@ -4060,7 +4059,7 @@ pub(crate) fn roll_attacker_damage(
 /// the split even happens) still blocks pierce too, same as every other
 /// death-prevention passive - only evasion/block/DR/intervene are
 /// actually bypassed.
-/// `pack_instinct_evasion_bonus`/`symbiosis_dr_bonus` are Druid's Pack
+/// `pack_instinct_evasion_bonus` is Druid's Pack
 /// Instinct/Symbiosis - live, computed by `apply_hit` (which has the full
 /// `units` slice needed to find "the party's current lowest-HP ally",
 /// something this function's plain `atk`/`def` refs can't see) and passed
@@ -4075,7 +4074,7 @@ pub(crate) fn roll_attacker_damage(
 /// live per-fight state (2026-08-15, see `CombatSimUnit::fire_dr_debuff`'s
 /// doc) - already pruned-and-counted plain percentages, same "caller
 /// resolves it, passes a plain magnitude in" reasoning as
-/// `pack_instinct_evasion_bonus`/`symbiosis_dr_bonus` above (this
+/// `pack_instinct_evasion_bonus` above (this
 /// function's own `def: &CombatSimUnit` can't prune anything itself,
 /// it's not `&mut`).
 /// The same universal "damage to a real boss is capped by how far past
@@ -4128,7 +4127,6 @@ pub(crate) fn resolve_hit(
     at_ms: u32,
     rng: &mut impl Rng,
     pack_instinct_evasion_bonus: f64,
-    symbiosis_dr_bonus: f64,
     force_crit: bool,
     target_fire_debuff: f64,
     target_fire_buff: f64,
@@ -4637,11 +4635,6 @@ pub(crate) fn resolve_hit(
     // Curse of Weakness's own negative source below.
     if target_lightning_dmg_taken > 0.0 {
         sources.push(("Lightning damage-taken stack", -target_lightning_dmg_taken));
-    }
-    // Druid's Symbiosis - same live lowest-HP-ally gate as Pack Instinct,
-    // its own separate mitigation source.
-    if symbiosis_dr_bonus > 0.0 {
-        sources.push(("Symbiosis", symbiosis_dr_bonus));
     }
     // Divine Intervention - a temporary bonus for whoever Guardian Spirit
     // just saved (lazy-expiry, same convention as every other timed
@@ -5833,7 +5826,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             doubletap_max_repeats: 0,
             in_splash_resolution: false,
             own_pack_instinct_evasion_pct: 0.0,
-            own_symbiosis_dr_pct: 0.0,
+            
             sharedstrength_extra_targets: 0,
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
@@ -8172,7 +8165,7 @@ pub(crate) fn apply_hit(
     // spirit as `heal_target_idx`'s own self-exclusion; if multiple Druids
     // are alive, their magnitudes simply sum (same convention as every
     // other multi-source stat here).
-    let (pack_instinct_evasion_bonus, symbiosis_dr_bonus) = if !units[target_idx].is_boss {
+    let pack_instinct_evasion_bonus = if !units[target_idx].is_boss {
         // Shared Strength (Monk's Temple Guardian) - protects the K
         // lowest-HP allies at once instead of just the single lowest, K =
         // 1 + the highest Shared Strength rank among any alive non-boss
@@ -8183,9 +8176,11 @@ pub(crate) fn apply_hit(
         allies_by_hp.sort_by_key(|&i| units[i].hp);
         let is_protected = allies_by_hp.iter().take(1 + extra_targets as usize).any(|&i| i == target_idx);
         if is_protected {
-            let (evasion, dr) = units.iter().enumerate().filter(|(i, u)| *i != target_idx && !u.is_boss && u.alive).fold((0.0, 0.0), |(evasion, dr), (_, u)| {
-                (evasion + u.own_pack_instinct_evasion_pct, dr + u.own_symbiosis_dr_pct)
-            });
+            let evasion = units
+                .iter()
+                .enumerate()
+                .filter(|(i, u)| *i != target_idx && !u.is_boss && u.alive)
+                .fold(0.0, |evasion, (_, u)| evasion + u.own_pack_instinct_evasion_pct);
             // Guardian Spirit (Temple Guardian) - the protected ally also
             // gets a small periodic self-heal, gated by its own cooldown.
             let guardianspirit_pct = units.iter().filter(|u| !u.is_boss && u.alive).map(|u| u.templeguardian_heal_pct).fold(0.0, f64::max);
@@ -8194,12 +8189,12 @@ pub(crate) fn apply_hit(
                 apply_heal(units, target_idx, target_idx, heal_amount, at_ms, events, rng);
                 units[target_idx].next_templeguardian_heal_at_ms = at_ms + TEMPLE_GUARDIAN_HEAL_INTERVAL_MS;
             }
-            (evasion, dr)
+            evasion
         } else {
-            (0.0, 0.0)
+            0.0
         }
     } else {
-        (0.0, 0.0)
+        0.0
     };
     // Rogue's Assassinate - consumes a banked charge (if any) to guarantee
     // THIS hit crits, whichever hit happens to be this unit's next one
@@ -8233,7 +8228,7 @@ pub(crate) fn apply_hit(
     // takes IMMUTABLE `atk`/`def` refs (it's consulted from other spots
     // too, and pruning needs `&mut`), so - same "caller resolves live
     // per-fight state, passes plain values in" pattern
-    // `pack_instinct_evasion_bonus`/`symbiosis_dr_bonus` above already
+    // `pack_instinct_evasion_bonus` above already
     // use - the target's own active elemental debuff/buff stacks are
     // pruned and converted to plain percentages HERE, in `apply_hit`
     // (which already has full mutable `units` access), then handed to
@@ -8266,7 +8261,6 @@ pub(crate) fn apply_hit(
         at_ms,
         rng,
         pack_instinct_evasion_bonus,
-        symbiosis_dr_bonus,
         force_crit,
         target_fire_debuff,
         target_fire_buff,
@@ -10957,13 +10951,22 @@ pub(crate) fn simulate_battle(
                 // Temple Guardian/Iron Will already ride, mutually
                 // exclusive by archetype).
                 own_pack_instinct_evasion_pct: c.passive_node_magnitude("packinstinct") + c.passive_node_magnitude("templeguardian") + c.passive_node_magnitude("ironwill") + c.passive_node_magnitude("pathfinder"),
-                own_symbiosis_dr_pct: c.passive_node_magnitude("symbiosis") + c.passive_node_magnitude("livingbond"),
                 // United Pack/Rooted Network extend the same "protect N
                 // allies" count Shared Strength already established.
-                sharedstrength_extra_targets: c.passive_node_rank("sharedstrength") + c.passive_node_rank("unitedpack") + c.passive_node_rank("rootednetwork"),
+                // Rooted Network was REMOVED from this sum 2026-08-20: the
+                // 2026-08-16 Werebear rework repurposed it to extend Thick
+                // Hide's CLEANSE count (see thickhide_target_count below),
+                // explicitly "instead of Symbiosis's old protect-count" -
+                // this is that old protect-count, and the read outlived the
+                // rework.
+                sharedstrength_extra_targets: c.passive_node_rank("sharedstrength") + c.passive_node_rank("unitedpack"),
                 // Wild Guardian/Nature's Embrace extend the same periodic
                 // protected-ally heal Guardian Spirit already established.
-                templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian") + c.passive_node_magnitude("naturesembrace"),
+                // Nature's Embrace was REMOVED from this sum 2026-08-20: the
+                // 2026-08-16 rework made its magnitude a TARGET COUNT
+                // (1/2/3), so it was adding 1.0-3.0 to a fraction whose real
+                // contributors give 0.02-0.06 each.
+                templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian"),
                 next_templeguardian_heal_at_ms: 0,
                 lingering_effect_pct: c.combat_lingering_effect_pct(),
                 lingering_dots: Vec::new(),
@@ -11423,7 +11426,11 @@ pub(crate) fn simulate_battle(
                 } else {
                     0.0
                 },
-                heal_crit_splash_pct: c.passive_node_magnitude("radiance") + c.passive_node_magnitude("verdantburst"),
+                // Verdant Burst was REMOVED from this sum 2026-08-20: the
+                // 2026-08-16 rework made it a death ward whose magnitude is
+                // a CHARGE COUNT (1/2/3), so it was adding 1.0-3.0 to a
+                // fraction whose only real contributor gives 0.20-0.60.
+                heal_crit_splash_pct: c.passive_node_magnitude("radiance"),
                 grace_lowest_ally_bonus_pct: c.passive_node_magnitude("graciousspirit"),
                 // Cleric's Prayer of Mending - see `apply_heal_bounce`'s
                 // doc. Bounce target count uses RANK directly (a flat
@@ -12210,7 +12217,7 @@ pub(crate) fn simulate_battle(
             doubletap_max_repeats: 0,
             in_splash_resolution: false,
             own_pack_instinct_evasion_pct: 0.0,
-            own_symbiosis_dr_pct: 0.0,
+            
             sharedstrength_extra_targets: 0,
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
@@ -13353,7 +13360,7 @@ pub(crate) fn simulate_battle(
                                 doubletap_max_repeats: 0,
                                 in_splash_resolution: false,
                                 own_pack_instinct_evasion_pct: 0.0,
-                                own_symbiosis_dr_pct: 0.0,
+                                
                                 sharedstrength_extra_targets: 0,
                                 templeguardian_heal_pct: 0.0,
                                 next_templeguardian_heal_at_ms: 0,
@@ -14615,7 +14622,7 @@ mod full_detail_combat_log_tests {
         let atk = neutral_attacker();
         let def = CombatSimUnit { hardened_stacks: 3, hardened_pct_per_stack: 0.05, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(1);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.evaded, "zero evasion must never dodge");
         let mitigation: Vec<_> = outcome.deterministic_sources.iter().filter(|(cat, ..)| *cat == RollCategory::Mitigation).collect();
         assert_eq!(mitigation.len(), 1, "only Hardened is invested - expected exactly 1 Mitigation source, got {mitigation:?}");
@@ -14629,7 +14636,7 @@ mod full_detail_combat_log_tests {
         let atk = neutral_attacker();
         let def = neutral_defender();
         let mut rng = StdRng::seed_from_u64(2);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let mitigation_or_evasion: Vec<_> =
             outcome.deterministic_sources.iter().filter(|(cat, ..)| matches!(cat, RollCategory::Mitigation | RollCategory::Evasion)).collect();
         assert!(mitigation_or_evasion.is_empty(), "a fully zeroed defender should log nothing - got {mitigation_or_evasion:?}");
@@ -14644,7 +14651,7 @@ mod full_detail_combat_log_tests {
         let atk = neutral_attacker();
         let def = CombatSimUnit { late_stage_damage_penalty_pct: 0.1939, is_boss: true, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(3);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let penalty = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Late-stage damage penalty");
         let (category, _, magnitude) = penalty.expect("late-stage penalty must be logged when non-zero");
         assert_eq!(*category, RollCategory::IncreasedDamage);
@@ -14670,7 +14677,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { crit_chance: 0.5, ..neutral_attacker() };
         let def = neutral_defender();
         let mut rng = StdRng::seed_from_u64(4);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let crit_sources: Vec<_> = outcome.deterministic_sources.iter().filter(|(cat, ..)| *cat == RollCategory::Crit).collect();
         let chance_source = crit_sources.iter().find(|(_, name, _)| *name == "Crit chance");
         assert!(chance_source.is_some(), "a real crit_chance investment must be logged");
@@ -14692,7 +14699,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { crit_chance: 0.5, ..neutral_attacker() };
         let def = CombatSimUnit { damage_reduction: 0.1, evasion: 0.1, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(5);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.probabilistic_rolls.is_empty(), "evasion/block/crit-remainder rolls should all fire with these inputs");
         assert!(!outcome.deterministic_sources.is_empty(), "DR/evasion/crit-chance sources should all be non-empty with these inputs");
     }
@@ -14730,7 +14737,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { evasion: 0.50, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(6);
-        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
         assert!((chance.expect("evasion roll must be logged") - 0.25).abs() < 1e-9, "must floor at exactly 25%, got {chance:?}");
     }
@@ -14742,7 +14749,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { evasion: 0.10, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(7);
-        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
         assert!((chance.expect("evasion roll must be logged") - 0.10).abs() < 1e-9, "must stay at the defender's own natural 10%, not be raised - got {chance:?}");
     }
@@ -14752,7 +14759,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { block_chance: 0.60, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(8);
-        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 60_000, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Block && *name == "Block chance").and_then(|(_, _, p, _)| *p);
         assert!((chance.expect("block roll must be logged") - 0.25).abs() < 1e-9, "must floor at exactly 25%, got {chance:?}");
     }
@@ -14762,7 +14769,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { damage_reduction: 0.50, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(9);
-        let outcome = resolve_hit(100.0, &atk, &def, 10_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 10_000, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         // "Boss Pressure" is logged in BOTH the evasion and DR source
         // lists now (this test's boss ignores evasion too) - filter by
         // category to find the DR (Mitigation) one specifically.
@@ -14778,7 +14785,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, spawned_at_ms: 0, ..neutral_attacker() };
         let def = CombatSimUnit { damage_reduction: 0.50, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(10);
-        let outcome = resolve_hit(1000.0, &atk, &def, 60_000, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 60_000, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         // 1000 * (1 - 0.25) = 750 is the floor; boss pressure must never
         // push the real damage taken ABOVE that (i.e. DR below 25%).
         assert!(outcome.damage <= 750, "DR must never be floored below 25% by boss pressure alone - got damage {}", outcome.damage);
@@ -14792,7 +14799,7 @@ mod full_detail_combat_log_tests {
         let atk = CombatSimUnit { is_boss: true, ..neutral_attacker() };
         let def = CombatSimUnit { evasion: 0.75, nightstalker_evasion_pct: 0.75, temp_evasion_buff: 0.75, temp_evasion_buff_expires_at_ms: 10_000, ..neutral_defender() };
         let mut rng = StdRng::seed_from_u64(11);
-        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(100.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let chance = outcome.probabilistic_rolls.iter().find(|(cat, name, ..)| *cat == RollCategory::Evasion && *name == "Evasion").and_then(|(_, _, p, _)| *p);
         assert!(chance.expect("evasion roll must be logged") <= 0.95 + 1e-9, "combined evasion must never exceed 95%, got {chance:?}");
     }
@@ -14811,7 +14818,7 @@ mod full_detail_combat_log_tests {
             ..neutral_defender()
         };
         let mut rng = StdRng::seed_from_u64(12);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert!(!outcome.evaded, "zero evasion must never dodge");
         assert!(outcome.damage >= 50, "at least 5% of 1000 raw damage (50) must always land on a non-evaded hit - got {}", outcome.damage);
     }
@@ -15494,7 +15501,7 @@ mod elementalist_stage_2_tests {
         let atk = CombatSimUnit { conflagration_dmg_pct: 0.10, ..Default::default() };
         let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
         let mut rng = StdRng::seed_from_u64(4);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Conflagration");
         let (category, _, magnitude) = entry.expect("Conflagration must be logged when invested");
         assert_eq!(*category, RollCategory::IncreasedDamage);
@@ -15506,10 +15513,10 @@ mod elementalist_stage_2_tests {
         let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
         let baseline_atk = CombatSimUnit { ..Default::default() };
         let mut rng_a = StdRng::seed_from_u64(5);
-        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let boosted_atk = CombatSimUnit { conflagration_dmg_pct: 0.30, ..Default::default() };
         let mut rng_b = StdRng::seed_from_u64(5);
-        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
         assert!((ratio - 1.30).abs() < 1e-6, "30% Conflagration should scale unmitigated damage by exactly 1.30x, got {ratio}");
     }
@@ -15524,7 +15531,7 @@ mod elementalist_stage_2_tests {
         let atk = CombatSimUnit { righteousfire_pct: 0.10, ..Default::default() };
         let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
         let mut rng = StdRng::seed_from_u64(4);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Righteous Fire");
         let (category, _, magnitude) = entry.expect("Righteous Fire must be logged when invested");
         assert_eq!(*category, RollCategory::IncreasedDamage);
@@ -15536,10 +15543,10 @@ mod elementalist_stage_2_tests {
         let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
         let baseline_atk = CombatSimUnit { ..Default::default() };
         let mut rng_a = StdRng::seed_from_u64(5);
-        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let boosted_atk = CombatSimUnit { righteousfire_pct: 0.30, ..Default::default() };
         let mut rng_b = StdRng::seed_from_u64(5);
-        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
         assert!((ratio - 1.30).abs() < 1e-6, "30% Righteous Fire should scale unmitigated damage by exactly 1.30x, got {ratio}");
     }
@@ -15785,9 +15792,9 @@ mod elementalist_stage_3_tests {
         let baseline_def = boss("baseline", 1_000_000);
         let stacked_def = CombatSimUnit { relentlessflames_dmg_taken_pct: 0.10, ..boss("stacked", 1_000_000) };
         let mut rng_a = StdRng::seed_from_u64(9);
-        let baseline = resolve_hit(1000.0, &atk, &baseline_def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let baseline = resolve_hit(1000.0, &atk, &baseline_def, 1, &mut rng_a, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let mut rng_b = StdRng::seed_from_u64(9);
-        let stacked = resolve_hit(1000.0, &atk, &stacked_def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let stacked = resolve_hit(1000.0, &atk, &stacked_def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         // `damage` (post-mitigation), not `unmitigated_damage` -
         // `boss_focus_stacks`/`relentlessflames_dmg_taken_pct` are
         // DEFENDER-side vulnerability multipliers applied during
@@ -16229,7 +16236,7 @@ mod elementalist_stage_4_tests {
             ..boss_for_block_test()
         };
         let mut rng = StdRng::seed_from_u64(1);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Block reduction (Second Skin)");
         let (_, _, magnitude) = entry.expect("block_chance: 1.0 must guarantee a logged block-reduction source");
         assert!((*magnitude - 0.70).abs() < 1e-9, "the ally's own higher Second Skin value must not be downgraded by Shielding Fire's 55%, got {magnitude}");
@@ -16313,9 +16320,9 @@ mod elementalist_stage_5_tests {
         let def = boss();
 
         let mut rng = StdRng::seed_from_u64(1);
-        let owner_outcome = resolve_hit(2000.0, &owner, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let owner_outcome = resolve_hit(2000.0, &owner, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let mut rng2 = StdRng::seed_from_u64(1);
-        let golem_outcome = resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng2, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let golem_outcome = resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng2, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
         let ratio = golem_outcome.unmitigated_damage as f64 / owner_outcome.unmitigated_damage as f64;
         assert!(
@@ -16349,9 +16356,9 @@ mod elementalist_stage_5_tests {
         let mut golem_total = 0u64;
         for seed in 0..trials {
             let mut rng_o = StdRng::seed_from_u64(seed);
-            owner_total += resolve_hit(2000.0, &owner, &def, 1, &mut rng_o, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).unmitigated_damage;
+            owner_total += resolve_hit(2000.0, &owner, &def, 1, &mut rng_o, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).unmitigated_damage;
             let mut rng_g = StdRng::seed_from_u64(seed);
-            golem_total += resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng_g, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).unmitigated_damage;
+            golem_total += resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng_g, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).unmitigated_damage;
         }
         let ratio = golem_total as f64 / owner_total as f64;
         assert!(
