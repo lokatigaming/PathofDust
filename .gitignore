@@ -55,6 +55,8 @@ patreon-tokens.json
 # removed, RF re-homed, full inheritance, live golem speed), same
 # discipline.
 /backup-pre-elementalist-corrective
+# Pre-elemental-damage-all-slots-deploy rollback backup, same discipline.
+/backup-pre-elemental-slots
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
