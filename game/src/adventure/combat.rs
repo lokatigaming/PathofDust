@@ -7124,14 +7124,33 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
 /// Stage 6) - "when an enemy dies in the Water Golem's presence, it
 /// explodes, sending icicles at (splash + rank) nearby enemies, each
-/// dealing 1% of the dead enemy's health." Golems never invest splash
-/// themselves (always 0.0), so this reduces to exactly `rank` targets in
-/// practice - kept as `splash + rank` anyway for spec fidelity. Called
-/// from the same per-iteration death sweep for ANY enemy that just
-/// died, matching Ashes to Ashes' own "any enemy" reach - no per-site
-/// audit needed, same reasoning as the rest of this stage's death-
-/// triggered mechanics. A no-op unless an alive Water Golem with
-/// Shattering invested is present.
+/// dealing 1% of the dead enemy's health." Since the golem-inheritance
+/// rework (2026-08-20), golems inherit their summoner's real `splash`
+/// stat like every other gear/tree stat - the old "golems never invest
+/// splash themselves (always 0.0)" premise no longer holds, so
+/// `splash + rank` can now genuinely exceed `rank` targets for a
+/// summoner with real splash investment, not just spec fidelity for its
+/// own sake. Called from the same per-iteration death sweep for ANY
+/// enemy that just died, matching Ashes to Ashes' own "any enemy" reach
+/// - no per-site audit needed, same reasoning as the rest of this
+/// stage's death-triggered mechanics. A no-op unless an alive Water
+/// Golem with Shattering invested is present. Icicle damage is normal,
+/// mitigable damage (2026-08-20 - see `apply_hit`), not
+/// `apply_true_damage` - it goes through the target's own crit/evasion/
+/// DR resolution same as any other hit landed on a boss, it just
+/// doesn't count as a primary hit (`is_followup: true`, same "a
+/// detonation, not a turn" treatment `apply_splash` gives its own
+/// targets) so it can't itself trigger a chained on-hit proc.
+/// Non-stacking across multiple Water Golems - only the first alive one
+/// with Shattering invested fires per death, same one-effect-per-fight-
+/// tick spirit as `select_primary_watergolem`'s explicit "highest rank
+/// wins" selection for the regen effect. Unlike that mechanic, this
+/// picks the first match by unit order rather than the highest rank -
+/// deliberately left that way rather than copying the max-by pattern,
+/// because every Water Golem belonging to one Elementalist inherits
+/// this magnitude identically from the same summoner post-inheritance,
+/// so which one is picked can only ever affect event attribution
+/// (whose `id` shows as the icicle's source), never the damage dealt.
 fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx: usize, dead_enemy_max_hp: u64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
     let water_golem_idx = units
         .iter()
@@ -7148,7 +7167,7 @@ fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx:
     for _ in 0..pick_count {
         let pick_at = rng.gen_range(0..candidates.len());
         let target_idx = candidates.remove(pick_at);
-        apply_true_damage(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng);
+        apply_hit(units, water_golem_idx, target_idx, icicle_dmg, at_ms, events, rolls, rng, false, true);
     }
 }
 
@@ -13967,27 +13986,77 @@ pub(crate) fn compress_events(events: Vec<CombatEvent>) -> (Vec<CombatEvent>, u3
 ///
 /// Buckets already-`compress_events`-rescaled events into 1-second
 /// windows of the FINAL display timeline, and independently caps how many
-/// PLAYER-caused vs BOSS-caused events survive each window (classified by
-/// `CombatEvent::actor_id`'s presence in `units`' `is_boss` set) -
-/// dropping the overflow once a window's cap is hit, keeping insertion
-/// (chronological) order for everything that survives.
+/// PLAYER-caused vs BOSS-caused `Attack` events survive each window
+/// (classified by `CombatEvent::actor_id`'s presence in `units`'
+/// `is_boss` set).
+///
+/// Priority-tiered, not a flat head-keep (2026-08-20 fix, from an event-
+/// census finding: the old "keep the first N per second across every
+/// event kind, chronologically" version dropped 100% of `Heal` events -
+/// healing was invisible on the overlay - and 74% of `Defeat` events -
+/// downed characters kept rendering alive - while `Shield`/
+/// `BuffSnapshot`, which `overlay.html`'s `fireEvent` has NO branch for
+/// at all (verified against its actual 4 branches: attack/heal/defeat/
+/// skillCast), silently consumed budget for events that could never
+/// have rendered anyway).
+/// 1. `Heal`/`Defeat`/`SkillCast` are exempt from the budget entirely -
+///    `fireEvent` has a real handler for each, and together they're a
+///    negligible fraction of a fight's event volume next to `Attack`.
+/// 2. `Shield`/`BuffSnapshot` are never broadcast at all - `fireEvent`
+///    can't do anything with them, so a copy sent over the wire was
+///    pure waste that could still displace a real, renderable event
+///    under the old shared budget. `save_last_fight` and every audit
+///    path still get the full, untouched `events` - this only ever
+///    touches the copy broadcast to the overlay (see this function's
+///    own callers).
+/// 3. The per-second/per-side budget applies only to `Attack` events
+///    now, via deterministic stride sampling (spread evenly across the
+///    second) rather than head-keep, so a burst late in a second (e.g.
+///    Frenzy multi-strikes right before the second rolls over) isn't
+///    systematically annihilated the way "first N, chronologically"
+///    always annihilated everything after the cap.
 pub(crate) const OVERLAY_MAX_PLAYER_EVENTS_PER_SEC: usize = 500;
 pub(crate) const OVERLAY_MAX_BOSS_EVENTS_PER_SEC: usize = 1000;
 
 pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatUnitInfo]) -> Vec<CombatEvent> {
     let boss_ids: std::collections::HashSet<&str> = units.iter().filter(|u| u.is_boss).map(|u| u.id.as_str()).collect();
-    let mut player_count_by_sec: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
-    let mut boss_count_by_sec: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
-    events
-        .into_iter()
-        .filter(|e| {
+
+    // Pass 1: how many Attack events actually land in each (second, is_boss)
+    // bucket - stride sampling in pass 2 needs each bucket's real total up
+    // front to spread survivors evenly across it.
+    let mut attack_totals: std::collections::HashMap<(u32, bool), usize> = std::collections::HashMap::new();
+    for e in &events {
+        if matches!(e, CombatEvent::Attack { .. }) {
             let sec = e.at_ms() / 1_000;
             let is_boss_actor = boss_ids.contains(e.actor_id());
-            let (counter, cap) =
-                if is_boss_actor { (&mut boss_count_by_sec, OVERLAY_MAX_BOSS_EVENTS_PER_SEC) } else { (&mut player_count_by_sec, OVERLAY_MAX_PLAYER_EVENTS_PER_SEC) };
-            let entry = counter.entry(sec).or_insert(0);
-            *entry += 1;
-            *entry <= cap
+            *attack_totals.entry((sec, is_boss_actor)).or_insert(0) += 1;
+        }
+    }
+
+    let mut attack_seen: std::collections::HashMap<(u32, bool), usize> = std::collections::HashMap::new();
+    events
+        .into_iter()
+        .filter(|e| match e {
+            CombatEvent::Heal { .. } | CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } => true,
+            CombatEvent::Shield { .. } | CombatEvent::BuffSnapshot { .. } => false,
+            CombatEvent::Attack { .. } => {
+                let sec = e.at_ms() / 1_000;
+                let is_boss_actor = boss_ids.contains(e.actor_id());
+                let cap = if is_boss_actor { OVERLAY_MAX_BOSS_EVENTS_PER_SEC } else { OVERLAY_MAX_PLAYER_EVENTS_PER_SEC };
+                let total = *attack_totals.get(&(sec, is_boss_actor)).unwrap_or(&0);
+                if total <= cap {
+                    return true;
+                }
+                let seen = attack_seen.entry((sec, is_boss_actor)).or_insert(0);
+                let idx = *seen;
+                *seen += 1;
+                // Bresenham-style even spread: keep index i exactly when
+                // it crosses into a new cap-sized bucket of the second's
+                // real total, so survivors land roughly evenly-spaced
+                // across the whole second instead of all clustered at
+                // its start.
+                (idx * cap) / total != ((idx + 1) * cap) / total
+            }
         })
         .collect()
 }
@@ -14051,6 +14120,48 @@ mod overlay_event_thinning_tests {
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
         let thinned = thin_events_for_overlay(events, &units);
         assert_eq!(thinned.len(), 3);
+    }
+
+    #[test]
+    fn heal_defeat_and_skillcast_are_never_dropped_even_deep_past_the_attack_cap() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let mut events = Vec::new();
+        for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4) {
+            events.push(attack_at(500, "a_player"));
+        }
+        events.push(CombatEvent::Heal { at_ms: 500, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5, target_hp_after: 50, is_revive: false });
+        events.push(CombatEvent::Defeat { at_ms: 500, unit: "a_player".to_string() });
+        events.push(CombatEvent::SkillCast { at_ms: 500, unit: "a_player".to_string(), skill: "Flicker Strike".to_string() });
+        let thinned = thin_events_for_overlay(events, &units);
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::Heal { .. })), "a Heal must survive regardless of how saturated the Attack budget is");
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::Defeat { .. })), "a Defeat must survive regardless of how saturated the Attack budget is");
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::SkillCast { .. })), "a SkillCast must survive regardless of how saturated the Attack budget is");
+    }
+
+    #[test]
+    fn shield_and_buffsnapshot_are_never_broadcast_even_under_the_cap() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let events = vec![
+            CombatEvent::Shield { at_ms: 0, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5 },
+            CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("test".to_string(), 1.0)] },
+        ];
+        let thinned = thin_events_for_overlay(events, &units);
+        assert!(thinned.is_empty(), "overlay.html's fireEvent has no branch for either kind - broadcasting them is pure waste");
+    }
+
+    #[test]
+    fn attack_overflow_is_spread_across_the_second_not_clustered_at_the_start() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        // 4x the cap, spread evenly across the second (ms 0..1000) by
+        // send order - old head-keep would drop every event past ms 250
+        // outright; stride sampling must let some of the LAST ms's
+        // events survive too.
+        let total = OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4;
+        let events: Vec<CombatEvent> = (0..total).map(|i| attack_at((i * 1_000 / total) as u32, "a_player")).collect();
+        let thinned = thin_events_for_overlay(events, &units);
+        assert_eq!(thinned.len(), OVERLAY_MAX_PLAYER_EVENTS_PER_SEC, "still caps to exactly the per-second budget");
+        let last_kept_ms = thinned.iter().map(|e| e.at_ms()).max().unwrap();
+        assert!(last_kept_ms > 500, "a survivor must land past the second's midpoint - head-keep would cluster every survivor before ms 250");
     }
 }
 
@@ -16519,9 +16630,9 @@ mod elementalist_stage_6_golem_type_tests {
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
         handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng);
         let hit_count = units[2..].iter().filter(|u| u.hp < 1_000_000).count();
-        assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (splash is always 0 for golems)");
+        assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (this summoner has 0 splash invested)");
         for u in &units[2..] {
-            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100");
+            assert_eq!(u.hp, 1_000_000 - 100, "1% of the dead enemy's 10,000 max hp = 100 - now via apply_hit, but a zero-stat golem/boss pair mitigates to the identical flat value");
         }
     }
 
@@ -16931,8 +17042,20 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             // redistribute to (the existing, deliberate
             // `recipients.is_empty()` guard in `handle_golem_death`), so
             // those are excluded from the "must redistribute" expectation
-            // below rather than miscounted as a coverage failure.
+            // below rather than miscounted as a coverage failure. Also
+            // excludes a golem death whose incarnation absorbed nothing
+            // (2026-08-20 flaky-test fix - `handle_golem_death`'s own
+            // redistribution block is gated on `absorbed > 0.0`; a
+            // Thunder Golem that reforms and dies again before ever
+            // tanking a hit legitimately produces no redistribution, and
+            // the previous version of this test didn't track absorbed
+            // per incarnation, so it intermittently over-counted that
+            // case as a missing redistribution - a real ~29%-of-runs
+            // flake tied to which unit order a HashMap-backed party
+            // happened to iterate in for a given process, not a game
+            // logic bug).
             let mut real_player_alive: std::collections::HashMap<String, bool> = real_player_ids.iter().map(|id| (id.clone(), true)).collect();
+            let mut absorbed_since_reform: std::collections::HashMap<String, f64> = golem_ids.iter().map(|id| (id.clone(), 0.0)).collect();
             let mut redistributable_golem_deaths = 0u32;
             let mut redistributions = 0u32;
             let mut events_by_tick: std::collections::BTreeMap<u32, Vec<&CombatEvent>> = std::collections::BTreeMap::new();
@@ -16940,6 +17063,13 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                 events_by_tick.entry(event.at_ms()).or_default().push(event);
             }
             for (_at_ms, tick_events) in events_by_tick {
+                for event in &tick_events {
+                    if let CombatEvent::Attack { target, damage, .. } = event {
+                        if let Some(absorbed) = absorbed_since_reform.get_mut(target) {
+                            *absorbed += *damage as f64;
+                        }
+                    }
+                }
                 let golem_deaths_this_tick: Vec<&String> =
                     tick_events.iter().filter_map(|e| if let CombatEvent::Defeat { unit, .. } = e { golem_ids.contains(unit).then_some(unit) } else { None }).collect();
                 for &unit in &tick_events {
@@ -16949,15 +17079,22 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                         }
                     }
                 }
-                if !golem_deaths_this_tick.is_empty() && real_player_alive.values().any(|&a| a) {
-                    redistributable_golem_deaths += golem_deaths_this_tick.len() as u32;
+                if real_player_alive.values().any(|&a| a) {
+                    for golem_id in &golem_deaths_this_tick {
+                        if absorbed_since_reform.get(*golem_id).copied().unwrap_or(0.0) > 0.0 {
+                            redistributable_golem_deaths += 1;
+                        }
+                    }
+                }
+                for golem_id in &golem_deaths_this_tick {
+                    absorbed_since_reform.insert((*golem_id).clone(), 0.0);
                 }
                 redistributions += tick_events.iter().filter(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Thunder Golem Redistribution")).count() as u32;
             }
             assert!(redistributable_golem_deaths > 0, "{boss_kind:?}: fixture produced no redistributable golem deaths at all - test would be vacuous");
             assert_eq!(
                 redistributions, redistributable_golem_deaths,
-                "{boss_kind:?}: every golem death with at least one real player still alive after that same tick must trigger a redistribution - {redistributions} of {redistributable_golem_deaths}"
+                "{boss_kind:?}: every golem death that absorbed damage this incarnation, with at least one real player still alive after that same tick, must trigger a redistribution - {redistributions} of {redistributable_golem_deaths}"
             );
         }
     }

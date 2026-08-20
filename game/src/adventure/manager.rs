@@ -3882,7 +3882,27 @@ impl AdventureManager {
                 let applied = match (outcome.affix_added, outcome.affix_value, outcome.affix_removed, outcome.unique_affix_added) {
                     (Some(affix), Some(value), _, _) => character.apply_craft_affix(item_id, *action, affix, value),
                     (_, _, Some(affix), _) => character.apply_annulment_removal(item_id, affix),
-                    (_, _, _, Some(unique)) => character.apply_unique_affix(item_id, unique),
+                    (_, _, _, Some(unique)) => {
+                        // Unique Shard picker observability (2026-08-20) -
+                        // this whole route was previously unlogged, which
+                        // left no server-side trace to check against a
+                        // live "the picker didn't show me a choice" report
+                        // (see the HereticGamingDad incident). Balance is
+                        // logged before AND after even though this call
+                        // itself never touches `craft_tokens` (the token
+                        // was already consumed back at `craft_item_ex`'s
+                        // own PendingVeil-insert time) - an unexpected
+                        // before/after mismatch here would be a real
+                        // signal something else is wrong.
+                        let balance_before = character.craft_token_count(CraftAction::UniqueShard);
+                        let result = character.apply_unique_affix(item_id, unique);
+                        let balance_after = character.craft_token_count(CraftAction::UniqueShard);
+                        tracing::info!(
+                            "Unique Shard picker-apply: character={username} item_id={item_id} chosen_affix={unique:?} shard_balance_before={balance_before} shard_balance_after={balance_after} outcome_ok={}",
+                            result.is_ok()
+                        );
+                        result
+                    }
                     _ => Err(CraftError::ItemNotFound),
                 };
                 if let Ok(applied) = applied {
