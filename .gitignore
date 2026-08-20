@@ -85,6 +85,12 @@ patreon-tokens.json
 # Pre-bridge-fix-deploy rollback backup (emergency - desktop envelope
 # mismatch + zlib compression format), same discipline.
 /backup-pre-bridge-fix
+# Pre-stage2-deploy rollback backup (live-tunables Stage 2, the 20-node
+# count migration), same discipline.
+/backup-pre-stage2
+# Pre-stage3-chain-deploy rollback backup (Stage 3 fixture chain +
+# #39 Druid stale-read fix, combined swap), same discipline.
+/backup-pre-stage3-chain
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
