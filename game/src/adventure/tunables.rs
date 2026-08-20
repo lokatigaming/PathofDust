@@ -183,6 +183,17 @@ pub struct LiveTunables {
     pub rf_self_damage_pct_rank2: f64,
     /// Same mechanic - rank 3.
     pub rf_self_damage_pct_rank3: f64,
+    /// Water Golem's Shattering modifier - a live kill-switch (2026-08-20,
+    /// a live request to quickly pull the mechanic pending a rework,
+    /// without a rebuild/redeploy for either turning it off now or back
+    /// on later). `true` (the shipped default) is the mechanic working
+    /// exactly as designed - see `handle_shattering_on_enemy_death`.
+    /// Setting this to `false` in the live tunables file makes every
+    /// Shattering proc a complete no-op; nothing about invested points,
+    /// the tree node, or its tooltip changes - a player's rank is
+    /// unaffected and instantly resumes working the moment this flips
+    /// back to `true`.
+    pub shattering_enabled: bool,
 }
 
 impl Default for LiveTunables {
@@ -217,6 +228,7 @@ impl Default for LiveTunables {
             rf_self_damage_pct_rank1: 0.10,
             rf_self_damage_pct_rank2: 0.20,
             rf_self_damage_pct_rank3: 0.30,
+            shattering_enabled: true,
         }
     }
 }

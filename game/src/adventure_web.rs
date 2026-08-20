@@ -2519,6 +2519,10 @@ struct TunablesForm {
     /// on this dashboard already uses (see `CraftForm::veiled`).
     #[serde(default)]
     permanent_rampage: Option<String>,
+    /// See `LiveTunables::shattering_enabled`'s doc - same absent-when-
+    /// unchecked convention as `permanent_rampage` above.
+    #[serde(default)]
+    shattering_enabled: Option<String>,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2555,6 +2559,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 boss_count_cap_mult: form.boss_count_cap_mult.max(0.0),
                 late_content_stage: form.late_content_stage,
                 permanent_rampage: form.permanent_rampage.is_some(),
+                shattering_enabled: form.shattering_enabled.is_some(),
                 pierce_cap: form.pierce_cap.clamp(0.0, 1.0),
                 pierce_h: form.pierce_h.max(1.0),
                 fight_summary_batch_size: form.fight_summary_batch_size.max(1),
@@ -3319,6 +3324,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
+            <h2>Water Golem Shattering</h2>\
+            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
+            <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
@@ -3353,6 +3361,7 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
+        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
     )
 }
 

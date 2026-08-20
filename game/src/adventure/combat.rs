@@ -7151,7 +7151,13 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// this magnitude identically from the same summoner post-inheritance,
 /// so which one is picked can only ever affect event attribution
 /// (whose `id` shows as the icicle's source), never the damage dealt.
-fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx: usize, dead_enemy_max_hp: u64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+/// `shattering_enabled` is a live kill-switch (see
+/// `LiveTunables::shattering_enabled`'s own doc) - `false` makes this a
+/// complete no-op, checked first before anything else.
+fn handle_shattering_on_enemy_death(units: &mut [CombatSimUnit], dead_enemy_idx: usize, dead_enemy_max_hp: u64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng, shattering_enabled: bool) {
+    if !shattering_enabled {
+        return;
+    }
     let water_golem_idx = units
         .iter()
         .enumerate()
@@ -12361,10 +12367,12 @@ pub(crate) fn simulate_battle(
             (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
         );
         // Water Golem's own Shattering modifier - any enemy that just died.
+        // Gated on the live kill-switch (see `LiveTunables::shattering_enabled`'s
+        // own doc) - `false` makes this a complete no-op pending a rework.
         for i in 0..units.len() {
             if units[i].is_boss && prev_alive[i] && !units[i].alive {
                 let dead_enemy_max_hp = units[i].max_hp;
-                handle_shattering_on_enemy_death(&mut units, i, dead_enemy_max_hp, prev_at_ms, &mut events, &mut rolls, &mut rng);
+                handle_shattering_on_enemy_death(&mut units, i, dead_enemy_max_hp, prev_at_ms, &mut events, &mut rolls, &mut rng, tunables.shattering_enabled);
             }
         }
         prev_alive = units.iter().map(|u| u.alive).collect();
@@ -16628,7 +16636,7 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng);
+        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true);
         let hit_count = units[2..].iter().filter(|u| u.hp < 1_000_000).count();
         assert_eq!(hit_count, 2, "shattering rank 2 = 2 extra targets (this summoner has 0 splash invested)");
         for u in &units[2..] {
@@ -16642,8 +16650,23 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
-        handle_shattering_on_enemy_death(&mut units, 0, 10_000, 5_000, &mut events, &mut rolls, &mut rng);
+        handle_shattering_on_enemy_death(&mut units, 0, 10_000, 5_000, &mut events, &mut rolls, &mut rng, true);
         assert_eq!(units[1].hp, 1_000_000);
+    }
+
+    #[test]
+    fn shattering_kill_switch_makes_it_a_complete_no_op() {
+        let water_golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &elementalist_with(&[("shattering", 2)], vec![GolemType::Water]));
+        let mut units = vec![water_golem, boss("dying", 10_000), boss("other_a", 1_000_000), boss("other_b", 1_000_000)];
+        units[0].alive = true;
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_shattering_on_enemy_death(&mut units, 1, 10_000, 5_000, &mut events, &mut rolls, &mut rng, false);
+        assert!(events.is_empty(), "shattering_enabled: false must be a complete no-op, even with an invested, alive Water Golem present");
+        for u in &units[2..] {
+            assert_eq!(u.hp, 1_000_000, "no icicle damage of any kind while the kill-switch is off");
+        }
     }
 
     #[test]
