@@ -79,6 +79,9 @@ patreon-tokens.json
 # Pre-overlay-compression-deploy rollback backup (Phase 1 - opt-in WS
 # compression + feed=parent), same discipline.
 /backup-pre-overlay-compression
+# Pre-dr-cap-38-deploy rollback backup (damage reduction hard-cap
+# doctrine, universal, no exemptions), same discipline.
+/backup-pre-dr-cap-38
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
