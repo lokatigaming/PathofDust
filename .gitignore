@@ -76,6 +76,9 @@ patreon-tokens.json
 # revert to party-wide + Shattering tunable restructure), same
 # discipline.
 /backup-pre-thunder-golem-party-wide
+# Pre-overlay-compression-deploy rollback backup (Phase 1 - opt-in WS
+# compression + feed=parent), same discipline.
+/backup-pre-overlay-compression
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
