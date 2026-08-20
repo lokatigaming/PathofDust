@@ -3075,7 +3075,28 @@ impl AdventureManager {
         character.passive_allocations = build.passive_allocations;
         character.secondary_archetype = build.secondary_archetype;
         character.secondary_passive_allocations = build.secondary_passive_allocations;
-        character.golem_slot_types = build.golem_slot_types;
+        // Prerequisite 1 (2026-08-20, golem-inheritance release) - a
+        // Memory saved before `golem_slot_types` existed as a field
+        // deserializes it as an empty Vec (the same additive-schema
+        // default every other pre-existing-field addition in this file
+        // uses). Loading such a Memory used to overwrite the
+        // character's CURRENT golem loadout with that empty Vec
+        // unconditionally, silently wiping real slot assignments the
+        // player had made since - confirmed live (a character with
+        // watergolem/replenishing/singing/shattering fully invested and
+        // 3 real golem slots assigned lost all three to the
+        // now-inert Basic default on every Memory load, across all
+        // three of their own saved Memories). An empty post-load
+        // `golem_slot_types` now PRESERVES whatever the character
+        // already had instead of overwriting it - the only cost is a
+        // genuinely golem-less new Memory (Golem Master never invested)
+        // leaving a stale prior assignment in place, which is harmless:
+        // `golem_slot_types` is only ever read scoped to
+        // `passive_node_rank("golemmaster")` many slots, so an unused
+        // entry past that count is simply never read.
+        if !build.golem_slot_types.is_empty() {
+            character.golem_slot_types = build.golem_slot_types;
+        }
 
         self.persist_characters(&characters);
         drop(characters);

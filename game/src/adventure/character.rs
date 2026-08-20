@@ -2675,6 +2675,22 @@ impl Character {
         }
     }
 
+    /// Prerequisite 2 (2026-08-20, golem-inheritance release) -
+    /// `passive_node_rank`/`passive_node_magnitude` already correctly
+    /// read whichever tree (primary or Split Personality secondary)
+    /// actually has a given node allocated, but every archetype-gated
+    /// passive/aura in `simulate_battle`'s construction closure was
+    /// still checking `c.archetype == Archetype::X` directly - true for
+    /// the primary class only, so a real secondary-archetype investment
+    /// (e.g. an Elementalist/Cleric via Split Personality) evaluated to
+    /// zero for every one of THAT class's own archetype-gated fields,
+    /// even with real points allocated and even though the underlying
+    /// rank/magnitude read was already correct. `has_archetype` is the
+    /// replacement gate: true if `archetype` is `X` in EITHER slot.
+    pub fn has_archetype(&self, archetype: Archetype) -> bool {
+        self.archetype == archetype || self.effective_secondary_archetype() == Some(archetype)
+    }
+
     /// Total passive points available to spend across BOTH trees combined
     /// (see `effective_secondary_archetype`) - the base level formula plus
     /// Split Personality's own bonus: a flat +1 for having it equipped,
