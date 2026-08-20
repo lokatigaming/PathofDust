@@ -1711,16 +1711,25 @@ pub(crate) struct CombatSimUnit {
     /// 0.0 without it invested.
     conflagration_dmg_pct: f64,
     /// Elementalist's Righteous Fire (docs/elementalist_spec.md) - the
-    /// OFFENSIVE half only: damage dealt to each enemy it reaches (see
-    /// `tick_righteous_fire`'s own doc). Still driven by the
-    /// `righteousfire` node's own rank magnitude. 0.0 without it
-    /// invested, which also makes `next_righteousfire_tick_at_ms` stay
-    /// `u32::MAX` (never scheduled) at construction.
+    /// OFFENSIVE half only. Still driven by the `righteousfire` node's
+    /// own rank magnitude. 0.0 without it invested, which also makes
+    /// `next_righteousfire_tick_at_ms` stay `u32::MAX` (never scheduled)
+    /// at construction, since Healing Flames/Cleansing Flames/Relentless
+    /// Flames/Cauterizing Flames/Ashes to Ashes still ride that same
+    /// per-second tick.
     ///
     /// 2026-08-19 rework - this USED TO also drive the self-burn half,
     /// but the two are now deliberately decoupled: self-burn moved to
     /// its own tunable (`rf_self_damage_pct` below), independently
     /// admin-adjustable from the offensive side.
+    ///
+    /// Design-intent correction (2026-08-20) - this USED TO also drive a
+    /// separate per-second true-damage AoE hit dealt from
+    /// `tick_righteous_fire` itself. Righteous Fire is bonus damage on
+    /// the Elementalist's regular unified hit, not a separate attack -
+    /// consumed directly inside `resolve_hit` now, as its own
+    /// independent multiplicative layer (same shape as
+    /// `conflagration_dmg_pct` just above).
     righteousfire_pct: f64,
     /// Righteous Fire's self-burn half (2026-08-19 rework, see
     /// `righteousfire_pct`'s own doc for why these split) -
@@ -1891,29 +1900,6 @@ pub(crate) struct CombatSimUnit {
     /// (Thunder/Flame/Water); `Some(GolemType::Basic)` has no bespoke
     /// behavior of its own.
     golem_type: Option<GolemType>,
-    /// Elementalist's own "33% less damage per summoned golem, additive"
-    /// penalty (docs/elementalist_spec.md - "1% of normal damage at 3
-    /// golems" only works out via ADDITIVE stacking of the reduction
-    /// itself: `1.0 - 0.33*3 = 0.01`). Applied as its own independent
-    /// multiplicative term in `resolve_hit` (same shape as
-    /// `conflagration_dmg_pct`'s own doc), NOT folded into the shared
-    /// `increased_damage` pool - mixing it in there would interact
-    /// unpredictably with the caster's OWN other damage bonuses instead
-    /// of always landing on the exact spec'd numbers. 0.0 for every
-    /// non-Elementalist and for an Elementalist with no golems summoned.
-    ///
-    /// Only ever read inside `resolve_hit` (a normal attack roll) -
-    /// Righteous Fire's own damage (both the self-burn half, see
-    /// `apply_righteous_fire_self_damage`, and the enemy-damage half,
-    /// see `tick_righteous_fire`) goes through `apply_true_damage`
-    /// instead, which never reads this field at all. This is the
-    /// explicit, spec-owner-ruled design (2026-08-19, RF+golem hybrid
-    /// rework item 3): RF's own damage is exempt from the golem summon
-    /// penalty by construction, not by a special-case bypass - it was
-    /// never wired to read this field in the first place. See
-    /// `rf_damage_is_unaffected_by_golem_count_while_attacks_still_are`
-    /// for the regression test proving this stays true.
-    golem_summon_dmg_penalty: f64,
     /// For a golem unit: Thunder Golem's own "dead but scheduled to
     /// reform" clock - `u32::MAX` (not scheduled) unless it just died.
     /// Same shape as Rising Phoenix's `revive_at_ms`, deliberately kept
@@ -3233,7 +3219,6 @@ impl Default for CombatSimUnit {
             is_golem: false,
             golem_summoner_id: None,
             golem_type: None,
-            golem_summon_dmg_penalty: 0.0,
             golem_reform_at_ms: u32::MAX,
             thundergolem_reform_delay_ms: 0,
             thundergolem_growing_pct: 0.0,
@@ -4261,14 +4246,20 @@ pub(crate) fn resolve_hit(
         raw_dmg *= 1.0 + atk.conflagration_dmg_pct;
         attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Conflagration", atk.conflagration_dmg_pct));
     }
-    // Elementalist's Golem Master - "33% less damage per summoned golem,
-    // additive" (see `golem_summon_dmg_penalty`'s own doc for why this
-    // is its own independent term rather than folded into the additive
-    // `increased_damage` pool above).
-    if atk.golem_summon_dmg_penalty > 0.0 {
-        let penalty = atk.golem_summon_dmg_penalty.min(0.99);
-        raw_dmg *= 1.0 - penalty;
-        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Golem Master (summon penalty)", -penalty));
+    // Elementalist's Righteous Fire (docs/elementalist_spec.md) - design-
+    // intent correction (2026-08-20): RF's enemy-facing damage is bonus
+    // damage on the Elementalist's regular unified hit, not a separate
+    // periodic attack of its own (see `tick_righteous_fire`'s own doc for
+    // what moved and why). Same independent multiplicative layer shape as
+    // Conflagration just above - `righteousfire_pct` is still driven by
+    // the `righteousfire` node's own rank magnitude, tunable via
+    // /admin/passives like every other node. RF's SELF-damage is
+    // unrelated to this - see `rf_self_damage_pct`/
+    // `apply_righteous_fire_self_damage`, still its own fixed 1000ms
+    // timer.
+    if atk.righteousfire_pct > 0.0 {
+        raw_dmg *= 1.0 + atk.righteousfire_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Righteous Fire", atk.righteousfire_pct));
     }
     // Late-stage damage penalty (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
     // doc) - a hard, unbypassable cap on damage dealt TO a real boss this
@@ -5723,7 +5714,6 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             is_golem: false,
             golem_summoner_id: None,
             golem_type: None,
-            golem_summon_dmg_penalty: 0.0,
             golem_reform_at_ms: u32::MAX,
             thundergolem_reform_delay_ms: 0,
             thundergolem_growing_pct: 0.0,
@@ -6003,19 +5993,25 @@ fn blazing_attack_speed_pct(rank: u32) -> f64 {
 
 /// Elementalist's Golem Master (docs/elementalist_spec.md, Stages 5-6) -
 /// builds one golem unit holding `GOLEM_STAT_SCALE` (33%, or more with
-/// Thunder Golem's own Gigantify) of `summoner`'s own core combat stats
-/// (max hp, attack power, crit chance/damage, evasion, damage
-/// reduction, block chance - "as if they were a player with 33% of your
-/// stats"). Attack cadence is copied AS-IS, not scaled - the spec never
-/// says golems act 33% as often, only that their NUMBERS are 33%.
-/// Everything else defaults to zero/off via `zeroed_combat_unit()` -
-/// "a basic unified hit," none of the Elementalist's own tree bonuses
-/// (elemental procs, splash, Righteous Fire, etc.) carry over. Basic
-/// golems get nothing beyond this flat scaling; Thunder/Flame/Water each
-/// get their own type-specific fields/stats set here directly, read
-/// from `c` (the summoner's real `Character`, for the sub-tree ranks
-/// `CombatSimUnit` alone doesn't carry) rather than threaded through as
-/// individual parameters.
+/// Thunder Golem's own Gigantify) of `summoner`'s own core BASE combat
+/// stats (max hp, attack power, evasion, damage reduction, block chance
+/// - "as if they were a player with 33% of your stats"). Attack cadence
+/// is copied AS-IS, not scaled - the spec never says golems act 33% as
+/// often, only that their NUMBERS are 33%.
+///
+/// Design-intent correction (2026-08-20), item 3 - EVERY other
+/// stat/multiplier/tree-passive effect the summoner carries (crit,
+/// increased damage, elemental damage_pct, splash, lingering effect,
+/// Righteous Fire, the Focus/Aegis trio, the Righteous Fire branch's
+/// own sub-passives, etc.) is inherited at FULL value, not scaled by
+/// `GOLEM_STAT_SCALE` - "33% of stats" only ever applied to the base
+/// stats named above, never to a passive's own effect magnitude. Basic
+/// golems get exactly this: full stat+passive inheritance, no type-
+/// specific bonus of their own. Thunder/Flame/Water each ADD their own
+/// type-specific fields/stats on top, read from `c` (the summoner's
+/// real `Character`, for the sub-tree ranks `CombatSimUnit` alone
+/// doesn't carry) rather than threaded through as individual
+/// parameters.
 fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_type: GolemType, c: &Character) -> CombatSimUnit {
     // Gigantify - Thunder Golem's own hp-contribution multiplier (base
     // 33% -> 66/99/132% at rank 1/2/3). 0.0 (no effect) for every other
@@ -6031,6 +6027,15 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
         hp: scaled_max_hp as i64,
         max_hp: scaled_max_hp,
         atk: scaled_atk,
+        // A one-time snapshot of the summoner's BASE cadence at spawn -
+        // Flame Golem's own Blazing bonus (below) still shrinks this
+        // once, permanently. The summoner's LIVE, accumulating speed
+        // buffs (Momentum, Flowing Strikes, etc.) are NOT snapshotted
+        // here (they'd be stale the instant the owner's own stacks grew
+        // past this point) - see the main event loop's own
+        // `speed_source_idx` fix (design-intent correction, 2026-08-20,
+        // item 4) for how the golem's live effective interval tracks
+        // the owner's own current speed instead.
         attack_interval_ms: summoner.attack_interval_ms,
         next_action_at_ms: summoner.attack_interval_ms,
         evasion: summoner.evasion * GOLEM_STAT_SCALE,
@@ -6084,6 +6089,55 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
         // increased_damage/conflagration_dmg_pct exactly.
         crit_chance: summoner.crit_chance,
         crit_multiplier: summoner.crit_multiplier,
+        // Design-intent correction (2026-08-20), item 3 - "ALL stats and
+        // ALL tree passives at full value... every effect/multiplier/
+        // passive inherits at full value," the same pattern as
+        // increased_damage/crit_chance/crit_multiplier above, applied
+        // exhaustively rather than as a short hand-picked list. Every
+        // field below is either a per-hit/per-cast MAGNITUDE the golem's
+        // OWN attacks/procs read generically (fire/cold/lightning/chaos/
+        // divine damage_pct, splash, lingering_effect_pct,
+        // righteousfire_pct, the Focus/Aegis trio), or a value read only
+        // when `tick_righteous_fire`/`tick_cleansing_flames` runs with
+        // THIS unit as the actor - which never happens for a golem
+        // (its own `next_righteousfire_tick_at_ms`/`next_cleansingflames_at_ms`
+        // stay at `zeroed_combat_unit()`'s `u32::MAX` default, never set
+        // here), so those are inert-but-correctly-inherited data rather
+        // than a way to make a golem cast its own Righteous Fire tick.
+        //
+        // Deliberately EXCLUDED: `risingphoenix_max_revives`. Unlike
+        // every field above, it's read via a GENERIC scan across every
+        // non-boss alive unit in `try_schedule_rising_phoenix_revival`
+        // (not gated to a specific scheduled actor_idx) - inheriting it
+        // would make a golem itself an eligible Rising Phoenix CASTER,
+        // a real new mechanic (revival credited to a golem's own id,
+        // and a second revive-eligibility source beyond the owner's own
+        // rank) rather than a dormant, correctly-inherited value. Out of
+        // scope for a "golems hit as hard as the owner" correction.
+        fire_damage_pct: summoner.fire_damage_pct,
+        cold_damage_pct: summoner.cold_damage_pct,
+        lightning_damage_pct: summoner.lightning_damage_pct,
+        chaos_damage_pct: summoner.chaos_damage_pct,
+        divine_damage_pct: summoner.divine_damage_pct,
+        splash: summoner.splash,
+        lingering_effect_pct: summoner.lingering_effect_pct,
+        righteousfire_pct: summoner.righteousfire_pct,
+        shockingfocus_pct: summoner.shockingfocus_pct,
+        chillingfocus_pct: summoner.chillingfocus_pct,
+        scorchingfocus_pct: summoner.scorchingfocus_pct,
+        lightningaegis_shield_pct: summoner.lightningaegis_shield_pct,
+        chillingaegis_shield_pct: summoner.chillingaegis_shield_pct,
+        scorchingaegis_shield_pct: summoner.scorchingaegis_shield_pct,
+        relentlessflames_pct_per_stack: summoner.relentlessflames_pct_per_stack,
+        cauterizingflames_pct: summoner.cauterizingflames_pct,
+        ashestoashes_pct: summoner.ashestoashes_pct,
+        healingflames_pct: summoner.healingflames_pct,
+        fanningflames_pct: summoner.fanningflames_pct,
+        shieldingflames_pct: summoner.shieldingflames_pct,
+        cleansingflames_chance: summoner.cleansingflames_chance,
+        enshroudedfire_evasion_pct: summoner.enshroudedfire_evasion_pct,
+        guardianfire_dr_pct: summoner.guardianfire_dr_pct,
+        shieldingfire_block_pct: summoner.shieldingfire_block_pct,
         is_boss: false,
         is_golem: true,
         golem_summoner_id: Some(summoner_id.to_string()),
@@ -6104,13 +6158,19 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
             golem.thundergolem_terrifying_pct = c.passive_node_magnitude("terrifying");
         }
         GolemType::Flame => {
-            // Volcanic Ash - inherits a fraction of the Elementalist's
-            // own fire proc-chance stat, same "gear-scaled inheritance"
-            // shape as Overshock/Polar Flux/Incinerate (Stage 2).
+            // Volcanic Ash - spec-owner clarification (2026-08-20,
+            // resolving the item-3 full-inheritance conflict): this is
+            // NOT the inheritance path for fire_damage_pct (that's now
+            // full value unconditionally, set on every golem type above)
+            // - it's an ADDITIONAL multiplier on top of that already-full
+            // value, specific to Flame Golems. "Inherit 33/66/100% of the
+            // Elementalist's multiplicative increased fire damage" reads
+            // as "gain 33/66/100% MORE fire damage than what's already
+            // fully inherited" - e.g. a golem that inherited 1000% fire
+            // damage gains a further 1000% at rank 3 (100%), landing at
+            // 2000% total, not a fraction of the 1000%.
             let volcanicash_pct = c.passive_node_magnitude("volcanicash");
-            if volcanicash_pct > 0.0 {
-                golem.fire_damage_pct = summoner.fire_damage_pct * volcanicash_pct;
-            }
+            golem.fire_damage_pct = summoner.fire_damage_pct * (1.0 + volcanicash_pct);
             // Blazing - "X% MULTIPLICATIVE attack speed" (irregular
             // 6/9/18%, see `blazing_attack_speed_pct`) means attacking
             // more OFTEN - `attack_speed_pct` is a different, unrelated
@@ -6436,23 +6496,28 @@ fn apply_righteous_fire_self_damage(units: &mut [CombatSimUnit], actor_idx: usiz
 /// Righteous Fire's own periodic tick (docs/elementalist_spec.md) - once
 /// per second for the whole fight once invested. Self-burn always fires
 /// first (true damage, can kill the caster like any other damage
-/// source - checked before doing anything else). The enemy-damage half
-/// then hits up to `PLAYER_SPLASH_MAX_TARGETS` (+ overflow past 100%
-/// splash) enemies chosen at random, same target-count convention
-/// `apply_splash` itself uses for "a number of enemies based on
-/// splash." Relentless Flames/Cauterizing Flames ride that SAME
-/// randomly-chosen subset each tick rather than rolling their own
-/// independent splash selection - both are spec'd with the identical
-/// "nearby enemies based on splash" language, read here as the same
-/// aura's own reach rather than 3 separate triggers. Ashes to Ashes is
-/// the one exception: "ANY enemy in range" (not "a number... based on
-/// splash") reads as unconditional, so it sweeps every alive enemy
-/// regardless of this tick's random splash picks.
+/// source - checked before doing anything else).
+///
+/// Design-intent correction (2026-08-20) - RF's ENEMY-facing damage is
+/// no longer dealt here as its own separate periodic hit. Righteous
+/// Fire is bonus damage on the Elementalist's regular unified hit, not
+/// a separate attack: `righteousfire_pct` is now consumed directly
+/// inside `resolve_hit` as an independent multiplicative layer (same
+/// shape as `conflagration_dmg_pct`). This tick still selects up to
+/// `PLAYER_SPLASH_MAX_TARGETS` (+ overflow past 100% splash) enemies at
+/// random, same convention `apply_splash` uses for "a number of
+/// enemies based on splash" - but only to apply Relentless Flames/
+/// Cauterizing Flames' own debuffs to that subset (both spec'd with the
+/// identical "nearby enemies based on splash" language, read as the
+/// same aura's own reach rather than 3 separate triggers) - no damage
+/// of its own is dealt in this loop any more. Ashes to Ashes is the one
+/// exception: "ANY enemy in range" (not "a number... based on splash")
+/// reads as unconditional, so it sweeps every alive enemy regardless of
+/// this tick's random splash picks.
 pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
     if !units[actor_idx].alive {
         return;
     }
-    let pct = units[actor_idx].righteousfire_pct;
     let max_hp = units[actor_idx].max_hp as f64;
     // 2026-08-19 observability request - a distinct, filterable log marker
     // for the self-burn tick itself (log-only, no mechanical effect -
@@ -6498,14 +6563,9 @@ pub(crate) fn tick_righteous_fire(units: &mut [CombatSimUnit], actor_idx: usize,
     let pick_count = max_targets.min(candidates.len());
     let relentless_pct = units[actor_idx].relentlessflames_pct_per_stack;
     let cauterizing_pct = units[actor_idx].cauterizingflames_pct;
-    let enemy_dmg = max_hp * pct;
     for _ in 0..pick_count {
         let pick_at = rng.gen_range(0..candidates.len());
         let target_idx = candidates.remove(pick_at);
-        apply_true_damage(units, actor_idx, target_idx, enemy_dmg, at_ms, events, rolls, rng);
-        if !units[target_idx].alive {
-            continue;
-        }
         if relentless_pct > 0.0 {
             units[target_idx].relentlessflames_dmg_taken_pct += relentless_pct;
         }
@@ -7455,6 +7515,44 @@ pub(crate) fn flicker_frenzy_multiplier(unit: &CombatSimUnit, at_ms: u32) -> f64
         return 1.0;
     }
     1.0 + unit.flicker_frenzy_speed_bonus
+}
+
+/// Design-intent correction (2026-08-20), item 4 - the main event loop's
+/// own per-turn attack-cadence computation, extracted into its own
+/// function so a regression test can call the REAL logic directly (same
+/// reasoning `tick_righteous_fire`/`reform_thunder_golem` were already
+/// extracted for). Combines every live, accumulating speed multiplier
+/// (Momentum/Fleetfoot/Bloodlust/Relentless Pursuit/Flow State, Flowing
+/// Strikes, Fel Rush, Blood Frenzy, party speed buffs, Rage Fueled,
+/// Static Field, Zealous Charge, early-fight speed) with `actor_idx`'s
+/// own `attack_interval_ms` to produce the real gap until its next turn.
+///
+/// For a golem specifically: `attack_interval_ms` stays the golem's OWN
+/// one-time spawn-time snapshot (still reflecting Flame Golem's own
+/// Blazing bonus), but every LIVE multiplier above is read off the
+/// OWNING Elementalist instead (via `golem_summoner_id`) - a golem never
+/// accumulates any of these stacks itself (nothing ever feeds them onto
+/// a golem), so reading them off its own record always evaluated to a
+/// flat 1.0 regardless of how fast the owner was actually swinging by
+/// that point in the fight. Falls back to the golem's own record (a
+/// no-op, since it's all 1.0 anyway) if its `golem_summoner_id` can't be
+/// resolved in `units` for any reason.
+pub(crate) fn golem_aware_effective_attack_interval(units: &[CombatSimUnit], actor_idx: usize, at_ms: u32) -> u32 {
+    let speed_source_idx = if units[actor_idx].is_golem {
+        units[actor_idx].golem_summoner_id.as_deref().and_then(|summoner_id| units.iter().position(|u| u.id == summoner_id)).unwrap_or(actor_idx)
+    } else {
+        actor_idx
+    };
+    let speed_mult = speed_stack_multiplier(&units[speed_source_idx], at_ms)
+        * flowing_stack_multiplier(&units[speed_source_idx], at_ms)
+        * fel_rush_multiplier(&units[speed_source_idx], at_ms)
+        * flicker_frenzy_multiplier(&units[speed_source_idx], at_ms)
+        * party_speed_multiplier(&units[speed_source_idx], at_ms)
+        * ragefueled_speed_multiplier(&units[speed_source_idx])
+        * static_field_multiplier(&units[speed_source_idx], at_ms)
+        * zealouscharge_multiplier(&units[speed_source_idx], at_ms)
+        * early_fight_speed_multiplier(&units[speed_source_idx], at_ms);
+    (units[actor_idx].attack_interval_ms as f64 / speed_mult).round().max(200.0) as u32
 }
 
 /// Slayer's Endless Thirst - live leech-cap addition from a recent
@@ -11168,7 +11266,6 @@ pub(crate) fn simulate_battle(
                 is_golem: false,
                 golem_summoner_id: None,
                 golem_type: None,
-                golem_summon_dmg_penalty: 0.33 * c.passive_node_rank("golemmaster").min(3) as f64,
                 golem_reform_at_ms: u32::MAX,
                 thundergolem_reform_delay_ms: 0,
                 thundergolem_growing_pct: 0.0,
@@ -11277,11 +11374,10 @@ pub(crate) fn simulate_battle(
     // a second pass over `characters` (rather than folded into the
     // `.map()` above) since each golem needs to read its summoner's
     // ALREADY-CONSTRUCTED unit (their real, post-tree max hp/atk/etc),
-    // not the raw `Character`. The summoner's own damage penalty is
-    // already baked into `golem_summon_dmg_penalty` at construction
-    // time above (computed directly off `passive_node_rank`, no golem
-    // count needed here) - this pass only spawns the golem units
-    // themselves.
+    // not the raw `Character`. The Elementalist deals full damage
+    // regardless of golem count (design-intent correction, 2026-08-20 -
+    // the golem summon damage penalty was removed entirely) - this pass
+    // only spawns the golem units themselves.
     let mut golems_to_add: Vec<CombatSimUnit> = Vec::new();
     for (id, c) in characters.iter() {
         if c.archetype != Archetype::Elementalist {
@@ -11548,7 +11644,6 @@ pub(crate) fn simulate_battle(
             is_golem: false,
             golem_summoner_id: None,
             golem_type: None,
-            golem_summon_dmg_penalty: 0.0,
             golem_reform_at_ms: u32::MAX,
             thundergolem_reform_delay_ms: 0,
             thundergolem_growing_pct: 0.0,
@@ -12689,7 +12784,6 @@ pub(crate) fn simulate_battle(
                                 is_golem: false,
                                 golem_summoner_id: None,
                                 golem_type: None,
-                                golem_summon_dmg_penalty: 0.0,
                                 golem_reform_at_ms: u32::MAX,
                                 thundergolem_reform_delay_ms: 0,
                                 thundergolem_growing_pct: 0.0,
@@ -13645,16 +13739,23 @@ pub(crate) fn simulate_battle(
         // revert. All four multipliers are independent and never more
         // than one is non-1.0 on the same unit (mutually exclusive by
         // archetype), so multiplying them together is safe either way.
-        let speed_mult = speed_stack_multiplier(&units[actor_idx], at_ms)
-            * flowing_stack_multiplier(&units[actor_idx], at_ms)
-            * fel_rush_multiplier(&units[actor_idx], at_ms)
-            * flicker_frenzy_multiplier(&units[actor_idx], at_ms)
-            * party_speed_multiplier(&units[actor_idx], at_ms)
-            * ragefueled_speed_multiplier(&units[actor_idx])
-            * static_field_multiplier(&units[actor_idx], at_ms)
-            * zealouscharge_multiplier(&units[actor_idx], at_ms)
-            * early_fight_speed_multiplier(&units[actor_idx], at_ms);
-        let effective_interval = (units[actor_idx].attack_interval_ms as f64 / speed_mult).round().max(200.0) as u32;
+        //
+        // Design-intent correction (2026-08-20), item 4 - a golem's own
+        // `attack_interval_ms` is a one-time snapshot of the summoner's
+        // BASE cadence, taken once at spawn (see `spawn_golem`'s own
+        // doc) - it never grows a Momentum/Flowing Strikes/etc. stack of
+        // its own (nothing ever feeds those fields onto a golem), so a
+        // golem's own `speed_mult` always evaluated to a flat 1.0
+        // regardless of how fast the owner was actually swinging by that
+        // point in the fight - swing count, not per-swing damage, was
+        // the real constraint on golem output. Fixed by reading these
+        // LIVE, accumulating multipliers off the OWNER (looked up via
+        // `golem_summoner_id`) whenever the current actor is a golem,
+        // while `attack_interval_ms` itself stays the golem's own (still
+        // reflecting Flame Golem's own Blazing bonus, unrelated to this
+        // fix) - the golem's effective interval now tracks the owner's
+        // live speed the same way the owner's own turns already do.
+        let effective_interval = golem_aware_effective_attack_interval(&units, actor_idx, at_ms);
         units[actor_idx].next_action_at_ms += effective_interval;
     }
 
@@ -14891,6 +14992,36 @@ mod elementalist_stage_2_tests {
         let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
         assert!((ratio - 1.30).abs() < 1e-6, "30% Conflagration should scale unmitigated damage by exactly 1.30x, got {ratio}");
     }
+
+    /// Design-intent correction (2026-08-20), item 2 - Righteous Fire's
+    /// enemy-facing damage is bonus damage on the Elementalist's
+    /// regular unified hit, not a separate periodic attack. Same
+    /// assertion shape as Conflagration's own two tests just above -
+    /// `righteousfire_pct` must log and scale exactly the same way.
+    #[test]
+    fn righteousfire_pct_logs_as_its_own_independent_multiplicative_source() {
+        let atk = CombatSimUnit { righteousfire_pct: 0.10, ..Default::default() };
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let mut rng = StdRng::seed_from_u64(4);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Righteous Fire");
+        let (category, _, magnitude) = entry.expect("Righteous Fire must be logged when invested");
+        assert_eq!(*category, RollCategory::IncreasedDamage);
+        assert!((*magnitude - 0.10).abs() < 1e-9);
+    }
+
+    #[test]
+    fn righteousfire_pct_actually_scales_unmitigated_damage_independently() {
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let baseline_atk = CombatSimUnit { ..Default::default() };
+        let mut rng_a = StdRng::seed_from_u64(5);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted_atk = CombatSimUnit { righteousfire_pct: 0.30, ..Default::default() };
+        let mut rng_b = StdRng::seed_from_u64(5);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
+        assert!((ratio - 1.30).abs() < 1e-6, "30% Righteous Fire should scale unmitigated damage by exactly 1.30x, got {ratio}");
+    }
 }
 
 #[cfg(test)]
@@ -14996,18 +15127,29 @@ mod elementalist_stage_3_tests {
         assert_eq!(rf_casts, 1, "Righteous Fire's own marker still fires regardless");
     }
 
+    /// Design-intent correction (2026-08-20) - RF's enemy-facing damage
+    /// moved out of this tick entirely (see `tick_righteous_fire`'s own
+    /// doc), but Relentless Flames/Cauterizing Flames still ride the
+    /// SAME randomly-chosen, splash-limited subset each tick. Replaces
+    /// the old `enemy_damage_hits_at_most_player_splash_max_targets_enemies`,
+    /// which asserted hp loss that no longer happens here - this proves
+    /// (a) no enemy takes any hp damage from this tick directly any
+    /// more, and (b) at most PLAYER_SPLASH_MAX_TARGETS enemies receive
+    /// the Relentless Flames debuff stack.
     #[test]
-    fn enemy_damage_hits_at_most_player_splash_max_targets_enemies() {
-        let mut units = vec![elementalist(0.10), boss("a", 1_000_000), boss("b", 1_000_000), boss("c", 1_000_000)];
+    fn splash_subset_still_applies_relentless_flames_but_deals_no_damage_of_its_own() {
+        let mut atk = elementalist(0.10);
+        atk.relentlessflames_pct_per_stack = 0.01;
+        let mut units = vec![atk, boss("a", 1_000_000), boss("b", 1_000_000), boss("c", 1_000_000)];
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(7);
         tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
-        let hit_count = units[1..].iter().filter(|u| u.hp < 1_000_000).count();
-        assert_eq!(hit_count, PLAYER_SPLASH_MAX_TARGETS, "exactly PLAYER_SPLASH_MAX_TARGETS enemies should take the 100-damage tick");
         for u in &units[1..] {
-            assert!(u.hp == 1_000_000 || u.hp == 1_000_000 - 100, "every enemy should be either untouched or hit for exactly 100");
+            assert_eq!(u.hp, 1_000_000, "no enemy should take any hp damage from this tick any more - RF's own damage now lives in resolve_hit");
         }
+        let debuffed_count = units[1..].iter().filter(|u| u.relentlessflames_dmg_taken_pct > 0.0).count();
+        assert_eq!(debuffed_count, PLAYER_SPLASH_MAX_TARGETS, "exactly PLAYER_SPLASH_MAX_TARGETS enemies should receive the Relentless Flames stack");
     }
 
     #[test]
@@ -15090,21 +15232,19 @@ mod elementalist_stage_3_tests {
 
     /// RF-rework item 1 (2026-08-19) - `rf_self_damage_pct` is now its
     /// own independent tunable, decoupled from `righteousfire_pct` (the
-    /// offensive side). Proves the two can diverge: the self-burn tick
-    /// must track ONLY `rf_self_damage_pct`, and the enemy-damage tick
-    /// must track ONLY `righteousfire_pct`, never bleeding into each
-    /// other.
+    /// offensive side, now consumed inside `resolve_hit` instead - see
+    /// the design-intent correction, 2026-08-20). Proves the self-burn
+    /// tick tracks ONLY `rf_self_damage_pct`, never `righteousfire_pct`.
     #[test]
     fn rf_self_damage_pct_is_independent_of_the_offensive_righteousfire_pct() {
-        let mut atk = elementalist(0.10); // offensive side: 10% of max hp to enemies
+        let mut atk = elementalist(0.10); // offensive side: 10%, now irrelevant to this tick
         atk.rf_self_damage_pct = 0.30; // self-burn side: 30%, deliberately different
-        let mut units = vec![atk, boss("only", 1_000_000)];
+        let mut units = vec![atk];
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
         tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
         assert_eq!(units[0].hp, 700, "self-burn must use rf_self_damage_pct (30%), not righteousfire_pct (10%)");
-        assert_eq!(units[1].hp, 1_000_000 - 100, "enemy damage must still use righteousfire_pct (10%), unaffected by the self-damage tunable");
     }
 
     /// RF-rework item 2 (2026-08-19) - self-damage is now mitigated by
@@ -15168,39 +15308,40 @@ mod elementalist_stage_3_tests {
         assert_eq!(absorb.unwrap().magnitude, Some(60.0));
     }
 
-    /// RF-rework item 3 (2026-08-19) - RF's own damage (both self-burn
-    /// and enemy-facing) is exempt from `golem_summon_dmg_penalty` by
-    /// construction: it goes through `apply_true_damage`/
-    /// `apply_righteous_fire_self_damage`, neither of which ever reads
-    /// that field (only `resolve_hit`, a normal attack roll, does). This
-    /// pins that behavior down: cranking the penalty to its max (99%,
-    /// as if 3 golems were out) must leave RF's own tick damage
-    /// completely untouched, while a normal attack from the SAME unit's
-    /// stats is still crushed down to 1% by the same penalty.
+    /// Design-intent correction (2026-08-20) - the golem summon damage
+    /// penalty has been removed entirely (the log-analysis audit's own
+    /// ruling: "the Elementalist deals full damage regardless of golem
+    /// count," a ~100x power increase at 3 golems accepted as
+    /// deliberate). This is the replacement for the old
+    /// `rf_damage_is_unaffected_by_golem_count_while_attacks_still_are`,
+    /// which asserted the OPPOSITE for a normal attack (that it WAS
+    /// still crushed to 1% by the now-removed field) - that contrast no
+    /// longer exists, since normal attacks are unaffected by golem
+    /// count now too. RF's enemy-facing damage moved out of this tick
+    /// entirely (see `tick_righteous_fire`'s own doc) and, as a normal
+    /// `resolve_hit` multiplier, was never golem-count-dependent to
+    /// begin with - so this proves the remaining damage mechanic still
+    /// living here, self-burn, is identical regardless of golem count.
     #[test]
-    fn rf_damage_is_unaffected_by_golem_count_while_attacks_still_are() {
-        let mut atk = elementalist(0.10);
-        atk.golem_summon_dmg_penalty = 0.99; // as if 3 golems were summoned
-        let mut units = vec![atk, boss("only", 1_000_000)];
+    fn rf_self_damage_is_unaffected_by_golem_count() {
+        let atk_no_golems = elementalist(0.10);
+        let mut units_no_golems = vec![atk_no_golems];
         let mut events = Vec::new();
         let mut rolls = Vec::new();
         let mut rng = StdRng::seed_from_u64(1);
-        tick_righteous_fire(&mut units, 0, 1_000, &mut events, &mut rolls, &mut rng);
-        assert_eq!(units[0].hp, 900, "self-burn tick must be full 100, unaffected by the golem-count penalty");
-        assert_eq!(units[1].hp, 1_000_000 - 100, "enemy-facing RF damage must be full 100, unaffected by the golem-count penalty");
+        tick_righteous_fire(&mut units_no_golems, 0, 1_000, &mut events, &mut rolls, &mut rng);
 
-        // Contrast: a normal attack roll from a unit carrying the same
-        // penalty IS crushed to ~1% of normal, via resolve_hit (the only
-        // place this field is ever read).
-        let penalized_attacker = CombatSimUnit { golem_summon_dmg_penalty: 0.99, ..elementalist(0.0) };
-        let unpenalized_attacker = elementalist(0.0);
-        let def = boss("target", 1_000_000);
-        let mut rng_a = StdRng::seed_from_u64(1);
-        let penalized = resolve_hit(1000.0, &penalized_attacker, &def, 1, &mut rng_a, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let mut rng_b = StdRng::seed_from_u64(1);
-        let unpenalized = resolve_hit(1000.0, &unpenalized_attacker, &def, 1, &mut rng_b, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let ratio = penalized.unmitigated_damage as f64 / unpenalized.unmitigated_damage as f64;
-        assert!((ratio - 0.01).abs() < 1e-6, "unlike RF's own damage, a normal attack roll IS still crushed to 1% by the same 99% golem penalty, got ratio {ratio}");
+        let atk_with_golems = elementalist(0.10);
+        let golem_a = CombatSimUnit { id: "golem_a".to_string(), alive: true, is_golem: true, ..elementalist(0.0) };
+        let golem_b = CombatSimUnit { id: "golem_b".to_string(), alive: true, is_golem: true, ..elementalist(0.0) };
+        let golem_c = CombatSimUnit { id: "golem_c".to_string(), alive: true, is_golem: true, ..elementalist(0.0) };
+        let mut units_with_golems = vec![atk_with_golems, golem_a, golem_b, golem_c];
+        let mut events2 = Vec::new();
+        let mut rolls2 = Vec::new();
+        let mut rng2 = StdRng::seed_from_u64(1);
+        tick_righteous_fire(&mut units_with_golems, 0, 1_000, &mut events2, &mut rolls2, &mut rng2);
+
+        assert_eq!(units_no_golems[0].hp, units_with_golems[0].hp, "self-burn tick must be identical regardless of golem count");
     }
 }
 
@@ -15542,59 +15683,31 @@ mod elementalist_stage_5_tests {
         assert!(!golem.is_boss);
     }
 
+    /// Design-intent correction (2026-08-20) - replaces the old
+    /// `golem_per_hit_tracks_the_owners_live_unpenalized_output_not_their_penalized_one`,
+    /// which asserted a golem's per-hit output against the owner's own
+    /// PENALIZED per-hit (the now-removed golem summon damage penalty).
+    /// The penalty no longer exists - the Elementalist deals full
+    /// damage regardless of golem count - so the only remaining claim
+    /// worth pinning down is the inheritance ratio itself: a golem's
+    /// own per-hit output tracks ~33% of the owner's real, live,
+    /// `resolve_hit`-derived output (with the SAME invested
+    /// multipliers), independent of anything golem-count-related.
     #[test]
-    fn golem_summon_damage_penalty_reaches_99pct_at_3_golems() {
-        let atk = CombatSimUnit { golem_summon_dmg_penalty: 0.99, ..elementalist("caster", 1000, 1000) };
-        let def = boss();
-        let mut rng = StdRng::seed_from_u64(1);
-        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let baseline_atk = elementalist("caster", 1000, 1000);
-        let mut rng2 = StdRng::seed_from_u64(1);
-        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng2, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let ratio = outcome.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
-        assert!((ratio - 0.01).abs() < 1e-6, "99% penalty should leave exactly 1% of normal damage, got ratio {ratio}");
-    }
-
-    /// Release 1.1 item 5's own required regression coverage - the live
-    /// audit found golem per-hit output nearly CONSTANT across fights
-    /// while the owner's own per-hit swung with their build/golem count.
-    /// Confirmed via code read this is the EXPECTED consequence of
-    /// `golem_summon_dmg_penalty` (see the test just above) being its own
-    /// independent field, never copied onto a golem by `spawn_golem` (it
-    /// defaults to 0.0 via `..zeroed_combat_unit()`, never listed) - a
-    /// golem's own per-hit output tracks the owner's UNPENALIZED stats
-    /// exactly, so it stays constant across fights where only golem
-    /// COUNT (not gear) varies, while the owner's own logged per-hit
-    /// swings with however many golems are currently summoned. Asserts
-    /// the ratio against a LIVE, `resolve_hit`-derived owner value (not a
-    /// hand-computed snapshot), per the explicit test requirement.
-    #[test]
-    fn golem_per_hit_tracks_the_owners_live_unpenalized_output_not_their_penalized_one() {
-        let owner_unpenalized = CombatSimUnit { increased_damage: 1.5, conflagration_dmg_pct: 0.3, golem_summon_dmg_penalty: 0.0, ..elementalist("caster", 2000, 1_000_000) };
-        // Same build, but with 3 golems out (99% additive penalty, the
-        // max) - the ONLY difference from `owner_unpenalized` above. At
-        // 2 golems (66%) the remaining 34% is still marginally ABOVE a
-        // golem's own ~33% ratio - 3 golems is the clean case where the
-        // owner's own remaining share (1%) is unambiguously below it.
-        let owner_actual = CombatSimUnit { golem_summon_dmg_penalty: 0.99, ..CombatSimUnit { increased_damage: 1.5, conflagration_dmg_pct: 0.3, ..elementalist("caster", 2000, 1_000_000) } };
-        let golem = spawn_golem(&owner_unpenalized, "caster", 0, GolemType::Basic, &elementalist_character());
+    fn golem_per_hit_tracks_33pct_of_the_owners_live_output() {
+        let owner = CombatSimUnit { increased_damage: 1.5, conflagration_dmg_pct: 0.3, ..elementalist("caster", 2000, 1_000_000) };
+        let golem = spawn_golem(&owner, "caster", 0, GolemType::Basic, &elementalist_character());
         let def = boss();
 
         let mut rng = StdRng::seed_from_u64(1);
-        let owner_unpenalized_outcome = resolve_hit(2000.0, &owner_unpenalized, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let owner_outcome = resolve_hit(2000.0, &owner, &def, 1, &mut rng, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let mut rng2 = StdRng::seed_from_u64(1);
         let golem_outcome = resolve_hit(golem.atk as f64, &golem, &def, 1, &mut rng2, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let mut rng3 = StdRng::seed_from_u64(1);
-        let owner_actual_outcome = resolve_hit(2000.0, &owner_actual, &def, 1, &mut rng3, 0.0, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
-        let ratio = golem_outcome.unmitigated_damage as f64 / owner_unpenalized_outcome.unmitigated_damage as f64;
+        let ratio = golem_outcome.unmitigated_damage as f64 / owner_outcome.unmitigated_damage as f64;
         assert!(
             (ratio - 0.33).abs() < 0.01,
-            "golem per-hit must track ~33% of the owner's OWN live, unpenalized output (with the SAME invested multipliers), got ratio {ratio}"
-        );
-        assert!(
-            golem_outcome.unmitigated_damage > owner_actual_outcome.unmitigated_damage,
-            "at 3 golems summoned (99% penalty), the owner's OWN penalized per-hit must fall below a single golem's own per-hit - exactly the live audit's own observed pattern (golem output roughly constant, owner's own swings with golem-count/build)"
+            "golem per-hit must track ~33% of the owner's OWN live output (with the SAME invested multipliers), got ratio {ratio}"
         );
     }
 
@@ -15663,26 +15776,29 @@ mod elementalist_stage_5_tests {
         assert_eq!(elementalist_elemental_damage_pct(gear_pct, 0.0, 0.0) * uninvested_mult, gear_pct);
     }
 
-    /// Elementalist rework item 4/5 (2026-08-19) - "one application
-    /// flowing through inheritance, no double-dipping." The Flame
-    /// Golem multiplier is baked into the OWNER's `fire_damage_pct` at
-    /// player-construction time (see that site's own comment) - Volcanic
-    /// Ash's existing inheritance line (`spawn_golem`) just reads
-    /// whatever `summoner.fire_damage_pct` already is, with no second
-    /// multiplication of its own. This proves that: an owner whose
-    /// fire_damage_pct already reflects a 2.0x Flame Golem multiplier
-    /// (0.20 gear -> 0.40 post-multiplier, simulating what the real
-    /// construction site would produce at flamegolem rank 3) must
-    /// inherit through Volcanic Ash at EXACTLY 0.40 * volcanicash_pct,
-    /// not 0.40 * 2.0 * volcanicash_pct - if spawn_golem ever grew its
-    /// own second multiplication, this test catches the double-dip.
+    /// Elementalist rework item 4 (2026-08-19) + design-intent
+    /// correction (2026-08-20), item 3 - the Flame Golem elemental
+    /// multiplier is baked into the OWNER's `fire_damage_pct` at
+    /// player-construction time (see that site's own comment), and a
+    /// Flame Golem now inherits `fire_damage_pct` at FULL value
+    /// unconditionally (item 3's blanket rule - see `spawn_golem`'s base
+    /// struct literal), so that multiplier flows through automatically
+    /// with no second application of its own. Volcanic Ash is then its
+    /// own SEPARATE, ADDITIONAL multiplier on top of that already-full
+    /// value (spec-owner clarification, 2026-08-20: "inherit 33/66/100%"
+    /// means gain that much MORE, not a fraction of) - this proves both
+    /// halves: an owner whose fire_damage_pct already reflects a 2.0x
+    /// Flame Golem multiplier (0.20 gear -> 0.40 post-multiplier,
+    /// simulating flamegolem rank 3) is inherited in full (no
+    /// double-dip from the Flame Golem multiplier), THEN Volcanic Ash
+    /// rank 3 (100%) doubles it again to 0.80.
     #[test]
-    fn volcanic_ash_inherits_the_already_flamegolem_multiplied_value_exactly_once() {
+    fn volcanic_ash_is_a_bonus_multiplier_on_top_of_the_already_flamegolem_multiplied_full_value() {
         let owner_post_flamegolem_mult = CombatSimUnit { fire_damage_pct: 0.40, ..elementalist("caster", 300, 1000) };
         let mut c = elementalist_character();
-        c.passive_allocations.insert("volcanicash".to_string(), 3); // 100% inheritance
+        c.passive_allocations.insert("volcanicash".to_string(), 3); // 100% bonus
         let golem = spawn_golem(&owner_post_flamegolem_mult, "caster", 0, GolemType::Flame, &c);
-        assert!((golem.fire_damage_pct - 0.40).abs() < 1e-9, "must inherit the already-multiplied 0.40 exactly once (100% Volcanic Ash), not double-apply the Flame Golem multiplier again");
+        assert!((golem.fire_damage_pct - 0.80).abs() < 1e-9, "0.40 fully inherited, then +100% Volcanic Ash on top = 0.80, not a 0.40 fraction");
     }
 
     /// Elementalist rework item 5 (2026-08-19) - the full-inheritance
@@ -15865,6 +15981,51 @@ mod elementalist_stage_5_tests {
         assert!(boss_alive);
         assert!(!any_real_player_alive(&units), "the fight must be considered over - a lone alive golem must not keep it running");
     }
+
+    /// Design-intent correction (2026-08-20), item 4 - a golem's own
+    /// live attack speed must track the OWNING Elementalist's current
+    /// speed stacks, not stay frozen at a flat 1.0 multiplier forever.
+    #[test]
+    fn golem_effective_attack_interval_tracks_the_owners_live_speed_stacks() {
+        let mut owner = elementalist("caster", 300, 1000);
+        owner.attack_interval_ms = 2_000;
+        owner.stack_speed_current = 5;
+        owner.stack_speed_per_stack = 0.10; // 5 stacks * 10% = +50% speed
+        owner.stack_speed_expires_at_ms = 10_000;
+        let mut golem = spawn_golem(&owner, "caster", 0, GolemType::Basic, &elementalist_character());
+        golem.attack_interval_ms = 2_000; // matches the owner's own base cadence
+        let units = vec![owner, golem];
+        let golem_interval = golem_aware_effective_attack_interval(&units, 1, 1_000);
+        // effective = base / (1 + 5*0.10) = 2000 / 1.5 = 1333 (rounded)
+        assert_eq!(golem_interval, 1_333, "the golem's own effective interval must reflect the owner's LIVE 50% speed stack, not a flat 1.0 multiplier");
+    }
+
+    /// Without the owner's speed stack active (or once it's expired),
+    /// the golem's effective interval must fall back to its own plain
+    /// `attack_interval_ms` - a true no-op, not an unexpected speedup.
+    #[test]
+    fn golem_effective_attack_interval_is_unaffected_without_a_live_owner_speed_stack() {
+        let owner = elementalist("caster", 300, 1000); // stack_speed_current defaults to 0
+        let mut golem = spawn_golem(&owner, "caster", 0, GolemType::Basic, &elementalist_character());
+        golem.attack_interval_ms = 2_000;
+        let units = vec![owner, golem];
+        let golem_interval = golem_aware_effective_attack_interval(&units, 1, 1_000);
+        assert_eq!(golem_interval, 2_000, "no owner speed stack active - the golem's interval must stay exactly its own base value");
+    }
+
+    /// A non-golem unit's own effective interval is untouched by this
+    /// fix - `speed_source_idx` only ever redirects for `is_golem` units.
+    #[test]
+    fn non_golem_effective_attack_interval_reads_its_own_stacks_as_before() {
+        let mut atk = elementalist("caster", 300, 1000);
+        atk.attack_interval_ms = 2_000;
+        atk.stack_speed_current = 5;
+        atk.stack_speed_per_stack = 0.10;
+        atk.stack_speed_expires_at_ms = 10_000;
+        let units = vec![atk];
+        let interval = golem_aware_effective_attack_interval(&units, 0, 1_000);
+        assert_eq!(interval, 1_333, "a real player's own turn must keep reading its own stacks directly, unaffected by the golem redirect");
+    }
 }
 
 #[cfg(test)]
@@ -15986,11 +16147,24 @@ mod elementalist_stage_6_golem_type_tests {
     }
 
     #[test]
-    fn volcanic_ash_inherits_a_fraction_of_the_summoners_fire_damage_pct() {
+    fn volcanic_ash_adds_a_bonus_on_top_of_the_fully_inherited_fire_damage_pct() {
         let c = elementalist_with(&[("golemmaster", 1), ("volcanicash", 3)], vec![GolemType::Flame]);
         let golem = spawn_golem(&summoner(1000, 100, 0.20), "caster", 0, GolemType::Flame, &c);
-        // Volcanic Ash rank 3 = 100% inheritance -> full 0.20 fire_damage_pct.
-        assert!((golem.fire_damage_pct - 0.20).abs() < 1e-9);
+        // fire_damage_pct is fully inherited (0.20) regardless of Volcanic
+        // Ash, then Volcanic Ash rank 3 (100%) adds that much again on
+        // top: 0.20 * (1.0 + 1.0) = 0.40.
+        assert!((golem.fire_damage_pct - 0.40).abs() < 1e-9);
+    }
+
+    /// Design-intent correction (2026-08-20), item 3 - without Volcanic
+    /// Ash invested at all, fire_damage_pct still fully inherits (it's
+    /// no longer Volcanic Ash's own inheritance path - see
+    /// `spawn_golem`'s base struct literal).
+    #[test]
+    fn fire_damage_pct_fully_inherits_even_without_volcanic_ash_invested() {
+        let c = elementalist_with(&[("golemmaster", 1)], vec![GolemType::Flame]);
+        let golem = spawn_golem(&summoner(1000, 100, 0.20), "caster", 0, GolemType::Flame, &c);
+        assert!((golem.fire_damage_pct - 0.20).abs() < 1e-9, "full inheritance applies regardless of Volcanic Ash rank");
     }
 
     #[test]

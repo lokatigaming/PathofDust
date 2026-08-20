@@ -173,9 +173,26 @@ is the standard convention for every class already (`spec()`'s
 reuse it directly, do not build a parallel mechanism.
 
 ### Base passive 1: Righteous Fire
-Deals damage equal to 10/20/30% of the Elementalist's maximum health
-to a number of enemies based on splash. The Elementalist takes damage
-per second while it's active, per the self-damage rules below.
+Deals bonus damage equal to 10/20/30% of the Elementalist's maximum
+health on their own regular unified hit - **not a separate periodic
+attack**. The Elementalist takes damage per second while it's active,
+per the self-damage rules below.
+
+**Design-intent correction (2026-08-20), enemy-facing damage re-homed
+into the normal hit.** Righteous Fire's enemy-facing damage used to be
+its own separate per-second true-damage AoE tick, dealt from
+`tick_righteous_fire` directly. It's now consumed as `righteousfire_pct`
+- an independent multiplicative layer inside `resolve_hit`, the exact
+same shape as Conflagration (`raw_dmg *= 1.0 + righteousfire_pct`) -
+applied to EVERY landed hit the Elementalist makes, splash included.
+This tick (`tick_righteous_fire`, still once a second) no longer deals
+any damage of its own to enemies; it still selects up to
+`PLAYER_SPLASH_MAX_TARGETS` enemies at random purely to apply
+Relentless Flames/Cauterizing Flames' own debuffs (both spec'd with the
+same "nearby enemies based on splash" language), and Ashes to Ashes
+still sweeps every alive enemy unconditionally. See
+`righteousfire_pct_actually_scales_unmitigated_damage_independently` in
+combat.rs.
 
 **Elementalist rework (2026-08-19), self-damage decoupled and
 mitigated.** Three changes, all admin-editable independent of the
@@ -213,18 +230,16 @@ coverage (DR mitigation at multiple levels, evasion/block exemption,
 shield absorption with the emitted roll event, zero-DR-zero-shield
 equals today's exact values).
 
-**RF exempt from the golem damage penalty.** RF's own damage - both
-this self-burn half and the offensive half below - goes through
-`apply_true_damage`/`apply_righteous_fire_self_damage`, never through
-`resolve_hit` (a normal attack roll). `golem_summon_dmg_penalty` (the
-"33% less damage per golem" penalty) is only ever read inside
-`resolve_hit`, so RF's own damage was ALWAYS exempt by construction,
-not by a special-case bypass - it was simply never wired to read that
-field. RF + golems is a legitimate hybrid archetype: RF ticks deal
-full damage regardless of golem count, while the Elementalist's OTHER
-damage (attacks, procs) is still penalized exactly as before. See
-`rf_damage_is_unaffected_by_golem_count_while_attacks_still_are` in
-combat.rs.
+**RF and golem count.** Historical note, both halves now moot as of the
+2026-08-20 design-intent correction: the golem summon damage penalty
+this paragraph used to describe has been REMOVED ENTIRELY (see the
+Golem Master section below), so there is nothing left for RF's damage
+to be "exempt" from - full damage regardless of golem count now applies
+to EVERY source, RF included. Separately, RF's own enemy-facing damage
+no longer goes through `apply_true_damage` at all - it's a normal
+`resolve_hit` multiplier now (see the correction at the top of this
+section) - and RF self-burn's own golem-count independence is covered
+by `rf_self_damage_is_unaffected_by_golem_count` in combat.rs.
 
 - **Healing Flames** — regenerate 3/6/10% of your health per second.
   - *Fanning Flames* — share 33/66/100% of your Healing Flames
@@ -344,34 +359,63 @@ finding's "~4x shortfall, golem output near-constant while the owner's
 own swings with their build." Fixed the same way: inherited at FULL
 value, matching `increased_damage`/`conflagration_dmg_pct`.
 
-**The formula the parser should verify against, precisely**: for any
-golem type, `golem_per_hit ≈ 0.33 × owner_unpenalized_per_hit ×
-golem_type_multipliers`, where `owner_unpenalized_per_hit` is the
-owner's own average per-hit damage INCLUDING their own live crit
-contribution (not just their base atk), and `golem_type_multipliers` is
-that golem type's own additional multiplicative bonus (e.g. Flame
-Golem's Surging: `1 + surging_magnitude`, 1.30 at rank 3). What a golem
-inherits from the owner, precisely: `atk`/`max_hp`/`evasion`/
-`damage_reduction`/`block_chance` at 33% (base stats); `crit_chance`/
-`crit_multiplier`/`increased_damage`/`conflagration_dmg_pct` at FULL
-value (multipliers - see the two fixes above for why). What a golem
-does NOT inherit at all: per-level Elemental Focus/Scorching Flames
-(these are elemental-PROC-CHANCE inputs, not damage multipliers -
-confirmed separately, does not affect this formula either way) and any
-archetype-specific stacking mechanic (Bloodlust, Kill Zone, Avalanche,
-etc. - the Elementalist's own kit never grants these, so they're always
-0 for a real Elementalist anyway). See
-`golem_per_hit_ratio_holds_with_a_real_crit_build` in combat.rs for the
-regression test proving this ratio holds with a real crit build
-invested.) The Elementalist
-deals 33% less damage per summoned golem, additive — at 3 golems the
-Elementalist deals 1% of their normal damage. Golems attack with a basic
-unified hit as if they
-were a player with 33% of the Elementalist's stats. Golems take no
-damage unless a golem type specifies otherwise. There are four golem
-types — Basic, Thunder, Flame, Water — assigned per slot via the
-passive tree. Basic golems have no sub-tree and no bonuses: pure base
-behavior and stats.
+**Design-intent corrections (2026-08-20), superseding the two
+paragraphs above wherever they conflict:**
+
+1. **The golem summon damage penalty has been REMOVED ENTIRELY.** The
+   Elementalist deals full damage regardless of golem count - no
+   penalty, no cap, no compensating tunable. The ~100x total power
+   increase at 3 golems (full owner damage + 3 full-strength golems,
+   instead of the old 1%-owner-plus-33%-golems balance) is ACCEPTED as
+   a deliberate design decision. Any future balance adjustment happens
+   through the existing tunable system, not a reintroduced penalty.
+   `golem_summon_dmg_penalty` no longer exists anywhere in the
+   codebase. See `golem_per_hit_tracks_33pct_of_the_owners_live_output`
+   in combat.rs for the surviving (non-penalty-related) regression
+   coverage.
+2. **Golems inherit EVERYTHING at full value, not an enumerated list.**
+   The "what a golem does/doesn't inherit" paragraph above is
+   superseded: base stats (`atk`/`max_hp`/`evasion`/
+   `damage_reduction`/`block_chance`) still scale to `GOLEM_STAT_SCALE`
+   (33%, or Gigantify's own boosted fraction for Thunder Golem HP) -
+   that's the ONLY place 33%-of-stats scaling applies. Every other
+   stat/multiplier/tree-passive effect the owner carries - crit,
+   increased damage, elemental damage_pct (which DOES now carry the
+   full per-level Elemental Focus/Scorching Flames contribution,
+   correcting the earlier "does not inherit" claim), splash, lingering
+   effect %, Righteous Fire's own damage bonus, the Focus/Aegis trio,
+   the rest of the Righteous Fire branch's own sub-passives, etc. -
+   inherits at full value. See `spawn_golem`'s own base struct literal
+   in combat.rs for the exhaustive list, and
+   `golem_inherits_every_owner_multiplier_at_full_value_never_scaled_to_33pct`/
+   the golem-attack-speed fix below for the regression coverage.
+   Deliberately excluded: `risingphoenix_max_revives` (would make a
+   golem itself an eligible Rising Phoenix caster - a real new
+   mechanic, not a dormant inherited value - see that field's own
+   exclusion doc in `spawn_golem`). Volcanic Ash's own rank-gated
+   inheritance mechanic (below) is unaffected - it's an ADDITIONAL
+   multiplier on top of the now-full base inheritance, not the
+   inheritance path itself; see its own entry under Flame Golem.
+3. **Golem attack speed now tracks the owner's LIVE speed, not a spawn-
+   time snapshot.** `attack_interval_ms` is still a one-time snapshot
+   of the owner's BASE cadence at spawn (Flame Golem's own Blazing
+   bonus still applies on top of that snapshot, unchanged) - but a
+   golem's own LIVE, accumulating speed multipliers (Momentum, Flowing
+   Strikes, Bloodlust, party speed buffs, etc.) are now read off the
+   OWNING Elementalist every turn instead of the golem's own record
+   (which never accumulates any of these stacks itself, and previously
+   always evaluated to a flat 1.0 no matter how fast the owner was
+   actually swinging). Swing count, not per-swing damage, was the real
+   constraint on golem output - this closes that gap. See
+   `golem_aware_effective_attack_interval` in combat.rs.
+
+Golems attack with a basic unified hit as if they were a player with
+33% of the Elementalist's base stats (and, per the correction above,
+the owner's own full multipliers/tree passives and live attack speed on
+top). Golems take no damage unless a golem type specifies otherwise.
+There are four golem types — Basic, Thunder, Flame, Water — assigned
+per slot via the passive tree. Basic golems have no sub-tree and no
+type-specific bonuses of their own beyond the full inheritance above.
 
 - **Thunder Golem** — absorbs all damage the party takes until it
   dies (external damage only — see Stage 0 resolution #3). Cannot be
@@ -443,19 +487,24 @@ behavior and stats.
   at rank 3. Read at player-construction time (`flamegolem_mult` in
   `simulate_battle`), so it's baked into the owner's own
   `fire_damage_pct`/etc. before anything downstream reads them -
-  including Volcanic Ash's own inheritance line below, which is what
-  makes the multiplied scaling reach Flame Golems too: ONE application
-  flowing through inheritance, no separate second buff, no
-  double-dipping (see `volcanic_ash_inherits_the_already_flamegolem_multiplied_value_exactly_once`
-  in combat.rs). Per-rank values read from the node definition, so
+  including full golem inheritance below, which is what makes the
+  multiplied scaling reach every golem type, Flame Golem included: ONE
+  application flowing through inheritance, no separate second buff, no
+  double-dipping. Per-rank values read from the node definition, so
   tunable via `/admin/passives` like every other node.
-  - *Volcanic Ash* — Flame Golems inherit 33/66/100% of the
-    Elementalist's multiplicative increased fire damage (already
-    including the Flame Golem multiplier above, per the owner's own
-    `fire_damage_pct`). This rank-gated PARTIAL inheritance is
-    Volcanic Ash's own deliberate identity, distinct from the
-    full-inheritance doctrine below - it's the one passive effect
-    intentionally NOT inherited at full value.
+  - *Volcanic Ash* — spec-owner clarification (2026-08-20): this is
+    **not** the inheritance path for `fire_damage_pct` any more - every
+    golem type now inherits it in full unconditionally (see the
+    full-inheritance doctrine below). Volcanic Ash is its own
+    ADDITIONAL multiplier on top of that already-full value, specific
+    to Flame Golems: "inherit 33/66/100% of the Elementalist's
+    multiplicative increased fire damage" reads as "gain 33/66/100%
+    MORE fire damage than what's already fully inherited" - e.g. a
+    Flame Golem that inherited 1000% fire damage gains a further 1000%
+    at rank 3 (100%), landing at 2000% total, not a fraction of the
+    1000%. See
+    `volcanic_ash_is_a_bonus_multiplier_on_top_of_the_already_flamegolem_multiplied_full_value`
+    in combat.rs.
   - *Blazing* — Flame Golems gain 6/9/18% multiplicative attack speed.
   - *Surging* — Flame Golems deal 10/20/30% multiplicative damage.
 - **Water Golem** — base effect (added 2026-08-19, Elementalist
@@ -483,27 +532,45 @@ behavior and stats.
     each dealing damage equal to 1% of the dead enemy's health.
 
 **Golem full-inheritance doctrine (2026-08-19, Elementalist rework
-item 5, stated explicitly so future passive additions follow it by
-default):** a golem inherits its summoner's BASE stats (`max_hp`/
-`atk`/`evasion`/`damage_reduction`/`block_chance`) at `GOLEM_STAT_SCALE`
-(33%, or Gigantify's own boosted fraction for Thunder Golem HP) -
-that's deliberate and unrelated to this doctrine. Every MULTIPLIER the
-summoner's tree/gear grants (`increased_damage`, `conflagration_dmg_pct`,
-`crit_chance`, `crit_multiplier`, and now the Flame Golem elemental
-multiplier baked into `fire_damage_pct`/etc. above), by contrast, MUST
-carry through to a golem at FULL value, exactly like gear - scaling a
-multiplier down to 33% too compounds against the already-scaled base
-stat instead of canceling out (see the `increased_damage`/
-`conflagration_dmg_pct` and `crit_chance`/`crit_multiplier` fixes
-above for the two live bugs this exact compounding error caused).
-Audited as part of this rework; the two exceptions found, both
-deliberate and NOT bugs: Volcanic Ash's own rank-gated 33/66/100%
-partial inheritance (its identity, not an oversight - full inheritance
-would make the rank gate meaningless) and Shattering's `splash + rank`
-target-count formula (golems never invest splash themselves, so it
-reduces to exactly `rank` in practice - kept as `splash + rank` for
-spec fidelity, pre-existing and documented at `handle_shattering_on_enemy_death`'s
-own doc in combat.rs). See
+item 5; broadened 2026-08-20 by a design-intent correction, item 3 -
+"ALL stats and ALL tree passives at full value, not an enumerated
+list"):** a golem inherits its summoner's BASE stats (`max_hp`/`atk`/
+`evasion`/`damage_reduction`/`block_chance`) at `GOLEM_STAT_SCALE`
+(33%, or Gigantify's own boosted fraction for Thunder Golem HP) - that
+is the ONLY place 33%-of-stats scaling applies. EVERY other
+stat/multiplier/tree-passive effect the summoner carries - not a short
+hand-picked list - carries through to a golem at FULL value, exactly
+like gear: `increased_damage`, `conflagration_dmg_pct`, `crit_chance`,
+`crit_multiplier`, `fire_damage_pct`/`cold_damage_pct`/
+`lightning_damage_pct`/`chaos_damage_pct`/`divine_damage_pct`
+(including the Flame Golem elemental multiplier baked into the first
+three), `splash`, `lingering_effect_pct`, `righteousfire_pct`, the
+Shocking/Chilling/Scorching Focus trio, the Lightning/Chilling/
+Scorching Aegis trio, and the rest of the Righteous Fire branch's own
+sub-passives (Relentless Flames, Cauterizing Flames, Ashes to Ashes,
+Healing Flames, Fanning Flames, Shielding Flames, Cleansing Flames,
+Enshrouded Fire, Guardian Fire, Shielding Fire) - scaling a multiplier
+down to 33% too compounds against the already-scaled base stat instead
+of canceling out (see the `increased_damage`/`conflagration_dmg_pct`
+and `crit_chance`/`crit_multiplier` fixes above for the two live bugs
+this exact compounding error caused). Most of the Righteous Fire
+sub-passive values inherited this way are dormant on a golem in
+practice - they're only ever READ when `tick_righteous_fire`/
+`tick_cleansing_flames` runs with a given unit as the scheduled actor,
+which never happens for a golem (its own periodic-tick clocks stay
+unscheduled) - but they're inherited correctly regardless, satisfying
+the doctrine's own letter and ready for any future mechanic that reads
+them off an attacker/healer generically the way the Focus/Aegis trio
+already does.
+
+Audited as part of this correction; ONE deliberate exclusion, not a
+bug: `risingphoenix_max_revives`. Unlike every field above, it's read
+via a GENERIC scan across every non-boss alive unit
+(`try_schedule_rising_phoenix_revival`), not gated to a specific
+scheduled actor - inheriting it would make a golem itself an eligible
+Rising Phoenix CASTER (revival credited to a golem's own id, and a
+second revive-eligibility source beyond the owner's own rank), a real
+new mechanic rather than a dormant, correctly-inherited value. See
 `golem_inherits_every_owner_multiplier_at_full_value_never_scaled_to_33pct`
 in combat.rs for the consolidated regression test.
 
@@ -549,6 +616,20 @@ deploy record and every post-deploy bugfix release since.)
 (2026-08-19, written for the golem-stat-inheritance fix above — see
 that entry for the specific bug this projection accounts for)
 
+**SUPERSEDED (2026-08-20) — kept for history, do not use for current
+predictions.** This entire projection assumed the golem summon damage
+penalty (`1 - 0.33 * golem_count`) still existed, designed to cancel
+out against a golem's own ~33% output and land the Elementalist's
+TOTAL near 100% regardless of golem count. That penalty has been
+REMOVED ENTIRELY (design-intent correction, item 1 - see the Golem
+Master section above) - there is no cancellation any more. Current
+expectation: an Elementalist's total output is their own FULL,
+unpenalized damage PLUS each golem's own ~33%-of-owner contribution,
+summed - roughly 100% + 33% × golem_count, reaching ~200% at 3 golems
+(before Thunder Golem's own tanking value, which was always additive
+on top and is unaffected by this correction). This power increase is
+explicitly accepted as intended, not a bug to chase.
+
 **Expected band: an Elementalist's TOTAL output (their own attacks +
 every summoned golem's) should land close to 100% of what they'd deal
 running solo with no golems at the same level/build — not a clear top
@@ -570,16 +651,14 @@ being complementary by construction, now that both halves are correct:
   Thunder Golem's tanking utility, it doesn't inflate or deflate total
   party contribution.
 
-**Expect real numbers to land a few points BELOW 100%, not above**, for
-a build with meaningful crit investment specifically: golem
-`crit_chance`/`crit_multiplier` are still scaled to 33% each (unchanged
-by this fix, not part of the ruling that prompted it) - at that
-combined scale a golem's own crits contribute little to nothing extra
-over a non-crit hit, unlike the owner's real crit investment, so a
-crit-heavy Elementalist's combined total will trend a bit under the
-clean ~100% figure above. This is a real, currently-unaddressed
-follow-up if it turns out to matter in practice, not something this
-fix attempts to solve.
+**Stale sub-claim, corrected in place:** the paragraph above originally
+claimed golem `crit_chance`/`crit_multiplier` were "still scaled to
+33% each" - false even at the time this section was first written; see
+the Release 1.2 item 2 entry earlier in this doc (2026-08-19), which
+already fixed both to full-value inheritance, the same day. Combined
+with the golem-summon-penalty removal above, a crit-invested
+Elementalist's combined total is not expected to trend below the
+projection either.
 
 **Thunder Golem's absorbed damage is separate, additional value on
 top of this projection** - it's tanking contribution, credited to the
@@ -842,6 +921,13 @@ constant. Verified via
 `golem_per_hit_tracks_the_owners_live_unpenalized_output_not_their_penalized_one`,
 which asserts the ratio against a live `resolve_hit`-derived owner
 value, not a snapshot.
+
+**SUPERSEDED (2026-08-20)** — `golem_summon_dmg_penalty` no longer
+exists; the golem summon damage penalty was removed entirely (design-
+intent correction, item 1). The historical analysis above (why the
+penalty never touched golem stats) is now moot, since there is no
+penalty left to not-touch anything. The surviving inheritance-ratio
+test is `golem_per_hit_tracks_33pct_of_the_owners_live_output`.
 
 **Item 6 — Rising Phoenix skillCast naming: fixed.** The `SkillCast`
 marker named the revived ally; the `Heal` event right next to it
