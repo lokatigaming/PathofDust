@@ -715,4 +715,62 @@ mod passive_override_tests {
             assert!(found, "{key:?} is listed as unwired but no longer exists in any archetype's tree");
         }
     }
+
+    // ---- #39: the 2026-08-16 Druid rework's stale reads --------------
+
+    /// The bug this guards, stated concretely: the 2026-08-16 rework
+    /// repurposed several Druid nodes, and `combat.rs` kept reading
+    /// their magnitudes for the mechanics they USED to have. The worst
+    /// case summed Werebear's Thick Hide cycle (4000 - a duration in
+    /// MILLISECONDS) with Wild Roar's charge count (3) and fed 4003.0
+    /// into the damage-reduction pipeline as a fraction, pinning
+    /// whichever party member was currently lowest-HP at the 95%
+    /// mitigation cap.
+    ///
+    /// The shared shape is a magnitude whose UNIT changed - milliseconds
+    /// or a count now being read as a 0..1 rate - so this asserts on the
+    /// scale of the values themselves. A future rework that repurposes
+    /// another of these nodes trips it without anyone needing to
+    /// remember why.
+    #[test]
+    fn the_reworked_druid_nodes_still_have_the_units_their_readers_expect() {
+        let empty = PassiveOverrides::default();
+        // Werebear and Unyielding Roots are millisecond CYCLES.
+        for key in ["symbiosis", "unyieldingroots"] {
+            let mag = node(Archetype::Druid, key).magnitude_at_rank_with(3, &empty);
+            assert!(mag >= 1000.0, "{key} is a millisecond cycle; a magnitude of {mag} means it was repurposed again - re-audit its read sites (#39)");
+        }
+        // Wild Roar, Nature's Embrace, Verdant Burst and Rooted Network
+        // are COUNTS. None of these is a rate, so none may be summed
+        // into a `*_pct` field.
+        for key in ["livingbond", "naturesembrace", "verdantburst", "rootednetwork"] {
+            let mag = node(Archetype::Druid, key).magnitude_at_rank_with(3, &empty);
+            assert_eq!(mag, mag.round(), "{key} is a count; a fractional magnitude of {mag} means it was repurposed again (#39)");
+            assert!(mag >= 1.0, "{key} is a count and should be at least 1 at rank 3, got {mag}");
+        }
+    }
+
+    /// The dead reads, asserted by absence. Each of these named a
+    /// mechanic the 2026-08-16 rework deleted, and each kept running for
+    /// four days afterwards.
+    #[test]
+    fn the_stale_druid_rework_reads_stay_removed() {
+        let combat = include_str!("combat.rs");
+        assert!(!combat.contains("own_symbiosis_dr_pct"), "the stale Symbiosis damage-reduction field is back (#39)");
+        assert!(!combat.contains("symbiosis_dr_bonus"), "the stale Symbiosis damage-reduction plumbing is back (#39)");
+        assert!(
+            !combat.contains("\"Symbiosis\""),
+            "the stale \"Symbiosis\" reduction-source label is back - it named a deleted mechanic, and is why the live source could not be found from the fight log (#39)"
+        );
+        // The repurposed nodes must not be summed into a rate field again.
+        for stale in ["passive_node_magnitude(\"livingbond\")", "passive_node_magnitude(\"naturesembrace\")", "passive_node_magnitude(\"verdantburst\")"] {
+            assert!(!combat.contains(stale), "{stale} is read as a magnitude again - its unit is a count, not a rate (#39)");
+        }
+        // Rooted Network now extends Thick Hide's CLEANSE count, not the
+        // lowest-HP-ally protect count it fed before the rework.
+        assert!(
+            !combat.contains("passive_node_rank(\"rootednetwork\")"),
+            "rootednetwork is feeding the protect-count again - the rework moved it to Thick Hide's cleanse count (#39)"
+        );
+    }
 }
