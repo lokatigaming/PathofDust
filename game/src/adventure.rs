@@ -63,7 +63,9 @@ mod migrations;
 mod passive_overrides;
 mod paths;
 mod published_constants;
-mod replay_bundle;
+// pub(crate) so adventure_web.rs can name the tier table at the serving
+// boundary - the enforcement reads better spelled out than glob-imported.
+pub(crate) mod replay_bundle;
 mod tunables;
 
 pub use affix::*;

@@ -208,6 +208,14 @@ pub(crate) fn write_and_prune_seeded<T: Serialize>(
 /// legacy tiers are written FIRST and independently (see
 /// `save_last_fight`), so a bundle that cannot be written must never
 /// cost the fight its real archive.
+/// Reads one bundle file verbatim, or `None` if that sequence number has
+/// aged out of the tier. Returned as a string rather than parsed: the
+/// caller decides how much of it to look at, and most callers want one
+/// member rather than the whole archive entry.
+pub(crate) fn read_bundle_file(seq: u64) -> Option<String> {
+    std::fs::read_to_string(fight_file_path(&resolved(BUNDLE_FIGHTS_DIR), seq)).ok()
+}
+
 pub(crate) fn save_bundle_fight<T: Serialize>(build: impl FnOnce(u64) -> T) {
     write_and_prune_seeded(
         &resolved(BUNDLE_FIGHTS_DIR),

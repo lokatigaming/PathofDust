@@ -49,7 +49,7 @@
 //! operates in: a bundle describes one fight, and members are joined to
 //! each other, never across fights.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::CombatEvent;
 
@@ -122,6 +122,67 @@ use super::{fight_storage, AttackSourceKind, BossStats, EncounterResult};
 const SCHEMA_VERSION: u32 = 1;
 const MIN_READER_VERSION: u32 = 1;
 
+/// Who may read a member.
+///
+/// `/overlay` and `/ws` are public and unauthenticated by design, so a
+/// member above `Public` must never be reachable from them. The ordering
+/// is a strict hierarchy: an operator may read everything, a participant
+/// may read their own fight's participant-tier members, and everyone else
+/// sees only the public subset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Tier {
+    Public,
+    Participant,
+    Operator,
+}
+
+impl Tier {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Tier::Public => "public",
+            Tier::Participant => "participant",
+            Tier::Operator => "operator",
+        }
+    }
+}
+
+/// THE tier table. One source for both directions.
+///
+/// The writer stamps each member's tier from here, and the serving
+/// boundary authorizes reads from here. They cannot drift apart, because
+/// there is nothing to drift from - a member added to the bundle without
+/// an entry here has no tier to write and no tier to check, and both
+/// sides fail closed rather than guessing.
+///
+/// `buffs` is participant, not public, and that is load-bearing rather
+/// than tidy: shield/buffSnapshot were deliberately removed from the
+/// public broadcast on 2026-08-20 (they are 25.16% of archive event
+/// bytes and no public consumer renders them). Restoring them to the
+/// companion app must not put them back on an unauthenticated feed.
+pub(crate) const MEMBER_TIERS: &[(&str, Tier)] = &[
+    ("core", Tier::Public),
+    ("replay", Tier::Public),
+    ("playerVitals", Tier::Public),
+    ("buffs", Tier::Participant),
+    ("dot", Tier::Participant),
+    ("rolls", Tier::Operator),
+];
+
+/// The tier a member is served at, or `None` for a member this build has
+/// never heard of - which callers must treat as "refuse", never as
+/// "probably fine".
+pub(crate) fn tier_of(member: &str) -> Option<Tier> {
+    MEMBER_TIERS.iter().find(|(name, _)| *name == member).map(|(_, tier)| *tier)
+}
+
+/// Whether `caller` may read `member`. The single decision point.
+pub(crate) fn may_read(member: &str, caller: Tier) -> bool {
+    match tier_of(member) {
+        Some(required) => caller >= required,
+        None => false,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MemberEntry {
@@ -190,7 +251,6 @@ fn member(
     members: &mut BTreeMap<String, Box<RawValue>>,
     entries: &mut BTreeMap<String, MemberEntry>,
     name: &str,
-    tier: &'static str,
     state: &'static str,
     pinned_shape: Option<bool>,
     value: &impl Serialize,
@@ -209,6 +269,9 @@ fn member(
     let bytes = serialized.len();
     let sha256 = format!("{:x}", Sha256::digest(serialized.as_bytes()));
     let raw = RawValue::from_string(serialized).unwrap_or_else(|_| RawValue::from_string("null".to_string()).expect("null is valid JSON"));
+    // Fails closed: a member with no table entry cannot be written with a
+    // tier, so it cannot later be served under one either.
+    let tier = tier_of(name).unwrap_or(Tier::Operator).as_str();
     entries.insert(
         name.to_string(),
         MemberEntry { v: 1, state, tier, bytes, sha256, pinned_shape },
@@ -246,7 +309,6 @@ pub(crate) fn build_bundle(
         &mut members,
         &mut entries,
         "core",
-        "public",
         "present",
         None,
         &Core {
@@ -269,19 +331,19 @@ pub(crate) fn build_bundle(
         },
     );
 
-    member(&mut members, &mut entries, "replay", "public", "present", None, &replay);
+    member(&mut members, &mut entries, "replay", "present", None, &replay);
 
     // "present", not "aggregated": this writes dot at full fidelity. The
     // measured 98.34% aggregation is a separate, lossy transform and lands
     // as its own change - the manifest's `state` field exists precisely so
     // that switch needs no format change.
-    member(&mut members, &mut entries, "dot", "participant", "present", None, &dot);
+    member(&mut members, &mut entries, "dot", "present", None, &dot);
 
-    member(&mut members, &mut entries, "buffs", "participant", "present", None, &buffs);
+    member(&mut members, &mut entries, "buffs", "present", None, &buffs);
 
-    member(&mut members, &mut entries, "rolls", "operator", "present", None, &result.rolls);
+    member(&mut members, &mut entries, "rolls", "present", None, &result.rolls);
 
-    member(&mut members, &mut entries, "playerVitals", "public", "present", Some(true), &result.player_vitals);
+    member(&mut members, &mut entries, "playerVitals", "present", Some(true), &result.player_vitals);
 
     Bundle {
         manifest: Manifest {
@@ -296,6 +358,34 @@ pub(crate) fn build_bundle(
         },
         members,
     }
+}
+
+/// A bundle read back off disk.
+///
+/// Members stay as raw bytes: serving one means handing those bytes
+/// straight out, and re-parsing a 20 MB archive entry to return a slice
+/// of it would be work done purely to undo itself.
+#[derive(Deserialize)]
+pub(crate) struct StoredBundle {
+    pub(crate) members: BTreeMap<String, Box<RawValue>>,
+}
+
+/// The participants of a stored fight, read from its `core` member.
+///
+/// Only `core` is parsed - it is under 0.1% of the file, and the whole
+/// point of the split is that reading one member does not cost the rest.
+pub(crate) fn participants_of(bundle: &StoredBundle) -> Vec<String> {
+    #[derive(Deserialize)]
+    struct CoreParticipants {
+        #[serde(default)]
+        participants: Vec<String>,
+    }
+    bundle
+        .members
+        .get("core")
+        .and_then(|core| serde_json::from_str::<CoreParticipants>(core.get()).ok())
+        .map(|core| core.participants)
+        .unwrap_or_default()
 }
 
 /// Dual-write entry point. Called from `save_last_fight` AFTER every legacy
@@ -968,5 +1058,76 @@ mod writer_golden {
              update game/tests/fixtures/replay_bundle/writer-output.v1.json and re-run the \
              JavaScript contract suite before shipping it",
         );
+    }
+}
+
+/// Guards on the tier table itself.
+#[cfg(test)]
+mod tier_table {
+    use super::*;
+
+    /// Every member the writer emits must have an explicit tier. The writer
+    /// falls back to `Operator` for an unlisted one - fail closed rather than
+    /// open - but that fallback is a safety net, not a design. A member
+    /// reaching production on it would be un-servable to anyone but the
+    /// operator, which is a bug report waiting to happen rather than a
+    /// decision someone made.
+    #[test]
+    fn every_written_member_has_an_explicit_tier() {
+        let bundle = super::dual_write::sample_bundle();
+        for name in bundle.members.keys() {
+            assert!(
+                tier_of(name).is_some(),
+                "the writer emits {name:?} but MEMBER_TIERS has no entry for it - add one, and \
+                 decide the tier deliberately rather than inheriting the fail-closed fallback",
+            );
+        }
+    }
+
+    /// And the reverse: a table entry with no member is a stale row that will
+    /// quietly authorize something that no longer exists.
+    #[test]
+    fn every_tier_table_entry_names_a_member_the_writer_emits() {
+        let bundle = super::dual_write::sample_bundle();
+        for (name, _) in MEMBER_TIERS {
+            assert!(bundle.members.contains_key(*name), "MEMBER_TIERS lists {name:?}, which the writer never emits");
+        }
+    }
+
+    #[test]
+    fn an_unknown_member_is_refused_at_every_tier() {
+        for caller in [Tier::Public, Tier::Participant, Tier::Operator] {
+            assert!(!may_read("secrets", caller), "an unknown member must be refused for {caller:?}");
+            assert!(!may_read("", caller));
+        }
+    }
+
+    #[test]
+    fn the_hierarchy_is_the_one_that_was_ratified() {
+        // Public callers see the public subset and nothing else. This is the
+        // line that keeps shield/buffSnapshot off an unauthenticated feed.
+        for member in ["core", "replay", "playerVitals"] {
+            assert!(may_read(member, Tier::Public), "{member} is public");
+        }
+        for member in ["buffs", "dot", "rolls"] {
+            assert!(!may_read(member, Tier::Public), "{member} MUST NOT be public");
+        }
+
+        // Participants add their own fight's participant tier, but not rolls.
+        for member in ["core", "replay", "playerVitals", "buffs", "dot"] {
+            assert!(may_read(member, Tier::Participant), "{member} is readable by a participant");
+        }
+        assert!(!may_read("rolls", Tier::Participant), "full roll logs are operator-only");
+
+        // The operator reads everything that exists.
+        for (member, _) in MEMBER_TIERS {
+            assert!(may_read(member, Tier::Operator), "{member} is readable by the operator");
+        }
+    }
+
+    #[test]
+    fn tiers_order_from_narrowest_to_widest() {
+        assert!(Tier::Public < Tier::Participant);
+        assert!(Tier::Participant < Tier::Operator);
     }
 }

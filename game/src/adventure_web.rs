@@ -210,6 +210,7 @@ pub async fn start_adventure_web_server(
         .route("/admin/passives", get(admin_passives_page))
         .route("/admin/passives/save", post(do_save_passive_override))
         .route("/admin/passives/revert", post(do_revert_passive_override))
+        .route("/fights/:seq/members/:member", get(bundle_member))
         .route("/overlay", get(overlay_page))
         .route("/ws", get(overlay_ws_handler))
         .with_state(state)
@@ -2164,6 +2165,74 @@ async fn character_passives_readonly(State(state): State<AppState>, headers: Hea
 /// up from a single-account-only page) sees the same page, scoped to just
 /// the fights they personally took part in.
 const FIGHTS_PAGE_LOGIN: &str = "lokati_gaming";
+
+/// Operator tier for replay bundles. Its own constant rather than a reuse
+/// of `FIGHTS_PAGE_LOGIN`/`ADMIN_TUNABLES_LOGIN`, following the precedent
+/// those two set: same value today, but this one governs full roll logs
+/// and must not silently follow a change made for an unrelated page.
+const BUNDLE_OPERATOR_LOGIN: &str = "lokati_gaming";
+
+/// Which tier a caller reads THIS fight at.
+///
+/// Participant is per-fight, not a global role: being a participant of one
+/// fight grants nothing about another. Comparison is case-insensitive
+/// because `participants` stores display names while a session stores the
+/// lowercased Twitch login.
+fn caller_tier_for(login: Option<&str>, participants: &[String]) -> crate::adventure::replay_bundle::Tier {
+    match login {
+        Some(login) if login.eq_ignore_ascii_case(BUNDLE_OPERATOR_LOGIN) => crate::adventure::replay_bundle::Tier::Operator,
+        Some(login) if participants.iter().any(|p| p.eq_ignore_ascii_case(login)) => {
+            crate::adventure::replay_bundle::Tier::Participant
+        }
+        _ => crate::adventure::replay_bundle::Tier::Public,
+    }
+}
+
+/// Serves one replay-bundle member.
+///
+/// THE serving boundary for bundle data, and the only route that reads a
+/// bundle at all. Everything above `Public` in `crate::adventure::replay_bundle::MEMBER_TIERS`
+/// is reachable only through here, and only after `may_read` says so -
+/// the manifest DECLARES a tier, this ENFORCES it, and both read the same
+/// table so they cannot disagree.
+///
+/// Denials are 404, not 403, matching how `/fights` and `/admin/tunables`
+/// already hide restricted surfaces: a 403 would confirm that a given
+/// fight exists and that it holds the member being asked for.
+///
+/// Note what is NOT here: no query parameter, header or cookie can widen
+/// the caller's tier, and the public overlay socket has no path to this
+/// code at all.
+async fn bundle_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((seq, member)): Path<(u64, String)>,
+) -> impl IntoResponse {
+    // An unknown member name is refused before a byte is read from disk.
+    if crate::adventure::replay_bundle::tier_of(&member).is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let login = current_session(&headers, &state).await.map(|(login, _)| login);
+
+    let Ok(Some(raw)) = tokio::task::spawn_blocking(move || crate::adventure::read_bundle_file(seq)).await
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(bundle) = serde_json::from_str::<crate::adventure::replay_bundle::StoredBundle>(&raw) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let tier = caller_tier_for(login.as_deref(), &crate::adventure::replay_bundle::participants_of(&bundle));
+    if !crate::adventure::replay_bundle::may_read(&member, tier) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    match bundle.members.get(&member) {
+        Some(body) => ([(header::CONTENT_TYPE, "application/json")], body.get().to_owned()).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
