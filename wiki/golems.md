@@ -125,11 +125,15 @@ heal-boosting effects. Running more than one Water Golem doesn't stack this
   party instead, at 100/200/300%.
 - **Singing** - the whole party gets 10/20/30% more effect from heals and
   shields they receive.
-- **Shattering** - when an enemy dies near it, sends damaging icicles at
-  nearby enemies, normal mitigable damage (subject to the target's own
-  evasion/block/damage reduction, same as any other hit).
-
-<p class="muted"><strong>⚠️ Balance in flux:</strong> Shattering is temporarily switched off while a rework lands - any point invested in it is fully banked, not wasted, and it'll resume firing the moment it's switched back on, no action needed on your end. Expected back shortly with the mitigable-damage behavior described above.</p>
+- **Shattering** - when an enemy dies in the Water Golem's presence, sends
+  icicles at (splash + rank) nearby enemies. Each icicle deals a percentage
+  of the *dead* enemy's own health - currently 1% at every rank, admin-
+  tunable, so treat that figure as the current default rather than a fixed
+  number. Icicle damage is **Environmental**: mitigated only by the target's
+  own damage reduction (never evasion or block), can never crit, and draws
+  nothing from the Water Golem's - or its owner's - own damage stats, buffs,
+  or on-hit effects. It hits the same regardless of how strong your build
+  is; only the dead enemy's health and the target's own DR matter.
 
 Your support unit: the passive party-wide regen alone makes it worth
 running even before its modifiers turn it into real sustain (Replenishing)
