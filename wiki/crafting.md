@@ -10,8 +10,7 @@ Every currency, every action, and the one rule that governs them all: no item ca
   <div class="wiki-currency-card"><h4>Dust</h4><p>Earned from wins and boss kills. Pays for every currency-crafting action, Reforge, and Recombine.</p></div>
   <div class="wiki-currency-card"><h4>Sand</h4><p>Earned from wins and disenchanting. Spent exclusively on Polishing.</p></div>
   <div class="wiki-currency-card"><h4>Craft Tokens</h4><p>One kind per action (Transmute, Scour, Augment, Regal, Exalt, Krangle, Annulment, Chancing). Spending a token skips that action's dust cost entirely.</p></div>
-  <div class="wiki-currency-card"><h4>Celestial Shard</h4><p>A rare token, separate from every other currency. Grants the Celestial Conversion Unique Affix.</p></div>
-  <div class="wiki-currency-card"><h4>Unique Shard</h4><p>A second, separate rare token. Grants the Split Personality Unique Affix - unlocks a second class's passive tree. See <a href="/wiki/classes#split-personality">Classes &amp; Passives</a>.</p></div>
+  <div class="wiki-currency-card"><h4>Unique Shard</h4><p>A rare token, separate from every other currency. Lets you pick which Unique Affix to grant an item - Celestial Conversion or Split Personality (unlocks a second class's passive tree - see <a href="/wiki/classes#split-personality">Classes &amp; Passives</a>).</p></div>
 </div>
 
 <h3 id="ceiling">The Modifier Ceiling</h3>
@@ -35,7 +34,7 @@ The single rule worth memorizing before anything else here: **four base modifier
 
 The R and C slots each carry a memory: while the bonus modifier either crit granted is still on the item, that same crit can't land again — even if the item is later merged into something new by Recombine, which inherits "already used" from either parent. Removing that specific modifier by any means (Annulment, for instance) re-opens the odds for that slot, same as if it had never crit at all.
 
-A Unique Affix (from a Celestial Shard) and Sacred's implicit affix live entirely outside this pool — they never count toward the seven, and no crafting action can touch them.
+A Unique Affix (from a Unique Shard) and Sacred's implicit affix live entirely outside this pool — they never count toward the seven, and no crafting action can touch them.
 
 <h3 id="currency-crafting">Currency Crafting</h3>
 
@@ -110,16 +109,16 @@ On an ordinary item, Polishing nudges the primary stat's roll upward by a fixed 
 
 <p class="muted">Cost scales with how much room is left to improve: <code>ceil(quality% &divide; {{POLISH_SAND_COST_PER_QUALITY_PCT}})</code> sand on a normal item (1 to {{POLISH_MAX_SAND_COST}}), or a flat <code>{{POLISH_PERFECT_SAND_COST}}</code> sand on a Perfect one. Bypasses tokens and veiling entirely.</p>
 
-<h3 id="celestial-shard">Celestial Shard</h3>
+<h3 id="celestial-shard">Unique Shard</h3>
 
 The only way to grant a Unique Affix — a permanent, implicit bonus that lives entirely outside the normal modifier pool.
 
-Consumes a Celestial Shard token (never dust) to grant **Celestial Conversion**, whose effect depends on the wielder's role:
+Consuming a Unique Shard token (never dust) opens a picker letting you choose which Unique Affix to grant, at no extra cost:
 
-- **Healers** convert {{CELESTIAL_CONVERSION_PCT}}% of every heal into bonus damage against a random enemy.
-- **Every other archetype** instead lands a follow-up hit on whatever they just struck, for {{CELESTIAL_CONVERSION_PCT}}% of that hit's damage — a real second hit that can trigger Leech, elemental procs, and anything else an on-hit effect would.
+- **Celestial Conversion** — effect depends on the wielder's role. **Healers** convert {{CELESTIAL_CONVERSION_PCT}}% of every heal into bonus damage against a random enemy. **Every other archetype** instead lands a follow-up hit on whatever they just struck, for {{CELESTIAL_CONVERSION_PCT}}% of that hit's damage — a real second hit that can trigger Leech, elemental procs, and anything else an on-hit effect would.
+- **Split Personality** — unlocks a second class's passive tree on that item. See [Classes &amp; Passives](/wiki/classes#split-personality) for the full mechanic.
 
-<p class="muted">Mutually exclusive with Krangle: an item carrying a Unique Affix can never be Krangled, and vice versa.</p>
+<p class="muted">Mutually exclusive with Krangle: an item carrying a Unique Affix can never be Krangled, and vice versa. Celestial Conversion and Split Personality used to be two separate currencies (Celestial Shard and Unique Shard); they've since merged into this one Unique Shard with a picker - if you held Celestial Shards before the merge, they converted 1:1 into Unique Shards automatically.</p>
 
 <h3 id="item-tiers">Item Tiers</h3>
 
@@ -135,7 +134,7 @@ Beyond the normal 0–100% quality roll, two rarer tiers exist — both earned f
 
 Most crafts are a blind gamble — you commit, then see what you got. Veiling flips that: pay extra to see the exact result first, and choose whether to keep it.
 
-Available on Transmute, Augment, Regal, Exalt, Krangle, Annulment, Chancing, and Recombine. **Not** available on Scour (nothing to choose — it's fully deterministic), Celestial Shard (always the same grant), Polishing (bypasses this system entirely), or Reforge.
+Available on Transmute, Augment, Regal, Exalt, Krangle, Annulment, Chancing, and Recombine. **Not** available on Scour (nothing to choose — it's fully deterministic), Unique Shard (its own free effect picker isn't part of this system), Polishing (bypasses this system entirely), or Reforge.
 
 <p class="muted">Veiling any currency-craft action other than Recombine adds a flat <code>{{VEIL_EXTRA_COST}}</code> dust surcharge on top of its base + per-tier cost. Recombine's own veil cost works differently &mdash; see Recombine above.</p>
 
@@ -180,7 +179,7 @@ Toggle **Keep** on any item to protect it from both single and bulk disenchantin
 | Reforge (crafting panel) | Dust | {{PANEL_REFORGE_DUST_PER_TIER}}/tier | Choose the exact item |
 | Recombine | Dust | Free unveiled | Veiled: +{{VEIL_EXTRA_COST}}, +500/combined modifier |
 | Polishing | Sand | 1–{{POLISH_MAX_SAND_COST}}, or {{POLISH_PERFECT_SAND_COST}} flat if Perfect | Not veilable |
-| Celestial Shard | Shard token | 1 token | Excludes Krangle |
+| Unique Shard | Shard token | 1 token | Excludes Krangle |
 
 </div>
 

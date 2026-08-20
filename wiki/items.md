@@ -30,12 +30,14 @@ uses before it wears out completely - see Durability below.
 
 <h3 id="affixes">Affixes</h3>
 
-There are **{{ALL_AFFIXES_COUNT}}** affix types in the game. Most are
-slot-agnostic - block chance, evasion, crit chance/damage, splash, intervene,
-leech, increased damage/life, and Lingering Effect can roll on any slot. The
-five elemental damage types (Fire/Cold/Lightning/Divine/Chaos - see
-[Combat](/wiki/combat#elemental)) are the one exception: they only roll on a
-**Weapon or Helm**.
+There are **{{ALL_AFFIXES_COUNT}}** affix types in the game, and every one of
+them is slot-agnostic - block chance, evasion, crit chance/damage, splash,
+intervene, leech, increased damage/life, Lingering Effect, and the five
+elemental damage types (Fire/Cold/Lightning/Divine/Chaos - see
+[Combat](/wiki/combat#elemental)) can all roll on any of the 5 slots. The
+elemental types used to be restricted to Weapon or Helm only; that
+restriction is gone, so a build can now stack elemental damage affixes
+across every slot instead of just two.
 
 Not every affix is equally common. Life Leech in particular is deliberately
 rare - roughly **{{LEECH_RARITY_DIVISOR}}x** less likely to roll than any

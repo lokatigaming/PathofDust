@@ -76,11 +76,11 @@ complete do-over, not a per-node undo.
 A real, shipped feature - not every player will have it, since it's gated
 behind a specific Unique item.
 
-**Unlocking it**: consume a **Unique Shard** crafting token (a separate
-currency from the Celestial Shard that grants Celestial Conversion - see
-[Crafting](/wiki/crafting)) to grant an item the **Split Personality** unique
-affix. While that item is equipped, a second-archetype picker appears on
-`/passives`.
+**Unlocking it**: consume a **Unique Shard** crafting token on an item and
+pick **Split Personality** from the effect picker (Unique Shards can also
+grant Celestial Conversion instead - see [Crafting](/wiki/crafting) for the
+full picker). While that item is equipped, a second-archetype picker appears
+on `/passives`.
 
 **How it works**: pick any class other than Commoner or your current
 primary, and you get a fully separate second passive tree to invest in -
@@ -96,6 +96,8 @@ complete "refund" of whatever you'd invested in the secondary tree; re-equip
 later and you resume right where you left off.
 
 <p class="muted">A full respec (above) only clears your primary tree - today, unequipping Split Personality's item is the only way to reset the secondary tree specifically.</p>
+
+<p class="muted">Your secondary tree's stat and passive investments (crit chance/multiplier, evasion, block, damage reduction, attack speed, splash, max HP%, heal power, Intervene, and every other generic stat/passive node type) now correctly apply in combat, not just on your character sheet. This was a real bug fixed after launch - some node types worked all along, others silently did nothing until this fix. If your secondary tree ever felt like it wasn't doing anything, it's fixed now.</p>
 
 <h4>Dual-Archetype Interactions</h4>
 
@@ -129,21 +131,31 @@ crit, and on-proc shields for their own element.
 
 <p class="muted">The per-level numbers here get large fast (rank 3 is 15% × your level, separately for each of fire/cold/lightning) - but this stat feeds a proc-chance roll that's hard-capped at 100%, not a raw damage multiplier. In practice this means a mid-level Elementalist's elemental debuffs go from "sometimes" to "reliably every hit" well before max level, not that damage itself scales unboundedly - your base attack damage, crit, and increased-damage stats are untouched by this branch.</p>
 
-**Righteous Fire** - an aura that burns you and nearby enemies every second
-(true damage, unaffected by evasion/block/DR on either side) - real, ongoing
-self-damage by design, meant to be offset by the branch's own healing/shield
-nodes (Healing Flames' self-regen, Shielding Flames, Fanning Flames sharing
-it with allies) rather than "fixed." **Rising Phoenix** revives a couple of
-recently-alive nearby allies shortly after they die - the healing credit for
-that revival goes to you, not the revived ally. Cleansing Flames periodically
-clears debuffs from you and nearby allies and refreshes a few defensive
-buffs. Scorching Flames adds more fire damage (same per-level/proc-chance
-shape as Elemental Focus above) and unlocks **Ashes to Ashes**.
+<p class="muted">Fire/Cold/Lightning/Divine/Chaos damage affixes now roll on every gear slot, not just Weapon/Helm (see <a href="/wiki/items#affixes">Items</a>) - Overshock/Polar Flux/Incinerate all scale off your own elemental gear stats, so this branch benefits directly from stacking those affixes across more of your kit than before.</p>
+
+**Righteous Fire** - your regular attacks (including splash) deal bonus fire
+damage on top of their normal damage - not a separate periodic tick, it's
+folded directly into every hit you land. Separately, and still very real,
+you take ongoing self-damage every second while it's active: reduced by your
+own damage reduction, with whatever's left absorbed by your active shield
+before it touches your HP - evasion and block never apply to it (you can't
+dodge your own fire). This is meant to be offset by the branch's own
+healing/shield/DR investment (Healing Flames' self-regen, Shielding Flames,
+Lightning/Chilling/Scorching Aegis's on-proc shields) rather than avoided
+outright - a tanky or shield-generating Righteous Fire build can sustain it
+far more comfortably than an uninvested one, by design. **Rising Phoenix**
+revives a couple of recently-alive nearby allies shortly after they die - the
+healing credit for that revival goes to you, not the revived ally. Cleansing
+Flames periodically clears debuffs from you and nearby allies and refreshes a
+few defensive buffs. Scorching Flames adds more fire damage (same
+per-level/proc-chance shape as Elemental Focus above) and unlocks **Ashes to
+Ashes**.
 
 <p class="muted"><strong>⚠️ Balance in flux:</strong> Ashes to Ashes is queued for a full rework - the currently-live "execute any enemy, bosses included, below a health percentage of your own max HP" behavior is expected to be replaced, not just retuned. Don't treat its current behavior as final.</p>
 
-**Golem Master** - summons 1-3 golems that fight alongside you, at the cost
-of a real chunk of your own damage. Big enough a system to get its own page
-- see [Golems](/wiki/golems).
+**Golem Master** - summons 1-3 golems that fight alongside you, at **no
+cost to your own damage** - you and every golem you field all hit at full
+strength simultaneously. Big enough a system to get its own page - see
+[Golems](/wiki/golems).
 
 </div>

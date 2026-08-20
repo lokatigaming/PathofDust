@@ -27,7 +27,7 @@ players aren't misled by an out-of-date page), except where noted.
 ## OPEN DESIGN QUESTIONS — not blocking, wiki documents current behavior
 
 1. **`SACRED_STAGE_THRESHOLD` (300) is a hardcoded constant; `late_content_stage` (Perfect gate, default 100) is admin-tunable via `/admin/tunables`.** Intentional asymmetry, or should Sacred's threshold be tunable too?
-2. **Unique Shard's drop chance is literally aliased to Celestial Shard's rate** (`manager.rs:4610-4614`, same `celestial_shard_drop_chance` tunable feeds both). Intentional-for-now, or should it get its own rate?
+2. ~~**Unique Shard's drop chance is literally aliased to Celestial Shard's rate.**~~ **RESOLVED** by the Unified Unique Shards merge (see `WIKI_IMPACT.md`) — Celestial Shard and the old Unique Shard are now one currency with one drop rate (`celestial_shard_drop_chance`, unchanged field name), so there's no longer a second rate to reconcile.
 3. **`respec_passive_tree` only clears the primary tree.** The secondary (Split Personality) tree has no respec path except unequipping the item, which fully refunds it. Is that the intended "respec," or is a secondary-tree respec missing?
 4. **`!nextencounter` silently accepts undocumented boss aliases** (`demon`, `fire`, `gelatinouscube` — `manager.rs:4254-4265`) beyond the ones listed in its own usage text and the public commands page (`lich, firedemon, cthulhu, dragon, bahamut, purple, cube`). Should the wiki list the extra aliases, or should they be dropped from code?
 5. **A `!recentsongs` command is referenced in a doc comment** (`song_requests.rs:440`) but never registered anywhere in `commands.rs`. Planned-and-never-shipped, or a stale comment?
