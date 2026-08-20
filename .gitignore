@@ -146,3 +146,6 @@ adventure-passive-overrides.toml
 target-corpus/
 target-det/
 target-stage2/
+target-recap/
+target-warlock/
+target-mage/

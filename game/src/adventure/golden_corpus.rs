@@ -99,13 +99,52 @@ struct Scenario {
     /// `AdventureManager` would drag async and persistence into a pure,
     /// seeded snapshot. `scenario_allocations_are_reachable` enforces
     /// the rules instead.
+    ///
+    /// **A SOLO scenario still cannot cover ally-targeted passives** -
+    /// not a limit of the corpus any more, just of a one-character
+    /// party. A passive that targets an ALLY has nothing to act on when
+    /// there is no ally, so `covenant`, `compassion`, `chainoflight`,
+    /// `sharedstrength` and `unitedpack` (among others) contribute only
+    /// their stat side in a solo fixture. Since 2026-08-20 the fix is
+    /// available rather than blocked: put them in a `party` scenario.
+    /// See that field.
     passives: &'static [(&'static str, u32)],
     /// Elementalist's golem slot types. Any unlocked slot this doesn't
     /// name falls back to `GolemType::Basic`, per that field's own
     /// documented default.
     golem_slots: &'static [GolemType],
+    /// Extra party members beyond the one described by the fields above
+    /// (2026-08-20). Empty for every solo scenario, which is all of them
+    /// up to this point.
+    ///
+    /// Party scenarios only became possible once `simulate_battle` took
+    /// a `fight_seed` and ordered its units deterministically - before
+    /// that, a multi-character fight indexed its party differently in
+    /// every process and could not be snapshotted at all. See this
+    /// module's own doc.
+    ///
+    /// They exist because a whole category of passive is invisible to a
+    /// solo fixture: anything that targets an ALLY has nothing to act on
+    /// when the party is one character. `covenant`, `compassion`,
+    /// `chainoflight`, `sharedstrength` and `unitedpack` are all in that
+    /// category, and every one of them was completely uncovered before
+    /// the first party scenario.
+    party: &'static [PartyMember],
     boss_kind: Option<BossKind>,
     boss: BossStats,
+}
+
+/// One additional party member in a party scenario - see
+/// `Scenario::party`. Gear is generated for each member from the
+/// scenario's own seeded rng in declaration order, so the whole party is
+/// as reproducible as a solo character is.
+struct PartyMember {
+    /// Also the character's map key and unit id. Must be unique within
+    /// the scenario and must differ from the scenario's own `name`.
+    id: &'static str,
+    archetype: Archetype,
+    level: u32,
+    passives: &'static [(&'static str, u32)],
 }
 
 fn boss(hp: u64, atk: u64, attack_interval_ms: u32) -> BossStats {
@@ -122,20 +161,20 @@ fn tough_boss(hp: u64, atk: u64, attack_interval_ms: u32) -> BossStats {
 
 fn scenarios() -> Vec<Scenario> {
     vec![
-        Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], boss: boss(8_000, 150, 1100) },
-        Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], boss: boss(8_000, 150, 1100) },
-        Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], boss: boss(40_000, 400, 1100) },
-        Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], boss: tough_boss(40_000, 400, 1100) },
-        Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], boss: boss(120_000, 900, 1100) },
-        Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], boss: boss(120_000, 900, 1100) },
+        Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
+        Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
+        Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], party: &[], boss: boss(40_000, 400, 1100) },
+        Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
+        Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
+        Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
         // High stage - exercises the late-stage damage penalty AND boss
         // pierce together (see WIKI_IMPACT.md's pierce entry - both are
         // stage^2/(stage^2+h^2)-shaped ramps, both real at this stage).
-        Scenario { name: "ranger_vs_lich_stage3000", seed: 7, stage: 3000, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], boss: boss(2_000_000, 6_000, 1100) },
-        Scenario { name: "slayer_vs_tough_boss_stage3000", seed: 8, stage: 3000, archetype: Archetype::Slayer, level: 80, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], boss: tough_boss(2_000_000, 6_000, 1100) },
-        Scenario { name: "druid_vs_generic_stage1000", seed: 9, stage: 1000, archetype: Archetype::Druid, level: 60, boss_kind: None, passives: &[], golem_slots: &[], boss: boss(500_000, 2_000, 1100) },
-        Scenario { name: "monk_vs_fire_demon_stage1000", seed: 10, stage: 1000, archetype: Archetype::Monk, level: 60, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], boss: boss(500_000, 2_000, 1100) },
-        Scenario { name: "berserker_vs_lich_stage1000", seed: 11, stage: 1000, archetype: Archetype::Berserker, level: 60, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "ranger_vs_lich_stage3000", seed: 7, stage: 3000, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(2_000_000, 6_000, 1100) },
+        Scenario { name: "slayer_vs_tough_boss_stage3000", seed: 8, stage: 3000, archetype: Archetype::Slayer, level: 80, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(2_000_000, 6_000, 1100) },
+        Scenario { name: "druid_vs_generic_stage1000", seed: 9, stage: 1000, archetype: Archetype::Druid, level: 60, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "monk_vs_fire_demon_stage1000", seed: 10, stage: 1000, archetype: Archetype::Monk, level: 60, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "berserker_vs_lich_stage1000", seed: 11, stage: 1000, archetype: Archetype::Berserker, level: 60, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
         // ---- passive-allocating scenarios (2026-08-20) ----
         //
         // The eleven above allocate nothing, so no passive mechanic
@@ -183,7 +222,177 @@ fn scenarios() -> Vec<Scenario> {
                 ("incinerate", 3),
             ],
             golem_slots: &[GolemType::Thunder, GolemType::Thunder, GolemType::Thunder],
+            party: &[],
             boss: boss(500_000, 2_000, 1100),
+        },
+        // One scenario per class whose nodes an upcoming migration batch
+        // will touch, each allocating those exact nodes at meaningful
+        // ranks so the batch has something to be measured against.
+        //
+        // Paladin's batch is a single node, `finaljudgment`, which is a
+        // Modifier under Judgment - so Judgment has to reach 4/4 to
+        // unlock it at all. Divine Shield and Guardian's Oath come along
+        // to put the class's periodic-cast and intervene paths in the
+        // fixture too, rather than pinning one narrow branch.
+        Scenario {
+            name: "paladin_passives_vs_fire_demon_stage500",
+            seed: 13,
+            stage: 500,
+            archetype: Archetype::Paladin,
+            level: 64,
+            boss_kind: Some(BossKind::FireDemon),
+            passives: &[("smite", 3), ("judgment", 4), ("finaljudgment", 3), ("shield", 3), ("oath", 3)],
+            golem_slots: &[],
+            party: &[],
+            boss: boss(120_000, 900, 1100),
+        },
+        // Warlock's batch is three nodes across three different
+        // Specialization chains (`chaostheory` under Unstable Power,
+        // `covenant` under Dark Communion, `ravage` under Fel Rush), so
+        // all three parents need 4/4. Two of the three are boolean
+        // rank-threshold nodes, which is exactly the shape Stage 2
+        // deliberately left for a later batch.
+        Scenario {
+            name: "warlock_passives_vs_dragon_stage1000",
+            seed: 14,
+            stage: 1000,
+            archetype: Archetype::Warlock,
+            level: 108,
+            boss_kind: Some(BossKind::Dragon),
+            passives: &[
+                ("pact", 3),
+                ("unstablepower", 4),
+                ("chaostheory", 3),
+                ("felrush", 4),
+                ("ravage", 3),
+                ("siphon", 3),
+                ("darkcommunion", 4),
+                ("covenant", 3),
+            ],
+            golem_slots: &[],
+            party: &[],
+            boss: boss(500_000, 2_000, 1100),
+        },
+        // Druid has NO pending migration nodes left - its only one
+        // (`unitedpack`) was migrated in Stage 2 - so unlike the two
+        // above, this scenario protects no upcoming batch. It is here
+        // for general passive coverage: Druid's heal-over-time, pack and
+        // thorns branches are all already-tunable `Special` nodes with
+        // no snapshot coverage whatsoever, and the same large `combat.rs`
+        // changes threaten them.
+        Scenario {
+            name: "druid_passives_vs_lich_stage1000",
+            seed: 15,
+            stage: 1000,
+            archetype: Archetype::Druid,
+            level: 68,
+            boss_kind: Some(BossKind::Lich),
+            passives: &[("regrowth", 3), ("rejuvenation", 3), ("instinct", 3), ("packinstinct", 3), ("barrier", 3), ("bramblegrowth", 3)],
+            golem_slots: &[],
+            party: &[],
+            boss: boss(500_000, 2_000, 1100),
+        },
+        // ---- THE FIRST PARTY SCENARIO (2026-08-20) ----
+        //
+        // Everything above is solo, so no ally-targeted passive has ever
+        // fired in a fixture: with a one-character party there is simply
+        // no ally to target. This is the scenario that closes that gap,
+        // and it only became possible once `simulate_battle` started
+        // ordering its units deterministically.
+        //
+        // Party composition is chosen so each member OWNS one of the
+        // ally-targeted nodes, and every member is a body for the others
+        // to target:
+        //
+        //   Warlock (lead) - `covenant` 3/3. Dark Communion heals the
+        //     lowest-HP ally on leech; Covenant extends that to the
+        //     SECOND-lowest at half value from rank 2 and full at 3. It
+        //     needs at least two living allies at different HP to be
+        //     distinguishable from Dark Communion alone, which is exactly
+        //     what a 4-body party gives it.
+        //   Cleric - `compassion` 3/3 AND `chainoflight` 4/4. Compassion
+        //     makes Merciful Touch's bounce prioritise the lowest-HP ally
+        //     (rank 2) and adds a DR grant (rank 3); Chain of Light adds
+        //     bounce TARGETS. Both are meaningless solo. The Cleric is
+        //     also the reason the party's HP spreads apart rather than
+        //     everyone dying together, which is what makes "lowest-HP
+        //     ally" a moving, observable choice.
+        //   Monk - `sharedstrength` 3/3. Temple Guardian protects
+        //     additional allies per rank, so it needs allies to protect.
+        //   Druid - `unitedpack` 3/3. Pack Instinct protects additional
+        //     allies per rank. Rode along cheaply: it is one more member
+        //     and covers a fifth otherwise-uncovered node.
+        //
+        // `boss_kind: None` (a generic boss) deliberately - a BossKind
+        // with its own special abilities would add a second source of
+        // variation on top of the party mechanics this exists to pin.
+        // Level 60 gives 16 points, comfortably over the Cleric's 14.
+        Scenario {
+            name: "party_ally_targeted_passives_stage500",
+            seed: 16,
+            stage: 500,
+            archetype: Archetype::Warlock,
+            level: 60,
+            boss_kind: None,
+            passives: &[("siphon", 3), ("darkcommunion", 4), ("covenant", 3)],
+            golem_slots: &[],
+            party: &[
+                PartyMember {
+                    id: "party_cleric",
+                    archetype: Archetype::Cleric,
+                    level: 60,
+                    passives: &[("prayer", 3), ("mercifultouch", 4), ("compassion", 3), ("chainoflight", 4)],
+                },
+                PartyMember { id: "party_monk", archetype: Archetype::Monk, level: 60, passives: &[("ironbody", 3), ("templeguardian", 4), ("sharedstrength", 3)] },
+                PartyMember { id: "party_druid", archetype: Archetype::Druid, level: 60, passives: &[("instinct", 3), ("packinstinct", 4), ("unitedpack", 3)] },
+            ],
+            // Deliberately far tankier than the solo scenarios' bosses.
+            // A four-body party at this stage shreds a 120k boss in
+            // under two seconds (post-424dbce gear hits astonishingly
+            // hard), and the boss got four swings in - not enough for
+            // party HP to spread apart, which left every ally-targeted
+            // node in this fixture inert. `tough_boss` adds real
+            // defensive stats on top of the HP, so the fight lasts long
+            // enough for allies to diverge and for lowest-HP-ally
+            // targeting to actually have to choose. Caught by
+            // `passive_scenarios_actually_fire_their_mechanics` rather
+            // than by inspection.
+            boss: tough_boss(6_000_000, 1_400, 1_100),
+        },
+        // Mage, for its own migration batch (2026-08-20). All four of
+        // its nodes are non-linear `SpecialPerRank` tables - Absolute
+        // Zero 0/0.50/0.65, Arcane Instability 0.05/0.09/0.12, Empowered
+        // Bolt 0/0/0.20, Infinite Loop 3/6/9 - so this fixture is what
+        // checks those tables against a real fight rather than only
+        // against their own declarations.
+        //
+        // Reaching all four means taking three Specializations to 4/4
+        // under Arcane plus one under Surge, which is 34 points; level
+        // 136 grants 35. Tanky boss for the same reason the party
+        // scenario needed one - a Mage at this level with current gear
+        // deletes an ordinary boss before its own mechanics can fire.
+        Scenario {
+            name: "mage_passives_vs_cthulhu_stage1000",
+            seed: 17,
+            stage: 1000,
+            archetype: Archetype::Mage,
+            level: 136,
+            boss_kind: Some(BossKind::Cthulhu),
+            passives: &[
+                ("arcane", 3),
+                ("overload", 4),
+                ("arcaneinstability", 3),
+                ("criticalmass", 4),
+                ("empoweredbolt", 3),
+                ("spellecho", 4),
+                ("infiniteloop", 3),
+                ("surge", 3),
+                ("frostnova", 4),
+                ("absolutezero", 3),
+            ],
+            golem_slots: &[],
+            party: &[],
+            boss: tough_boss(4_000_000, 1_600, 1_100),
         },
     ]
 }
@@ -218,6 +427,28 @@ fn run_scenario(s: &Scenario) -> GoldenSnapshot {
 
     let mut characters: HashMap<String, Character> = HashMap::new();
     characters.insert(s.name.to_string(), character);
+
+    // Additional party members (2026-08-20) - see `Scenario::party`.
+    // Built in DECLARATION order so each one's gear draws from the
+    // scenario's single seeded `rng` at a fixed point in the sequence;
+    // iterating anything hash-ordered here would put the
+    // non-determinism straight back that the party ordering work just
+    // removed. Same construction as the lead character above, minus the
+    // golem slots, which only the lead can use.
+    for member in s.party {
+        let mut ally = Character::new(member.id.to_string());
+        ally.archetype = member.archetype;
+        ally.level = member.level;
+        ally.weapon = Some(generate_item(EquipSlot::Weapon, s.stage, &mut rng));
+        ally.helm = Some(generate_item(EquipSlot::Helm, s.stage, &mut rng));
+        ally.body = Some(generate_item(EquipSlot::Body, s.stage, &mut rng));
+        ally.gloves = Some(generate_item(EquipSlot::Gloves, s.stage, &mut rng));
+        ally.boots = Some(generate_item(EquipSlot::Boots, s.stage, &mut rng));
+        for (key, rank) in member.passives {
+            ally.passive_allocations.insert((*key).to_string(), *rank);
+        }
+        characters.insert(member.id.to_string(), ally);
+    }
 
     let tunables = LiveTunables::default();
     let (won, units, events, rolls) = simulate_battle(&characters, vec![(s.boss.clone(), s.boss_kind, 1.0)], s.stage, &tunables, s.seed, &mut rng);
@@ -291,34 +522,55 @@ fn approx_eq(a: &serde_json::Value, b: &serde_json::Value) -> bool {
 /// parent, a rank above a node's cap, or more points than the level
 /// grants. A fixture like that would look authoritative while describing
 /// a state no player can reach, which is worse than no fixture at all.
+/// Checks one character's allocation list - shared by the scenario lead
+/// and by every party member, so an ally's build is held to exactly the
+/// same "a player could actually have built this" standard.
+fn assert_allocations_reachable(label: &str, archetype: Archetype, level: u32, passives: &[(&str, u32)]) {
+    if passives.is_empty() {
+        return;
+    }
+    let nodes = archetype.passive_nodes();
+    let ranks: HashMap<&str, u32> = passives.iter().copied().collect();
+
+    let mut spent = 0u32;
+    for (key, rank) in passives {
+        let node = nodes.iter().find(|n| n.key == *key).unwrap_or_else(|| panic!("{label}: node {key:?} is not in {archetype:?}'s tree"));
+        assert!(*rank > 0, "{label}: {key:?} is allocated at rank 0 - drop it from the list instead");
+        assert!(*rank <= node.max_rank, "{label}: {key:?} at rank {rank} exceeds its max_rank of {}", node.max_rank);
+        if let Some(parent) = node.parent {
+            let required = node.unlock_at.unwrap_or(1);
+            let parent_rank = ranks.get(parent).copied().unwrap_or(0);
+            assert!(parent_rank >= required, "{label}: {key:?} needs its parent {parent:?} at rank {required}, but it is allocated at {parent_rank}");
+        }
+        spent += rank;
+    }
+
+    let budget = crate::passive_tree::points_for_level(level);
+    assert!(spent <= budget, "{label}: spends {spent} points but level {level} only grants {budget}");
+}
+
 #[test]
 fn scenario_allocations_are_reachable() {
     for s in scenarios() {
-        if s.passives.is_empty() {
-            continue;
+        assert_allocations_reachable(s.name, s.archetype, s.level, s.passives);
+        for member in s.party {
+            assert_allocations_reachable(&format!("{} / {}", s.name, member.id), member.archetype, member.level, member.passives);
         }
-        let nodes = s.archetype.passive_nodes();
-        let ranks: HashMap<&str, u32> = s.passives.iter().copied().collect();
+    }
+}
 
-        let mut spent = 0u32;
-        for (key, rank) in s.passives {
-            let node = nodes.iter().find(|n| n.key == *key).unwrap_or_else(|| panic!("{}: node {key:?} is not in {:?}'s tree", s.name, s.archetype));
-            assert!(*rank > 0, "{}: {key:?} is allocated at rank 0 - drop it from the list instead", s.name);
-            assert!(*rank <= node.max_rank, "{}: {key:?} at rank {rank} exceeds its max_rank of {}", s.name, node.max_rank);
-            if let Some(parent) = node.parent {
-                let required = node.unlock_at.unwrap_or(1);
-                let parent_rank = ranks.get(parent).copied().unwrap_or(0);
-                assert!(
-                    parent_rank >= required,
-                    "{}: {key:?} needs its parent {parent:?} at rank {required}, but the scenario allocates it at {parent_rank}",
-                    s.name
-                );
-            }
-            spent += rank;
+/// Party members must be distinct characters - a duplicate id would
+/// silently collapse two of them into one `HashMap` entry, quietly
+/// shrinking the party and taking away the very allies the ally-targeted
+/// passives exist to act on.
+#[test]
+fn party_member_ids_are_unique_and_distinct_from_the_lead() {
+    for s in scenarios() {
+        let mut seen: Vec<&str> = vec![s.name];
+        for member in s.party {
+            assert!(!seen.contains(&member.id), "{}: duplicate party id {:?} - the party would silently lose a member", s.name, member.id);
+            seen.push(member.id);
         }
-
-        let budget = crate::passive_tree::points_for_level(s.level);
-        assert!(spent <= budget, "{}: spends {spent} points but level {} only grants {budget}", s.name, s.level);
     }
 }
 
@@ -338,6 +590,34 @@ fn passive_scenarios_actually_fire_their_mechanics() {
         if s.archetype == Archetype::Elementalist && s.passives.iter().any(|(k, _)| *k == "golemmaster") {
             let golems = snapshot.units.iter().filter(|u| u.golem_summoner_id.is_some()).count();
             assert!(golems > 0, "{}: invests in Golem Master but no golem was ever summoned - the fixture protects nothing", s.name);
+        }
+
+        // A party scenario exists to give ally-targeted passives an ALLY
+        // to act on. If the party doesn't actually make it into the
+        // fight as separate living units, the fixture is pinning a solo
+        // fight wearing a party's name - which is exactly the kind of
+        // silently-protecting-nothing this module has been bitten by
+        // before.
+        if !s.party.is_empty() {
+            let players: Vec<&CombatUnitInfo> = snapshot.units.iter().filter(|u| !u.is_boss && u.golem_summoner_id.is_none()).collect();
+            assert_eq!(
+                players.len(),
+                s.party.len() + 1,
+                "{}: expected {} party members in the fight, found {}",
+                s.name,
+                s.party.len() + 1,
+                players.len()
+            );
+            for member in s.party {
+                assert!(players.iter().any(|u| u.id == member.id), "{}: party member {:?} never entered the fight", s.name, member.id);
+            }
+            // Allies must actually diverge in HP, or "lowest-HP ally"
+            // targeting has nothing to discriminate between and the
+            // ally-targeted nodes are inert in practice.
+            let took_damage = snapshot.events.iter().any(|e| {
+                matches!(e, CombatEvent::Attack { target, damage, .. } if *damage > 0 && s.party.iter().any(|m| m.id == target.as_str()))
+            });
+            assert!(took_damage, "{}: no party member ever took damage - lowest-HP-ally targeting would never discriminate", s.name);
         }
     }
 }

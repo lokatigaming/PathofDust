@@ -1,0 +1,1518 @@
+{
+  "won": true,
+  "units": [
+    {
+      "id": "warlock_passives_vs_dragon_stage1000",
+      "displayName": "warlock_passives_vs_dragon_stage1000",
+      "isBoss": false,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": "warlock",
+      "role": "ranged",
+      "maxHp": 19756
+    },
+    {
+      "id": "__enemy_0__",
+      "displayName": "The Dragon",
+      "isBoss": true,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": null,
+      "role": null,
+      "maxHp": 500000
+    }
+  ],
+  "events": [
+    {
+      "kind": "buffSnapshot",
+      "atMs": 0,
+      "unit": "warlock_passives_vs_dragon_stage1000",
+      "buffs": [
+        [
+          "fel_rush_speed_bonus",
+          0.24
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 0,
+      "unmitigatedDamage": 59938,
+      "targetHpAfter": 500000,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 7632,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 0,
+      "unit": "warlock_passives_vs_dragon_stage1000",
+      "buffs": [
+        [
+          "fel_rush_speed_bonus",
+          0.24
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "damage": 0,
+      "unmitigatedDamage": 1750,
+      "targetHpAfter": 19756,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 7639,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "skillCast",
+      "atMs": 0,
+      "unit": "__enemy_0__",
+      "skill": "Dragon's Breath"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 210,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 210,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 58168,
+      "unmitigatedDamage": 58168,
+      "targetHpAfter": 441832,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7640,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 470,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          1.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 470,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 72847,
+      "unmitigatedDamage": 72126,
+      "targetHpAfter": 368985,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7652,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 730,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          2.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          2.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 730,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 62448,
+      "unmitigatedDamage": 61830,
+      "targetHpAfter": 306537,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7665,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 990,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          2.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          3.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 990,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 67400,
+      "unmitigatedDamage": 66732,
+      "targetHpAfter": 239137,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7678,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1100,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          2.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          3.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "damage": 2604,
+      "unmitigatedDamage": 2207,
+      "targetHpAfter": 17152,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 7691,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "skillCast",
+      "atMs": 1100,
+      "unit": "__enemy_0__",
+      "skill": "Dragon's Breath"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1250,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          2.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          4.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 1250,
+      "healer": "warlock_passives_vs_dragon_stage1000",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "amount": 1027,
+      "targetHpAfter": 18179,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 1250,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 63076,
+      "unmitigatedDamage": 61839,
+      "targetHpAfter": 176061,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7697,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1510,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          2.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          5.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          3.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 1510,
+      "healer": "warlock_passives_vs_dragon_stage1000",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "amount": 1027,
+      "targetHpAfter": 19206,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 1510,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 58575,
+      "unmitigatedDamage": 57426,
+      "targetHpAfter": 117486,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7710,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1770,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          2.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          6.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 1770,
+      "healer": "warlock_passives_vs_dragon_stage1000",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "amount": 550,
+      "targetHpAfter": 19756,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 1770,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 68742,
+      "unmitigatedDamage": 66740,
+      "targetHpAfter": 48744,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7723,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2030,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          3.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          6.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          4.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 2030,
+      "attacker": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "damage": 66741,
+      "unmitigatedDamage": 64175,
+      "targetHpAfter": 0,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 7736,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 2030,
+      "unit": "__enemy_0__"
+    }
+  ],
+  "rolls": [
+    {
+      "eventId": 7633,
+      "hitId": 7632,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7634,
+      "hitId": 7632,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7635,
+      "hitId": 7632,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7636,
+      "hitId": 7632,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7637,
+      "hitId": 7632,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7638,
+      "hitId": 7632,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7641,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7642,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7643,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7644,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7645,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7646,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7647,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7648,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7649,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": false
+    },
+    {
+      "eventId": 7650,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": true
+    },
+    {
+      "eventId": 7651,
+      "hitId": 7640,
+      "atMs": 210,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": true
+    },
+    {
+      "eventId": 7653,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7654,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7655,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7656,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.01
+    },
+    {
+      "eventId": 7657,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7658,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7659,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7660,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7661,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7662,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": true
+    },
+    {
+      "eventId": 7663,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": false
+    },
+    {
+      "eventId": 7664,
+      "hitId": 7652,
+      "atMs": 470,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": false
+    },
+    {
+      "eventId": 7666,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": true
+    },
+    {
+      "eventId": 7667,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7668,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7669,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.01
+    },
+    {
+      "eventId": 7670,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7671,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7672,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7673,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7674,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7675,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": true
+    },
+    {
+      "eventId": 7676,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": true
+    },
+    {
+      "eventId": 7677,
+      "hitId": 7665,
+      "atMs": 730,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": false
+    },
+    {
+      "eventId": 7679,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7680,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7681,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7682,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.01
+    },
+    {
+      "eventId": 7683,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7684,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7685,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7686,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7687,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7688,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": false
+    },
+    {
+      "eventId": 7689,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": true
+    },
+    {
+      "eventId": 7690,
+      "hitId": 7678,
+      "atMs": 990,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": true
+    },
+    {
+      "eventId": 7692,
+      "hitId": 7691,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7693,
+      "hitId": 7691,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7694,
+      "hitId": 7691,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 7695,
+      "hitId": 7691,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 7696,
+      "hitId": 7691,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "magnitude": 220.71521162739123
+    },
+    {
+      "eventId": 7698,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7699,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7700,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7701,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.02
+    },
+    {
+      "eventId": 7702,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7703,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7704,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7705,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7706,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7707,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": false
+    },
+    {
+      "eventId": 7708,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": true
+    },
+    {
+      "eventId": 7709,
+      "hitId": 7697,
+      "atMs": 1250,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": false
+    },
+    {
+      "eventId": 7711,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7712,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7713,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7714,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.02
+    },
+    {
+      "eventId": 7715,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7716,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7717,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7718,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7719,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7720,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": false
+    },
+    {
+      "eventId": 7721,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": true
+    },
+    {
+      "eventId": 7722,
+      "hitId": 7710,
+      "atMs": 1510,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": true
+    },
+    {
+      "eventId": 7724,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": false
+    },
+    {
+      "eventId": 7725,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7726,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7727,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.03
+    },
+    {
+      "eventId": 7728,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7729,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7730,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7731,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7732,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7733,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": false
+    },
+    {
+      "eventId": 7734,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": true
+    },
+    {
+      "eventId": 7735,
+      "hitId": 7723,
+      "atMs": 1770,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": true
+    },
+    {
+      "eventId": 7737,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.35257620163637204,
+      "succeeded": true
+    },
+    {
+      "eventId": 7738,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7739,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "warlock_passives_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 7740,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.04
+    },
+    {
+      "eventId": 7741,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.352576201636372
+    },
+    {
+      "eventId": 7742,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 7743,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 14.266085723212193
+    },
+    {
+      "eventId": 7744,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "increasedDamage",
+      "source": "Temporal Rift/Unstable Power",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 3.1558943876417076
+    },
+    {
+      "eventId": 7745,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 7746,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.40792147371526494,
+      "succeeded": true
+    },
+    {
+      "eventId": 7747,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.500468578589703,
+      "succeeded": false
+    },
+    {
+      "eventId": 7748,
+      "hitId": 7736,
+      "atMs": 2030,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "warlock_passives_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.5182185200162513,
+      "succeeded": false
+    }
+  ]
+}

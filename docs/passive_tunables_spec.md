@@ -145,6 +145,36 @@ Decision 5.
     latent bug. Migrating makes the node tunable AND makes its own
     description accurate. This is the one deliberate behavior change in
     Stage 2; a 4/4 investment loses a bounce target.
+15. **`PassiveEffect::SpecialPerRank` is the convention for any
+    non-linear node** (owner-approved, 2026-08-20, Stage 3 Mage batch).
+    `Special`'s `at_rank_1 + per_additional_rank * (rank - 1)` is
+    strictly linear, but a large share of the tree is implemented in
+    `combat.rs` as a `rank >= 2` / `rank >= 3` ladder with a different
+    constant per branch — Absolute Zero's `0 / 0.50 / 0.65`, Arcane
+    Instability's `0.05 / 0.09 / 0.12`, Empowered Bolt's `0 / 0 / 0.20`.
+    None of those can be declared linearly, so before this variant their
+    true defaults had nowhere to live and they could not be migrated at
+    all without changing behavior. **18 of the 31 nodes pending at that
+    point were this shape**, so it pays for itself many times over.
+
+    The override *store* was always per-rank precisely so it could hold
+    these shapes; this applies the same idea to the compiled-in default,
+    closing the last gap between what can be tuned and what can be
+    declared. Purely additive — introducing it changed no existing node.
+
+    **Reach for this rather than inventing a parallel mechanism.** A
+    node whose values are not linear declares a `SpecialPerRank` table;
+    it does not get a bespoke ladder in `combat.rs`, and it does not get
+    its declaration bent into an approximate linear fit. `values` is
+    indexed by effective rank (index 0 is rank 1) and reads 0.0 outside
+    its range, the same as an unallocated node.
+
+    Note the division of labour this preserves: a *value* that varies by
+    rank belongs in the table, but a **structural gate** — "unlocked at
+    rank 2", "invested at all" — stays a `passive_node_rank` read in
+    code, per the scope guard. Empowered Bolt keeps its `rank >= 2`
+    invested flag for exactly this reason while its `0 / 0 / 0.20` crit
+    bonus moves into the table.
 
 ---
 
