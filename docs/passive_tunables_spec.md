@@ -124,6 +124,27 @@ Decision 5.
     description agrees with the *code* ("unlocked at rank 2"). Each
     migration corrects the declaration to the real per-rank table, so
     declarations become trustworthy going forward.
+12. **A node's declared shape does not predict its call site.** Stage 2
+    projected 36 mechanical swaps from the `1.0 / 1.0` declarations;
+    dumping the actual call sites cut the batch to 20 and turned up two
+    nodes with no consumer at all, one feeding a non-linear `match`
+    table, and one genuine behavior change. **Read the call site before
+    editing, every time.** This is the second occurrence of the same
+    assumption failing — see Decision 9.
+13. **`UNWIRED_NODES` is a third classification.** A node can declare
+    real per-rank values that nothing in the codebase reads. Distinct
+    from pending migration (values *do* reach the game, via hardcoded
+    constants) and from `NotYetImplemented` (declares no value at all).
+    `node_untunable_reason` tells `/admin/passives` which applies, so it
+    never promises a migration batch that would have nothing to do.
+14. **`chainoflight` migrated, nerf accepted** (owner decision,
+    2026-08-20). A Specialization read as `(1 + rank).min(5)`, so 4/4
+    yielded 5 targets while magnitude yields 4 (`effective_rank` floors
+    a Spec at 3). Its description said "up to 4 at rank 3" and the tree
+    documents a Spec 4th point as unlock-only, so the old behavior was a
+    latent bug. Migrating makes the node tunable AND makes its own
+    description accurate. This is the one deliberate behavior change in
+    Stage 2; a 4/4 investment loses a bounce target.
 
 ---
 
@@ -135,7 +156,11 @@ Decision 5.
 - **Stage 2 — bucket A**, the 36 nodes where magnitude equals rank by
   construction. Mechanical, provably identical at defaults.
 - **Stage 3 — buckets B, C, D**, the 24 real ones, batched per class so
-  each batch maps onto the golden-corpus fixture that protects it.
+  each batch is small enough to review whole.
+  **NOTE:** the golden corpus does NOT protect passive migrations — its
+  scenarios never allocate any passives, so every node sits at rank 0 in
+  every fixture. Corpus scenarios WITH allocations (a fixture ADDITION,
+  not a regeneration) must land before the first value-changing batch.
   Includes **adding an Elementalist corpus scenario** — a fixture
   ADDITION, never a regeneration — to close the one archetype-coverage
   gap (11 of 12 are covered; Elementalist's golem code is unprotected).

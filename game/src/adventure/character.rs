@@ -2641,6 +2641,30 @@ impl Character {
         0.0
     }
 
+    /// A node's magnitude read as a whole-number COUNT - extra targets,
+    /// extra hits, banked charges, additional max stacks.
+    ///
+    /// The tunable replacement for reading `passive_node_rank` directly
+    /// at a numeric call site (2026-08-19, Stage 2 of the live-tunable
+    /// passive values build). Every node migrated to this declares
+    /// `at_rank_1: 1.0, per_additional_rank: 1.0`, so its magnitude
+    /// equals its rank EXACTLY - `1.0 + 1.0 * (rank - 1) == rank` - and
+    /// the swap is behavior-neutral at default values by construction,
+    /// while making the count reachable from `/admin/passives`.
+    ///
+    /// Reading the rank directly still has one legitimate use and is NOT
+    /// deprecated: a structural gate ("is this invested at all", "is it
+    /// at least rank 2"), which is what `passive_node_rank`'s remaining
+    /// call sites do. Structure stays code-defined; only values are
+    /// tunable.
+    ///
+    /// Rounds rather than truncates so a tuned value of `2.999` reads as
+    /// 3 rather than 2, and floors at 0 so a negative override can never
+    /// wrap around into a huge `u32`.
+    pub fn passive_node_count(&self, key: &str) -> u32 {
+        self.passive_node_magnitude(key).round().max(0.0) as u32
+    }
+
     /// The equipped item currently carrying Split Personality
     /// (`UniqueAffix::SplitPersonality`), if any - scans all 5 equip
     /// slots live rather than trusting any stored flag, since there is no
