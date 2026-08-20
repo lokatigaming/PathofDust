@@ -67,6 +67,15 @@ pub(crate) const BLOODPACT_SHIELD_DURATION_MS: u32 = 15_000;
 /// Slayer's Bloodpact - base real cooldown between uses (see
 /// `next_bloodpact_at_ms`'s doc), reduced per Blood Sacrifice rank.
 pub(crate) const BLOODPACT_BASE_COOLDOWN_MS: u32 = 4_000;
+/// Paladin's Judgment - the enemy-HP fraction below which Radiant Smite
+/// gets Judgment's bonus heal, BEFORE Final Judgment raises it. Named
+/// 2026-08-20 (Stage 3 Paladin batch): it was a bare `0.5` at its one
+/// read site, and Final Judgment's own ladder had `0.50 + delta`
+/// pre-computed into three literals. Naming it lets Final Judgment read
+/// its declared per-rank DELTA off the node (making it tunable) instead
+/// of hardcoding the sums, and keeps the base a single quantity rather
+/// than one that has to be re-derived from those literals.
+pub(crate) const JUDGMENT_BASE_THRESHOLD: f64 = 0.5;
 /// Slayer's Warlord's Resolve - how long its party-wide increased-damage
 /// grant lasts, per its own "for 10s" text.
 pub(crate) const BLOODPACT_WARLORDSRESOLVE_DURATION_MS: u32 = 10_000;
@@ -10856,12 +10865,22 @@ pub(crate) fn simulate_battle(
                 // literally, since a lower absolute value would shrink the
                 // window rather than the "raised"/"more often" the text
                 // clearly intends.
-                judgment_threshold: if c.passive_node_rank("finaljudgment") >= 3 {
-                    0.70
-                } else if c.passive_node_rank("finaljudgment") >= 2 {
-                    0.65
-                } else if c.passive_node_rank("finaljudgment") >= 1 {
-                    0.60
+                // Migrated to the tunable value path (2026-08-20, Stage 3
+                // Paladin batch). The rank ladder above encoded
+                // 0.60/0.65/0.70 as literals, which is exactly
+                // `JUDGMENT_BASE_THRESHOLD` plus the node's OWN declared
+                // magnitude (0.10 / 0.15 / 0.20) - the same +10/+15/+20
+                // delta the comment above already describes. So the
+                // declaration was never wrong here, it was simply unread:
+                // reading it makes the node tunable from /admin/passives
+                // and keeps the base a separate, named quantity rather
+                // than baking it into three magic numbers.
+                //
+                // Behavior-neutral at default values, asserted exactly
+                // (not approximately) by
+                // `final_judgment_migration_is_exactly_behavior_neutral`.
+                judgment_threshold: if c.passive_node_rank("finaljudgment") > 0 {
+                    JUDGMENT_BASE_THRESHOLD + c.passive_node_magnitude("finaljudgment")
                 } else {
                     0.0
                 },
@@ -14116,7 +14135,8 @@ pub(crate) fn simulate_battle(
                 // hit an enemy currently below 50% HP.
                 if let Some(boss_idx) = smite_boss_idx {
                     let boss = &units[boss_idx];
-                    let judgment_threshold = if units[actor_idx].judgment_threshold > 0.0 { units[actor_idx].judgment_threshold } else { 0.5 };
+                    let judgment_threshold =
+                        if units[actor_idx].judgment_threshold > 0.0 { units[actor_idx].judgment_threshold } else { JUDGMENT_BASE_THRESHOLD };
                     if boss.max_hp > 0 && (boss.hp as f64 / boss.max_hp as f64) < judgment_threshold {
                         heal_pct += units[actor_idx].smite_judgment_bonus_pct;
                         // Executioner's Blessing/Wrath of the Heavens -

@@ -190,7 +190,6 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "empoweredbolt", // mage
     "eternalmoment", // mage
     "finalblow", // ranger
-    "finaljudgment", // paladin
     "frenzy", // berserker
     "gloriousdeath", // berserker
     "guardianspirit", // monk
@@ -503,9 +502,9 @@ mod passive_override_tests {
         // combat.rs rather than in their own declaration. If this
         // changes without a migration batch landing, the list has
         // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 37, "Stage 2 migrated 21 and reclassified 2 as unwired, from the original 60");
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 36, "Stage 3 Paladin batch migrated finaljudgment, from Stage 2's 37");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 37, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 36, "the pending list must not contain duplicates");
     }
 
     #[test]
@@ -617,6 +616,38 @@ mod passive_override_tests {
             4,
             "4/4 must now also be 4, not 5 - the 4th point unlocks modifiers, it does not add a target"
         );
+    }
+
+    #[test]
+    fn final_judgment_migration_is_exactly_behavior_neutral() {
+        // Stage 3, Paladin batch. `combat.rs` used to pre-compute
+        // Judgment's raised threshold as three literals (0.60/0.65/0.70);
+        // it now reads `JUDGMENT_BASE_THRESHOLD + magnitude`, where the
+        // magnitude is the node's own declared 0.10/0.15/0.20 delta.
+        //
+        // Asserted with `==`, not an epsilon, on purpose: the entire
+        // claim is that this yields the IDENTICAL f64, so an approximate
+        // check would hide precisely the drift worth catching. All three
+        // sums land bit-exactly on the old literals - verified before
+        // relying on it, since float addition does not always oblige.
+        let node = node(Archetype::Paladin, "finaljudgment");
+        let empty = PassiveOverrides::default();
+        let base = crate::adventure::JUDGMENT_BASE_THRESHOLD;
+        for (rank, expected) in [(1u32, 0.60_f64), (2, 0.65), (3, 0.70)] {
+            let migrated = base + node.magnitude_at_rank_with(rank, &empty);
+            assert_eq!(migrated, expected, "Final Judgment rank {rank} must reproduce the old literal exactly");
+        }
+    }
+
+    #[test]
+    fn final_judgment_is_now_tunable() {
+        assert!(node_is_tunable("finaljudgment"), "the Paladin batch migrated it");
+        assert!(node_untunable_reason("finaljudgment").is_none());
+        // An override must actually move the threshold - that is the
+        // point of migrating it.
+        let node = node(Archetype::Paladin, "finaljudgment");
+        let o = overrides(&[("finaljudgment", &[0.25, 0.30, 0.35])]);
+        assert_eq!(crate::adventure::JUDGMENT_BASE_THRESHOLD + node.magnitude_at_rank_with(3, &o), 0.85);
     }
 
     #[test]
