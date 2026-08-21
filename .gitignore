@@ -166,3 +166,7 @@ target-mage/
 target-druidfix/
 target-replay-bundle/
 target-splash-overcap/
+
+# --- Orchestrator coordination files (not project artifacts) ---
+ORDERS/
+REPORTS/
