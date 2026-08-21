@@ -231,7 +231,6 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
 /// confirmed to be a plain arithmetic count at its own call site before
 /// being listed.
 pub const INTEGER_COUNT_NODES: &[&str] = &[
-    "risingblaze",
     "infiniteloop",
     "chainoflight",
     "arterialspray",
@@ -502,17 +501,20 @@ mod passive_override_tests {
 
     #[test]
     fn rising_blaze_is_wired_and_tunable() {
-        // Wired 2026-08-21 (Paladin Holy Fire branch fix). It had no
-        // reader at all - a designed mechanic players had been allocating
-        // points into for nothing.
+        // Wired 2026-08-21 (Paladin Holy Fire branch fix), reworked same
+        // day per owner ruling: Holy Fire already reaches every alive
+        // enemy, so "+1 additional random enemy per rank" had nothing
+        // left to add. Now reads as +10/20/30% to Holy Fire's damage
+        // contribution per rank - a plain percentage magnitude, not a
+        // count, so it stays OUT of INTEGER_COUNT_NODES.
         assert!(node_is_tunable("risingblaze"), "risingblaze now has a reader and must be offered");
         assert!(node_untunable_reason("risingblaze").is_none());
-        assert!(INTEGER_COUNT_NODES.contains(&"risingblaze"), "its magnitude is a strike COUNT");
+        assert!(!INTEGER_COUNT_NODES.contains(&"risingblaze"), "its magnitude is a damage-contribution PERCENTAGE, not a count");
         assert!(!UNWIRED_NODES.contains(&"risingblaze"), "it is no longer unwired");
         let n = node(Archetype::Paladin, "risingblaze");
         let empty = PassiveOverrides::default();
-        for rank in 1..=3u32 {
-            assert_eq!(n.magnitude_at_rank_with(rank, &empty), rank as f64, "1 additional strike per rank");
+        for (rank, expected) in [(1u32, 0.10), (2, 0.20), (3, 0.30)] {
+            assert!((n.magnitude_at_rank_with(rank, &empty) - expected).abs() < 1e-9, "rank {rank} must read {expected} (+{}% Holy Fire damage contribution)", (expected * 100.0) as u32);
         }
     }
 

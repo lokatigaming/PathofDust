@@ -1471,9 +1471,6 @@ pub(crate) struct CombatSimUnit {
     /// healing output purely off Smite's own flat per-hit heal. 0.0
     /// without it invested.
     smite_holyfire_dmg_pct: f64,
-    /// Rising Blaze - additional Holy Fire strikes on randomly chosen
-    /// alive enemies, one per rank. 0 without it invested.
-    holyfire_extra_strikes: u32,
     /// Purging Flame - THIS unit's own magnitude, applied as a temporary
     /// healing-received debuff to whoever Holy Fire strikes.
     purgingflame_heal_reduction_pct: f64,
@@ -3199,7 +3196,6 @@ impl Default for CombatSimUnit {
             smite_judgment_bonus_pct: 0.0,
             judgment_threshold: 0.0,
             smite_holyfire_dmg_pct: 0.0,
-            holyfire_extra_strikes: 0,
             purgingflame_heal_reduction_pct: 0.0,
             temp_heal_reduction_pct: 0.0,
             temp_heal_reduction_expires_at_ms: 0,
@@ -5709,7 +5705,6 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             smite_judgment_bonus_pct: 0.0,
             judgment_threshold: 0.0,
             smite_holyfire_dmg_pct: 0.0,
-            holyfire_extra_strikes: 0,
             purgingflame_heal_reduction_pct: 0.0,
             temp_heal_reduction_pct: 0.0,
             temp_heal_reduction_expires_at_ms: 0,
@@ -10733,23 +10728,14 @@ pub(crate) fn apply_holy_fire_damage(units: &mut [CombatSimUnit], healer_idx: us
     if dmg_pct <= 0.0 || total_healed == 0 {
         return;
     }
+    // Rising Blaze - "1 additional random enemy per rank" - is folded
+    // into `dmg_pct` upstream (see `smite_holyfire_dmg_pct`'s
+    // construction, alongside Wildfire) rather than handled here: Holy
+    // Fire already reaches EVERY alive enemy unconditionally, so there
+    // is no un-hit enemy left for an "additional enemy" reading to add.
     let damage = total_healed as f64 * dmg_pct;
     let purgingflame_pct = units[healer_idx].purgingflame_heal_reduction_pct;
-    let mut enemy_targets: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
-    // Rising Blaze - "Holy Fire strikes 1 additional random enemy per
-    // rank". Wired 2026-08-21 (it had no reader at all before, see
-    // `UNWIRED_NODES`' own history). Holy Fire already reaches EVERY
-    // alive enemy, so there is no unreached enemy left to add: the only
-    // reading that does anything is an additional STRIKE on a randomly
-    // chosen alive enemy per rank, which is what this does. Flagged to
-    // the owner as a design reading rather than a transcription.
-    let extra_strikes = units[healer_idx].holyfire_extra_strikes;
-    if extra_strikes > 0 && !enemy_targets.is_empty() {
-        let pool = enemy_targets.clone();
-        for _ in 0..extra_strikes {
-            enemy_targets.push(pool[rng.gen_range(0..pool.len())]);
-        }
-    }
+    let enemy_targets: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
     for enemy_idx in enemy_targets {
         if !units[healer_idx].alive {
             break;
@@ -11185,10 +11171,18 @@ pub(crate) fn simulate_battle(
                 // the rate, so a 7.5x cut to the parent moved the effective
                 // value only 0.45 -> 0.32. Multiplying restores the parent
                 // as the real lever.
-                smite_holyfire_dmg_pct: c.passive_node_magnitude("holyfire") * (1.0 + c.passive_node_magnitude("holyfirewildfire")),
-                // Rising Blaze - wired 2026-08-21; see
-                //  for why this is extra STRIKES.
-                holyfire_extra_strikes: c.passive_node_count("risingblaze"),
+                // Rising Blaze - wired 2026-08-21, reworked same day per
+                // owner ruling. Its own text ("1 additional random enemy
+                // per rank") no longer has anything to add: Holy Fire
+                // already reaches EVERY alive enemy unconditionally, so
+                // there is no un-hit target left for "an additional
+                // enemy" to mean. The owner's replacement reading is a
+                // straight damage-contribution increase - 10/20/30% per
+                // rank - folded in as a third multiplicative factor
+                // alongside Wildfire, same shape, same lever.
+                smite_holyfire_dmg_pct: c.passive_node_magnitude("holyfire")
+                    * (1.0 + c.passive_node_magnitude("holyfirewildfire"))
+                    * (1.0 + c.passive_node_magnitude("risingblaze")),
                 purgingflame_heal_reduction_pct: c.passive_node_magnitude("purgingflame"),
                 temp_heal_reduction_pct: 0.0,
                 temp_heal_reduction_expires_at_ms: 0,
@@ -12514,7 +12508,6 @@ pub(crate) fn simulate_battle(
             smite_judgment_bonus_pct: 0.0,
             judgment_threshold: 0.0,
             smite_holyfire_dmg_pct: 0.0,
-            holyfire_extra_strikes: 0,
             purgingflame_heal_reduction_pct: 0.0,
             temp_heal_reduction_pct: 0.0,
             temp_heal_reduction_expires_at_ms: 0,
@@ -13658,7 +13651,6 @@ pub(crate) fn simulate_battle(
                                 smite_judgment_bonus_pct: 0.0,
                                 judgment_threshold: 0.0,
                                 smite_holyfire_dmg_pct: 0.0,
-                                holyfire_extra_strikes: 0,
                                 purgingflame_heal_reduction_pct: 0.0,
                                 temp_heal_reduction_pct: 0.0,
                                 temp_heal_reduction_expires_at_ms: 0,
@@ -19438,18 +19430,46 @@ mod paladin_holyfire_delivery_tests {
         }
     }
 
+    fn paladin_with(ranks: &[(&str, u32)]) -> Character {
+        let mut c = Character::new("pal".to_string());
+        c.archetype = Archetype::Paladin;
+        for (key, rank) in ranks {
+            c.passive_allocations.insert(key.to_string(), *rank);
+        }
+        c
+    }
+
+    /// Rising Blaze (2026-08-21, reworked same day) - owner ruling:
+    /// since Holy Fire already reaches every alive enemy, "+1 additional
+    /// random enemy per rank" has nothing left to add, so the node now
+    /// reads as +10/20/30% to Holy Fire's damage contribution per rank
+    /// instead - folded into `smite_holyfire_dmg_pct` as a third
+    /// multiplicative factor alongside Wildfire (see that field's own
+    /// construction site). Asserted here against the exact formula, the
+    /// same way `apply_holy_fire_damage`'s own tests pin dollar amounts
+    /// rather than trusting the shape.
     #[test]
-    fn rising_blaze_adds_one_extra_strike_per_rank() {
-        // Holy Fire already reaches every alive enemy, so Rising Blaze's
-        // "1 additional random enemy per rank" can only mean an extra
-        // STRIKE - see `apply_holy_fire_damage`'s own doc.
-        let mut units = vec![loaded_paladin(), plain_enemy(0.0)];
-        units[0].holyfire_extra_strikes = 2;
-        let (mut events, mut rolls) = (Vec::new(), Vec::new());
-        let mut rng = StdRng::seed_from_u64(7);
-        apply_holy_fire_damage(&mut units, 0, 100_000, 0.20, 1_000, &mut events, &mut rolls, &mut rng);
-        let attacks = events.iter().filter(|e| matches!(e, CombatEvent::Attack { .. })).count();
-        assert_eq!(attacks, 3, "1 base pass over the single enemy + 2 extra strikes");
+    fn rising_blaze_multiplies_holy_fire_damage_contribution_per_rank() {
+        let holyfire_r3 = paladin_with(&[("holyfire", 3)]).passive_node_magnitude("holyfire");
+        assert!((holyfire_r3 - 0.15).abs() < 1e-9, "sanity: holyfire rank 3 default is 0.05/rank");
+        for (rank, expected_pct) in [(1u32, 0.10), (2, 0.20), (3, 0.30)] {
+            let c = paladin_with(&[("holyfire", 3), ("holyfirewildfire", 3), ("risingblaze", rank)]);
+            let risingblaze_pct = c.passive_node_magnitude("risingblaze");
+            assert!((risingblaze_pct - expected_pct).abs() < 1e-9, "risingblaze rank {rank} must read {expected_pct}, got {risingblaze_pct}");
+            let combined = holyfire_r3 * (1.0 + c.passive_node_magnitude("holyfirewildfire")) * (1.0 + risingblaze_pct);
+            let expected_combined = 0.195 * (1.0 + expected_pct);
+            assert!((combined - expected_combined).abs() < 1e-9, "rank {rank}: expected {expected_combined}, got {combined}");
+        }
+    }
+
+    /// Rank-3 baseline (no Rising Blaze invested) must land exactly at
+    /// the order's stated target: holyfire(0.15) * (1 + wildfire(0.30))
+    /// = 0.195, replacing the old additive 0.05*3 + 0.10*3 = 0.45.
+    #[test]
+    fn holyfire_wildfire_rank3_baseline_is_exactly_0_195() {
+        let c = paladin_with(&[("holyfire", 3), ("holyfirewildfire", 3)]);
+        let combined = c.passive_node_magnitude("holyfire") * (1.0 + c.passive_node_magnitude("holyfirewildfire")) * (1.0 + c.passive_node_magnitude("risingblaze"));
+        assert!((combined - 0.195).abs() < 1e-9, "rank-3 holyfire*wildfire baseline must be 0.195, got {combined}");
     }
 
     #[test]
