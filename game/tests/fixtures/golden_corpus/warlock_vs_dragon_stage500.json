@@ -10,7 +10,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": "warlock",
       "role": "ranged",
-      "maxHp": 1568
+      "maxHp": 1568,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__",
@@ -21,7 +22,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 120000
+      "maxHp": 120000,
+      "thunderIncarnations": []
     }
   ],
   "events": [

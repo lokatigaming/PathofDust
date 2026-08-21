@@ -10,7 +10,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": "slayer",
       "role": "melee",
-      "maxHp": 8375
+      "maxHp": 8375,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__",
@@ -21,7 +22,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 2000000
+      "maxHp": 2000000,
+      "thunderIncarnations": []
     }
   ],
   "events": [

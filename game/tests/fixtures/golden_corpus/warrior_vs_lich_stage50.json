@@ -10,7 +10,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": "warrior",
       "role": "melee",
-      "maxHp": 210
+      "maxHp": 210,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__",
@@ -21,7 +22,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 8000
+      "maxHp": 8000,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__-add-0",
@@ -32,7 +34,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 800
+      "maxHp": 800,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__-add-1",
@@ -43,7 +46,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 800
+      "maxHp": 800,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__-add-2",
@@ -54,7 +58,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 800
+      "maxHp": 800,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__-add-3",
@@ -65,7 +70,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 800
+      "maxHp": 800,
+      "thunderIncarnations": []
     },
     {
       "id": "__enemy_0__-add-4",
@@ -76,7 +82,8 @@
       "thunderNetAbsorbed": 0,
       "archetype": null,
       "role": null,
-      "maxHp": 800
+      "maxHp": 800,
+      "thunderIncarnations": []
     }
   ],
   "events": [
