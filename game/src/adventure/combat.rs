@@ -1946,15 +1946,19 @@ pub(crate) struct CombatSimUnit {
     /// grants reduced damage taken instead.
     guardianfire_dr_pct: f64,
     /// Cleric's Haloed Steps (2026-08-21 rework) - whole-party
-    /// multiplicative more-damage grant, summed from every Cleric party
-    /// member's own investment in the party-wide broadcast pass (same
-    /// shape as `party_damage_reduction_pct` etc., NOT a personal
-    /// investment field - always 0.0 at unit construction, set only by
-    /// that broadcast). Dedicated field (not the shared
-    /// `temp_party_increased_damage_bonus`/`temp_damage_reduction_bonus`
-    /// fields several OTHER nodes already share and mislabel in the roll
-    /// log - see `roll_attacker_damage`'s own "Haloed Steps" push) so its
-    /// log entry can never be misattributed to a different node.
+    /// MULTIPLICATIVE "more" damage grant (own independent layer in
+    /// `resolve_hit`, same shape as `conflagration_dmg_pct` - NOT the
+    /// ordinary additive `increased_damage` pool, which would dilute a
+    /// fixed percentage into near-nothing against large gear/tree
+    /// increased-damage totals), summed from every Cleric party member's
+    /// own investment in the party-wide broadcast pass (same shape as
+    /// `party_damage_reduction_pct` etc., NOT a personal investment field
+    /// - always 0.0 at unit construction, set only by that broadcast).
+    /// Dedicated field (not the shared `temp_party_increased_damage_bonus`/
+    /// `temp_damage_reduction_bonus` fields several OTHER nodes already
+    /// share and mislabel in the roll log - see `resolve_hit`'s own
+    /// "Haloed Steps" push) so its log entry can never be misattributed
+    /// to a different node.
     haloedsteps_dmg_pct: f64,
     /// Elementalist's Shielding Fire - same shape as
     /// `enshroudedfire_evasion_pct`, grants improved block (an OVERRIDE
@@ -4099,8 +4103,7 @@ pub(crate) fn roll_attacker_damage(
         + party_dmg_bonus
         + berserkvigor_bonus
         + avalanche_bonus
-        + atk.splash_target_dmg_bonus
-        + atk.haloedsteps_dmg_pct;
+        + atk.splash_target_dmg_bonus;
     if atk.increased_damage > 0.0 {
         deterministic_sources.push((RollCategory::IncreasedDamage, "Increased damage (gear/tree)", atk.increased_damage));
     }
@@ -4118,9 +4121,6 @@ pub(crate) fn roll_attacker_damage(
     }
     if party_dmg_bonus > 0.0 {
         deterministic_sources.push((RollCategory::IncreasedDamage, "Warlord's Resolve", party_dmg_bonus));
-    }
-    if atk.haloedsteps_dmg_pct > 0.0 {
-        deterministic_sources.push((RollCategory::IncreasedDamage, "Haloed Steps", atk.haloedsteps_dmg_pct));
     }
     if berserkvigor_bonus > 0.0 {
         deterministic_sources.push((RollCategory::IncreasedDamage, "Berserk Vigor", berserkvigor_bonus));
@@ -4379,6 +4379,20 @@ pub(crate) fn resolve_hit(
     if atk.conflagration_dmg_pct > 0.0 {
         raw_dmg *= 1.0 + atk.conflagration_dmg_pct;
         attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Conflagration", atk.conflagration_dmg_pct));
+    }
+    // Cleric's Haloed Steps (2026-08-21 rework, owner design call) -
+    // spec'd as MULTIPLICATIVE "more" damage, same independent-layer
+    // shape as Conflagration just above, deliberately NOT folded into
+    // the additive `increased_damage` pool in `roll_attacker_damage`
+    // (moved out of there - a 2026-08-21 fix, see the commit history:
+    // it originally landed in that additive sum, which dilutes a fixed
+    // 9% into near-nothing against thousands of percent of gear
+    // increased-damage; this independent layer instead always grants
+    // exactly its stated percentage as a relative bonus, regardless of
+    // how large everything else is). See `haloedsteps_dmg_pct`'s own doc.
+    if atk.haloedsteps_dmg_pct > 0.0 {
+        raw_dmg *= 1.0 + atk.haloedsteps_dmg_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Haloed Steps", atk.haloedsteps_dmg_pct));
     }
     // Elementalist's Righteous Fire (docs/elementalist_spec.md) - design-
     // intent correction (2026-08-20): RF's enemy-facing damage is bonus
@@ -12829,10 +12843,11 @@ pub(crate) fn simulate_battle(
                 u.attack_interval_ms = (u.attack_interval_ms as f64 / (1.0 + party_attack_speed_pct)).round().max(200.0) as u32;
             }
             // Dedicated field, not folded into `u.increased_damage` -
-            // Haloed Steps needs its own labeled roll-log entry (see
-            // `roll_attacker_damage`), unlike Sanctuary/Radiant Aegis/etc
-            // above, which are invisible in logs by design precedent but
-            // aren't required to be named per-source.
+            // Haloed Steps is a MULTIPLICATIVE "more" layer applied
+            // separately in `resolve_hit` (own labeled roll-log entry),
+            // unlike Sanctuary/Radiant Aegis/etc above, which fold into a
+            // plain additive base stat and are invisible in logs by
+            // design precedent.
             u.haloedsteps_dmg_pct += party_more_damage_pct;
         }
         // Release 1.2 item 1 (2026-08-19) - Thunder Golem's own
@@ -16021,15 +16036,18 @@ mod elementalist_stage_2_tests {
         assert!((*magnitude - 0.06).abs() < 1e-9);
     }
 
-    /// Multiplicative composition: Haloed Steps must join the SAME shared
-    /// `1.0 + Σ(...)` sum every other more-damage source uses (see
-    /// `roll_attacker_damage`), not stack as an independent `*=` layer -
-    /// otherwise it would compound with gear/tree increased-damage
-    /// instead of adding to it. 9% Haloed Steps on top of 20% gear/tree
-    /// increased-damage must scale unmitigated damage by exactly 1.29x,
-    /// not 1.20 * 1.09 = 1.308x.
+    /// Multiplicative composition (owner's ruled design, re-confirmed
+    /// 2026-08-21 after a review caught this test's own PRIOR version
+    /// asserting the wrong thing): Haloed Steps must be its OWN
+    /// independent `raw_dmg *= (1.0 + x)` layer in `resolve_hit`, same
+    /// shape as Conflagration, NOT folded into the additive
+    /// `increased_damage` sum `roll_attacker_damage` combines gear/tree
+    /// bonuses through. Proof: 9% Haloed Steps on top of 20% gear/tree
+    /// increased-damage must scale unmitigated damage by EXACTLY 1.09x
+    /// (1.20 * 1.09 / 1.20), not the diluted 1.29/1.20 = 1.0750x an
+    /// additive-bucket implementation would produce.
     #[test]
-    fn haloedsteps_composes_additively_with_other_increased_damage_not_multiplicatively() {
+    fn haloedsteps_composes_multiplicatively_as_its_own_independent_more_layer() {
         let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
         let baseline_atk = CombatSimUnit { increased_damage: 0.20, ..Default::default() };
         let mut rng_a = StdRng::seed_from_u64(5);
@@ -16038,8 +16056,27 @@ mod elementalist_stage_2_tests {
         let mut rng_b = StdRng::seed_from_u64(5);
         let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
-        let expected = 1.29 / 1.20;
-        assert!((ratio - expected).abs() < 1e-6, "adding 9% Haloed Steps on top of 20% increased damage should scale by exactly {expected}x (additive: 1.29/1.20), got {ratio}");
+        assert!((ratio - 1.09).abs() < 1e-6, "9% Haloed Steps must scale unmitigated damage by exactly 1.09x regardless of the 20% increased-damage baseline (a \"more\" multiplier, not diluted into the additive pool), got {ratio}");
+    }
+
+    /// The defining property of a "more" multiplier, proven directly at
+    /// scale (the owner's own worked example, post-fix): a party member
+    /// with 5000% gear/tree increased damage (`increased_damage: 50.0`)
+    /// plus a 3-affix rank-3 Haloed Steps grant (9%) must still see
+    /// EXACTLY a 9% relative increase - not the ~0.18% an additive-bucket
+    /// bug would produce (51.09/51.0 - 1). This is the regression guard
+    /// against ever re-folding Haloed Steps back into the additive pool.
+    #[test]
+    fn haloedsteps_nine_percent_survives_undiluted_against_5000_pct_gear_increased_damage() {
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let baseline_atk = CombatSimUnit { increased_damage: 50.0, ..Default::default() };
+        let mut rng_a = StdRng::seed_from_u64(7);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted_atk = CombatSimUnit { increased_damage: 50.0, haloedsteps_dmg_pct: 0.09, ..Default::default() };
+        let mut rng_b = StdRng::seed_from_u64(7);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
+        assert!((ratio - 1.09).abs() < 1e-6, "9% Haloed Steps must still be a clean 9% relative increase even against a 5000% gear increased-damage baseline, got {ratio} (an additive-pool bug would give ~1.0018)");
     }
 
     /// End-to-end plumbing (same shape as `ticket_24_rf_self_damage_tunable_actually_reaches_the_real_sim_pipeline`
