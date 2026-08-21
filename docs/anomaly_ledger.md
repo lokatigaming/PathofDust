@@ -65,36 +65,84 @@ saved Memory's `golem_slot_types` empty (what a pre-existing-field save
 or a genuinely golem-less Memory deserializes as), loads it, and asserts
 the character's slots are preserved. **PASS**, clippy clean.
 
+**#24 — RF self-damage emits no observable damage event**
+CLOSED 2026-08-21. Live-confirmed: self-targeting `attack` events (attacker
+== target) now appear in live fight data, tagged `sourceKind:"direct"` —
+e.g. `colonyna` at `atMs:1000`, `damage:489187`/`unmitigatedDamage:9783733`
+(`adventure-fights-detail/fight-0000004981.json`); `lokati_gaming` at
+`atMs:1875`, `259664`/`5193282` (`fight-0000004982.json`). Both land at
+≈5.0% of raw — consistent with `#38`'s universal 95% DR cap applying to
+RF self-damage exactly as documented (`WIKI_IMPACT.md:320`), not a new
+anomaly. Previously this event did not exist at all; it now does, with
+real numbers. Cadence not fully characterized (only 4 RF casters and 1-2
+self-damage ticks caught across the ~6s-display sampled fights), but the
+core deferred claim — "an observable event now exists" — is proven.
+
+**#29 — Shattering × inherited splash mitigability**
+CLOSED 2026-08-21 via code + test, **not exercised live today** (0
+Shattering/icicle occurrences across all 7 fights sampled this session —
+requires a Water Golem with Shattering invested, none present in the
+sample). `apply_shattering_icicle_damage` (`combat.rs:7325`) applies the
+target's `damage_reduction` (respecting `defensive_stat_hard_cap`) —
+genuinely mitigable, the original ask — but deliberately does **not**
+route through `apply_hit`/`roll_attacker_damage`: no crit, no
+evasion/block, no elemental-proc-stack compounding. Note this is a
+refinement, not the literal wording of the original ruling ("normal
+MITIGABLE damage") — commit `f1356fe` first tried the literal
+interpretation (full `apply_hit`), which caused a documented **110,000x**
+excursion (a fully-inherited golem's whole damage-multiplier stack
+compounding onto "1% of a dead enemy's max HP") plus a **196x** Curse-of-
+Doom leak; commit `984b9b8` (supersedes `f1356fe`, both ancestors of
+current master) replaced it with the current DR-only dedicated path.
+`splash + rank` targeting confirmed unchanged (separate, untouched code).
+7/7 Shattering tests pass, including
+`release_b_icicle_damage_is_exactly_pct_times_maxhp_times_dr_with_zero_attacker_stack_contribution`
+and `release_b_doom_pool_is_unchanged_by_an_icicle_hit_on_a_cursed_target`.
+
+**#32 — Unique-shard picker route entirely unlogged** (closed 2026-08-21)
+CLOSED 2026-08-21, **live-confirmed from production server logs**
+(`logs/game.log.2026-08-20`, `logs/game.log.2026-08-21` — fight JSON
+files don't carry crafting actions, this required checking the tracing
+log instead). 9 real `picker-apply` events across the two days, e.g.:
+`2026-08-21T00:58:31Z character=fuznchill item_id=9aa40881d038104c
+chosen_affix=CelestialConversion shard_balance_before=3
+shard_balance_after=3 outcome_ok=true`. All 9 carry character, item_id,
+chosen_affix, and shard balance before/after as required; all
+`outcome_ok=true`; all show `before==after` at this specific log point,
+which is documented-correct (`manager.rs:3899` doc comment — the craft
+token is consumed earlier, at `craft_item_ex`'s insert time, not here).
+Only the apply-time event exists — no separate "picker-open" event — but
+the ledger's own deferral text only ever required "logging lands with
+this release," which this satisfies; a stricter open+apply pairing was
+this session's earlier memory-sourced elaboration, not the ledger's
+actual requirement.
+
 ## Open
 
 **#31 — +6 unique affixes granted vs 5 shards consumed**
-Downgraded to WATCH 2026-08-20: accept the launch-giveaway explanation
-unless it recurs after the giveaway window. Not re-checked today — out
-of this order's scope. *(Carried forward, not independently re-verified.)*
+Re-checked whether now verifiable, per today's order: **partially**.
+`#32`'s new `picker-apply` log (see above) gives affix-grant visibility
+(character, affix, timestamp) but does **not** log the shard-consumption
+step itself — `craft_tokens` is decremented earlier, at
+`craft_item_ex`'s insert time, and that step has no log line (confirmed
+by grep; only test assertions cover it, e.g. `manager.rs:7406`). So
+grant-count and spend-count still can't be cross-verified from logs
+alone. Still WATCH, not re-opened — no recurrence evidence found (9/9
+sampled picker-apply events this session show consistent, non-anomalous
+balances). **Gap to flag**: consumption-side logging would be needed to
+fully close this one.
 
-**#32 — Unique-shard picker route entirely unlogged**
-Was deferred pending the golem-inheritance release, which was going to
-add picker-open/picker-apply logging. **That release has since shipped**
-— commit `82b1785` (`Merge feature/golem-inheritance-mechanism`) is
-confirmed an ancestor of current master `380371a`. Per the deferral's
-own trigger condition ("verify them together in one pass once it
-deploys"), this is now due for re-verification. Not checked today — out
-of this order's explicit scope (order listed it as "context only, not
-new work this order"). **Recommend as the next parser task.**
-
-**#24 — RF self-damage emits no observable damage event**
-Same status as #32: deferred pending the golem-inheritance release,
-which has now shipped (see #32). Due for re-verification, not done
-today, out of this order's scope.
-
-**#29 — Shattering × inherited splash mitigability**
-Same status as #32/#24: release-gated, release has shipped, due for
-re-verification, not done today, out of this order's scope.
-
-**#35 — Tank-credit observability**
-Owned by the tree session, not parser. `#36` below is blocked on it.
-*(Carried forward, no detail available to this session beyond the
-name.)*
+**#35 — Thunder-reform-degradation inspection**
+Description corrected today: prior entry here said "Tank-credit
+observability" from a thin, unattributed carry-forward — this session's
+`ORDERS/parser.md` refresh (2026-08-21) instead describes it as Thunder
+Golem reform/redistribution degradation inspection, blocked behind
+tree's own `#35`/`#36` observability instrumentation (not yet pushed).
+That description is itself peer-relayed (order text), not independently
+sourced by this session against an original ledger entry — none existed
+before today. Owned by the tree session either way; not parser's to
+close. See the kazesosa/thunder-golem investigation below for today's
+related (but explicitly separate-tracked) work.
 
 **#36 — Tank-credit shortfall**
 Blocked on `#35` (tree's observability work), which per the order had
@@ -129,8 +177,10 @@ as closed.
 
 ## Recommendation
 
-`#24`, `#29`, `#32`, and the golem-durability item now closed as `#40`
-were the golem-inheritance release's full deferred-items set. With `#40`
-closed and the release confirmed shipped, `#24`/`#29`/`#32` are the only
-remaining open items gated on that release — bundle them into one
-verification pass next, per the original deferral's own instruction.
+`#24`, `#29`, `#32` closed 2026-08-21 (see above); `#40` closed
+2026-08-21. That completes the golem-inheritance release's full
+deferred-items set — all five are now resolved. `#31` remains WATCH,
+gated on consumption-side logging that still doesn't exist. Remaining
+open items (`#35`, `#36`, hpSamples-collapse, Guardian Spirit, the two
+restarts) are owned by other sessions or explicitly out of parser's
+scope.
