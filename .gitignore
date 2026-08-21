@@ -91,6 +91,9 @@ patreon-tokens.json
 # Pre-stage3-chain-deploy rollback backup (Stage 3 fixture chain +
 # #39 Druid stale-read fix, combined swap), same discipline.
 /backup-pre-stage3-chain
+# Pre-replay-bundle-deploy rollback backup (dual-write archive bundles
+# + participant-tier buffs member), same discipline.
+/backup-pre-replay-bundle
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
