@@ -94,6 +94,9 @@ patreon-tokens.json
 # Pre-replay-bundle-deploy rollback backup (dual-write archive bundles
 # + participant-tier buffs member), same discipline.
 /backup-pre-replay-bundle
+# Pre-splash-overcap-deploy rollback backup (chance-based splash
+# redesign + Volley/Chain-Lightning sizing fix), same discipline.
+/backup-pre-splash-overcap
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
@@ -163,3 +166,8 @@ target-mage/
 target-druidfix/
 target-replay-bundle/
 target-holyfire/
+target-splash-overcap/
+
+# --- Orchestrator coordination files (not project artifacts) ---
+ORDERS/
+REPORTS/

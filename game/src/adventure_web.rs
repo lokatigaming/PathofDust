@@ -2604,6 +2604,18 @@ struct TunablesForm {
     shattering_damage_pct_rank3: f64,
     /// See `LiveTunables::defensive_stat_hard_cap`'s doc.
     defensive_stat_hard_cap: f64,
+    /// See `LiveTunables::splash_extra_targets`'s doc.
+    splash_extra_targets: u32,
+    /// See `LiveTunables::splash_support_floor_targets`'s doc.
+    splash_support_floor_targets: u32,
+    /// See `LiveTunables::splash_overcap_bonus_targets`'s doc.
+    splash_overcap_bonus_targets: u32,
+    /// See `LiveTunables::splash_ladder_step_pct`'s doc.
+    splash_ladder_step_pct: u32,
+    /// See `LiveTunables::splash_ladder_targets_per_step`'s doc.
+    splash_ladder_targets_per_step: u32,
+    /// See `LiveTunables::splash_damage_pct`'s doc.
+    splash_damage_pct: f64,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2659,6 +2671,12 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 shattering_damage_pct_rank2: form.shattering_damage_pct_rank2.clamp(0.0, 1.0),
                 shattering_damage_pct_rank3: form.shattering_damage_pct_rank3.clamp(0.0, 1.0),
                 defensive_stat_hard_cap: form.defensive_stat_hard_cap.clamp(0.0, 1.0),
+                splash_extra_targets: form.splash_extra_targets,
+                splash_support_floor_targets: form.splash_support_floor_targets,
+                splash_overcap_bonus_targets: form.splash_overcap_bonus_targets,
+                splash_ladder_step_pct: form.splash_ladder_step_pct,
+                splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
+                splash_damage_pct: form.splash_damage_pct.max(0.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3435,6 +3453,38 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"defensive_stat_hard_cap\" name=\"defensive_stat_hard_cap\" value=\"{defensive_stat_hard_cap}\">\
               <p class=\"tunable-hint\">0 to 1 — a landed hit always deals at least (1 − this) of its raw mitigable damage, however stacked a defender's DR sources get. Default 0.95.</p>\
             </div>\
+            <h2>Splash</h2>\
+            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
+              <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
+              <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
+              <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
+              <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
+              <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"splash_damage_pct\">Splash Damage %</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
+              <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
+            </div>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
@@ -3474,6 +3524,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
         shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
         defensive_stat_hard_cap = t.defensive_stat_hard_cap,
+        splash_extra_targets = t.splash_extra_targets,
+        splash_support_floor_targets = t.splash_support_floor_targets,
+        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
+        splash_ladder_step_pct = t.splash_ladder_step_pct,
+        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
+        splash_damage_pct = t.splash_damage_pct,
     )
 }
 

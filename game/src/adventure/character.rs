@@ -3103,16 +3103,27 @@ impl Character {
         (gear_total * (1.0 + tree_total)).max(1.0)
     }
 
-    /// Fraction of a hit's damage that also splashes onto other alive
-    /// enemies (see `PLAYER_SPLASH_MAX_TARGETS`), or - for a Heal-
-    /// function character - the same fraction of a heal that also
-    /// splashes onto other injured allies (see `HEAL_SPLASH_MAX_TARGETS`/
-    /// `apply_heal_splash`). Deliberately NOT capped at 1.0 here (unlike
-    /// every other summed-affix stat) - each splash target still can't
-    /// receive more than the primary hit/heal's own amount (see
-    /// `apply_splash`/`apply_heal_splash`'s `.min(1.0)` on the per-target
-    /// fraction), but pushing the total over 100% now buys 2 extra splash
-    /// targets instead of the overflow being wasted.
+    /// Splash investment, as a fraction (2026-08-20 splash redesign;
+    /// 2026-08-20 FINAL SPLASH TABLE addendum - see `roll_splash`,
+    /// combat.rs). No longer a guaranteed-hit damage-scaling fraction -
+    /// this is now the CHANCE (capped at 100% for the roll itself) that
+    /// a splash-keyed action/effect reaches its full extra-target count
+    /// this time, all-or-nothing per roll. Pushing the total over 100%
+    /// (overcap) makes that guaranteed instead of a roll, plus a bonus
+    /// target (`LiveTunables::splash_overcap_bonus_targets`) and, past
+    /// every full 1000%, another rung on a ladder
+    /// (`LiveTunables::splash_ladder_step_pct`/`splash_ladder_targets_per_step`) -
+    /// uncapped. Deliberately NOT capped at 1.0 here (unlike every other
+    /// summed-affix stat) for exactly that overcap/ladder math to work.
+    /// Consumed by two different shapes of caller (see `roll_splash`'s
+    /// own doc): ATTACK splash (`apply_splash`/`apply_heal_splash`) gets
+    /// 0 extra targets on a missed roll or 0% splash; the four SUPPORT
+    /// sites (Radiant Smite heal, Relentless/Cauterizing Flames,
+    /// Cleansing Flames' cleanse-count and buff-refresh) fall back to
+    /// `LiveTunables::splash_support_floor_targets` instead - they never
+    /// do nothing. Every splash-hit target still takes the SAME fraction
+    /// of the primary hit/heal's own amount (`LiveTunables::splash_damage_pct`,
+    /// default full value) regardless of how many targets a roll grants.
     pub fn combat_splash(&self) -> f64 {
         // No innate baseline (unlike crit chance's guaranteed 5%) - most
         // characters start at exactly 0% gear splash, so `gear*(1+tree)`

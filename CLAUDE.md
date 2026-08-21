@@ -70,3 +70,21 @@ A parallel session may be overhauling the wiki module at any time.
    flight.
 7. wiki/*.md files are live content — the owner edits them directly;
    sessions request changes via WIKI_IMPACT.md, never edit them unasked.
+
+## Multi-session house rules (all Claude sessions in this repo)
+
+ROLES. Feature sessions build on branches. The deploy session alone merges to master and deploys. The log parser verifies from fight logs and owns the anomaly ledger (its numbering is canonical). One release at a time, deployed only on the owner's explicit go.
+
+BRANCH DISCIPLINE. Each feature session: own git worktree, branch off current origin/master, own --target-dir (production binaries are file-locked). Never touch the main checkout. Push and STOP — never merge to master, never deploy, never regenerate golden-corpus fixtures (report mismatches with attributed causes; regeneration happens at merge). Fixture ADDITIONS are allowed; re-capturing an unmerged draft needs explicit permission plus a per-diff explanation.
+
+BUILD & TEST. cargo build --release --workspace (a plain build misses game.exe). Clippy clean on touched code. NO blanket cargo fmt — no rustfmt.toml exists; match file style by hand. Run tests with --quiet and report counts + failures only — never paste full passing output. Known flaky-under-parallel tests: the two legacy redistribution tests and live_reload_tests::editing_a_template_takes_effect_without_a_rebuild — confirm in isolation before flagging.
+
+LARGE FILES. Never read combat.rs or any >5k-line file whole. Grep for symbols, then read targeted line ranges.
+
+PROCESS. Fit report FIRST on every feature: verify the order's premises against the code, enumerate every touch point, propose a staged plan, then STOP for approval. If an order's premise is wrong, say so with evidence — refuting a premise beats building on it. Verified claims outrank code-trace claims: live logs and live click-throughs are the only close for behavior and web-form changes.
+
+TUNABLES DOCTRINE. Every numeric aspect of a mechanic ships as a LiveTunable or node-value override unless genuinely structural (see Decision 16 in docs/passive_tunables_spec.md for the shared-constant exception). Damage reduction caps at defensive_stat_hard_cap (default 0.95) universally — no immunity through DR, ever. Flat/derived damage sources (Shattering icicles, Holy Fire) deliver through the shared dedicated path, never apply_hit.
+
+REPORTS. Compact: tables for numbers, hashes for commits and binaries, a verdict per ordered item. Per-item "BLOCKED + reason" is required — silent omission is banned. No narrative recap of unchanged state. Self-corrections are stated plainly with what changed.
+
+COMMITS & DOCS. git add with explicit paths, never -a/-A. Append a WIKI_IMPACT.md line for any player-facing change (append-only file; keep-both on merge conflicts). Never touch the wiki module or /wiki routes — the wiki session owns them. Every deploy ships a patch-notes entry (C:/PathofDust/patch-notes.json — gitignored runtime data). Patch notes are honest: nerfs say they are nerfs.
