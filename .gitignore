@@ -100,6 +100,9 @@ patreon-tokens.json
 # Pre-holyfire-deploy rollback backup (Paladin Holy Fire delivery fix
 # + duplicate-unique-effects cleanup migration), same discipline.
 /backup-pre-holyfire
+# Pre-summary-bundle-seq-deploy rollback backup (FightSummarySnapshot
+# bundle_seq field), same discipline.
+/backup-pre-summary-bundle-seq
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
