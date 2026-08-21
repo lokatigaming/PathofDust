@@ -56,6 +56,8 @@ node and unlocks its 3 child Modifiers below. This is a real game mechanic,
 not just UI framing: the extra stat growth genuinely stops at rank 3, and
 the 4th point's entire job is unlocking the row underneath.
 
+<p class="muted">Cleric's Chain of Light (Prayer of Mending's bounce-target Specialization) is a concrete example worth knowing by name: 2 total bounce targets at rank 1, up to 4 at rank 3 - a 4/4 investment unlocks its Modifiers, not a 5th target. A brief live bug once let a 4/4 investment reach 5 targets by reading the raw rank instead of stopping the stat growth at 3 like every other Specialization; that's fixed, and the tree's own numbers (2 → 4) are the accurate, current behavior.</p>
+
 A node marked **(inactive)** on the tree accepts point investment like any
 other - those points are banked, not wasted, and the node will start working
 the moment that mechanic ships. This is intentional and known; if you see
