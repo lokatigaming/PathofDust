@@ -231,6 +231,7 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
 /// confirmed to be a plain arithmetic count at its own call site before
 /// being listed.
 pub const INTEGER_COUNT_NODES: &[&str] = &[
+    "risingblaze",
     "infiniteloop",
     "chainoflight",
     "arterialspray",
@@ -271,7 +272,6 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
 /// can say the accurate thing rather than promising a batch that would
 /// have nothing to do.
 pub const UNWIRED_NODES: &[&str] = &[
-    "risingblaze", // paladin - "Holy Fire strikes 1 additional random enemy per rank"
     "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
 ];
 
@@ -498,6 +498,22 @@ mod passive_override_tests {
         assert_eq!(PENDING_MIGRATION_NODES.len(), 28, "Stage 3 Mage batch migrated absolutezero/arcaneinstability/empoweredbolt/infiniteloop");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
         assert_eq!(unique.len(), 28, "the pending list must not contain duplicates");
+    }
+
+    #[test]
+    fn rising_blaze_is_wired_and_tunable() {
+        // Wired 2026-08-21 (Paladin Holy Fire branch fix). It had no
+        // reader at all - a designed mechanic players had been allocating
+        // points into for nothing.
+        assert!(node_is_tunable("risingblaze"), "risingblaze now has a reader and must be offered");
+        assert!(node_untunable_reason("risingblaze").is_none());
+        assert!(INTEGER_COUNT_NODES.contains(&"risingblaze"), "its magnitude is a strike COUNT");
+        assert!(!UNWIRED_NODES.contains(&"risingblaze"), "it is no longer unwired");
+        let n = node(Archetype::Paladin, "risingblaze");
+        let empty = PassiveOverrides::default();
+        for rank in 1..=3u32 {
+            assert_eq!(n.magnitude_at_rank_with(rank, &empty), rank as f64, "1 additional strike per rank");
+        }
     }
 
     #[test]
