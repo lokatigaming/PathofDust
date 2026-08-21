@@ -3838,24 +3838,30 @@ impl AdventureManager {
     /// state. This is where a veiled craft's item mutation/consumption
     /// ACTUALLY happens, using the EXACT rolled candidate the player
     /// already saw - nothing is re-rolled at commit time. Out-of-range
-    /// `chosen_index` or no pending veil at all both just no-op rather
-    /// than erroring - not a reachable UI state under normal use. Returns
-    /// the real applied outcome (not just the pre-application candidate)
-    /// so the caller has the same shape to work with as the immediate
-    /// (non-veiled) `craft_item`/`recombine_gear` paths - e.g. for the
-    /// web dashboard's "here's what just changed" popup. A veiled
-    /// Chancing candidate is the one exception: it returns
-    /// `VeilChosenOutcome::ChancingContinues` (no popup) and inserts a
-    /// FRESH `PendingVeil` for the next affix slot instead, if
-    /// `pending.chancing_remaining` isn't empty yet - see that field's own
-    /// doc.
-    pub async fn choose_veil_outcome(&self, username: &str, chosen_index: usize) -> Option<VeilChosenOutcome> {
+    /// `chosen_index` or no pending veil at all both just no-op
+    /// (`Ok(None)`) rather than erroring - not a reachable UI state under
+    /// normal use. Returns the real applied outcome (not just the
+    /// pre-application candidate) so the caller has the same shape to
+    /// work with as the immediate (non-veiled) `craft_item`/
+    /// `recombine_gear` paths - e.g. for the web dashboard's "here's what
+    /// just changed" popup. A veiled Chancing candidate is the one
+    /// exception: it returns `VeilChosenOutcome::ChancingContinues` (no
+    /// popup) and inserts a FRESH `PendingVeil` for the next affix slot
+    /// instead, if `pending.chancing_remaining` isn't empty yet - see
+    /// that field's own doc. `Err` is reserved for a REACHABLE commit-time
+    /// rejection - currently only `Character::apply_unique_affix`'s own
+    /// commit-time conflict re-check (duplicate-unique-effects fix,
+    /// 2026-08-21, bug #44) - so the caller can show the same
+    /// player-facing message the insert-time rejection already does,
+    /// instead of the silent no-op every other unreachable precondition
+    /// gets.
+    pub async fn choose_veil_outcome(&self, username: &str, chosen_index: usize) -> Result<Option<VeilChosenOutcome>, CraftError> {
         let key = username.to_lowercase();
-        let pending = self.pending_veils.lock().await.remove(&key)?;
-        let chosen = pending.candidates.get(chosen_index)?.clone();
+        let Some(pending) = self.pending_veils.lock().await.remove(&key) else { return Ok(None) };
+        let Some(chosen) = pending.candidates.get(chosen_index).cloned() else { return Ok(None) };
 
         let mut characters = self.characters.lock().await;
-        let character = characters.get_mut(&key)?;
+        let Some(character) = characters.get_mut(&key) else { return Ok(None) };
         let mut result: Option<VeilChosenOutcome> = None;
         let mut recombine_crit: Option<(String, EquipSlot, u32, Option<Affix>)> = None;
         let mut next_pending: Option<PendingVeil> = None;
@@ -3942,9 +3948,21 @@ impl AdventureManager {
                     }
                     _ => Err(CraftError::ItemNotFound),
                 };
-                if let Ok(applied) = applied {
-                    character.last_crafted_item_id = Some(item_id.clone());
-                    result = Some(VeilChosenOutcome::Currency(applied));
+                match applied {
+                    Ok(applied) => {
+                        character.last_crafted_item_id = Some(item_id.clone());
+                        result = Some(VeilChosenOutcome::Currency(applied));
+                    }
+                    // Every OTHER commit-time precondition failure here is
+                    // still treated as unreachable-under-normal-use (see
+                    // this fn's own doc) and stays a silent no-op, same as
+                    // always. The Unique Shard picker's own commit-time
+                    // conflict rejection is the one exception - it's
+                    // reachable live (bug #44) and needs the same
+                    // player-facing message the insert-time rejection
+                    // already gets, so it propagates out instead.
+                    Err(err) if outcome.unique_affix_added.is_some() => return Err(err),
+                    Err(_) => {}
                 }
             }
             (PendingVeilAction::Recombine { item_id_a, item_id_b }, VeilCandidate::Recombine(roll)) => {
@@ -3966,7 +3984,7 @@ impl AdventureManager {
         if let Some((item_name, slot, tier, bonus_affix)) = recombine_crit {
             self.announce_gear_crit(display_name, GearCritSource::Recombine, &item_name, slot, tier, bonus_affix);
         }
-        result
+        Ok(result)
     }
 
     /// Picks one random currently-equipped item (any slot, indestructible
@@ -7559,7 +7577,7 @@ mod unique_shard_tests {
             .position(|c| matches!(c, VeilCandidate::Currency(outcome) if outcome.unique_affix_added == Some(UniqueAffix::SplitPersonality)))
             .expect("SplitPersonality must be one of the offered candidates");
 
-        let outcome = manager.choose_veil_outcome("decider", split_index).await.expect("choosing a valid candidate must succeed");
+        let outcome = manager.choose_veil_outcome("decider", split_index).await.expect("choosing a valid candidate must succeed").expect("a real pending choice was committed");
         match outcome {
             VeilChosenOutcome::Currency(outcome) => assert_eq!(outcome.unique_affix_added, Some(UniqueAffix::SplitPersonality)),
             other => panic!("expected VeilChosenOutcome::Currency, got {other:?}"),
@@ -7569,6 +7587,56 @@ mod unique_shard_tests {
         let item = character.find_item_by_id(&id).expect("item still present");
         assert_eq!(item.unique_affix, Some(UniqueAffix::SplitPersonality), "the picked effect, and only the picked one, must be applied");
         assert!(manager.pending_veil("decider").await.is_none(), "the pending choice must be cleared once committed");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Bug #44 (2026-08-21) - the commit-time gap: a Unique Shard pick is
+    /// still PENDING (insert-time filter already passed, since nothing
+    /// conflicted then) when the OTHER equipped slot lands the same
+    /// value in the meantime (an ordinary equip here - `pending_veils`
+    /// only holds one entry per player, so two overlapping Unique Shard
+    /// PICKER flows for the same player can't literally coexist; landing
+    /// the second value via equip is the simplest deterministic way to
+    /// open the exact window bug #44 exploited: insert-time validates a
+    /// snapshot, nothing re-validates it at commit). The commit must now
+    /// reject via the same `ConflictingUniqueAffix` the insert-time
+    /// filter already uses, and - since the token was already spent back
+    /// at insert - the rejection must not touch the token balance any
+    /// further either way.
+    #[tokio::test]
+    async fn commit_is_rejected_when_the_other_slot_lands_the_same_unique_while_this_pick_is_still_pending() {
+        let (manager, scratch) = disposable_manager("commit_time_conflict");
+        let id = joined_with_unique_shard_and_equipped_item(&manager, "overlap", 1, None).await;
+
+        manager.craft_item_ex("overlap", &id, CraftAction::UniqueShard, false, true).await.expect("nothing conflicts yet - insert-time filter must pass");
+        let pending = manager.pending_veil("overlap").await.expect("pending choice must exist");
+        let split_index = pending
+            .candidates
+            .iter()
+            .position(|c| matches!(c, VeilCandidate::Currency(outcome) if outcome.unique_affix_added == Some(UniqueAffix::SplitPersonality)))
+            .expect("SplitPersonality must be one of the offered candidates - nothing equipped conflicts yet");
+
+        {
+            // While the Weapon's pick sits pending, the Helm slot
+            // independently receives the SAME value - the insert-time
+            // snapshot above can't see this, only a commit-time re-check
+            // can.
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("overlap").unwrap();
+            let mut helm = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+            helm.unique_affix = Some(UniqueAffix::SplitPersonality);
+            character.helm = Some(helm);
+        }
+
+        let err = manager.choose_veil_outcome("overlap", split_index).await.expect_err("commit must re-check and reject now that the Helm already carries this value");
+        assert!(matches!(err, CraftError::ConflictingUniqueAffix));
+
+        let character = manager.character("overlap").await.expect("still joined");
+        let item = character.find_item_by_id(&id).expect("item still present");
+        assert_eq!(item.unique_affix, None, "a rejected commit must never mutate the item");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 0, "no token loss either way - the token was already spent at insert time and a commit-time rejection must not touch it further");
+        assert!(manager.pending_veil("overlap").await.is_none(), "the pending choice is consumed on commit attempt regardless of outcome, same as every other commit");
 
         std::fs::remove_dir_all(&scratch).ok();
     }
