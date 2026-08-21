@@ -676,6 +676,46 @@ pub struct CombatUnitInfo {
     pub archetype: Option<Archetype>,
     pub role: Option<CombatFunction>,
     pub max_hp: u64,
+    /// For a Thunder Golem only (empty for everyone else, including every
+    /// other golem type): one entry per incarnation this fight, oldest
+    /// first - ledger #35/#36 (2026-08-22). Lets the parser measure
+    /// per-incarnation absorbed/redistributed/max_hp/lifespan directly
+    /// instead of reconstructing incarnation boundaries from raw event
+    /// timestamps (ambiguous once a redistribution's own "still owed"
+    /// merge across deaths - see `handle_golem_death`'s doc in combat.rs -
+    /// blends two incarnations' ticks together). The still-alive-at-
+    /// fight-end incarnation, if any, IS included here (appended by the
+    /// fight-end unit_infos builder) with `redistributed: 0` - it never
+    /// reached `handle_golem_death`, so nothing has been redistributed
+    /// away from it yet. A DoT armed near fight end may still show
+    /// `redistributed: 0` on the LAST entry that did die even though a
+    /// redistribution was scheduled - display-time compression can mean
+    /// it never gets to deliver before the fight log ends; that's a known,
+    /// expected confound, not a bug (see #36's own note on this).
+    /// Same additive/wire-safe shape as `golem_type`'s own doc -
+    /// `#[serde(default)]` so pre-existing fight records deserialize as
+    /// empty rather than failing.
+    #[serde(default)]
+    pub thunder_incarnations: Vec<ThunderIncarnationInfo>,
+}
+
+/// One Thunder Golem incarnation's own tally - see
+/// `CombatUnitInfo::thunder_incarnations`'s own doc for why this exists.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThunderIncarnationInfo {
+    /// This incarnation's own gross absorbed total, before redistribution.
+    pub absorbed: u64,
+    /// How much of `absorbed` actually got redistributed to the party -
+    /// `0` for the still-alive-at-fight-end entry (nothing redistributed
+    /// yet) and for any incarnation whose death found no real party
+    /// member alive to receive it.
+    pub redistributed: u64,
+    /// This incarnation's own `max_hp` (post-Growing, at time of death,
+    /// or current for the still-alive entry).
+    pub max_hp: u64,
+    /// How long this incarnation was alive for, in ms.
+    pub lifespan_ms: u32,
 }
 
 /// Post-fight leaderboard - the top 3 by damage dealt ("DPS"), top 3 by
@@ -6017,11 +6057,11 @@ mod fight_summary_tests {
     use super::*;
 
     fn player(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp: 1000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }
     }
 
     fn golem(id: &str, owner_id: &str) -> CombatUnitInfo {
@@ -6035,6 +6075,7 @@ mod fight_summary_tests {
             golem_summoner_id: Some(owner_id.to_string()),
             golem_type: None,
             thunder_net_absorbed: 0,
+            thunder_incarnations: vec![],
         }
     }
 
@@ -6366,6 +6407,7 @@ mod fight_summary_tests {
                 golem_summoner_id: Some("lokati_gaming".to_string()),
                 golem_type: Some(GolemType::Thunder),
                 thunder_net_absorbed: 400,
+                thunder_incarnations: vec![],
             },
             boss("__enemy_0"),
         ];
@@ -6394,6 +6436,7 @@ mod fight_summary_tests {
                 golem_summoner_id: Some("lokati_gaming".to_string()),
                 golem_type: Some(GolemType::Thunder),
                 thunder_net_absorbed: 900,
+                thunder_incarnations: vec![],
             },
             boss("__enemy_0"),
         ];
@@ -6467,11 +6510,11 @@ mod player_vitals_tests {
     use super::*;
 
     fn player(id: &str, max_hp: u64) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: false, archetype: None, role: None, max_hp, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }
     }
 
     fn boss(id: &str) -> CombatUnitInfo {
-        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }
+        CombatUnitInfo { id: id.to_string(), display_name: id.to_string(), is_boss: true, archetype: None, role: None, max_hp: 10_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }
     }
 
     fn hit(at_ms: u32, attacker: &str, target: &str, target_hp_after: u64) -> CombatEvent {

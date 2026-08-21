@@ -2059,6 +2059,26 @@ pub(crate) struct CombatSimUnit {
     /// redistributed portion, already counted separately on each
     /// recipient's own row). 0.0 for every non-Thunder-Golem unit.
     thundergolem_net_absorbed: f64,
+    /// For a Thunder Golem: `at_ms` this CURRENT incarnation began - 0 at
+    /// spawn (golems always spawn at fight setup, before the main loop),
+    /// reset to the reform's own `at_ms` on every reform. Read by
+    /// `handle_golem_death` to compute the dying incarnation's
+    /// `lifespan_ms` for `thundergolem_incarnations` below. 0 for every
+    /// non-Thunder-Golem unit.
+    thundergolem_incarnation_started_at_ms: u32,
+    /// For a Thunder Golem: one record per incarnation that has died so
+    /// far this fight (ledger #35/#36, 2026-08-22) - what `handle_golem_death`
+    /// pushes right before `thundergolem_absorbed_this_incarnation` resets
+    /// for the next reform, so the parser can measure per-incarnation
+    /// absorbed/redistributed/max_hp/lifespan directly instead of
+    /// reconstructing incarnation boundaries from raw event timestamps
+    /// (ambiguous once the redistribution "still owed" merge - see
+    /// `handle_golem_death`'s own doc - blends two incarnations' ticks
+    /// together). The still-alive-at-fight-end incarnation (if any) is
+    /// NOT in this vec - `run_encounter`'s own `unit_infos` builder
+    /// appends it separately, since it never reaches `handle_golem_death`.
+    /// Empty for every non-Thunder-Golem unit.
+    thundergolem_incarnations: Vec<ThunderIncarnationRecord>,
     /// For a Thunder Golem: Terrifying's own on-death explosion
     /// fraction of `max_hp`, dealt to every alive enemy - copied from
     /// the summoner's investment at spawn. 0.0 without it invested.
@@ -3317,6 +3337,8 @@ impl Default for CombatSimUnit {
             thundergolem_reform_count: 0,
             thundergolem_absorbed_this_incarnation: 0.0,
             thundergolem_net_absorbed: 0.0,
+            thundergolem_incarnation_started_at_ms: 0,
+            thundergolem_incarnations: Vec::new(),
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
@@ -5621,6 +5643,8 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             thundergolem_reform_count: 0,
             thundergolem_absorbed_this_incarnation: 0.0,
             thundergolem_net_absorbed: 0.0,
+            thundergolem_incarnation_started_at_ms: 0,
+            thundergolem_incarnations: Vec::new(),
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
@@ -6141,9 +6165,13 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
 ///   specifically (fight hasn't started, so a fresh summoner's own
 ///   shield/buffs/debuffs/stacks are already at their fight-start
 ///   values) - zeroed anyway, for the same forward-durability reason as
-///   golem machinery: a future mid-fight golem-respawn mechanic (Thunder
-///   Golem reform already re-derives its own state rather than
-///   re-cloning) must not silently inherit stale live combat state.
+///   golem machinery: a mid-fight golem-respawn mechanic (Thunder Golem
+///   reform mutates the same unit in place rather than re-cloning) must
+///   not silently inherit stale live combat state. (2026-08-22 - this
+///   doc's own claim that reform "already re-derives its own state" was
+///   false in practice until ledger #35's fix: `reform_thunder_golem`
+///   now calls `cleanse_player_debuffs` for exactly this reason, on the
+///   audited subset of these fields a boss can actually inflict.)
 ///   Shields, every `temp_*` timed buff/debuff pair, proc/kill/hit
 ///   stack COUNTERS (not their per-stack VALUE, which is a real,
 ///   inheritable multiplier - see the doc split on `stack_speed_current`
@@ -6176,6 +6204,8 @@ fn clear_non_inheritable_for_golem(golem: &mut CombatSimUnit) {
     golem.thundergolem_reform_count = 0;
     golem.thundergolem_absorbed_this_incarnation = 0.0;
     golem.thundergolem_net_absorbed = 0.0;
+    golem.thundergolem_incarnation_started_at_ms = 0;
+    golem.thundergolem_incarnations = Vec::new();
     golem.thundergolem_terrifying_pct = 0.0;
     golem.golem_reform_at_ms = u32::MAX;
     golem.next_thunder_redistribution_tick_at_ms = u32::MAX;
@@ -6859,6 +6889,28 @@ fn sweep_golem_deaths(
     }
 }
 
+/// One dead Thunder Golem incarnation's own tally (ledger #35/#36,
+/// 2026-08-22) - see `CombatSimUnit::thundergolem_incarnations`'s own doc
+/// for why this exists instead of reconstructing per-incarnation numbers
+/// from raw event timestamps.
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
+struct ThunderIncarnationRecord {
+    /// This incarnation's own `thundergolem_absorbed_this_incarnation` at
+    /// the moment it died - the GROSS amount, before redistribution.
+    absorbed: f64,
+    /// How much of `absorbed` actually got redistributed to the party -
+    /// `0.0` if `redistribution_pct <= 0.0` or no real party member was
+    /// alive to receive it (same guard `handle_golem_death` itself uses),
+    /// not the theoretical `absorbed * redistribution_pct` figure.
+    redistributed: f64,
+    /// This incarnation's own `max_hp` at time of death.
+    max_hp: u64,
+    /// How long this incarnation was alive for, in ms (death `at_ms`
+    /// minus `thundergolem_incarnation_started_at_ms`).
+    lifespan_ms: u32,
+}
+
 /// Thunder Golem's own on-death consequences (docs/elementalist_spec.md,
 /// Stage 6) - Terrifying's explosion (dealt to every alive enemy, "its
 /// health" read as `max_hp` since current hp is already 0 at this
@@ -6907,10 +6959,12 @@ fn handle_golem_death(
     // Golem doesn't need to still be "in a real fight" for its tank
     // burden to come due.
     let absorbed = units[golem_idx].thundergolem_absorbed_this_incarnation;
+    let mut redistributed = 0.0;
     if absorbed > 0.0 && redistribution_pct > 0.0 {
         let recipients: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && !u.is_golem && u.alive).map(|(i, _)| i).collect();
         if !recipients.is_empty() {
             let total_redistributed = absorbed * redistribution_pct;
+            redistributed = total_redistributed;
             // B6 - this incarnation's contribution to the owner's lifetime
             // tank credit shrinks by exactly the portion that just got
             // handed off to the party (see `thundergolem_net_absorbed`'s
@@ -6952,6 +7006,20 @@ fn handle_golem_death(
             }
         }
     }
+    // Ledger #35/#36 observability (2026-08-22) - one record per dead
+    // incarnation, see `CombatSimUnit::thundergolem_incarnations`'s own
+    // doc. Gated on the real type check (not just `absorbed > 0.0`,
+    // which every non-Thunder golem type also satisfies trivially at
+    // 0.0) so this vec stays genuinely empty for Flame/Water/Basic, per
+    // its own doc.
+    if units[golem_idx].golem_type == Some(GolemType::Thunder) {
+        units[golem_idx].thundergolem_incarnations.push(ThunderIncarnationRecord {
+            absorbed,
+            redistributed,
+            max_hp: units[golem_idx].max_hp,
+            lifespan_ms: at_ms.saturating_sub(units[golem_idx].thundergolem_incarnation_started_at_ms),
+        });
+    }
     let reform_delay = units[golem_idx].thundergolem_reform_delay_ms;
     if reform_delay > 0 {
         units[golem_idx].golem_reform_at_ms = at_ms + reform_delay;
@@ -6984,7 +7052,31 @@ fn handle_golem_death(
 /// attribution rolled it up into the owner's healing stat. No `Heal`
 /// event is pushed here at all; `full_player_fight_stats` never sees a
 /// reform as healing, so nothing to roll up.
+///
+/// 2026-08-22 bugfix (ledger #35) - "reforms and rejoins combat" was never
+/// actually starting the fresh incarnation clean: this function only ever
+/// touched `max_hp`/`hp`/`alive`/`golem_reform_at_ms`/
+/// `thundergolem_absorbed_this_incarnation` - every boss-inflictable
+/// combat debuff a PREVIOUS incarnation picked up (Gelatinous Cube's
+/// `cube_shred_stacks`, up to -50% DR, `CUBE_SHRED_DURATION_MS` 3000ms;
+/// Festering Wound's `wound_stacks`) rode straight into the new
+/// incarnation, since reform mutates the same unit in place rather than
+/// rebuilding it. At Growing rank 2/3 the reform delay (3000/2000ms) is
+/// AT OR BELOW that 3000ms decay window, so a golem that died carrying
+/// Cube shred stacks could reform still under that same DR debuff before
+/// taking a single hit as the "bigger, cleansed" incarnation Growing's
+/// own math promises - confirmed via live-owner report of golems getting
+/// WEAKER with each kill despite Growing's additive-off-base formula
+/// (above) provably increasing `max_hp` every reform. `boss_focus_stacks`
+/// is proven separately to self-reset via the reform gap's own
+/// forced target-switch (see `cleanse_player_debuffs`'s own doc for the
+/// full audited list), but clearing it here too costs nothing and closes
+/// the gap even if that targeting logic ever changes. Reuses
+/// `cleanse_player_debuffs` rather than a parallel list, since that
+/// function is already the canonical, audited enumeration of every
+/// debuff a boss can actually land on a non-boss target.
 fn reform_thunder_golem(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>) {
+    cleanse_player_debuffs(&mut units[golem_idx]);
     let growing_pct = units[golem_idx].thundergolem_growing_pct;
     if growing_pct > 0.0 {
         units[golem_idx].thundergolem_reform_count += 1;
@@ -7003,6 +7095,10 @@ fn reform_thunder_golem(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u3
     // NOT resetting `thundergolem_net_absorbed` here - that one is
     // lifetime, never reset by a reform (see its own doc).
     units[golem_idx].thundergolem_absorbed_this_incarnation = 0.0;
+    // Ledger #35/#36 observability - the new incarnation's own clock
+    // starts now, so `handle_golem_death` can compute its `lifespan_ms`
+    // when IT dies.
+    units[golem_idx].thundergolem_incarnation_started_at_ms = at_ms;
     let golem_id = units[golem_idx].id.clone();
     events.push(CombatEvent::SkillCast { at_ms, unit: golem_id, skill: "Thunder Golem Reform".to_string() });
 }
@@ -11815,6 +11911,8 @@ pub(crate) fn simulate_battle(
                 thundergolem_reform_count: 0,
                 thundergolem_absorbed_this_incarnation: 0.0,
                 thundergolem_net_absorbed: 0.0,
+                thundergolem_incarnation_started_at_ms: 0,
+                thundergolem_incarnations: Vec::new(),
                 thundergolem_terrifying_pct: 0.0,
                 watergolem_shattering_extra_targets: 0,
                 watergolem_singing_pct: 0.0,
@@ -12256,6 +12354,8 @@ pub(crate) fn simulate_battle(
             thundergolem_reform_count: 0,
             thundergolem_absorbed_this_incarnation: 0.0,
             thundergolem_net_absorbed: 0.0,
+            thundergolem_incarnation_started_at_ms: 0,
+            thundergolem_incarnations: Vec::new(),
             thundergolem_terrifying_pct: 0.0,
             watergolem_shattering_extra_targets: 0,
             watergolem_singing_pct: 0.0,
@@ -13408,6 +13508,8 @@ pub(crate) fn simulate_battle(
                                 thundergolem_reform_count: 0,
                                 thundergolem_absorbed_this_incarnation: 0.0,
                                 thundergolem_net_absorbed: 0.0,
+                                thundergolem_incarnation_started_at_ms: 0,
+                                thundergolem_incarnations: Vec::new(),
                                 thundergolem_terrifying_pct: 0.0,
                                 watergolem_shattering_extra_targets: 0,
                                 watergolem_singing_pct: 0.0,
@@ -14529,16 +14631,44 @@ pub(crate) fn simulate_battle(
     // twice but did not see any summons").
     let unit_infos: Vec<CombatUnitInfo> = units
         .iter()
-        .map(|u| CombatUnitInfo {
-            id: u.id.clone(),
-            display_name: u.display_name.clone(),
-            is_boss: u.is_boss,
-            archetype: u.archetype,
-            role: u.role,
-            max_hp: u.max_hp,
-            golem_summoner_id: u.golem_summoner_id.clone(),
-            golem_type: u.golem_type,
-            thunder_net_absorbed: u.thundergolem_net_absorbed.round().max(0.0) as u64,
+        .map(|u| {
+            // Ledger #35/#36 (2026-08-22) - every incarnation that has
+            // already died, plus (if this golem is still alive at fight
+            // end) the current one, which never reached
+            // `handle_golem_death` so has nothing in
+            // `thundergolem_incarnations` yet. `redistributed: 0` for that
+            // trailing entry is correct, not a placeholder - nothing has
+            // been redistributed away from a still-alive incarnation.
+            let mut thunder_incarnations: Vec<ThunderIncarnationInfo> = u
+                .thundergolem_incarnations
+                .iter()
+                .map(|r| ThunderIncarnationInfo {
+                    absorbed: r.absorbed.round().max(0.0) as u64,
+                    redistributed: r.redistributed.round().max(0.0) as u64,
+                    max_hp: r.max_hp,
+                    lifespan_ms: r.lifespan_ms,
+                })
+                .collect();
+            if u.alive && u.golem_type == Some(GolemType::Thunder) {
+                thunder_incarnations.push(ThunderIncarnationInfo {
+                    absorbed: u.thundergolem_absorbed_this_incarnation.round().max(0.0) as u64,
+                    redistributed: 0,
+                    max_hp: u.max_hp,
+                    lifespan_ms: prev_at_ms.saturating_sub(u.thundergolem_incarnation_started_at_ms),
+                });
+            }
+            CombatUnitInfo {
+                id: u.id.clone(),
+                display_name: u.display_name.clone(),
+                is_boss: u.is_boss,
+                archetype: u.archetype,
+                role: u.role,
+                max_hp: u.max_hp,
+                golem_summoner_id: u.golem_summoner_id.clone(),
+                golem_type: u.golem_type,
+                thunder_net_absorbed: u.thundergolem_net_absorbed.round().max(0.0) as u64,
+                thunder_incarnations,
+            }
         })
         .collect();
     (won, unit_infos, events, rolls)
@@ -14680,8 +14810,8 @@ mod overlay_event_thinning_tests {
     #[test]
     fn caps_player_and_boss_events_independently_per_second() {
         let units = vec![
-            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
-            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
+            CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] },
+            CombatUnitInfo { id: "__enemy_0__".to_string(), display_name: "B".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] },
         ];
         let mut events = Vec::new();
         for _ in 0..600 {
@@ -14699,7 +14829,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn different_seconds_each_get_their_own_budget() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         let mut events = Vec::new();
         for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
             events.push(attack_at(500, "a_player"));
@@ -14713,7 +14843,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn under_the_cap_nothing_is_dropped() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
         let thinned = thin_events_for_overlay(events, &units);
         assert_eq!(thinned.len(), 3);
@@ -14721,7 +14851,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn heal_defeat_and_skillcast_are_never_dropped_even_deep_past_the_attack_cap() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         let mut events = Vec::new();
         for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4) {
             events.push(attack_at(500, "a_player"));
@@ -14737,7 +14867,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn shield_and_buffsnapshot_are_never_broadcast_even_under_the_cap() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         let events = vec![
             CombatEvent::Shield { at_ms: 0, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5 },
             CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("test".to_string(), 1.0)] },
@@ -14748,7 +14878,7 @@ mod overlay_event_thinning_tests {
 
     #[test]
     fn attack_overflow_is_spread_across_the_second_not_clustered_at_the_start() {
-        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 }];
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         // 4x the cap, spread evenly across the second (ms 0..1000) by
         // send order - old head-keep would drop every event past ms 250
         // outright; stride sampling must let some of the LAST ms's
@@ -15229,8 +15359,8 @@ mod full_detail_combat_log_tests {
             },
         ];
         let unit_infos = vec![
-            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
-            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
+            CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] },
+            CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] },
         ];
         let stats = full_player_fight_stats(&unit_infos, &events);
         let attacker_stats = stats.iter().find(|s| s.id == "attacker").unwrap();
@@ -17395,7 +17525,7 @@ mod elementalist_stage_6_golem_type_tests {
             reform_thunder_golem(&mut units, 0, 5_000, &mut events);
         }
         let unit_infos = vec![
-            CombatUnitInfo { id: "lokati_gaming".to_string(), display_name: "lokati_gaming".to_string(), is_boss: false, archetype: None, role: None, max_hp: 1_000_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
+            CombatUnitInfo { id: "lokati_gaming".to_string(), display_name: "lokati_gaming".to_string(), is_boss: false, archetype: None, role: None, max_hp: 1_000_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] },
             CombatUnitInfo {
                 id: golem_id,
                 display_name: "lokati_gaming's Golem".to_string(),
@@ -17406,6 +17536,7 @@ mod elementalist_stage_6_golem_type_tests {
                 golem_summoner_id: Some("lokati_gaming".to_string()),
                 golem_type: Some(GolemType::Thunder),
                 thunder_net_absorbed: 0,
+                thunder_incarnations: vec![],
             },
         ];
         let stats = full_player_fight_stats(&unit_infos, &events);
@@ -17706,6 +17837,31 @@ mod elementalist_stage_6_golem_type_tests {
         assert_eq!(units[0].thundergolem_net_absorbed, 500.0, "lifetime credit is untouched by a reform - only handle_golem_death ever adjusts it");
     }
 
+    /// Ledger #35 - the actual owner-reported bug: a golem carrying Gelatinous
+    /// Cube's shred stacks (up to -50% DR) or Festering Wound stacks into its
+    /// own death used to reform STILL debuffed, because `reform_thunder_golem`
+    /// only ever touched max_hp/hp/alive/golem_reform_at_ms/
+    /// thundergolem_absorbed_this_incarnation - not the combat debuffs a
+    /// previous incarnation picked up. Pins the fix: every field
+    /// `cleanse_player_debuffs` covers comes back to its zero/expired state.
+    #[test]
+    fn reforming_clears_cube_shred_wound_and_boss_focus_stacks_from_the_dead_incarnation() {
+        let mut golem = dead_thunder_golem(500.0);
+        golem.cube_shred_stacks = 5;
+        golem.cube_shred_expires_at_ms = 999_999;
+        golem.wound_stacks = 3;
+        golem.wound_expires_at_ms = 999_999;
+        golem.boss_focus_stacks = 0.80;
+        let mut units = vec![golem];
+        let mut events = Vec::new();
+        reform_thunder_golem(&mut units, 0, 10_000, &mut events);
+        assert_eq!(units[0].cube_shred_stacks, 0, "the reformed incarnation must not start under the previous incarnation's Gelatinous Cube DR shred");
+        assert_eq!(units[0].cube_shred_expires_at_ms, 0);
+        assert_eq!(units[0].wound_stacks, 0, "nor the previous incarnation's Festering Wound stacks");
+        assert_eq!(units[0].wound_expires_at_ms, 0);
+        assert_eq!(units[0].boss_focus_stacks, 0.0, "nor a stale survivability-focus ramp");
+    }
+
     #[test]
     fn a_dead_incarnations_redistributed_share_is_subtracted_from_the_lifetime_net_absorbed() {
         let golem = dead_thunder_golem(1000.0);
@@ -17715,6 +17871,70 @@ mod elementalist_stage_6_golem_type_tests {
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
         handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
         assert_eq!(units[0].thundergolem_net_absorbed, 500.0, "500 of the 1000 absorbed got redistributed away, leaving 500 credited to the owner");
+    }
+
+    /// Ledger #35/#36 observability - `handle_golem_death` must record this
+    /// incarnation's own tally (absorbed/redistributed/max_hp/lifespan_ms)
+    /// rather than leaving the parser to reconstruct it from raw events.
+    #[test]
+    fn handle_golem_death_records_this_incarnations_absorbed_redistributed_max_hp_and_lifespan() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        assert_eq!(units[0].thundergolem_incarnations.len(), 1, "exactly one dead incarnation so far");
+        let record = units[0].thundergolem_incarnations[0];
+        assert_eq!(record.absorbed, 1000.0, "the GROSS absorbed total, before redistribution");
+        assert_eq!(record.redistributed, 500.0, "matches the 500 actually subtracted from net_absorbed above");
+        assert_eq!(record.max_hp, 1000, "dead_thunder_golem's own max_hp at time of death");
+        assert_eq!(record.lifespan_ms, 5_000, "died at at_ms=5000, started at the default (fight-start) 0");
+    }
+
+    /// Same `recipients.is_empty()` guard `handle_golem_death`'s own doc
+    /// describes (a death after the whole party has wiped) - the pushed
+    /// record's `redistributed` must reflect what ACTUALLY happened (0),
+    /// not the theoretical `absorbed * redistribution_pct` figure nothing
+    /// ever received.
+    #[test]
+    fn handle_golem_death_records_zero_redistributed_when_no_real_player_is_alive_to_receive_it() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        let record = units[0].thundergolem_incarnations[0];
+        assert_eq!(record.absorbed, 1000.0);
+        assert_eq!(record.redistributed, 0.0, "nobody was alive to receive it, so nothing was actually redistributed");
+        assert_eq!(units[0].thundergolem_net_absorbed, 1000.0, "consistent - net_absorbed isn't debited either when nothing was actually delivered");
+    }
+
+    /// Multi-reform accumulation - two full death/reform cycles must push
+    /// two distinct records with lifespan_ms measured from each
+    /// incarnation's own start (spawn or its own most recent reform), not
+    /// from fight start every time.
+    #[test]
+    fn successive_reforms_each_push_their_own_incarnation_record_with_correct_lifespans() {
+        let golem = dead_thunder_golem(1000.0);
+        let mut units = vec![golem, real_player("alice", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        // First incarnation dies at 5_000 (started at the default 0).
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        // Reforms at 8_000 - the second incarnation's own clock starts here.
+        reform_thunder_golem(&mut units, 0, 8_000, &mut events);
+        units[0].thundergolem_absorbed_this_incarnation = 300.0;
+        units[0].alive = false;
+        // Second incarnation dies at 8_500 - lifespan_ms must be 500 (from
+        // 8_000), not 8_500 (from fight start).
+        handle_golem_death(&mut units, 0, 8_500, &mut events, &mut rolls, &mut rng, 0.5, 2_000);
+        assert_eq!(units[0].thundergolem_incarnations.len(), 2);
+        assert_eq!(units[0].thundergolem_incarnations[0].lifespan_ms, 5_000);
+        assert_eq!(units[0].thundergolem_incarnations[1].lifespan_ms, 500, "measured from the reform's own at_ms, not fight start");
+        assert_eq!(units[0].thundergolem_incarnations[1].absorbed, 300.0);
     }
 
     #[test]
@@ -18286,6 +18506,80 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         // generous upper bound for "one incarnation's share".
         let gap = (absorbed - redistributed).saturating_sub(golem_info.thunder_net_absorbed);
         assert!(gap <= absorbed, "the gap between the expected and actual net_absorbed ({gap}) is implausibly large for a single truncated incarnation - looks like a real miscalculation, not end-of-fight truncation");
+    }
+
+    /// Ledger #35/#36 observability round-trip - the SAME fixture as
+    /// `thunder_net_absorbed_equals_the_event_logs_own_absorbed_minus_redistributed_sums`
+    /// above (a real multi-reform fight through the full `simulate_battle`
+    /// pipeline), but checking `thunder_incarnations` instead of
+    /// reconstructing from raw events: summing every incarnation's own
+    /// `absorbed - redistributed` (dead ones from `thundergolem_incarnations`,
+    /// plus the still-alive-at-fight-end entry the fight-end builder
+    /// appends) must land within a small, derived rounding tolerance of the
+    /// SAME `thunderNetAbsorbed` figure - this is the direct proof the new
+    /// per-incarnation counters close the tank-credit item the parser has
+    /// been blocked on, not just a plausible-looking addition.
+    #[test]
+    fn thunder_incarnations_sum_to_absorbed_minus_redistributed_matching_net_absorbed() {
+        let mut character = Character::new("elementalist".to_string());
+        character.archetype = Archetype::Elementalist;
+        character.level = 100;
+        character.passive_allocations.insert("golemmaster".to_string(), 1);
+        character.passive_allocations.insert("thundergolem".to_string(), 4);
+        character.passive_allocations.insert("gigantify".to_string(), 3);
+        character.passive_allocations.insert("growing".to_string(), 3);
+        character.golem_slot_types = vec![GolemType::Thunder];
+        let mut ally_a = Character::new("ally_a".to_string());
+        ally_a.archetype = Archetype::Cleric;
+        ally_a.level = 100;
+        let mut ally_b = Character::new("ally_b".to_string());
+        ally_b.archetype = Archetype::Paladin;
+        ally_b.level = 100;
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist".to_string(), character);
+        characters.insert("ally_a".to_string(), ally_a);
+        characters.insert("ally_b".to_string(), ally_b);
+
+        let boss_stats = BossStats {
+            hp: 500_000_000,
+            atk: 100,
+            attack_interval_ms: 1_200,
+            damage_reduction: 0.15,
+            block_chance: 0.10,
+            evasion: 0.05,
+            increased_damage: 0.20,
+            crit_chance: 0.15,
+            crit_multiplier: 0.50,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(4242);
+        let (_won, unit_infos, _events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+
+        let golem_info = unit_infos.iter().find(|u| u.golem_type == Some(GolemType::Thunder)).expect("fixture produced no Thunder Golem - test would be vacuous");
+        assert!(golem_info.thunder_incarnations.len() >= 2, "fixture must exercise at least one reform for this test to mean anything - got {}", golem_info.thunder_incarnations.len());
+
+        let incarnations_net: i64 = golem_info.thunder_incarnations.iter().map(|r| r.absorbed as i64 - r.redistributed as i64).sum();
+        // Two independent rounding sources, same reasoning as the sibling
+        // test above: each incarnation's absorbed/redistributed rounds
+        // independently on its way into the wire struct, while
+        // `thunder_net_absorbed` accumulates in f64 across the whole fight
+        // and rounds exactly once at the end - up to ~1 unit of slack per
+        // incarnation (both fields), never a large systematic gap.
+        let rounding_tolerance = (golem_info.thunder_incarnations.len() as i64) * 2 + 1;
+        let diff = (incarnations_net - golem_info.thunder_net_absorbed as i64).abs();
+        assert!(
+            diff <= rounding_tolerance,
+            "sum(incarnations.absorbed - incarnations.redistributed) ({incarnations_net}) must match thunderNetAbsorbed ({}) within rounding tolerance ({rounding_tolerance}), got diff {diff}",
+            golem_info.thunder_net_absorbed
+        );
+        // Growing must show up per-incarnation too, not just as a final
+        // number - each dead incarnation's own max_hp must be strictly
+        // increasing (ledger #35's actual complaint: does this hold in
+        // practice, not just in the isolated formula test).
+        for pair in golem_info.thunder_incarnations.windows(2) {
+            assert!(pair[1].max_hp > pair[0].max_hp, "each successive incarnation must have MORE max_hp than the last (Growing is additive and strictly positive here) - {} then {}", pair[0].max_hp, pair[1].max_hp);
+        }
     }
 
     fn real_player(id: &str, hp: i64) -> CombatSimUnit {

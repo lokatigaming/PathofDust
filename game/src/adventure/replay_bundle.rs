@@ -421,6 +421,7 @@ mod tests {
             golem_summoner_id: None,
             golem_type: None,
             thunder_net_absorbed: 0,
+            thunder_incarnations: vec![],
         }
     }
 
@@ -788,6 +789,7 @@ mod dual_write {
                 golem_summoner_id: None,
                 golem_type: None,
                 thunder_net_absorbed: 0,
+                thunder_incarnations: vec![],
             }],
             events: vec![
                 CombatEvent::SkillCast { at_ms: 0, unit: "a_player".to_string(), skill: "Doom".to_string() },
