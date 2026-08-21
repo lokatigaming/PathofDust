@@ -178,21 +178,28 @@ pub(crate) fn recent_coarse_fights(limit: usize) -> Vec<LastFightSnapshot> {
 /// first. A replay bundle names itself in its own manifest (`fightId`),
 /// so it cannot be constructed until its number is known - and drawing
 /// that number twice would desynchronise the tier.
+///
+/// Returns the sequence number the file was actually written under, or
+/// `None` if the write never landed - this is the ONLY authoritative
+/// source for "what key does a reader need to fetch this back" (see
+/// `save_bundle_fight`'s own doc), so callers that need to advertise the
+/// key elsewhere (`FightSummarySnapshot::bundle_seq`) must use this
+/// return value rather than re-deriving it.
 pub(crate) fn write_and_prune_seeded<T: Serialize>(
     dir: &str,
     seq_path: &str,
     capacity: usize,
     build: impl FnOnce(u64) -> T,
-) {
+) -> Option<u64> {
     if let Err(err) = std::fs::create_dir_all(dir) {
         tracing::error!("Failed to create fight log directory {dir}: {err}");
-        return;
+        return None;
     }
     let seq = next_seq(seq_path);
     let path = fight_file_path(dir, seq);
     if let Err(err) = crate::state::save_json_compact(&path, &build(seq)) {
         tracing::error!("Failed to persist fight file {}: {err}", path.display());
-        return;
+        return None;
     }
     let files = list_fight_files(dir);
     if files.len() > capacity {
@@ -202,6 +209,7 @@ pub(crate) fn write_and_prune_seeded<T: Serialize>(
             }
         }
     }
+    Some(seq)
 }
 
 /// Writes one replay bundle. Failure here is logged and dropped: the
@@ -216,13 +224,17 @@ pub(crate) fn read_bundle_file(seq: u64) -> Option<String> {
     std::fs::read_to_string(fight_file_path(&resolved(BUNDLE_FIGHTS_DIR), seq)).ok()
 }
 
-pub(crate) fn save_bundle_fight<T: Serialize>(build: impl FnOnce(u64) -> T) {
+/// Returns the bundle-tier sequence number the write landed under (see
+/// `write_and_prune_seeded`), or `None` on failure - `save_last_fight`
+/// stamps this straight onto `FightSummarySnapshot::bundle_seq`, so a
+/// snapshot can never advertise a bundle that isn't actually on disk.
+pub(crate) fn save_bundle_fight<T: Serialize>(build: impl FnOnce(u64) -> T) -> Option<u64> {
     write_and_prune_seeded(
         &resolved(BUNDLE_FIGHTS_DIR),
         &resolved(BUNDLE_SEQ_PATH),
         BUNDLE_FIGHTS_CAPACITY,
         build,
-    );
+    )
 }
 
 pub(crate) fn save_summary_fight(summary: &FightSummarySnapshot) {
@@ -388,5 +400,62 @@ mod pin_most_recent_fight_tests {
         assert_eq!(fight_seq_from_path(Path::new("not-a-fight-file.json")), None);
         assert_eq!(fight_seq_from_path(Path::new("fight-not-a-number.json")), None);
         assert_eq!(fight_seq_from_path(Path::new("fight-.json")), None);
+    }
+}
+
+/// `write_and_prune_seeded` itself takes plain `dir`/`seq_path` strings
+/// (see the doc on `resolved`) rather than resolving them through
+/// `set_data_dir`'s process-wide `OnceLock` - unlike most of this file,
+/// that makes it safe to sandbox directly against an absolute temp path
+/// without the shared-state race `pin_most_recent_fight_tests` above
+/// avoids. This is what proves the key `save_bundle_fight` hands back
+/// (and `save_last_fight` stamps onto `FightSummarySnapshot::bundle_seq`)
+/// is exactly the sequence number the file landed under on disk.
+#[cfg(test)]
+mod write_and_prune_seeded_tests {
+    use super::*;
+
+    fn scratch(label: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("write_and_prune_seeded_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir must be creatable");
+        dir
+    }
+
+    #[test]
+    fn returns_the_sequence_number_the_file_actually_landed_under() {
+        let scratch = scratch("success");
+        let dir = scratch.join("bundle");
+        let seq_path = scratch.join("bundle-seq.json");
+        let dir_str = dir.to_string_lossy().into_owned();
+        let seq_path_str = seq_path.to_string_lossy().into_owned();
+
+        let first = write_and_prune_seeded(&dir_str, &seq_path_str, 3, |seq| seq);
+        assert_eq!(first, Some(1));
+        assert!(dir.join("fight-0000000001.json").exists(), "the file must exist under exactly the returned sequence");
+
+        let second = write_and_prune_seeded(&dir_str, &seq_path_str, 3, |seq| seq);
+        assert_eq!(second, Some(2));
+        assert!(dir.join("fight-0000000002.json").exists());
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn returns_none_when_the_directory_cannot_be_created() {
+        let scratch = scratch("failure");
+        // A file, not a directory, at the path `create_dir_all` needs to
+        // create - guarantees the write fails without touching real
+        // filesystem permissions.
+        let blocker = scratch.join("not-a-directory");
+        std::fs::write(&blocker, b"blocking file").expect("must write blocker file");
+        let dir_str = blocker.join("bundle").to_string_lossy().into_owned();
+        let seq_path_str = scratch.join("bundle-seq.json").to_string_lossy().into_owned();
+
+        let result = write_and_prune_seeded(&dir_str, &seq_path_str, 3, |seq| seq);
+        assert_eq!(result, None, "a directory that cannot be created must report failure, not a bogus sequence number");
+
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }

@@ -1022,6 +1022,22 @@ pub struct FightSummarySnapshot {
     pub display_duration_ms: u32,
     #[serde(default)]
     pub real_duration_ms: u32,
+    /// The replay bundle's own sequence number (`BUNDLE_SEQ_PATH` in
+    /// `fight_storage.rs` - NOT this summary tier's own counter, NOT
+    /// `started_at_unix_ms`) - exactly the key `GET
+    /// /fights/:seq/members/:member` resolves through `read_bundle_file`.
+    /// `None` when this fight has no bundle (pre-bundle history, or the
+    /// bundle write failed - see `save_last_fight`, which stamps this
+    /// straight from `replay_bundle::save_bundle`'s return so a snapshot
+    /// can never advertise a bundle that isn't actually on disk).
+    /// `skip_serializing_if` rather than always emitting `null`: `Core`
+    /// in `replay_bundle.rs` embeds a whole `FightSummarySnapshot`
+    /// (always the pre-fight-save placeholder there, never this real
+    /// one), and omitting the key when absent keeps that byte-pinned
+    /// golden bundle fixture unchanged rather than adding a stray key to
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_seq: Option<u64>,
     pub participants: usize,
     pub players: Vec<PlayerFightStats>,
     pub first_to_die: Option<String>,
@@ -1351,6 +1367,23 @@ pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStat
     save_coarse_fight(&snapshot);
     let rolls = result.rolls.clone();
     save_detail_fight(&DetailFightSnapshot { snapshot, rolls });
+    // Dual-write: the replay bundle is written after both legacy tiers are
+    // already on disk, so a failure here can never cost a fight its real
+    // archive. It now runs BEFORE the summary tier's own write (below),
+    // not after - the summary needs to know the bundle's assigned
+    // sequence number (`FightSummarySnapshot::bundle_seq`) before it can
+    // be built, and that number only exists once this call returns.
+    // Nothing about the dual-write safety guarantee changes: the summary
+    // write is unconditional either way, it just carries `bundle_seq:
+    // None` if this failed. Takes `result` by reference: it cannot
+    // perturb what the tiers above just serialized, and
+    // `legacy_bytes_are_identical_either_side_of_a_bundle_build` pins
+    // that.
+    //
+    // Correct point in the sequence for the same reason `build_player_vitals`
+    // documents: `result.events` here is the full pre-thinning log, and
+    // `thin_events_for_overlay` runs strictly after this returns.
+    let bundle_seq = super::replay_bundle::save_bundle(result, &bundle_boss_stats, started_at_unix_ms);
     let summary = FightSummarySnapshot {
         kind: result.kind,
         stage: result.stage,
@@ -1358,6 +1391,7 @@ pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStat
         started_at_unix_ms,
         display_duration_ms: result.display_duration_ms,
         real_duration_ms: result.real_duration_ms,
+        bundle_seq,
         participants: result.participants.len(),
         players: full_player_fight_stats(&result.units, &result.events),
         first_to_die: first_player_to_die(&result.units, &result.events),
@@ -1365,18 +1399,6 @@ pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStat
         broken: result.broken.clone(),
     };
     save_summary_fight(&summary);
-    // Dual-write: the replay bundle is written LAST, after every legacy
-    // tier is already on disk. During the dual-write window the bundle is
-    // strictly additive - nothing reads it yet - so if it ever fails it
-    // must cost this fight nothing, and writing it last is what
-    // guarantees that. Takes `result` by reference: it cannot perturb what
-    // the tiers above just serialized, and `legacy_bytes_are_identical_
-    // either_side_of_a_bundle_build` pins that.
-    //
-    // Correct point in the sequence for the same reason `build_player_vitals`
-    // documents: `result.events` here is the full pre-thinning log, and
-    // `thin_events_for_overlay` runs strictly after this returns.
-    super::replay_bundle::save_bundle(result, &bundle_boss_stats, started_at_unix_ms);
     summary
 }
 
@@ -6207,6 +6229,32 @@ mod fight_summary_tests {
         let summary = fight_summary_from_snapshot(&snapshot);
         assert_eq!(summary.top_damage_dealt, vec![("carol".to_string(), 700), ("alice".to_string(), 500), ("bob".to_string(), 300)]);
         assert_eq!(summary.top_damage_taken, vec![("dave".to_string(), 400), ("bob".to_string(), 200), ("alice".to_string(), 100)]);
+    }
+
+    #[test]
+    fn bundle_seq_round_trips_when_present_and_is_omitted_from_the_wire_when_absent() {
+        let with_bundle = FightSummarySnapshot { bundle_seq: Some(42), ..Default::default() };
+        let json = serde_json::to_string(&with_bundle).expect("must serialize");
+        assert!(json.contains("\"bundleSeq\":42"), "a present bundle_seq must serialize: {json}");
+        let back: FightSummarySnapshot = serde_json::from_str(&json).expect("must deserialize");
+        assert_eq!(back.bundle_seq, Some(42));
+
+        let without_bundle = FightSummarySnapshot { bundle_seq: None, ..Default::default() };
+        let json = serde_json::to_string(&without_bundle).expect("must serialize");
+        assert!(!json.contains("bundleSeq"), "skip_serializing_if must omit the key entirely when None: {json}");
+        let back: FightSummarySnapshot = serde_json::from_str(&json).expect("must deserialize");
+        assert_eq!(back.bundle_seq, None);
+    }
+
+    #[test]
+    fn an_old_summary_with_no_bundle_seq_key_at_all_still_loads() {
+        // Exactly today's shape, pre-`bundle_seq` - a real summary file
+        // already on disk carries no such key at all, not a null one.
+        let old_shape = r#"{"kind":"boss","stage":5,"won":true,"startedAtUnixMs":1755690000000,"displayDurationMs":6000,"realDurationMs":2800,"participants":1,"players":[],"firstToDie":null,"loot":[],"broken":[]}"#;
+        let snapshot: FightSummarySnapshot = serde_json::from_str(old_shape).expect("an old summary file must still deserialize");
+        assert_eq!(snapshot.bundle_seq, None);
+        assert_eq!(snapshot.stage, 5);
+        assert!(snapshot.won);
     }
 
     #[test]
