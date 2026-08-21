@@ -3551,7 +3551,31 @@ impl AdventureManager {
                 return Err(CraftError::AlreadyUnique);
             }
             let (item_name, slot, tier, perfect) = (item.name.clone(), item.slot, item.tier, item.perfect);
-            let candidates: Vec<VeilCandidate> = ALL_UNIQUE_AFFIXES
+            // Duplicate-unique-effects fix (2026-08-21) - if this item is
+            // currently EQUIPPED, filter out any UniqueAffix candidate
+            // that would duplicate a unique already worn in another
+            // equipped slot (see `Character::has_conflicting_unique_affix_value`,
+            // the same core validator `receive_item`/`equip_from_inventory`
+            // already use). An item sitting in the BAG is never filtered -
+            // a conflict there is only ever an equip-time concern, same as
+            // any other unique-bearing item already sitting unequipped.
+            // If every candidate would conflict, reject the whole action
+            // up front, before the token is consumed - same "insert-time
+            // validates, commit-time trusts it" precondition convention
+            // `ItemLocked`/`AlreadyUnique` just above already use, so
+            // `AdventureManager::choose_veil_outcome`/`Character::apply_unique_affix`
+            // never need their own re-check: every candidate ever offered
+            // is guaranteed conflict-free by construction.
+            let is_equipped = character.equipped(slot).as_ref().is_some_and(|i| i.id == item_id);
+            let allowed_uniques: Vec<UniqueAffix> = if is_equipped {
+                ALL_UNIQUE_AFFIXES.into_iter().filter(|&unique| !character.has_conflicting_unique_affix_value(unique, slot)).collect()
+            } else {
+                ALL_UNIQUE_AFFIXES.to_vec()
+            };
+            if allowed_uniques.is_empty() {
+                return Err(CraftError::ConflictingUniqueAffix);
+            }
+            let candidates: Vec<VeilCandidate> = allowed_uniques
                 .into_iter()
                 .map(|unique| {
                     VeilCandidate::Currency(CraftOutcome {
@@ -7187,6 +7211,47 @@ mod memory_manager_tests {
 
         std::fs::remove_dir_all(&scratch).ok();
     }
+
+    /// Duplicate-unique-effects fix (2026-08-21) fit report verification,
+    /// made permanent: `Memory`/`apply_memory` only ever write
+    /// `archetype`/`passive_allocations`/`secondary_*`/`golem_slot_types`
+    /// (see `AdventureManager::load_memory`'s own body) - gear and
+    /// `Item::unique_affix` are never touched. A load must be completely
+    /// INERT to a pre-existing duplicate equipped unique - no crash, no
+    /// silent repair, no silent worsening. The cleanup migration (not a
+    /// Memory load) is the only thing responsible for fixing one.
+    #[tokio::test]
+    async fn loading_a_memory_is_inert_to_a_pre_existing_duplicate_equipped_unique() {
+        let (manager, scratch) = disposable_manager("duplicate_unique_inert");
+        joined_warrior(&manager, "duped").await;
+        manager.save_memory("duped", 0, Some("Tank Build")).await.expect("save must succeed");
+        manager.change_archetype("duped", Archetype::Mage).await.expect("class change must succeed");
+        let (weapon_id, helm_id) = {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("duped").expect("still joined");
+            let mut weapon = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+            weapon.unique_affix = Some(UniqueAffix::CelestialConversion);
+            let weapon_id = weapon.id.clone();
+            character.weapon = Some(weapon);
+            let mut helm = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+            helm.unique_affix = Some(UniqueAffix::CelestialConversion);
+            let helm_id = helm.id.clone();
+            character.helm = Some(helm);
+            (weapon_id, helm_id)
+        };
+
+        let report = manager.load_memory("duped", 0).await.expect("a load must succeed regardless of a pre-existing gear duplicate - it never reads gear at all");
+        assert!(report.dropped.is_empty());
+
+        let character = manager.character("duped").await.expect("still joined");
+        assert_eq!(character.archetype, Archetype::Warrior, "the load itself must still work normally");
+        assert_eq!(character.weapon.as_ref().map(|i| i.id.clone()), Some(weapon_id), "gear must be completely untouched by a Memory load");
+        assert_eq!(character.helm.as_ref().map(|i| i.id.clone()), Some(helm_id));
+        assert_eq!(character.weapon.as_ref().and_then(|i| i.unique_affix), Some(UniqueAffix::CelestialConversion), "the duplicate itself must survive the load exactly as it was - neither fixed nor worsened here");
+        assert_eq!(character.helm.as_ref().and_then(|i| i.unique_affix), Some(UniqueAffix::CelestialConversion));
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
 }
 
 /// `AdventureManager::craft_divine_dust`'s own currency arithmetic and
@@ -7382,6 +7447,28 @@ mod unique_shard_tests {
         id
     }
 
+    /// Same as `joined_with_unique_shard_and_item`, except the target
+    /// item is actually EQUIPPED (in the Weapon slot), and the character
+    /// is additionally given `already_worn` already equipped elsewhere
+    /// (Helm), for the duplicate-unique-effects fix's insert-time filter
+    /// tests below - returns the equipped target item's id.
+    async fn joined_with_unique_shard_and_equipped_item(manager: &Arc<AdventureManager>, login: &str, tokens: u32, already_worn: Option<UniqueAffix>) -> String {
+        manager.join(login, login).await;
+        let mut rng = rand::thread_rng();
+        let item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rng);
+        let id = item.id.clone();
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.add_craft_token(CraftAction::UniqueShard, tokens);
+        character.weapon = Some(item);
+        if let Some(unique) = already_worn {
+            let mut helm = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+            helm.unique_affix = Some(unique);
+            character.helm = Some(helm);
+        }
+        id
+    }
+
     #[tokio::test]
     async fn applying_without_a_token_is_rejected_and_creates_no_pending_choice() {
         let (manager, scratch) = disposable_manager("no_token");
@@ -7482,6 +7569,83 @@ mod unique_shard_tests {
         let item = character.find_item_by_id(&id).expect("item still present");
         assert_eq!(item.unique_affix, Some(UniqueAffix::SplitPersonality), "the picked effect, and only the picked one, must be applied");
         assert!(manager.pending_veil("decider").await.is_none(), "the pending choice must be cleared once committed");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Duplicate-unique-effects fix (2026-08-21) - the insert-time picker
+    /// filter's PARTIAL case: the target item is equipped, one
+    /// `UniqueAffix` is already worn elsewhere and gets filtered out, the
+    /// other is still offered.
+    #[tokio::test]
+    async fn applying_to_an_equipped_item_offers_only_the_non_conflicting_candidate() {
+        let (manager, scratch) = disposable_manager("equipped_partial");
+        let id = joined_with_unique_shard_and_equipped_item(&manager, "partial", 1, Some(UniqueAffix::SplitPersonality)).await;
+
+        let result = manager.craft_item_ex("partial", &id, CraftAction::UniqueShard, false, true).await.expect("one candidate must still be offered");
+        assert!(matches!(result, CraftResult::PendingChoice));
+
+        let pending = manager.pending_veil("partial").await.expect("a pending choice must exist");
+        assert_eq!(pending.candidates.len(), 1, "SplitPersonality must be filtered out, leaving exactly one candidate");
+        let offered = match &pending.candidates[0] {
+            VeilCandidate::Currency(outcome) => outcome.unique_affix_added,
+            other => panic!("expected a Currency candidate, got {other:?}"),
+        };
+        assert_eq!(offered, Some(UniqueAffix::CelestialConversion), "only the non-conflicting affix may be offered");
+
+        let character = manager.character("partial").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 0, "a real (partial) pick was still built, so the token is still consumed at insert time");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Duplicate-unique-effects fix - the insert-time filter's FULL-
+    /// REJECT case: the target item is equipped and EVERY `UniqueAffix`
+    /// candidate would conflict (both already worn elsewhere - a
+    /// two-character-slot party trick, but exactly what happens once a
+    /// player owns one of each unique). Must reject before the token is
+    /// consumed, same convention `ItemLocked`/`AlreadyUnique` use.
+    #[tokio::test]
+    async fn applying_to_an_equipped_item_rejects_when_every_candidate_conflicts_and_keeps_the_token() {
+        let (manager, scratch) = disposable_manager("equipped_full_conflict");
+        let id = joined_with_unique_shard_and_equipped_item(&manager, "blocked", 1, Some(UniqueAffix::SplitPersonality)).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("blocked").unwrap();
+            let mut body = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
+            body.unique_affix = Some(UniqueAffix::CelestialConversion);
+            character.body = Some(body);
+        }
+
+        let err = manager.craft_item_ex("blocked", &id, CraftAction::UniqueShard, false, true).await.expect_err("every candidate conflicts - must reject outright");
+        assert!(matches!(err, CraftError::ConflictingUniqueAffix));
+
+        let character = manager.character("blocked").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a full-reject precondition must not consume the token - checked BEFORE insert");
+        assert!(manager.pending_veil("blocked").await.is_none(), "a rejected attempt must not create a pending choice");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Duplicate-unique-effects fix - a BAGGED target item is never
+    /// filtered, even with the exact same conflict that would filter (or
+    /// fully reject) an equipped one. A conflict there is only ever an
+    /// equip-time concern.
+    #[tokio::test]
+    async fn applying_to_a_bagged_item_offers_every_candidate_even_with_a_conflict_elsewhere() {
+        let (manager, scratch) = disposable_manager("bagged_unfiltered");
+        let id = joined_with_unique_shard_and_item(&manager, "bagger", 1).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("bagger").unwrap();
+            let mut helm = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+            helm.unique_affix = Some(UniqueAffix::SplitPersonality);
+            character.helm = Some(helm);
+        }
+
+        manager.craft_item_ex("bagger", &id, CraftAction::UniqueShard, false, true).await.expect("a bagged item must never be filtered/rejected");
+        let pending = manager.pending_veil("bagger").await.expect("a pending choice must exist");
+        assert_eq!(pending.candidates.len(), ALL_UNIQUE_AFFIXES.len(), "every candidate offered, unfiltered - the conflict only matters once equipped");
 
         std::fs::remove_dir_all(&scratch).ok();
     }

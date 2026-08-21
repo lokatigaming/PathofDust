@@ -117,6 +117,41 @@ this release," which this satisfies; a stricter open+apply pairing was
 this session's earlier memory-sourced elaboration, not the ledger's
 actual requirement.
 
+**#41 — Thunder Golem underperformance (kazesosa) — mapped to Release 1.2 items 1+2, both already-fixed and live-confirmed 2026-08-21**
+CLOSED. Owner-flagged "thunder golems potentially underperforming"; resumed
+investigation traced it to `game/src/adventure/combat.rs`'s own test
+documentation naming kazesosa directly as the source of the original live
+finding ("implied reform base = predicted x 0.7692", commit `066183b`,
+Release 1.2, deployed 2026-08-19, confirmed ancestor of current HEAD
+`ea2e19e`). Two sub-bugs, both fixed in that same commit, both
+re-verified live today against kazesosa's own fresh fight data
+(`adventure-fights-detail/fight-0000004995.json` through `-4999.json`/
+`-5000.json`, sampled 2026-08-21 02:53–02:59 UTC, snapshotted before
+rotation):
+
+| Item (066183b) | Bug | Live check | Result |
+|---|---|---|---|
+| 1 — HP sizing | Golem reform base frozen pre-party-buff, undercounting by `1/(1+party_max_hp_pct)` every reform | Golem spawn `maxHp` = owner's reported (post-buff) `maxHp` × 0.33 × 4.0 (gigantify r3), exactly: `8116547 × 1.32 = 10713842.04` → round `10713842`, matches live `maxHp` exactly. Reform growth also exact: `10713842 × 3 = 32141526` (reform_count=2, growing r3 = 100%/reform) matches live exactly. One later fight showed a 3-unit-of-32M (0.00001%) drift from double-rounding order, not a bug signature | **PASS — live, exact** |
+| 2 — damage magnitude | Golem `crit_chance`/`crit_multiplier` scaled to 33% of owner's instead of full inheritance | Owner's and golem's live `rolls[]` "Crit chance"/"Crit multiplier" magnitudes compared directly in the same fight: owner `9.3956%`/`48.296%`, golem `9.3956%`/`48.296%` — identical to the last decimal, 3330 crit rolls sampled | **PASS — live, exact** |
+
+Both are genuinely FIXED and live, not just code/test-confirmed.
+
+**#35 relationship: RELATED but CONFIRMED SEPARATE, not the same item.**
+Kazesosa's complaint traces entirely to Release 1.2 items 1+2 above (golem
+sizing/damage), now closed. `#35`'s own description (reform/redistribution
+DEGRADATION, blocked on tree's not-yet-pushed observability instrumentation)
+maps instead to Release 1.2 item 3 (redistribution delivery redirect-to-
+alive-member fix) and `#36` (tank-credit shortfall) territory — a different
+mechanic (damage redistribution on golem death, not golem sizing/damage
+output). Note for whoever next touches `#35`/`#36`: item 3's own code fix
+is ALSO already an ancestor of current HEAD (same `066183b` commit) — but
+this session did not independently re-verify redistribution/tank-credit
+live (out of today's scope, no dedicated "redistribution" event kind
+exists in fight logs to check directly - only `attack`/`heal`/`shield`/
+`skillCast`/`defeat`/`buffSnapshot` - which is presumably exactly the
+observability gap `#35` is blocked on). `#35`/`#36` remain open, still
+owned by tree, not resolved by this entry.
+
 ## Open
 
 **#31 — +6 unique affixes granted vs 5 shards consumed**

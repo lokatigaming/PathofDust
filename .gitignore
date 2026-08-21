@@ -167,6 +167,7 @@ target-druidfix/
 target-replay-bundle/
 target-holyfire/
 target-splash-overcap/
+target-duplicate-unique-effects/
 
 # --- Orchestrator coordination files (not project artifacts) ---
 ORDERS/
