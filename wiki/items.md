@@ -39,6 +39,8 @@ elemental types used to be restricted to Weapon or Helm only; that
 restriction is gone, so a build can now stack elemental damage affixes
 across every slot instead of just two.
 
+<p class="muted">This widen has a real, felt side effect on Body/Gloves/Boots: each of those three slots went from 12 to 17 eligible affixes, which dilutes every other affix's odds there by roughly 31% - including Increased Life, the main source of effective HP those slots provide. Same-tier gear on those three slots now yields noticeably less effective HP on average than it did before the widen. This is intended, not a bug: elemental affixes now compete with HP for the same slots, a deliberate gearing tradeoff rather than a pure upgrade.</p>
+
 Not every affix is equally common. Life Leech in particular is deliberately
 rare - roughly **{{LEECH_RARITY_DIVISOR}}x** less likely to roll than any
 other affix, specifically so it feels like a real find rather than a normal
