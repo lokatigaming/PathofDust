@@ -179,7 +179,6 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "bloodrush", // berserker
     "bloodscent", // berserker
     "clarity", // monk
-    "compassion", // cleric
     "crush", // berserker
     "deathwish", // berserker
     "doubletap", // rogue
@@ -196,7 +195,6 @@ pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "quickdraw", // rogue
     "reckless", // berserker
     "relentlessassault", // monk
-    "sanctifiedtouch", // cleric
     "secondwind", // warrior
     "shatter", // berserker
     "surgicalstrike", // rogue
@@ -275,13 +273,41 @@ pub const UNWIRED_NODES: &[&str] = &[
     "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
 ];
 
+/// Nodes whose ranks are PURE UNLOCK GATES - they turn a mechanic on at
+/// a given rank and carry no number of their own for an override to
+/// change.
+///
+/// A fourth classification, found in the Stage 3 Cleric batch
+/// (2026-08-20). `sanctifiedtouch` is the archetypal case: rank 2
+/// unlocks a bonus crit-heal multiplier and rank 3 unlocks a flat
+/// crit-chance grant, but the 0.50 and 0.10 those unlocks apply are
+/// written identically in Druid's Nature's Blessing branch too. Numbers
+/// shared between two archetypes' equivalent nodes are properties of the
+/// MECHANIC, not of either node, so they became the named constants
+/// `HEAL_CRIT_BONUS_MULT_BASE` / `HEAL_CRIT_CHANCE_BONUS_BASE` - which
+/// leaves the node itself with nothing tunable.
+///
+/// Distinct from the other three: `PENDING_MIGRATION_NODES` has values
+/// awaiting migration, `UNWIRED_NODES` has values nothing reads, and
+/// `NotYetImplemented` declares no values. These have real, live effects
+/// and genuinely nothing to tune - so the admin page should say that
+/// plainly rather than implying a future batch will unlock them. It
+/// won't; there is nothing to unlock.
+///
+/// Tuning one of these means changing the shared constant in
+/// `combat.rs`, which is a code change by design - it moves BOTH
+/// archetypes at once, and that coupling should be deliberate.
+pub const STRUCTURAL_ONLY_NODES: &[&str] = &[
+    "sanctifiedtouch", // cleric - rank 2/3 unlock HEAL_CRIT_*_BASE, shared with Druid's naturesblessing
+];
+
 /// Whether an override on `key` would actually reach the game today.
 /// `false` means either the node still hardcodes its numbers in
 /// `combat.rs` and is waiting on its migration batch
 /// (`PENDING_MIGRATION_NODES`), or nothing reads its value at all
 /// (`UNWIRED_NODES`).
 pub fn node_is_tunable(key: &str) -> bool {
-    !PENDING_MIGRATION_NODES.contains(&key) && !UNWIRED_NODES.contains(&key)
+    !PENDING_MIGRATION_NODES.contains(&key) && !UNWIRED_NODES.contains(&key) && !STRUCTURAL_ONLY_NODES.contains(&key)
 }
 
 /// Why `key` cannot be tuned, for the admin page to show - `None` when
@@ -289,6 +315,8 @@ pub fn node_is_tunable(key: &str) -> bool {
 pub fn node_untunable_reason(key: &str) -> Option<&'static str> {
     if PENDING_MIGRATION_NODES.contains(&key) {
         Some("Pending migration — this node's numbers are still hardcoded in combat.rs, so an override here would do nothing. Unlocked by its class's migration batch.")
+    } else if STRUCTURAL_ONLY_NODES.contains(&key) {
+        Some("No value to tune — this node's ranks unlock a mechanic rather than scaling a number, and the numbers they unlock are shared with another class's equivalent node (so they live in code as named constants).")
     } else if UNWIRED_NODES.contains(&key) {
         Some("Declared but unread — this node has real per-rank values, but no code consumes them yet, so there is nothing an override could change.")
     } else {
@@ -495,9 +523,47 @@ mod passive_override_tests {
         // combat.rs rather than in their own declaration. If this
         // changes without a migration batch landing, the list has
         // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 28, "Stage 3 Mage batch migrated absolutezero/arcaneinstability/empoweredbolt/infiniteloop");
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 26, "Stage 3 Cleric batch migrated compassion and reclassified sanctifiedtouch as structural-only");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 28, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 26, "the pending list must not contain duplicates");
+    }
+
+    #[test]
+    fn compassion_migration_is_exactly_behavior_neutral() {
+        // Stage 3 Cleric batch. combat.rs read
+        // ; the node now declares
+        // that 0 / 0 / 0.05 table and the site reads it. Exact equality,
+        // not an epsilon - the claim is bit-identity.
+        let n = node(Archetype::Cleric, "compassion");
+        let empty = PassiveOverrides::default();
+        assert_eq!(n.magnitude_at_rank_with(1, &empty), 0.0);
+        assert_eq!(n.magnitude_at_rank_with(2, &empty), 0.0, "the DR grant unlocks at rank 3, not 2");
+        assert_eq!(n.magnitude_at_rank_with(3, &empty), 0.05);
+    }
+
+    #[test]
+    fn a_structural_only_node_is_not_offered_and_says_why() {
+        // sanctifiedtouch has real live effects but no number of its
+        // own: its rank 2/3 unlocks apply constants SHARED with Druid's
+        // Nature's Blessing, so those live in code. The page must not
+        // imply a future batch will unlock it - there is nothing to
+        // unlock.
+        for key in STRUCTURAL_ONLY_NODES {
+            assert!(!node_is_tunable(key), "{key:?} has no value to tune");
+            let reason = node_untunable_reason(key).expect("must explain itself");
+            assert!(reason.contains("No value to tune"), "{key:?} must get the structural reason, got: {reason}");
+        }
+    }
+
+    #[test]
+    fn the_four_classifications_never_overlap() {
+        for key in STRUCTURAL_ONLY_NODES {
+            assert!(!PENDING_MIGRATION_NODES.contains(key), "{key:?} cannot be both structural-only and pending");
+            assert!(!UNWIRED_NODES.contains(key), "{key:?} cannot be both structural-only and unwired");
+            assert!(!INTEGER_COUNT_NODES.contains(key), "{key:?} cannot be both structural-only and a migrated count");
+            let found = crate::adventure::ALL_ARCHETYPES.iter().any(|a| a.passive_nodes().iter().any(|n| n.key == *key));
+            assert!(found, "{key:?} no longer exists in any tree");
+        }
     }
 
     #[test]

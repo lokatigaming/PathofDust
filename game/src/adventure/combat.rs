@@ -86,6 +86,17 @@ pub(crate) const SPEED_OVERFLOW_BASE_THRESHOLD: f64 = 1.0;
 /// not scale with rank at all - it is a fixed property of the mechanic,
 /// so it stays a constant rather than becoming a tunable node value.
 pub(crate) const ARCANE_INSTABILITY_HP_THRESHOLD: f64 = 0.65;
+/// Cleric's Sanctified Touch / Druid's Nature's Blessing - how much
+/// MORE a critical heal deals, on top of the normal crit multiplier.
+/// Named 2026-08-20 (Stage 3 Cleric batch): it was a bare 0.50 written
+/// out separately in both archetypes' branches. Shared between two
+/// classes' equivalent nodes, so it is a property of the MECHANIC, not
+/// a per-node value - which is why it becomes a constant here rather
+/// than a tunable node magnitude.
+pub(crate) const HEAL_CRIT_BONUS_MULT_BASE: f64 = 0.50;
+/// Same pair of nodes, same reasoning: the flat heal-crit CHANCE their
+/// rank-3 unlock grants, previously a bare 0.10 in both branches.
+pub(crate) const HEAL_CRIT_CHANCE_BONUS_BASE: f64 = 0.10;
 
 /// The attack-speed threshold above which Temporal Rift / Unstable
 /// Power convert the excess - `SPEED_OVERFLOW_BASE_THRESHOLD` lowered by
@@ -11125,7 +11136,12 @@ pub(crate) fn simulate_battle(
                 },
                 dark_communion_pct: c.passive_node_magnitude("darkcommunion") + c.passive_node_magnitude("sharedsuffering"),
                 compassion_prioritize_lowest: c.passive_node_rank("compassion") >= 2,
-                compassion_dr_pct: if c.passive_node_rank("compassion") >= 3 { 0.05 } else { 0.0 },
+                // Migrated 2026-08-20 (Stage 3 Cleric batch). The rank>=2
+                // prioritise-lowest flag above stays a rank read - it is a
+                // structural unlock, not a value. Only the rank-3 DR grant
+                // was a number, and it now comes off the node's own
+                // SpecialPerRank table (0 / 0 / 0.05).
+                compassion_dr_pct: c.passive_node_magnitude("compassion"),
                 // Migrated to the tunable value path (2026-08-20, Stage 3
                 // Warlock batch). The ladder encoded 0 / 0.5 / 1.0 -
                 // "unlocked at rank 2 at half value, full at rank 3" -
@@ -11451,16 +11467,16 @@ pub(crate) fn simulate_battle(
                 // Clarity's Druid-side twins, `verdantburst` sums into the
                 // same splash field as `radiance`.
                 heal_crit_bonus_mult: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("sanctifiedtouch") >= 2 {
-                    0.50 + c.passive_node_magnitude("holycrit")
+                    HEAL_CRIT_BONUS_MULT_BASE + c.passive_node_magnitude("holycrit")
                 } else if c.has_archetype(Archetype::Druid) && c.passive_node_rank("naturesblessing") >= 2 {
-                    0.50 + c.passive_node_magnitude("bloomstrike")
+                    HEAL_CRIT_BONUS_MULT_BASE + c.passive_node_magnitude("bloomstrike")
                 } else {
                     0.0
                 },
                 heal_crit_chance_bonus: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("sanctifiedtouch") >= 3 {
-                    0.10 + c.passive_node_magnitude("divineclarity")
+                    HEAL_CRIT_CHANCE_BONUS_BASE + c.passive_node_magnitude("divineclarity")
                 } else if c.has_archetype(Archetype::Druid) && c.passive_node_rank("naturesblessing") >= 3 {
-                    0.10 + c.passive_node_magnitude("wildinstinct")
+                    HEAL_CRIT_CHANCE_BONUS_BASE + c.passive_node_magnitude("wildinstinct")
                 } else {
                     0.0
                 },

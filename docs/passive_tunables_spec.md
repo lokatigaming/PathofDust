@@ -176,6 +176,25 @@ Decision 5.
     invested flag for exactly this reason while its `0 / 0 / 0.20` crit
     bonus moves into the table.
 
+16. **A node can be STRUCTURAL-ONLY: live, but with nothing to tune.**
+    Found in the Stage 3 Cleric batch (2026-08-20). `sanctifiedtouch`
+    unlocks a bonus crit-heal multiplier at rank 2 and a flat crit-chance
+    grant at rank 3, but the 0.50 and 0.10 those unlocks apply are written
+    identically in Druid's Nature's Blessing branch. A number shared
+    between two archetypes' equivalent nodes is a property of the
+    MECHANIC, not of either node, so it becomes a named constant
+    (`HEAL_CRIT_BONUS_MULT_BASE` / `HEAL_CRIT_CHANCE_BONUS_BASE`) - which
+    leaves the node with no value of its own.
+
+    `STRUCTURAL_ONLY_NODES` is the fourth classification, alongside
+    pending-migration (values awaiting migration), unwired (values
+    nothing reads) and `NotYetImplemented` (no values declared). The
+    admin page says so plainly rather than implying a future batch will
+    unlock it: it will not, because there is nothing to unlock. Tuning
+    one means editing the shared constant, which is a code change BY
+    DESIGN - it moves both archetypes at once, and that coupling should
+    be deliberate rather than accidental.
+
 ---
 
 ## Staged plan
