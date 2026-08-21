@@ -1105,29 +1105,63 @@ the full picture, source push through binary swap.
    separately** (`cmd > file 2>&1; echo "exit: $?"` — a trailing pipe
    reports the PIPE's exit code, not the command's, and has produced a
    false "clean build" read before).
-4. If this deploy changes either binary's behavior (not a source/docs-
-   only or template-hot-reload-only change): disable both watchdog
-   scheduled tasks (`GameProcess-Watchdog`, `TwitchBotRS-Watchdog`) →
-   stop the bot task (`TwitchBotRS`) → stop the game task
-   (`GameProcess`) → confirm both processes actually exited → SHA-256
-   hash the current live `target\release\game.exe` (and/or
-   `twitch-bot-rs.exe`) and the freshly-built one, confirming they
-   differ → back up the current binary(ies) to a new, deploy-named
-   `backup-pre-<name>/` directory (gitignored — add the entry and a
-   tiny separate commit) → copy the new binary(ies) into
-   `target\release\` → start `GameProcess` FIRST, verify healthy (curl
-   its ports, plus a real page like `/passives`) → re-enable
-   `GameProcess-Watchdog` → start `TwitchBotRS`, verify healthy (curl
-   its ports) → re-enable `TwitchBotRS-Watchdog`. Game always comes up
-   and is verified healthy before the bot starts — never the other
-   order. While in this same stop window (2026-08-20 addition): copy
-   `adventure-fights-summary/` as it stands at stop time into that
-   deploy's `backup-pre-<name>/` dir as a pinned pre-deploy snapshot.
-   The live summary corpus is capped at 200 files, so pre-deploy fight
-   records otherwise age out within roughly 3 hours — this has already
-   blocked before/after verification twice. It's one file copy inside a
-   stop window the deploy is already taking, and gives every release a
-   permanent baseline to diff against.
+4. If this deploy changes the game binary's behavior (not a source/docs-
+   only or template-hot-reload-only change) — the game side of this step
+   is unconditional and runs on every behavior-changing deploy: disable
+   `GameProcess-Watchdog` → stop `GameProcess` → confirm it actually
+   exited → SHA-256 hash the current live `target\release\game.exe` and
+   the freshly-built one, confirming they differ → back up the current
+   `game.exe` to a new, deploy-named `backup-pre-<name>/` directory
+   (gitignored — add the entry and a tiny separate commit) → copy the
+   new `game.exe` into `target\release\` → start `GameProcess`, verify
+   healthy (curl its ports, plus a real page like `/passives`) →
+   re-enable `GameProcess-Watchdog`. While in this same stop window
+   (2026-08-20 addition): copy `adventure-fights-summary/` as it stands
+   at stop time into that deploy's `backup-pre-<name>/` dir as a pinned
+   pre-deploy snapshot. The live summary corpus is capped at 200 files,
+   so pre-deploy fight records otherwise age out within roughly 3 hours
+   — this has already blocked before/after verification twice. It's one
+   file copy inside a stop window the deploy is already taking, and
+   gives every release a permanent baseline to diff against.
+
+   **Conditional bot redeploy (2026-08-21 addition):** the bot binary
+   (`twitch-bot-rs.exe`) only moves when this release actually changes
+   it. Determination is objective, not judgment-based:
+   - The bot's dependency set — derived once via `cargo metadata`
+     against this workspace and re-derive only if the workspace
+     structure changes — is: the root package `twitch-bot-rs` itself
+     (`src/**`, root `Cargo.toml`, `Cargo.lock`) plus its one
+     workspace-internal path dependency, the `game` crate (`game/**`,
+     `game/Cargo.toml`). `game` has no workspace-internal dependencies
+     of its own, so that's the complete transitive set — there is no
+     third crate to track.
+   - Run `git diff --name-only <old-deployed-commit>..<new-commit>`. If
+     any changed path falls under `src/**`, root `Cargo.toml`/
+     `Cargo.lock`, `game/**`, or `game/Cargo.toml`, the bot deploys this
+     release. If none do, it doesn't.
+   - If the diff says skip but the freshly built `twitch-bot-rs.exe`'s
+     SHA-256 differs from the live one anyway, note the mismatch in the
+     deploy report and still skip — Rust release builds aren't
+     byte-reproducible (timestamps, codegen non-determinism), so a hash
+     difference alone isn't evidence of a behavior change. The diff is
+     authoritative, not the hash.
+   - Any uncertainty in the diff read itself (a crate rename, a
+     workspace-member restructure, a path that doesn't cleanly resolve
+     to either crate) — deploy both, as before this amendment. When in
+     doubt, don't skip.
+   - **If the bot deploys:** disable `TwitchBotRS-Watchdog` → stop
+     `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
+     `twitch-bot-rs.exe` → back up the old one into the *same*
+     `backup-pre-<name>/` dir used for the game binary → copy in the
+     new one → start `TwitchBotRS` only after `GameProcess` is confirmed
+     healthy → verify healthy (curl its ports) → re-enable
+     `TwitchBotRS-Watchdog`. Game always comes up and is verified
+     healthy before the bot starts — never the other order, whether or
+     not the bot is moving this release.
+   - **If the bot does not deploy:** it runs untouched through the
+     entire stop/swap window — no watchdog disable, no stop, no binary
+     touched, no backup entry for it. The deploy report states
+     `bot: unchanged, not redeployed (diff-clean)`.
 5. `git push origin master` — pod-qa syncs from GitHub, not this local
    repo directly, so this step is never optional even if everything
    "looks" deployed locally.
@@ -1139,8 +1173,11 @@ the full picture, source push through binary swap.
    state from an AI session (see CLAUDE.md's own fuller treatment of
    this, including the untracked-file-collision case).
 9. Report: what shipped, the patch-notes entry added, all relevant
-   hashes (merge/final commit, old/new binary SHA-256), rollback backup
-   location, and the pod-qa HEAD match/mismatch.
+   hashes (merge/final commit, old/new binary SHA-256 for whichever
+   binaries moved), the bot's deploy/skip determination and which paths
+   in the diff drove it (or `bot: unchanged, not redeployed (diff-clean)`
+   plus any hash-mismatch note per the conditional-redeploy rule above),
+   rollback backup location, and the pod-qa HEAD match/mismatch.
 
 **Worktree housekeeping (2026-08-20 addition):** once a feature branch
 is merged into master AND deployed, its standalone `C:\PathofDust-<name>`
