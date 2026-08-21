@@ -1620,18 +1620,24 @@ static DRUID_NODES: &[PassiveNode] = &[
     // (see `Character::combat_heal_power`'s `bloomingfield_mult` term).
     // No longer touches Rejuvenation's bounce at all.
     modifier_with_effect("bloomingfield", "rejuvenation", "Blooming Field", "A second, independent multiplicative healing power increase, separate from Regrowth's own - +10% per rank (up to +30% at 3/3, stacking multiplicatively with everything else, gear included).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    // Repurposed alongside Blooming Field - converts a slice of TOTAL
-    // healing power directly into Lingering Effect (see
-    // `Character::combat_lingering_effect_pct`'s doc for the worked
-    // example this description's own number comes from). No longer
-    // touches Rejuvenation's bounce value at all.
-    modifier_with_effect("evergrowth", "rejuvenation", "Evergrowth", "Converts a slice of your TOTAL healing power directly into Lingering Effect - 3% at rank 1, +3% per rank (9% at 3/3). E.g. at 1000% healing power, 3/3 Evergrowth alone grants 90% Lingering Effect.", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
-    // Repurposed 2026-08-16 alongside Blooming Field/Evergrowth - every
-    // tick of one of YOUR heal-flavor Lingering Effect instances (see
-    // Evergrowth) also grants the healed target a stacking shield, on top
-    // of the heal itself (see `tick_lingering_dots`'s `seedoflife_shield_pct`
-    // hook in combat.rs). No longer touches Rejuvenation's bounce chance.
-    modifier_with_effect("seedoflife", "rejuvenation", "Seed of Life", "Every tick of your own Lingering Effect heals also grants the target a stacking shield, at the same rate - 10% of the tick's own heal amount at rank 1, +10% per rank (30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    // Redesigned 2026-08-21 alongside the Echo rework (was: converts a
+    // slice of TOTAL healing power directly into Lingering Effect - same
+    // formula, new target stat, same per-rank numbers - see
+    // `Character::combat_echo_pct`'s doc for the worked example this
+    // description's own number comes from). No longer touches
+    // Rejuvenation's bounce value at all.
+    modifier_with_effect("evergrowth", "rejuvenation", "Evergrowth", "Converts a slice of your TOTAL healing power directly into Echo chance - 3% at rank 1, +3% per rank (9% at 3/3). E.g. at 1000% healing power, 3/3 Evergrowth alone grants 90% Echo chance.", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
+    // Redesigned 2026-08-21 alongside the Echo rework (was: every tick of
+    // a Lingering Effect heal-flavor instance granted this shield - see
+    // `CombatSimUnit::seedoflife_shield_pct`'s doc). Same per-rank numbers,
+    // new trigger: fires once per ECHOED heal instead of once per DoT/HoT
+    // tick - a real frequency drop (an echo fires at most once per turn,
+    // vs. up to 80 ticks across a Lingering Effect instance's old
+    // lifetime), flagged plainly rather than silently compensated with a
+    // bigger number; these values ride the live-tunable node-value
+    // override path, so they're cheap to retune later if underwhelming in
+    // practice. No longer touches Rejuvenation's bounce chance.
+    modifier_with_effect("seedoflife", "rejuvenation", "Seed of Life", "Every time your own heal echoes, the echoed heal also grants the target a stacking shield, at the same rate - 10% of the echoed heal's own amount at rank 1, +10% per rank (30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect(
         "overgrowth",
         "wildsurge",
@@ -1656,15 +1662,21 @@ static DRUID_NODES: &[PassiveNode] = &[
     // to Nature's Blessing's old crit-heal role. See `apply_heal`'s
     // `wildinstinct_dr_pct` hook in combat.rs.
     modifier_with_effect("wildinstinct", "naturesblessing", "Wild Instinct", "Any heal you land also grants its target a temporary multiplicative damage reduction - 3% at rank 1, +3% per rank (9% at 3/3), for 3s.", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
-    // Repurposed 2026-08-16 (same "Druid healing" pass) - a death ward
-    // gated on your OWN pending Lingering Effect healing already on the
-    // target, not an unconditional save like Cleric's Guardian Spirit -
-    // see `apply_hit`'s `verdant_pending_by_source` check in combat.rs.
+    // Redesigned 2026-08-21 alongside the Echo rework (was: a death ward
+    // gated on your OWN pending Lingering Effect healing on the target -
+    // that mechanic no longer exists). New condition is deterministic, not
+    // a dice roll, matching every sibling branch in `apply_hit`'s
+    // would-kill chain (Guardian Spirit, Undying Fury, Soul Stone, Chakra
+    // of Life - none of them roll dice either): triggers when your OWN
+    // current Echo chance is at or above `LiveTunables::
+    // verdantburst_echo_threshold_pct` (default 100%) - see
+    // `CombatSimUnit::verdantburst_echo_threshold_pct`'s doc. Charge count
+    // (1/2/3 by rank) is unchanged.
     modifier_with_effect(
         "verdantburst",
         "naturesblessing",
         "Verdant Burst",
-        "If a hit would kill an ally who's currently affected by your own Lingering Effect healing, and your pending Lingering Effect healing on them exceeds the blow's damage, they survive at 1 HP instead. 1 use per fight at rank 1, +1 per rank (3 uses at 3/3).",
+        "If a hit would kill an ally, and your own Echo chance already meets a threshold, they survive at 1 HP instead. 1 use per fight at rank 1, +1 per rank (3 uses at 3/3).",
         Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     modifier_with_effect("quickpaw", "feralreflexes", "Quick Paw", "Feral Reflexes' bonus is increased by another 5% per rank (up to +15% at 3/3).", FlatStat { stat: Evasion, at_rank_1: 0.05, per_additional_rank: 0.05 }),

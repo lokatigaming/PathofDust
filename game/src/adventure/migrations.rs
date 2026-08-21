@@ -306,6 +306,53 @@ pub(crate) fn migrate_celestial_shard_into_unique_shard(character: &mut Characte
     character.craft_tokens.retain(|(action, _)| *action != CraftAction::CelestialShard);
 }
 
+/// Echo replaces Lingering Effect (2026-08-21, docs/echo_spec.md) - renames
+/// every existing `Affix::LingeringEffect` entry, on every item this
+/// character owns (equipped + bag), to `Affix::Echo` at HALF its stored
+/// value, across the board. `Affix::LingeringEffect` itself stays declared
+/// permanently (see its own doc - no `#[serde(other)]`/alias exists, so
+/// deleting the variant outright would break deserialization of any
+/// not-yet-migrated save) - this migration, not a deleted variant, is what
+/// actually clears it off live items; nothing else ever produces or reads
+/// it again afterward.
+///
+/// A character-level migration (not an `ITEM_MIGRATIONS` entry) purely so
+/// it can log per-item with the owning character's name, same discipline
+/// as `migrate_duplicate_unique_effects` just below - a plain
+/// `fn(&mut Item)` has no character context to log with, and none of the
+/// 8 existing item-level migrations log at all. No-op (silent) for a
+/// character with no `LingeringEffect`-affixed item at all.
+pub(crate) fn migrate_lingering_effect_to_echo(character: &mut Character) {
+    let mut converted: Vec<(String, String)> = Vec::new();
+    for slot in EQUIP_SLOTS {
+        if let Some(item) = character.equipped_mut(slot) {
+            for (affix, value) in item.affixes.iter_mut() {
+                if *affix == Affix::LingeringEffect {
+                    *affix = Affix::Echo;
+                    *value *= 0.5;
+                    converted.push((format!("{slot:?}"), item.name.clone()));
+                }
+            }
+        }
+    }
+    for item in character.inventory.iter_mut() {
+        for (affix, value) in item.affixes.iter_mut() {
+            if *affix == Affix::LingeringEffect {
+                *affix = Affix::Echo;
+                *value *= 0.5;
+                converted.push(("bag".to_string(), item.name.clone()));
+            }
+        }
+    }
+    if !converted.is_empty() {
+        tracing::info!(
+            "lingering-effect-to-echo migration: character={} converted {} affix instance(s): {converted:?}",
+            character.display_name,
+            converted.len()
+        );
+    }
+}
+
 /// One-time cleanup for the duplicate-equipped-uniques bug (2026-08-21,
 /// see docs/duplicate_unique_effects_spec.md) - equipping the SAME
 /// `UniqueAffix` in two or more slots at once used to be reachable
@@ -352,6 +399,7 @@ pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[
     ("adventure-flowlikewater-swap-marker.json", migrate_flowlikewater_swap),
     ("adventure-celestial-shard-into-unique-shard-marker.json", migrate_celestial_shard_into_unique_shard),
     ("adventure-duplicate-unique-effects-cleanup-marker.json", migrate_duplicate_unique_effects),
+    ("adventure-lingering-effect-to-echo-marker.json", migrate_lingering_effect_to_echo),
 ];
 
 /// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -
@@ -725,6 +773,100 @@ mod flowlikewater_swap_tests {
             assert_eq!(node.parent, Some(expected_parent), "{child} should hang off {expected_parent}");
             assert_eq!(max_rank_of(expected_parent), 4, "{child}'s parent {expected_parent} must be able to reach rank 4 or {child} can never unlock");
         }
+    }
+}
+
+#[cfg(test)]
+mod lingering_effect_to_echo_tests {
+    use super::*;
+
+    fn item_with_affix(slot: EquipSlot, affix: Affix, value: f64, name: &str) -> Item {
+        Item {
+            id: name.to_string(),
+            name: name.to_string(),
+            slot,
+            tier: 10,
+            power: 100.0,
+            power_roll: 1.0,
+            max_uses: None,
+            uses: 0,
+            affixes: vec![(affix, value)],
+            locked: false,
+            nickname: None,
+            disenchant_protected: false,
+            unique_affix: None,
+            perfect: false,
+            sacred_affix: None,
+            legacy_reforge_crit_used: false,
+            legacy_recombine_crit_used: false,
+            legacy_crit_bonus_affixes: vec![],
+            crit_bonus_affixes: vec![],
+        }
+    }
+
+    #[test]
+    fn converts_an_equipped_item_and_halves_its_value() {
+        let mut c = Character::new("test".to_string());
+        *c.equipped_mut(EquipSlot::Helm) = Some(item_with_affix(EquipSlot::Helm, Affix::LingeringEffect, 0.08, "old helm"));
+        migrate_lingering_effect_to_echo(&mut c);
+        let item = c.equipped(EquipSlot::Helm).as_ref().unwrap();
+        assert_eq!(item.affixes, vec![(Affix::Echo, 0.04)], "the affix must be renamed AND halved in one step");
+    }
+
+    #[test]
+    fn converts_a_bagged_item_too() {
+        let mut c = Character::new("test".to_string());
+        c.inventory.push(item_with_affix(EquipSlot::Boots, Affix::LingeringEffect, 0.10, "old boots"));
+        migrate_lingering_effect_to_echo(&mut c);
+        assert_eq!(c.inventory[0].affixes, vec![(Affix::Echo, 0.05)]);
+    }
+
+    #[test]
+    fn leaves_every_other_affix_on_the_item_untouched() {
+        let mut c = Character::new("test".to_string());
+        let mut item = item_with_affix(EquipSlot::Weapon, Affix::LingeringEffect, 0.06, "mixed weapon");
+        item.affixes.push((Affix::CritChance, 0.05));
+        *c.equipped_mut(EquipSlot::Weapon) = Some(item);
+        migrate_lingering_effect_to_echo(&mut c);
+        let item = c.equipped(EquipSlot::Weapon).as_ref().unwrap();
+        assert_eq!(item.affixes, vec![(Affix::Echo, 0.03), (Affix::CritChance, 0.05)], "order and every other affix must survive untouched");
+    }
+
+    #[test]
+    fn is_a_no_op_for_a_character_with_no_lingering_effect_affix_at_all() {
+        let mut c = Character::new("test".to_string());
+        *c.equipped_mut(EquipSlot::Weapon) = Some(item_with_affix(EquipSlot::Weapon, Affix::CritChance, 0.05, "plain weapon"));
+        let before = c.equipped(EquipSlot::Weapon).clone();
+        migrate_lingering_effect_to_echo(&mut c);
+        assert_eq!(c.equipped(EquipSlot::Weapon).as_ref().map(|i| &i.affixes), before.as_ref().map(|i| &i.affixes));
+    }
+
+    #[test]
+    fn is_idempotent_on_rerun() {
+        // The marker file is what actually prevents a real re-run in
+        // production, but the migration itself must also be safe to call
+        // twice - same convention every other migration's own
+        // `is_idempotent_on_rerun` test establishes: after the first run
+        // there is no `LingeringEffect` entry left to convert, so a second
+        // run must be a pure no-op.
+        let mut c = Character::new("test".to_string());
+        *c.equipped_mut(EquipSlot::Helm) = Some(item_with_affix(EquipSlot::Helm, Affix::LingeringEffect, 0.08, "old helm"));
+        migrate_lingering_effect_to_echo(&mut c);
+        let once = c.equipped(EquipSlot::Helm).as_ref().unwrap().affixes.clone();
+        migrate_lingering_effect_to_echo(&mut c);
+        assert_eq!(c.equipped(EquipSlot::Helm).as_ref().unwrap().affixes, once, "a second application must not halve the value again");
+    }
+
+    #[test]
+    fn converts_multiple_items_across_slots_and_bag_in_one_pass() {
+        let mut c = Character::new("test".to_string());
+        *c.equipped_mut(EquipSlot::Helm) = Some(item_with_affix(EquipSlot::Helm, Affix::LingeringEffect, 0.08, "helm"));
+        *c.equipped_mut(EquipSlot::Body) = Some(item_with_affix(EquipSlot::Body, Affix::LingeringEffect, 0.04, "body"));
+        c.inventory.push(item_with_affix(EquipSlot::Boots, Affix::LingeringEffect, 0.02, "spare boots"));
+        migrate_lingering_effect_to_echo(&mut c);
+        assert_eq!(c.equipped(EquipSlot::Helm).as_ref().unwrap().affixes, vec![(Affix::Echo, 0.04)]);
+        assert_eq!(c.equipped(EquipSlot::Body).as_ref().unwrap().affixes, vec![(Affix::Echo, 0.02)]);
+        assert_eq!(c.inventory[0].affixes, vec![(Affix::Echo, 0.01)]);
     }
 }
 

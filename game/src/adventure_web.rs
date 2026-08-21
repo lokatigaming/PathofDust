@@ -2624,6 +2624,8 @@ struct TunablesForm {
     splash_ladder_targets_per_step: u32,
     /// See `LiveTunables::splash_damage_pct`'s doc.
     splash_damage_pct: f64,
+    /// See `LiveTunables::verdantburst_echo_threshold_pct`'s doc.
+    verdantburst_echo_threshold_pct: f64,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2685,6 +2687,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 splash_ladder_step_pct: form.splash_ladder_step_pct,
                 splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
                 splash_damage_pct: form.splash_damage_pct.max(0.0),
+                verdantburst_echo_threshold_pct: form.verdantburst_echo_threshold_pct.max(0.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -2809,14 +2812,13 @@ fn render_combat_stats_card(c: &Character) -> String {
         String::new()
     };
     // Same "only shown when nonzero" convention as Life Leech - most
-    // characters won't have rolled any Lingering Effect gear, and 0%/0
-    // dmg would just be dead space on every other card.
-    let lingering_pct = c.combat_lingering_effect_pct();
-    let lingering_stat = if lingering_pct > 0.0 {
+    // characters won't have rolled any Echo gear, and 0% would just be
+    // dead space on every other card.
+    let echo_pct = c.combat_echo_pct();
+    let echo_stat = if echo_pct > 0.0 {
         format!(
-            "<div class=\"stat\"><div class=\"stat-label\" data-tip=\"Symmetric: each landed hit applies an unavoidable damage-over-time debuff to the enemy struck, and each landed heal applies an equivalent heal-over-time to the ally healed - both worth this % of that action's own amount, paid out over 4 seconds. The value shown is an estimate of total Lingering Effect output (damage + healing combined) over a 10-second window, based on your current total output.\">Lingering Effect</div><div class=\"stat-value\">{lingering_pct:.2}% &middot; ~{lingering_10s}/10s</div></div>",
-            lingering_pct = lingering_pct * 100.0,
-            lingering_10s = format_number(c.combat_lingering_effect_10s_estimate()),
+            "<div class=\"stat\"><div class=\"stat-label\" data-tip=\"Chance for your unified hit (damage or heal share) to fire again with fresh rolls. Past 100%, extra echoes become guaranteed: floor(value/100) guaranteed repeats plus a remainder% chance of one more - e.g. 250% is 2 guaranteed plus a 50% chance of a 3rd.\">Echo</div><div class=\"stat-value\">{echo_pct:.2}%</div></div>",
+            echo_pct = echo_pct * 100.0,
         )
     } else {
         String::new()
@@ -2867,7 +2869,7 @@ fn render_combat_stats_card(c: &Character) -> String {
             <div class=\"stat\"><div class=\"stat-label\" data-tip=\"How much your healing output is boosted. A Heal-role character starts at 100%; others start at 0%.\">Healing Power</div><div class=\"stat-value\">{heal_power:.0}%</div></div>\
             <div class=\"stat\"><div class=\"stat-label\" data-tip=\"Redirects a share of boss hits meant for other players onto you instead. Capped at 50% of your own investment - past that, the excess becomes bonus damage instead. Your party's total Intervene pool also separately caps at 50% redirected.\">Intervene</div><div class=\"stat-value\" data-tip=\"{intervene_tip}\">{intervene:.0}%</div></div>\
             {leech_stat}\
-            {lingering_stat}\
+            {echo_stat}\
           </div>\
         </div>",
         // Full max hp (base 20 + level*5, plus equipped body armor's
@@ -3493,6 +3495,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
               <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
             </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
+              <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
+            </div>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
@@ -3538,6 +3545,7 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         splash_ladder_step_pct = t.splash_ladder_step_pct,
         splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
         splash_damage_pct = t.splash_damage_pct,
+        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
     )
 }
 
