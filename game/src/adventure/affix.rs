@@ -315,6 +315,21 @@ pub(crate) fn affix_balance(affix: Affix) -> (f64, f64) {
         for (key, ov) in raw {
             match Affix::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(&key)) {
                 Ok(affix) => {
+                    // A key can deserialize to a real `Affix` variant yet
+                    // still be absent from `resolved` - a retired affix
+                    // (e.g. `lingeringEffect`, deliberately excluded from
+                    // `ALL_AFFIXES` - see its own doc) whose `[affixes.x]`
+                    // header is still sitting in the live TOML from before
+                    // retirement. No override is possible for a variant
+                    // with no live base value to override, so this is
+                    // "unknown for override purposes", same as the `Err(_)`
+                    // branch below - not a crash (confirmed live 2026-08-21:
+                    // this exact case panicked every request in production
+                    // for the ~2.5 minutes before rollback).
+                    let Some(entry) = resolved.get_mut(&affix) else {
+                        tracing::warn!("{ITEM_BALANCE_PATH}: '{key}' is a retired affix with no live base value to override, ignoring");
+                        continue;
+                    };
                     // An uncommented `[affixes.x]` header with every field
                     // still commented out deserializes to a real (but
                     // empty) entry here - both fields None, matching
@@ -322,7 +337,6 @@ pub(crate) fn affix_balance(affix: Affix) -> (f64, f64) {
                     // field is ACTUALLY Some(_), so a section header alone
                     // doesn't produce a misleading "overridden" log line
                     // for every affix at every startup.
-                    let entry = resolved.get_mut(&affix).expect("ALL_AFFIXES covers every Affix variant");
                     if let Some(v) = ov.per_tier {
                         entry.0 = v;
                     }
