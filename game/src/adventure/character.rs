@@ -2510,6 +2510,16 @@ impl Character {
         EQUIP_SLOTS.iter().filter_map(|&slot| self.equipped(slot).as_ref()).map(|item| item.effective_affix_total(affix)).sum()
     }
 
+    /// Counts `affix`'s rolled INSTANCES (see `Item::affix_instance_count`)
+    /// across all 5 equipped slots - a presence count, not a value sum
+    /// (unlike `sum_affix` above), and deliberately ignores wear/durability
+    /// decay: an item's affix either is or isn't there, decay only shrinks
+    /// what it's worth. Cleric's Haloed Steps (`Affix::DivineDamage`) is
+    /// the only current caller.
+    pub(crate) fn count_affix(&self, affix: Affix) -> u32 {
+        EQUIP_SLOTS.iter().filter_map(|&slot| self.equipped(slot).as_ref()).map(|item| item.affix_instance_count(affix)).sum()
+    }
+
     /// Sums every invested passive-tree node's `FlatStat` contribution
     /// into an `ArchetypeBonus`-shaped total (additive pooling within the
     /// tree, same as gear+archetype's own sums each already do) -

@@ -1532,7 +1532,20 @@ static CLERIC_NODES: &[PassiveNode] = &[
     modifier_with_effect("finalblessing", "guardianspirit", "Final Blessing", "Guardian Spirit's save also grants the WHOLE party +5% healing power per rank for 5s afterward (up to +15% at 3/3), not just the saved unit.", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("windsofgrace", "radiantaegis", "Winds of Grace", "Radiant Aegis's party evasion bonus is increased by another 4% per rank (up to +12% at 3/3).", Special { at_rank_1: 0.04, per_additional_rank: 0.04 }),
     modifier_with_effect("swiftblessing", "radiantaegis", "Swift Blessing", "Radiant Aegis also grants the whole party +3% attack speed per rank (up to +9% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
-    modifier_with_effect("haloedsteps", "radiantaegis", "Haloed Steps", "Radiant Aegis's overflow past the 75% cap converts to party damage reduction at 30% efficiency per rank (up to 90% at 3/3).", Special { at_rank_1: 0.30, per_additional_rank: 0.30 }),
+    // Reworked 2026-08-21 (owner design call) - was an OverflowConversion
+    // node (Radiant Aegis's evasion overflow past 75% -> party DR). Now a
+    // whole-party multiplicative more-damage grant, scaled off the
+    // Cleric's own equipped Divine Damage affix COUNT (not its summed
+    // value - see `Character::count_affix`'s doc) at a flat per-instance
+    // rate per rank, capped per rank: 1/2/3% per Divine Damage affix
+    // instance at rank 1/2/3, capped at 3/6/9% (so the cap always binds
+    // at exactly 3 instances, every rank, by construction). The
+    // per-instance rate lives in `LiveTunables` (`haloedsteps_per_instance_pct_rank1/2/3`,
+    // same non-linear-per-rank shape as Righteous Fire's own
+    // `rf_self_damage_pct_rank1/2/3`); this node's own magnitude below
+    // IS the cap, already live-tunable via the existing per-rank override
+    // store (`PassiveNode::magnitude_at_rank`) with no new plumbing.
+    modifier_with_effect("haloedsteps", "radiantaegis", "Haloed Steps", "Grants the whole party (yourself included) multiplicative more damage, scaled by how many Divine Damage affix instances you have equipped: 1% per instance at rank 1, 2% at rank 2, 3% at rank 3 - capped at 3%/6%/9% (the cap at every rank).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
 ];
 
 // ---------------------------------------------------------------------

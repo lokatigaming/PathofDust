@@ -1945,6 +1945,21 @@ pub(crate) struct CombatSimUnit {
     /// Elementalist's Guardian Fire - same shape as `enshroudedfire_evasion_pct`,
     /// grants reduced damage taken instead.
     guardianfire_dr_pct: f64,
+    /// Cleric's Haloed Steps (2026-08-21 rework) - whole-party
+    /// MULTIPLICATIVE "more" damage grant (own independent layer in
+    /// `resolve_hit`, same shape as `conflagration_dmg_pct` - NOT the
+    /// ordinary additive `increased_damage` pool, which would dilute a
+    /// fixed percentage into near-nothing against large gear/tree
+    /// increased-damage totals), summed from every Cleric party member's
+    /// own investment in the party-wide broadcast pass (same shape as
+    /// `party_damage_reduction_pct` etc., NOT a personal investment field
+    /// - always 0.0 at unit construction, set only by that broadcast).
+    /// Dedicated field (not the shared `temp_party_increased_damage_bonus`/
+    /// `temp_damage_reduction_bonus` fields several OTHER nodes already
+    /// share and mislabel in the roll log - see `resolve_hit`'s own
+    /// "Haloed Steps" push) so its log entry can never be misattributed
+    /// to a different node.
+    haloedsteps_dmg_pct: f64,
     /// Elementalist's Shielding Fire - same shape as
     /// `enshroudedfire_evasion_pct`, grants improved block (an OVERRIDE
     /// percentage - 55/60/65% - not an additive bonus) instead. Applied
@@ -3295,6 +3310,7 @@ impl Default for CombatSimUnit {
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
             guardianfire_dr_pct: 0.0,
+            haloedsteps_dmg_pct: 0.0,
             shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct_expires_at_ms: 0,
@@ -3770,6 +3786,24 @@ pub(crate) fn death_wish_taken_pct(rank: u32) -> f64 {
         3.. => 0.15,
         0 => 0.0,
     }
+}
+
+/// Cleric's Haloed Steps (2026-08-21 rework) - more-damage granted per
+/// `divine_instances` (see `Character::count_affix`) at this rank's flat
+/// per-instance rate, capped at `cap` (the node's own per-rank magnitude -
+/// see the node's own doc in `passive_tree.rs` for why the cap lives
+/// there and the per-instance rate lives in `LiveTunables` instead).
+/// `rank` of 0 (unallocated) always yields 0.0 regardless of gear.
+pub(crate) fn haloedsteps_more_damage_pct(rank: u32, divine_instances: u32, cap: f64, tunables: &LiveTunables) -> f64 {
+    if rank == 0 {
+        return 0.0;
+    }
+    let per_instance_pct = match rank {
+        1 => tunables.haloedsteps_per_instance_pct_rank1,
+        2 => tunables.haloedsteps_per_instance_pct_rank2,
+        _ => tunables.haloedsteps_per_instance_pct_rank3,
+    };
+    (divine_instances as f64 * per_instance_pct).min(cap)
 }
 
 pub(crate) fn attacker_base_damage(unit: &CombatSimUnit, rng: &mut impl Rng) -> f64 {
@@ -4345,6 +4379,20 @@ pub(crate) fn resolve_hit(
     if atk.conflagration_dmg_pct > 0.0 {
         raw_dmg *= 1.0 + atk.conflagration_dmg_pct;
         attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Conflagration", atk.conflagration_dmg_pct));
+    }
+    // Cleric's Haloed Steps (2026-08-21 rework, owner design call) -
+    // spec'd as MULTIPLICATIVE "more" damage, same independent-layer
+    // shape as Conflagration just above, deliberately NOT folded into
+    // the additive `increased_damage` pool in `roll_attacker_damage`
+    // (moved out of there - a 2026-08-21 fix, see the commit history:
+    // it originally landed in that additive sum, which dilutes a fixed
+    // 9% into near-nothing against thousands of percent of gear
+    // increased-damage; this independent layer instead always grants
+    // exactly its stated percentage as a relative bonus, regardless of
+    // how large everything else is). See `haloedsteps_dmg_pct`'s own doc.
+    if atk.haloedsteps_dmg_pct > 0.0 {
+        raw_dmg *= 1.0 + atk.haloedsteps_dmg_pct;
+        attacker_side_debuffs.push((RollCategory::IncreasedDamage, "Haloed Steps", atk.haloedsteps_dmg_pct));
     }
     // Elementalist's Righteous Fire (docs/elementalist_spec.md) - design-
     // intent correction (2026-08-20): RF's enemy-facing damage is bonus
@@ -5804,6 +5852,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
             guardianfire_dr_pct: 0.0,
+            haloedsteps_dmg_pct: 0.0,
             shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct_expires_at_ms: 0,
@@ -11942,6 +11991,12 @@ pub(crate) fn simulate_battle(
                 next_cleansingflames_at_ms: if c.passive_node_rank("cleansingflames") > 0 { CLEANSING_FLAMES_TICK_INTERVAL_MS } else { u32::MAX },
                 enshroudedfire_evasion_pct: c.passive_node_magnitude("enshroudedfire"),
                 guardianfire_dr_pct: c.passive_node_magnitude("guardianfire"),
+                // Haloed Steps is a WHOLE-PARTY broadcast (see the
+                // party-wide grant pass below, same shape as
+                // Resilience/Sanctuary/Radiant Aegis), not a personal
+                // investment read here - always 0.0 at construction, set
+                // once every fighter exists.
+                haloedsteps_dmg_pct: 0.0,
                 shieldingfire_block_pct: c.passive_node_magnitude("shieldingfire"),
                 temp_shieldingfire_block_pct: 0.0,
                 temp_shieldingfire_block_pct_expires_at_ms: 0,
@@ -12382,6 +12437,7 @@ pub(crate) fn simulate_battle(
             next_cleansingflames_at_ms: u32::MAX,
             enshroudedfire_evasion_pct: 0.0,
             guardianfire_dr_pct: 0.0,
+            haloedsteps_dmg_pct: 0.0,
             shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct: 0.0,
             temp_shieldingfire_block_pct_expires_at_ms: 0,
@@ -12721,6 +12777,7 @@ pub(crate) fn simulate_battle(
     let mut party_damage_reduction_pct = 0.0;
     let mut party_evasion_pct = 0.0;
     let mut party_attack_speed_pct = 0.0;
+    let mut party_more_damage_pct = 0.0;
     for u in units.iter() {
         if u.is_boss {
             continue;
@@ -12736,11 +12793,24 @@ pub(crate) fn simulate_battle(
                     c.passive_node_magnitude("sanctuary") + c.passive_node_magnitude("consecratedearth") + c.passive_node_magnitude("wardingprayer");
                 party_evasion_pct += c.passive_node_magnitude("radiantaegis") + c.passive_node_magnitude("windsofgrace");
                 party_attack_speed_pct += c.passive_node_magnitude("swiftblessing");
-                // Haloed Steps - Radiant Aegis's own OVERFLOW (past its
-                // 75% cap) converts to party DR.
-                let haloedsteps_pct = c.passive_node_magnitude("haloedsteps");
-                if haloedsteps_pct > 0.0 {
-                    party_damage_reduction_pct += c.passive_overflow_bonus().evasion * haloedsteps_pct;
+                // Haloed Steps (2026-08-21 rework, owner design call) -
+                // whole-party multiplicative more-damage, scaled off this
+                // Cleric's own equipped Divine Damage affix COUNT (see
+                // `Character::count_affix`'s doc - deliberately a count of
+                // instances, not `sum_affix`'s summed value) at a flat
+                // per-instance rate for this rank, capped at this rank's
+                // own node magnitude (already live-tunable via the normal
+                // per-rank override store - see the node's own doc in
+                // passive_tree.rs). The per-instance rate isn't itself a
+                // node magnitude (it's a second, independent per-rank
+                // table on this node), so it lives in `LiveTunables`
+                // instead, same precedent as Righteous Fire's own
+                // `rf_self_damage_pct_rank1/2/3`.
+                let haloedsteps_rank = c.passive_node_rank("haloedsteps");
+                if haloedsteps_rank > 0 {
+                    let divine_instances = c.count_affix(Affix::DivineDamage);
+                    let cap = c.passive_node_magnitude("haloedsteps");
+                    party_more_damage_pct += haloedsteps_more_damage_pct(haloedsteps_rank, divine_instances, cap, tunables);
                 }
             }
             // Paladin's Vow of Protection - the same party-wide broadcast
@@ -12757,7 +12827,7 @@ pub(crate) fn simulate_battle(
             }
         }
     }
-    if party_max_hp_pct > 0.0 || party_damage_reduction_pct > 0.0 || party_evasion_pct > 0.0 || party_attack_speed_pct > 0.0 {
+    if party_max_hp_pct > 0.0 || party_damage_reduction_pct > 0.0 || party_evasion_pct > 0.0 || party_attack_speed_pct > 0.0 || party_more_damage_pct > 0.0 {
         for u in units.iter_mut() {
             if u.is_boss {
                 continue;
@@ -12772,6 +12842,13 @@ pub(crate) fn simulate_battle(
             if party_attack_speed_pct > 0.0 {
                 u.attack_interval_ms = (u.attack_interval_ms as f64 / (1.0 + party_attack_speed_pct)).round().max(200.0) as u32;
             }
+            // Dedicated field, not folded into `u.increased_damage` -
+            // Haloed Steps is a MULTIPLICATIVE "more" layer applied
+            // separately in `resolve_hit` (own labeled roll-log entry),
+            // unlike Sanctuary/Radiant Aegis/etc above, which fold into a
+            // plain additive base stat and are invisible in logs by
+            // design precedent.
+            u.haloedsteps_dmg_pct += party_more_damage_pct;
         }
         // Release 1.2 item 1 (2026-08-19) - Thunder Golem's own
         // `thundergolem_reform_base_max_hp` is captured inside
@@ -13525,6 +13602,7 @@ pub(crate) fn simulate_battle(
                                 next_cleansingflames_at_ms: u32::MAX,
                                 enshroudedfire_evasion_pct: 0.0,
                                 guardianfire_dr_pct: 0.0,
+                                haloedsteps_dmg_pct: 0.0,
                                 shieldingfire_block_pct: 0.0,
                                 temp_shieldingfire_block_pct: 0.0,
                                 temp_shieldingfire_block_pct_expires_at_ms: 0,
@@ -15906,6 +15984,176 @@ mod elementalist_stage_2_tests {
         let (category, _, magnitude) = entry.expect("Righteous Fire must be logged when invested");
         assert_eq!(*category, RollCategory::IncreasedDamage);
         assert!((*magnitude - 0.10).abs() < 1e-9);
+    }
+
+    /// Haloed Steps (2026-08-21 rework) - the pure formula, isolated from
+    /// gear/passive-tree plumbing entirely: per-instance rate (rank-picked
+    /// from `LiveTunables`) times the Cleric's Divine Damage affix count,
+    /// capped at `cap` (the node's own per-rank magnitude - 3/6/9% in
+    /// production, passed explicitly here). Worked examples straight from
+    /// the owner's own final-design message: rank 1 (cap 3%, rate 1%) at
+    /// 1/2/3+ instances -> 1%/2%/3%; rank 3 (cap 9%, rate 3%) at
+    /// 1/2/3+ instances -> 3%/6%/9% - the cap binds at EXACTLY 3
+    /// instances, every rank, by construction (rate * 3 == cap).
+    #[test]
+    fn haloedsteps_more_damage_pct_matches_the_owners_worked_examples() {
+        let tunables = LiveTunables::default(); // 1%/2%/3% per instance at rank 1/2/3
+
+        // Rank 1, cap 3%.
+        assert!((haloedsteps_more_damage_pct(1, 1, 0.03, &tunables) - 0.01).abs() < 1e-9);
+        assert!((haloedsteps_more_damage_pct(1, 2, 0.03, &tunables) - 0.02).abs() < 1e-9);
+        assert!((haloedsteps_more_damage_pct(1, 3, 0.03, &tunables) - 0.03).abs() < 1e-9, "cap must bind at exactly 3 instances");
+        assert!((haloedsteps_more_damage_pct(1, 10, 0.03, &tunables) - 0.03).abs() < 1e-9, "more than 3 instances must not exceed the cap");
+
+        // Rank 3, cap 9%.
+        assert!((haloedsteps_more_damage_pct(3, 1, 0.09, &tunables) - 0.03).abs() < 1e-9);
+        assert!((haloedsteps_more_damage_pct(3, 2, 0.09, &tunables) - 0.06).abs() < 1e-9);
+        assert!((haloedsteps_more_damage_pct(3, 3, 0.09, &tunables) - 0.09).abs() < 1e-9, "cap must bind at exactly 3 instances");
+
+        // Unallocated (rank 0) is always 0.0 regardless of gear.
+        assert_eq!(haloedsteps_more_damage_pct(0, 10, 0.09, &tunables), 0.0);
+
+        // Zero Divine Damage gear is always 0.0 regardless of rank -
+        // Haloed Steps' new power is entirely gear-gated.
+        assert_eq!(haloedsteps_more_damage_pct(3, 0, 0.09, &tunables), 0.0);
+    }
+
+    /// Log entry: dedicated field, dedicated label matching the node's
+    /// CURRENT name exactly - never the shared `temp_party_increased_damage_bonus`
+    /// (always mislabeled "Warlord's Resolve" for every other consumer,
+    /// see that field's own doc) or `temp_damage_reduction_bonus` (shared
+    /// by Compassion and others, similarly mislabeled). Same assertion
+    /// shape as Conflagration/Righteous Fire's own log tests just above.
+    #[test]
+    fn haloedsteps_logs_as_its_own_independent_multiplicative_source() {
+        let atk = CombatSimUnit { haloedsteps_dmg_pct: 0.06, ..Default::default() };
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let mut rng = StdRng::seed_from_u64(4);
+        let outcome = resolve_hit(1000.0, &atk, &def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let entry = outcome.deterministic_sources.iter().find(|(_, name, _)| *name == "Haloed Steps");
+        let (category, _, magnitude) = entry.expect("Haloed Steps must be logged when the ally is buffed");
+        assert_eq!(*category, RollCategory::IncreasedDamage);
+        assert!((*magnitude - 0.06).abs() < 1e-9);
+    }
+
+    /// Multiplicative composition (owner's ruled design, re-confirmed
+    /// 2026-08-21 after a review caught this test's own PRIOR version
+    /// asserting the wrong thing): Haloed Steps must be its OWN
+    /// independent `raw_dmg *= (1.0 + x)` layer in `resolve_hit`, same
+    /// shape as Conflagration, NOT folded into the additive
+    /// `increased_damage` sum `roll_attacker_damage` combines gear/tree
+    /// bonuses through. Proof: 9% Haloed Steps on top of 20% gear/tree
+    /// increased-damage must scale unmitigated damage by EXACTLY 1.09x
+    /// (1.20 * 1.09 / 1.20), not the diluted 1.29/1.20 = 1.0750x an
+    /// additive-bucket implementation would produce.
+    #[test]
+    fn haloedsteps_composes_multiplicatively_as_its_own_independent_more_layer() {
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let baseline_atk = CombatSimUnit { increased_damage: 0.20, ..Default::default() };
+        let mut rng_a = StdRng::seed_from_u64(5);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted_atk = CombatSimUnit { increased_damage: 0.20, haloedsteps_dmg_pct: 0.09, ..Default::default() };
+        let mut rng_b = StdRng::seed_from_u64(5);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
+        assert!((ratio - 1.09).abs() < 1e-6, "9% Haloed Steps must scale unmitigated damage by exactly 1.09x regardless of the 20% increased-damage baseline (a \"more\" multiplier, not diluted into the additive pool), got {ratio}");
+    }
+
+    /// The defining property of a "more" multiplier, proven directly at
+    /// scale (the owner's own worked example, post-fix): a party member
+    /// with 5000% gear/tree increased damage (`increased_damage: 50.0`)
+    /// plus a 3-affix rank-3 Haloed Steps grant (9%) must still see
+    /// EXACTLY a 9% relative increase - not the ~0.18% an additive-bucket
+    /// bug would produce (51.09/51.0 - 1). This is the regression guard
+    /// against ever re-folding Haloed Steps back into the additive pool.
+    #[test]
+    fn haloedsteps_nine_percent_survives_undiluted_against_5000_pct_gear_increased_damage() {
+        let def = CombatSimUnit { alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        let baseline_atk = CombatSimUnit { increased_damage: 50.0, ..Default::default() };
+        let mut rng_a = StdRng::seed_from_u64(7);
+        let baseline = resolve_hit(1000.0, &baseline_atk, &def, 1, &mut rng_a, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let boosted_atk = CombatSimUnit { increased_damage: 50.0, haloedsteps_dmg_pct: 0.09, ..Default::default() };
+        let mut rng_b = StdRng::seed_from_u64(7);
+        let boosted = resolve_hit(1000.0, &boosted_atk, &def, 1, &mut rng_b, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let ratio = boosted.unmitigated_damage as f64 / baseline.unmitigated_damage as f64;
+        assert!((ratio - 1.09).abs() < 1e-6, "9% Haloed Steps must still be a clean 9% relative increase even against a 5000% gear increased-damage baseline, got {ratio} (an additive-pool bug would give ~1.0018)");
+    }
+
+    /// End-to-end plumbing (same shape as `ticket_24_rf_self_damage_tunable_actually_reaches_the_real_sim_pipeline`
+    /// just above) - a real Cleric with `haloedsteps` invested and real
+    /// Divine Damage gear affixes, run through the actual `simulate_battle`
+    /// pipeline (LiveTunables -> party-wide broadcast -> CombatSimUnit
+    /// field -> roll_attacker_damage), not the formula tested in
+    /// isolation above. 2 Divine Damage instances at rank 2 (cap 6%, rate
+    /// 2%/instance) should grant exactly 4% - under the cap, so this also
+    /// confirms the cap ISN'T silently applied when it shouldn't bind.
+    /// Also confirms the whole-party convention: the Cleric buffs THEMSELF
+    /// too ("party" is inclusive, matching every sibling Cleric grant).
+    #[test]
+    fn haloedsteps_tunable_and_gear_count_actually_reach_the_real_sim_pipeline() {
+        let mut cleric = Character::new("cleric".to_string());
+        cleric.archetype = Archetype::Cleric;
+        cleric.level = 100;
+        cleric.passive_allocations.insert("resilience".to_string(), 1);
+        cleric.passive_allocations.insert("radiantaegis".to_string(), 1);
+        cleric.passive_allocations.insert("haloedsteps".to_string(), 2);
+        // `Character::new` starts every slot kitted with a randomly
+        // rolled (unseeded `thread_rng`) tier-1 item - clear the 3 slots
+        // this test doesn't explicitly control, so an unlucky random
+        // Divine Damage roll on the STARTING gear can never flake this
+        // assertion.
+        cleric.unequip(EquipSlot::Body);
+        cleric.unequip(EquipSlot::Gloves);
+        cleric.unequip(EquipSlot::Boots);
+        let mut rng = StdRng::seed_from_u64(1);
+        let mut item_a = make_item_perfect(generate_item_at_tier_with_roll(EquipSlot::Weapon, 10, 1.0, &mut rng));
+        item_a.affixes = vec![(Affix::DivineDamage, 0.05)];
+        let mut item_b = make_item_perfect(generate_item_at_tier_with_roll(EquipSlot::Helm, 10, 1.0, &mut rng));
+        item_b.affixes = vec![(Affix::DivineDamage, 0.05)];
+        cleric.equip(item_a);
+        cleric.equip(item_b);
+        assert_eq!(cleric.count_affix(Affix::DivineDamage), 2, "test setup sanity: exactly 2 Divine Damage instances equipped");
+
+        // A solo Cleric's unified action heals whoever's lowest-HP every
+        // turn, and with only themselves in the party that's always
+        // themselves - they never roll an attacker-side damage roll at
+        // all (confirmed empirically: zero `CombatEvent::Attack` with the
+        // Cleric as attacker, even against a 0-atk boss), so Haloed
+        // Steps' own effect on the Cleric's OWN damage is real but
+        // unobservable in isolation. A second, DPS-role ally is what
+        // actually attacks and carries the buff's log entry - exercising
+        // the "party (Cleric included)" convention from the OTHER side:
+        // the buff a Cleric grants showing up on someone else's rolls.
+        let mut warrior = Character::new("warrior".to_string());
+        warrior.archetype = Archetype::Warrior;
+        warrior.level = 100;
+
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("cleric".to_string(), cleric);
+        characters.insert("warrior".to_string(), warrior);
+
+        let boss_stats = BossStats {
+            hp: 2_000_000_000,
+            atk: 0,
+            attack_interval_ms: 900,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables { haloedsteps_per_instance_pct_rank1: 0.01, haloedsteps_per_instance_pct_rank2: 0.02, haloedsteps_per_instance_pct_rank3: 0.03, ..Default::default() };
+        let mut rng = StdRng::seed_from_u64(99);
+        let (_won, _units, _events, rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+
+        let haloedsteps_rolls: Vec<_> = rolls.iter().filter(|r| r.source.as_ref() == "Haloed Steps" && r.actor == "warrior").collect();
+        assert!(!haloedsteps_rolls.is_empty(), "rank-2 Haloed Steps with real Divine Damage gear must produce logged roll events on a party member's own attacks over a full fight");
+        for r in &haloedsteps_rolls {
+            let magnitude = r.magnitude.expect("Haloed Steps roll events must carry a magnitude");
+            assert!((magnitude - 0.04).abs() < 1e-9, "2 instances * 2%/instance = 4% (under the 6% rank-2 cap), got {magnitude}");
+        }
     }
 
     #[test]

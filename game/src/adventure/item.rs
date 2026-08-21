@@ -516,6 +516,24 @@ impl Item {
         normal + sacred
     }
 
+    /// How many times `affix` is rolled on this item - normal `affixes`
+    /// (0 or 1: `roll_affixes`' `weighted_affix_pick` removes each type
+    /// from the pool as it's picked, so a plain roll never duplicates one
+    /// type on one item) plus 1 more if `sacred_affix` independently
+    /// landed on the same type too (it's drawn from the full pool
+    /// regardless of what's already rolled - see `make_item_sacred`'s own
+    /// doc - so it CAN double up). Same "sacred counts as one more"
+    /// precedent `disenchant_multiplier` already established just below,
+    /// just counting instances instead of dust-tier steps. No decay
+    /// weighting here, unlike `effective_affix_total` above - this is a
+    /// presence count, not a value, and an item doesn't stop HAVING an
+    /// affix as its durability wears down.
+    pub fn affix_instance_count(&self, affix: Affix) -> u32 {
+        let normal = self.affixes.iter().filter(|(a, _)| *a == affix).count() as u32;
+        let sacred = if self.sacred_affix.map(|(a, _)| a) == Some(affix) { 1 } else { 0 };
+        normal + sacred
+    }
+
     /// Dust-value multiplier from this item's affix count - the item's
     /// primary slot stat (dps/hp/etc.) counts as its baseline modifier,
     /// so a totally plain item (0 affixes) is 1x, and EVERY rolled affix
