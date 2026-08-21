@@ -1418,6 +1418,9 @@ fn craft_error_text(err: CraftError) -> String {
         CraftError::NothingToPolish => "That item's already maxed out — nothing left for Polishing to improve.".to_string(),
         CraftError::InsufficientDivineDust(cost) => format!("Not enough Divine Dust — this needs {cost}."),
         CraftError::NoValidRerollTarget => "No other sacred affix is available to reroll into.".to_string(),
+        CraftError::ConflictingUniqueAffix => {
+            "You already have that unique effect equipped elsewhere — unequip it first, or apply the shard to an item in your bag instead.".to_string()
+        }
     }
 }
 

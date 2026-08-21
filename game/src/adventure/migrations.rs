@@ -306,12 +306,52 @@ pub(crate) fn migrate_celestial_shard_into_unique_shard(character: &mut Characte
     character.craft_tokens.retain(|(action, _)| *action != CraftAction::CelestialShard);
 }
 
+/// One-time cleanup for the duplicate-equipped-uniques bug (2026-08-21,
+/// see docs/duplicate_unique_effects_spec.md) - equipping the SAME
+/// `UniqueAffix` in two or more slots at once used to be reachable
+/// through two mutation points that never re-ran equip-time's own
+/// one-per-unique rule (`Character::apply_unique_affix`'s commit step
+/// and the legacy `CraftAction::CelestialShard` branch - both fixed, see
+/// `Character::has_conflicting_unique_affix_value`). This is the
+/// retroactive repair for characters who already hit it before the fix
+/// shipped. For every `UniqueAffix` currently duplicated across 2+
+/// equipped slots, EVERY copy is unequipped - not "keep one, drop the
+/// rest" (no silent winner-picking, the owner's own call to make) - into
+/// the bag, intact: nothing destroyed, nothing refunded, no stat
+/// changes. The player re-equips whichever one they want. Naturally
+/// idempotent - after the first run no equipped group has 2+ items
+/// sharing a unique, so a second run finds nothing to touch, on this
+/// character or any other. Logs one line per AFFECTED character (only -
+/// a character with nothing to clean stays silent) naming every slot and
+/// item moved, for the deploy report.
+pub(crate) fn migrate_duplicate_unique_effects(character: &mut Character) {
+    let mut by_unique: std::collections::HashMap<UniqueAffix, Vec<EquipSlot>> = std::collections::HashMap::new();
+    for slot in EQUIP_SLOTS {
+        if let Some(unique) = character.equipped(slot).as_ref().and_then(|i| i.unique_affix) {
+            by_unique.entry(unique).or_default().push(slot);
+        }
+    }
+    let mut moved: Vec<(EquipSlot, String)> = Vec::new();
+    for slots in by_unique.into_values().filter(|slots| slots.len() > 1) {
+        for slot in slots {
+            if let Some(item) = character.equipped_mut(slot).take() {
+                moved.push((slot, item.name.clone()));
+                character.inventory.push(item);
+            }
+        }
+    }
+    if !moved.is_empty() {
+        tracing::info!("duplicate-unique-effects cleanup: character={} unequipped {} item(s): {moved:?}", character.display_name, moved.len());
+    }
+}
+
 /// Character-level counterpart to `ITEM_MIGRATIONS` - same
 /// (marker filename, mutation) shape, for one-time corrections that touch
 /// a character's own fields rather than their gear.
 pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[
     ("adventure-flowlikewater-swap-marker.json", migrate_flowlikewater_swap),
     ("adventure-celestial-shard-into-unique-shard-marker.json", migrate_celestial_shard_into_unique_shard),
+    ("adventure-duplicate-unique-effects-cleanup-marker.json", migrate_duplicate_unique_effects),
 ];
 
 /// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -
@@ -748,6 +788,136 @@ mod celestial_shard_into_unique_shard_tests {
         c.weapon = Some(item);
         migrate_celestial_shard_into_unique_shard(&mut c);
         assert_eq!(c.weapon.as_ref().unwrap().unique_affix, Some(UniqueAffix::CelestialConversion), "an already-granted unique affix must never be touched by the currency migration");
+    }
+}
+
+#[cfg(test)]
+mod duplicate_unique_effects_cleanup_tests {
+    use super::*;
+
+    fn character_with_equipped_uniques(name: &str, items: &[(EquipSlot, UniqueAffix)]) -> Character {
+        let mut c = Character::new(name.to_string());
+        for &(slot, unique) in items {
+            let mut item = generate_item_at_tier(slot, 10, &mut rand::thread_rng());
+            item.unique_affix = Some(unique);
+            *c.equipped_mut(slot) = Some(item);
+        }
+        c
+    }
+
+    #[test]
+    fn unequips_all_copies_of_a_duplicated_unique() {
+        let mut c = character_with_equipped_uniques("dupe", &[(EquipSlot::Helm, UniqueAffix::SplitPersonality), (EquipSlot::Body, UniqueAffix::SplitPersonality)]);
+        migrate_duplicate_unique_effects(&mut c);
+        assert!(c.helm.is_none(), "both copies must be unequipped, not just the extra");
+        assert!(c.body.is_none());
+        assert_eq!(c.inventory.iter().filter(|i| i.unique_affix == Some(UniqueAffix::SplitPersonality)).count(), 2, "both items must land in the bag, intact");
+    }
+
+    #[test]
+    fn moved_items_keep_every_field_unchanged() {
+        let mut c = character_with_equipped_uniques("intact", &[(EquipSlot::Weapon, UniqueAffix::CelestialConversion), (EquipSlot::Helm, UniqueAffix::CelestialConversion)]);
+        let weapon_id = c.weapon.as_ref().unwrap().id.clone();
+        let weapon_tier = c.weapon.as_ref().unwrap().tier;
+        migrate_duplicate_unique_effects(&mut c);
+        let moved = c.inventory.iter().find(|i| i.id == weapon_id).expect("the weapon must be in the bag now");
+        assert_eq!(moved.tier, weapon_tier, "nothing about the item's own stats changes - pure re-slotting");
+        assert_eq!(moved.unique_affix, Some(UniqueAffix::CelestialConversion), "the unique effect itself is preserved, not stripped");
+    }
+
+    #[test]
+    fn non_duplicated_uniques_are_left_alone() {
+        let mut c = character_with_equipped_uniques("fine", &[(EquipSlot::Weapon, UniqueAffix::CelestialConversion), (EquipSlot::Helm, UniqueAffix::SplitPersonality)]);
+        migrate_duplicate_unique_effects(&mut c);
+        assert_eq!(c.weapon.as_ref().and_then(|i| i.unique_affix), Some(UniqueAffix::CelestialConversion), "a single copy of each different unique must never be touched");
+        assert_eq!(c.helm.as_ref().and_then(|i| i.unique_affix), Some(UniqueAffix::SplitPersonality));
+    }
+
+    #[test]
+    fn a_character_with_no_uniques_at_all_is_untouched() {
+        let mut c = Character::new("plain".to_string());
+        let weapon_id_before = c.weapon.as_ref().unwrap().id.clone();
+        migrate_duplicate_unique_effects(&mut c);
+        assert_eq!(c.weapon.as_ref().unwrap().id, weapon_id_before, "no uniques at all - nothing should move");
+        assert!(c.inventory.is_empty(), "starter kit fills every slot, so the bag should stay empty");
+    }
+
+    #[test]
+    fn is_idempotent_on_rerun() {
+        // The marker file is what actually prevents a real re-run in
+        // production, but the migration itself must also be safe to call
+        // twice - same convention `celestial_shard_into_unique_shard_tests::is_idempotent_on_rerun`
+        // establishes.
+        let mut c = character_with_equipped_uniques("rerun", &[(EquipSlot::Weapon, UniqueAffix::CelestialConversion), (EquipSlot::Body, UniqueAffix::CelestialConversion)]);
+        migrate_duplicate_unique_effects(&mut c);
+        let inventory_after_first = c.inventory.len();
+        migrate_duplicate_unique_effects(&mut c);
+        assert_eq!(c.inventory.len(), inventory_after_first, "nothing left equipped to duplicate - a second run must be a pure no-op");
+        assert!(c.weapon.is_none() && c.body.is_none());
+    }
+
+    #[test]
+    fn all_five_slots_sharing_the_same_unique_all_get_unequipped() {
+        // The real live case this migration was written for (xDaido, see
+        // the fit report's scan) - every single slot carrying the same
+        // unique, not just two.
+        let mut c = character_with_equipped_uniques("five_slots", &EQUIP_SLOTS.map(|s| (s, UniqueAffix::CelestialConversion)));
+        migrate_duplicate_unique_effects(&mut c);
+        for slot in EQUIP_SLOTS {
+            assert!(c.equipped(slot).is_none(), "{slot:?} must be unequipped");
+        }
+        assert_eq!(c.inventory.iter().filter(|i| i.unique_affix == Some(UniqueAffix::CelestialConversion)).count(), 5);
+    }
+
+    /// Reproduces the exact 2026-08-21 fit-report scan figures (7
+    /// characters, 18 items, split 3 splitPersonality/4 celestialConversion)
+    /// against a synthetic multi-character fixture shaped identically to
+    /// the real `adventure-characters.json` findings - proves the
+    /// reported blast radius is a real, reproducible property of this
+    /// migration's own logic, not a one-off manual read of the save file.
+    #[test]
+    fn reproduces_the_live_scan_figures_from_a_seven_character_fixture() {
+        let mut characters: std::collections::HashMap<String, Character> = std::collections::HashMap::new();
+        let cases: &[(&str, &[(EquipSlot, UniqueAffix)])] = &[
+            ("zolaries", &[(EquipSlot::Helm, UniqueAffix::SplitPersonality), (EquipSlot::Body, UniqueAffix::SplitPersonality)]),
+            ("qugetus_", &[(EquipSlot::Helm, UniqueAffix::SplitPersonality), (EquipSlot::Body, UniqueAffix::SplitPersonality)]),
+            ("colonyna", &[(EquipSlot::Weapon, UniqueAffix::SplitPersonality), (EquipSlot::Body, UniqueAffix::SplitPersonality)]),
+            ("drewm1022", &[(EquipSlot::Weapon, UniqueAffix::CelestialConversion), (EquipSlot::Body, UniqueAffix::CelestialConversion)]),
+            ("xborntokillx", &[(EquipSlot::Weapon, UniqueAffix::CelestialConversion), (EquipSlot::Helm, UniqueAffix::CelestialConversion)]),
+            ("gorshie", &[(EquipSlot::Body, UniqueAffix::CelestialConversion), (EquipSlot::Gloves, UniqueAffix::CelestialConversion), (EquipSlot::Boots, UniqueAffix::CelestialConversion)]),
+            (
+                "xdaido",
+                &[
+                    (EquipSlot::Weapon, UniqueAffix::CelestialConversion),
+                    (EquipSlot::Helm, UniqueAffix::CelestialConversion),
+                    (EquipSlot::Body, UniqueAffix::CelestialConversion),
+                    (EquipSlot::Gloves, UniqueAffix::CelestialConversion),
+                    (EquipSlot::Boots, UniqueAffix::CelestialConversion),
+                ],
+            ),
+        ];
+        for &(login, items) in cases {
+            characters.insert(login.to_string(), character_with_equipped_uniques(login, items));
+        }
+        // A few unaffected characters mixed in, same as the real save -
+        // proves the migration doesn't false-positive on normal builds.
+        characters.insert("clean_one".to_string(), Character::new("clean_one".to_string()));
+        characters.insert("clean_two".to_string(), character_with_equipped_uniques("clean_two", &[(EquipSlot::Weapon, UniqueAffix::SplitPersonality)]));
+
+        let mut affected_characters = 0;
+        let mut total_items_moved = 0;
+        for character in characters.values_mut() {
+            let inventory_before = character.inventory.len();
+            migrate_duplicate_unique_effects(character);
+            let moved = character.inventory.len() - inventory_before;
+            if moved > 0 {
+                affected_characters += 1;
+                total_items_moved += moved;
+            }
+        }
+
+        assert_eq!(affected_characters, 7, "must match the live scan's reported blast radius exactly");
+        assert_eq!(total_items_moved, 18, "2+2+2+2+2+3+5 = 18, the live scan's reported item total");
     }
 }
 

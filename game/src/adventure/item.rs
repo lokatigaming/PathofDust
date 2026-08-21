@@ -80,7 +80,7 @@ pub(crate) fn polish_eligible_affixes(item: &Item) -> Vec<usize> {
 /// one EQUIPPED item carrying any given `UniqueAffix` at a time (see
 /// `Character::has_conflicting_unique_affix`) - two Celestial Shard
 /// items would just be redundant otherwise, not a stronger stack.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum UniqueAffix {
     /// Celestial Shard's effect - see `CELESTIAL_CONVERSION_PCT`.

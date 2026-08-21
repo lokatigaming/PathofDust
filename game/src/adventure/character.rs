@@ -1138,9 +1138,25 @@ impl Character {
     /// of each different unique affix equipped at any given time" per
     /// the request. `excluding_slot` is the slot `item` is headed into,
     /// so equipping it back into its OWN slot never counts as a
-    /// conflict with itself.
+    /// conflict with itself. Thin wrapper over
+    /// `has_conflicting_unique_affix_value` for the common case where the
+    /// value in question is already sitting on `item.unique_affix` -
+    /// every equip-time call site (`receive_item`/`equip_from_inventory`)
+    /// uses this shape.
     pub(crate) fn has_conflicting_unique_affix(&self, item: &Item, excluding_slot: EquipSlot) -> bool {
-        let Some(unique) = item.unique_affix else { return false };
+        item.unique_affix.is_some_and(|unique| self.has_conflicting_unique_affix_value(unique, excluding_slot))
+    }
+
+    /// The real check `has_conflicting_unique_affix` above wraps - split
+    /// out (2026-08-21 duplicate-unique-effects fix) so a caller deciding
+    /// whether to GRANT a specific `UniqueAffix` (the Unique Shard
+    /// picker, the legacy Celestial Shard craft) can check a value that
+    /// isn't on the item yet, rather than needing to mutate first and
+    /// check after. This is now the ONE validator behind every mutation
+    /// point that can affect equipped uniques - see its own callers for
+    /// the full enumeration (equip, receive, and both unique-granting
+    /// craft paths).
+    pub(crate) fn has_conflicting_unique_affix_value(&self, unique: UniqueAffix, excluding_slot: EquipSlot) -> bool {
         EQUIP_SLOTS.iter().filter(|&&s| s != excluding_slot).filter_map(|&s| self.equipped(s).as_ref()).any(|other| other.unique_affix == Some(unique))
     }
 
@@ -1500,7 +1516,7 @@ impl Character {
             // arm only exists for a not-yet-migrated straggler token, and
             // unconditionally grants `CelestialConversion` (the only thing
             // a real CelestialShard token could ever have meant).
-            let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+            let item = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
             // Locked and unique are mutually exclusive in BOTH
             // directions - an already-Krangled item can't receive a
             // unique affix either, same as Krangle itself refusing an
@@ -1516,8 +1532,21 @@ impl Character {
             if item.unique_affix.is_some() {
                 return Err(CraftError::AlreadyUnique);
             }
-            let item_name = item.name.clone();
             let slot = item.slot;
+            // Duplicate-unique-effects fix (2026-08-21) - same equipped-
+            // only conflict check `AdventureManager::craft_item_ex`'s
+            // UniqueShard branch applies to its picker, needed here too
+            // since this legacy path grants `CelestialConversion`
+            // directly with no picker step to filter. Currently
+            // unreachable in practice (every live CelestialShard token
+            // has already migrated to UniqueShard - see
+            // `migrate_celestial_shard_into_unique_shard`), kept for
+            // defense in depth against a stale token reappearing.
+            if self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id) && self.has_conflicting_unique_affix_value(UniqueAffix::CelestialConversion, slot) {
+                return Err(CraftError::ConflictingUniqueAffix);
+            }
+            let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+            let item_name = item.name.clone();
             let tier = item.tier;
             let perfect = item.perfect;
             item.unique_affix = Some(UniqueAffix::CelestialConversion);
@@ -4248,6 +4277,116 @@ mod memory_persistence_tests {
 
         assert_eq!(memory.secondary_archetype, None);
         assert!(memory.secondary_passive_allocations.is_empty(), "an inactive secondary tree must not be captured");
+    }
+}
+
+/// Coverage for the 2026-08-21 duplicate-unique-effects fix - the
+/// equip-time gate (`has_conflicting_unique_affix`/`_value`, already
+/// correct before this fix but never directly tested) and the legacy
+/// `CraftAction::CelestialShard` branch's new equipped-conflict check
+/// (`Character::has_conflicting_unique_affix_value`'s new caller). The
+/// Unique Shard picker's own insert-time filter lives in
+/// `manager.rs::unique_shard_tests` instead, since it needs the real
+/// `craft_item_ex`/`choose_veil_outcome` manager API.
+#[cfg(test)]
+mod duplicate_unique_effects_tests {
+    use super::*;
+
+    fn unique_item(slot: EquipSlot, unique: UniqueAffix) -> Item {
+        let mut item = generate_item_at_tier(slot, 10, &mut rand::thread_rng());
+        item.unique_affix = Some(unique);
+        item
+    }
+
+    #[test]
+    fn equip_from_inventory_is_blocked_when_the_same_unique_is_already_equipped_elsewhere() {
+        // Character::new gives a full starter kit, so `body` already
+        // holds something before this test even starts - captured here
+        // so the assertion below proves it stayed untouched rather than
+        // assuming an empty slot.
+        let mut character = Character::new("blocker".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::SplitPersonality));
+        let starter_body_id = character.body.as_ref().expect("starter kit fills every slot").id.clone();
+        let bagged = unique_item(EquipSlot::Body, UniqueAffix::SplitPersonality);
+        let id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        let equipped = character.equip_from_inventory(&id);
+        assert!(!equipped, "equipping a second SplitPersonality item must be refused");
+        assert!(character.inventory.iter().any(|i| i.id == id), "the refused item must stay in the bag, untouched");
+        assert_eq!(character.body.as_ref().map(|i| i.id.clone()), Some(starter_body_id), "the body slot's current occupant must be untouched - nothing silently swapped in");
+    }
+
+    #[test]
+    fn equip_from_inventory_succeeds_when_the_unique_is_different() {
+        let mut character = Character::new("differ".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::SplitPersonality));
+        let bagged = unique_item(EquipSlot::Body, UniqueAffix::CelestialConversion);
+        let id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        let equipped = character.equip_from_inventory(&id);
+        assert!(equipped, "a DIFFERENT unique affix must never conflict with another");
+        assert_eq!(character.body.as_ref().map(|i| i.unique_affix), Some(Some(UniqueAffix::CelestialConversion)));
+    }
+
+    #[test]
+    fn receive_item_falls_back_to_the_bag_when_auto_equip_would_conflict() {
+        let mut character = Character::new("receiver".to_string());
+        character.weapon = Some(unique_item(EquipSlot::Weapon, UniqueAffix::CelestialConversion));
+        character.helm = None; // empty slot, so receive_item would normally auto-equip straight into it
+        let dropped = unique_item(EquipSlot::Helm, UniqueAffix::CelestialConversion);
+        let id = dropped.id.clone();
+
+        let outcome = character.receive_item(dropped);
+        assert!(matches!(outcome, ReceiveOutcome::AddedToBag), "an empty slot must NOT auto-equip a conflicting unique");
+        assert!(character.inventory.iter().any(|i| i.id == id));
+        assert!(character.helm.is_none());
+    }
+
+    #[test]
+    fn has_conflicting_unique_affix_value_excludes_the_items_own_destination_slot() {
+        let mut character = Character::new("self_check".to_string());
+        character.weapon = Some(unique_item(EquipSlot::Weapon, UniqueAffix::CelestialConversion));
+        assert!(
+            !character.has_conflicting_unique_affix_value(UniqueAffix::CelestialConversion, EquipSlot::Weapon),
+            "equipping back into its own current slot must never count as a conflict with itself"
+        );
+        assert!(
+            character.has_conflicting_unique_affix_value(UniqueAffix::CelestialConversion, EquipSlot::Helm),
+            "the same value destined for a DIFFERENT slot must still conflict with the Weapon's own copy"
+        );
+    }
+
+    #[test]
+    fn legacy_celestial_shard_craft_on_an_equipped_item_rejects_when_it_would_conflict() {
+        let mut character = Character::new("legacy_equipped".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::CelestialConversion));
+        // A second, unique-free item already sitting EQUIPPED in the Body
+        // slot - craft_inner mutates whatever's found by id, wherever it
+        // lives, so this must be reachable via the equipped path too.
+        let body_item = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
+        let id = body_item.id.clone();
+        character.body = Some(body_item);
+
+        let mut rng = rand::thread_rng();
+        let err = character.craft_inner(&id, CraftAction::CelestialShard, &mut rng).expect_err("must reject - CelestialConversion is already equipped on the Helm");
+        assert!(matches!(err, CraftError::ConflictingUniqueAffix));
+        assert_eq!(character.body.as_ref().unwrap().unique_affix, None, "a rejected precondition must never mutate the item");
+    }
+
+    #[test]
+    fn legacy_celestial_shard_craft_on_a_bagged_item_is_always_allowed_even_with_a_conflict() {
+        let mut character = Character::new("legacy_bagged".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::CelestialConversion));
+        let bagged = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
+        let id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        let mut rng = rand::thread_rng();
+        let outcome = character.craft_inner(&id, CraftAction::CelestialShard, &mut rng).expect("a bagged item's conflict is only ever an equip-time concern");
+        assert_eq!(outcome.unique_affix_added, Some(UniqueAffix::CelestialConversion));
+        assert_eq!(character.find_item_by_id(&id).unwrap().unique_affix, Some(UniqueAffix::CelestialConversion));
     }
 }
 

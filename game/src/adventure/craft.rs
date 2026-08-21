@@ -364,6 +364,16 @@ pub enum CraftError {
     /// explicitly, so it's implemented and tested defensively rather than
     /// assumed away.
     NoValidRerollTarget,
+    /// 2026-08-21 duplicate-unique-effects fix - `CraftAction::UniqueShard`
+    /// (and the legacy `CraftAction::CelestialShard` path) on an
+    /// EQUIPPED item where every remaining unique-affix candidate would
+    /// duplicate a unique already worn in another equipped slot (see
+    /// `Character::has_conflicting_unique_affix_value`). An item sitting
+    /// in the bag never hits this - a conflict there is only ever an
+    /// equip-time concern, same as any other unique-bearing item already
+    /// unequipped. Checked BEFORE token consumption, same convention
+    /// `ItemLocked`/`AlreadyUnique` already use.
+    ConflictingUniqueAffix,
 }
 
 /// Why `AdventureManager::craft_divine_dust` (the dust+sand → Divine Dust
