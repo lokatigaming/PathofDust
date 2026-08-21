@@ -313,10 +313,19 @@ pub enum AttackSourceKind {
     #[default]
     Direct,
     Splash,
+    /// Was Lingering Effect's own tick tag (2026-08-15 through 2026-08-21) -
+    /// no live producer as of the Echo rework (see
+    /// `Character::dot_ticks`'s doc), kept declared so any already-persisted
+    /// fight-log JSON still deserializes.
     Dot,
     Reflect,
     CurseShare,
     Environmental,
+    /// Echo (2026-08-21, replaces Lingering Effect) - tags the repeated
+    /// `Attack`/`Heal` event(s) a successful Echo roll fires, so an echoed
+    /// hit is never confusable with the original hit it repeats (see
+    /// `roll_echo`'s doc).
+    Echo,
 }
 
 /// One thing that happened during a simulated fight, with the timestamp
@@ -518,6 +527,13 @@ pub enum RollCategory {
     /// chance roll): the stage-scaled fraction of a real boss's fully-
     /// rolled hit that bypasses evasion/block/DR entirely.
     Pierce,
+    /// Echo (2026-08-21, replaces Lingering Effect) - a genuine
+    /// `rng.gen_bool` roll (the ladder's remainder chance; the guaranteed
+    /// `floor(pct/100)` portion isn't a roll and isn't logged here) at the
+    /// primary damage/heal share's own call site, never inside `apply_hit`
+    /// itself - see `roll_echo`'s doc for why that's what makes "an echo
+    /// never itself rolls Echo" structural rather than a flag to remember.
+    Echo,
 }
 
 /// One named mechanic's contribution to a single hit - the full-detail
@@ -875,14 +891,21 @@ pub struct PlayerFightStats {
     /// (via the derived `Default` above) so fight records already on disk
     /// deserialize as 0, the correct reading (every tick they recorded is
     /// already folded into the old undifferentiated `hits` instead).
+    /// **No live producer as of the 2026-08-21 Echo rework** - Lingering
+    /// Effect was the only source of an `AttackSourceKind::Dot`-tagged
+    /// `Attack` event, and it's retired (see `Affix::LingeringEffect`'s
+    /// own doc); this field/its exclusion logic stay in place (harmless,
+    /// same "old data reads as a correct 0" contract) rather than being
+    /// ripped out, since nothing currently writes to it going forward.
     #[serde(default)]
     pub dot_ticks: u32,
     /// Total damage those same ticks dealt - a SUBSET of `damage_dealt`,
-    /// not additional to it. Can be the large majority of a build's total
-    /// damage (a Warlock leaning on Lingering Effect can clear 99%+) even
-    /// though `dot_ticks` contributes nothing to `hits`/`crits` - the
-    /// point of tracking both is so excluding DoT from "how often did you
-    /// swing" never reads as "you barely contributed."
+    /// not additional to it. Historically could be the large majority of
+    /// a build's total damage (a Warlock leaning on Lingering Effect could
+    /// clear 99%+) even though `dot_ticks` contributed nothing to
+    /// `hits`/`crits` - the point of tracking both was so excluding DoT
+    /// from "how often did you swing" never read as "you barely
+    /// contributed." Same "no live producer" note as `dot_ticks` above.
     #[serde(default)]
     pub dot_damage: u64,
 }
@@ -928,7 +951,11 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
             CombatEvent::Attack { attacker, target, damage, unmitigated_damage, is_crit, evaded, source_kind, .. } => {
                 if let Some(s) = stats.get_mut(attacker) {
                     match source_kind {
-                        AttackSourceKind::Direct | AttackSourceKind::Splash => {
+                        // Echo (2026-08-21) - a repeated hit is a genuine
+                        // extra swing (rolls its own fresh crit/evasion),
+                        // not an unavoidable DoT tick like `Dot` below -
+                        // counted exactly like a real `Direct`/`Splash` hit.
+                        AttackSourceKind::Direct | AttackSourceKind::Splash | AttackSourceKind::Echo => {
                             if *evaded {
                                 s.evaded += 1;
                             } else {

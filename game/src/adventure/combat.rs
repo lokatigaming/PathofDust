@@ -362,28 +362,18 @@ pub(crate) const SERENITY_DR_DURATION_MS: u32 = 3_000;
 /// without one, matching Serenity's own 3s (both are "evade/hit-driven
 /// timed debuff/buff" nodes at the same tier).
 pub(crate) const FROSTNOVA_DEBUFF_DURATION_MS: u32 = 3_000;
-/// Lingering Effect (the 2026-08-15 Healing Power rework) - originally
-/// "damage over 4 seconds" ticking once per second (4 ticks = 4000ms,
-/// per the design text's own worked example: 100 dmg x 4% = 4 total,
-/// 1/sec). Cadence dropped to 50ms (2026-08-16, a live request, explicitly
-/// acknowledged as "a huge increase in its participation") - but the tick
-/// COUNT was left at 4 instead of scaling up with it, an unintended side
-/// effect (not a deliberate design call) that silently collapsed total
-/// duration from the intended 4000ms down to just 200ms. Fixed
-/// (2026-08-17): tick count raised to 80 (`4000ms / 50ms`), restoring the
-/// original 4-second total duration at the current fast cadence. Since
-/// `amount_per_tick` (= total / `LINGERING_EFFECT_TICKS`) already uses
-/// this constant as its divisor, this single change keeps the total
-/// amount delivered identical - now spread over 80 small ticks across a
-/// real 4s instead of 4 big ticks across 200ms.
+/// RETIRED (2026-08-21, Lingering Effect removed - replaced by Echo, see
+/// `Affix::Echo`'s doc). No combat code reads these two anymore - kept
+/// declared, frozen at their final pre-retirement values, ONLY because
+/// the wiki module (`adventure_web::wiki`, a parallel session's own
+/// workspace - never edited from here) still reads both directly to
+/// template its "Lingering Effect" page section. Flagged in
+/// WIKI_IMPACT.md for that session to remove on its own schedule, rather
+/// than deleted here and breaking its build out from under it.
 pub const LINGERING_EFFECT_TICK_INTERVAL_MS: u32 = 50;
 pub const LINGERING_EFFECT_TICKS: u32 = 80;
-/// Seed of Life's per-tick shield duration - long enough (vs.
-/// `LINGERING_EFFECT_TICK_INTERVAL_MS`'s 50ms cadence) that consecutive
-/// ticks from the same still-active Lingering Effect instance land before
-/// the previous grant expires, so `grant_shield`'s own "still active ->
-/// add, else replace" rule makes them genuinely stack across the DoT's
-/// whole (now 80-tick) lifetime instead of each one replacing the last.
+/// Seed of Life's per-echo shield duration (was: per-tick, before the
+/// 2026-08-21 Echo rework - see `passive_tree.rs`'s own Seed of Life doc).
 pub(crate) const SEEDOFLIFE_SHIELD_DURATION_MS: u32 = 5_000;
 /// Cthulhu's Bubble rework (2026-08-16) - base % less damage AND healing
 /// dealt per stack, before scaling by his own dynamic boss power (see
@@ -1267,17 +1257,26 @@ pub(crate) struct CombatSimUnit {
     /// `temp_heal_power_bonus`/`temp_heal_power_bonus_expires_at_ms` pair
     /// below (also reused by Merciful Touch's Healing Touch modifier).
     guardian_spirit_save_heal_power_pct: f64,
-    /// Druid's Verdant Burst (2026-08-16 rework - see passive_tree.rs) -
-    /// charges banked for THIS fight, LINEAR with rank (1 at rank 1, 2 at
-    /// rank 2, 3 at rank 3 - unlike Guardian Spirit's non-linear gate,
-    /// per the node's own "can trigger 1/2/3 times per fight" text).
-    /// Checked in `apply_hit` alongside Guardian Spirit, but with its own
-    /// extra condition: only saves the target if THIS unit's own total
-    /// pending (not-yet-delivered) heal-flavor Lingering Effect healing
-    /// on that target currently exceeds the lethal hit's own damage - see
-    /// the trigger site's own `verdant_pending_by_source` doc. 0 for
-    /// anyone without it (or not a Druid).
+    /// Druid's Verdant Burst - charges banked for THIS fight, LINEAR with
+    /// rank (1 at rank 1, 2 at rank 2, 3 at rank 3 - unlike Guardian
+    /// Spirit's non-linear gate, per the node's own "can trigger 1/2/3
+    /// times per fight" text). Checked in `apply_hit` alongside Guardian
+    /// Spirit. Redesigned 2026-08-21 alongside the Echo rework (its old
+    /// condition read pending Lingering Effect healing, which no longer
+    /// exists) - see `verdantburst_echo_threshold_pct`'s doc for the new
+    /// condition. 0 for anyone without it (or not a Druid).
     verdantburst_charges: u32,
+    /// Verdant Burst's new condition (2026-08-21, deterministic - matches
+    /// every sibling death-save branch in `apply_hit`'s would-kill chain,
+    /// none of which roll dice): a lethal hit is saved if THIS unit's own
+    /// `echo_pct` is at or above this threshold - "your Echo investment
+    /// already guarantees at least one echo" per the redesign, in place of
+    /// the old "your pending Lingering Effect healing already outpaced the
+    /// blow" check. Snapshotted from `LiveTunables::verdantburst_echo_threshold_pct`
+    /// at construction (same pattern as `defensive_stat_hard_cap`), not a
+    /// per-rank node value - the threshold applies uniformly regardless of
+    /// Verdant Burst's own rank, which only controls charge count.
+    verdantburst_echo_threshold_pct: f64,
     /// A live, temporary bonus added on top of `heal_power` wherever it's
     /// read (lazy-expiry, same convention as `wound_expires_at_ms`) -
     /// granted by Final Blessing (party-wide, after a Guardian Spirit
@@ -2106,8 +2105,8 @@ pub(crate) struct CombatSimUnit {
     /// `apply_hit` and `NextEvent::ChakraOfLifeExpiry`.
     chakraoflife_duration_ms: u32,
     /// Live state - `at_ms <= this` means every damage source (normal
-    /// hits, reflect, Volatile Magic splash, Lingering Effect DAMAGE ticks,
-    /// Doom detonation) is blocked outright. 0 = not currently immune.
+    /// hits, reflect, Volatile Magic splash, Doom detonation) is blocked
+    /// outright. 0 = not currently immune.
     chakraoflife_immune_until_ms: u32,
     /// Live scheduler state for the main loop's `NextEvent` scan - `u32::MAX`
     /// sentinel = no delayed death pending, same convention as
@@ -2274,7 +2273,7 @@ pub(crate) struct CombatSimUnit {
     /// handy) can credit the right unit's `damage_dealt_total`/on-kill
     /// effects and label the `CombatEvent::Attack`'s `attacker` field -
     /// same "damage source resolved by id, not a live index" convention
-    /// `LingeringDot::source_id` already uses. `None` without Doom
+    /// used elsewhere in this file. `None` without Doom
     /// invested by whoever cursed this unit.
     curse_source_id: Option<String>,
     /// Withering Curse - the cursing attacker's own magnitude, copied onto
@@ -2426,6 +2425,13 @@ pub(crate) struct CombatSimUnit {
     /// its own Twin Strike/Finite Loop follow-up, just never its own
     /// NESTED Volatile Magic splash.
     in_splash_resolution: bool,
+    /// Echo (2026-08-21) - set true by the turn-resolution code
+    /// immediately before the ONE `apply_hit` call that repeats an
+    /// echoed primary hit, cleared at the very top of `apply_hit` itself
+    /// (see that read site's own doc) before anything else in that call
+    /// runs. Never true for any other reason/call site. Always `false`
+    /// here at rest between hits.
+    echo_repeat_in_progress: bool,
     /// Druid's Pack Instinct/Symbiosis - THIS unit's own granting
     /// magnitude (evasion/damage reduction respectively), applied live to
     /// whoever is currently the party's lowest-HP ally (see `apply_hit`'s
@@ -2441,33 +2447,19 @@ pub(crate) struct CombatSimUnit {
     /// invested.
     templeguardian_heal_pct: f64,
     next_templeguardian_heal_at_ms: u32,
-    /// Lingering Effect (the 2026-08-15 Healing Power gear-affix rework) -
-    /// THIS unit's own magnitude, applied to whoever they hit OR heal (see
-    /// `apply_lingering_effect`'s doc - symmetric, DoT on a struck enemy,
-    /// HoT on a healed ally). 0.0 without any rolled.
-    lingering_effect_pct: f64,
-    /// DoT/HoT instances currently ticking ON this unit, one per
-    /// qualifying hit/heal that landed - "independent stacking" per a
-    /// live design call, so several from different (or the same) source
-    /// can be active at once, each with its own remaining ticks/timer,
-    /// rather than one refreshing/replacing another's. Almost always
-    /// empty.
-    lingering_dots: Vec<LingeringDot>,
-    /// The soonest `next_tick_at_ms` across every entry in `lingering_dots`
-    /// - `u32::MAX` (never) when the list is empty, same "impossibly far
-    /// away" convention as every other unused clock here. Recomputed by
-    /// `apply_lingering_effect`/the main loop's tick handling any time
-    /// `lingering_dots` changes, so the main loop's own soonest-event scan
-    /// can treat this exactly like any other single per-unit clock instead
-    /// of needing to know about the list at all.
-    next_lingering_tick_at_ms: u32,
-    /// Seed of Life (Druid only, 2026-08-16 rework - see passive_tree.rs's
-    /// own doc) - THIS unit's own rate. Every time one of THEIR
-    /// heal-flavor Lingering Effect ticks lands (see `tick_lingering_dots`),
-    /// the target also gets a stacking shield worth this fraction of that
-    /// tick's own amount, on top of the heal itself. 0.0 without any
-    /// invested (harmless on every non-Druid archetype too - no
-    /// "seedoflife" key exists outside Druid's own tree).
+    /// Echo (2026-08-21, replaces Lingering Effect) - THIS unit's own
+    /// chance, snapshotted from `Character::combat_echo_pct()` at
+    /// construction (see `roll_echo`'s doc for how it becomes an actual
+    /// repeat count). 0.0 without any invested.
+    echo_pct: f64,
+    /// Seed of Life (Druid only, redesigned 2026-08-21 alongside the Echo
+    /// rework - see passive_tree.rs's own doc) - THIS unit's own rate.
+    /// Every time one of THEIR OWN heals echoes (see `roll_echo`'s doc for
+    /// when that happens), the echoed heal also grants its target a
+    /// stacking shield worth this fraction of that echoed heal's own
+    /// amount, on top of the heal itself. 0.0 without any invested
+    /// (harmless on every non-Druid archetype too - no "seedoflife" key
+    /// exists outside Druid's own tree).
     seedoflife_shield_pct: f64,
     /// Wild Heart (Druid only, 2026-08-16 rework) - THIS unit's own rate.
     /// Any heal they land on someone ELSE also heals THEMSELVES for this
@@ -3169,6 +3161,7 @@ impl Default for CombatSimUnit {
             guardian_spirit_save_dr_pct: 0.0,
             guardian_spirit_save_heal_power_pct: 0.0,
             verdantburst_charges: 0,
+            verdantburst_echo_threshold_pct: 0.0,
             temp_heal_power_bonus: 0.0,
             temp_heal_power_bonus_expires_at_ms: 0,
             eternallight_bonus_pct: 0.0,
@@ -3404,14 +3397,13 @@ impl Default for CombatSimUnit {
             finiteloop_max_repeats: 0,
             doubletap_max_repeats: 0,
             in_splash_resolution: false,
+            echo_repeat_in_progress: false,
             own_pack_instinct_evasion_pct: 0.0,
             
             sharedstrength_extra_targets: 0,
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
-            lingering_effect_pct: 0.0,
-            lingering_dots: Vec::new(),
-            next_lingering_tick_at_ms: 0,
+            echo_pct: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -3561,35 +3553,6 @@ impl Default for CombatSimUnit {
             fleetingshadow_speed_pct: 0.0,
         }
     }
-}
-
-/// One active Lingering Effect instance - see `lingering_dots`' doc.
-/// Lingering Effect is symmetric: a landed HIT leaves a damage-over-time
-/// debuff on the enemy struck (`is_heal: false`), and a landed HEAL
-/// leaves an EQUIVALENT heal-over-time buff on the ally healed
-/// (`is_heal: true`) - same 80-tick/4-second shape either way, just
-/// applied as healing instead of damage (see `apply_lingering_effect`'s
-/// doc for both spawn sites). A Druid with Seed of Life invested (see
-/// `seedoflife_shield_pct`) ALSO gets a stacking shield alongside each
-/// heal-flavor tick, at their own configured rate - a Druid-specific
-/// addition on top of this base mechanic, not a change to it; every
-/// other source's heal-flavor ticks are still plain direct hp
-/// restoration. `remaining_ticks` counts DOWN (starts at
-/// `LINGERING_EFFECT_TICKS`); `amount_per_tick` is fixed at creation
-/// (computed from the triggering action's own pre-mitigation
-/// damage/heal amount), but for the DAMAGE flavor the target's flat
-/// damage reduction is re-read fresh at EACH tick, not baked in up
-/// front, so a mid-DoT change to the target's own mitigation still
-/// matters for whatever ticks haven't landed yet - the HEAL flavor has
-/// no equivalent mitigation concept, so its ticks land at full value.
-#[derive(Clone)]
-#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
-pub(crate) struct LingeringDot {
-    source_id: String,
-    amount_per_tick: f64,
-    remaining_ticks: u32,
-    next_tick_at_ms: u32,
-    is_heal: bool,
 }
 
 /// Safety valve — if a fight somehow hasn't resolved by this point (e.g.
@@ -4187,10 +4150,10 @@ pub(crate) fn roll_attacker_damage(
 /// its tuned stage range the fight now is" cut `resolve_hit` applies to
 /// every real attack (see `CombatSimUnit::late_stage_damage_penalty_pct`'s
 /// doc) - a no-op for anyone but a real boss. Every true-damage path that
-/// bypasses `resolve_hit` (reflect, Volatile Magic splash, Lingering
-/// Effect ticks, Hemorrhage explosions, Doom's detonation + Apocalypse
-/// splash) runs its raw amount through this before applying it, so the
-/// penalty really is unbypassable per the live "nothing can bypass it"
+/// bypasses `resolve_hit` (reflect, Volatile Magic splash, Hemorrhage
+/// explosions, Doom's detonation + Apocalypse splash) runs its raw amount
+/// through this before applying it, so the penalty really is unbypassable
+/// per the live "nothing can bypass it"
 /// design directive - not just something `resolve_hit`'s own callers get
 /// for free. Pushes a matching `RollEvent` (same convention as
 /// `resolve_hit`'s own `"Late-stage damage penalty"` entry) whenever it
@@ -5135,210 +5098,6 @@ pub(crate) fn apply_volatile_magic_splash(
     }
 }
 
-/// Lingering Effect - spawns a new DoT (or HoT) instance on
-/// `units[target_idx]` off `units[source_idx]`'s own magnitude and this
-/// action's own pre-mitigation `base_amount` (per the design's own worked
-/// example: 100 pre-defense damage x 4% = 4 total over
-/// `LINGERING_EFFECT_TICKS` ticks - the heal flavor works identically,
-/// just off the heal's own pre-cap amount instead). Called from BOTH
-/// `apply_hit` (`is_heal: false`, `target_idx` is whoever got struck) and
-/// `apply_heal` (`is_heal: true`, `target_idx` is whoever got healed) -
-/// deliberately symmetric, per a live correction: Lingering Effect was
-/// NOT meant to be damage-only, every action it triggers from gets its
-/// own matching-flavor lingering instance. A no-op without
-/// `lingering_effect_pct` invested. "Independent stacking" - always
-/// PUSHES a new instance, never merges with/refreshes an already-active
-/// one from the same or a different source (see `lingering_dots`' doc for
-/// why).
-pub(crate) fn apply_lingering_effect(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, base_amount: f64, is_heal: bool, at_ms: u32) {
-    let pct = units[source_idx].lingering_effect_pct;
-    if pct <= 0.0 || base_amount <= 0.0 {
-        return;
-    }
-    let amount_per_tick = (base_amount * pct) / LINGERING_EFFECT_TICKS as f64;
-    if amount_per_tick <= 0.0 {
-        return;
-    }
-    let source_id = units[source_idx].id.clone();
-    let first_tick_at_ms = at_ms + LINGERING_EFFECT_TICK_INTERVAL_MS;
-    units[target_idx].lingering_dots.push(LingeringDot { source_id, amount_per_tick, remaining_ticks: LINGERING_EFFECT_TICKS, next_tick_at_ms: first_tick_at_ms, is_heal });
-    units[target_idx].next_lingering_tick_at_ms = units[target_idx].next_lingering_tick_at_ms.min(first_tick_at_ms);
-}
-
-/// Resolves every `lingering_dots` entry on `units[target_idx]` that's due
-/// at or before `at_ms` (almost always exactly one, but a target hit by
-/// several Lingering Effect sources in the same second can have more) -
-/// a damage-flavor tick rolls its own flat-damage-reduction-only
-/// mitigation (no block/evasion, per the design's own "unavoidable"
-/// requirement, and no shield absorption/Guardian Spirit-style death-
-/// prevention either - a deliberately simpler "true damage" pipeline,
-/// same precedent `apply_reflect_damage`'s own doc already established
-/// for a secondary damage source); a heal-flavor tick has no mitigation
-/// concept at all and just restores hp, capped at max (same as any other
-/// heal). Reschedules `next_lingering_tick_at_ms` to whatever's now
-/// soonest (`u32::MAX` if nothing's left), and drops any instance that
-/// just took its last tick.
-pub(crate) fn tick_lingering_dots(units: &mut [CombatSimUnit], target_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
-    if !units[target_idx].alive {
-        units[target_idx].next_lingering_tick_at_ms = u32::MAX;
-        return;
-    }
-    // Flat damage reduction only - the same handful of sources
-    // `resolve_hit` combines minus block/evasion (which the design
-    // explicitly excludes) and minus the live Pack Instinct/Symbiosis
-    // lowest-HP-ally check (no natural "attacker" for a DoT tick to
-    // evaluate that against - a documented scope simplification). Only
-    // ever consulted for a damage-flavor tick below.
-    let def = &units[target_idx];
-    // Named (2026-08-17, Phase 2) - same treatment as `resolve_hit`'s own
-    // (much larger) DR combine, just this function's own smaller 4-source
-    // set (no block/evasion, by design - see this function's own doc).
-    let mut sources: Vec<(&'static str, f64)> = Vec::new();
-    if def.damage_reduction != 0.0 {
-        sources.push(("Damage reduction", def.damage_reduction));
-    }
-    if def.temp_damage_reduction_bonus > 0.0 && at_ms <= def.temp_damage_reduction_bonus_expires_at_ms {
-        sources.push(("Guardian Spirit (Divine Intervention)", def.temp_damage_reduction_bonus));
-    }
-    if def.temp_party_damage_reduction_bonus > 0.0 && at_ms <= def.temp_party_damage_reduction_bonus_expires_at_ms {
-        sources.push(("Unwavering/Unyielding Faith", def.temp_party_damage_reduction_bonus));
-    }
-    if def.overflow_grace_shield_dr_pct > 0.0 && def.shield_hp > 0.0 && at_ms <= def.shield_expires_at_ms {
-        sources.push(("Balanced Faith", def.overflow_grace_shield_dr_pct));
-    }
-    // Nature's Ward's new (2026-08-16) "vs boss attacker" condition has no
-    // meaningful attacker context here - a Lingering Effect DoT tick isn't
-    // "a boss attacking," so it deliberately doesn't apply to this
-    // mitigation pass at all (the old Unyielding Roots DR-double this
-    // block used to include here is gone for the same reason its
-    // `resolve_hit` counterpart is - see `unyieldingroots_cycle_ms`'s doc).
-    let source_values: Vec<f64> = sources.iter().map(|(_, v)| *v).collect();
-    let reduction = combine_reduction_sources(&source_values).min(def.defensive_stat_hard_cap);
-
-    let mut due_indices = Vec::new();
-    for (i, dot) in units[target_idx].lingering_dots.iter().enumerate() {
-        if dot.next_tick_at_ms <= at_ms {
-            due_indices.push(i);
-        }
-    }
-    for &i in &due_indices {
-        if !units[target_idx].alive {
-            break;
-        }
-        let dot = units[target_idx].lingering_dots[i].clone();
-        let target_id = units[target_idx].id.clone();
-        if dot.is_heal {
-            // Direct hp restoration - the base Lingering Effect heal
-            // flavor, same for EVERY source (any archetype can roll
-            // `Affix::LingeringEffect` on gear, not just Druids). A tick
-            // landing on an already-full-HP target is capped at "room"
-            // and wasted - a real, known limitation, but NOT something to
-            // fix by changing this universal base mechanic (see Seed of
-            // Life just below for the actual, correctly-scoped fix).
-            // 2026-08-19 - Thunder Golem heal immunity (see
-            // `is_heal_immune`'s own doc): a heal-flavor tick landing on
-            // a Thunder Golem is a complete no-op (not damage - this
-            // branch still unconditionally `continue`s below, it just
-            // skips the actual hp change/event/Seed-of-Life when immune),
-            // since this writes hp directly and bypasses `apply_heal`
-            // entirely.
-            if !is_heal_immune(&units[target_idx]) {
-                let room = (units[target_idx].max_hp as i64 - units[target_idx].hp).max(0);
-                let healed = (dot.amount_per_tick.round().max(0.0) as i64).min(room);
-                units[target_idx].hp += healed;
-                // 2026-08-19 bugfix (golem integrity audit, item A4) - only
-                // push an event when this tick actually restored hp. At
-                // `LINGERING_EFFECT_TICK_INTERVAL_MS`'s 50ms cadence, a
-                // heal-flavor DoT sitting on an already-full-hp target
-                // (the common case once a HoT catches someone up) used to
-                // push a `Heal { amount: 0 }` event on EVERY tick anyway -
-                // confirmed as the audit's own "2,296 of ~2,444 heal
-                // events... amount:0" finding. `apply_heal` (the shared
-                // pipeline) already only pushes on `healed > 0`; this
-                // hand-rolled site never matched that convention.
-                if healed > 0 {
-                    events.push(CombatEvent::Heal { at_ms, healer: dot.source_id.clone(), target: target_id, amount: healed as u64, target_hp_after: units[target_idx].hp as u64, is_revive: false });
-                }
-                // Seed of Life (Druid-specific, 2026-08-16) - the SOURCE's
-                // own rate, ADDITIONAL to the direct heal above, not a
-                // replacement for it. Off the tick's full `amount_per_tick`
-                // (not the HP-room-clamped `healed`), matching "at the same
-                // rate" as the heal itself per the request, not diminished
-                // by whatever room happened to be left. 0.0 (a no-op) for
-                // every source that isn't a Druid with Seed of Life
-                // invested.
-                if let Some(source_idx) = units.iter().position(|u| u.id == dot.source_id) {
-                    let seedoflife_pct = units[source_idx].seedoflife_shield_pct;
-                    if seedoflife_pct > 0.0 {
-                        grant_shield(units, source_idx, target_idx, dot.amount_per_tick * seedoflife_pct, at_ms, SEEDOFLIFE_SHIELD_DURATION_MS, events);
-                    }
-                }
-            }
-            continue;
-        }
-        // Monk's Chakra of Life full immunity, or a protected (non-Thunder)
-        // golem - both block the damage-flavor tick outright (a heal-flavor
-        // tick above is unaffected either way - only incoming damage is
-        // blocked, not healing).
-        if is_damage_immune(&units[target_idx], at_ms) {
-            continue;
-        }
-        let hit_id = next_hit_id();
-        let penalized_amount = apply_late_stage_penalty(units, target_idx, dot.amount_per_tick, at_ms, hit_id, &dot.source_id, rolls);
-        let final_damage = (penalized_amount * (1.0 - reduction)).round().max(0.0) as i64;
-        let new_hp = (units[target_idx].hp - final_damage).max(0);
-        units[target_idx].hp = new_hp;
-        events.push(CombatEvent::Attack {
-            at_ms,
-            attacker: dot.source_id.clone(),
-            target: target_id.clone(),
-            damage: final_damage.max(0) as u64,
-            unmitigated_damage: dot.amount_per_tick.round().max(0.0) as u64,
-            target_hp_after: new_hp as u64,
-            is_crit: false,
-            evaded: false,
-            hit_id,
-            source_kind: AttackSourceKind::Dot,
-        });
-        for (name, mag) in &sources {
-            rolls.push(RollEvent {
-                event_id: next_hit_id(),
-                hit_id,
-                caused_by: None,
-                at_ms,
-                category: RollCategory::Mitigation,
-                source: std::borrow::Cow::Borrowed(*name),
-                actor: target_id.clone(),
-                target: Some(dot.source_id.clone()),
-                probability: None,
-                succeeded: None,
-                magnitude: Some(*mag),
-            });
-        }
-        if new_hp == 0 {
-            units[target_idx].alive = false;
-            events.push(CombatEvent::Defeat { at_ms, unit: target_id });
-            if let Some(source_idx) = units.iter().position(|u| u.id == dot.source_id) {
-                fire_on_kill(units, source_idx, at_ms, events, rolls, rng);
-            }
-            trigger_doom_on_death(units, target_idx, at_ms, events, rolls, rng);
-        }
-    }
-    // Advance/drop the ticked instances, then reschedule off whatever's
-    // left (including any NOT due this pass, and any brand-new instance
-    // another hit added mid-loop before this ran - can't happen within
-    // one tick resolution here, but the recompute is correct regardless).
-    let target = &mut units[target_idx];
-    for dot in target.lingering_dots.iter_mut() {
-        if dot.next_tick_at_ms <= at_ms {
-            dot.remaining_ticks = dot.remaining_ticks.saturating_sub(1);
-            dot.next_tick_at_ms += LINGERING_EFFECT_TICK_INTERVAL_MS;
-        }
-    }
-    target.lingering_dots.retain(|d| d.remaining_ticks > 0);
-    target.next_lingering_tick_at_ms = target.lingering_dots.iter().map(|d| d.next_tick_at_ms).min().unwrap_or(u32::MAX);
-}
-
 /// Warrior's Momentum / Rogue's Fleetfoot - adds one stack to
 /// `units[idx]`'s timed attack-speed buff (see `stack_speed_per_stack`'s
 /// doc), a no-op if that unit has neither invested (`stack_speed_max_stacks
@@ -5499,11 +5258,6 @@ pub(crate) fn active_buffs_snapshot(unit: &CombatSimUnit, at_ms: u32) -> Vec<(St
         }
         if unit.curse_dmg_taken_bonus > 0.0 {
             push("curse_dmg_taken_bonus", unit.curse_dmg_taken_bonus);
-        }
-        // Lingering Effect - independent DoT/HoT instances (already
-        // pruned by the main loop's own tick handling, not lazily here).
-        if !unit.lingering_dots.is_empty() {
-            push("lingering_dot_count", unit.lingering_dots.len() as f64);
         }
         // Elemental damage rework's 9 independent-per-proc stack lists -
         // counted (not pruned - read-only) same as everywhere else these
@@ -5711,6 +5465,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             guardian_spirit_save_dr_pct: 0.0,
             guardian_spirit_save_heal_power_pct: 0.0,
             verdantburst_charges: 0,
+            verdantburst_echo_threshold_pct: 0.0,
             temp_heal_power_bonus: 0.0,
             temp_heal_power_bonus_expires_at_ms: 0,
             eternallight_bonus_pct: 0.0,
@@ -5946,14 +5701,13 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             finiteloop_max_repeats: 0,
             doubletap_max_repeats: 0,
             in_splash_resolution: false,
+            echo_repeat_in_progress: false,
             own_pack_instinct_evasion_pct: 0.0,
-            
+
             sharedstrength_extra_targets: 0,
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
-            lingering_effect_pct: 0.0,
-            lingering_dots: Vec::new(),
-            next_lingering_tick_at_ms: u32::MAX,
+            echo_pct: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -6152,7 +5906,7 @@ fn blazing_attack_speed_pct(rank: u32) -> f64 {
 /// cloning it is a genuine, complete "as if they were a player with
 /// your build" copy, not the 33-field hand-picked allowlist this used
 /// to be (three separate inheritance bugs fixed by enumeration in two
-/// days - increased_damage, crit_chance, lingering_effect_pct - was
+/// days - increased_damage, crit_chance, echo_pct - was
 /// the signal that the allowlist shape itself was the bug). See
 /// `clear_non_inheritable_for_golem`'s own doc for the ONLY
 /// hand-maintained exception list, and the completeness sentinel test
@@ -8291,6 +8045,23 @@ pub(crate) fn apply_hit(
     if !units[target_idx].alive {
         return;
     }
+    // Echo (2026-08-21) - set transiently by the turn-resolution code
+    // immediately before an echo repeat's own `apply_hit` call (mirrors
+    // `in_splash_resolution`'s "attacker-scoped flag toggled around a
+    // call" shape, rather than a new parameter touching every one of this
+    // function's ~40 call sites). Cleared here, before anything else in
+    // THIS invocation runs (including any nested `apply_hit` call Twin
+    // Strikes/Celestial Conversion/Chakra of Many below might make), so
+    // it can never leak into an unrelated nested call and incorrectly
+    // suppress ITS charges too. Per the owner's own ruling: an echoed hit
+    // is "the same swing landing twice, conceptually" and must consume NO
+    // once-per-swing/once-per-fight charge a second time - gates the
+    // Assassinate/Payback/Marked-for-Death force-crit block and the
+    // would-kill death-save chain below, both explicitly (not merely via
+    // `is_followup`, which stays about reactive-proc chaining and is
+    // orthogonal to this).
+    let is_echo_repeat = units[attacker_idx].echo_repeat_in_progress;
+    units[attacker_idx].echo_repeat_in_progress = false;
     // A splash hit no longer counts as "a hit" for the purpose of
     // triggering any of THIS attacker's own reactive on-hit procs
     // (2026-08-16, a live request following a real report of runaway
@@ -8357,7 +8128,15 @@ pub(crate) fn apply_hit(
     // (primary, splash, a Twin Strikes follow-up, etc. - "next hit"
     // literally, not narrowed to any one call site).
     let mut assassinate_triggered = false;
-    let force_crit = if units[attacker_idx].assassinate_charges > 0 {
+    let force_crit = if is_echo_repeat {
+        // Echo (see `is_echo_repeat`'s own doc) - none of these one-shot
+        // crit charges consume a second time off the same original swing.
+        // Empowered Bolt's `hits_landed_this_fight == 0` check is exempt
+        // from this guard - it's not a charge to protect, and it already
+        // self-guards naturally (the ORIGINAL call already incremented the
+        // counter below before this echo repeat runs).
+        units[attacker_idx].empoweredbolt_invested && units[attacker_idx].hits_landed_this_fight == 0
+    } else if units[attacker_idx].assassinate_charges > 0 {
         units[attacker_idx].assassinate_charges -= 1;
         assassinate_triggered = true;
         events.push(CombatEvent::SkillCast { at_ms, unit: units[attacker_idx].id.clone(), skill: "Assassinate".to_string() });
@@ -8442,7 +8221,17 @@ pub(crate) fn apply_hit(
     // is set on the attacker for the FULL DURATION of `apply_splash`'s
     // loop over every target (see that field's own doc) and is never set
     // true for any other reason, so it's a reliable signal here.
-    let source_kind = if units[attacker_idx].in_splash_resolution { AttackSourceKind::Splash } else { AttackSourceKind::Direct };
+    // `is_echo_repeat` (2026-08-21) takes priority over both - the repeat
+    // call this echoed hit itself is MUST be identifiable as such (per the
+    // Echo mechanic's own hard requirement, see `roll_echo`'s doc), never
+    // confusable with a genuine `Direct` primary hit.
+    let source_kind = if is_echo_repeat {
+        AttackSourceKind::Echo
+    } else if units[attacker_idx].in_splash_resolution {
+        AttackSourceKind::Splash
+    } else {
+        AttackSourceKind::Direct
+    };
     // Full-detail combat log (2026-08-17, Wiring Phase 1) - every genuine
     // probabilistic roll `resolve_hit` already collected (crit remainder,
     // evasion, block/Stonewall, Cold Steel pass-along) becomes a real
@@ -8623,10 +8412,16 @@ pub(crate) fn apply_hit(
     // spectral clone attacking alongside the Monk, but mechanically it's
     // just a second real `apply_hit` call - it naturally rolls its own
     // crit/mitigation and can independently trigger every other on-hit
-    // effect (Lingering Effect, elemental procs, Chakra of Light, etc.),
-    // which is what "doubles the application of on-hit effects" cashes out
-    // to without any new replay/duplication plumbing. Gated the same way
-    // as Celestial Shard (`counts_as_primary_hit`/`!outcome.evaded`) so a
+    // effect that lives INSIDE `apply_hit` itself (elemental procs, Chakra
+    // of Light, etc.), which is what "doubles the application of on-hit
+    // effects" cashes out to without any new replay/duplication plumbing.
+    // Echo (2026-08-21) is the one exception - it's rolled OUTSIDE
+    // `apply_hit`, only at the turn-resolution code's own primary-action
+    // call site (see `roll_echo`'s doc), so a Chakra of Many follow-up
+    // (an `apply_hit` call, however triggered) structurally never reaches
+    // that roll and never gets its own Echo chance - it can still deal
+    // damage and crit, it just never itself echoes. Gated the same way as
+    // Celestial Shard (`counts_as_primary_hit`/`!outcome.evaded`) so a
     // Twin Strikes/Chakra of Many follow-up doesn't chain into another one.
     if counts_as_primary_hit && !outcome.evaded && units[attacker_idx].chakra_of_many_pct > 0.0 && units[attacker_idx].alive && units[target_idx].alive {
         let bonus_damage = base_damage * units[attacker_idx].chakra_of_many_pct;
@@ -8830,10 +8625,6 @@ pub(crate) fn apply_hit(
             units[target_idx].cube_shred_stacks = (units[target_idx].cube_shred_stacks + 1).min(CUBE_SHRED_MAX_STACKS);
             units[target_idx].cube_shred_expires_at_ms = at_ms + CUBE_SHRED_DURATION_MS;
         }
-        // Lingering Effect - every landed hit spawns its own DoT instance
-        // (see `apply_lingering_effect`'s doc), using this hit's own
-        // pre-defense damage as the basis.
-        apply_lingering_effect(units, attacker_idx, target_idx, outcome.unmitigated_damage as f64, false, at_ms);
         // Elemental damage rework (2026-08-15) - see Affix::ColdDamage's
         // doc. Each of the attacker's own 5 damage-type %s independently
         // rolls to debuff the TARGET - splash hits reach here too, since
@@ -9238,20 +9029,7 @@ pub(crate) fn apply_hit(
     // follow) so a Thunder Golem about to die always just dies normally
     // - "cannot be healed by any means" includes implicitly via a
     // death-prevention save, not just a direct cast heal.
-    if !units[target_idx].is_boss && !is_heal_immune(&units[target_idx]) && final_damage >= units[target_idx].hp {
-        // Precomputed once, reused by Verdant Burst's else-if branch below
-        // (Druid, 2026-08-16 rework) - total pending (not-yet-delivered)
-        // healing from each active heal-flavor Lingering Effect instance
-        // currently on this target, grouped by source id. Computed up
-        // front (rather than inline in the closure below) specifically to
-        // avoid indexing `units[target_idx]` a second time from inside a
-        // closure that's also iterating `units` via `.position()`.
-        let mut verdant_pending_by_source: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-        for dot in &units[target_idx].lingering_dots {
-            if dot.is_heal {
-                *verdant_pending_by_source.entry(dot.source_id.clone()).or_insert(0.0) += dot.amount_per_tick * dot.remaining_ticks as f64;
-            }
-        }
+    if !is_echo_repeat && !units[target_idx].is_boss && !is_heal_immune(&units[target_idx]) && final_damage >= units[target_idx].hp {
         if let Some(saver_idx) = units.iter().position(|u| !u.is_boss && u.alive && u.guardian_spirit_charges > 0) {
             units[saver_idx].guardian_spirit_charges -= 1;
             events.push(CombatEvent::SkillCast { at_ms, unit: units[saver_idx].id.clone(), skill: "Guardian Spirit".to_string() });
@@ -9317,13 +9095,13 @@ pub(crate) fn apply_hit(
             });
             return;
         } else if let Some(druid_idx) =
-            units.iter().position(|u| !u.is_boss && u.alive && u.verdantburst_charges > 0 && verdant_pending_by_source.get(&u.id).copied().unwrap_or(0.0) > final_damage as f64)
+            units.iter().position(|u| !u.is_boss && u.alive && u.verdantburst_charges > 0 && u.echo_pct >= u.verdantburst_echo_threshold_pct)
         {
-            // Druid's Verdant Burst (2026-08-16 rework) - only saves the
-            // target if this Druid's own pending Lingering Effect healing
-            // on them was already enough to have outpaced the blow; leaves
-            // them at 1 HP (not healed to a %, unlike Guardian Spirit -
-            // the pending lingering heals keep ticking normally afterward).
+            // Druid's Verdant Burst, redesigned 2026-08-21 alongside Echo
+            // (see `verdantburst_echo_threshold_pct`'s doc) - only saves
+            // the target if this Druid's own Echo chance already meets the
+            // threshold; leaves them at 1 HP (not healed to a %, unlike
+            // Guardian Spirit).
             units[druid_idx].verdantburst_charges -= 1;
             events.push(CombatEvent::SkillCast { at_ms, unit: units[druid_idx].id.clone(), skill: "Verdant Burst".to_string() });
             units[target_idx].hp = 1;
@@ -10174,6 +9952,39 @@ pub(crate) fn fire_frenzy(
 /// the existing `pierce_cap`/`pierce_h` precedent.
 pub const SPLASH_OVERFLOW_BONUS_TARGETS: usize = 2;
 
+/// Echo (2026-08-21, replaces Lingering Effect) - rolls how many times a
+/// unified hit/heal fires again this time. Ladder per the design spec:
+/// `floor(pct)` GUARANTEED repeats (pct is a fraction, 1.0 = 100% = 1
+/// guaranteed) PLUS a `(pct - floor(pct))` chance of one more - e.g. 250%
+/// (2.5) is 2 guaranteed + a 50% chance of a 3rd; 100% (1.0) is exactly 1
+/// guaranteed with no remainder roll at all; 99% (0.99) is 0 guaranteed +
+/// a 99% chance of 1. The "floor 100 units per rung" shape is structural
+/// to the mechanic's own definition (unlike Splash's separately-tunable
+/// ladder step, which layers on top of an already-complete base mechanic)
+/// - not a `LiveTunables` knob.
+///
+/// Returns `(total_echoes, remainder_probability, remainder_succeeded)` -
+/// the caller logs `remainder_probability`/`remainder_succeeded` as a
+/// `RollCategory::Echo` roll (0.0/`false` when `pct` lands exactly on a
+/// rung, since there's nothing probabilistic to report that call) and
+/// fires `total_echoes` bare repeat calls, each tagged
+/// `AttackSourceKind::Echo` - see `apply_hit`'s call sites for why this
+/// function itself never rolls dice for anyone but the ORIGINAL primary
+/// action: it is only ever invoked from the turn-resolution code for a
+/// unit's own primary damage/heal share, never from inside `apply_hit`/
+/// `apply_heal` or from a splash/follow-up/echo-repeat call, so "an echo
+/// never itself rolls Echo" holds structurally - there is no code path by
+/// which a repeat call can reach this function again.
+pub(crate) fn roll_echo(pct: f64, rng: &mut impl Rng) -> (u32, f64, bool) {
+    if pct <= 0.0 {
+        return (0, 0.0, false);
+    }
+    let guaranteed = pct.floor() as u32;
+    let remainder = pct - guaranteed as f64;
+    let succeeded = remainder > 0.0 && rng.gen_bool(remainder.min(1.0));
+    (guaranteed + if succeeded { 1 } else { 0 }, remainder, succeeded)
+}
+
 /// Rolls how many extra targets a splash-keyed action/effect hits this
 /// time, and what fraction of the primary hit/heal each one takes
 /// (2026-08-20 splash redesign; 2026-08-20 FINAL SPLASH TABLE addendum,
@@ -10474,8 +10285,9 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     // this heal; the HEALER's own active healing-power buff (from Divine
     // procs off their OWN past heals) grows it - both read (and lazily
     // pruned) BEFORE rounding/capping, so every downstream use of
-    // `amount` (Lingering Effect, the overflow-shield calc below) already
-    // reflects the adjusted size, same as everything else here already
+    // `amount` (the overflow-shield calc below, and Echo's own repeat call
+    // outside this function) already reflects the adjusted size, same as
+    // everything else here already
     // treats `amount` as the "true" heal.
     let heal_reduction = (prune_and_count(&mut units[target_idx].divine_heal_reduction, at_ms) as f64 * 0.01).min(1.0);
     let heal_power_buff = prune_and_count(&mut units[healer_idx].divine_heal_power_buff, at_ms) as f64 * 0.01;
@@ -10566,7 +10378,7 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
     // Wild Heart (Druid only, 2026-08-16 rework) - a slice of any heal
     // landed on someone ELSE also heals the Druid themselves. Recurses
     // into `apply_heal` with healer==target so the self-heal gets the same
-    // overheal/Lingering Effect/etc. treatment a normal self-heal would -
+    // overheal/etc. treatment a normal self-heal would -
     // the `healer_idx != target_idx` guard below is what stops that
     // recursive call from re-triggering Wild Heart on itself.
     if healer_idx != target_idx && healed > 0 {
@@ -10586,13 +10398,6 @@ pub(crate) fn apply_heal(units: &mut [CombatSimUnit], healer_idx: usize, target_
             units[target_idx].temp_damage_reduction_bonus_expires_at_ms = at_ms + WILDINSTINCT_DR_DURATION_MS;
         }
     }
-    // Lingering Effect - symmetric with the damage side (see
-    // `apply_lingering_effect`'s doc): a heal-over-time on whoever just
-    // got healed, off the healer's own Lingering Effect investment and
-    // this heal's own pre-cap `amount` (mirrors `apply_hit`'s use of
-    // pre-mitigation `unmitigated_damage`, not the post-mitigation
-    // `damage` that actually lands).
-    apply_lingering_effect(units, healer_idx, target_idx, amount as f64, true, at_ms);
     let overflow = amount - applied;
     if overflow > 0 && units[healer_idx].overflow_grace_shield_pct > 0.0 {
         let shield_amount = overflow as f64 * units[healer_idx].overflow_grace_shield_pct;
@@ -11282,6 +11087,7 @@ pub(crate) fn simulate_battle(
                 finiteloop_max_repeats: c.passive_node_count("infiniteloop"),
                 doubletap_max_repeats: c.passive_node_rank("doubletap") * 3,
                 in_splash_resolution: false,
+                echo_repeat_in_progress: false,
                 // Druid's Pack Instinct / Symbiosis - see `apply_hit`'s
                 // live lowest-HP-ally computation.
                 // Monk's Temple Guardian is mechanically identical to
@@ -11313,9 +11119,7 @@ pub(crate) fn simulate_battle(
                 // contributors give 0.02-0.06 each.
                 templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian"),
                 next_templeguardian_heal_at_ms: 0,
-                lingering_effect_pct: c.combat_lingering_effect_pct(),
-                lingering_dots: Vec::new(),
-                next_lingering_tick_at_ms: u32::MAX,
+                echo_pct: c.combat_echo_pct(),
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
@@ -11724,6 +11528,7 @@ pub(crate) fn simulate_battle(
                 guardian_spirit_save_dr_pct: c.passive_node_magnitude("divineintervention"),
                 guardian_spirit_save_heal_power_pct: c.passive_node_magnitude("finalblessing"),
                 verdantburst_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("verdantburst") } else { 0 },
+                verdantburst_echo_threshold_pct: tunables.verdantburst_echo_threshold_pct,
                 temp_heal_power_bonus: 0.0,
                 temp_heal_power_bonus_expires_at_ms: 0,
                 eternallight_bonus_pct: c.passive_node_magnitude("eternallight"),
@@ -12522,6 +12327,7 @@ pub(crate) fn simulate_battle(
             guardian_spirit_save_dr_pct: 0.0,
             guardian_spirit_save_heal_power_pct: 0.0,
             verdantburst_charges: 0,
+            verdantburst_echo_threshold_pct: 0.0,
             temp_heal_power_bonus: 0.0,
             temp_heal_power_bonus_expires_at_ms: 0,
             eternallight_bonus_pct: 0.0,
@@ -12583,14 +12389,13 @@ pub(crate) fn simulate_battle(
             finiteloop_max_repeats: 0,
             doubletap_max_repeats: 0,
             in_splash_resolution: false,
+            echo_repeat_in_progress: false,
             own_pack_instinct_evasion_pct: 0.0,
-            
+
             sharedstrength_extra_targets: 0,
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
-            lingering_effect_pct: 0.0,
-            lingering_dots: Vec::new(),
-            next_lingering_tick_at_ms: u32::MAX,
+            echo_pct: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -12927,7 +12732,6 @@ pub(crate) fn simulate_battle(
         BossAbility(usize),
         FlickerStrike(usize),
         DivineShield(usize),
-        LingeringTick(usize),
         CurseExpiry(usize),
         ChakraOfLifeExpiry(usize),
         RighteousFireTick(usize),
@@ -13084,18 +12888,10 @@ pub(crate) fn simulate_battle(
             } else if u.next_ability_at_ms < best.unwrap().0 {
                 best = Some((u.next_ability_at_ms, NextEvent::BossAbility(i)));
             }
-            // Lingering Effect - unlike Helm/Boots/FlickerStrike/Divine
-            // Shield (player-only mechanics), a DoT can be ticking on
-            // EITHER side (a player's own Lingering Effect investment
-            // lands on whichever boss they hit), so this check sits
-            // outside the is_boss split above.
-            if u.next_lingering_tick_at_ms < best.unwrap().0 {
-                best = Some((u.next_lingering_tick_at_ms, NextEvent::LingeringTick(i)));
-            }
-            // Warlock's Doom - same "can land on either side, so it sits
-            // outside the is_boss split" reasoning as Lingering Effect,
-            // though in practice a curse only ever lands on an enemy
-            // (nothing but a player ever invests in Curse of Weakness).
+            // Warlock's Doom - can land on either side, so this check sits
+            // outside the is_boss split above, though in practice a curse
+            // only ever lands on an enemy (nothing but a player ever
+            // invests in Curse of Weakness).
             if u.next_curse_expiry_at_ms < best.unwrap().0 {
                 best = Some((u.next_curse_expiry_at_ms, NextEvent::CurseExpiry(i)));
             }
@@ -13195,10 +12991,6 @@ pub(crate) fn simulate_battle(
                 units[actor_idx].next_divine_shield_at_ms += units[actor_idx].divine_shield_cooldown_ms;
                 continue;
             }
-            NextEvent::LingeringTick(target_idx) => {
-                tick_lingering_dots(&mut units, target_idx, at_ms, &mut events, &mut rolls, &mut rng);
-                continue;
-            }
             NextEvent::RighteousFireTick(actor_idx) => {
                 tick_righteous_fire(&mut units, actor_idx, at_ms, &mut events, &mut rolls, &mut rng, tunables);
                 units[actor_idx].next_righteousfire_tick_at_ms += RIGHTEOUS_FIRE_TICK_INTERVAL_MS;
@@ -13238,8 +13030,8 @@ pub(crate) fn simulate_battle(
             NextEvent::CurseExpiry(target_idx) => {
                 // Warlock's Doom - the curse detonates for a burst of true
                 // damage (no crit/evasion/mitigation roll - a detonation,
-                // not an attack, same "true damage" convention as
-                // Lingering Effect's own damage-flavor tick) equal to
+                // not an attack, same "true damage" convention as every
+                // other bypass-`resolve_hit` path in this file) equal to
                 // `curse_detonate_pct` of whatever real damage was banked
                 // while the curse was active. The curse itself is
                 // consumed - nothing re-applies it, matching "Doom
@@ -13687,6 +13479,7 @@ pub(crate) fn simulate_battle(
                                 guardian_spirit_save_dr_pct: 0.0,
                                 guardian_spirit_save_heal_power_pct: 0.0,
                                 verdantburst_charges: 0,
+                                verdantburst_echo_threshold_pct: 0.0,
                                 temp_heal_power_bonus: 0.0,
                                 temp_heal_power_bonus_expires_at_ms: 0,
                                 eternallight_bonus_pct: 0.0,
@@ -13748,14 +13541,13 @@ pub(crate) fn simulate_battle(
                                 finiteloop_max_repeats: 0,
                                 doubletap_max_repeats: 0,
                                 in_splash_resolution: false,
+                                echo_repeat_in_progress: false,
                                 own_pack_instinct_evasion_pct: 0.0,
-                                
+
                                 sharedstrength_extra_targets: 0,
                                 templeguardian_heal_pct: 0.0,
                                 next_templeguardian_heal_at_ms: 0,
-                                lingering_effect_pct: 0.0,
-                                lingering_dots: Vec::new(),
-                                next_lingering_tick_at_ms: u32::MAX,
+                                echo_pct: 0.0,
                                 seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -14393,6 +14185,42 @@ pub(crate) fn simulate_battle(
                     let extra_splash_targets =
                         (units[actor_idx].stormofarrows_extra_targets + units[actor_idx].widerburst_extra_targets + units[actor_idx].stormcaller_extra_targets) as usize;
                     apply_splash(&mut units, actor_idx, boss_idx, damage_base, splash, tunables.splash_extra_targets as usize + extra_splash_targets, None, at_ms, &mut events, &mut rolls, &mut rng, tunables);
+                    // Echo (2026-08-21, replaces Lingering Effect) - ONE
+                    // roll for this unified hit governs both the repeat
+                    // hit and its paired splash (see `roll_echo`'s doc).
+                    // Never Bloodpact/Radiant Smite/Holy Fire, never a
+                    // second charge consumption (see `echo_repeat_in_progress`) -
+                    // those are once-per-unified-action currency, not
+                    // "effects tied to" this one hit.
+                    let echo_pct = units[actor_idx].echo_pct;
+                    if echo_pct > 0.0 {
+                        let (echoes, echo_prob, echo_succeeded) = roll_echo(echo_pct, &mut rng);
+                        if echoes > 0 || echo_prob > 0.0 {
+                            let attacker_id = units[actor_idx].id.clone();
+                            let target_id = units[boss_idx].id.clone();
+                            rolls.push(RollEvent {
+                                event_id: next_hit_id(),
+                                hit_id: next_hit_id(),
+                                caused_by: None,
+                                at_ms,
+                                category: RollCategory::Echo,
+                                source: std::borrow::Cow::Borrowed("Echo"),
+                                actor: attacker_id,
+                                target: Some(target_id),
+                                probability: Some(echo_prob),
+                                succeeded: Some(echo_succeeded),
+                                magnitude: Some(echoes as f64),
+                            });
+                        }
+                        for _ in 0..echoes {
+                            if !units[actor_idx].alive || !units[boss_idx].alive {
+                                break;
+                            }
+                            units[actor_idx].echo_repeat_in_progress = true;
+                            apply_hit(&mut units, actor_idx, boss_idx, primary_damage, at_ms, &mut events, &mut rolls, &mut rng, true, false);
+                            apply_splash(&mut units, actor_idx, boss_idx, damage_base, splash, tunables.splash_extra_targets as usize + extra_splash_targets, None, at_ms, &mut events, &mut rolls, &mut rng, tunables);
+                        }
+                    }
                     // Berserker's Frenzy - a chance for THIS attack to
                     // strike the same target extra times (see
                     // `fire_frenzy`'s doc). `damage_base` (not
@@ -14435,8 +14263,8 @@ pub(crate) fn simulate_battle(
                         // rather than no-op this share entirely, dump it on
                         // a random ally (self included). Many nodes trigger
                         // off the ACT of healing regardless of whether the
-                        // direct hp portion has any room to land - Lingering
-                        // Effect, Wild Heart, Wild Instinct, Seed of Life's
+                        // direct hp portion has any room to land - Echo,
+                        // Wild Heart, Wild Instinct, Seed of Life's
                         // shield, Rejuvenation's bounce, Sanctified Touch's
                         // heal-crit chance, etc. - so this pre-positions
                         // those buffs/shields/HoTs before a hit actually
@@ -14523,6 +14351,52 @@ pub(crate) fn simulate_battle(
                     }
                     let heal_splash = units[actor_idx].splash;
                     apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_splash, at_ms, &mut events, &mut rng, tunables);
+                    // Echo (2026-08-21, replaces Lingering Effect) - same
+                    // "one roll governs the primary + its paired splash"
+                    // shape as the damage-share call site above, just for
+                    // this action's heal share. `apply_heal` has no
+                    // once-per-fight charge machinery of its own to guard,
+                    // unlike `apply_hit` (see `echo_repeat_in_progress`'s
+                    // doc), so no extra flag is needed here.
+                    let heal_echo_pct = units[actor_idx].echo_pct;
+                    if heal_echo_pct > 0.0 {
+                        let (echoes, echo_prob, echo_succeeded) = roll_echo(heal_echo_pct, &mut rng);
+                        if echoes > 0 || echo_prob > 0.0 {
+                            let attacker_id = units[actor_idx].id.clone();
+                            let heal_target_id = units[target_idx].id.clone();
+                            rolls.push(RollEvent {
+                                event_id: next_hit_id(),
+                                hit_id: next_hit_id(),
+                                caused_by: None,
+                                at_ms,
+                                category: RollCategory::Echo,
+                                source: std::borrow::Cow::Borrowed("Echo"),
+                                actor: attacker_id,
+                                target: Some(heal_target_id),
+                                probability: Some(echo_prob),
+                                succeeded: Some(echo_succeeded),
+                                magnitude: Some(echoes as f64),
+                            });
+                        }
+                        for _ in 0..echoes {
+                            if !units[actor_idx].alive || !units[target_idx].alive {
+                                break;
+                            }
+                            let echoed_healed = apply_heal(&mut units, actor_idx, target_idx, heal as f64, at_ms, &mut events, &mut rng);
+                            // Seed of Life (Druid only, redesigned 2026-08-21
+                            // alongside Echo - see `seedoflife_shield_pct`'s
+                            // doc): every time THIS unit's own heal echoes,
+                            // the echoed heal ALSO grants the target a
+                            // stacking shield worth this fraction of the
+                            // echoed heal's own delivered amount. 0.0 (a
+                            // no-op) for every non-Druid.
+                            let seedoflife_pct = units[actor_idx].seedoflife_shield_pct;
+                            if seedoflife_pct > 0.0 && echoed_healed > 0 {
+                                grant_shield(&mut units, actor_idx, target_idx, echoed_healed as f64 * seedoflife_pct, at_ms, SEEDOFLIFE_SHIELD_DURATION_MS, &mut events);
+                            }
+                            apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_splash, at_ms, &mut events, &mut rng, tunables);
+                        }
+                    }
                     // Prayer of Mending - a chance for this same heal to
                     // chain onward to more hurt allies.
                     apply_heal_bounce(&mut units, actor_idx, target_idx, heal, at_ms, &mut events, &mut rng);
@@ -15272,10 +15146,12 @@ mod full_detail_combat_log_tests {
     }
 
     // Universal late-stage penalty coverage (2026-08-18) - `apply_reflect_damage`
-    // and `tick_lingering_dots` are two of the "true damage" paths that used
-    // to skip `late_stage_damage_penalty_pct` entirely since neither calls
+    // is one of the "true damage" paths that used to skip
+    // `late_stage_damage_penalty_pct` entirely since it doesn't call
     // `resolve_hit` (see `apply_late_stage_penalty`'s own doc for the full
-    // list). Both now run through the shared helper directly.
+    // list - Lingering Effect's own DoT tick path used to be the other,
+    // retired 2026-08-21 along with the whole mechanic). Runs through the
+    // shared helper directly.
 
     #[test]
     fn apply_reflect_damage_respects_the_late_stage_penalty() {
@@ -15306,35 +15182,6 @@ mod full_detail_combat_log_tests {
         assert_eq!(penalty_roll.target.as_deref(), Some("boss"));
     }
 
-    #[test]
-    fn tick_lingering_dots_respects_the_late_stage_penalty() {
-        let mut boss = CombatSimUnit {
-            id: "boss".to_string(),
-            display_name: "Boss".to_string(),
-            alive: true,
-            hp: 1_000,
-            max_hp: 1_000,
-            is_boss: true,
-            late_stage_damage_penalty_pct: 0.25,
-            ..Default::default()
-        };
-        boss.lingering_dots.push(LingeringDot { source_id: "attacker".to_string(), amount_per_tick: 100.0, remaining_ticks: 3, next_tick_at_ms: 1, is_heal: false });
-        let mut units = vec![boss];
-        let mut events = Vec::new();
-        let mut rolls = Vec::new();
-        let mut rng = StdRng::seed_from_u64(1);
-        tick_lingering_dots(&mut units, 0, 1, &mut events, &mut rolls, &mut rng);
-        // 100 raw * (1 - 0.25) = 75, no other DR sources invested.
-        assert_eq!(units[0].hp, 1_000 - 75, "a lingering DoT tick against a boss must be cut by the late-stage penalty");
-        let penalty_roll = rolls
-            .iter()
-            .find(|r| r.source.as_ref() == "Late-stage damage penalty")
-            .expect("a lingering DoT tick against a boss must log the late-stage penalty roll");
-        assert_eq!(penalty_roll.magnitude, Some(-0.25));
-        assert_eq!(penalty_roll.actor, "attacker");
-        assert_eq!(penalty_roll.target.as_deref(), Some("boss"));
-    }
-
     // DoT-attribution fix (2026-08-18) - the plan's central worked
     // example (`yo_pony`): a real fight's own generic `hits`/`crits`
     // stats were silently dominated by Lingering Effect ticks emitted as
@@ -15347,44 +15194,50 @@ mod full_detail_combat_log_tests {
     // (see `CombatEvent::with_at_ms`'s own doc).
 
     #[test]
-    fn one_real_hit_with_lingering_effect_counts_as_one_hit_not_one_plus_the_ticks() {
-        let attacker = CombatSimUnit {
-            id: "attacker".to_string(),
-            display_name: "Attacker".to_string(),
-            alive: true,
-            hp: 100,
-            max_hp: 100,
-            lingering_effect_pct: 0.5,
-            ..Default::default()
-        };
-        let target =
-            CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 100_000, max_hp: 100_000, ..Default::default() };
-        let mut units = vec![attacker, target];
-        let mut events = Vec::new();
-        let mut rolls = Vec::new();
-        let mut rng = StdRng::seed_from_u64(1);
-        apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
-        assert_eq!(units[1].lingering_dots.len(), 1, "the hit should have queued exactly one lingering DoT instance");
-        // Each `tick_lingering_dots` call only resolves one due tick per
-        // instance (see its own "advance/drop" comment) - a fixed number
-        // of calls, not a single call with a far-future `at_ms`.
-        for _ in 0..LINGERING_EFFECT_TICKS {
-            tick_lingering_dots(&mut units, 1, 1_000_000, &mut events, &mut rolls, &mut rng);
-        }
-        assert!(units[1].lingering_dots.is_empty(), "all ticks should have resolved and the instance dropped");
+    fn a_dot_tagged_attack_counts_as_damage_but_not_as_a_hit() {
+        // Lingering Effect (retired 2026-08-21, see `Affix::LingeringEffect`'s
+        // doc) was the only live producer of an `AttackSourceKind::Dot`-tagged
+        // `Attack` event, but the exclusion logic itself
+        // (`full_player_fight_stats`'s `dot_ticks`/`dot_damage` split) is
+        // generic infra, not deleted along with the mechanism - this test
+        // hand-builds the tagged events directly (no real DoT producer
+        // needed) to keep that exclusion logic under regression coverage.
+        let events = vec![
+            CombatEvent::Attack {
+                at_ms: 1,
+                attacker: "attacker".to_string(),
+                target: "target".to_string(),
+                damage: 100,
+                unmitigated_damage: 100,
+                target_hp_after: 99_900,
+                is_crit: false,
+                evaded: false,
+                hit_id: 1,
+                source_kind: AttackSourceKind::Direct,
+            },
+            CombatEvent::Attack {
+                at_ms: 2,
+                attacker: "attacker".to_string(),
+                target: "target".to_string(),
+                damage: 5,
+                unmitigated_damage: 5,
+                target_hp_after: 99_895,
+                is_crit: false,
+                evaded: false,
+                hit_id: 2,
+                source_kind: AttackSourceKind::Dot,
+            },
+        ];
         let unit_infos = vec![
             CombatUnitInfo { id: "attacker".to_string(), display_name: "Attacker".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
             CombatUnitInfo { id: "target".to_string(), display_name: "Target".to_string(), is_boss: true, archetype: None, role: None, max_hp: 100_000, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0 },
         ];
         let stats = full_player_fight_stats(&unit_infos, &events);
         let attacker_stats = stats.iter().find(|s| s.id == "attacker").unwrap();
-        assert_eq!(attacker_stats.hits, 1, "only the real swing counts as a hit, not the DoT ticks it queued");
-        assert_eq!(attacker_stats.dot_ticks, LINGERING_EFFECT_TICKS);
-        assert_eq!(
-            attacker_stats.damage_dealt,
-            attacker_stats.dot_damage + 100,
-            "the real swing's own 100 damage plus every tick's damage - dot_damage is a subset, never excluded from the total"
-        );
+        assert_eq!(attacker_stats.hits, 1, "only the Direct swing counts as a hit, not the Dot-tagged event");
+        assert_eq!(attacker_stats.dot_ticks, 1);
+        assert_eq!(attacker_stats.dot_damage, 5);
+        assert_eq!(attacker_stats.damage_dealt, 105, "dot_damage is a subset of damage_dealt, never excluded from the total");
     }
 
     #[test]
@@ -18986,24 +18839,6 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         assert_eq!(units[1].hp, 1, "the Thunder Golem must never be picked as a splash-heal target");
     }
 
-    /// A4 - zero-amount heal event suppression: a heal-flavor Lingering
-    /// Effect tick landing on an already-full-hp target must push
-    /// NOTHING, not a `Heal { amount: 0 }` event. Confirmed as the
-    /// audit's own "2,296 of ~2,444 heal events... amount:0" finding at
-    /// LINGERING_EFFECT_TICK_INTERVAL_MS's 50ms cadence.
-    #[test]
-    fn lingering_effect_heal_flavor_tick_on_a_full_hp_target_pushes_no_event() {
-        let mut target = CombatSimUnit { id: "target".to_string(), display_name: "target".to_string(), alive: true, hp: 1000, max_hp: 1000, ..Default::default() };
-        target.lingering_dots.push(LingeringDot { source_id: "healer".to_string(), amount_per_tick: 100.0, is_heal: true, next_tick_at_ms: 1000, remaining_ticks: 1 });
-        let mut units = vec![target];
-        let mut events = Vec::new();
-        let mut rolls = Vec::new();
-        let mut rng = StdRng::seed_from_u64(1);
-        tick_lingering_dots(&mut units, 0, 1000, &mut events, &mut rolls, &mut rng);
-        assert_eq!(units[0].hp, 1000, "already full - nothing to heal");
-        let heal_events = events.iter().filter(|e| matches!(e, CombatEvent::Heal { .. })).count();
-        assert_eq!(heal_events, 0, "a zero-amount heal tick must push no event at all");
-    }
 }
 
 #[cfg(test)]
@@ -19740,5 +19575,149 @@ mod paladin_holyfire_delivery_tests {
         // happened the first time this was written.
         let forbidden = format!("{}(units, healer_idx, enemy_idx, damage", "apply_".to_string() + "hit");
         assert!(!src.contains(&forbidden), "Holy Fire must never go back through the full attacker pipeline - that is the ~42,000x defect");
+    }
+}
+
+#[cfg(test)]
+mod echo_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn roll_echo_ladder_at_the_owners_own_table() {
+        // The exact table from the fit report: floor(pct) guaranteed
+        // repeats + a (pct - floor(pct)) chance of one more. Uses a fixed
+        // seed and checks the DETERMINISTIC (guaranteed) component only at
+        // pct values landing exactly on a rung (no remainder to roll), and
+        // asserts total count bounds at the in-between values (where the
+        // remainder roll's outcome depends on the rng draw).
+        let mut rng = StdRng::seed_from_u64(1);
+        assert!(roll_echo(0.99, &mut rng).0 <= 1, "99%: at most 1 (0 guaranteed + at most a successful 99% roll)");
+        let (count_100, remainder_100, _) = roll_echo(1.00, &mut rng);
+        assert_eq!(count_100, 1, "100%: exactly 1 guaranteed, no remainder roll possible");
+        assert_eq!(remainder_100, 0.0, "100% lands exactly on a rung - nothing probabilistic to report");
+        let (count_101, remainder_101, _) = roll_echo(1.01, &mut rng);
+        assert!(count_101 == 1 || count_101 == 2, "101%: 1 guaranteed plus a 1% chance of a 2nd");
+        assert!((remainder_101 - 0.01).abs() < 1e-9);
+        let (count_199, remainder_199, _) = roll_echo(1.99, &mut rng);
+        assert!(count_199 == 1 || count_199 == 2, "199%: still 1 guaranteed plus a chance of a 2nd, never a 3rd");
+        assert!((remainder_199 - 0.99).abs() < 1e-9);
+        let (count_200, remainder_200, _) = roll_echo(2.00, &mut rng);
+        assert_eq!(count_200, 2, "200%: exactly 2 guaranteed, no remainder roll possible");
+        assert_eq!(remainder_200, 0.0);
+        let (count_250, remainder_250, _) = roll_echo(2.50, &mut rng);
+        assert!(count_250 == 2 || count_250 == 3, "250%: 2 guaranteed plus a 50% chance of a 3rd");
+        assert!((remainder_250 - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn roll_echo_is_zero_at_zero_or_negative_pct() {
+        let mut rng = StdRng::seed_from_u64(1);
+        assert_eq!(roll_echo(0.0, &mut rng), (0, 0.0, false));
+        assert_eq!(roll_echo(-0.5, &mut rng), (0, 0.0, false));
+    }
+
+    #[test]
+    fn roll_echo_guaranteed_count_is_exact_across_many_seeds() {
+        // The GUARANTEED portion (floor(pct)) must never vary with the
+        // rng draw - only the single remainder roll can. Checked across
+        // many seeds so this isn't a coincidence of seed 1.
+        for seed in 0..50u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (count, _, succeeded) = roll_echo(3.0, &mut rng);
+            assert_eq!(count, 3, "300% has no remainder (exactly on a rung) - must always be exactly 3, seed {seed}");
+            assert!(!succeeded);
+        }
+        for seed in 0..50u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (count, _, _) = roll_echo(3.5, &mut rng);
+            assert!(count == 3 || count == 4, "350% must always be 3 or 4, never more/less, seed {seed}, got {count}");
+        }
+    }
+
+    fn echo_geared_character(name: &str, echo_pct: f64) -> Character {
+        let mut c = Character::new(name.to_string());
+        c.archetype = Archetype::Warrior;
+        c.level = 100;
+        let weapon = c.equipped_mut(EquipSlot::Weapon).as_mut().expect("starter kit fills every slot");
+        weapon.affixes.push((Affix::Echo, echo_pct));
+        c
+    }
+
+    /// End-to-end: a character with a very high Echo % (5.99 - 5
+    /// guaranteed repeats plus a 99% chance of a 6th) must produce
+    /// `AttackSourceKind::Echo`-tagged `Attack` events in a real fight, in
+    /// a BOUNDED ratio to the number of genuine `Direct` hits landed -
+    /// proof the hard "an echo never itself rolls Echo" rule holds in the
+    /// full sim, not just in `roll_echo` isolation: if a repeat's own
+    /// `apply_hit` call somehow re-triggered another Echo roll (a
+    /// recursion bug), this ratio would blow far past 6 echoes per direct
+    /// hit, not sit at-or-below it.
+    #[test]
+    fn echo_fires_in_a_real_fight_bounded_and_never_recurses() {
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("warrior".to_string(), echo_geared_character("warrior", 5.99));
+        let boss_stats = BossStats {
+            hp: 50_000_000,
+            atk: 1,
+            attack_interval_ms: 2_000,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(777);
+        let (_won, _units, events, rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+
+        let direct_hits =
+            events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, source_kind: AttackSourceKind::Direct, .. } if attacker == "warrior")).count();
+        let echo_hits =
+            events.iter().filter(|e| matches!(e, CombatEvent::Attack { attacker, source_kind: AttackSourceKind::Echo, .. } if attacker == "warrior")).count();
+        assert!(direct_hits > 0, "fixture produced no direct hits - test would be vacuous");
+        assert!(echo_hits > 0, "a 599% Echo chance must produce at least some echoed hits over a real fight");
+        assert!(
+            echo_hits <= direct_hits * 6,
+            "echo_hits ({echo_hits}) must never exceed 6x direct_hits ({direct_hits}) at a 599% chance (5 guaranteed + at most 1 more) - a higher ratio would mean an echo is recursively rolling Echo again"
+        );
+
+        let echo_rolls = rolls.iter().filter(|r| matches!(r.category, RollCategory::Echo) && r.actor == "warrior").count();
+        assert!(echo_rolls > 0, "the Echo chance roll itself must be logged as a verifiable RollEvent");
+    }
+
+    /// Structural guard: an echoed hit must not drain a second Assassinate/
+    /// Marked-for-Death/force-crit charge, and must not enter the
+    /// would-kill death-save chain at all, off the same original swing
+    /// (owner ruling - see `echo_repeat_in_progress`'s own doc).
+    #[test]
+    fn echo_repeat_consumes_no_charges_and_skips_the_death_save_chain() {
+        let mut attacker = CombatSimUnit {
+            id: "attacker".to_string(),
+            display_name: "Attacker".to_string(),
+            alive: true,
+            hp: 100,
+            max_hp: 100,
+            assassinate_charges: 1,
+            echo_repeat_in_progress: true,
+            ..Default::default()
+        };
+        attacker.crit_chance = 0.0;
+        let target = CombatSimUnit { id: "target".to_string(), display_name: "Target".to_string(), alive: true, hp: 1, max_hp: 1_000_000, guardian_spirit_charges: 1, ..Default::default() };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        // A lethal hit (target hp is 1) against a target with a banked
+        // Guardian Spirit charge - if the death-save chain ran, the target
+        // would survive at some healed hp and the charge would drain.
+        apply_hit(&mut units, 0, 1, 1_000.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        assert_eq!(units[0].assassinate_charges, 1, "an echo repeat must not drain Assassinate's charge");
+        assert!(!units[1].alive, "an echo repeat must skip the death-save chain entirely and let a lethal hit kill normally");
+        assert_eq!(units[1].guardian_spirit_charges, 1, "Guardian Spirit's charge must not be consumed by an echo repeat");
+        let attack_event = events.iter().find(|e| matches!(e, CombatEvent::Attack { .. })).expect("the hit must still produce a real Attack event");
+        assert!(matches!(attack_event, CombatEvent::Attack { source_kind: AttackSourceKind::Echo, .. }), "the repeat's own Attack event must be tagged Echo, not Direct");
     }
 }

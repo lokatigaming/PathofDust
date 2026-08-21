@@ -27,17 +27,34 @@ pub enum Affix {
     /// two contexts depending on whether the unit is attacking or
     /// healing that turn.
     Splash,
-    /// Applies an unavoidable damage-over-time debuff to whoever this
-    /// character hits (see `apply_lingering_effect`'s doc) - reworked
-    /// 2026-08-15 from the old `HealingPower` affix (which fed
-    /// `Character::combat_heal_power` directly). Existing items' stored
-    /// values were divided by 100 in the same migration that renamed this
-    /// variant (500% Healing Power -> 5% Lingering Effect) - gear no
-    /// longer contributes to heal-power conversion at all now; Cleric/
-    /// Druid's archetype baseline and passive-tree investment both got
-    /// doubled to compensate (see `Archetype::bonus`'s `heal_power_pct`
-    /// and the passive tree's own heal-power nodes).
+    /// RETIRED (2026-08-21, replaced by `Echo` below) - permanent inert
+    /// legacy variant, same treatment as `CraftAction::CelestialShard`
+    /// after the Unique Shard merge: `Affix` has no `#[serde(other)]`
+    /// catch-all and no aliases, so deleting this variant outright would
+    /// fail to deserialize any not-yet-migrated item still holding
+    /// `"lingeringEffect"` in its saved JSON. Excluded from `ALL_AFFIXES`
+    /// (never rolled again) and converted to `Echo` at half value by the
+    /// one-time `migrate_lingering_effect_to_echo` migration - no live
+    /// item should carry this after that marker has run. Was: applies an
+    /// unavoidable damage-over-time debuff to whoever this character hits,
+    /// itself reworked 2026-08-15 from the old `HealingPower` affix.
     LingeringEffect,
+    /// A % chance, rolled once per unified hit (the primary damage/heal
+    /// share only - never a splash target, follow-up, or another echo),
+    /// for that hit to fire again: floor(pct/100) GUARANTEED repeats plus
+    /// a (pct mod 100)% chance of one more (see `roll_echo`'s doc for the
+    /// exact ladder). The repeat re-runs the primary `apply_hit`/
+    /// `apply_heal` resolution plus its paired `apply_splash`/
+    /// `apply_heal_splash` call with fresh rolls off the SAME base amount -
+    /// never Radiant Smite, Holy Fire, Bloodpact, or any other once-per-
+    /// unified-action currency, and never consumes a second once-per-
+    /// swing/once-per-fight charge (Assassinate, Marked for Death, a
+    /// death-save charge) off the same original swing. Structurally
+    /// cannot itself roll Echo again - see `roll_echo`'s doc. Replaces
+    /// `LingeringEffect` (2026-08-21) - every existing `LingeringEffect`-
+    /// affixed item was renamed to this at half its stored value by
+    /// `migrate_lingering_effect_to_echo`.
+    Echo,
     /// % of damage dealt to OTHER alive party members this character
     /// instead takes onto themselves (see `Character::combat_intervene`/
     /// `simulate_battle`'s boss-attack handling) - a "protector" stat.
@@ -134,7 +151,9 @@ impl Default for Affix {
 
 /// Every affix type - what `roll_affixes` picks distinct entries from,
 /// and what a reforge/recombine "crit" (see `GearCritEvent`) picks a
-/// brand-new one from.
+/// brand-new one from. `LingeringEffect` is deliberately absent (retired,
+/// never rolled again - see its own doc); `Echo` takes its place so the
+/// pool stays the same size.
 pub const ALL_AFFIXES: [Affix; 17] = [
     Affix::DamageReduction,
     Affix::BlockChance,
@@ -143,7 +162,7 @@ pub const ALL_AFFIXES: [Affix; 17] = [
     Affix::CritChance,
     Affix::CritMultiplier,
     Affix::Splash,
-    Affix::LingeringEffect,
+    Affix::Echo,
     Affix::Intervene,
     Affix::Leech,
     Affix::IncreasedLife,
@@ -205,11 +224,17 @@ pub(crate) fn affix_def(affix: Affix) -> AffixDef {
         // baseline, not the multiplier itself.
         CritMultiplier => AffixDef { name: "crit damage dealt", label: "crit dmg dealt", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.05, default_weight: 1.0 },
         Splash => AffixDef { name: "splash", label: "splash", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.03, default_weight: 1.0 },
-        // 100x smaller than the old HealingPower formula it replaced
-        // (0.025 * t) - matches the 2026-08-15 conversion factor applied
-        // to every existing item's stored value, so a freshly-rolled item
-        // lands in the same range a converted legacy item would.
-        LingeringEffect => AffixDef { name: "lingering effect", label: "lingering effect", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.00025, default_weight: 1.0 },
+        // Retired (see the variant's own doc) - never rolled (absent from
+        // `ALL_AFFIXES`), this arm exists only so `affix_def` stays
+        // exhaustive and any defensive/legacy-display code path that still
+        // calls it on an unmigrated item doesn't panic. Numbers are the
+        // pre-retirement ones, unchanged.
+        LingeringEffect => AffixDef { name: "lingering effect", label: "lingering effect", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.00025, default_weight: 0.0 },
+        // Echo (2026-08-21, replaces Lingering Effect) - half of
+        // LingeringEffect's own former per-tier coefficient (0.00025 ->
+        // 0.000125), matching the 2x value cut every existing item's
+        // stored value took in the same migration that renamed it.
+        Echo => AffixDef { name: "echo", label: "echo", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.000125, default_weight: 1.0 },
         // Deliberately the smallest per-tier value here - Intervene
         // caps at 50% (see Character::combat_intervene) and is meant to
         // take real investment across several tiers/items to approach,

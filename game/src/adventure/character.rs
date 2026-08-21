@@ -3280,8 +3280,9 @@ impl Character {
     /// heal negative.
     /// Gear no longer contributes here at all (2026-08-15 - the old
     /// `HealingPower` affix was reworked into `LingeringEffect`, a
-    /// damage-over-time debuff instead - see `apply_lingering_effect`'s
-    /// doc). To compensate, `Archetype::bonus`'s `heal_power_pct` baseline
+    /// damage-over-time debuff instead - itself later retired 2026-08-21
+    /// and replaced by `Echo`, see `Affix::Echo`'s doc). To compensate,
+    /// `Archetype::bonus`'s `heal_power_pct` baseline
     /// AND every passive-tree node that grants `heal_power_pct` had their
     /// own magnitudes DOUBLED in the same pass, per the live design call
     /// that a healer's own build (archetype + tree) should absorb the
@@ -3399,31 +3400,19 @@ impl Character {
         self.combat_total_output_per_sec() * self.combat_heal_power().clamp(0.0, 1.0)
     }
 
-    /// This character's Lingering Effect % - gear (`Affix::LingeringEffect`)
-    /// PLUS Druid's Evergrowth (2026-08-16, a live request, repurposed
-    /// from its old Rejuvenation-bounce-value role): converts a slice of
-    /// TOTAL healing power (`combat_heal_power()` - the stat, not a flat
-    /// amount) directly into Lingering Effect, at 3%/6%/9% by rank. Worked
-    /// example from the request itself: 1000% heal power (10.0 as a
-    /// fraction) at 3/3 Evergrowth -> 0.09 * 10.0 = 90% Lingering Effect.
-    /// Reads as a harmless 0.0 for every other archetype (no "evergrowth"
-    /// key exists outside Druid's own tree).
-    pub fn combat_lingering_effect_pct(&self) -> f64 {
-        self.sum_affix(Affix::LingeringEffect) + self.passive_node_magnitude("evergrowth") * self.combat_heal_power()
-    }
-
-    /// Estimated TOTAL Lingering Effect output (DoT damage + HoT healing,
-    /// combined) over a 10-second window - same closed-form EV approach
-    /// as `combat_dps`/`combat_hps` (no literal simulation, no RNG), NOT a
-    /// simulated fight. Built on `combat_total_output_per_sec` (the
-    /// PRE-split rate), not `combat_dps` alone - `apply_lingering_effect`
-    /// triggers symmetrically off BOTH `apply_hit` (a landed hit spawns a
-    /// DoT on the enemy struck) AND `apply_heal` (a landed heal spawns an
-    /// equivalent HoT on the ally healed), so the total Lingering Effect
-    /// quantity generated tracks a character's TOTAL output regardless of
-    /// how much of it is currently split toward damage vs. healing.
-    pub fn combat_lingering_effect_10s_estimate(&self) -> f64 {
-        self.combat_total_output_per_sec() * self.combat_lingering_effect_pct() * 10.0
+    /// This character's Echo chance (2026-08-21, replaces Lingering
+    /// Effect) - gear (`Affix::Echo`) PLUS Druid's Evergrowth (redesigned
+    /// this same pass from its old Lingering-Effect-conversion role):
+    /// converts a slice of TOTAL healing power (`combat_heal_power()` -
+    /// the stat, not a flat amount) directly into Echo chance, at 3%/6%/9%
+    /// by rank - same formula and per-rank numbers Evergrowth always used,
+    /// just feeding a different stat. Worked example (ported): 1000% heal
+    /// power (10.0 as a fraction) at 3/3 Evergrowth -> 0.09 * 10.0 = 90%
+    /// Echo chance. Reads as a harmless 0.0 for every other archetype (no
+    /// "evergrowth" key exists outside Druid's own tree). See `roll_echo`
+    /// for how this percentage becomes an actual number of repeats.
+    pub fn combat_echo_pct(&self) -> f64 {
+        self.sum_affix(Affix::Echo) + self.passive_node_magnitude("evergrowth") * self.combat_heal_power()
     }
 
     /// Adds xp, applying as many level-ups as it covers (in case a big

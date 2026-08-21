@@ -339,6 +339,14 @@ pub struct LiveTunables {
     /// already-full-value heal, not a splash-scaled amount, so this
     /// field is irrelevant to them regardless of its value.
     pub splash_damage_pct: f64,
+    /// Echo replaces Lingering Effect (2026-08-21) - Druid's Verdant Burst
+    /// death-ward threshold: a lethal hit is saved if the Druid's own
+    /// current `combat_echo_pct()` is at or above this fraction (default
+    /// 1.0 = 100%, "your Echo investment already guarantees at least one
+    /// echo"). Deliberately NOT a per-rank passive-tree value - Verdant
+    /// Burst's rank only controls its charge count, this threshold applies
+    /// uniformly regardless of rank. See `CombatSimUnit::verdantburst_echo_threshold_pct`.
+    pub verdantburst_echo_threshold_pct: f64,
 }
 
 impl Default for LiveTunables {
@@ -387,6 +395,7 @@ impl Default for LiveTunables {
             splash_ladder_step_pct: 1000,
             splash_ladder_targets_per_step: 1,
             splash_damage_pct: 1.0,
+            verdantburst_echo_threshold_pct: 1.0,
         }
     }
 }
