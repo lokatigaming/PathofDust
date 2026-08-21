@@ -1136,19 +1136,30 @@ static PALADIN_NODES: &[PassiveNode] = &[
     // lookup.
     modifier_with_effect("holyfirewildfire", "holyfire", "Wildfire", "Holy Fire's conversion rate is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("purgingflame", "holyfire", "Purging Flame", "Holy Fire's damage also reduces the struck enemy's healing received by 10% per rank (up to -30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    // Already true unconditionally - Holy Fire already strikes EVERY
-    // alive enemy each time it fires (see `apply_holy_fire_damage`'s
-    // doc), so "1 additional enemy" has nothing left to add; banked
-    // toward... nothing further, same "already-exceeds-its-own-text"
-    // precedent Piercing Shots' rank 1/2 established.
-    modifier_with_effect("risingblaze", "holyfire", "Rising Blaze", "Holy Fire strikes 1 additional random enemy per rank (up to 3 extra hits at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Reworked 2026-08-21 (owner ruling, Paladin Holy Fire fix order,
+    // Q1). Holy Fire already strikes EVERY alive enemy each time it
+    // fires (see `apply_holy_fire_damage`'s doc), so the old text - "1
+    // additional random enemy per rank" - had nothing left to add, same
+    // "already-exceeds-its-own-text" tension Piercing Shots' rank 1/2
+    // once had. Now reads as a straight damage-contribution increase,
+    // folded into `smite_holyfire_dmg_pct` as a third multiplicative
+    // factor alongside Wildfire (see that field's construction site).
+    modifier_with_effect("risingblaze", "holyfire", "Rising Blaze", "Holy Fire's damage contribution is increased by 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     // Final Judgment's own text assumes a 20% base threshold - see the
     // construction-site doc for why this is applied as a +10/15/20%
     // DELTA on Judgment's real 50% base instead of taking its absolute
     // numbers literally.
     modifier_with_effect("finaljudgment", "judgment", "Final Judgment", "Judgment's threshold is raised to 30% HP per rank instead of 20% (up to 40% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.05 }),
     modifier_with_effect("executionersblessing", "judgment", "Executioner's Blessing", "A Judgment kill heals you for 8% max HP per rank (up to 24% at 3/3).", Special { at_rank_1: 0.08, per_additional_rank: 0.08 }),
-    modifier_with_effect("wrathoftheheavens", "judgment", "Wrath of the Heavens", "Judgment has a chance per rank to also splash 50% of its damage to nearby enemies - 20% per rank (up to 60% at 3/3).", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
+    // Text updated 2026-08-21 (Paladin Holy Fire fix order, Q2). Used to
+    // read as splashing Judgment's own damage, but the code never
+    // actually sourced Judgment's real hit value - it re-rolled an
+    // unrelated fresh attack roll per target. Now genuinely IS half of
+    // Radiant Smite's own Holy Fire damage contribution, computed once
+    // and delivered flat (see the Wrath capture-then-apply block next to
+    // `apply_holy_fire_damage`'s call site) - the tooltip now describes
+    // what the code does rather than what it happened to say before.
+    modifier_with_effect("wrathoftheheavens", "judgment", "Wrath of the Heavens", "On a Judgment kill, a chance per rank to also deal half of Radiant Smite's Holy Fire damage to nearby enemies - 20% per rank (up to 60% at 3/3).", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
 ];
 
 // ---------------------------------------------------------------------

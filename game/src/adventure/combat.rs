@@ -7322,7 +7322,30 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
 /// target). No evasion/block/shield consultation either, same reasoning
 /// RF's self-burn already documents - this is a detonation, not
 /// something the target actively defends against.
+/// Water Golem's Shattering icicles - a thin wrapper over
+/// `apply_flat_source_damage`, kept as a named entry point so its call
+/// site reads as the mechanic it is. Deliberately a wrapper rather than
+/// a second copy: Holy Fire now delivers through the same helper, and
+/// the two were the same defect twice (see `apply_holy_fire_damage`), so
+/// they must not be able to drift apart again.
+///
+/// Tagged `AttackSourceKind::Environmental` - a detonation credited to
+/// nobody, which is what keeps it out of Doom accumulation (see above).
 fn apply_shattering_icicle_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, raw_amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) -> bool {
+    apply_flat_source_damage(units, source_idx, target_idx, raw_amount, AttackSourceKind::Environmental, at_ms, events, rolls, rng)
+}
+
+pub(crate) fn apply_flat_source_damage(
+    units: &mut [CombatSimUnit],
+    source_idx: usize,
+    target_idx: usize,
+    raw_amount: f64,
+    source_kind: AttackSourceKind,
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+) -> bool {
     if raw_amount <= 0.0 || !units[target_idx].alive || is_damage_immune(&units[target_idx], at_ms) {
         return false;
     }
@@ -7351,7 +7374,7 @@ fn apply_shattering_icicle_damage(units: &mut [CombatSimUnit], source_idx: usize
         is_crit: false,
         evaded: false,
         hit_id,
-        source_kind: AttackSourceKind::Environmental,
+        source_kind,
     });
     if new_hp != 0 {
         return false;
@@ -10670,15 +10693,46 @@ pub(crate) fn apply_radiant_smite_heal(units: &mut [CombatSimUnit], healer_idx: 
 
 /// Holy Fire (Paladin) - `total_healed` (the unified action's normal
 /// heal-power share PLUS Radiant Smite's own heal, summed by the caller)
-/// converts this fraction into damage dealt to EVERY alive enemy, each an
-/// independent `apply_hit` (its own crit/mitigation roll, same pipeline
-/// every other damage instance uses - not a flat unmitigated number) -
-/// the one path that lets a 100%-heal-power Paladin (whose normal damage
+/// converts this fraction into damage dealt to EVERY alive enemy - the
+/// one path that lets a 100%-heal-power Paladin (whose normal damage
 /// share is floored to 0) still put out real boss damage.
+///
+/// **Delivered through `apply_flat_source_damage`, NOT `apply_hit`**
+/// (2026-08-21). It used to use `apply_hit`, which re-ran the attacker's
+/// entire damage pipeline - increased damage, crit chance, crit
+/// multiplier - on a quantity that is DEFINED as a percentage of healing
+/// and had therefore already been scaled by all of it: the heal itself
+/// is rolled through `roll_attacker_damage` (see the Smite block's own
+/// heal roll). Applying the attacker stack twice was measured live at
+/// ~42,000x on a high-investment Paladin, whose Holy Fire accounted for
+/// 94% of their total output.
+///
+/// It is also the whole explanation for the "1 : 3 : 10" escalation seen
+/// across three casts in one instant: any per-hit stacking term that
+/// grows between consecutive actions was applied once into the heal and
+/// again into the delivery, so its growth compounded quadratically.
+/// Removing this second application leaves the single, legitimate
+/// application on the heal - the escalation should shrink, not vanish.
+///
+/// Exactly the defect Water Golem's Shattering had, which is why both
+/// now share one helper rather than two copies that can drift.
+///
+/// Source tag is `AttackSourceKind::Environmental`, matching Shattering,
+/// and that choice is deliberate: `curse_damage_taken_total` accrues
+/// ONLY inside `apply_hit`, so tagging it this way keeps Holy Fire out
+/// of Warlock Doom accumulation entirely. Feeding a heal-derived,
+/// many-targets-at-once conversion into Doom's pool is the same shape as
+/// the golem-less-Warlock incident icicles already caused, so it stays
+/// out by construction rather than by a guard someone can forget.
 pub(crate) fn apply_holy_fire_damage(units: &mut [CombatSimUnit], healer_idx: usize, total_healed: u64, dmg_pct: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
     if dmg_pct <= 0.0 || total_healed == 0 {
         return;
     }
+    // Rising Blaze - "1 additional random enemy per rank" - is folded
+    // into `dmg_pct` upstream (see `smite_holyfire_dmg_pct`'s
+    // construction, alongside Wildfire) rather than handled here: Holy
+    // Fire already reaches EVERY alive enemy unconditionally, so there
+    // is no un-hit enemy left for an "additional enemy" reading to add.
     let damage = total_healed as f64 * dmg_pct;
     let purgingflame_pct = units[healer_idx].purgingflame_heal_reduction_pct;
     let enemy_targets: Vec<usize> = units.iter().enumerate().filter(|(_, u)| u.is_boss && u.alive).map(|(i, _)| i).collect();
@@ -10686,7 +10740,7 @@ pub(crate) fn apply_holy_fire_damage(units: &mut [CombatSimUnit], healer_idx: us
         if !units[healer_idx].alive {
             break;
         }
-        apply_hit(units, healer_idx, enemy_idx, damage, at_ms, events, rolls, rng, false, false);
+        apply_flat_source_damage(units, healer_idx, enemy_idx, damage, AttackSourceKind::Environmental, at_ms, events, rolls, rng);
         // Purging Flame - reduces the struck enemy's own healing received.
         if purgingflame_pct > 0.0 && units[enemy_idx].alive {
             units[enemy_idx].temp_heal_reduction_pct = purgingflame_pct;
@@ -11109,7 +11163,26 @@ pub(crate) fn simulate_battle(
                 } else {
                     0.0
                 },
-                smite_holyfire_dmg_pct: c.passive_node_magnitude("holyfire") + c.passive_node_magnitude("holyfirewildfire"),
+                // Wildfire MULTIPLIES Holy Fire rather than adding to it
+                // (2026-08-21). Its own text - "Holy Fire's conversion rate
+                // is increased by another 10% per rank" - reads as a
+                // modifier ON Holy Fire, and summing made the parent
+                // un-nerfable: at 3/3 Wildfire's flat 0.30 supplied 94% of
+                // the rate, so a 7.5x cut to the parent moved the effective
+                // value only 0.45 -> 0.32. Multiplying restores the parent
+                // as the real lever.
+                // Rising Blaze - wired 2026-08-21, reworked same day per
+                // owner ruling. Its own text ("1 additional random enemy
+                // per rank") no longer has anything to add: Holy Fire
+                // already reaches EVERY alive enemy unconditionally, so
+                // there is no un-hit target left for "an additional
+                // enemy" to mean. The owner's replacement reading is a
+                // straight damage-contribution increase - 10/20/30% per
+                // rank - folded in as a third multiplicative factor
+                // alongside Wildfire, same shape, same lever.
+                smite_holyfire_dmg_pct: c.passive_node_magnitude("holyfire")
+                    * (1.0 + c.passive_node_magnitude("holyfirewildfire"))
+                    * (1.0 + c.passive_node_magnitude("risingblaze")),
                 purgingflame_heal_reduction_pct: c.passive_node_magnitude("purgingflame"),
                 temp_heal_reduction_pct: 0.0,
                 temp_heal_reduction_expires_at_ms: 0,
@@ -14383,6 +14456,9 @@ pub(crate) fn simulate_battle(
             // shares above did anything (see `smite_heal_pct`'s doc for
             // why: a 100%-heal-power Paladin still needs this to fire so
             // Holy Fire has something to convert into real boss damage).
+            // Wrath of the Heavens capture - see the Judgment branch below.
+            let mut wrath_should_fire = false;
+            let mut wrath_primary_idx: Option<usize> = None;
             let smite_base_pct = units[actor_idx].smite_heal_pct;
             if smite_base_pct > 0.0 {
                 let mut heal_pct = smite_base_pct + units[actor_idx].smite_zealotry_bonus_pct;
@@ -14403,14 +14479,16 @@ pub(crate) fn simulate_battle(
                                 let self_heal = units[actor_idx].max_hp as f64 * executioner_pct;
                                 apply_heal(&mut units, actor_idx, actor_idx, self_heal, at_ms, &mut events, &mut rng);
                             }
+                            // Wrath of the Heavens - CAPTURED here, applied
+                            // after apply_radiant_smite_heal returns. It used
+                            // to fire right here, which is before smite_healed
+                            // exists - so it had nothing of Smite's to be half
+                            // OF, and sourced an unrelated fresh atk roll per
+                            // target instead. Same capture-then-apply shape
+                            // smite_boss_idx already uses for Judgment.
                             let wrath_chance = units[actor_idx].wrathoftheheavens_chance;
-                            if wrath_chance > 0.0 && rng.gen_bool(wrath_chance.clamp(0.0, 1.0)) {
-                                let other_enemies: Vec<usize> = units.iter().enumerate().filter(|(i, u)| *i != boss_idx && u.is_boss && u.alive).map(|(i, _)| i).collect();
-                                for other_idx in other_enemies {
-                                    let splash_base = attacker_base_damage(&units[actor_idx], &mut rng) * 0.5;
-                                    apply_hit(&mut units, actor_idx, other_idx, splash_base, at_ms, &mut events, &mut rolls, &mut rng, false, false);
-                                }
-                            }
+                            wrath_should_fire = wrath_chance > 0.0 && rng.gen_bool(wrath_chance.clamp(0.0, 1.0));
+                            wrath_primary_idx = Some(boss_idx);
                         }
                     }
                 }
@@ -14421,6 +14499,38 @@ pub(crate) fn simulate_battle(
                 // Smite's own heal, combined, converted into damage dealt
                 // to every alive enemy.
                 let holyfire_pct = units[actor_idx].smite_holyfire_dmg_pct;
+                // Wrath of the Heavens - Radiant Smite triggering a second
+                // time as splash, for a simple unmodified HALF of its own
+                // damage. One shared value computed once, not a fresh roll
+                // per target, and delivered through the same flat path Holy
+                // Fire uses so the attacker stack is not re-applied.
+                if wrath_should_fire {
+                    let wrath_damage = smite_healed as f64 * holyfire_pct * 0.5;
+                    if wrath_damage > 0.0 {
+                        let others: Vec<usize> = units
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, u)| Some(*i) != wrath_primary_idx && u.is_boss && u.alive)
+                            .map(|(i, _)| i)
+                            .collect();
+                        for other_idx in others {
+                            if !units[actor_idx].alive {
+                                break;
+                            }
+                            apply_flat_source_damage(
+                                &mut units,
+                                actor_idx,
+                                other_idx,
+                                wrath_damage,
+                                AttackSourceKind::Environmental,
+                                at_ms,
+                                &mut events,
+                                &mut rolls,
+                                &mut rng,
+                            );
+                        }
+                    }
+                }
                 let total_healed = heal_share_healed + smite_healed;
                 apply_holy_fire_damage(&mut units, actor_idx, total_healed, holyfire_pct, at_ms, &mut events, &mut rolls, &mut rng);
             }
@@ -19226,5 +19336,161 @@ mod retaliate_proc_gate_tests {
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
         apply_hit(&mut units, 0, 1, 100.0, 1_000, &mut events, &mut rolls, &mut rng, true, false);
         assert_eq!(counter_events(&units, &events), 1, "surviving a landed SPLASH hit (in_splash_resolution set on the attacker) must still proc Retaliation - the old counts_as_primary_hit gate wrongly excluded this");
+    }
+}
+
+/// Paladin Holy Fire / Wrath of the Heavens delivery (2026-08-21).
+///
+/// These pin the actual defect: a quantity DEFINED as a percentage of
+/// healing was being delivered through `apply_hit`, which re-ran the
+/// attacker's whole damage pipeline over it. The heal it derives from
+/// has already been scaled by that same pipeline, so the stack landed
+/// twice - measured at ~42,000x live, and the cause of the 1:3:10
+/// escalation across same-instant casts.
+#[cfg(test)]
+mod paladin_holyfire_delivery_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// An attacker whose damage stack is enormous. If any of it reaches
+    /// Holy Fire's output, these tests fail loudly.
+    fn loaded_paladin() -> CombatSimUnit {
+        CombatSimUnit {
+            id: "pal".to_string(),
+            display_name: "Pal".to_string(),
+            alive: true,
+            hp: 100_000,
+            max_hp: 100_000,
+            increased_damage: 900.0,
+            crit_chance: 1.0,
+            crit_multiplier: 50.0,
+            ..Default::default()
+        }
+    }
+
+    fn plain_enemy(dr: f64) -> CombatSimUnit {
+        CombatSimUnit {
+            id: "enemy".to_string(),
+            display_name: "Enemy".to_string(),
+            alive: true,
+            hp: 1_000_000_000,
+            max_hp: 1_000_000_000,
+            is_boss: true,
+            damage_reduction: dr,
+            ..Default::default()
+        }
+    }
+
+    fn holy_fire_damage_dealt(dr: f64, total_healed: u64, dmg_pct: f64) -> u64 {
+        let mut units = vec![loaded_paladin(), plain_enemy(dr)];
+        let before = units[1].hp;
+        let (mut events, mut rolls) = (Vec::new(), Vec::new());
+        let mut rng = StdRng::seed_from_u64(7);
+        apply_holy_fire_damage(&mut units, 0, total_healed, dmg_pct, 1_000, &mut events, &mut rolls, &mut rng);
+        (before - units[1].hp) as u64
+    }
+
+    #[test]
+    fn holy_fire_damage_is_exactly_healing_times_rate_times_mitigation() {
+        // The whole contract, against a target with no mitigation.
+        assert_eq!(holy_fire_damage_dealt(0.0, 100_000, 0.20), 20_000);
+    }
+
+    #[test]
+    fn holy_fire_applies_target_damage_reduction_and_nothing_else() {
+        // 100_000 * 0.20 * (1 - 0.25) = 15_000.
+        assert_eq!(holy_fire_damage_dealt(0.25, 100_000, 0.20), 15_000);
+    }
+
+    #[test]
+    fn none_of_the_attackers_damage_stack_reaches_holy_fire() {
+        // The regression that matters. The attacker above carries +900
+        // increased damage, guaranteed crit and a 50x crit multiplier -
+        // together the ~42,000x that was observed live. If ANY of it is
+        // applied, this number moves.
+        let dealt = holy_fire_damage_dealt(0.0, 100_000, 0.20);
+        assert_eq!(dealt, 20_000, "attacker increased_damage/crit_chance/crit_multiplier must not scale Holy Fire - they already scaled the heal it derives from");
+    }
+
+    #[test]
+    fn holy_fire_emits_a_non_crit_non_evaded_hit() {
+        let mut units = vec![loaded_paladin(), plain_enemy(0.0)];
+        let (mut events, mut rolls) = (Vec::new(), Vec::new());
+        let mut rng = StdRng::seed_from_u64(7);
+        apply_holy_fire_damage(&mut units, 0, 100_000, 0.20, 1_000, &mut events, &mut rolls, &mut rng);
+        let attacks: Vec<&CombatEvent> = events.iter().filter(|e| matches!(e, CombatEvent::Attack { .. })).collect();
+        assert_eq!(attacks.len(), 1);
+        match attacks[0] {
+            CombatEvent::Attack { is_crit, evaded, source_kind, .. } => {
+                assert!(!is_crit, "a flat conversion never crits - the crit already happened on the heal");
+                assert!(!evaded, "a flat conversion is not dodged");
+                assert_eq!(*source_kind, AttackSourceKind::Environmental, "tagged out of Doom accumulation deliberately - see apply_holy_fire_damage's doc");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn paladin_with(ranks: &[(&str, u32)]) -> Character {
+        let mut c = Character::new("pal".to_string());
+        c.archetype = Archetype::Paladin;
+        for (key, rank) in ranks {
+            c.passive_allocations.insert(key.to_string(), *rank);
+        }
+        c
+    }
+
+    /// Rising Blaze (2026-08-21, reworked same day) - owner ruling:
+    /// since Holy Fire already reaches every alive enemy, "+1 additional
+    /// random enemy per rank" has nothing left to add, so the node now
+    /// reads as +10/20/30% to Holy Fire's damage contribution per rank
+    /// instead - folded into `smite_holyfire_dmg_pct` as a third
+    /// multiplicative factor alongside Wildfire (see that field's own
+    /// construction site). Asserted here against the exact formula, the
+    /// same way `apply_holy_fire_damage`'s own tests pin dollar amounts
+    /// rather than trusting the shape.
+    #[test]
+    fn rising_blaze_multiplies_holy_fire_damage_contribution_per_rank() {
+        let holyfire_r3 = paladin_with(&[("holyfire", 3)]).passive_node_magnitude("holyfire");
+        assert!((holyfire_r3 - 0.15).abs() < 1e-9, "sanity: holyfire rank 3 default is 0.05/rank");
+        for (rank, expected_pct) in [(1u32, 0.10), (2, 0.20), (3, 0.30)] {
+            let c = paladin_with(&[("holyfire", 3), ("holyfirewildfire", 3), ("risingblaze", rank)]);
+            let risingblaze_pct = c.passive_node_magnitude("risingblaze");
+            assert!((risingblaze_pct - expected_pct).abs() < 1e-9, "risingblaze rank {rank} must read {expected_pct}, got {risingblaze_pct}");
+            let combined = holyfire_r3 * (1.0 + c.passive_node_magnitude("holyfirewildfire")) * (1.0 + risingblaze_pct);
+            let expected_combined = 0.195 * (1.0 + expected_pct);
+            assert!((combined - expected_combined).abs() < 1e-9, "rank {rank}: expected {expected_combined}, got {combined}");
+        }
+    }
+
+    /// Rank-3 baseline (no Rising Blaze invested) must land exactly at
+    /// the order's stated target: holyfire(0.15) * (1 + wildfire(0.30))
+    /// = 0.195, replacing the old additive 0.05*3 + 0.10*3 = 0.45.
+    #[test]
+    fn holyfire_wildfire_rank3_baseline_is_exactly_0_195() {
+        let c = paladin_with(&[("holyfire", 3), ("holyfirewildfire", 3)]);
+        let combined = c.passive_node_magnitude("holyfire") * (1.0 + c.passive_node_magnitude("holyfirewildfire")) * (1.0 + c.passive_node_magnitude("risingblaze"));
+        assert!((combined - 0.195).abs() < 1e-9, "rank-3 holyfire*wildfire baseline must be 0.195, got {combined}");
+    }
+
+    #[test]
+    fn shattering_and_holy_fire_share_one_delivery_path() {
+        // Drift prevention. These were the same defect twice; if either
+        // grows its own copy of the flat-damage path they can diverge
+        // again, and only one of them would get the next fix.
+        let src = include_str!("combat.rs");
+        assert!(
+            src.contains("fn apply_shattering_icicle_damage") && src.contains("apply_flat_source_damage(units, source_idx, target_idx, raw_amount, AttackSourceKind::Environmental"),
+            "Shattering must remain a thin wrapper over apply_flat_source_damage"
+        );
+        assert!(
+            src.contains("apply_flat_source_damage(units, healer_idx, enemy_idx, damage, AttackSourceKind::Environmental"),
+            "Holy Fire must deliver through apply_flat_source_damage"
+        );
+        // Needle built by concatenation: written as a plain literal, it
+        // would be found inside this very test by `include_str!` and the
+        // assertion would fail against itself - which is exactly what
+        // happened the first time this was written.
+        let forbidden = format!("{}(units, healer_idx, enemy_idx, damage", "apply_".to_string() + "hit");
+        assert!(!src.contains(&forbidden), "Holy Fire must never go back through the full attacker pipeline - that is the ~42,000x defect");
     }
 }

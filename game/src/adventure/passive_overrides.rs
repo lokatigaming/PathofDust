@@ -271,7 +271,6 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
 /// can say the accurate thing rather than promising a batch that would
 /// have nothing to do.
 pub const UNWIRED_NODES: &[&str] = &[
-    "risingblaze", // paladin - "Holy Fire strikes 1 additional random enemy per rank"
     "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
 ];
 
@@ -498,6 +497,25 @@ mod passive_override_tests {
         assert_eq!(PENDING_MIGRATION_NODES.len(), 28, "Stage 3 Mage batch migrated absolutezero/arcaneinstability/empoweredbolt/infiniteloop");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
         assert_eq!(unique.len(), 28, "the pending list must not contain duplicates");
+    }
+
+    #[test]
+    fn rising_blaze_is_wired_and_tunable() {
+        // Wired 2026-08-21 (Paladin Holy Fire branch fix), reworked same
+        // day per owner ruling: Holy Fire already reaches every alive
+        // enemy, so "+1 additional random enemy per rank" had nothing
+        // left to add. Now reads as +10/20/30% to Holy Fire's damage
+        // contribution per rank - a plain percentage magnitude, not a
+        // count, so it stays OUT of INTEGER_COUNT_NODES.
+        assert!(node_is_tunable("risingblaze"), "risingblaze now has a reader and must be offered");
+        assert!(node_untunable_reason("risingblaze").is_none());
+        assert!(!INTEGER_COUNT_NODES.contains(&"risingblaze"), "its magnitude is a damage-contribution PERCENTAGE, not a count");
+        assert!(!UNWIRED_NODES.contains(&"risingblaze"), "it is no longer unwired");
+        let n = node(Archetype::Paladin, "risingblaze");
+        let empty = PassiveOverrides::default();
+        for (rank, expected) in [(1u32, 0.10), (2, 0.20), (3, 0.30)] {
+            assert!((n.magnitude_at_rank_with(rank, &empty) - expected).abs() < 1e-9, "rank {rank} must read {expected} (+{}% Holy Fire damage contribution)", (expected * 100.0) as u32);
+        }
     }
 
     #[test]
