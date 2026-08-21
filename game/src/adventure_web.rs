@@ -1707,11 +1707,11 @@ async fn do_hideout_warrior(state: &AppState, login: &str, item_id: &str, includ
 async fn do_choose_veil(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<VeilChoiceForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
         match state.adventure.choose_veil_outcome(&login, form.index).await {
-            Some(VeilChosenOutcome::Currency(outcome)) => {
+            Ok(Some(VeilChosenOutcome::Currency(outcome))) => {
                 let change = craft_outcome_change_text(&outcome);
                 return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &change));
             }
-            Some(VeilChosenOutcome::Recombine(outcome)) => {
+            Ok(Some(VeilChosenOutcome::Recombine(outcome))) => {
                 let change = recombine_outcome_change_text(&outcome);
                 return Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.new_tier, &change));
             }
@@ -1720,7 +1720,12 @@ async fn do_choose_veil(State(state): State<AppState>, headers: HeaderMap, Form(
             // already inserted, so redirect back silently (same panel,
             // next slot) instead of showing a popup. See
             // `VeilChosenOutcome::ChancingContinues`'s own doc.
-            Some(VeilChosenOutcome::ChancingContinues) | None => {}
+            Ok(Some(VeilChosenOutcome::ChancingContinues)) | Ok(None) => {}
+            // The Unique Shard picker's own commit-time conflict rejection
+            // (duplicate-unique-effects fix, 2026-08-21, bug #44) - same
+            // "what went wrong" popup do_craft's insert-time rejections
+            // already show, via the same CraftError message table.
+            Err(err) => return Redirect::to(&craft_error_popup_url(&craft_error_text(err))),
         }
     }
     Redirect::to("/inventory")

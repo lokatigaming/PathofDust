@@ -1761,10 +1761,24 @@ impl Character {
     /// action uses: `AdventureManager::craft_item_ex`'s own UniqueShard
     /// branch checks `ItemLocked`/`AlreadyUnique` once, up front, at
     /// `PendingVeil`-insert time (same point the token itself is
-    /// consumed) - this fn trusts that already happened and just applies
-    /// the pick, same "insert-time validates, commit-time trusts it" split
-    /// `apply_craft_affix` above already uses for an ordinary reroll.
+    /// consumed). That insert-time filter is only a snapshot, though -
+    /// it can't see a conflict created AFTER insert but BEFORE this
+    /// commit (a second pending pick on another equipped slot, or an
+    /// ordinary equip landing the same value elsewhere in the meantime -
+    /// duplicate-unique-effects fix, 2026-08-21, bug #44: the original
+    /// version of this fn trusted the snapshot completely and had NO
+    /// re-check here, which is exactly how live duplicates got created).
+    /// So this fn re-validates for itself right before mutating, same
+    /// `has_conflicting_unique_affix_value` call the legacy
+    /// `CelestialShard` path and every equip-time site already use -
+    /// this is no longer a case of "insert-time validates, commit-time
+    /// trusts it" like `apply_craft_affix` above; both ends check now.
     pub(crate) fn apply_unique_affix(&mut self, item_id: &str, unique: UniqueAffix) -> Result<CraftOutcome, CraftError> {
+        let existing = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
+        let slot = existing.slot;
+        if self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id) && self.has_conflicting_unique_affix_value(unique, slot) {
+            return Err(CraftError::ConflictingUniqueAffix);
+        }
         let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
         let item_name = item.name.clone();
         let slot = item.slot;
@@ -4367,6 +4381,55 @@ mod duplicate_unique_effects_tests {
             character.has_conflicting_unique_affix_value(UniqueAffix::CelestialConversion, EquipSlot::Helm),
             "the same value destined for a DIFFERENT slot must still conflict with the Weapon's own copy"
         );
+    }
+
+    /// Bug #44 (2026-08-21) - the commit-time gap `apply_unique_affix`
+    /// itself had: two Unique Shard picker flows on two DIFFERENT
+    /// equipped slots can each pass their own insert-time filter (neither
+    /// has committed yet, so neither sees the other), so the guard has
+    /// to live here too, not just at insert time. `pending_veils` only
+    /// holds one entry per player (manager.rs), so this exercises
+    /// `apply_unique_affix` directly rather than through two overlapping
+    /// `craft_item_ex` calls - same reasoning `unique_shard_tests` in
+    /// manager.rs documents for why the insert-time filter's own tests
+    /// live there instead (see this file's own module doc above).
+    #[test]
+    fn apply_unique_affix_rejects_when_a_second_equipped_slot_already_landed_first() {
+        let mut character = Character::new("overlap".to_string());
+        let helm_item = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+        let helm_id = helm_item.id.clone();
+        character.helm = Some(helm_item);
+        let body_item = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
+        let body_id = body_item.id.clone();
+        character.body = Some(body_item);
+
+        let first = character.apply_unique_affix(&helm_id, UniqueAffix::SplitPersonality);
+        assert!(first.is_ok(), "first commit lands - nothing conflicted when it committed");
+        assert_eq!(character.helm.as_ref().unwrap().unique_affix, Some(UniqueAffix::SplitPersonality));
+
+        let second = character.apply_unique_affix(&body_id, UniqueAffix::SplitPersonality);
+        assert!(
+            matches!(second, Err(CraftError::ConflictingUniqueAffix)),
+            "second commit must be rejected now that the Helm already carries the same value"
+        );
+        assert_eq!(character.body.as_ref().unwrap().unique_affix, None, "a rejected commit must never mutate the item");
+    }
+
+    /// Standing design: a conflict check only ever applies to EQUIPPED
+    /// targets - an item sitting in the bag is never filtered, same as
+    /// the insert-time filter's own bag carve-out (manager.rs's
+    /// UniqueShard branch doc).
+    #[test]
+    fn apply_unique_affix_stays_unfiltered_for_a_bagged_item() {
+        let mut character = Character::new("bagger".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::SplitPersonality));
+        let bagged = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
+        let bagged_id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        let result = character.apply_unique_affix(&bagged_id, UniqueAffix::SplitPersonality);
+        assert!(result.is_ok(), "a bagged item must never be filtered against equipped uniques");
+        assert!(character.inventory.iter().any(|i| i.id == bagged_id && i.unique_affix == Some(UniqueAffix::SplitPersonality)));
     }
 
     #[test]
