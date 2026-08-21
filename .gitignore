@@ -97,6 +97,9 @@ patreon-tokens.json
 # Pre-splash-overcap-deploy rollback backup (chance-based splash
 # redesign + Volley/Chain-Lightning sizing fix), same discipline.
 /backup-pre-splash-overcap
+# Pre-holyfire-deploy rollback backup (Paladin Holy Fire delivery fix
+# + duplicate-unique-effects cleanup migration), same discipline.
+/backup-pre-holyfire
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
