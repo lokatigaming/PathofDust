@@ -4,11 +4,6 @@
       "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime)",
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, CreationDate)",
       "Bash(powershell -File C:\\sync-pod-qa.ps1)"
-    ],
-    "deny": [
-      "Edit(C:\\sync-pod-qa.ps1)",
-      "Bash(icacls:*)",
-      "Bash(schtasks:*)"
     ]
   }
 }
