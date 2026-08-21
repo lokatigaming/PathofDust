@@ -1,0 +1,146 @@
+//! `/admin/tunables/save` over real HTTP (2026-08-20) - the splash
+//! redesign's 6 new `LiveTunables` fields (`splash_extra_targets`,
+//! `splash_support_floor_targets`, `splash_overcap_bonus_targets`,
+//! `splash_ladder_step_pct`, `splash_ladder_targets_per_step`,
+//! `splash_damage_pct`) added `TunablesForm` fields with NO
+//! `#[serde(default)]` (same as every other numeric tunable on this
+//! form) - a real `axum::Form` extraction is the only thing that can
+//! catch a name mismatch between the form's `<input name="...">`
+//! attributes and the struct fields deserializing them; an in-crate
+//! call straight into `do_save_tunables`'s Rust types would sail past
+//! that exact class of bug (see `divine_dust_craft_http.rs`'s own doc
+//! for the live 422 this house rule exists because of).
+//!
+//! Same disposable-instance setup as `admin_passives_http.rs`: an
+//! OS-assigned ephemeral port and a scratch data directory, so nothing
+//! here can reach the live game's files or ports.
+
+use std::path::PathBuf;
+use twitch_bot_rs::adventure::AdventureManager;
+
+/// Must match `adventure_web::ADMIN_TUNABLES_LOGIN`, which is private.
+const ADMIN_LOGIN: &str = "lokati_gaming";
+const OTHER_LOGIN: &str = "someone_else";
+
+#[tokio::test]
+async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
+    let scratch = std::env::temp_dir().join(format!("admin_tunables_splash_http_{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
+
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let sessions_path = scratch.join("adventure-sessions.json");
+    std::fs::write(
+        &sessions_path,
+        format!(
+            r#"{{"admin-token":{{"login":"{ADMIN_LOGIN}","display_name":"Lokati","created_at":{now}}},"other-token":{{"login":"{OTHER_LOGIN}","display_name":"SomeoneElse","created_at":{now}}}}}"#
+        ),
+    )
+    .expect("failed to seed the scratch sessions file");
+
+    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - only caller in this process");
+
+    let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
+
+    let bound = twitch_bot_rs::adventure_web::start_adventure_web_server(
+        0,
+        "http://localhost".to_string(),
+        "test-client-id".to_string(),
+        "test-client-secret".to_string(),
+        manager.clone(),
+        sessions_path,
+        None,
+    )
+    .await
+    .expect("disposable adventure_web server must start");
+
+    let base = format!("http://127.0.0.1:{}", bound.port());
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("failed to build reqwest client");
+
+    let baseline = manager.live_tunables();
+    assert_eq!(baseline.splash_extra_targets, 2, "sanity: fresh tunables start at LiveTunables::default()");
+
+    // Every field `TunablesForm` requires (no `#[serde(default)]` on the
+    // numeric ones) - a missing one here would 422 instead of silently
+    // defaulting, exactly the failure mode this test exists to catch.
+    // The 6 splash fields are set to distinctive, non-default values so
+    // a name mismatch (a typo in either the `<input name>` or the
+    // struct field) shows up as a wrong number, not a false pass.
+    let form: Vec<(&str, String)> = vec![
+        ("loot_mult", baseline.loot_mult.to_string()),
+        ("sand_mult", baseline.sand_mult.to_string()),
+        ("wings_drop_chance", baseline.wings_drop_chance.to_string()),
+        ("celestial_shard_drop_chance", baseline.celestial_shard_drop_chance.to_string()),
+        ("boss_health", baseline.boss_health.to_string()),
+        ("boss_power", baseline.boss_power.to_string()),
+        ("dynamic_scaling_mult", baseline.dynamic_scaling_mult.to_string()),
+        ("boss_count_tier_stages", baseline.boss_count_tier_stages.to_string()),
+        ("boss_count_cap_mult", baseline.boss_count_cap_mult.to_string()),
+        ("late_content_stage", baseline.late_content_stage.to_string()),
+        ("pierce_cap", baseline.pierce_cap.to_string()),
+        ("pierce_h", baseline.pierce_h.to_string()),
+        ("fight_summary_batch_size", baseline.fight_summary_batch_size.to_string()),
+        ("thunder_redistribution_pct", baseline.thunder_redistribution_pct.to_string()),
+        ("thunder_redistribution_window_secs", baseline.thunder_redistribution_window_secs.to_string()),
+        ("reactive_proc_cap_ms", baseline.reactive_proc_cap_ms.to_string()),
+        ("divine_dust_drop_chance", baseline.divine_dust_drop_chance.to_string()),
+        ("divine_dust_disenchant_chance", baseline.divine_dust_disenchant_chance.to_string()),
+        ("divine_dust_craft_dust_cost", baseline.divine_dust_craft_dust_cost.to_string()),
+        ("divine_dust_craft_sand_cost", baseline.divine_dust_craft_sand_cost.to_string()),
+        ("divine_dust_craft_output", baseline.divine_dust_craft_output.to_string()),
+        ("rf_self_damage_pct_rank1", baseline.rf_self_damage_pct_rank1.to_string()),
+        ("rf_self_damage_pct_rank2", baseline.rf_self_damage_pct_rank2.to_string()),
+        ("rf_self_damage_pct_rank3", baseline.rf_self_damage_pct_rank3.to_string()),
+        ("shattering_damage_pct_rank1", baseline.shattering_damage_pct_rank1.to_string()),
+        ("shattering_damage_pct_rank2", baseline.shattering_damage_pct_rank2.to_string()),
+        ("shattering_damage_pct_rank3", baseline.shattering_damage_pct_rank3.to_string()),
+        ("defensive_stat_hard_cap", baseline.defensive_stat_hard_cap.to_string()),
+        // Distinctive, non-default splash values - the actual point of this test.
+        ("splash_extra_targets", "7".to_string()),
+        ("splash_support_floor_targets", "4".to_string()),
+        ("splash_overcap_bonus_targets", "9".to_string()),
+        ("splash_ladder_step_pct", "250".to_string()),
+        ("splash_ladder_targets_per_step", "3".to_string()),
+        ("splash_damage_pct", "0.42".to_string()),
+        ("boss_power_mult_override", String::new()),
+    ];
+    let form_refs: Vec<(&str, &str)> = form.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+    // --- a non-admin write must not take effect -----------------------
+    let sneaky = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=other-token").form(&form_refs).send().await.expect("POST failed");
+    assert!(sneaky.status().is_redirection(), "the handler redirects regardless, to avoid confirming the page exists");
+    assert_eq!(manager.live_tunables().splash_extra_targets, 2, "a non-admin POST must not change any value");
+
+    // --- the admin write ------------------------------------------------
+    let save = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&form_refs).send().await.expect("POST failed");
+    assert!(save.status().is_redirection(), "a real Form<TunablesForm> extraction must succeed with every field present - a 4xx here means a name mismatch");
+
+    let saved = manager.live_tunables();
+    assert_eq!(saved.splash_extra_targets, 7);
+    assert_eq!(saved.splash_support_floor_targets, 4);
+    assert_eq!(saved.splash_overcap_bonus_targets, 9);
+    assert_eq!(saved.splash_ladder_step_pct, 250);
+    assert_eq!(saved.splash_ladder_targets_per_step, 3);
+    assert!((saved.splash_damage_pct - 0.42).abs() < 1e-9);
+
+    // It reached the file, so it survives a restart.
+    let tunables_file = scratch.join("adventure-live-tunables.toml");
+    assert!(tunables_file.exists(), "the save must persist to disk");
+    let contents = std::fs::read_to_string(&tunables_file).expect("readable");
+    assert!(contents.contains("splash_extra_targets"), "the persisted file must name every new field, got:\n{contents}");
+    assert!(contents.contains("splash_ladder_step_pct"), "got:\n{contents}");
+
+    // --- the GET page reflects the saved values ------------------------
+    let admin_page = client
+        .get(format!("{base}/admin/tunables"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .send()
+        .await
+        .expect("GET failed")
+        .text()
+        .await
+        .expect("body");
+    assert!(admin_page.contains("value=\"7\""), "the retuned splash_extra_targets must render back into its own input");
+    assert!(admin_page.contains("name=\"splash_ladder_step_pct\""), "the new ladder field must actually be in the form");
+
+    std::fs::remove_dir_all(&scratch).ok();
+}
