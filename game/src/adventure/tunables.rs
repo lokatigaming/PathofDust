@@ -198,6 +198,21 @@ pub struct LiveTunables {
     pub rf_self_damage_pct_rank2: f64,
     /// Same mechanic - rank 3.
     pub rf_self_damage_pct_rank3: f64,
+    /// Cleric's Haloed Steps (2026-08-21 rework) - more-damage granted
+    /// per Divine Damage affix instance the Cleric has equipped (see
+    /// `Character::count_affix`), picked by the Cleric's own invested
+    /// RANK in `haloedsteps` (a Modifier, capped at 3) - same
+    /// per-rank-field shape as `rf_self_damage_pct_rank1` above, needed
+    /// because this ISN'T the node's own magnitude (that's the per-rank
+    /// CAP - 3/6/9% - already live-tunable via the normal node-value
+    /// override store; this is a second, independent per-rank number on
+    /// the same node). Defaults: 1%/2%/3% per instance at rank 1/2/3, so
+    /// the cap always binds at exactly 3 instances, every rank.
+    pub haloedsteps_per_instance_pct_rank1: f64,
+    /// Same mechanic - rank 2.
+    pub haloedsteps_per_instance_pct_rank2: f64,
+    /// Same mechanic - rank 3.
+    pub haloedsteps_per_instance_pct_rank3: f64,
     /// Water Golem's Shattering modifier - a live kill-switch (2026-08-20,
     /// a live request to quickly pull the mechanic pending a rework,
     /// without a rebuild/redeploy for either turning it off now or back
@@ -358,6 +373,9 @@ impl Default for LiveTunables {
             rf_self_damage_pct_rank1: 0.10,
             rf_self_damage_pct_rank2: 0.20,
             rf_self_damage_pct_rank3: 0.30,
+            haloedsteps_per_instance_pct_rank1: 0.01,
+            haloedsteps_per_instance_pct_rank2: 0.02,
+            haloedsteps_per_instance_pct_rank3: 0.03,
             shattering_enabled: true,
             shattering_damage_pct_rank1: 0.01,
             shattering_damage_pct_rank2: 0.01,

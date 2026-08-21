@@ -2595,6 +2595,12 @@ struct TunablesForm {
     rf_self_damage_pct_rank2: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank3`'s doc.
     rf_self_damage_pct_rank3: f64,
+    /// See `LiveTunables::haloedsteps_per_instance_pct_rank1`'s doc.
+    haloedsteps_per_instance_pct_rank1: f64,
+    /// See `LiveTunables::haloedsteps_per_instance_pct_rank2`'s doc.
+    haloedsteps_per_instance_pct_rank2: f64,
+    /// See `LiveTunables::haloedsteps_per_instance_pct_rank3`'s doc.
+    haloedsteps_per_instance_pct_rank3: f64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -2675,6 +2681,9 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 rf_self_damage_pct_rank1: form.rf_self_damage_pct_rank1.clamp(0.0, 1.0),
                 rf_self_damage_pct_rank2: form.rf_self_damage_pct_rank2.clamp(0.0, 1.0),
                 rf_self_damage_pct_rank3: form.rf_self_damage_pct_rank3.clamp(0.0, 1.0),
+                haloedsteps_per_instance_pct_rank1: form.haloedsteps_per_instance_pct_rank1.clamp(0.0, 1.0),
+                haloedsteps_per_instance_pct_rank2: form.haloedsteps_per_instance_pct_rank2.clamp(0.0, 1.0),
+                haloedsteps_per_instance_pct_rank3: form.haloedsteps_per_instance_pct_rank3.clamp(0.0, 1.0),
                 shattering_damage_pct_rank1: form.shattering_damage_pct_rank1.clamp(0.0, 1.0),
                 shattering_damage_pct_rank2: form.shattering_damage_pct_rank2.clamp(0.0, 1.0),
                 shattering_damage_pct_rank3: form.shattering_damage_pct_rank3.clamp(0.0, 1.0),
@@ -3400,6 +3409,22 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
               <p class=\"tunable-hint\">Same, rank 3/3.</p>\
             </div>\
+            <h2>Haloed Steps</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
+              <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
+              <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
+              <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+            </div>\
             <h2>Reactive Procs</h2>\
             <div class=\"tunable-row\">\
               <label for=\"reactive_proc_cap_ms\">Reactive Counter Cap (ms)</label>\
@@ -3526,6 +3551,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
         rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
+        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
+        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
+        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
         shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
         shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
