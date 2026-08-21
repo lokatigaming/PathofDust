@@ -1,0 +1,63 @@
+{
+  "manifest": {
+    "schemaVersion": 1,
+    "minReaderVersion": 1,
+    "fightId": "0000004154",
+    "startedAtUnixMs": 1755690000000,
+    "realDurationMs": 2800,
+    "displayDurationMs": 6000,
+    "pinned": false,
+    "members": {
+      "core": { "v": 1, "state": "present", "tier": "public", "bytes": 411, "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+      "replay": { "v": 1, "state": "present", "tier": "public", "bytes": 742, "sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+      "playerVitals": { "v": 1, "state": "present", "tier": "public", "bytes": 118, "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "pinnedShape": true },
+      "buffs": { "v": 1, "state": "present", "tier": "participant", "bytes": 205, "sha256": "3333333333333333333333333333333333333333333333333333333333333333" },
+      "dot": { "v": 1, "state": "aggregated", "tier": "participant", "bytes": 96, "sha256": "4444444444444444444444444444444444444444444444444444444444444444" },
+      "rolls": { "v": 1, "state": "expired", "tier": "operator", "expiredAtUnixMs": 1755690400000 }
+    }
+  },
+  "members": {
+    "core": {
+      "kind": "boss",
+      "stage": 2056,
+      "won": false,
+      "participants": ["lokati_gaming", "kazesosa"],
+      "units": [
+        { "id": "lokati_gaming", "displayName": "Lokati_Gaming", "isBoss": false, "maxHp": 790822 },
+        { "id": "__enemy_0__", "displayName": "The Hollow Choir", "isBoss": true, "maxHp": 677607551696 }
+      ],
+      "displayDurationMs": 6000,
+      "realDurationMs": 2800,
+      "loot": [],
+      "broken": [],
+      "enemyName": "The Hollow Choir",
+      "enemyCount": 1,
+      "retreated": [],
+      "bossSprites": ["hollow-choir"],
+      "summary": { "stage": 2056, "won": false },
+      "bossStats": [{ "id": "__enemy_0__", "damageTaken": 96444 }],
+      "startedAtUnixMs": 1755690000000
+    },
+    "replay": [
+      { "seq": 0, "kind": "skillCast", "atMs": 0, "unit": "lokati_gaming", "skill": "Righteous Fire" },
+      { "seq": 1, "kind": "attack", "atMs": 0, "attacker": "lokati_gaming", "target": "__enemy_0__", "damage": 84404, "unmitigatedDamage": 684853, "targetHpAfter": 677607467292, "isCrit": false, "evaded": false, "hitId": 2271316, "sourceKind": "direct" },
+      { "seq": 2, "kind": "attack", "atMs": 0, "attacker": "lokati_gaming", "target": "__enemy_0__", "damage": 12040, "unmitigatedDamage": 90112, "targetHpAfter": 677607455252, "isCrit": true, "evaded": false, "hitId": 2271317, "sourceKind": "splash" },
+      { "seq": 5, "kind": "heal", "atMs": 300, "healer": "kazesosa", "target": "lokati_gaming", "amount": 4210, "targetHpAfter": 790822, "isRevive": false },
+      { "seq": 9, "kind": "attack", "atMs": 900, "attacker": "__enemy_0__", "target": "lokati_gaming", "damage": 790822, "unmitigatedDamage": 1204551, "targetHpAfter": 0, "isCrit": false, "evaded": false, "hitId": 2271402, "sourceKind": "direct" },
+      { "seq": 10, "kind": "defeat", "atMs": 900, "unit": "lokati_gaming" }
+    ],
+    "playerVitals": [
+      { "id": "lokati_gaming", "hpSamples": [[0, 790822], [300, 786612], [900, 0]], "diedAtMs": 900 },
+      { "id": "kazesosa", "hpSamples": [[0, 412000]] }
+    ],
+    "buffs": [
+      { "seq": 3, "kind": "buffSnapshot", "atMs": 0, "unit": "__enemy_0__", "buffs": [["curse_dmg_taken_bonus", 0.68]] },
+      { "seq": 4, "kind": "shield", "atMs": 100, "healer": "kazesosa", "target": "lokati_gaming", "amount": 15000 },
+      { "seq": 8, "kind": "buffSnapshot", "atMs": 800, "unit": "lokati_gaming", "buffs": [] }
+    ],
+    "dot": [
+      { "seq": 6, "kind": "attack", "atMs": 400, "attacker": "__golem_kazesosa_0", "target": "__enemy_3__", "damage": 84404, "unmitigatedDamage": 684853, "targetHpAfter": 677607551696, "isCrit": false, "evaded": false, "hitId": 2271320, "sourceKind": "dot" },
+      { "seq": 7, "kind": "attack", "atMs": 450, "attacker": "__golem_kazesosa_0", "target": "__enemy_3__", "damage": 84404, "unmitigatedDamage": 684853, "targetHpAfter": 677607467292, "isCrit": false, "evaded": false, "hitId": 2271321, "sourceKind": "dot" }
+    ]
+  }
+}

@@ -1346,6 +1346,7 @@ pub(crate) const LAST_FIGHTS_LOG_PATH: &str = "adventure-last-fights.json";
 
 pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStats>) -> FightSummarySnapshot {
     let started_at_unix_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let bundle_boss_stats = boss_stats.clone();
     let snapshot = LastFightSnapshot { result: result.clone(), boss_stats, started_at_unix_ms };
     save_coarse_fight(&snapshot);
     let rolls = result.rolls.clone();
@@ -1364,6 +1365,18 @@ pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStat
         broken: result.broken.clone(),
     };
     save_summary_fight(&summary);
+    // Dual-write: the replay bundle is written LAST, after every legacy
+    // tier is already on disk. During the dual-write window the bundle is
+    // strictly additive - nothing reads it yet - so if it ever fails it
+    // must cost this fight nothing, and writing it last is what
+    // guarantees that. Takes `result` by reference: it cannot perturb what
+    // the tiers above just serialized, and `legacy_bytes_are_identical_
+    // either_side_of_a_bundle_build` pins that.
+    //
+    // Correct point in the sequence for the same reason `build_player_vitals`
+    // documents: `result.events` here is the full pre-thinning log, and
+    // `thin_events_for_overlay` runs strictly after this returns.
+    super::replay_bundle::save_bundle(result, &bundle_boss_stats, started_at_unix_ms);
     summary
 }
 
