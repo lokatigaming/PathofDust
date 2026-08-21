@@ -103,6 +103,9 @@ patreon-tokens.json
 # Pre-summary-bundle-seq-deploy rollback backup (FightSummarySnapshot
 # bundle_seq field), same discipline.
 /backup-pre-summary-bundle-seq
+# Pre-thunder-reform-deploy rollback backup (Thunder Golem reform-cleanse
+# fix, ledger #35/#36), same discipline.
+/backup-pre-thunder-reform
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
