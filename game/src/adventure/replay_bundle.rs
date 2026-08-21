@@ -388,13 +388,20 @@ pub(crate) fn participants_of(bundle: &StoredBundle) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Dual-write entry point. Called from `save_last_fight` AFTER every legacy
-/// tier has been written, so a failure here can never cost a fight its real
-/// archive.
-pub(crate) fn save_bundle(result: &EncounterResult, boss_stats: &[BossStats], started_at_unix_ms: u64) {
+/// Dual-write entry point. Called from `save_last_fight` after the coarse
+/// and detail tiers are already durable, so a failure here can never cost a
+/// fight its real archive - only the summary tier's own write (also in
+/// `save_last_fight`) still comes after this one, so it can stamp the
+/// bundle-tier sequence number this returns onto
+/// `FightSummarySnapshot::bundle_seq`.
+///
+/// Returns the bundle-tier sequence number the write landed under, or
+/// `None` if it failed - straight from `save_bundle_fight`/
+/// `write_and_prune_seeded`, the one place that number is actually decided.
+pub(crate) fn save_bundle(result: &EncounterResult, boss_stats: &[BossStats], started_at_unix_ms: u64) -> Option<u64> {
     fight_storage::save_bundle_fight(|seq| {
         build_bundle(result, boss_stats, started_at_unix_ms, format!("{seq:010}"))
-    });
+    })
 }
 
 #[cfg(test)]
