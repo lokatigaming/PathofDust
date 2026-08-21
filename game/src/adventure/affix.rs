@@ -337,7 +337,24 @@ pub(crate) fn affix_balance(affix: Affix) -> (f64, f64) {
             }
         }
         resolved
-    })[&affix]
+    })
+    .get(&affix)
+    .copied()
+    .unwrap_or_else(|| {
+        // A retired-but-still-declared affix (e.g. `LingeringEffect`,
+        // deliberately absent from `ALL_AFFIXES` - see its own doc) isn't
+        // in `resolved` at all. It can still legitimately be looked up
+        // here: item-level migrations that run before this character's
+        // own `migrate_lingering_effect_to_echo` has converted it (real
+        // fixture data with no prior migration markers - the ordering
+        // this ever surfaces under) call this on every existing affix
+        // unconditionally. Falls back to the affix's own code-default
+        // (no override file entry possible for a retired affix), same
+        // values it always had, rather than panicking on a legacy item
+        // that just hasn't been migrated yet.
+        let d = affix_def(affix);
+        (d.default_per_tier, d.default_weight)
+    })
 }
 
 /// Per-tier magnitude for one rolled `Affix`, before its own jitter (see
