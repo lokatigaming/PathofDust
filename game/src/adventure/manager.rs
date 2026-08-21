@@ -7019,6 +7019,48 @@ mod memory_manager_tests {
         std::fs::remove_dir_all(&scratch).ok();
     }
 
+    /// #-parser-verify (2026-08-21): direct proof of the `manager.rs`
+    /// guard at `load_memory` - an empty `golem_slot_types` on the
+    /// LOADED memory (a pre-golem-slot-types-field save, or a
+    /// genuinely golem-less one) must not overwrite the character's
+    /// CURRENT slot assignments. Mirrors lokati's live loadout
+    /// (Elementalist, golemmaster rank 3, three Water golems) per the
+    /// golem-inheritance release's prerequisite (d)(i).
+    #[tokio::test]
+    async fn loading_a_memory_with_empty_golem_slot_types_does_not_wipe_the_characters_current_ones() {
+        let (manager, scratch) = disposable_manager("golem_wipe_guard");
+        manager.join("lokati", "Lokati").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("lokati").expect("just joined");
+            character.level = 40;
+            character.archetype = Archetype::Elementalist;
+            character.passive_allocations.insert("golemmaster".to_string(), 3);
+            character.golem_slot_types = vec![GolemType::Water, GolemType::Water, GolemType::Water];
+        }
+        manager.save_memory("lokati", 0, Some("Water Golems")).await.expect("save must succeed");
+        // Force the saved snapshot's golem_slot_types empty - exactly
+        // what a pre-existing-field save deserializes as, and what a
+        // genuinely golem-less Memory would also carry.
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("lokati").expect("still joined");
+            let memory = character.memory_slot_mut(0).unwrap().as_mut().unwrap();
+            memory.golem_slot_types = Vec::new();
+        }
+
+        manager.load_memory("lokati", 0).await.expect("load must succeed");
+
+        let character = manager.character("lokati").await.expect("still joined");
+        assert_eq!(
+            character.golem_slot_types,
+            vec![GolemType::Water, GolemType::Water, GolemType::Water],
+            "an empty golem_slot_types on the loaded memory must PRESERVE the character's current slots, not wipe them"
+        );
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
     #[tokio::test]
     async fn a_stale_node_in_a_saved_build_is_refunded_and_reported_rather_than_failing_the_load() {
         let (manager, scratch) = disposable_manager("stale");
