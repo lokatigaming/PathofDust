@@ -1,47 +1,15 @@
 ## Deploy procedure
-After every deploy, in order:
-1. `git push origin master` — the sync pulls from GitHub, not from this
-   local repo directly, so pod-qa cannot pick up anything that hasn't
-   been pushed. A deploy that skips this step silently leaves pod-qa
-   stale while everything LOOKS deployed (confirmed live 2026-08-18: an
-   entire session's worth of commits sat unpushed while every sync in
-   between reported "Already up to date" — accurate against origin, and
-   completely misleading about pod-qa's actual staleness).
-2. `powershell -File C:\sync-pod-qa.ps1`
-3. Verify the sync actually landed: compare pod-qa's HEAD against local
-   HEAD -
-   `git -C C:\pod-qa rev-parse HEAD` vs `git rev-parse HEAD`.
-   The sync script itself does not do this check and must not be edited
-   to add it (see Rules below) - perform it yourself as a separate step
-   every time and report the two hashes. MATCH: say so briefly. MISMATCH:
-   report loudly (don't bury it) - state both hashes and that pod-qa is
-   NOT current, and stop for instructions rather than trying to fix
-   pod-qa's state yourself (a mismatch can mean the push failed, the
-   pull failed, or - confirmed live 2026-08-18 - pod-qa has untracked
-   local files colliding with newly-pushed ones; the fix is the owner's
-   call in every case, not an AI session's). Specifically for an
-   untracked-file collision (git's own error names them - "The
-   following untracked working tree files would be overwritten by
-   merge: ..."): report the exact filenames and stop there. The fix is
-   owner-side deletion in C:\pod-qa (confirmed live 2026-08-18 - one
-   was a CLAUDE.md hand-created during initial setup, before that file
-   existed in the repo) - never a forced pull (`git pull --force`/`-f`,
-   `git checkout -- .`, or similar) from an AI session, which would
-   silently discard whatever those files were protecting.
-4. If it errors, report to me.
+Deploy procedure is documented in REFACTOR_PLAN.md §13 (authoritative,
+supersedes any earlier version) — `git push origin master` remains a
+required step there.
 
-Context: C:\pod-qa is an intentionally READ-ONLY mirror of this repo,
-used by a separate public-facing Q&A session that answers player
-questions on stream and must never be able to modify code. The sync
-script's unlock -> pull -> relock cycle is by design; the icacls deny
-it applies is the OS-level enforcement of that read-only guarantee.
-The owner retains read access and can lift the lock from an elevated
-shell at any time.
-
-Rules: never edit C:\sync-pod-qa.ps1, never run icacls directly, never
-modify C:\pod-qa or its permissions. These rules exist so no AI session
-can weaken the read-only boundary — do not "fix" or investigate the
-lock; it is working as intended.
+Note (2026-08-22): the pod-qa mirror's consumer session has been
+retired by the owner. The pod-qa sync/verify steps that used to live
+here are removed — no future session should run `sync-pod-qa.ps1` or
+check pod-qa's HEAD as part of a deploy. `C:\pod-qa` and
+`C:\sync-pod-qa.ps1` still exist on disk; do not delete or modify
+either, and do not run icacls against `C:\pod-qa` — that decision
+belongs to the owner separately, not to an automatic cleanup.
 
 ## Multi-session coordination
 

@@ -1073,9 +1073,18 @@ world, per the owner's explicit ordering.
 Documented here (rather than left in a single session's own memory) so
 it survives into every future session, per the owner's explicit
 instruction (2026-08-19). Supersedes any earlier informal version.
-CLAUDE.md's own "Deploy procedure" section covers the source-side
-push/pod-qa-sync steps (5, 8, 9 below) in more detail — this section is
-the full picture, source push through binary swap.
+CLAUDE.md's own "Deploy procedure" section covers the source-side push
+step (5 below) in more detail — this section is the full picture,
+source push through binary swap.
+
+**Amendment (2026-08-22):** the pod-qa mirror's consumer session has
+been retired by the owner. The pod-qa sync step and the post-sync
+HEAD-match verification that used to live here (steps 7-8 of an
+earlier version of this list) are removed — no future session should
+run `sync-pod-qa.ps1` or check pod-qa's HEAD as part of a deploy.
+`C:\pod-qa` and `C:\sync-pod-qa.ps1` still exist on disk; do not
+delete or modify either — that decision belongs to the owner
+separately, not to an automatic cleanup.
 
 **Every deploy, regardless of size, in order:**
 
@@ -1162,22 +1171,16 @@ the full picture, source push through binary swap.
      entire stop/swap window — no watchdog disable, no stop, no binary
      touched, no backup entry for it. The deploy report states
      `bot: unchanged, not redeployed (diff-clean)`.
-5. `git push origin master` — pod-qa syncs from GitHub, not this local
-   repo directly, so this step is never optional even if everything
+5. `git push origin master` — keeps origin as the authoritative record
+   of what's actually deployed; never skip this even if everything
    "looks" deployed locally.
 6. Clean up the isolated build target-dir.
-7. `powershell -File C:\sync-pod-qa.ps1`.
-8. Verify the sync actually landed: `git -C C:\pod-qa rev-parse HEAD` vs
-   `git rev-parse HEAD`. MATCH: say so briefly. MISMATCH: report loudly,
-   state both hashes, stop for instructions — never force-fix pod-qa's
-   state from an AI session (see CLAUDE.md's own fuller treatment of
-   this, including the untracked-file-collision case).
-9. Report: what shipped, the patch-notes entry added, all relevant
+7. Report: what shipped, the patch-notes entry added, all relevant
    hashes (merge/final commit, old/new binary SHA-256 for whichever
    binaries moved), the bot's deploy/skip determination and which paths
    in the diff drove it (or `bot: unchanged, not redeployed (diff-clean)`
    plus any hash-mismatch note per the conditional-redeploy rule above),
-   rollback backup location, and the pod-qa HEAD match/mismatch.
+   and rollback backup location.
 
 **Worktree housekeeping (2026-08-20 addition):** once a feature branch
 is merged into master AND deployed, its standalone `C:\PathofDust-<name>`
