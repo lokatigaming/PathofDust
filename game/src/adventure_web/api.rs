@@ -36,7 +36,8 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::adventure::{
-    pin_most_recent_fight, AdventureManager, BossKind, ForceBossOutcome, JoinOutcome, RampageVoteOutcome, TriggerEncounterOutcome, RAMPAGE_VOTE_THRESHOLD,
+    pin_most_recent_fight, AdventureManager, BossKind, ForceBossOutcome, JoinOutcome, PublishedConstants, RampageVoteOutcome, TriggerEncounterOutcome,
+    PUBLISHED_CONSTANTS_PATH, RAMPAGE_VOTE_THRESHOLD,
 };
 
 const API_SECRET_HEADER: &str = "x-adventure-api-secret";
@@ -76,6 +77,7 @@ pub(super) fn router<S: Clone + Send + Sync + 'static>(adventure: Arc<AdventureM
             .route("/redemptions/repair", post(redeem_repair))
             .route("/redemptions/force_boss", post(redeem_force_boss))
             .route("/activity_xp", post(activity_xp))
+            .route("/published-constants", post(publish_constants))
             .route("/announcements/stream", get(announcements_stream))
             .layer(axum::middleware::from_fn_with_state(state.clone(), require_shared_secret))
             .with_state(state),
@@ -372,6 +374,30 @@ struct ActivityXpBody {
 async fn activity_xp(State(state): State<ApiState>, Json(body): Json<ActivityXpBody>) -> StatusCode {
     state.adventure.grant_activity_xp(&body.username).await;
     StatusCode::ACCEPTED
+}
+
+/// Bot → game published constants (2026-08-22, bot/game build-time
+/// decoupling) - replaces the bot writing `bot-published-constants.json`
+/// into the game's working directory itself, which was that repo's last
+/// bot→game file write and the last build-time coupling forcing a bot
+/// rebuild on every game-only release. The bot POSTs its five compile-
+/// time constants here once at startup; this writes them to the SAME
+/// path wiki.rs already reads (`PUBLISHED_CONSTANTS_PATH` - deliberately
+/// NOT routed through `paths::data_path`, see that constant's own doc)
+/// via the same pretty-printing `state::save_json` the old direct write
+/// used, so the on-disk format is unchanged and a pre-decoupling bot
+/// that still writes the file itself keeps working against this handler's
+/// game. A file that never gets written (bot down or too old to know
+/// about this route) leaves wiki.rs rendering its placeholders as
+/// "varies", exactly as it always has.
+async fn publish_constants(Json(published): Json<PublishedConstants>) -> StatusCode {
+    match crate::state::save_json(PUBLISHED_CONSTANTS_PATH, &published) {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(err) => {
+            tracing::error!("failed to persist posted published-constants payload to {PUBLISHED_CONSTANTS_PATH}: {err}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 async fn announcements_stream(State(state): State<ApiState>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

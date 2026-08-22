@@ -133,6 +133,23 @@ impl AdventureApiClient {
         Ok(())
     }
 
+    /// POST the bot's published-constants payload (see
+    /// src/published_constants.rs for why this replaced the old direct
+    /// file write). Any non-2xx comes back as `Err`, so the caller's
+    /// bounded retry can tell "game down or too old" apart from success.
+    /// No retry HERE, per this module's standing rule - retry/backoff
+    /// policy is the caller's job.
+    pub async fn publish_published_constants<T: Serialize + ?Sized>(&self, payload: &T) -> anyhow::Result<()> {
+        self.http
+            .post(self.url("/api/published-constants"))
+            .header(API_SECRET_HEADER, &self.shared_secret)
+            .json(payload)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     /// A minimal hand-rolled SSE client for `/api/announcements/stream` -
     /// no SSE-client crate pulled in (this whole module is test-only for
     /// now, see this file's own top doc, and the wire format is trivial:

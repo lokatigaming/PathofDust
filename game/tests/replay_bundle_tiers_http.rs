@@ -20,7 +20,7 @@
 //! `#[tokio::test]`s inside THIS file would share it and race.
 
 use std::path::PathBuf;
-use twitch_bot_rs::adventure::AdventureManager;
+use game::adventure::AdventureManager;
 
 /// Must match `adventure_web::BUNDLE_OPERATOR_LOGIN`, which is private.
 const OPERATOR_LOGIN: &str = "lokati_gaming";
@@ -45,6 +45,11 @@ fn bundle_json() -> String {
 
 #[tokio::test]
 async fn bundle_members_are_served_only_to_their_own_tier() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("replay_bundle_tiers_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
 
@@ -59,7 +64,7 @@ async fn bundle_members_are_served_only_to_their_own_tier() {
     .expect("failed to seed the scratch sessions file");
 
     assert!(
-        twitch_bot_rs::adventure::set_data_dir(scratch.clone()),
+        game::adventure::set_data_dir(scratch.clone()),
         "set_data_dir must succeed - only caller in this process"
     );
 
@@ -73,7 +78,7 @@ async fn bundle_members_are_served_only_to_their_own_tier() {
         PathBuf::from("adventure-reforge-cooldown.json"),
     );
 
-    let bound = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
         "test-client-id".to_string(),

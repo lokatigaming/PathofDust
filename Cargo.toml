@@ -20,7 +20,6 @@ name = "auth_patreon"
 path = "src/bin/auth_patreon.rs"
 
 [dependencies]
-game = { path = "game" }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
 tower-http = { version = "0.5", features = ["fs"] }

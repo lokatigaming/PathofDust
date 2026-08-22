@@ -1,18 +1,21 @@
 //! Stage 3 API seam (2026-08-19, architecture refactor) - end-to-end
-//! proof that the new `/api/*` surface (game/src/adventure_web/api.rs)
-//! and its mirror bot-side client (src/adventure_client.rs) actually
-//! work over real HTTP against a real, disposable `AdventureManager` -
-//! not just that the two sides individually compile. Exercises a
-//! representative slice of every §4a/§4c row plus one real, end-to-end
-//! §4b round trip: a redemption call that triggers a genuine boss fight,
-//! confirmed by reading the resulting announcement back off
-//! `GET /api/announcements/stream`.
+//! proof that the `/api/*` surface (game/src/adventure_web/api.rs) and
+//! its mirror bot-side client (the bot crate's own
+//! `src/adventure_client.rs`) actually work over real HTTP against a
+//! real, disposable `AdventureManager` - not just that the two sides
+//! individually compile. Exercises a representative slice of every
+//! §4a/§4c row plus one real, end-to-end §4b round trip: a redemption
+//! call that triggers a genuine boss fight, confirmed by reading the
+//! resulting announcement back off `GET /api/announcements/stream`.
 //!
-//! Per the stage's own explicit scoping ("build the seam alongside the
-//! existing in-process path... only the new one exercised by tests, no
-//! cutover until Stage 4"), nothing here touches src/main.rs or
-//! src/commands.rs - this is the ONLY thing that calls
-//! `AdventureApiClient` today.
+//! Originally a `twitch-bot-rs` integration test, driving the seam
+//! through the bot's own `AdventureApiClient`. Moved into `game`'s
+//! integration suite during the bot/game build-time decoupling
+//! (2026-08-22) - pulling the bot crate back in as a dev-dependency
+//! would have preserved exactly the coupling that move removed, so
+//! [`LocalApiFixture`] below re-implements just the client surface THIS
+//! test exercises: same URLs, same shared-secret header, same
+//! reply/redemption envelopes, same minimal single-frame SSE parsing.
 //!
 //! **Single test function, deliberately** - see
 //! tests/http_golden_responses.rs's own doc for why: `set_data_dir` is a
@@ -22,18 +25,156 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use futures_util::StreamExt;
-use twitch_bot_rs::adventure::AdventureManager;
-use twitch_bot_rs::adventure_client::AdventureApiClient;
+use game::adventure::AdventureManager;
+use serde::Deserialize;
 
 const TEST_SECRET: &str = "test-shared-secret";
 const TEST_USER: &str = "api-seam-test-user";
 
+/// Spelled out to match api.rs's own constant rather than imported from
+/// it (it's module-private there anyway) - a rename on either side shows
+/// up here as a real 401, which is exactly the kind of drift this seam
+/// test exists to catch.
+const API_SECRET_HEADER: &str = "x-adventure-api-secret";
+
+#[derive(Deserialize)]
+struct ReplyBody {
+    reply: Option<String>,
+}
+
+/// Mirrors the bot client's redemption envelope - only the fields this
+/// test reads (serde skips anything the server adds).
+#[derive(Deserialize, Debug)]
+struct RedemptionResponse {
+    fulfilled: bool,
+    chat_message: Option<String>,
+}
+
+/// The local stand-in for the bot's `AdventureApiClient`, scoped to the
+/// endpoints this test drives. Request/response shapes mirror the bot
+/// client 1:1 so a drift between game and bot shows up here first.
+struct LocalApiFixture {
+    http: reqwest::Client,
+    base_url: String,
+    shared_secret: String,
+}
+
+impl LocalApiFixture {
+    fn new(base_url: String, shared_secret: &str) -> Self {
+        Self { http: reqwest::Client::new(), base_url, shared_secret: shared_secret.to_string() }
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base_url)
+    }
+
+    async fn post_reply(&self, path: &str, body: serde_json::Value) -> anyhow::Result<Option<String>> {
+        let resp = self.http.post(self.url(path)).header(API_SECRET_HEADER, &self.shared_secret).json(&body).send().await?.error_for_status()?;
+        Ok(resp.json::<ReplyBody>().await?.reply)
+    }
+
+    async fn get_reply(&self, path: &str, query: &[(&str, &str)]) -> anyhow::Result<Option<String>> {
+        let resp = self.http.get(self.url(path)).header(API_SECRET_HEADER, &self.shared_secret).query(query).send().await?.error_for_status()?;
+        Ok(resp.json::<ReplyBody>().await?.reply)
+    }
+
+    async fn post_redemption(&self, path: &str, body: serde_json::Value) -> anyhow::Result<RedemptionResponse> {
+        let resp = self.http.post(self.url(path)).header(API_SECRET_HEADER, &self.shared_secret).json(&body).send().await?.error_for_status()?;
+        Ok(resp.json().await?)
+    }
+
+    async fn join(&self, user: &str) -> anyhow::Result<Option<String>> {
+        self.post_reply("/api/commands/join", serde_json::json!({ "user": user })).await
+    }
+
+    async fn character(&self, user: &str) -> anyhow::Result<Option<String>> {
+        self.get_reply("/api/commands/character", &[("user", user)]).await
+    }
+
+    async fn party(&self) -> anyhow::Result<Option<String>> {
+        self.get_reply("/api/commands/party", &[]).await
+    }
+
+    async fn rampage(&self, user: &str, is_mod_or_broadcaster: bool) -> anyhow::Result<Option<String>> {
+        self.post_reply("/api/commands/rampage", serde_json::json!({ "user": user, "is_mod_or_broadcaster": is_mod_or_broadcaster })).await
+    }
+
+    async fn gift_dust(&self, target: &str, amount: u64) -> anyhow::Result<Option<String>> {
+        self.post_reply("/api/commands/gift_dust", serde_json::json!({ "target": target, "amount": amount })).await
+    }
+
+    async fn redeem_repair(&self, user_name: &str) -> anyhow::Result<RedemptionResponse> {
+        self.post_redemption("/api/redemptions/repair", serde_json::json!({ "user_name": user_name })).await
+    }
+
+    async fn redeem_reforge(&self, user_name: &str) -> anyhow::Result<RedemptionResponse> {
+        self.post_redemption("/api/redemptions/reforge", serde_json::json!({ "user_name": user_name })).await
+    }
+
+    async fn redeem_force_boss(&self, user_name: &str, announce: bool) -> anyhow::Result<RedemptionResponse> {
+        self.post_redemption("/api/redemptions/force_boss", serde_json::json!({ "user_name": user_name, "announce": announce })).await
+    }
+
+    async fn activity_xp(&self, username: &str) -> anyhow::Result<()> {
+        self.http
+            .post(self.url("/api/activity_xp"))
+            .header(API_SECRET_HEADER, &self.shared_secret)
+            .json(&serde_json::json!({ "username": username }))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
+    /// Opens the SSE announcements stream, returning a reader that yields
+    /// one complete `data:` message per call - same minimal wire
+    /// assumption as the bot client it mirrors (every event is a
+    /// single-line `data: <text>` frame, frames separated by a blank
+    /// line, never multi-field or multi-line).
+    async fn announcements(&self) -> anyhow::Result<AnnouncementsReader> {
+        let resp = self.http.get(self.url("/api/announcements/stream")).header(API_SECRET_HEADER, &self.shared_secret).send().await?.error_for_status()?;
+        Ok(AnnouncementsReader { resp, pending: String::new() })
+    }
+}
+
+struct AnnouncementsReader {
+    resp: reqwest::Response,
+    pending: String,
+}
+
+impl AnnouncementsReader {
+    /// Next complete announcement, or `None` once the connection ends.
+    /// A transport error ends the stream the same way the bot-side
+    /// `bytes_stream` version did (it skipped error chunks, which also
+    /// ended iteration).
+    async fn next_message(&mut self) -> Option<String> {
+        loop {
+            while let Some(frame_end) = self.pending.find("\n\n") {
+                let frame = self.pending[..frame_end].to_string();
+                self.pending.drain(..frame_end + 2);
+                if let Some(data) = frame.lines().find_map(|line| line.strip_prefix("data: ")) {
+                    return Some(data.to_string());
+                }
+            }
+            let chunk = match self.resp.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) | Err(_) => return None,
+            };
+            self.pending.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+}
+
 #[tokio::test]
 async fn api_seam_end_to_end_against_a_disposable_game_instance() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("api_seam_harness_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
-    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
 
     // Deliberately an EMPTY roster (no fixture copied in) - `AdventureManager::new`
     // defaults gracefully to an empty map when the characters file doesn't
@@ -41,7 +182,7 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     // keeps the one real fight this test triggers small and fast.
     let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
-    let bound_addr = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound_addr = game::adventure_web::start_adventure_web_server(
         0, // ephemeral
         "http://localhost".to_string(),
         "test-client-id".to_string(),
@@ -53,7 +194,7 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     .await
     .expect("disposable adventure_web server must start");
 
-    let client = AdventureApiClient::new(format!("http://127.0.0.1:{}", bound_addr.port()), TEST_SECRET);
+    let client = LocalApiFixture::new(format!("http://127.0.0.1:{}", bound_addr.port()), TEST_SECRET);
 
     // Fight-announcement batching (2026-08-19) defaults to a batch of 10 -
     // this test only ever triggers ONE fight, so without this the batch
@@ -143,7 +284,7 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     // can legitimately take ~6.7s to arrive even for this small a fight.
     let mut seen = Vec::new();
     let found_outcome = loop {
-        let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(10), announcements.next()).await else {
+        let Some(msg) = tokio::time::timeout(Duration::from_secs(10), announcements.next_message()).await.ok().flatten() else {
             break false;
         };
         let is_outcome = msg.starts_with("Last 1 fight:");
@@ -165,19 +306,20 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     // immediately drop it without ever serving on it, guaranteeing
     // "connection refused" for anything that tries to talk to that port,
     // the exact condition a real killed `game` process leaves behind.
-    // Proves `AdventureApiClient` fails CLEANLY (a real `Err`, not a
-    // panic or a hang) - the actual new risk this cutover introduced,
-    // since every command/redemption handler now has a real network call
-    // on its formerly-infallible path. `adventure_reply`'s own unit tests
-    // (src/commands.rs) cover the other half: that `Err` maps to the
-    // ratified §4c fallback text once it gets back to a command handler.
+    // Proves the client fails CLEANLY (a real `Err`, not a panic or a
+    // hang) - the actual new risk this cutover introduced, since every
+    // command/redemption handler now has a real network call on its
+    // formerly-infallible path. `adventure_reply`'s own unit tests
+    // (the bot crate's src/commands.rs) cover the other half: that `Err`
+    // maps to the ratified §4c fallback text once it gets back to a
+    // command handler.
     let dead_port = {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("failed to bind a throwaway listener");
         listener.local_addr().expect("failed to read the throwaway listener's port").port()
         // `listener` drops here, closing the socket - the port is now
         // refusing connections, not just unresponsive.
     };
-    let dead_client = AdventureApiClient::new(format!("http://127.0.0.1:{dead_port}"), TEST_SECRET);
+    let dead_client = LocalApiFixture::new(format!("http://127.0.0.1:{dead_port}"), TEST_SECRET);
     let join_result = tokio::time::timeout(Duration::from_secs(5), dead_client.join(TEST_USER))
         .await
         .expect("a connection-refused call must fail fast, not hang for the full timeout");

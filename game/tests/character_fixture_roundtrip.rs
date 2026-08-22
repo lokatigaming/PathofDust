@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use twitch_bot_rs::adventure::{AdventureManager, Character, CraftAction};
+use game::adventure::{AdventureManager, Character, CraftAction};
 
 const FIXTURE_PATH: &str = "tests/fixtures/characters_pseudonymized.json";
 
@@ -104,7 +104,7 @@ async fn celestial_shard_into_unique_shard_migration_merges_real_fixture_data_on
     // the only caller in this binary's whole process, same "one process,
     // one OnceLock, one caller" reasoning `http_golden_responses.rs` and
     // `divine_dust_ui_http.rs` both already document.
-    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
 
     let manager = AdventureManager::new(characters_path, PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 

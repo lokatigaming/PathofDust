@@ -23,7 +23,7 @@
 //! two `#[tokio::test]`s inside THIS file would share both and race.
 
 use std::path::PathBuf;
-use twitch_bot_rs::adventure::{AdventureManager, Archetype};
+use game::adventure::{AdventureManager, Archetype};
 
 /// Must match `adventure_web::ADMIN_TUNABLES_LOGIN`, which is private.
 const ADMIN_LOGIN: &str = "lokati_gaming";
@@ -31,6 +31,11 @@ const OTHER_LOGIN: &str = "someone_else";
 
 #[tokio::test]
 async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("admin_passives_http_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
 
@@ -44,11 +49,11 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
     )
     .expect("failed to seed the scratch sessions file");
 
-    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - only caller in this process");
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - only caller in this process");
 
     let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
-    let bound = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
         "test-client-id".to_string(),

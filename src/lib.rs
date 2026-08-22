@@ -1,21 +1,18 @@
-// Architecture refactor Stage 1-2 (2026-08-18) - `adventure`/
-// `passive_tree`/`state` (Stage 1), then `adventure_web`/
-// `adventure_overlay_server` including wiki.rs (Stage 2) physically live
-// in the `game` library crate now (see its own `lib.rs`). Re-exported
-// here under their ORIGINAL names so every existing
-// `crate::adventure::X`/`crate::adventure_web::X`-style reference
-// throughout this crate - main.rs, commands.rs - keeps resolving with
-// zero changes. `twitch-bot-rs` still calls `adventure_web::
-// start_adventure_web_server`/`adventure_overlay_server`'s own start fn
-// directly, in-process, exactly as before ("dual-mode transitional
-// state," per REFACTOR_PLAN.md's Stage 2 - the standalone `game` binary
-// this stage adds is a SECOND, independent way to start the same code,
-// not a replacement for this one yet).
-pub use game::adventure;
-pub use game::adventure_overlay_server;
-pub use game::adventure_web;
-pub use game::passive_tree;
-pub use game::state;
+// Bot/game build-time decoupling (2026-08-22, finishing REFACTOR_PLAN.md's
+// S3-S5): this crate no longer depends on the `game` crate at all, so a
+// change touching only game/** builds and deploys without rebuilding or
+// redeploying the bot. The runtime half shipped first - the bot holds no
+// game data and speaks HTTP to the standalone game process through
+// `adventure_client` with a shared secret, relaying fight announcements
+// over that same seam's SSE stream. The build-time half closes here:
+// the twelve seam/game integration tests now live in `game/tests` (S3),
+// the last bot->game file write became POST /api/published-constants
+// (S4, see `published_constants`), and the five `pub use game::...`
+// re-exports below were deleted along with the path dependency itself
+// (S5). The bot's own generic JSON helpers live in `state` - local
+// copies of the two-function pair game/src/state.rs carries, since each
+// side owns its own files and a shared crate would have re-coupled the
+// builds for no benefit.
 pub mod adventure_client;
 pub mod alerts;
 pub mod announcements;
@@ -34,8 +31,10 @@ pub mod paypal;
 pub mod personal_playlists;
 pub mod playrandom;
 pub mod poe_ninja;
+pub mod published_constants;
 pub mod song_overlay_server;
 pub mod song_requests;
+pub mod state;
 pub mod streamelements;
 pub mod twitch;
 pub mod vessel_pricing;
