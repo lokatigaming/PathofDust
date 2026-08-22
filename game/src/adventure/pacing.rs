@@ -151,7 +151,11 @@ pub(crate) struct PacingParams {
 
 impl PacingParams {
     pub fn from_tunables(t: &LiveTunables) -> Self {
-        let window = t.pacing_window_fights.clamp(1, 200) as usize;
+        // 0 is not "a one-fight window" - it is an unset/cleared dial, so
+        // the integer axis substitutes its shipped default exactly like
+        // `finite_or` does on every float axis.
+        let window_fights = if t.pacing_window_fights == 0 { defaults::PACING_WINDOW_FIGHTS } else { t.pacing_window_fights };
+        let window = window_fights.clamp(1, 200) as usize;
         let min_s = finite_or(t.target_duration_min_s, defaults::TARGET_DURATION_MIN_S).max(0.001);
         let max_s = finite_or(t.target_duration_max_s, defaults::TARGET_DURATION_MAX_S).max(0.001);
         let (min_s, max_s) = if min_s <= max_s { (min_s, max_s) } else { (max_s, min_s) };
@@ -224,6 +228,11 @@ pub(crate) struct EffectiveMultipliers {
     /// controller must be visible, not silent).
     pub hp_baseline: f64,
     pub dmg_baseline: f64,
+    /// The controllers' OWN (sanitized, pre-max) values. Kept because
+    /// `hp_mult`/`dmg_mult` have already absorbed the max() - without
+    /// these the pinned state is unrecoverable from the result.
+    pub hp_controller: f64,
+    pub dmg_controller: f64,
 }
 
 impl EffectiveMultipliers {
@@ -233,11 +242,30 @@ impl EffectiveMultipliers {
     /// admin page ("pinned at baseline floor") instead of being silently
     /// absorbed by the max().
     pub fn hp_pinned(&self) -> bool {
-        self.hp_mult < self.hp_baseline
+        is_pinned_to_baseline(self.hp_controller, self.hp_baseline)
     }
     pub fn dmg_pinned(&self) -> bool {
-        self.dmg_mult < self.dmg_baseline
+        is_pinned_to_baseline(self.dmg_controller, self.dmg_baseline)
     }
+}
+
+/// Both axes' baselines for one stage. The three anchor lists are ONE
+/// hand-authored table - stage, HP, ATK read across as columns - so they
+/// are validated together: if any of the three disagrees in length the
+/// TABLE is malformed, and BOTH axes read neutral (baseline == the
+/// organic curve). A half-edited table must never leave one axis floored
+/// by anchors that no longer line up with the stage column they were
+/// written against; a bad edit may only ever loosen the floor, never
+/// corrupt difficulty (owner ruling 3).
+pub(crate) fn baseline_pair_at(stage: u32, t: &LiveTunables) -> (f64, f64) {
+    let stages = &t.baseline_stage_anchors;
+    if stages.len() != t.baseline_hp_anchors.len() || stages.len() != t.baseline_atk_anchors.len() {
+        return (1.0, 1.0);
+    }
+    (
+        baseline_curve_at(stage, stages, &t.baseline_hp_anchors).unwrap_or(1.0),
+        baseline_curve_at(stage, stages, &t.baseline_atk_anchors).unwrap_or(1.0),
+    )
 }
 
 /// Composes the per-axis effective multipliers for a fight generated at
@@ -246,13 +274,16 @@ impl EffectiveMultipliers {
 /// hand-authored stage baseline. This is the ONLY place the floor binds;
 /// the controllers themselves never read it, preserving independence.
 pub(crate) fn effective_multipliers(hp_controller: f64, dmg_controller: f64, stage: u32, t: &LiveTunables) -> EffectiveMultipliers {
-    let hp_baseline = baseline_curve_at(stage, &t.baseline_stage_anchors, &t.baseline_hp_anchors).unwrap_or(1.0);
-    let dmg_baseline = baseline_curve_at(stage, &t.baseline_stage_anchors, &t.baseline_atk_anchors).unwrap_or(1.0);
+    let (hp_baseline, dmg_baseline) = baseline_pair_at(stage, t);
+    let hp_controller = sanitize_mult(hp_controller);
+    let dmg_controller = sanitize_mult(dmg_controller);
     EffectiveMultipliers {
-        hp_mult: sanitize_mult(hp_controller).max(hp_baseline),
-        dmg_mult: sanitize_mult(dmg_controller).max(dmg_baseline),
+        hp_mult: hp_controller.max(hp_baseline),
+        dmg_mult: dmg_controller.max(dmg_baseline),
         hp_baseline,
         dmg_baseline,
+        hp_controller,
+        dmg_controller,
     }
 }
 
@@ -260,7 +291,14 @@ pub(crate) fn effective_multipliers(hp_controller: f64, dmg_controller: f64, sta
 /// `ENEMY_HP_POOL_HARD_CAP` regardless of how large the organic pool or
 /// the multipliers got. Applied at generation time, before any cast.
 pub(crate) fn capped_hp_mult_for_pool(base_pool: f64, hp_mult: f64) -> f64 {
-    if !base_pool.is_finite() || base_pool <= 0.0 {
+    // A non-finite pool means the cap is uncomputable - there is no
+    // multiplier we can honestly trust against it, so generation falls
+    // back to neutral rather than scaling an already-broken number.
+    if !base_pool.is_finite() {
+        return 1.0;
+    }
+    // A zero/negative pool imposes no cap at all (nothing to overflow).
+    if base_pool <= 0.0 {
         return sanitize_mult(hp_mult);
     }
     let pool_cap_mult = ENEMY_HP_POOL_HARD_CAP / base_pool;
@@ -308,23 +346,47 @@ pub(crate) fn sanitize_override_mult(value: f64) -> f64 {
 
 /// The shared rate-limit + clamp chain, applied to BOTH controllers:
 ///
-/// 1. sanitize prev/desired (non-finite prev -> its sanitized self; a
-///    non-finite desired -> keep prev, i.e. no move),
-/// 2. rate-limit: the result may move at most +/- `step` RELATIVE to prev
-///    (band [prev/(1+step), prev*(1+step)]) - the oscillation damper,
-/// 3. absolute clamp into [floor, ceiling] (order-fixed), then hard-capped
-///    into [MULT_HARD_FLOOR, DYNAMIC_MULT_HARD_CEILING].
+/// 1. sanitize prev (non-finite -> neutral) and read the direction of
+///    travel; a NaN desired means "no signal" and holds at prev,
+///    +/-inf is an honest saturation request and travels,
+/// 2. rate-limit the move, then
+/// 3. clamp into the operating window = the configured
+///    `[floor, ceiling]` hard-capped into
+///    `[MULT_HARD_FLOOR, DYNAMIC_MULT_HARD_CEILING]`, widened to include
+///    `prev`.
 ///
-/// Band first, absolute second, so boundaries stay exactly reachable.
+/// Three asymmetries, each load-bearing:
+///
+/// * **Escalation is damped, relief is not.** Only UPWARD moves take the
+///   `[.., prev*(1+step)]` band. Easing an over-tuned fight immediately is
+///   never the dangerous direction - the death-spiral this module exists
+///   to prevent is built out of difficulty that ratchets up faster than
+///   the party can answer, so the configured floor is reachable the fight
+///   the controller asks for it, while the ceiling is walked to one step
+///   at a time.
+/// * **The structural hard caps are not walked to.** The band damps
+///   movement inside the OWNER-CONFIGURED window. When the configured
+///   ceiling sits beyond `DYNAMIC_MULT_HARD_CEILING` the owner has said
+///   "no ceiling on this side" and the structural cap is the only bound
+///   left - a safety cap is not a balance knob, so it binds at once
+///   rather than after N fights of climbing.
+/// * **The window never slams `prev`.** A stored multiplier already
+///   outside its configured window (a dashboard edit tightened the range
+///   underneath it, or an older save) is walked back by the controller's
+///   own requests, not yanked in mid-flight; only the hard caps do that.
 pub(crate) fn clamp_rate_limited(prev: f64, desired: f64, step: f64, floor_v: f64, ceil_v: f64) -> f64 {
     let prev = sanitize_mult(prev);
     let step = if step.is_finite() { step.clamp(0.0, 100.0) } else { 0.0 };
-    let desired = if desired.is_finite() { desired } else { prev };
-    let band_lo = prev / (1.0 + step);
-    let band_hi = prev * (1.0 + step);
-    let limited = desired.clamp(band_lo.min(band_hi), band_lo.max(band_hi));
-    let lo = sanitize_mult(floor_v.min(ceil_v));
-    let hi = sanitize_mult(floor_v.max(ceil_v));
+    let desired = if desired.is_nan() { prev } else { desired };
+    let cfg_lo = floor_v.min(ceil_v);
+    let cfg_hi = floor_v.max(ceil_v);
+    let lo = sanitize_mult(cfg_lo).min(prev);
+    let hi = sanitize_mult(cfg_hi).max(prev);
+    let limited = if desired > prev && cfg_hi <= DYNAMIC_MULT_HARD_CEILING {
+        desired.min(prev * (1.0 + step))
+    } else {
+        desired
+    };
     limited.clamp(lo, hi)
 }
 
@@ -349,8 +411,13 @@ pub(crate) fn update_hp_pacing_mult(prev: f64, base_pool: f64, dps_window: &[f64
     for &d in dps_window {
         sum += if d.is_finite() { d } else { 0.0 };
     }
+    // A window whose honest samples OVERFLOW f64 is not a broken reading -
+    // it is a saturation signal, and it travels as one (`clamp_rate_limited`
+    // resolves +inf against the hard caps). Only a window with no usable
+    // signal at all (all samples dropped, or a nonsensical <= 0 mean) skips
+    // the update.
     let mean_dps = sum / p.window as f64;
-    if !mean_dps.is_finite() || mean_dps <= 0.0 {
+    if !(mean_dps > 0.0) {
         return None;
     }
     if !base_pool.is_finite() || base_pool <= 0.0 {
@@ -358,9 +425,6 @@ pub(crate) fn update_hp_pacing_mult(prev: f64, base_pool: f64, dps_window: &[f64
     }
     let mid_target_s = (p.duration_min_s + p.duration_max_s) / 2.0;
     let desired_pool = mean_dps * mid_target_s;
-    if !desired_pool.is_finite() {
-        return None;
-    }
     let required = desired_pool / base_pool;
     Some(clamp_rate_limited(prev, required, p.hp_step, p.hp_floor, p.hp_ceiling))
 }
@@ -375,9 +439,13 @@ pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingPar
     if !p.enabled || outcomes.len() < p.window {
         return None;
     }
-    let recent = &outcomes[outcomes.len() - p.window..];
-    let wins = recent.iter().filter(|&&w| w).count();
-    let losses = recent.len() - wins;
+    // `outcomes` IS the rolling window - the caller trims it to
+    // `p.window` as it pushes. The length check above is the WARMUP gate
+    // (no update until a full window exists), not a second trim:
+    // re-slicing here would silently throw away outcomes the caller
+    // chose to keep and would read a 3:1 window as 2:1.
+    let wins = outcomes.iter().filter(|&&w| w).count();
+    let losses = outcomes.len() - wins;
     // Direction of THIS update. Undefeated/all-loss windows take explicit
     // branches - never inf arithmetic; a mixed window compares its exact
     // integer-derived win:loss ratio against the target.
@@ -443,10 +511,16 @@ pub(crate) fn top_layer_for_stage(stage: u32, t: &LiveTunables) -> f64 {
     if !t.top_layer_enabled {
         return 0.0;
     }
-    let cap = finite_or(t.top_layer_cap_pct, defaults::TOP_LAYER_CAP_PCT).clamp(0.0, TOP_LAYER_ABSOLUTE_CAP);
+    // The tunable cap shapes the CURVE at its configured value; the
+    // structural cap bounds the RESULT. Clamping the tunable down first
+    // instead would leave an owner who asked for "everything" permanently
+    // short of the structural cap by the curve's own asymptotic deficit -
+    // the ramp would approach 0.95 without ever being allowed to reach it,
+    // which is not what the hard cap means.
+    let cap = finite_or(t.top_layer_cap_pct, defaults::TOP_LAYER_CAP_PCT).max(0.0);
     let half = finite_or(t.top_layer_half_stage, defaults::TOP_LAYER_HALF_STAGE).max(1.0);
     let s = stage as f64;
-    (cap * s / (s + half)).clamp(0.0, cap)
+    (cap * s / (s + half)).clamp(0.0, TOP_LAYER_ABSOLUTE_CAP)
 }
 
 /// Admin-page saturation signal for ONE axis: the controller is PINNED
