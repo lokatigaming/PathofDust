@@ -178,6 +178,7 @@ target-holyfire/
 target-splash-overcap/
 target-duplicate-unique-effects/
 target-echo/
+target-restore-live-buff-events/
 
 # --- Orchestrator coordination files (not project artifacts) ---
 ORDERS/

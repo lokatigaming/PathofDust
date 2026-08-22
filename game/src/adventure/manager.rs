@@ -5075,7 +5075,7 @@ impl AdventureManager {
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
         // out over the wire to the overlay gets thinned.
-        result.events = thin_events_for_overlay(result.events, &result.units);
+        result.events = thin_events_for_overlay(result.events, &result.units, &tunables);
         // Stage 4 cutover fix (2026-08-19) - this announcement used to
         // fire from a BOT-side subscriber that deliberately delayed by
         // `700 + display_duration_ms` (see this fn's own downed-timer
@@ -5383,7 +5383,7 @@ impl AdventureManager {
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
         // out over the wire to the overlay gets thinned.
-        result.events = thin_events_for_overlay(result.events, &result.units);
+        result.events = thin_events_for_overlay(result.events, &result.units, &tunables);
         // Stage 4 cutover fix (2026-08-19) - this announcement used to
         // fire from a BOT-side subscriber that deliberately delayed by
         // `700 + display_duration_ms` (see this fn's own downed-timer
