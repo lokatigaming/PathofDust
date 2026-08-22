@@ -106,6 +106,9 @@ patreon-tokens.json
 # Pre-thunder-reform-deploy rollback backup (Thunder Golem reform-cleanse
 # fix, ledger #35/#36), same discipline.
 /backup-pre-thunder-reform
+# Pre-restore-live-buff-events-deploy rollback backup (Shield/BuffSnapshot
+# restored to the live overlay broadcast), same discipline.
+/backup-pre-restore-live-buff-events
 
 # --- Live runtime state / save data (not source, not meant to ship) ---
 adventure-characters.json
