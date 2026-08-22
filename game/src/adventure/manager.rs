@@ -1717,7 +1717,11 @@ impl AdventureManager {
         let characters_path = data_path(characters_path.to_string_lossy().as_ref());
         let world_path = data_path(world_path.to_string_lossy().as_ref());
         let reforge_cooldown_path = data_path(reforge_cooldown_path.to_string_lossy().as_ref());
-        let mut characters: HashMap<String, Character> = crate::state::load_json(&characters_path).unwrap_or_default();
+        let mut characters: HashMap<String, Character> = crate::state::load_json_fail_loud(&characters_path).unwrap_or_default();
+        // Startup visibility (2026-08-22 fail-loud loading): one line saying
+        // how many characters actually came off disk, and from where - the
+        // first thing to check when a roster looks wrong after a restart.
+        tracing::info!("loaded {} characters from {}", characters.len(), characters_path.display());
 
         // One-time backfill for anyone who joined before Character::new()
         // started handing out a full starter kit - fills only EMPTY
@@ -2016,15 +2020,15 @@ impl AdventureManager {
         // blocks above.
         run_storage_migration();
 
-        let world: WorldState = crate::state::load_json(&world_path).unwrap_or_default();
-        let reforge_cooldown: HashMap<String, u64> = crate::state::load_json(&reforge_cooldown_path).unwrap_or_default();
+        let world: WorldState = crate::state::load_json_fail_loud(&world_path).unwrap_or_default();
+        let reforge_cooldown: HashMap<String, u64> = crate::state::load_json_fail_loud(&reforge_cooldown_path).unwrap_or_default();
         let (encounter_tx, _rx) = broadcast::channel(16);
         let (state_tx, _rx) = broadcast::channel(16);
         let (gear_crit_tx, _rx) = broadcast::channel(16);
         let (rampage_complete_tx, _rx) = broadcast::channel(16);
         let (unique_shard_tx, _rx) = broadcast::channel(16);
         let (announcements_tx, _rx) = broadcast::channel(16);
-        let rampage_remaining: u32 = crate::state::load_json(data_path(RAMPAGE_STATE_PATH)).unwrap_or(0);
+        let rampage_remaining: u32 = crate::state::load_json_fail_loud(data_path(RAMPAGE_STATE_PATH)).unwrap_or(0);
         Arc::new(Self {
             characters: Mutex::new(characters),
             characters_path,
@@ -7834,6 +7838,78 @@ mod unique_shard_tests {
         assert_eq!(pending.candidates.len(), ALL_UNIQUE_AFFIXES.len(), "every candidate offered, unfiltered - the conflict only matters once equipped");
 
         std::fs::remove_dir_all(&scratch).ok();
+    }
+}
+
+/// Fail-loud data loading (2026-08-22) - manager-level wiring for
+/// `state::load_json_fail_loud`, whose own three-way contract, BOM
+/// handling, and panic-message coverage live in state.rs's tests. The
+/// incident this guards: a BOM'd adventure-characters.json parsed as
+/// `None`, booted as an empty roster, and autosave wiped every character
+/// to disk within ~9 seconds - only a backup saved it. Now: absent files
+/// still default cleanly at all four load sites (fresh installs stay
+/// legal), but a file that exists and fails to parse refuses to start.
+///
+/// Same scratch-dir discipline as memory_manager_tests above: ABSOLUTE
+/// per-test paths, never `set_data_dir` (process-global `OnceLock`, see
+/// paths.rs's doc for why racing to set it is inherently flaky).
+#[cfg(test)]
+mod fail_loud_loading_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn scratch_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("fail_loud_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        scratch
+    }
+
+    /// The ABSENT half of the contract, exercised at every one of the four
+    /// load sites in `AdventureManager::new`: no files at all must boot as
+    /// a clean fresh install (empty roster, default world, empty cooldown
+    /// map, rampage counter zero) - never a panic.
+    #[tokio::test]
+    async fn absent_files_default_cleanly_at_all_four_load_sites() {
+        let scratch = scratch_dir("absent_defaults");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+
+        assert_eq!(manager.characters.lock().await.len(), 0, "no characters file = fresh install, empty roster");
+        assert_eq!(manager.world.lock().await.stage, 0, "no world file = WorldState::default");
+        assert!(manager.reforge_cooldown.lock().await.is_empty(), "no reforge-cooldown file = empty map");
+        assert_eq!(*manager.rampage_remaining.lock().await, 0, "no rampage-state file = zero");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// A BOM'd characters file (what an editor save can produce) must still
+    /// LOAD - the helper strips the BOM with a warning rather than letting
+    /// `serde_json`'s U+FEFF rejection turn a valid roster into `None`.
+    #[tokio::test]
+    async fn bom_prefixed_characters_file_still_loads() {
+        let scratch = scratch_dir("bom_characters");
+        let mut roster: std::collections::HashMap<String, Character> = std::collections::HashMap::new();
+        roster.insert("bom_user".to_string(), Character::new("Bom User".to_string()));
+        let json = serde_json::to_string(&roster).expect("roster must serialize");
+        std::fs::write(scratch.join("adventure-characters.json"), format!("\u{feff}{json}")).expect("scratch fixture must be writable");
+
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+
+        assert_eq!(manager.characters.lock().await.len(), 1, "the BOM'd roster must have loaded, not defaulted to empty");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// The PRESENT-BUT-CORRUPT half: a truncated characters file must
+    /// refuse to start with the file's path in the panic message - NOT boot
+    /// as an empty roster one autosave away from wiping the real data.
+    #[test]
+    #[should_panic(expected = "adventure-characters.json")]
+    fn corrupt_characters_file_refuses_to_start_naming_the_path() {
+        let scratch = scratch_dir("corrupt_characters");
+        std::fs::write(scratch.join("adventure-characters.json"), r#"{"player1": {"trunc""#).expect("scratch fixture must be writable");
+        AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
     }
 }
 
