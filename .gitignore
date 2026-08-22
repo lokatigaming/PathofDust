@@ -191,3 +191,8 @@ REPORTS/
 # --- Local agent-tooling copies (never committed) ---
 # .clinerules is a local copy of CLAUDE.md for the Cline agent.
 .clinerules
+
+# Pre-fail-loud-deploy rollback backup (refuse-to-start guard for corrupt
+# save files; both binaries + pinned adventure-fights-summary snapshot),
+# same "backup before overwrite" discipline as every backup-pre-* above.
+/backup-pre-fail-loud
