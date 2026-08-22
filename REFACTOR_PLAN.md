@@ -1136,18 +1136,22 @@ separately, not to an automatic cleanup.
    **Conditional bot redeploy (2026-08-21 addition):** the bot binary
    (`twitch-bot-rs.exe`) only moves when this release actually changes
    it. Determination is objective, not judgment-based:
-   - The bot's dependency set — derived once via `cargo metadata`
-     against this workspace and re-derive only if the workspace
-     structure changes — is: the root package `twitch-bot-rs` itself
-     (`src/**`, root `Cargo.toml`, `Cargo.lock`) plus its one
-     workspace-internal path dependency, the `game` crate (`game/**`,
-     `game/Cargo.toml`). `game` has no workspace-internal dependencies
-     of its own, so that's the complete transitive set — there is no
-     third crate to track.
+    - The bot's dependency set — derived once via `cargo metadata`
+      against this workspace and re-derive only if the workspace
+      structure changes — is: the root package `twitch-bot-rs` alone
+      (`src/**`, root `Cargo.toml`, `Cargo.lock`). **Amendment
+      (2026-08-22, bot/game build-time decoupling):** the bot's former
+      workspace-internal path dependency on the `game` crate is severed —
+      the twelve seam/game integration tests moved into `game/tests`, the
+      published-constants write moved onto the `/api/*` seam, and
+      `game = { path = "game" }` left the root manifest with them — so
+      `game/**` no longer contains anything the bot binary is built from.
+      `game` has no workspace-internal dependencies of its own, so that's
+      the complete transitive set — there is no third crate to track.
    - Run `git diff --name-only <old-deployed-commit>..<new-commit>`. If
-     any changed path falls under `src/**`, root `Cargo.toml`/
-     `Cargo.lock`, `game/**`, or `game/Cargo.toml`, the bot deploys this
-     release. If none do, it doesn't.
+      any changed path falls under `src/**` or root `Cargo.toml`/
+      `Cargo.lock`, the bot deploys this release. Changes under `game/**`
+      deploy the game alone. If none do, it doesn't.
    - If the diff says skip but the freshly built `twitch-bot-rs.exe`'s
      SHA-256 differs from the live one anyway, note the mismatch in the
      deploy report and still skip — Rust release builds aren't

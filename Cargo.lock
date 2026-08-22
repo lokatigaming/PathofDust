@@ -2531,7 +2531,6 @@ dependencies = [
  "dotenvy",
  "flate2",
  "futures-util",
- "game",
  "minijinja",
  "minijinja-autoreload",
  "open",
