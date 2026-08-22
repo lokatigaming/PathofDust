@@ -1,4 +1,4 @@
-use super::*;
+﻿use super::*;
 
 /// One archetype-granted combat skill - the extensible framework a live
 /// request to "add lots of skills with different effects" asked for.
@@ -749,7 +749,9 @@ pub(crate) fn trigger_doom_on_death(units: &mut [CombatSimUnit], victim_idx: usi
                 }
                 let hit_id = next_hit_id();
                 let penalized = apply_late_stage_penalty(units, other_idx, splash_damage, at_ms, hit_id, &source_id, rolls);
-                let other_final = penalized.round().max(0.0) as i64;
+                // Top layer (ADDITION 4): Doom's on-death Apocalypse splash
+                // is not exempt from the stage-tied absolute reduction.
+                let other_final = apply_top_layer_to(&units[other_idx], penalized).round().max(0.0) as i64;
                 if other_final <= 0 {
                     continue;
                 }
@@ -920,6 +922,30 @@ pub(crate) struct CombatSimUnit {
     /// remaining `1.0 - boss_pierce_pct` fraction is what actually gets
     /// fed through the normal evasion/block/DR mitigation pipeline.
     boss_pierce_pct: f64,
+    /// ADDITION 4 (2026-08-22 dynamic-pacing release) - the stage-tied
+    /// TOP-LAYER mitigation fraction for this unit. A final, ABSOLUTE
+    /// damage-reduction layer applied at the very END of every
+    /// enemy-targeted damage resolution (see `apply_top_layer_to`'s doc,
+    /// and its call at every landing site), AFTER every other mitigation:
+    /// it CANNOT be reduced, penetrated, ignored, bypassed, or otherwise
+    /// interacted with by ANY player mechanic - no armor penetration, no
+    /// "ignores DR", no true-damage path exemption, no environmental-tag
+    /// exemption. Structurally SEPARATE from `damage_reduction`:
+    /// deliberately NOT routed through `combine_reduction_sources` and
+    /// NOT bounded by `defensive_stat_hard_cap`. Scales with STAGE only
+    /// (`pacing::top_layer_for_stage`, stamped at enemy construction in
+    /// `simulate_battle` and at the Lich's add spawns) - never with
+    /// Controller A's HP multiplier, so gear upgrades still visibly
+    /// shorten fights while tougher stages stay predictably tankier. Its
+    /// ceiling is strictly below 1.0 by construction
+    /// (`pacing::TOP_LAYER_ABSOLUTE_CAP`). Players/golems always carry
+    /// 0.0, as does every hand-built test unit that doesn't set this
+    /// field (Default) - which is why the unit-level tests below are
+    /// unaffected unless they opt in. Execute-style kills (Ashes to
+    /// Ashes' sweep, Culling Strike) don't interact with ANY mitigation
+    /// by design and so bypass this trivially - they are threshold
+    /// deaths, not damage instances.
+    top_layer_mitigation: f64,
     /// A REAL boss fight (not a basic-encounter filler mob) always
     /// targets whichever alive player currently has the highest
     /// `survivability` instead of picking randomly - see
@@ -943,9 +969,11 @@ pub(crate) struct CombatSimUnit {
     /// instead (applied once at fight setup - see `simulate_battle`),
     /// and for anything without a `boss_ability` at all.
     next_ability_at_ms: u32,
-    /// Cthulhu's dynamic boss power for THIS fight (the same
-    /// `WorldState::boss_power_mult` already baked into his HP/ATK via
-    /// `scale_by_power_mult`) - kept as its own raw scalar here too so his
+    /// Cthulhu's dynamic boss power for THIS fight (Controller B's DAMAGE
+    /// multiplier - the same `WorldState::boss_power_mult` value baked
+    /// into his ATK via `apply_dynamic_scaling`; deliberately NOT
+    /// Controller A's HP multiplier, which owns the HP axis alone since
+    /// the 2026-08-22 pacing split) - kept as its own raw scalar here too so his
     /// ability (see `cthulhu_debuff_stacks`) can scale ITS OWN magnitude
     /// by it, which `BossStats`/`scale_by_power_mult` alone doesn't expose
     /// downstream. `1.0` (neutral) for every non-boss unit and any boss
@@ -3117,6 +3145,7 @@ impl Default for CombatSimUnit {
             splash: 0.0,
             late_stage_damage_penalty_pct: 0.0,
             boss_pierce_pct: 0.0,
+            top_layer_mitigation: 0.0,
             boss_focus_stacks: 0.0,
             boss_ability: None,
             next_ability_at_ms: 0,
@@ -5005,7 +5034,10 @@ pub(crate) fn apply_reflect_damage(units: &mut [CombatSimUnit], source_idx: usiz
     let source_id = units[source_idx].id.clone();
     let hit_id = next_hit_id();
     let penalized = apply_late_stage_penalty(units, target_idx, amount, at_ms, hit_id, &source_id, rolls);
-    let final_damage = penalized.round().max(0.0) as i64;
+    // Top layer (ADDITION 4): reflected damage landing on a reflect-
+    // carrying ENEMY is not exempt from the stage-tied absolute
+    // reduction.
+    let final_damage = apply_top_layer_to(&units[target_idx], penalized).round().max(0.0) as i64;
     let new_hp = (units[target_idx].hp - final_damage).max(0);
     units[target_idx].hp = new_hp;
     // Thunder Golem absorbed-damage redistribution (2026-08-19, Release 1
@@ -5091,7 +5123,9 @@ pub(crate) fn apply_volatile_magic_splash(
         let attacker_id = units[attacker_idx].id.clone();
         let hit_id = next_hit_id();
         let penalized = apply_late_stage_penalty(units, target_idx, amount_per_target, at_ms, hit_id, &attacker_id, rolls);
-        let final_damage = penalized.round().max(0.0) as i64;
+        // Top layer (ADDITION 4): Volatile Magic's true-damage splash is
+        // NOT exempt from the stage-tied absolute reduction.
+        let final_damage = apply_top_layer_to(&units[target_idx], penalized).round().max(0.0) as i64;
         if final_damage <= 0 {
             continue;
         }
@@ -5423,6 +5457,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             splash: 0.0,
             late_stage_damage_penalty_pct: 0.0,
             boss_pierce_pct: 0.0,
+            top_layer_mitigation: 0.0,
             boss_focus_stacks: 0.0,
             boss_ability: None,
             next_ability_at_ms: u32::MAX,
@@ -6520,6 +6555,28 @@ pub(crate) fn healing_flames_regen_pct(rank: u32) -> f64 {
 /// (`source_idx != target_idx`) - Righteous Fire killing its OWN caster
 /// via self-burn must never trigger that caster's own on-kill rewards.
 /// Returns whether the target died from this hit.
+/// ADDITION 4 - the top-layer mitigation multiplier for ONE unit's
+/// incoming damage. Returns `damage * (1 - top_layer_mitigation)`,
+/// i.e. ALWAYS a multiplicative reduction applied LAST - after crit/
+/// increased-damage/late-stage penalty (attacker side), after
+/// evasion/block/DR/pierce-split (the normal pipeline), and after the
+/// flat/true paths' own combined-DR step - so NOTHING can interact with
+/// it: not armor penetration, not "ignores DR" effects, not true damage,
+/// not an Environmental source tag. It is deliberately NOT folded into
+/// `combine_reduction_sources` and NOT clamped by
+/// `defensive_stat_hard_cap` - it is its own structural layer, bounded
+/// only by `pacing::TOP_LAYER_ABSOLUTE_CAP` (0.95) at stamping time.
+/// A target with `top_layer_mitigation <= 0` (every player, golem, and
+/// hand-built test unit) is an exact passthrough.
+#[inline]
+fn apply_top_layer_to(target: &CombatSimUnit, damage: f64) -> f64 {
+    if target.top_layer_mitigation <= 0.0 || !target.top_layer_mitigation.is_finite() {
+        return damage;
+    }
+    let fraction = 1.0 - target.top_layer_mitigation.clamp(0.0, pacing::TOP_LAYER_ABSOLUTE_CAP);
+    (damage * fraction).max(0.0)
+}
+
 fn apply_true_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) -> bool {
     // Monk's Chakra of Life full immunity, or a protected (non-Thunder)
     // golem - the latter matters here specifically because Terrifying's
@@ -6531,7 +6588,9 @@ fn apply_true_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx:
     if amount <= 0.0 || !units[target_idx].alive || is_damage_immune(&units[target_idx], at_ms) {
         return false;
     }
-    let final_damage = amount.round().max(0.0) as i64;
+    // Top layer (ADDITION 4): even TRUE damage eats the stage-tied
+    // absolute reduction - "no true-damage path exemption", owner ruling.
+    let final_damage = apply_top_layer_to(&units[target_idx], amount).round().max(0.0) as i64;
     if final_damage <= 0 {
         return false;
     }
@@ -7254,7 +7313,9 @@ pub(crate) fn apply_flat_source_damage(
     }
     let combined_dr = combine_reduction_sources(&dr_sources).min(units[target_idx].defensive_stat_hard_cap);
     let mitigated = raw_amount * (1.0 - combined_dr);
-    let final_damage = mitigated.round().max(0.0) as i64;
+    // Top layer (ADDITION 4): applied AFTER the combined-DR step - the
+    // very last transformation before rounding/landing.
+    let final_damage = apply_top_layer_to(&units[target_idx], mitigated).round().max(0.0) as i64;
     if final_damage <= 0 {
         return false;
     }
@@ -8909,7 +8970,13 @@ pub(crate) fn apply_hit(
     // passed. The event log reports whatever actually came off hp (post-
     // shield), not the shield-absorbed portion, so `damage`/
     // `target_hp_after` always stay internally consistent.
-    let mut final_damage = outcome.damage as i64;
+    //
+    // Top layer (ADDITION 4): the stage-tied absolute reduction applies
+    // to the FULLY-ROLLED hit - after crit/increased-damage/pierce-split/
+    // every mitigation `resolve_hit` folded in, BEFORE shields get their
+    // chance (a shield absorbs what actually gets through). Nothing on
+    // the attacker side can reduce, penetrate, or bypass it.
+    let mut final_damage = apply_top_layer_to(&units[target_idx], outcome.damage as f64).round().max(0.0) as i64;
     if final_damage > 0 && units[target_idx].shield_hp > 0.0 && at_ms <= units[target_idx].shield_expires_at_ms {
         let pre_absorb_damage = final_damage;
         let absorbed = units[target_idx].shield_hp.min(final_damage as f64);
@@ -9480,7 +9547,9 @@ pub(crate) fn apply_hit(
                 let ex_attacker_id = units[attacker_idx].id.clone();
                 let hit_id = next_hit_id();
                 let penalized_base = apply_late_stage_penalty(units, explosion_target, explosion_base, at_ms, hit_id, &ex_attacker_id, rolls);
-                let mut final_damage = penalized_base.round().max(0.0) as i64;
+                // Top layer (ADDITION 4): Hemorrhage's wound explosion is
+                // not exempt from the stage-tied absolute reduction.
+                let mut final_damage = apply_top_layer_to(&units[explosion_target], penalized_base).round().max(0.0) as i64;
                 if final_damage > 0 && units[explosion_target].shield_hp > 0.0 && at_ms <= units[explosion_target].shield_expires_at_ms {
                     let absorbed = units[explosion_target].shield_hp.min(final_damage as f64);
                     units[explosion_target].shield_hp -= absorbed;
@@ -11038,6 +11107,7 @@ pub(crate) fn simulate_battle(
                     + (c.combat_attack_speed_pct() - speed_overflow_threshold_for(c)).max(0.0) * c.passive_node_magnitude("entropicforce"),
                 late_stage_damage_penalty_pct: 0.0,
                 boss_pierce_pct: 0.0,
+                top_layer_mitigation: 0.0,
                 boss_focus_stacks: 0.0,
                 boss_ability: None,
                 next_ability_at_ms: u32::MAX,
@@ -12130,6 +12200,12 @@ pub(crate) fn simulate_battle(
     // no ability/focus-targeting behavior for plain mobs. Each real
     // boss keeps its OWN ability/focus-targeting independently, whether
     // there's 1 of them or 2.
+    // ADDITION 4 - one stage-tied top-layer mitigation value shared by
+    // every enemy constructed below (real bosses AND plain filler mobs -
+    // "tougher enemies at higher stages"). Computed once from the live
+    // tunables; Controller A's HP multiplier deliberately plays no part
+    // in it.
+    let enemy_top_layer = pacing::top_layer_for_stage(stage, &tunables);
     let enemy_count = enemies.len();
     for (i, (enemy, kind, boss_dynamic_power_mult)) in enemies.into_iter().enumerate() {
         let this_unit_kind = kind;
@@ -12190,6 +12266,7 @@ pub(crate) fn simulate_battle(
             boss_ability: this_unit_kind,
             next_ability_at_ms,
             boss_dynamic_power_mult,
+            top_layer_mitigation: enemy_top_layer,
             cthulhu_debuff_stacks: 0,
             cthulhu_debuff_expires_at_ms: 0,
             cthulhu_debuff_pct_per_stack: 0.0,
@@ -13145,7 +13222,10 @@ pub(crate) fn simulate_battle(
                         let source_id = units[target_idx].curse_source_id.clone().unwrap_or_default();
                         let hit_id = next_hit_id();
                         let penalized = apply_late_stage_penalty(&units, target_idx, detonation, at_ms, hit_id, &source_id, &mut rolls);
-                        let final_damage = penalized.round().max(0.0) as i64;
+                        // Top layer (ADDITION 4): Doom's scheduled
+                        // detonation is not exempt from the stage-tied
+                        // absolute reduction.
+                        let final_damage = apply_top_layer_to(&units[target_idx], penalized).round().max(0.0) as i64;
                         if final_damage > 0 {
                             let new_hp = (units[target_idx].hp - final_damage).max(0);
                             units[target_idx].hp = new_hp;
@@ -13303,6 +13383,10 @@ pub(crate) fn simulate_battle(
                         let boss_id = units[actor_idx].id.clone();
                         let boss_max_hp = units[actor_idx].max_hp;
                         let boss_atk = units[actor_idx].atk;
+                        // Adds inherit their summoner's stage-tied top
+                        // layer - they're enemies at this stage same as
+                        // the Lich himself (ADDITION 4).
+                        let add_top_layer = units[actor_idx].top_layer_mitigation;
                         for j in 0..to_summon {
                             units.push(CombatSimUnit {
                                 id: add_unit_id(&boss_id, (lich_summon_count + j) as usize),
@@ -13318,6 +13402,7 @@ pub(crate) fn simulate_battle(
                                 heal_power: 0.0,
                                 intervene: 0.0,
                                 attack_interval_ms: 1_500,
+                                top_layer_mitigation: add_top_layer,
                                 next_action_at_ms: at_ms + 200 * j,
                                 alive: true,
                                 helm_power: 0.0,
@@ -20089,3 +20174,139 @@ mod echo_tests {
         assert!(matches!(attack_event, CombatEvent::Attack { source_kind: AttackSourceKind::Echo, .. }), "the repeat's own Attack event must be tagged Echo, not Direct");
     }
 }
+
+/// ADDITION 4 (2026-08-22 dynamic-pacing release) - the stage-tied
+/// top-layer mitigation's own test module. Every enemy-targeted DAMAGE
+/// delivery path must route through `apply_top_layer_to` as its LAST
+/// transformation; execute-style threshold deaths (Ashes sweep, Culling
+/// Strike) deliberately don't (they're not damage instances). These tests
+/// opt in by setting `top_layer_mitigation` by hand - every pre-existing
+/// test unit leaves the field at its Default of 0.0 (exact passthrough),
+/// which is why none of them needed touching for this feature.
+#[cfg(test)]
+mod top_layer_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn boss_with_top_layer(id: &str, hp: i64, top_layer: f64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp: hp as u64, is_boss: true, top_layer_mitigation: top_layer, ..Default::default() }
+    }
+
+    fn neutral_attacker(id: &str, atk: u64) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, atk, ..Default::default() }
+    }
+
+    /// The core invariant: a landed hit against a 40%-top-layer boss does
+    /// exactly 60% of the damage the identical hit does against a
+    /// zero-layer boss (same seed -> identical rolls), even with FULL
+    /// pierce active on the attacker - penetration cannot bypass the
+    /// layer because it applies AFTER the pierce split.
+    #[test]
+    fn normal_hits_take_the_top_layer_after_everything_including_full_pierce() {
+        for pierce in [0.0_f64, 1.0] {
+            let mut attacker = neutral_attacker("attacker", 100);
+            attacker.boss_pierce_pct = pierce;
+            let mut units_a = vec![attacker.clone(), boss_with_top_layer("plain", 1_000_000, 0.0)];
+            let mut units_b = vec![attacker, boss_with_top_layer("layered", 1_000_000, 0.4)];
+            let mut ev_a = Vec::new();
+            let mut ev_b = Vec::new();
+            let mut ro_a = Vec::new();
+            let mut ro_b = Vec::new();
+            let mut rng_a = StdRng::seed_from_u64(7);
+            let mut rng_b = StdRng::seed_from_u64(7);
+            apply_hit(&mut units_a, 0, 1, 10_000.0, 1, &mut ev_a, &mut ro_a, &mut rng_a, false, false);
+            apply_hit(&mut units_b, 0, 1, 10_000.0, 1, &mut ev_b, &mut ro_b, &mut rng_b, false, false);
+            let loss_plain = 1_000_000 - units_a[1].hp;
+            let loss_layered = 1_000_000 - units_b[1].hp;
+            assert!(loss_plain > 0);
+            let expected = loss_plain as f64 * 0.6;
+            assert!((loss_layered as f64 - expected).abs() <= 1.0, "pierce={pierce}: plain {loss_plain} vs layered {loss_layered} (expected ~{expected})");
+        }
+    }
+
+    /// True damage is NOT exempt ("no true-damage path exemption"),
+    /// and neither are the flat/derived paths (Shattering's
+    /// `apply_flat_source_damage`), reflect, or Volatile Magic's splash.
+    #[test]
+    fn true_damage_takes_the_top_layer() {
+        let mut units = vec![neutral_attacker("src", 0), boss_with_top_layer("t", 10_000, 0.4)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_true_damage(&mut units, 0, 1, 1_000.0, 1, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[1].hp, 9_400, "1000 * (1 - 0.4)");
+    }
+
+    #[test]
+    fn flat_source_damage_takes_the_top_layer() {
+        let mut units = vec![neutral_attacker("golem", 0), boss_with_top_layer("t", 10_000, 0.4)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        let died = apply_flat_source_damage(&mut units, 0, 1, 1_000.0, AttackSourceKind::Environmental, 1, &mut events, &mut rolls, &mut rng);
+        assert!(!died);
+        assert_eq!(units[1].hp, 9_400);
+    }
+
+    #[test]
+    fn reflect_damage_takes_the_top_layer() {
+        let mut units = vec![neutral_attacker("boss", 0), boss_with_top_layer("reflector", 10_000, 0.4)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_reflect_damage(&mut units, 0, 1, 1_000.0, 1, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[1].hp, 9_400);
+    }
+
+    #[test]
+    fn volatile_splash_takes_the_top_layer() {
+        let mut units = vec![neutral_attacker("mage", 0), boss_with_top_layer("primary", 10_000, 0.0), boss_with_top_layer("splash_target", 10_000, 0.4)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(3);
+        apply_volatile_magic_splash(&mut units, 0, 1, 1_000.0, 5, 1, &mut events, &mut rolls, &mut rng);
+        assert_eq!(units[2].hp, 9_400, "the splash target ate 1000 * 0.6");
+    }
+
+    /// A zero-layer unit (every player/golem, every legacy path) is an
+    /// exact passthrough, and a NON-FINITE layer value degrades to
+    /// passthrough too rather than NaN-ing the damage chain.
+    #[test]
+    fn zero_or_nonfinite_layers_are_exact_passthroughs() {
+        let p = CombatSimUnit { top_layer_mitigation: 0.0, ..Default::default() };
+        assert_eq!(apply_top_layer_to(&p, 12345.0), 12345.0);
+        let nan = CombatSimUnit { top_layer_mitigation: f64::NAN, ..Default::default() };
+        assert_eq!(apply_top_layer_to(&nan, 12345.0), 12345.0);
+        // A hand-poisoned >1 value still cannot reach or pass 1.0.
+        let over = CombatSimUnit { is_boss: true, top_layer_mitigation: 7.0, ..Default::default() };
+        let out = apply_top_layer_to(&over, 10_000.0);
+        assert_eq!(out, 500.0, "clamped to TOP_LAYER_ABSOLUTE_CAP");
+        assert!(out > 0.0, "an enemy can never become unkillable through this layer");
+    }
+
+    /// Source-level audit, same pattern as the Shattering-wrapper guard
+    /// test: every enemy-targeted DAMAGE landing site must run its final
+    /// number through `apply_top_layer_to`. Execute-style deaths (Ashes'
+    /// sweep, Culling Strike) are deliberate non-members - they set hp to
+    /// 0 as threshold kills and interact with NO mitigation at all.
+    #[test]
+    fn every_damage_landing_site_routes_through_the_top_layer() {
+        let src = include_str!("combat.rs");
+        // apply_hit primary landing (after the full roll, before shields)
+        assert!(src.contains("let mut final_damage = apply_top_layer_to(&units[target_idx], outcome.damage as f64)"));
+        // true damage / flat source / reflect / volatile splash
+        assert!(src.contains("apply_top_layer_to(&units[target_idx], amount)"));
+        assert!(src.contains("apply_top_layer_to(&units[target_idx], mitigated)"));
+        assert!(src.contains("apply_top_layer_to(&units[target_idx], penalized).round().max(0.0) as i64;\n    let new_hp"));
+        assert!(src.contains("apply_top_layer_to(&units[target_idx], penalized).round().max(0.0) as i64;\n        if final_damage <= 0"));
+        // Hemorrhage explosion + both Doom detonation sites
+        assert!(src.contains("apply_top_layer_to(&units[explosion_target], penalized_base)"));
+        assert!(src.contains("apply_top_layer_to(&units[other_idx], penalized)"));
+        assert!(src.contains("// absolute reduction.\n                        let final_damage = apply_top_layer_to(&units[target_idx], penalized)"));
+        // Both stamping sites
+        assert!(src.contains("top_layer_mitigation: enemy_top_layer,"));
+        assert!(src.contains("top_layer_mitigation: add_top_layer,"));
+    }
+}
+
+

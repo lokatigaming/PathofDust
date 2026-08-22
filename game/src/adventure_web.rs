@@ -1,4 +1,4 @@
-// Viewer-facing web dashboard for the chat adventure game (see
+﻿// Viewer-facing web dashboard for the chat adventure game (see
 // adventure.rs) — unlike public_adventure_overlay (OBS-only, no auth,
 // pushed state), this is a real multi-user site: each viewer logs in with
 // their OWN Twitch account (OAuth authorization code flow, no scopes
@@ -37,7 +37,7 @@ use tokio::sync::Mutex;
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
     AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
-    LiveTunables, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
+    LiveTunables, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
@@ -2547,8 +2547,8 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
     let body = match session {
         Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
-            let current_boss_power_mult = state.adventure.current_boss_power_mult().await;
-            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_boss_power_mult, params.saved.is_some())
+            let current_pacing = state.adventure.current_pacing_status().await;
+            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some())
         }
         _ => "<div class=\"card\"><h1>Not Found</h1></div>".to_string(),
     };
@@ -2634,6 +2634,56 @@ struct TunablesForm {
     verdantburst_echo_threshold_pct: f64,
     /// See `LiveTunables::buffsnapshot_dedupe_window_ms`'s doc.
     buffsnapshot_dedupe_window_ms: u32,
+    // ---- Dynamic pacing (2026-08-22) - every field #[serde(default)] so
+    // the pre-existing fixed field set other tests post keeps saving fine.
+    /// See `LiveTunables::dynamic_pacing_enabled`'s doc - checkbox,
+    /// absent-when-unchecked convention.
+    #[serde(default)]
+    dynamic_pacing_enabled: Option<String>,
+    /// See `LiveTunables::pacing_window_fights`'s doc.
+    #[serde(default)]
+    pacing_window_fights: u32,
+    #[serde(default)]
+    target_duration_min_s: f64,
+    #[serde(default)]
+    target_duration_max_s: f64,
+    #[serde(default)]
+    hp_max_step_per_fight: f64,
+    #[serde(default)]
+    hp_multiplier_floor: f64,
+    #[serde(default)]
+    hp_multiplier_ceiling: f64,
+    #[serde(default)]
+    target_win_loss_ratio: f64,
+    #[serde(default)]
+    dmg_max_step_per_fight: f64,
+    #[serde(default)]
+    dmg_multiplier_floor: f64,
+    #[serde(default)]
+    dmg_multiplier_ceiling: f64,
+    /// Hand-authored baseline anchors, one CSV text input per axis
+    /// (e.g. "0, 500, 1000" / "1.0, 0.92, 0.82"). Parsed by hand in
+    /// `do_save_tunables`; a parse failure saves an EMPTY list, which the
+    /// runtime validator reads as neutral (baseline 1.0) rather than
+    /// corrupting anything.
+    #[serde(default)]
+    baseline_stage_anchors: String,
+    #[serde(default)]
+    baseline_hp_anchors: String,
+    #[serde(default)]
+    baseline_atk_anchors: String,
+    /// See `LiveTunables::top_layer_enabled`'s doc - checkbox convention.
+    #[serde(default)]
+    top_layer_enabled: Option<String>,
+    #[serde(default)]
+    top_layer_cap_pct: f64,
+    #[serde(default)]
+    top_layer_half_stage: f64,
+    /// Manual override for Controller A's HP multiplier (see
+    /// `AdventureManager::set_hp_pacing_mult`) - same blank-means-leave-
+    /// it-alone String shape as the damage override below.
+    #[serde(default)]
+    hp_pacing_mult_override: String,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2655,9 +2705,25 @@ struct TunablesForm {
 /// within 0-1) before being written - this is a trusted single-admin tool,
 /// not a public form, so the clamping is a sanity backstop against a typo
 /// rather than a security boundary.
+/// Parses one comma-separated admin-page anchor list ("0, 500, 1000").
+/// Whitespace-tolerant; ANY malformed entry invalidates the WHOLE list ->
+/// empty Vec -> the runtime validator reads neutral (baseline 1.0), so a
+/// typo can loosen the floor but never corrupt difficulty.
+fn parse_csv_u32_list(raw: &str) -> Vec<u32> {
+    raw.split(',').map(|piece| piece.trim().parse::<u32>()).collect::<Result<Vec<_>, _>>().unwrap_or_default()
+}
+
+fn parse_csv_f64_list(raw: &str) -> Vec<f64> {
+    raw.split(',').map(|piece| piece.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().unwrap_or_default()
+}
+
 async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TunablesForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
         if login == ADMIN_TUNABLES_LOGIN {
+            // The retired `dynamic_scaling_mult` field is no longer on the
+            // form - preserve whatever value is already live/on file so a
+            // save never rewrites it to anything else.
+            let previous = state.adventure.live_tunables();
             let tunables = LiveTunables {
                 loot_mult: form.loot_mult.max(0.0),
                 sand_mult: form.sand_mult.max(0.0),
@@ -2665,7 +2731,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 celestial_shard_drop_chance: form.celestial_shard_drop_chance.clamp(0.0, 1.0),
                 boss_health: form.boss_health.max(0.0),
                 boss_power: form.boss_power.max(0.0),
-                dynamic_scaling_mult: form.dynamic_scaling_mult.max(0.0),
+                dynamic_scaling_mult: previous.dynamic_scaling_mult,
                 boss_count_tier_stages: form.boss_count_tier_stages.max(1),
                 boss_count_cap_mult: form.boss_count_cap_mult.max(0.0),
                 late_content_stage: form.late_content_stage,
@@ -2700,15 +2766,38 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 splash_damage_pct: form.splash_damage_pct.max(0.0),
                 verdantburst_echo_threshold_pct: form.verdantburst_echo_threshold_pct.max(0.0),
                 buffsnapshot_dedupe_window_ms: form.buffsnapshot_dedupe_window_ms.max(1),
+                dynamic_pacing_enabled: form.dynamic_pacing_enabled.is_some(),
+                pacing_window_fights: form.pacing_window_fights.max(1),
+                target_duration_min_s: form.target_duration_min_s.max(0.001),
+                target_duration_max_s: form.target_duration_max_s.max(0.001),
+                hp_max_step_per_fight: form.hp_max_step_per_fight.clamp(0.0, 100.0),
+                hp_multiplier_floor: form.hp_multiplier_floor.max(0.001),
+                hp_multiplier_ceiling: form.hp_multiplier_ceiling.max(0.001),
+                target_win_loss_ratio: form.target_win_loss_ratio.max(0.001),
+                dmg_max_step_per_fight: form.dmg_max_step_per_fight.clamp(0.0, 100.0),
+                dmg_multiplier_floor: form.dmg_multiplier_floor.max(0.001),
+                dmg_multiplier_ceiling: form.dmg_multiplier_ceiling.max(0.001),
+                baseline_stage_anchors: parse_csv_u32_list(&form.baseline_stage_anchors),
+                baseline_hp_anchors: parse_csv_f64_list(&form.baseline_hp_anchors),
+                baseline_atk_anchors: parse_csv_f64_list(&form.baseline_atk_anchors),
+                top_layer_enabled: form.top_layer_enabled.is_some(),
+                // The hard 0.95 ceiling lives in pacing::top_layer_for_stage
+                // at read time; this is just the typo backstop.
+                top_layer_cap_pct: form.top_layer_cap_pct.clamp(0.0, 1.0),
+                top_layer_half_stage: form.top_layer_half_stage.max(1.0),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
             }
-            // Separate from the LiveTunables save above - this edits live
-            // WORLD state (WorldState::boss_power_mult), not a tunables
-            // field. Blank input (the normal case) leaves it untouched.
+            // Separate from the LiveTunables save above - these edit live
+            // WORLD state (the two controllers' multipliers), not
+            // tunables fields. Blank input (the normal case) leaves each
+            // untouched.
             if let Ok(value) = form.boss_power_mult_override.trim().parse::<f64>() {
                 state.adventure.set_boss_power_mult(value).await;
+            }
+            if let Ok(value) = form.hp_pacing_mult_override.trim().parse::<f64>() {
+                state.adventure.set_hp_pacing_mult(value).await;
             }
         }
     }
@@ -3290,8 +3379,34 @@ mod render_fights_page_tests {
 /// A save POSTs everything at once (not per-field) and redirects back here
 /// with `?saved=1` for the confirmation banner - same query-param-flash
 /// pattern `IndexParams`'s fields already use elsewhere on this dashboard.
-fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_boss_power_mult: f64, saved: bool) -> String {
+fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, saved: bool) -> String {
     let nav = top_nav(viewer);
+    // Saturation signals (owner ruling: a pinned controller must be
+    // VISIBLE, not silent). A pinned flag means the party is performing
+    // BELOW the stage baseline and the hand-authored floor is doing the
+    // work - said explicitly right in the read-out.
+    let pinned_note = |pinned: bool| {
+        if pinned {
+            "<p class=\"tunable-hint\" style=\"color:#e6b34d\">⚠ PINNED AT BASELINE FLOOR — the party is performing below this stage's baseline; the controller wants to go easier but the baseline is holding difficulty up. Lower the baseline anchors (or accept it) rather than expecting this controller to move.</p>"
+        } else {
+            ""
+        }
+    };
+    let hp_pacing_readout = format!(
+        "Controller A (HP / duration): current {:+.3}x — stage baseline floor {:+.3}x{}",
+        pacing.hp_mult,
+        pacing.hp_baseline,
+        pinned_note(pacing.hp_pinned())
+    );
+    let dmg_pacing_readout = format!(
+        "Controller B (damage / lethality): current {:+.3}x — stage baseline floor {:+.3}x{}",
+        pacing.dmg_mult,
+        pacing.dmg_baseline,
+        pinned_note(pacing.dmg_pinned())
+    );
+    let baseline_stage_anchors_csv = t.baseline_stage_anchors.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ");
+    let baseline_hp_anchors_csv = t.baseline_hp_anchors.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
+    let baseline_atk_anchors_csv = t.baseline_atk_anchors.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
     let banner = if saved {
         "<p class=\"muted\">✅ Saved — takes effect on the very next encounter, no restart needed.</p>"
     } else {
@@ -3347,15 +3462,98 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" id=\"boss_power\" name=\"boss_power\" value=\"{boss_power}\">\
               <p class=\"tunable-hint\">Boss Health's own counterpart for boss ATK. 1.0 = base design.</p>\
             </div>\
+            <h2>Dynamic Pacing</h2>\
+            <p class=\"tunable-hint\">{hp_pacing_readout}</p>\
+            <p class=\"tunable-hint\">{dmg_pacing_readout}</p>\
+            <label class=\"veil-check\"><input type=\"checkbox\" name=\"dynamic_pacing_enabled\" value=\"1\"{dynamic_pacing_enabled_checked}> Dynamic pacing enabled (master kill-switch)</label>\
+            <p class=\"tunable-hint\">Unchecked = BOTH controllers completely inert (no sampling, no updates); both multipliers freeze where they sit. The stage baseline floor and the top-layer mitigation below are separate systems with their own switches.</p>\
             <div class=\"tunable-row\">\
-              <label for=\"dynamic_scaling_mult\">Dynamic Scaling Modifier</label>\
-              <input type=\"number\" step=\"any\" id=\"dynamic_scaling_mult\" name=\"dynamic_scaling_mult\" value=\"{dynamic_scaling_mult}\">\
-              <p class=\"tunable-hint\">How hard the automatic win/loss rubber-band reacts to streaks. 1.0 = normal, 0 = disabled (boss power never moves from wins/losses), &gt;1 = swings harder/faster.</p>\
+              <label for=\"pacing_window_fights\">Pacing Window (fights)</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"pacing_window_fights\" name=\"pacing_window_fights\" value=\"{pacing_window_fights}\">\
+              <p class=\"tunable-hint\">Rolling window for BOTH controllers (A's DPS samples, B's win/loss ratio). Both stay neutral until a full window exists.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"boss_power_mult_override\">Current Dynamic Boss Power: {current_boss_power_mult:.3}x</label>\
+              <label for=\"target_duration_min_s\">Target Fight Duration Min (s)</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_duration_min_s\" name=\"target_duration_min_s\" value=\"{target_duration_min_s}\">\
+              <p class=\"tunable-hint\">Controller A (HP axis) targets this window of REAL fight time, aiming at the midpoint with the max below. Real clock, not the overlay's compressed playback.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"target_duration_max_s\">Target Fight Duration Max (s)</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_duration_max_s\" name=\"target_duration_max_s\" value=\"{target_duration_max_s}\">\
+              <p class=\"tunable-hint\">Window upper bound; A scales enemy HP pools (never the per-enemy split) so expected kill time lands near (min+max)/2. Samples WINNING fights only — a wipe never feeds the measure.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_max_step_per_fight\">HP Max Step Per Fight</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"hp_max_step_per_fight\" name=\"hp_max_step_per_fight\" value=\"{hp_max_step_per_fight}\">\
+              <p class=\"tunable-hint\">Max RELATIVE change of A's multiplier per winning fight (0.25 = &plusmn;25%). The oscillation damper.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_multiplier_floor\">HP Multiplier Floor</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"hp_multiplier_floor\" name=\"hp_multiplier_floor\" value=\"{hp_multiplier_floor}\">\
+              <p class=\"tunable-hint\">Floor on A's own multiplier RELATIVE to the organic stage curve — NOT the absolute difficulty floor; the baseline anchors below bind first. Hard floor 0.05 / hard ceiling 1,000,000 regardless.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_multiplier_ceiling\">HP Multiplier Ceiling</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"hp_multiplier_ceiling\" name=\"hp_multiplier_ceiling\" value=\"{hp_multiplier_ceiling}\">\
+              <p class=\"tunable-hint\">Ceiling on A's multiplier (hard-capped at 1,000,000 no matter what).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"target_win_loss_ratio\">Target Win:Loss Ratio</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_win_loss_ratio\" name=\"target_win_loss_ratio\" value=\"{target_win_loss_ratio}\">\
+              <p class=\"tunable-hint\">Controller B (damage axis) steers the rolling BOSS win:loss ratio here. Default 2.0 = two wins per loss — exactly neutral stage progression (+1 per win, -2 per loss), so the party only climbs by beating it. Boss outcomes only.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dmg_max_step_per_fight\">Damage Max Step Per Fight</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"dmg_max_step_per_fight\" name=\"dmg_max_step_per_fight\" value=\"{dmg_max_step_per_fight}\">\
+              <p class=\"tunable-hint\">Max RELATIVE change of B's multiplier per boss fight (0.15 = &plusmn;15%).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dmg_multiplier_floor\">Damage Multiplier Floor</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"dmg_multiplier_floor\" name=\"dmg_multiplier_floor\" value=\"{dmg_multiplier_floor}\">\
+              <p class=\"tunable-hint\">Floor on B's own multiplier relative to the organic curve (default 0.4 — real room in BOTH directions before the baseline binds). Hard floor 0.05 regardless.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dmg_multiplier_ceiling\">Damage Multiplier Ceiling</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"dmg_multiplier_ceiling\" name=\"dmg_multiplier_ceiling\" value=\"{dmg_multiplier_ceiling}\">\
+              <p class=\"tunable-hint\">Ceiling on B's multiplier (hard-capped at 1,000,000 no matter what).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"baseline_stage_anchors\">Baseline Stage Anchors (CSV)</label>\
+              <input type=\"text\" id=\"baseline_stage_anchors\" name=\"baseline_stage_anchors\" value=\"{baseline_stage_anchors_csv}\">\
+              <p class=\"tunable-hint\">Hand-authored difficulty floor, X axis: strictly ascending STAGE anchor points. Linearly interpolated against the value lists below, flat after the last. Malformed = neutral (organic curve is the floor).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"baseline_hp_anchors\">Baseline HP Anchors (CSV)</label>\
+              <input type=\"text\" id=\"baseline_hp_anchors\" name=\"baseline_hp_anchors\" value=\"{baseline_hp_anchors_csv}\">\
+              <p class=\"tunable-hint\">Minimum enemy HP per anchor, as a FRACTION of the organic stage/level/party formula (1.0 = full curve). Neither controller can ever pull effective difficulty below this. Hand-set by design — NOT derived from live player gear.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"baseline_atk_anchors\">Baseline Damage Anchors (CSV)</label>\
+              <input type=\"text\" id=\"baseline_atk_anchors\" name=\"baseline_atk_anchors\" value=\"{baseline_atk_anchors_csv}\">\
+              <p class=\"tunable-hint\">Same curve for enemy attack. Must have exactly as many values as stage anchors.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_pacing_mult_override\">HP Controller Override: {hp_mult_override_label}</label>\
+              <input type=\"text\" id=\"hp_pacing_mult_override\" name=\"hp_pacing_mult_override\" placeholder=\"leave blank to keep as-is\">\
+              <p class=\"tunable-hint\">Manual override for Controller A's OWN multiplier (the read-out above shows the effective value incl. baseline). Leave blank to change nothing.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_power_mult_override\">Damage Controller Override: {dmg_mult_override_label}</label>\
               <input type=\"text\" id=\"boss_power_mult_override\" name=\"boss_power_mult_override\" placeholder=\"leave blank to keep as-is\">\
-              <p class=\"tunable-hint\">Manual override for the live value above — e.g. after a bad losing streak leaves it stuck low. Leave blank to change nothing.</p>\
+              <p class=\"tunable-hint\">Manual override for Controller B's own multiplier (e.g. after a bad losing streak leaves it stuck low). Leave blank to change nothing.</p>\
+            </div>\
+            <h2>Top-Layer Mitigation (stage-tied)</h2>\
+            <label class=\"veil-check\"><input type=\"checkbox\" name=\"top_layer_enabled\" value=\"1\"{top_layer_enabled_checked}> Top-layer mitigation enabled</label>\
+            <p class=\"tunable-hint\">A final ABSOLUTE damage reduction on every enemy, applied at the very END of damage resolution — after every other mitigation. NOTHING bypasses it: no armor pen, no ignore-DR, no true-damage exemption. Structurally separate from the normal DR stat and its cap. Scales with STAGE only (never with the HP controller), so gear upgrades still visibly shorten fights while HP-keyed mechanics (Shattering, Ashes to Ashes) stay sane.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"top_layer_cap_pct\">Top-Layer Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"top_layer_cap_pct\" name=\"top_layer_cap_pct\" value=\"{top_layer_cap_pct}\">\
+              <p class=\"tunable-hint\">Asymptotic ceiling (fraction), clamped to 0.95 no matter what — an unkillable enemy is a worse failure than a long fight. Default 0.60: ~30% at stage 1500, ~41% at stage 3222.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"top_layer_half_stage\">Top-Layer Half Stage</label>\
+              <input type=\"number\" step=\"any\" min=\"1\" id=\"top_layer_half_stage\" name=\"top_layer_half_stage\" value=\"{top_layer_half_stage}\">\
+              <p class=\"tunable-hint\">The stage where the layer reaches HALF its cap (same asymptote shape as boss pierce). Lower = ramps in sooner.</p>\
             </div>\
             <div class=\"tunable-row\">\
               <label for=\"boss_count_tier_stages\">Boss Count Tier Size (stages)</label>\
@@ -3548,8 +3746,27 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         celestial_shard_drop_chance = t.celestial_shard_drop_chance,
         boss_health = t.boss_health,
         boss_power = t.boss_power,
-        dynamic_scaling_mult = t.dynamic_scaling_mult,
-        current_boss_power_mult = current_boss_power_mult,
+        hp_pacing_readout = hp_pacing_readout,
+        dmg_pacing_readout = dmg_pacing_readout,
+        dynamic_pacing_enabled_checked = if t.dynamic_pacing_enabled { " checked" } else { "" },
+        pacing_window_fights = t.pacing_window_fights,
+        target_duration_min_s = t.target_duration_min_s,
+        target_duration_max_s = t.target_duration_max_s,
+        hp_max_step_per_fight = t.hp_max_step_per_fight,
+        hp_multiplier_floor = t.hp_multiplier_floor,
+        hp_multiplier_ceiling = t.hp_multiplier_ceiling,
+        target_win_loss_ratio = t.target_win_loss_ratio,
+        dmg_max_step_per_fight = t.dmg_max_step_per_fight,
+        dmg_multiplier_floor = t.dmg_multiplier_floor,
+        dmg_multiplier_ceiling = t.dmg_multiplier_ceiling,
+        baseline_stage_anchors_csv = baseline_stage_anchors_csv,
+        baseline_hp_anchors_csv = baseline_hp_anchors_csv,
+        baseline_atk_anchors_csv = baseline_atk_anchors_csv,
+        hp_mult_override_label = format!("{:.3}x current", pacing.hp_mult),
+        dmg_mult_override_label = format!("{:.3}x current", pacing.dmg_mult),
+        top_layer_enabled_checked = if t.top_layer_enabled { " checked" } else { "" },
+        top_layer_cap_pct = t.top_layer_cap_pct,
+        top_layer_half_stage = t.top_layer_half_stage,
         boss_count_tier_stages = t.boss_count_tier_stages,
         boss_count_cap_mult = t.boss_count_cap_mult,
         late_content_stage = t.late_content_stage,
