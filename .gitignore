@@ -196,3 +196,4 @@ REPORTS/
 # save files; both binaries + pinned adventure-fights-summary snapshot),
 # same "backup before overwrite" discipline as every backup-pre-* above.
 /backup-pre-fail-loud
+/backup-pre-build-seam
