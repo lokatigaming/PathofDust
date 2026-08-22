@@ -17,10 +17,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use twitch_bot_rs::adventure::{AdventureManager, Character, CraftAction, UniqueAffix, ALL_UNIQUE_AFFIXES};
+use game::adventure::{AdventureManager, Character, CraftAction, UniqueAffix, ALL_UNIQUE_AFFIXES};
 
 #[tokio::test]
 async fn unique_shard_apply_and_choose_veil_both_work_over_real_http() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("unique_shard_picker_http_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
 
@@ -30,7 +35,7 @@ async fn unique_shard_apply_and_choose_veil_both_work_over_real_http() {
     std::fs::write(&sessions_path, format!(r#"{{"test-token":{{"login":"{TEST_LOGIN}","display_name":"ShardPickerTester","created_at":{now_secs}}}}}"#))
         .expect("failed to seed the scratch sessions file");
 
-    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
 
     let characters_path = scratch.join("adventure-characters.json");
     let mut character = Character::new("ShardPickerTester".to_string());
@@ -50,7 +55,7 @@ async fn unique_shard_apply_and_choose_veil_both_work_over_real_http() {
 
     let manager = AdventureManager::new(characters_path.clone(), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
-    let bound_addr = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
         "test-client-id".to_string(),

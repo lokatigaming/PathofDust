@@ -26,10 +26,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use twitch_bot_rs::adventure::{AdventureManager, Character};
+use game::adventure::{AdventureManager, Character};
 
 #[tokio::test]
 async fn craft_recipe_and_apply_divine_dust_both_work_over_real_http() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("divine_dust_craft_http_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
 
@@ -39,7 +44,7 @@ async fn craft_recipe_and_apply_divine_dust_both_work_over_real_http() {
     std::fs::write(&sessions_path, format!(r#"{{"test-token":{{"login":"{TEST_LOGIN}","display_name":"DustCraftTester","created_at":{now_secs}}}}}"#))
         .expect("failed to seed the scratch sessions file");
 
-    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
 
     let characters_path = scratch.join("adventure-characters.json");
     let mut character = Character::new("DustCraftTester".to_string());
@@ -61,7 +66,7 @@ async fn craft_recipe_and_apply_divine_dust_both_work_over_real_http() {
 
     let manager = AdventureManager::new(characters_path.clone(), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
-    let bound_addr = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
         "test-client-id".to_string(),

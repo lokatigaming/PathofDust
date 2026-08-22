@@ -10,10 +10,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use twitch_bot_rs::adventure::{AdventureManager, Character};
+use game::adventure::{AdventureManager, Character};
 
 #[tokio::test]
 async fn inventory_page_renders_the_divine_dust_recipe_and_apply_button() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("divine_dust_ui_http_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
 
@@ -29,7 +34,7 @@ async fn inventory_page_renders_the_divine_dust_recipe_and_apply_button() {
     // reads `adventure-item-balance.toml` via `load_item_balance_file`),
     // so it has to come before that too, not just before
     // `AdventureManager::new`.
-    assert!(twitch_bot_rs::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this is the only caller in this test binary's whole process");
 
     // `AdventureManager::characters` is private to the `adventure` module
     // (not even `pub(crate)`) - this integration test is a separate
@@ -49,7 +54,7 @@ async fn inventory_page_renders_the_divine_dust_recipe_and_apply_button() {
 
     let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
-    let bound_addr = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
         "test-client-id".to_string(),

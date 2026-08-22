@@ -24,15 +24,20 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::test]
 async fn a_connection_without_wire_deflate_gets_text_only_even_while_a_compressed_client_is_also_connected() {
+    // Integration tests run with their PACKAGE dir as CWD (game/, under the
+    // workspace suite), but the template loader resolves "templates/" against
+    // CWD and that directory belongs to the workspace root (see render.rs's
+    // own CARGO_MANIFEST_DIR escape hatch for the unit-test half of this).
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
     let scratch = std::env::temp_dir().join(format!("overlay_compression_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
     let characters_path = scratch.join("adventure-characters.json");
     std::fs::write(&characters_path, "{}").expect("failed to seed an empty characters file");
     let sessions_path = scratch.join("adventure-sessions.json");
 
-    let manager = twitch_bot_rs::adventure::AdventureManager::new(characters_path, PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
+    let manager = game::adventure::AdventureManager::new(characters_path, PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
-    let bound_addr = twitch_bot_rs::adventure_web::start_adventure_web_server(
+    let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
         "test-client-id".to_string(),
