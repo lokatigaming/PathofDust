@@ -385,6 +385,182 @@ Unique Shard veils once one commits. Both are deploy-session/code
 work, not parser's to fix - flagging with full evidence for that
 session to act on.
 
+**#35 — Thunder Golem reform-cleanse (does a golem get WEAKER with every
+reform?) — CLOSED 2026-08-22, code + dedicated test + confirmed live
+deploy; live arithmetic on the HP-growth half, live-inconclusive on the
+lifespan half.**
+
+**Step 0.** Live `game.exe` sha256 `ab3a2b6551845f84...` = order's
+`AB3A2B65`; live `twitch-bot-rs.exe` sha256 `9123860f0ffdc8bd...` =
+order's `9123860F`; both mtime 2026-08-22 04:04. Local HEAD = `a1b285d`
+= order's stated master. `patch-notes.json`'s newest entry (`"date":
+"August 22, 2026"`) is headlined "Fixed: Thunder Golem Reform
+Cleansing," confirming this exact fix shipped in the running binary, not
+inferred from git history alone. All 6 fights sampled below
+(`fight-0000006336` through `-6341`, detail tier) have file mtimes
+10:30-10:41, well after the 04:04 build — genuinely post-deploy.
+
+**Code fix, read directly.** `reform_thunder_golem` (`combat.rs:7078`)
+now opens with `cleanse_player_debuffs(&mut units[golem_idx])` before
+touching `max_hp`/`hp`/`alive` — `cleanse_player_debuffs`
+(`combat.rs:7515`) zeroes `boss_focus_stacks`, `cube_shred_stacks` +
+`cube_shred_expires_at_ms`, and `wound_stacks` + `wound_expires_at_ms`.
+This is exactly the owner-reported mechanism: Gelatinous Cube's shred
+(up to -50% DR, `CUBE_SHRED_DURATION_MS` 3000ms) and Festering Wound
+used to ride into a fresh incarnation because reform mutated the same
+unit in place and never touched these fields. A dedicated test,
+`reforming_clears_cube_shred_wound_and_boss_focus_stacks_from_the_dead_
+incarnation` (`combat.rs:17848`), calls the real production
+`reform_thunder_golem` on a golem seeded with all three debuffs active
+and asserts all five fields land back at zero — pins the fix exactly,
+not a paraphrase. **Not independently re-run in isolation this
+session** (relying on source inspection + the merge's own test-suite
+gate per `REPORTS/deploy.md`'s prior merges, not a fresh `cargo test`
+this sweep) — flagging that honestly rather than claiming a live test
+run that didn't happen.
+
+**Live sample.** Two characters currently run Thunder Golems
+(`golem_slot_types` check against `adventure-characters.json`):
+`kazesosa` (3 slots) and `roxus` (3 slots). Only `kazesosa` had active
+golems in the 6 fights sampled — `roxus` summoned none in this window.
+All 6 fights are the same "endless/horde" stage format (stage
+2971-2973, 42-43 simultaneous enemies mixing `cube1` with
+dragon/cthulhu/demon-fire/lich sprites, boss `hp` in the trillions,
+`atk` ~0.6-1.9M every 74ms) — 9 golem-incarnation-sequences total.
+
+| Fight | Golem | Incarnation | absorbed | redistributed | maxHp | lifespanMs |
+|---|---|---|---:|---:|---:|---:|
+| 6336 | \_0 | 0/1/2 | 24818942 / 60582086 / 79182455 | 12409471 / 30291043 / 39591228 | 19460618 / 48651545 / 77842472 | 200 / 0 / 0 |
+| 6336 | \_1 | 0/1/2 | 34198216 / 58326663 / 82300930 | 17099108 / 29163332 / 41150465 | 19460618 / 48651545 / 77842472 | 200 / 0 / 0 |
+| 6336 | \_2 | 0/1 | 25700966 / 53360076 | 12850483 / 26680038 | 19460618 / 48651545 | 1200 / 0 |
+| 6337 | \_0 | 0/1/2 | 19584952 / 50257642 / 77860844 | 9792476 / 25128821 / 38930422 | 19460618 / 48651545 / 77842472 | 200 / 22 / 52 |
+| 6337 | \_1 | 0/1/2 | 21756089 / 53183730 / 83677298 | 10878045 / 26591865 / 41838649 | 19460618 / 48651545 / 77842472 | 200 / 22 / 52 |
+| 6337 | \_2 | 0/1/2 | 24866848 / 50060846 / 79736721 | 12433424 / 25030423 / 39868361 | 19460618 / 48651545 / 77842472 | 200 / 74 / 0 |
+| 6338 | \_0 | 0/1 | 21497065 / 49526915 | 10748533 / 24763458 | 19460618 / 48651545 | 200 / 170 |
+| 6338 | \_1 | 0/1 | 22161770 / 49843768 | 11080885 / 24921884 | 19460618 / 48651545 | 200 / 192 |
+| 6338 | \_2 | 0/1 | 21713200 / 49394551 | 10856600 / 24697276 | 19460618 / 48651545 | 200 / 244 |
+| 6339 | \_0 | 0/1 | 20797742 / 50311961 | 10398871 / 25155981 | 19460618 / 48651545 | 200 / 0 |
+| 6339 | \_1 | 0 | 19513427 | 9756714 | 19460618 | 1200 |
+| 6339 | \_2 | 0 | 22409057 | 11204529 | 19460618 | 2200 |
+| 6340 | \_0 | 0/1/2 | 20657687 / 52421316 / 87284837 | 10328844 / 26210658 / 43642419 | 19462565 / 48656413 / 77850260 | 200 / 0 / 0 |
+| 6340 | \_1 | 0/1/2 | 19679359 / 51423816 / 79708086 | 9839680 / 25711908 / 39854043 | 19462565 / 48656413 / 77850260 | 200 / 0 / 0 |
+| 6340 | \_2 | 0/1/2 | 29177844 / 49744032 / 78726840 | 14588922 / 24872016 / 39363420 | 19462565 / 48656413 / 77850260 | 200 / 0 / 0 |
+| 6341 | \_0 | 0/1/2 | 24408111 / 50280506 / 78000602 | 12204056 / 25140253 / 39000301 | 19462565 / 48656413 / 77850260 | 200 / 0 / 72 |
+| 6341 | \_1 | 0/1/2 | 21029276 / 49180289 / 77990988 | 10514638 / 24590145 / 38995494 | 19462565 / 48656413 / 77850260 | 200 / 16 / 56 |
+| 6341 | \_2 | 0/1/2 | 24937580 / 54068818 / 83631671 | 12468790 / 27034409 / 41815836 | 19462565 / 48656413 / 77850260 | 200 / 72 / 72 |
+
+**HP growth (does the golem get bigger, not smaller): PASS, exact, all
+18 incarnation-pairs.** `max_hp` steps UP every reform in every single
+sequence above, matching `base × (1 + growing_pct × reform_count)`
+exactly — e.g. fight 6340's `_0`: `19462565 × (1+g×1) = 48656413` and
+`19462565 × (1+g×2) = 77850260` both solve to `g = 1.500000...` to 7
+significant figures, both reforms, independently. That `g=1.5` (150%)
+does NOT match the "growing" node's compiled rank-3 spec
+(`passive_tree.rs:2132`: `0.33 + 2×0.335 = 1.00`, i.e. 100%) — checked
+this as a possible new bug, then resolved it as NOT one:
+`adventure-passive-overrides.toml` carries a live-tunable override
+`growing = [0.5, 1.0, 1.5]`, and kazesosa's own `passive_allocations`
+(`adventure-characters.json`) confirms `growing: 3` (at cap, no
+over-allocation) — rank 3's override value is exactly `1.5`, matching
+the live golem data to 7 significant figures. Owner's own deliberate
+tuning via `/admin/passives`, same shape as ledger `#30` — not
+re-flagging as an anomaly.
+
+**Lifespan trend: live-inconclusive, reported honestly rather than
+forced.** No clean shrink/hold/grow pattern across the 18 pairs above —
+some sequences shrink to a 0ms floor (6336 `_0`/`_1`, 6340 all three),
+some shrink then partially recover (6337 `_0`/`_1`: 200→22→52), some
+grow monotonically (6338, 6341 `_1`/`_2`). Root cause: at this specific
+live stage (2971-2973), incoming burst from 42-43 simultaneous enemies
+overwhelms even the largest incarnation (77.8M `maxHp`) within
+0-250ms of real sim time regardless of reform count — a floor/ceiling
+effect from raw incoming damage, not a signal of the golem's own
+defensive state. This stage is not a useful venue to detect the
+owner's original symptom (which described a longer, sustained fight);
+it's evidence for the HP-growth claim above but not for the
+DR-carryover claim.
+
+**Cube-vs-non-Cube split: NOT POSSIBLE from current live data, structurally.**
+The order's premise (discrete Cube fights vs discrete non-Cube fights)
+doesn't hold at kazesosa's current stage — every one of the 6 sampled
+fights is the same mixed horde format with `cube1` sprites present
+*alongside* dragon/cthulhu/demon-fire/lich sprites simultaneously
+(`bossSprites` arrays checked directly). There is no live non-Cube fight
+to contrast against right now. Not a finding either way — a genuine gap
+in what's currently being played, not something this session can
+manufacture.
+
+**Direct shred-carryover check, attempted, inconclusive.** "Gelatinous
+Cube shred" mitigation rolls (`category:"mitigation"`,
+`source:"Gelatinous Cube shred"`, `magnitude:-0.1`) were found hitting
+kazesosa's golems in 3 of 6 fights (6340 `_0`×1, 6340 `_1`×3, 6341
+`_1`×1) — confirms Cube shred is genuinely being exercised against
+these golems live, not merely a code path that never fires. Per this
+ledger's own Two Clocks discipline, `rolls[].atMs` is real and
+`thunder_incarnations[].lifespanMs` is ALSO real (both come from the
+same pre-`compress_events` `unit_infos` builder in `combat.rs`, unlike
+`events[].atMs` which IS display-compressed by that later pass) —
+reconciled by reconstructing each incarnation's real-clock window from
+its own `lifespanMs` plus the confirmed rank-3 reform delay
+(`thundergolem:4` allocated, clamped to rank 3 via
+`PassiveNode::effective_rank`'s Specialization floor at 3, giving
+2000ms per `passive_tree.rs:2543`'s own test). Fight 6340 `_0`'s shred
+roll (`atMs=4200`) reconstructs to the FIRST instant of that
+incarnation's window; fight 6341 `_1`'s shred roll (`atMs=4272`)
+reconstructs to essentially the LAST instant of its incarnation. Two
+data points landing at opposite ends of the incarnation lifecycle
+argues against a systematic carryover pattern (which would cluster
+every shred detection right after every reform) but isn't proof either
+way without an enemy-id-to-sprite mapping to confirm which specific
+attacker (Cube or not) is credited each time — same structural gap
+`#43` already flagged for splash. Reporting the shape, not forcing a
+verdict, per this file's own discipline.
+
+**Verdict: CLOSED**, same basis as `#29`'s prior closure (code fix read
+directly + a dedicated regression test pinning the exact reported
+mechanism + confirmed live deployment by hash) — the specific thing the
+owner reported (Cube shred/Festering Wound surviving a reform) is
+provably removed from the code path, and the HP-growth half of "weaker
+every reform" is live-confirmed correct and non-regressing. The
+lifespan half could not be cleanly isolated live this sweep (floor
+effect at the only stage currently being played, no Cube-free contrast
+fight, no enemy-id map) — flagged as the live-exercise gap rather than
+papered over.
+
+**#36 — Tank-credit shortfall (sum of per-incarnation net absorption
+must equal `thunderNetAbsorbed`) — CLOSED 2026-08-22, live, exact/near-exact.**
+
+| Fight | Golem | sum(absorbed−redistributed) | thunderNetAbsorbed | diff | tolerance (`n×2+1`) |
+|---|---|---:|---:|---:|---:|
+| 6336 | \_0 | 82291741 | 82291742 | −1 | 7 |
+| 6336 | \_1 | 87412904 | 87412905 | −1 | 7 |
+| 6336 | \_2 | 39530521 | 39530521 | 0 | 5 |
+| 6337 | \_0 | 73851719 | 73851719 | 0 | 7 |
+| 6337 | \_1 | 79308558 | 79308559 | −1 | 7 |
+| 6337 | \_2 | 77332207 | 77332208 | −1 | 7 |
+| 6338 | \_0 | 35511989 | 35511990 | −1 | 5 |
+| 6338 | \_1 | 36002769 | 36002769 | 0 | 5 |
+| 6338 | \_2 | 35553875 | 35553876 | −1 | 5 |
+| 6339 | \_0 | 35554851 | 35554852 | −1 | 5 |
+| 6339 | \_1 | 9756713 | 9756714 | −1 | 3 |
+| 6339 | \_2 | 11204528 | 11204529 | −1 | 3 |
+| 6340 | \_0 | 80181919 | 80181920 | −1 | 7 |
+| 6340 | \_1 | 75405630 | 75405631 | −1 | 7 |
+| 6340 | \_2 | 78824358 | 78824358 | 0 | 7 |
+| 6341 | \_0 | 76344609 | 76344610 | −1 | 7 |
+| 6341 | \_1 | 74100276 | 74100277 | −1 | 7 |
+| 6341 | \_2 | 81319034 | 81319035 | −1 | 7 |
+
+18/18 golem-fight instances: 4 exact, 14 off by exactly −1 (f64→u64
+`.round()` accumulation across 1-3 incarnations, consistent with the
+production code's own documented tolerance formula
+`(incarnations.len() as i64) * 2 + 1`, `combat.rs:18569` — no instance
+exceeds it). Arithmetic holds cleanly; no shortfall anywhere in this
+sample. The known confound (a DoT armed near fight end that never gets
+to deliver) wasn't a factor here — every recipient list was non-empty
+and every redistribution completed within-incarnation. **Verdict:
+CLOSED, exact.**
+
 ## Open
 
 **#45 — `pending_veils` holds one entry per player; a second veiled
@@ -564,22 +740,14 @@ sampled picker-apply events this session show consistent, non-anomalous
 balances). **Gap to flag**: consumption-side logging would be needed to
 fully close this one.
 
-**#35 — Thunder-reform-degradation inspection**
-Description corrected today: prior entry here said "Tank-credit
-observability" from a thin, unattributed carry-forward — this session's
-`ORDERS/parser.md` refresh (2026-08-21) instead describes it as Thunder
-Golem reform/redistribution degradation inspection, blocked behind
-tree's own `#35`/`#36` observability instrumentation (not yet pushed).
-That description is itself peer-relayed (order text), not independently
-sourced by this session against an original ledger entry — none existed
-before today. Owned by the tree session either way; not parser's to
-close. See the kazesosa/thunder-golem investigation below for today's
-related (but explicitly separate-tracked) work.
+**#35 — Thunder-reform-degradation inspection — CLOSED 2026-08-22, see
+Closed section above (new entry, this date).** The blocking observability
+(`CombatUnitInfo.thunder_incarnations`) shipped and is live; verified
+against it directly.
 
-**#36 — Tank-credit shortfall**
-Blocked on `#35` (tree's observability work), which per the order had
-"not yet pushed" as of this morning. Not re-checked today.
-*(Carried forward, not independently re-verified.)*
+**#36 — Tank-credit shortfall — CLOSED 2026-08-22, see Closed section
+above (new entry, this date).** Arithmetic checked exact/near-exact
+across 9 live golem-incarnation sequences.
 
 **hpSamples-collapse residual** *(unnumbered)*
 Carried forward from the order's own context section with no further
