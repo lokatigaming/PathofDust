@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use tracing_subscriber::prelude::*;
 
-use twitch_bot_rs::adventure::{PublishedConstants, PUBLISHED_CONSTANTS_PATH};
 use twitch_bot_rs::adventure_client::{AdventureApiClient, RedemptionResponse};
 use twitch_bot_rs::alerts;
 use twitch_bot_rs::announcements::Announcements;
@@ -532,26 +531,6 @@ async fn async_main() -> anyhow::Result<()> {
         tracing::error!("PANIC: {panic_info}");
     }));
 
-    // Bot->game published constants (2026-08-18, architecture refactor
-    // Stage 2 - see PublishedConstants' own doc for the full "why a file,
-    // why not the API yet" reasoning). Written once, early, every startup -
-    // cheap, and means a fresh game-side read always sees this build's
-    // real values rather than a stale one from before the bot's last
-    // restart. Every source value here is a plain compile-time const on
-    // the bot side, so there's nothing to keep in sync afterward.
-    if let Err(err) = twitch_bot_rs::state::save_json(
-        PUBLISHED_CONSTANTS_PATH,
-        &PublishedConstants {
-            builtin_cooldown_secs: commands::BUILTIN_COOLDOWN.as_secs(),
-            bug_report_cooldown_secs: bug_reports::PER_USER_COOLDOWN.as_secs(),
-            song_skip_cooldown_secs: twitch_bot_rs::song_requests::SKIP_ACTION_COOLDOWN.as_secs(),
-            min_vote_volume: twitch_bot_rs::song_requests::MIN_VOTE_VOLUME,
-            max_vote_volume: twitch_bot_rs::song_requests::MAX_VOTE_VOLUME,
-        },
-    ) {
-        tracing::error!("Failed to publish bot-side constants for the wiki to read: {err}");
-    }
-
     let config = Config::load()?;
 
     let auth = AuthClient::new(
@@ -765,6 +744,14 @@ async fn async_main() -> anyhow::Result<()> {
     // manager.rs at Stage 3: it's real game-state mutation, and this
     // process no longer has the state to mutate.
     let adventure = Arc::new(AdventureApiClient::new(config.adventure_api_base_url.clone(), config.adventure_api_secret.clone()));
+
+    // Bot->game published constants (2026-08-22, build-time decoupling -
+    // see src/published_constants.rs). Used to be a direct file write at
+    // the very top of startup, before Config even loaded; it needs the
+    // API client now, so it moved down here with it. Bounded retry, and a
+    // down/old game never blocks or fails startup - the wiki just keeps
+    // rendering "varies" until a successful publish lands.
+    twitch_bot_rs::published_constants::publish_to_game(&adventure).await;
 
     // Self-service theme redemptions need entrance_themes and
     // song_requests, both already available here — created (once ever;
