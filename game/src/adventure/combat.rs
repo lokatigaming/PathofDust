@@ -6573,8 +6573,13 @@ fn apply_top_layer_to(target: &CombatSimUnit, damage: f64) -> f64 {
     if target.top_layer_mitigation <= 0.0 || !target.top_layer_mitigation.is_finite() {
         return damage;
     }
-    let fraction = 1.0 - target.top_layer_mitigation.clamp(0.0, pacing::TOP_LAYER_ABSOLUTE_CAP);
-    (damage * fraction).max(0.0)
+    let layer = target.top_layer_mitigation.clamp(0.0, pacing::TOP_LAYER_ABSOLUTE_CAP);
+    // Subtract the mitigated part instead of multiplying by a
+    // pre-computed `1.0 - layer`: the complement of 0.95 is not exactly
+    // representable, so the multiply form leaves a rounding residue
+    // (10_000 at the cap came out 500.00000000000045) that survives into
+    // damage numbers players and fight logs read.
+    (damage - damage * layer).max(0.0)
 }
 
 fn apply_true_damage(units: &mut [CombatSimUnit], source_idx: usize, target_idx: usize, amount: f64, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) -> bool {
