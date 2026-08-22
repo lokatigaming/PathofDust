@@ -182,7 +182,12 @@ target-splash-overcap/
 target-duplicate-unique-effects/
 target-echo/
 target-restore-live-buff-events/
+target-cline/
 
 # --- Orchestrator coordination files (not project artifacts) ---
 ORDERS/
 REPORTS/
+
+# --- Local agent-tooling copies (never committed) ---
+# .clinerules is a local copy of CLAUDE.md for the Cline agent.
+.clinerules
