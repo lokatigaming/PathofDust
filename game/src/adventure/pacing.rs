@@ -417,7 +417,7 @@ pub(crate) fn update_hp_pacing_mult(prev: f64, base_pool: f64, dps_window: &[f64
     // signal at all (all samples dropped, or a nonsensical <= 0 mean) skips
     // the update.
     let mean_dps = sum / p.window as f64;
-    if !(mean_dps > 0.0) {
+    if mean_dps.is_nan() || mean_dps <= 0.0 {
         return None;
     }
     if !base_pool.is_finite() || base_pool <= 0.0 {
@@ -501,9 +501,12 @@ pub(crate) fn push_dps_sample(window: &mut std::collections::VecDeque<f64>, won:
 /// ADDITION 4 - the stage-tied TOP-LAYER mitigation percentage for
 /// enemies generated at `stage`: an asymptotic ramp reaching half of the
 /// tunable cap at `top_layer_half_stage` and approaching (never reaching)
-/// the cap, mirroring boss pierce's shape. The result is clamped into the
-/// TUNABLE cap, which itself is clamped into [0, TOP_LAYER_ABSOLUTE_CAP]
-/// - strictly below 1.0 no matter what the dashboard says. Deliberately
+/// the cap, mirroring boss pierce's shape. The TUNABLE cap shapes the
+/// curve; the RESULT is clamped into [0, TOP_LAYER_ABSOLUTE_CAP], so an
+/// owner who dials the cap past the structural limit gets exactly the
+/// structural limit (strictly below 1.0, no matter what the dashboard
+/// says) rather than the structural limit minus the ramp's own
+/// asymptotic deficit. Deliberately
 /// keyed to STAGE ONLY, never to Controller A: it is a property of
 /// tougher enemies at higher stages (predictable, explainable), while A
 /// keeps HP as its lever so gear upgrades still visibly shorten fights.
