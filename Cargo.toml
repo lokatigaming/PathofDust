@@ -19,10 +19,6 @@ path = "src/bin/auth.rs"
 name = "auth_patreon"
 path = "src/bin/auth_patreon.rs"
 
-[[bin]]
-name = "pseudonymize_characters"
-path = "src/bin/pseudonymize_characters.rs"
-
 [dependencies]
 game = { path = "game" }
 tokio = { version = "1", features = ["full"] }
