@@ -98,6 +98,7 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         ("shattering_damage_pct_rank3", baseline.shattering_damage_pct_rank3.to_string()),
         ("defensive_stat_hard_cap", baseline.defensive_stat_hard_cap.to_string()),
         ("verdantburst_echo_threshold_pct", baseline.verdantburst_echo_threshold_pct.to_string()),
+        ("buffsnapshot_dedupe_window_ms", baseline.buffsnapshot_dedupe_window_ms.to_string()),
         // Distinctive, non-default splash values - the actual point of this test.
         ("splash_extra_targets", "7".to_string()),
         ("splash_support_floor_targets", "4".to_string()),
