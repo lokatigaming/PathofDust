@@ -19,7 +19,7 @@
 // Writes: tests/fixtures/characters_pseudonymized.json (committed)
 
 use std::collections::HashMap;
-use twitch_bot_rs::adventure::Character;
+use game::adventure::Character;
 
 fn main() {
     let input_path = "adventure-characters.json";
