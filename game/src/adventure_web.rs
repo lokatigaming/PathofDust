@@ -2632,6 +2632,8 @@ struct TunablesForm {
     splash_damage_pct: f64,
     /// See `LiveTunables::verdantburst_echo_threshold_pct`'s doc.
     verdantburst_echo_threshold_pct: f64,
+    /// See `LiveTunables::buffsnapshot_dedupe_window_ms`'s doc.
+    buffsnapshot_dedupe_window_ms: u32,
     /// Manual override for `WorldState::boss_power_mult` (see
     /// `AdventureManager::set_boss_power_mult`) - a separate, optional
     /// field from everything else in this form: it edits live WORLD
@@ -2697,6 +2699,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
                 splash_damage_pct: form.splash_damage_pct.max(0.0),
                 verdantburst_echo_threshold_pct: form.verdantburst_echo_threshold_pct.max(0.0),
+                buffsnapshot_dedupe_window_ms: form.buffsnapshot_dedupe_window_ms.max(1),
             };
             if let Err(err) = state.adventure.save_live_tunables(tunables) {
                 tracing::error!("Failed to persist live tunables: {err}");
@@ -3525,6 +3528,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
               <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
               <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
             </div>\
+            <h2>Live Overlay Broadcast</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"buffsnapshot_dedupe_window_ms\">Buff Snapshot Dedupe Window (ms)</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"buffsnapshot_dedupe_window_ms\" name=\"buffsnapshot_dedupe_window_ms\" value=\"{buffsnapshot_dedupe_window_ms}\">\
+              <p class=\"tunable-hint\">Only the newest live buff/debuff snapshot per unit within a window this wide gets broadcast to the overlay — the desktop companion app's live Buffs & Debuffs pane only ever reads the newest one anyway. Wider cuts broadcast volume; narrower gets fresher (but noisier) updates. Default 1000ms.</p>\
+            </div>\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
@@ -3574,6 +3583,7 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, current_bo
         splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
         splash_damage_pct = t.splash_damage_pct,
         verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
+        buffsnapshot_dedupe_window_ms = t.buffsnapshot_dedupe_window_ms,
     )
 }
 

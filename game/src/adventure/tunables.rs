@@ -347,6 +347,22 @@ pub struct LiveTunables {
     /// Burst's rank only controls its charge count, this threshold applies
     /// uniformly regardless of rank. See `CombatSimUnit::verdantburst_echo_threshold_pct`.
     pub verdantburst_echo_threshold_pct: f64,
+    /// Restore Shield/BuffSnapshot to the live overlay broadcast
+    /// (2026-08-22) - see `thin_events_for_overlay`'s own doc for the
+    /// full reasoning. `BuffSnapshot` fires for both participants of
+    /// every landed hit/evade/heal (roughly 2x the attack count), so
+    /// broadcasting every one uncapped would re-create the exact volume
+    /// problem the overlay thinning pass exists to solve. Instead only
+    /// the LAST snapshot per (unit, this-many-ms window) of the final
+    /// display timeline survives - the desktop companion app's
+    /// `renderBuffs` only ever reads the newest snapshot at or before its
+    /// playback cursor, so a dropped older snapshot in the same window
+    /// was never visible on screen anyway. Default 1000 (one second)
+    /// reproduces the "per (unit, second)" budget as specified; an admin
+    /// can widen it to cut broadcast volume further (coarser buff-state
+    /// resolution) or narrow it toward the fidelity/bandwidth tradeoff's
+    /// other end, no deploy required.
+    pub buffsnapshot_dedupe_window_ms: u32,
 }
 
 impl Default for LiveTunables {
@@ -396,6 +412,7 @@ impl Default for LiveTunables {
             splash_ladder_targets_per_step: 1,
             splash_damage_pct: 1.0,
             verdantburst_echo_threshold_pct: 1.0,
+            buffsnapshot_dedupe_window_ms: 1_000,
         }
     }
 }

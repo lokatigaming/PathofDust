@@ -408,7 +408,7 @@ pub(crate) fn save_bundle(result: &EncounterResult, boss_stats: &[BossStats], st
 mod tests {
     use super::*;
     use crate::adventure::combat::{compress_events, thin_events_for_overlay};
-    use crate::adventure::{AttackSourceKind, CombatUnitInfo};
+    use crate::adventure::{AttackSourceKind, CombatUnitInfo, LiveTunables};
 
     fn unit(id: &str, is_boss: bool) -> CombatUnitInfo {
         CombatUnitInfo {
@@ -527,7 +527,7 @@ mod tests {
         let events: Vec<CombatEvent> = (0..1_200).map(|i| attack(0, "a_player", i as u64)).collect();
 
         let sequenced = sequence_events(&events);
-        let thinned = thin_events_for_overlay(events.clone(), &units);
+        let thinned = thin_events_for_overlay(events.clone(), &units, &LiveTunables::default());
 
         assert!(thinned.len() < events.len(), "the cap must actually have applied");
 

@@ -14722,22 +14722,35 @@ pub(crate) fn compress_events(events: Vec<CombatEvent>) -> (Vec<CombatEvent>, u3
 /// event kind, chronologically" version dropped 100% of `Heal` events -
 /// healing was invisible on the overlay - and 74% of `Defeat` events -
 /// downed characters kept rendering alive - while `Shield`/
-/// `BuffSnapshot`, which `overlay.html`'s `fireEvent` has NO branch for
-/// at all (verified against its actual 4 branches: attack/heal/defeat/
-/// skillCast), silently consumed budget for events that could never
-/// have rendered anyway).
-/// 1. `Heal`/`Defeat`/`SkillCast` are exempt from the budget entirely -
-///    `fireEvent` has a real handler for each, and together they're a
+/// `BuffSnapshot` were dropped outright, reasoned at the time as pure
+/// waste since `overlay.html`'s `fireEvent` has NO branch for either
+/// (verified against its actual 4 branches: attack/heal/defeat/
+/// skillCast, still true today). That reasoning only considered
+/// `overlay.html` - it missed that the desktop companion app's `index.html`
+/// is a SECOND live consumer of this same broadcast, with its own
+/// "Buffs & Debuffs" pane that sums `Shield` and reads `BuffSnapshot`
+/// (~line 1391-1467) and had been silently dead since. Restored
+/// 2026-08-22 (ledger: restore-live-buff-events) now that this is known:
+/// 1. `Heal`/`Defeat`/`SkillCast`/`Shield` are exempt from the budget
+///    entirely - each has a real consumer and together they're a
 ///    negligible fraction of a fight's event volume next to `Attack`.
-/// 2. `Shield`/`BuffSnapshot` are never broadcast at all - `fireEvent`
-///    can't do anything with them, so a copy sent over the wire was
-///    pure waste that could still displace a real, renderable event
-///    under the old shared budget. `save_last_fight` and every audit
-///    path still get the full, untouched `events` - this only ever
-///    touches the copy broadcast to the overlay (see this function's
-///    own callers).
-/// 3. The per-second/per-side budget applies only to `Attack` events
-///    now, via deterministic stride sampling (spread evenly across the
+///    `Shield` specifically is low-volume enough (one per grant, not
+///    per participant) that capping it isn't worth the complexity - the
+///    desktop pane SUMS shield events, so dropping any of them would
+///    under-count a real number on a real client.
+/// 2. `BuffSnapshot` is NOT exempt - it fires for both participants of
+///    every landed hit, evade, and heal (see its emission sites in
+///    `apply_hit`/`apply_heal`), roughly 2x the attack count, each
+///    carrying a full `Vec<(String, f64)>` - broadcasting every one
+///    uncapped would re-create the exact burst problem this budget
+///    exists to solve. Instead it's BUDGETED: only the LAST snapshot per
+///    (unit, `LiveTunables::buffsnapshot_dedupe_window_ms`-sized window)
+///    of the final display timeline survives. The desktop app's
+///    `renderBuffs` only ever reads the newest snapshot at or before its
+///    playback cursor, so an older snapshot in the same window was
+///    already invisible on screen - this dedupe just stops sending it.
+/// 3. The per-second/per-side budget applies only to `Attack` events,
+///    via deterministic stride sampling (spread evenly across the
 ///    second) rather than head-keep, so a burst late in a second (e.g.
 ///    Frenzy multi-strikes right before the second rolls over) isn't
 ///    systematically annihilated the way "first N, chronologically"
@@ -14745,8 +14758,9 @@ pub(crate) fn compress_events(events: Vec<CombatEvent>) -> (Vec<CombatEvent>, u3
 pub(crate) const OVERLAY_MAX_PLAYER_EVENTS_PER_SEC: usize = 500;
 pub(crate) const OVERLAY_MAX_BOSS_EVENTS_PER_SEC: usize = 1000;
 
-pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatUnitInfo]) -> Vec<CombatEvent> {
+pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatUnitInfo], tunables: &LiveTunables) -> Vec<CombatEvent> {
     let boss_ids: std::collections::HashSet<&str> = units.iter().filter(|u| u.is_boss).map(|u| u.id.as_str()).collect();
+    let dedupe_window_ms = tunables.buffsnapshot_dedupe_window_ms.max(1);
 
     // Pass 1: how many Attack events actually land in each (second, is_boss)
     // bucket - stride sampling in pass 2 needs each bucket's real total up
@@ -14760,12 +14774,27 @@ pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatU
         }
     }
 
+    // Pass 1b: which index is the LAST BuffSnapshot for each (unit, dedupe
+    // window) - forward iteration order means the final insert for a given
+    // key naturally holds the highest (most recent) index.
+    let mut buffsnapshot_last_index: std::collections::HashMap<(String, u32), usize> = std::collections::HashMap::new();
+    for (idx, e) in events.iter().enumerate() {
+        if let CombatEvent::BuffSnapshot { at_ms, unit, .. } = e {
+            let window = at_ms / dedupe_window_ms;
+            buffsnapshot_last_index.insert((unit.clone(), window), idx);
+        }
+    }
+
     let mut attack_seen: std::collections::HashMap<(u32, bool), usize> = std::collections::HashMap::new();
     events
         .into_iter()
-        .filter(|e| match e {
-            CombatEvent::Heal { .. } | CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } => true,
-            CombatEvent::Shield { .. } | CombatEvent::BuffSnapshot { .. } => false,
+        .enumerate()
+        .filter(|(idx, e)| match e {
+            CombatEvent::Heal { .. } | CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } | CombatEvent::Shield { .. } => true,
+            CombatEvent::BuffSnapshot { at_ms, unit, .. } => {
+                let window = at_ms / dedupe_window_ms;
+                buffsnapshot_last_index.get(&(unit.clone(), window)) == Some(idx)
+            }
             CombatEvent::Attack { .. } => {
                 let sec = e.at_ms() / 1_000;
                 let is_boss_actor = boss_ids.contains(e.actor_id());
@@ -14775,16 +14804,17 @@ pub(crate) fn thin_events_for_overlay(events: Vec<CombatEvent>, units: &[CombatU
                     return true;
                 }
                 let seen = attack_seen.entry((sec, is_boss_actor)).or_insert(0);
-                let idx = *seen;
+                let stride_idx = *seen;
                 *seen += 1;
                 // Bresenham-style even spread: keep index i exactly when
                 // it crosses into a new cap-sized bucket of the second's
                 // real total, so survivors land roughly evenly-spaced
                 // across the whole second instead of all clustered at
                 // its start.
-                (idx * cap) / total != ((idx + 1) * cap) / total
+                (stride_idx * cap) / total != ((stride_idx + 1) * cap) / total
             }
         })
+        .map(|(_, e)| e)
         .collect()
 }
 
@@ -14820,7 +14850,7 @@ mod overlay_event_thinning_tests {
         for _ in 0..1200 {
             events.push(attack_at(500, "__enemy_0__"));
         }
-        let thinned = thin_events_for_overlay(events, &units);
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
         let player_count = thinned.iter().filter(|e| e.actor_id() == "a_player").count();
         let boss_count = thinned.iter().filter(|e| e.actor_id() == "__enemy_0__").count();
         assert_eq!(player_count, OVERLAY_MAX_PLAYER_EVENTS_PER_SEC, "player events must cap at the player limit, not the boss one");
@@ -14837,7 +14867,7 @@ mod overlay_event_thinning_tests {
         for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2) {
             events.push(attack_at(1_500, "a_player"));
         }
-        let thinned = thin_events_for_overlay(events, &units);
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
         assert_eq!(thinned.len(), OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 2, "each 1-second window gets its own independent budget");
     }
 
@@ -14845,7 +14875,7 @@ mod overlay_event_thinning_tests {
     fn under_the_cap_nothing_is_dropped() {
         let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         let events = vec![attack_at(0, "a_player"), attack_at(10, "a_player"), attack_at(999, "a_player")];
-        let thinned = thin_events_for_overlay(events, &units);
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
         assert_eq!(thinned.len(), 3);
     }
 
@@ -14859,21 +14889,65 @@ mod overlay_event_thinning_tests {
         events.push(CombatEvent::Heal { at_ms: 500, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5, target_hp_after: 50, is_revive: false });
         events.push(CombatEvent::Defeat { at_ms: 500, unit: "a_player".to_string() });
         events.push(CombatEvent::SkillCast { at_ms: 500, unit: "a_player".to_string(), skill: "Flicker Strike".to_string() });
-        let thinned = thin_events_for_overlay(events, &units);
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
         assert!(thinned.iter().any(|e| matches!(e, CombatEvent::Heal { .. })), "a Heal must survive regardless of how saturated the Attack budget is");
         assert!(thinned.iter().any(|e| matches!(e, CombatEvent::Defeat { .. })), "a Defeat must survive regardless of how saturated the Attack budget is");
         assert!(thinned.iter().any(|e| matches!(e, CombatEvent::SkillCast { .. })), "a SkillCast must survive regardless of how saturated the Attack budget is");
     }
 
     #[test]
-    fn shield_and_buffsnapshot_are_never_broadcast_even_under_the_cap() {
+    fn shield_always_survives_even_deep_past_the_attack_cap() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
+        let mut events = Vec::new();
+        for _ in 0..(OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4) {
+            events.push(attack_at(500, "a_player"));
+        }
+        for _ in 0..3 {
+            events.push(CombatEvent::Shield { at_ms: 500, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5 });
+        }
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
+        let shield_count = thinned.iter().filter(|e| matches!(e, CombatEvent::Shield { .. })).count();
+        assert_eq!(shield_count, 3, "every Shield must survive, un-deduped and uncapped - the desktop pane SUMS them, so dropping any under-counts");
+    }
+
+    #[test]
+    fn buffsnapshot_keeps_only_the_last_per_unit_per_dedupe_window() {
         let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
         let events = vec![
-            CombatEvent::Shield { at_ms: 0, healer: "a_player".to_string(), target: "a_player".to_string(), amount: 5 },
-            CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("test".to_string(), 1.0)] },
+            CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("early".to_string(), 1.0)] },
+            CombatEvent::BuffSnapshot { at_ms: 400, unit: "a_player".to_string(), buffs: vec![("mid".to_string(), 1.0)] },
+            CombatEvent::BuffSnapshot { at_ms: 900, unit: "a_player".to_string(), buffs: vec![("late".to_string(), 1.0)] },
+            // A different unit's snapshot in the SAME window must survive
+            // independently - dedupe is per-(unit, window), not per-window.
+            CombatEvent::BuffSnapshot { at_ms: 100, unit: "another_player".to_string(), buffs: vec![("other".to_string(), 1.0)] },
+            // A snapshot in the NEXT window (default 1000ms) must survive
+            // independently too - dedupe never crosses window boundaries.
+            CombatEvent::BuffSnapshot { at_ms: 1_500, unit: "a_player".to_string(), buffs: vec![("next_window".to_string(), 1.0)] },
         ];
-        let thinned = thin_events_for_overlay(events, &units);
-        assert!(thinned.is_empty(), "overlay.html's fireEvent has no branch for either kind - broadcasting them is pure waste");
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
+        let a_player_buffs: Vec<&str> = thinned
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::BuffSnapshot { unit, buffs, .. } if unit == "a_player" => Some(buffs[0].0.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(a_player_buffs, vec!["late", "next_window"], "only the LAST snapshot per (unit, window) survives, in order");
+        assert!(thinned.iter().any(|e| matches!(e, CombatEvent::BuffSnapshot { unit, .. } if unit == "another_player")), "a different unit's snapshot in the same window survives independently");
+    }
+
+    #[test]
+    fn buffsnapshot_dedupe_window_is_live_tunable() {
+        let units = vec![CombatUnitInfo { id: "a_player".to_string(), display_name: "P".to_string(), is_boss: false, archetype: None, role: None, max_hp: 100, golem_summoner_id: None, golem_type: None, thunder_net_absorbed: 0, thunder_incarnations: vec![] }];
+        let events = vec![
+            CombatEvent::BuffSnapshot { at_ms: 0, unit: "a_player".to_string(), buffs: vec![("first".to_string(), 1.0)] },
+            CombatEvent::BuffSnapshot { at_ms: 1_500, unit: "a_player".to_string(), buffs: vec![("second".to_string(), 1.0)] },
+        ];
+        let mut tunables = LiveTunables::default();
+        tunables.buffsnapshot_dedupe_window_ms = 5_000;
+        let thinned = thin_events_for_overlay(events, &units, &tunables);
+        let survivors = thinned.iter().filter(|e| matches!(e, CombatEvent::BuffSnapshot { .. })).count();
+        assert_eq!(survivors, 1, "widening the window merges both snapshots into one dedupe bucket");
     }
 
     #[test]
@@ -14885,7 +14959,7 @@ mod overlay_event_thinning_tests {
         // events survive too.
         let total = OVERLAY_MAX_PLAYER_EVENTS_PER_SEC * 4;
         let events: Vec<CombatEvent> = (0..total).map(|i| attack_at((i * 1_000 / total) as u32, "a_player")).collect();
-        let thinned = thin_events_for_overlay(events, &units);
+        let thinned = thin_events_for_overlay(events, &units, &LiveTunables::default());
         assert_eq!(thinned.len(), OVERLAY_MAX_PLAYER_EVENTS_PER_SEC, "still caps to exactly the per-second budget");
         let last_kept_ms = thinned.iter().map(|e| e.at_ms()).max().unwrap();
         assert!(last_kept_ms > 500, "a survivor must land past the second's midpoint - head-keep would cluster every survivor before ms 250");
