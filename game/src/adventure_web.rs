@@ -2548,7 +2548,8 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
         Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
             let current_pacing = state.adventure.current_pacing_status().await;
-            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some())
+            let stage_bounds = state.adventure.stage_override_bounds().await;
+            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, stage_bounds, params.saved.is_some())
         }
         _ => "<div class=\"card\"><h1>Not Found</h1></div>".to_string(),
     };
@@ -2695,6 +2696,16 @@ struct TunablesForm {
     /// means "leave it alone," parsed by hand in `do_save_tunables`.
     #[serde(default)]
     boss_power_mult_override: String,
+    /// Operator override for the world stage (2026-08-23) - see
+    /// `AdventureManager::set_stage_override`. Same blank-means-leave-it-
+    /// alone `String` shape as the two controller overrides above, and for
+    /// the same reason: a blank text input still submits as an empty
+    /// string, not an absent field, so `Option<u32>` would fail to
+    /// deserialize the ordinary case. Applied through its own call in
+    /// `do_save_tunables` because it edits live WORLD state, not a
+    /// `LiveTunables` field.
+    #[serde(default)]
+    world_stage_override: String,
 }
 
 /// Same admin gate as the GET page above - a direct POST from someone
@@ -2797,6 +2808,25 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
             }
             if let Ok(value) = form.hp_pacing_mult_override.trim().parse::<f64>() {
                 state.adventure.set_hp_pacing_mult(value).await;
+            }
+            // Stage correction - its own one-job action, and deliberately
+            // NOT folded in with the two multiplier overrides above: it
+            // moves the world stage and touches nothing else (see
+            // `set_stage_override`, which owns the >= 1 and high-water
+            // bounds and logs both outcomes). Blank means leave it alone;
+            // anything that is not a whole number is refused here, since
+            // `u32` parsing is what rejects "12.5", "-3" and "twelve"
+            // before a value ever reaches the manager.
+            let requested_stage = form.world_stage_override.trim();
+            if !requested_stage.is_empty() {
+                match requested_stage.parse::<u32>() {
+                    Ok(requested) => {
+                        state.adventure.set_stage_override(requested).await;
+                    }
+                    Err(_) => {
+                        tracing::info!("operator override REJECTED: world stage unchanged (\"{requested_stage}\" is not a whole number)");
+                    }
+                }
             }
         }
     }
@@ -3378,7 +3408,11 @@ mod render_fights_page_tests {
 /// A save POSTs everything at once (not per-field) and redirects back here
 /// with `?saved=1` for the confirmation banner - same query-param-flash
 /// pattern `IndexParams`'s fields already use elsewhere on this dashboard.
-fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, saved: bool) -> String {
+/// `stage_bounds` is `(current stage, highest an operator override may
+/// set)` straight from `AdventureManager::stage_override_bounds` - the
+/// stage row below only labels itself with them, the real enforcement
+/// lives in `set_stage_override` under the world lock.
+fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, stage_bounds: (u32, u32), saved: bool) -> String {
     let nav = top_nav(viewer);
     // Saturation signals (owner ruling: a pinned controller must be
     // VISIBLE, not silent). A pinned flag means the party is performing
@@ -3547,6 +3581,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <label for=\"boss_power_mult_override\">Damage Controller Override: {dmg_mult_override_label}</label>\
               <input type=\"text\" id=\"boss_power_mult_override\" name=\"boss_power_mult_override\" placeholder=\"leave blank to keep as-is\">\
               <p class=\"tunable-hint\">Manual override for Controller B's own multiplier (e.g. after a bad losing streak leaves it stuck low). Leave blank to change nothing.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"world_stage_override\">World Stage Override: {stage_override_label}</label>\
+              <input type=\"text\" id=\"world_stage_override\" name=\"world_stage_override\" placeholder=\"leave blank to keep as-is\">\
+              <p class=\"tunable-hint\">Sets the party's world stage directly — the correction for a party parked on a stage it cannot win, where the walk only gives back 2 stages per LOST fight. Whole number, 1 to {stage_override_max}: that ceiling is the highest stage the party has actually reached, so you can walk them back to cleared content but never push them past content they have never seen. Leave blank to change nothing. Moves the stage and NOTHING else — both pacing controllers, both of their sampling windows and every character are left exactly as they are.</p>\
             </div>\
             <h2>Top-Layer Mitigation (stage-tied)</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"top_layer_enabled\" value=\"1\"{top_layer_enabled_checked}> Top-layer mitigation enabled</label>\
@@ -3770,6 +3809,8 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         baseline_atk_anchors_csv = baseline_atk_anchors_csv,
         hp_mult_override_label = format!("{:.3}x current", pacing.hp_mult),
         dmg_mult_override_label = format!("{:.3}x current", pacing.dmg_mult),
+        stage_override_label = format!("stage {} now, max {}", stage_bounds.0, stage_bounds.1),
+        stage_override_max = stage_bounds.1,
         top_layer_enabled_checked = if t.top_layer_enabled { " checked" } else { "" },
         top_layer_cap_pct = t.top_layer_cap_pct,
         top_layer_half_stage = t.top_layer_half_stage,

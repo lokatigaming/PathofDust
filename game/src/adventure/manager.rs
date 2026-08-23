@@ -310,6 +310,44 @@ pub(crate) struct WorldState {
     /// the sampler, never stored.
     #[serde(default)]
     recent_win_dps: std::collections::VecDeque<f64>,
+    /// High-water mark of `stage` - the highest stage the party has ever
+    /// actually REACHED by winning fights. Raised only by the stage walk
+    /// below, never lowered by its loss branch, and deliberately never
+    /// raised by `AdventureManager::set_stage_override` (an operator can
+    /// walk the party back down and then back up to where they really
+    /// got to, but can never ratchet the ceiling upward by hand).
+    ///
+    /// Added 2026-08-23 for exactly one consumer: `stage_ceiling`, the
+    /// upper bound the operator stage override validates against. Before
+    /// this field the game kept NO record of where the party had been -
+    /// `stage` alone, walked +1/-2 - so an operator control had nothing
+    /// honest to validate against.
+    ///
+    /// `#[serde(default)]` reads 0 out of every world file written before
+    /// this field existed, which is why nothing reads it directly - see
+    /// `stage_ceiling` for how a legacy file still gets a truthful bound.
+    #[serde(default)]
+    stage_high_water: u32,
+}
+
+impl WorldState {
+    /// The highest stage an operator override may set (see
+    /// `AdventureManager::set_stage_override`).
+    ///
+    /// `max(stage_high_water, stage)` rather than the high-water mark
+    /// alone: the field defaults to 0 on any world file written before it
+    /// existed, so on the first run after this ships the mark is 0 while
+    /// the party is standing on stage N. Bounding at 0 there would reject
+    /// every possible input and break the exact correction this control
+    /// exists to make - and the stage the party is standing on is, by
+    /// definition, one they reached.
+    ///
+    /// Floored at 1 because stage 1 is where the loss walk itself bottoms
+    /// out, so it is always reachable without operator help, and because
+    /// a ceiling below 1 would reject even the minimum legal input.
+    fn stage_ceiling(&self) -> u32 {
+        self.stage_high_water.max(self.stage).max(1)
+    }
 }
 
 /// Manual, not derived - a brand-new install goes through this (see
@@ -322,7 +360,7 @@ pub(crate) struct WorldState {
 /// value.
 impl Default for WorldState {
     fn default() -> Self {
-        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), hp_pacing_mult: default_hp_pacing_mult(), recent_boss_outcomes: std::collections::VecDeque::new(), recent_win_dps: std::collections::VecDeque::new() }
+        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), hp_pacing_mult: default_hp_pacing_mult(), recent_boss_outcomes: std::collections::VecDeque::new(), recent_win_dps: std::collections::VecDeque::new(), stage_high_water: 0 }
     }
 }
 
@@ -332,6 +370,20 @@ pub(crate) fn default_boss_power_mult() -> f64 {
 
 pub(crate) fn default_hp_pacing_mult() -> f64 {
     1.0
+}
+
+/// What an operator "set the world stage" request actually did - see
+/// `AdventureManager::set_stage_override` (2026-08-23). Returned rather
+/// than logged-and-forgotten so the rejection path is assertable in a
+/// test without scraping tracing output, and so a caller can report the
+/// ceiling it hit without re-reading world state under a second lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageOverrideOutcome {
+    /// The stage moved, and nothing else did.
+    Applied { previous: u32, stage: u32 },
+    /// Nothing changed at all. `requested` was either below 1 or above
+    /// `max_allowed` (the party's stage high-water mark).
+    Rejected { requested: u32, max_allowed: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -2203,6 +2255,62 @@ impl AdventureManager {
         let mut world = self.world.lock().await;
         world.hp_pacing_mult = pacing::sanitize_override_mult(value);
         self.persist_world(&world);
+    }
+
+    /// The current stage and the highest an operator override may set it
+    /// to, read under one lock so the pair `/admin/tunables` renders can
+    /// never be internally inconsistent.
+    pub async fn stage_override_bounds(&self) -> (u32, u32) {
+        let world = self.world.lock().await;
+        (world.stage, world.stage_ceiling())
+    }
+
+    /// Operator override for the world stage (2026-08-23). Exists because
+    /// there was previously no way to correct a party parked on a stage
+    /// it cannot win: the stage walk only hands back 2 stages per LOST
+    /// fight, so digging out of a bad overshoot meant hours of deliberate
+    /// losses.
+    ///
+    /// ONE JOB. It writes `WorldState::stage` and nothing else. It does
+    /// NOT touch either pacing controller's multiplier, `recent_boss_
+    /// outcomes` (Controller B's window), `recent_win_dps` (Controller A's
+    /// window), or any character. That restraint is the design, not an
+    /// omission: a stage correction is a statement about WHERE the party
+    /// is, not a verdict on what the controllers have learned, and
+    /// clearing either window would silently drop both controllers back
+    /// into warmup - they make no updates until a full window exists - so
+    /// a stage fix would quietly freeze difficulty adaptation for the next
+    /// `pacing_window_fights` fights. It also never raises
+    /// `stage_high_water`: the ceiling records where the party got on
+    /// their own, and an override that widened its own bound each time
+    /// would ratchet to anything in a few clicks.
+    ///
+    /// Rejects anything below 1 or above `WorldState::stage_ceiling`, so
+    /// an operator can walk the party back to content they have cleared
+    /// but never past content they have never seen. The bound is read
+    /// under the SAME lock as the write - a fight finishing mid-request
+    /// cannot land the stage above a ceiling that was just checked.
+    ///
+    /// Every call logs at INFO - applied and rejected alike - naming the
+    /// old value, the new value, and that a human did it, so the fight
+    /// log's parser can attribute a stage discontinuity to an operator
+    /// instead of reading it as a broken stage walk.
+    pub async fn set_stage_override(&self, requested: u32) -> StageOverrideOutcome {
+        let mut world = self.world.lock().await;
+        let previous = world.stage;
+        let max_allowed = world.stage_ceiling();
+        if !(1..=max_allowed).contains(&requested) {
+            tracing::info!(
+                "operator override REJECTED: world stage unchanged at {previous} (requested {requested}, allowed 1..={max_allowed} - the party's stage high-water mark)"
+            );
+            return StageOverrideOutcome::Rejected { requested, max_allowed };
+        }
+        world.stage = requested;
+        self.persist_world(&world);
+        tracing::info!(
+            "operator override: world stage {previous} -> {requested} (set by hand, not the stage walk; pacing controllers, both sampling windows and all characters untouched)"
+        );
+        StageOverrideOutcome::Applied { previous, stage: requested }
     }
 
     pub fn subscribe_encounters(&self) -> broadcast::Receiver<EncounterResult> {
@@ -5139,14 +5247,23 @@ impl AdventureManager {
             // climbs by beating B's target ratio. (Was -1 per loss from
             // 2026-08-16 until this release; the batch-announcement
             // replay helper in announcements.rs already modeled -2, and
-            // this change makes reality match it.) Nothing else writes or
-            // floors the stage.
+            // this change makes reality match it.) The only OTHER writer
+            // of `stage` anywhere is `set_stage_override`, the deliberate
+            // operator control - nothing automatic writes or floors it
+            // except this walk.
             // -----------------------------------------------------------------
             if won {
                 world.stage += 1;
             } else {
                 world.stage = world.stage.saturating_sub(2).max(1);
             }
+            // The ONLY place the high-water mark moves. It follows the
+            // win branch upward and ignores the loss branch entirely, so
+            // it records where the party has genuinely BEEN rather than
+            // where they currently are - which is the whole point: it is
+            // the ceiling the operator stage override validates against
+            // (see `WorldState::stage_ceiling`).
+            world.stage_high_water = world.stage_high_water.max(world.stage);
             // -----------------------------------------------------------------
             // CONTROLLER A (HP / duration axis). THE ONLY SAMPLE SITE -
             // the filler path deliberately feeds neither controller
@@ -8046,6 +8163,130 @@ mod dynamic_pacing_tests {
         assert!(world.recent_win_dps.is_empty(), "a filler fight must never reach Controller A's DPS window - it is measured against basic_enemy_stats_for, a different curve from the boss pools that multiplier governs");
         assert!(world.recent_boss_outcomes.is_empty(), "a filler fight must never reach Controller B's outcome window");
         assert_eq!(world.stage, stage_before, "a filler fight never walks the stage");
+    }
+
+    /// Puts a manager's world into a known, NON-default state on every
+    /// axis the stage override must leave alone, so "nothing else moved"
+    /// is a real assertion rather than a comparison of defaults against
+    /// defaults.
+    async fn manager_with_seeded_world(label: &str, stage: u32, high_water: u32) -> Arc<AdventureManager> {
+        let manager = disposable_manager(label).await;
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = stage;
+            world.stage_high_water = high_water;
+            world.hp_pacing_mult = 1.37;
+            world.boss_power_mult = 0.62;
+            world.recent_boss_outcomes = [true, false, true].into_iter().collect();
+            world.recent_win_dps = [11.0, 22.0, 33.0].into_iter().collect();
+        }
+        manager
+    }
+
+    /// The core promise: a valid override moves `stage` and leaves every
+    /// other piece of world state exactly as it was. Both controllers and
+    /// BOTH sampling windows are asserted explicitly - clearing either
+    /// window would drop both controllers back into warmup (neither
+    /// updates until a full window exists), silently freezing difficulty
+    /// adaptation for a whole window of fights. That is precisely the
+    /// "helpful" reset this control must never perform.
+    #[tokio::test]
+    async fn an_operator_stage_override_moves_the_stage_and_nothing_else() {
+        let manager = manager_with_seeded_world("stage_override_only_job", 90, 120).await;
+
+        let outcome = manager.set_stage_override(40).await;
+        assert_eq!(outcome, StageOverrideOutcome::Applied { previous: 90, stage: 40 }, "a valid stage inside the ceiling must apply and report both values");
+
+        let world = manager.world.lock().await;
+        assert_eq!(world.stage, 40, "the stage is the one thing that moves");
+        assert_eq!(world.hp_pacing_mult, 1.37, "Controller A's multiplier must be untouched");
+        assert_eq!(world.boss_power_mult, 0.62, "Controller B's multiplier must be untouched");
+        assert_eq!(world.recent_boss_outcomes.iter().copied().collect::<Vec<_>>(), vec![true, false, true], "Controller B's outcome window must be untouched");
+        assert_eq!(world.recent_win_dps.iter().copied().collect::<Vec<_>>(), vec![11.0, 22.0, 33.0], "Controller A's DPS sample window must be untouched");
+        assert_eq!(world.stage_high_water, 120, "an override must never raise (or lower) its own ceiling");
+    }
+
+    /// Walking the party back DOWN and later up again is the motivating
+    /// case, and the high-water mark is what keeps the return trip legal
+    /// even though `stage` in between sits far below it.
+    #[tokio::test]
+    async fn an_operator_may_return_the_party_to_its_high_water_mark() {
+        let manager = manager_with_seeded_world("stage_override_return", 90, 120).await;
+        assert!(matches!(manager.set_stage_override(5).await, StageOverrideOutcome::Applied { .. }), "down is always allowed");
+        assert_eq!(manager.set_stage_override(120).await, StageOverrideOutcome::Applied { previous: 5, stage: 120 }, "the high-water mark itself is inclusive");
+        assert_eq!(manager.world.lock().await.stage, 120);
+    }
+
+    /// Every rejection path, each asserted to change absolutely nothing.
+    #[tokio::test]
+    async fn an_invalid_stage_override_is_refused_and_changes_nothing() {
+        let manager = manager_with_seeded_world("stage_override_refused", 90, 120).await;
+
+        for requested in [0, 121, 5000] {
+            let outcome = manager.set_stage_override(requested).await;
+            assert_eq!(outcome, StageOverrideOutcome::Rejected { requested, max_allowed: 120 }, "{requested} must be refused against a high-water mark of 120");
+            let world = manager.world.lock().await;
+            assert_eq!(world.stage, 90, "a refused override leaves the stage exactly where it was");
+            assert_eq!(world.hp_pacing_mult, 1.37, "a refused override touches no controller");
+            assert_eq!(world.boss_power_mult, 0.62, "a refused override touches no controller");
+            assert_eq!(world.recent_boss_outcomes.len(), 3, "a refused override touches no window");
+            assert_eq!(world.recent_win_dps.len(), 3, "a refused override touches no window");
+            assert_eq!(world.stage_high_water, 120, "a refused override never moves the ceiling either");
+        }
+    }
+
+    /// The ceiling's legacy-file behavior, which is the difference between
+    /// this control working on its first deploy and being dead on arrival:
+    /// `stage_high_water` reads 0 out of every world file written before
+    /// the field existed, so the bound falls back to the stage the party
+    /// is standing on.
+    #[tokio::test]
+    async fn a_world_file_predating_the_high_water_mark_bounds_at_its_current_stage() {
+        let manager = manager_with_seeded_world("stage_override_legacy", 90, 0).await;
+        assert_eq!(manager.stage_override_bounds().await, (90, 90), "with no recorded mark the current stage IS the ceiling");
+        assert!(matches!(manager.set_stage_override(90).await, StageOverrideOutcome::Applied { .. }), "the stage the party stands on is by definition one they reached");
+        assert!(matches!(manager.set_stage_override(91).await, StageOverrideOutcome::Rejected { .. }), "one past it is not");
+    }
+
+    /// A fresh world sits at stage 0, where an unfloored ceiling would be
+    /// 0 and refuse every legal input. Stage 1 is where the loss walk
+    /// itself bottoms out, so it is always reachable without operator help.
+    #[tokio::test]
+    async fn a_fresh_world_still_accepts_stage_one() {
+        let manager = disposable_manager("stage_override_fresh").await;
+        assert_eq!(manager.stage_override_bounds().await, (0, 1), "the ceiling floors at 1 even at stage 0");
+        assert_eq!(manager.set_stage_override(1).await, StageOverrideOutcome::Applied { previous: 0, stage: 1 });
+        assert!(matches!(manager.set_stage_override(2).await, StageOverrideOutcome::Rejected { .. }), "but nothing above it");
+    }
+
+    /// The mark tracks wins and ignores the loss walk, which is what makes
+    /// it a record of where the party has BEEN rather than where it is.
+    #[tokio::test]
+    async fn the_high_water_mark_follows_wins_and_survives_the_loss_walk() {
+        let manager = disposable_manager("stage_override_walk").await;
+        manager.join("climber", "climber").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("climber").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = 30;
+            world.stage_high_water = 30;
+        }
+        let outcome = manager.trigger_encounter_now(None).await;
+        assert!(matches!(outcome, TriggerEncounterOutcome::Triggered), "a joined warrior must produce a real fight");
+        let world = manager.world.lock().await;
+        let won = *world.recent_boss_outcomes.back().expect("the fight's outcome must be recorded");
+        if won {
+            assert_eq!(world.stage, 31, "win advances +1");
+            assert_eq!(world.stage_high_water, 31, "and the mark follows it up");
+        } else {
+            assert_eq!(world.stage, 28, "loss regresses -2");
+            assert_eq!(world.stage_high_water, 30, "but the mark remembers the peak - that is the whole point");
+        }
     }
 
     /// Part 2: a WIPE under `permanent_rampage` (the expected steady
