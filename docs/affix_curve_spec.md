@@ -1827,20 +1827,42 @@ three orders of magnitude of gear inflation.**
 |---|---|---|
 | Pressure Point | `pressurepoint` | `Special` — Flowing Strikes' stacks grant **+6% crit chance per stack** |
 | Nerve Strike | `nervestrike` | `Special` — **+0.30 to `crit_multiplier`** |
-| Stone Fist | `stonefist` | `OverflowConversion` Evasion → IncreasedDamage, **capped +0.30** |
-| Granite Skin | `graniteskin` | `OverflowConversion` Evasion → IncreasedDamage, **capped +0.30** |
-| Overgrown Reach | `risingdefiance` | `OverflowConversion` Evasion → IncreasedDamage, **capped +0.30** |
+| Stone Fist | `stonefist` | `OverflowConversion` Evasion → IncreasedDamage, `spec` max_rank **4**, capped **+0.40** |
+| Granite Skin | `graniteskin` | `OverflowConversion` Evasion → IncreasedDamage, modifier max_rank 3, capped +0.30 |
+| Overgrown Reach | `risingdefiance` | `OverflowConversion` Evasion → IncreasedDamage, modifier max_rank 3, capped +0.30 |
 
 Overgrown Reach's node key is `risingdefiance` — renamed 2026-08-17, key
 unchanged (`passive_tree.rs:986-1000`). Worth knowing before anyone
 greps for it.
 
-**Three of the five are hard-capped flat +0.30 into the same additive
-bucket — a combined +0.90.** Flowing Strikes caps at 5 stacks, or 8 with
-Flow like Water at 3/3, so Pressure Point tops out at +0.30 or +0.48
-crit chance.
+**Three of the five are hard-capped into the same tree conversion pool —
+a combined +1.000, not +0.90.** Stone Fist is a `spec` node with
+`max_rank: 4`, so its cap is `OVERFLOW_CONVERSION_CAP_PER_RANK × 4 =
+0.40`; the other two are `modifier_with_effect` at max_rank 3, capped
+0.30 each. **0.40 + 0.30 + 0.30 = 1.000.** Flowing Strikes caps at 5
+stacks, or 8 with Flow like Water at 3/3, so Pressure Point tops out at
++0.30 or +0.48 crit chance.
 
-### 11.2 Verified at live scale — the ×1.003 is correct
+> **Corrected 2026-08-23 (§13).** An earlier revision of this table said
+> "capped +0.30" for all three and "+0.90 into the same **additive**
+> bucket." Both were wrong: Stone Fist's cap is 0.40 at rank 4, and the
+> pool is `tree_total`, which is **multiplicative**, not additive. See
+> §13.
+
+### 11.2 ~~Verified at live scale — the ×1.003 is correct~~ **SUPERSEDED BY §13**
+
+> ## ⚠ SECTIONS 11.2 AND 11.4 ARE SUPERSEDED
+>
+> The ×1.003 figure below was computed on a **refuted model** — it added
+> the three overflow nodes' output into the *gear* bucket, when the code
+> puts it in `tree_total`, which is its own multiplicative layer.
+> **The correct figure for those three nodes is ×2.000, and the
+> damage-forensics session is right.** §13 carries the reconciliation
+> and the corrected conclusions. The tables below are retained only so
+> the error stays legible; **they must not be cited.**
+>
+> The two crit nodes (Nerve Strike, Pressure Point) *were* modelled
+> correctly and their figures stand — see §13.4.
 
 Measured across the live roster, real equipped gear, gear-only bucket:
 
@@ -1905,7 +1927,7 @@ directly. Either reading supports the claim — under the curve at
 T=1,300 the gear bucket runs 2.06 (average affix luck) to 6.35 (eleven
 damage-bucket affixes).
 
-### 11.4 The revival, quantified — and it is conditional
+### 11.4 ~~The revival, quantified~~ **SUPERSEDED BY §13** — the overflow half of this section is computed on the refuted model; the evasion-gate table itself is correct and is carried forward into §13.5
 
 **New finding, not in the ruling: the three overflow nodes are gated on
 evasion actually exceeding the 75% cap, and the curve moves that gate.**
@@ -1939,7 +1961,7 @@ written for**:
 orders of magnitude without touching a single line of
 `passive_tree.rs`.
 
-### 11.5 Consequence for the passive rebalance
+### 11.5 Consequence for the passive rebalance — **see §13.6 for the corrected version**
 
 **DO NOT BUFF THESE FIVE.** Ratified. The curve restores them; buffing
 them now leaves them overtuned in the new world, and the correction
@@ -2075,6 +2097,302 @@ build from a build that happened to roll splash twice.
 
 Closed. Do not re-open on the observation that 2-instance builds miss
 it; that observation is the ruling, not an objection to it.
+
+---
+
+## 13. Reconciliation — the forensics session is right, §11 was wrong
+
+**Resolution: the damage-forensics session's ×2.000 stands. My
+×1.002–×1.004 was computed on a refuted model and is withdrawn.** §11.2
+and §11.4 are marked superseded above. Only one figure now stands.
+
+### 13.1 Are we measuring the same quantity?
+
+Nominally yes — both claim to be "what these nodes multiply total damage
+by." The difference is not one of scope. **One of them was computed
+against the wrong formula.**
+
+| | what it is a multiplier ON |
+|---|---|
+| **Forensics ×2.000** | the `(1 + tree_total)` factor in `combat_increased_damage` (`character.rs:3015-3072`), which multiplies the **entire** `(1 + gear_total)` product |
+| **My ×1.003** | the ratio of `critEV × (1 + bucket)` with the three nodes' output **added into `bucket`** — i.e. into `gear_total` |
+
+### 13.2 Does my model treat the tree as multiplicative? No — and that is the error
+
+**It treated the tree as additive into the gear bucket. The figure is
+therefore computed on a refuted model and is withdrawn.**
+
+The code is unambiguous:
+
+```rust
+// character.rs:3015-3072, combat_increased_damage
+let gear_total = sum_affix(IncreasedDamage) + damage_type_bonus
+               + archetype.bonus.increased_damage + self.defensive_overflow();
+let tree_total = self.passive_bonus().increased_damage
+               + self.passive_overflow_bonus().increased_damage;
+((1.0 + gear_total) * (1.0 + tree_total) * … - 1.0).max(-0.9)
+```
+
+`OverflowConversion` nodes land in `passive_overflow_bonus()`
+(`character.rs:2616-2644`), therefore in **`tree_total`**, therefore in
+their **own multiplicative factor**. They never touch `gear_total`.
+
+- Additive into a gear bucket of 766: `(1 + 766.9)/(1 + 766)` = **×1.001**
+- Multiplicative as `(1 + 1.000)`: **×2.000**
+
+That is the entire discrepancy. Three orders of magnitude of gear
+inflation is exactly what makes the two answers so far apart — which is
+also why the error was invisible in the output. ×1.003 *looked* like the
+drowning thesis confirming itself.
+
+### 13.3 The forensics arithmetic reproduces exactly, including the ranks
+
+**`(1 + 601.61) × 2.000 − 1 = 1204.22`** ✓ against the logged 1204.22.
+
+And the `tree_total` of exactly **1.000** is not the 0.90 the node
+descriptions imply. The reason is a code detail worth recording on its
+own:
+
+```rust
+// character.rs:2639-2640
+let raw    = overflow * node.magnitude_at_rank(rank);                  // effective_rank = min(rank, 3)
+let capped = raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank as f64);  // RAW rank
+```
+
+`magnitude_at_rank` clamps a `Specialization` node to
+`effective_rank = min(rank, 3)` (`passive_tree.rs:531-537`), but the cap
+uses the **raw** rank. `stonefist` is a `spec()` node with
+`max_rank: 4`, so at rank 4 its **efficiency saturates at the rank-3
+value (1.00) while its cap keeps climbing to 0.40**:
+
+| node | kind | max_rank | efficiency at max | cap |
+|---|---|---|---|---|
+| `stonefist` | `spec` | **4** | 1.00 (rank-3 value) | **0.40** |
+| `graniteskin` | modifier | 3 | 0.45 | 0.30 |
+| `risingdefiance` | modifier | 3 | 0.45 | 0.30 |
+| | | | | **1.000** |
+
+**Rank 4 of a Specialization `OverflowConversion` buys +0.10 of cap and
+zero efficiency, while the node's own description still reads "up to
++30% at 3/3."** Flagged as undocumented behaviour for the passive
+rebalance; not this branch's to change.
+
+**Live allocations confirm the prediction exactly.** Every character the
+forensics measured at ×2.000 carries `stonefist=4, graniteskin=3,
+risingdefiance=3` — `olympiclarry` and `gorshie` as primary Monks;
+`yo_pony`, `roxus` and `kmartbikes1` through a Monk **secondary** tree
+via Split Personality. Every character it measured at ×1.000 — `ttfn`,
+`clincl`, `pappag4ming` — has none of the three invested. Zero
+exceptions across the sample.
+
+### 13.4 What survives from §11, and what does not
+
+**The five nodes were never one group. They split cleanly in two, and
+D35's thesis is true of one half and false of the other.**
+
+| | Nerve Strike, Pressure Point | Stone Fist, Granite Skin, Overgrown Reach |
+|---|---|---|
+| Where the magnitude lands | **added** into `crit_multiplier` / `crit_chance` alongside gear (`combat.rs:4041-4042`, `4053`) | **`tree_total`** — its own multiplicative factor |
+| Drowned by gear inflation? | **YES** | **NO** |
+| Worth at live scale | **×1.0004 – ×4.04** | **×2.000** |
+| Under the curve | revives to **×1.27 – ×1.37** | **unchanged at ×2.000** — if the gate is cleared |
+| D35's thesis | **correct** | **refuted** |
+
+My additive treatment of the two crit nodes was right — they genuinely
+are summed into pools gear fills at scale. Recomputed cleanly across the
+37 characters with real crit gear, the two nodes alone at 3/3 are worth
+**×1.00039 (`ttfn`, huge crit gear) to ×4.04 (`pc_glory`, minimal crit
+gear)** — a 4,000× spread driven by nothing but how much crit gear sits
+underneath them. That spread *is* the drowning thesis, cleanly
+demonstrated, and it is the part of §11 that survives intact.
+
+The `kazesosa` datapoint survives too: with zero crit affixes (crit
+chance 5%, crit multiplier 2.0 — both bare baselines) the two crit nodes
+at 3/3 would be worth **×1.198**. That figure came from the crit half of
+the model, which was correct. *(Recorded as the hypothetical it is —
+`kazesosa` actually has `pressurepoint=1, nervestrike=0`.)*
+
+### 13.5 The saturation hypothesis — right observation, wrong reconciliation
+
+The working hypothesis offered was that live builds sit far past the 75%
+evasion threshold and are saturated, while under the curve most never
+clear it. **The observation is correct and important. It is not the
+reconciliation** — the two figures differ because one was computed on
+the wrong formula, not because they describe different conditions. Said
+plainly, so the record does not imply a tidier story than the one that
+happened.
+
+The observation itself, with numbers. All three nodes reach their caps
+once evasion overflow ≥ 0.6667:
+
+| tier | instances needed, **linear** | instances needed, **curve** | factor |
+|---|---|---|---|
+| 100 | 0.885 | 8.85 | 10× |
+| 500 | 0.177 | 5.56 | 31× |
+| **1,300** | **0.068** | **4.22** | **62×** |
+| 3,000 | 0.030 | 3.31 | 112× |
+| 10,000 | 0.009 | 2.34 | 264× |
+
+**Today it takes 7% of one Evasion affix to fully saturate all three
+nodes.** Any Monk with any evasion at all gets the full ×2.000 for free
+— precisely why the forensics found it uniform across every character
+that had them invested. Under the curve at T=1,300 it takes **4.22
+instances**: a real five-slot commitment.
+
+Behaviour under the curve at T=1,300:
+
+| Evasion instances | evasion | overflow | tree_total | multiplier |
+|---|---|---|---|---|
+| 1 | 0.336 | 0.000 | 0.000 | ×1.000 |
+| 2 | 0.672 | 0.000 | 0.000 | ×1.000 |
+| 3 | 1.007 | 0.257 | 0.489 | ×1.489 |
+| 4 | 1.343 | 0.593 | 0.934 | ×1.934 |
+| **4.22** | 1.417 | 0.667 | **1.000** | **×2.000** |
+| 6 | 2.015 | 1.265 | 1.000 | ×2.000 |
+
+**The curve does not weaken these three nodes at all. It makes them
+conditional.** A dedicated evasion build gets exactly what it gets
+today; a build with no evasion investment gets nothing where today it
+got a free doubling.
+
+### 13.6 Corrected consequence for the passive rebalance
+
+**"DO NOT BUFF" still holds for all five — but for opposite reasons, and
+the reasons matter more than the conclusion.**
+
+- **Nerve Strike, Pressure Point** — do not buff because **the curve
+  revives them** (×1.003 → ×1.27–1.37). §11.5's original reasoning was
+  correct for these two.
+- **Stone Fist, Granite Skin, Overgrown Reach** — do not buff because
+  **they are already the largest multiplicative layer a Monk has.** A
+  flat ×2.000 from three nodes is not a drowned node needing help.
+  §11.5 was wrong about these; this is the corrected reasoning.
+
+**The nerf question is now far more pointed than §11.5 framed it.**
+Three nodes granting a flat, unconditional ×2.000 — reachable today at
+7% of one affix — is the single largest bespoke multiplier in the game
+outside the gear bucket itself. The curve makes it conditional but does
+not make it smaller. That is D42, deliberately deferred to D41's sweep.
+
+---
+
+## 14. D41 — the sweep
+
+**RATIFIED: this sweep gates the passive rebalance. No node is retuned
+until it completes.** Retuning first means buffing nodes the curve was
+about to fix and missing nodes the curve is about to break — §13 is a
+worked example of exactly how wrong a by-review judgement can be.
+
+### 14.1 The classification rule
+
+§13 produced the rule the whole sweep turns on. **A node's exposure to
+gear inflation is decided by whether its magnitude is ADDED into a pool
+gear also fills, or opens its OWN multiplicative factor.**
+
+| Class | Where the magnitude lands | Drowned by gear? | What the curve does |
+|---|---|---|---|
+| **A — additive** | summed into `gear_total`, `crit_chance`, `crit_multiplier`, or any pool gear fills at scale | **YES** — worth `(pool + x)/pool` | **revives it** |
+| **B — multiplicative** | its own `(1 + x)` factor: `tree_total`, or a bespoke layer in `combat_increased_damage` | **NO** — worth `(1 + x)` at any gear scale | **nothing.** Only the gate moves |
+
+Class B nodes were never drowned and cannot be revived. **For them the
+only questions are whether the input gate is still reachable, and
+whether a fixed `(1 + cap)` sized for a world where that gate was free
+is still correctly sized in a world where it costs five slots.**
+
+### 14.2 Every `OverflowConversion` node — COMPLETE, 14 of 14
+
+All 14 are **Class B**. Caps are `OVERFLOW_CONVERSION_CAP_PER_RANK ×
+max_rank`; efficiency saturates at effective rank 3 (§13.3).
+
+| Node | Key | Conversion | max_rank | cap | eff |
+|---|---|---|---|---|---|
+| Unbreakable | `unbreakable` | Block → IncreasedDamage | 4 | 0.40 | 1.00 |
+| Stone Fist | `stonefist` | Evasion → IncreasedDamage | 4 | 0.40 | 1.00 |
+| Granite Skin | `graniteskin` | Evasion → IncreasedDamage | 3 | 0.30 | 0.45 |
+| Overgrown Reach | `risingdefiance` | Evasion → IncreasedDamage | 3 | 0.30 | 0.45 |
+| Shifting Form | `shiftingform` | Evasion → IncreasedDamage | 4 | 0.40 | 1.00 |
+| Primal Shift | `primalshift` | Evasion → IncreasedDamage | 3 | 0.30 | 0.45 |
+| Elusive | `elusive` | Evasion → CritChance | 4 | 0.40 | 0.75 |
+| Phantom | `phantom` | Evasion → CritChance | 3 | 0.30 | 0.30 |
+| Claw Strike | `clawstrike` | Evasion → CritChance | 3 | 0.30 | 0.60 |
+| Duskveil | `duskveil` | Evasion → AttackSpeed | 3 | 0.30 | 0.75 |
+| Lightfoot | `lightfoot` | Evasion → AttackSpeed | 3 | 0.30 | 1.00 |
+| Earthen Will | `earthenwill` | Evasion → MaxHpPct | 3 | 0.30 | 0.75 |
+| Aegis Ward | `aegisward` | Intervene → DamageReduction | 4 | 0.40 | 1.00 |
+| Sanctified Armor | `sanctifiedarmor` | Intervene → DamageReduction | 3 | 0.30 | 0.45 |
+
+**Combined caps per output stat — the number that matters, since each
+output is a single pooled `tree_total`:**
+
+| Output | nodes | max combined | lands in |
+|---|---|---|---|
+| **IncreasedDamage** | 6 | **+2.10 → ×3.10** | `tree_total`, `combat_increased_damage` |
+| **CritChance** | 3 | **+1.00 → ×2.00** | `tree_total`, `combat_crit_chance` |
+| **DamageReduction** | 2 | +0.70 | `combine_reduction_sources` — capped, behaves differently |
+| **AttackSpeed** | 2 | +0.60 → ×1.60 | `tree_bonus`, `attack_interval_ms` |
+| **MaxHpPct** | 1 | +0.30 → ×1.30 | `tree_increased`, `combat_max_hp` |
+
+**Verdict for all 14: NONE revive, NONE are dead, and the six
+IncreasedDamage nodes are the OVERTUNED candidates.** No single
+character reaches +2.10 — the six split across Warrior (`unbreakable`),
+Monk (`stonefist`/`graniteskin`/`risingdefiance`) and Druid
+(`shiftingform`/`primalshift`) — but Split Personality makes
+cross-archetype combinations real, and **`merkosh` already runs
+`unbreakable=4` primary plus the full Monk trio on a secondary tree:
+0.40 + 1.000 = +1.40 → ×2.40 today.**
+
+**The gate, per input stat** — affix instances needed to begin
+overflowing, linear / curve:
+
+| Input | cap | per_tier | T=100 | T=500 | T=1,300 | T=3,000 |
+|---|---|---|---|---|---|---|
+| Evasion | 0.75 | 0.016 | 0.47 / 4.69 | 0.09 / 2.94 | **0.04 / 2.23** | 0.02 / 1.75 |
+| BlockChance | 0.75 | 0.02 | 0.38 / 3.75 | 0.07 / 2.36 | 0.03 / 1.79 | 0.01 / 1.40 |
+| Intervene | 0.50 | 0.01 | 0.50 / 5.00 | 0.10 / 3.14 | 0.04 / 2.38 | 0.02 / 1.87 |
+
+Under the curve every gate costs 2–5 affix instances instead of a
+rounding error. **That is the curve's entire effect on Class B: it turns
+fourteen free bonuses into fourteen build commitments.**
+
+### 14.3 The `Special` half — NOT COMPLETE. BLOCKED, with the method specified
+
+**BLOCKED — reason: scope.** `passive_tree.rs` contains **407**
+`Special` sites. Classification cannot be done from `passive_tree.rs`
+alone, because a `Special` node's class is decided by its **read site in
+`combat.rs` / `character.rs`**, not by its declaration — `nervestrike`
+and `stonefist` are both declared with flat magnitudes and land in
+opposite classes. Each of the 407 needs its `passive_node_magnitude` /
+`passive_node_rank` consumer located and classified. That is a real
+sweep, not a grep, and it did not fit this pass.
+
+**What is already known, so the sweep does not restart from zero:**
+
+**Class B (multiplicative — will NOT revive)** — named explicitly in
+`combat_increased_damage` as "compounds separately": Titan's Grip,
+Overwhelming Force (+ Grim Resolve), Momentous Blow, Reckless Swing,
+Death Wish (+ Glory Hound), Life Tap (+ Soul Exchange). Six bespoke
+layers, each its own `(1 + x)`. Treat exactly like the Class B
+conversions above.
+
+**Class A (additive — WILL revive)** — confirmed: Nerve Strike
+(→ `crit_multiplier`), Pressure Point (→ `crit_chance`), plus every
+generic `FlatStat` node pooled through `passive_bonus()` whose output
+stat gear also fills. The **51** `FlatStat` sites are the first place to
+look.
+
+**The method, so whoever runs it does not re-derive it:**
+
+1. Enumerate every `Special` and `FlatStat` node key.
+2. For each, grep `passive_node_magnitude("<key>")` /
+   `passive_node_rank("<key>")` in `combat.rs` and `character.rs`.
+3. Classify by the **read site**: added into an existing sum → **Class
+   A**; its own `(1 + x)` factor, or into `tree_total` → **Class B**.
+4. Class A: report `(pool + x)/pool` at live scale and under the curve.
+   That ratio is the revival.
+5. Class B: report `(1 + x)` — unchanged by the curve — plus the gate
+   cost if it has an input threshold. **These are the nerf candidates.**
+
+**Do not retune any node before steps 1–5 complete for all of them.**
 
 ---
 
@@ -2336,3 +2654,81 @@ it; that observation is the ruling, not an objection to it.
 46. **Spec status: COMPLETE.** With Decisions 11, 13 and 20's sibling
     closed, no item in this document awaits a ruling. Further changes
     should come only from something contradicting what is recorded here.
+47. **R9-R13 promotion confirmed correct** (§10.10-10.14). The
+    caveats-vs-rulings distinction is ratified as the reason: a
+    qualification attached to R3 reads as a caveat on that ruling, not
+    as a decision standing on its own, and R11 in particular would
+    otherwise have been read as an incomplete implementation.
+48. **D13's `roll_range_for_slot(slot)` helper is RATIFIED over a bare
+    constant swap** (§12.2). Both silent failures are now IMPLEMENTATION
+    REQUIREMENTS, not notes: (a) `Item::quality_percent` measures
+    against `POWER_ROLL_RANGE`'s span, so a maxed ring would cap at ~86%
+    quality and never reach 100%; (b) `make_item_perfect` /
+    `apply_divine_dust` write `POWER_ROLL_RANGE.end` = 1.20 onto a slot
+    whose ceiling is 1.15, reinstating the exact 4.3% overshoot D13
+    exists to remove. Neither is compiler-caught.
+49. **CARRY FORWARD: weapon and body power are the largest untouched
+    growth terms in the new world** (§12.1). Both stay linear and
+    uncapped under D11. First place to look if the post-launch exponent
+    drifts high.
+50. **CONTRADICTION RESOLVED — the damage-forensics session is right;
+    §11's x1.003 is WITHDRAWN** (§13). The figure was computed by adding
+    the three overflow nodes into the GEAR bucket, when the code puts
+    them in `tree_total`, which is its own multiplicative layer. Correct
+    figure: **x2.000**. `(1 + 601.61) * 2.000 - 1 = 1204.22` reproduces
+    the logged value exactly, and live allocations confirm the split
+    with zero exceptions: every x2.000 character carries
+    `stonefist=4, graniteskin=3, risingdefiance=3` (primary Monk or via
+    Split Personality); every x1.000 character carries none. §11.2 and
+    §11.4 are marked SUPERSEDED; only one figure now stands.
+51. **The tree_total of exactly 1.000 comes from a rank-4 cap/efficiency
+    mismatch** (§13.3). `magnitude_at_rank` clamps a Specialization node
+    to `effective_rank = min(rank,3)` while the cap uses the RAW rank,
+    so `stonefist` at rank 4 gets efficiency 1.00 (the rank-3 value) and
+    a cap of 0.40. 0.40 + 0.30 + 0.30 = 1.000. **Rank 4 buys +0.10 of
+    cap and zero efficiency, while the node description still reads "up
+    to +30% at 3/3."** Flagged as undocumented behaviour for the passive
+    rebalance.
+52. **D35 is TRUE of two of the five nodes and REFUTED for the other
+    three** (§13.4). Nerve Strike and Pressure Point are additive into
+    pools gear fills and ARE drowned — measured x1.00039 (`ttfn`) to
+    x4.04 (`pc_glory`), a 4,000x spread driven by nothing but underlying
+    crit gear. Stone Fist / Granite Skin / Overgrown Reach are their own
+    multiplicative layer and were never drowned. The five were never one
+    group.
+53. **The saturation hypothesis is the right OBSERVATION but the wrong
+    RECONCILIATION** (§13.5). The two figures differ because one used
+    the wrong formula, not because they describe different conditions.
+    The observation stands on its own: saturating all three nodes costs
+    0.068 Evasion instances today and 4.22 under the curve at T=1,300 —
+    a 62x rise. **The curve does not weaken these nodes; it makes them
+    conditional.**
+54. **"DO NOT BUFF" survives for all five, for OPPOSITE reasons**
+    (§13.6). The two crit nodes because the curve revives them; the
+    three overflow nodes because they are already the largest
+    multiplicative layer a Monk has.
+55. **D41 sweep — the `OverflowConversion` half is COMPLETE, 14 of 14**
+    (§14.2). All 14 are Class B (multiplicative): none revive, none are
+    dead, and the six IncreasedDamage nodes are the overtuned
+    candidates at a combined cap of +2.10. `merkosh` already runs
+    +1.40 → x2.40 today by pairing `unbreakable=4` with the full Monk
+    trio through Split Personality.
+56. **D41 sweep — the `Special` half is BLOCKED on scope** (§14.3). 407
+    `Special` sites; class is decided by the combat.rs read site, not
+    the declaration, so each needs its consumer located. The
+    classification rule, the six known Class B bespoke layers, the
+    confirmed Class A nodes, the 51 `FlatStat` starting points and the
+    five-step method are all recorded so the sweep does not restart from
+    zero. **No node is retuned until it completes.**
+57. **D42 — "do these now need a NERF" is OPEN, deliberately deferred
+    until D41's sweep completes.** Reason: the nerf candidates are
+    Class B nodes, and Class B membership is exactly what the incomplete
+    half of the sweep determines. Deciding now would repeat §13's error
+    in the opposite direction — acting on a partial classification. The
+    question is sharper than §11.5 framed it: three nodes granting a
+    flat x2.000, reachable today at 7% of one affix, is the largest
+    bespoke multiplier in the game outside the gear bucket, and the
+    curve makes it conditional without making it smaller.
+58. **Spec status: COMPLETE except D42, which is deferred BY DESIGN to
+    D41's sweep.** Supersedes Decision 46. No other item awaits a
+    ruling.
