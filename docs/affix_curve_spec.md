@@ -1732,6 +1732,352 @@ and `weight`, and `splash_overcap_bonus_targets` /
 
 ---
 
+### 10.10 R9 — post-curve the splash ladder is one rung
+
+**RATIFIED.** For a six-instance build at step 350 the rungs land at
+T ≈ 998 / 10,988 / 44,692 / 120,933 / 261,742. Only the first sits
+inside any tier range this game will occupy.
+
+This was already recorded as Qualification 1 inside §10.3; it is
+promoted to a numbered ruling here so it cannot be read as a caveat on
+R3 rather than a decision in its own right. **The mechanic is a single
++1 target, once. That is the intended shape, not a shortfall.**
+
+### 10.11 R10 — naming constraint: do not call it a "ladder" to players
+
+**RATIFIED.** Wiki text and patch notes must not describe the splash
+overcap as a ladder, a staircase, or anything else implying repeated
+rungs. A player who reads "ladder" will look for rung two, and at
+T ≈ 10,988 will not find it inside the life of the world.
+
+Describe it as what it is: **passing 350% splash grants one additional
+target.** The internal names (`splash_ladder_step_pct`,
+`splash_ladder_targets_per_step`) stay — renaming a `LiveTunable` key
+for no mechanical gain is pure churn — but the player-facing wording is
+constrained.
+
+### 10.12 R11 — rung 2 is deferred, not broken
+
+**RATIFIED.** Rung 2 at T ≈ 10,988 is left where it falls. It is not a
+bug to be tuned out, and the step is **not** to be lowered further to
+pull it into range — see R12 for why the floor is where it is.
+
+If a future world ever reaches those tiers, rung 2 activates on its own
+with no change required. Recorded so a later session does not read the
+single-rung outcome as an incomplete implementation.
+
+### 10.13 R12 — the Ranger coupling is a buff, and ships as one
+
+**RATIFIED.** `splash_overcap_target_count` has a second consumer —
+Ranger's Volley / Chain Lightning damage-bonus sizing line
+(`combat.rs:14307`) — which reuses the same count formula by design so
+the two can never drift. Lowering the step from 1000 to 350 raises
+`max_targets_reachable` from 4 to 5 for a six-instance splash build at
+T=1,000: **a +25% bump to `splash_target_dmg_bonus`.**
+
+This is not a side effect to be suppressed. The shared helper exists
+precisely so a change to the count formula reaches both call sites, and
+decoupling them to keep Volley neutral would reintroduce exactly the
+drift the helper was factored out to prevent. **It ships as a buff and
+it goes in the patch note as a buff** — per COMMITS & DOCS, patch notes
+are honest in both directions.
+
+### 10.14 R13 — the `floor()` rounding rule
+
+**RATIFIED AS GENERAL PRACTICE.** Promoted here from a note inside
+§10.1, where it was easy to miss.
+
+> **When a value is derived to hit a `floor()` boundary, round in
+> whichever direction clears the boundary, and state in the spec which
+> direction that was and why.**
+
+The rule exists because the correct direction is not fixed — it depends
+on which side of the division the derived quantity sits:
+
+| Ruling | Quantity | Direction | The wrong value | What it does |
+|---|---|---|---|---|
+| R1 | Echo `per_tier` | **UP** → 0.00857 | 0.00856 → 0.999137 | falls short of 1 repeat |
+| R3 | `splash_ladder_step_pct` | **DOWN** → 350 | 351 → `floor(350.16/351) = 0` | falls short of 1 rung |
+
+Both anchors are `floor()` thresholds. Echo's coefficient is the
+*numerator* of the comparison and the step is the *denominator*, so
+clearing the boundary means rounding in opposite directions. Truncating
+by habit would have broken both.
+
+The same discipline covers §1's `0.289` over `ln2/ln11 = 0.2890648` —
+there the deviation is nowhere near a `floor()` boundary, so readability
+wins and the rounding is free. **Check whether a boundary is in play
+before deciding that rounding is cosmetic.**
+
+---
+
+## 11. The five "dead" passive nodes (D35)
+
+**RATIFIED, and verified against the model.** Recorded here rather than
+only in the crit-saturation forensics report, because it changes what
+the passive rebalance should do.
+
+**Pressure Point, Nerve Strike, Stone Fist, Granite Skin and Overgrown
+Reach are not weak nodes. They are correctly-sized nodes drowned by
+three orders of magnitude of gear inflation.**
+
+### 11.1 What the five nodes actually are
+
+| Node | Key | Effect at 3/3 |
+|---|---|---|
+| Pressure Point | `pressurepoint` | `Special` — Flowing Strikes' stacks grant **+6% crit chance per stack** |
+| Nerve Strike | `nervestrike` | `Special` — **+0.30 to `crit_multiplier`** |
+| Stone Fist | `stonefist` | `OverflowConversion` Evasion → IncreasedDamage, **capped +0.30** |
+| Granite Skin | `graniteskin` | `OverflowConversion` Evasion → IncreasedDamage, **capped +0.30** |
+| Overgrown Reach | `risingdefiance` | `OverflowConversion` Evasion → IncreasedDamage, **capped +0.30** |
+
+Overgrown Reach's node key is `risingdefiance` — renamed 2026-08-17, key
+unchanged (`passive_tree.rs:986-1000`). Worth knowing before anyone
+greps for it.
+
+**Three of the five are hard-capped flat +0.30 into the same additive
+bucket — a combined +0.90.** Flowing Strikes caps at 5 stacks, or 8 with
+Flow like Water at 3/3, so Pressure Point tops out at +0.30 or +0.48
+crit chance.
+
+### 11.2 Verified at live scale — the ×1.003 is correct
+
+Measured across the live roster, real equipped gear, gear-only bucket:
+
+| character | crit chance | crit mult | bucket | 5 stacks | 8 stacks |
+|---|---|---|---|---|---|
+| merkosh | 5,973% | 375 | 766 | ×1.00203 | ×1.00206 |
+| galquin | 7,983% | 100 | 759 | ×1.00421 | ×1.00423 |
+| sitch89 | 1,788% | 453 | 726 | ×1.00247 | ×1.00280 |
+| yo_pony | 5,285% | 522 | 674 | ×1.00197 | ×1.00201 |
+| zolaries | 11,242% | 647 | 602 | ×1.00197 | ×1.00198 |
+| clincl | 8,227% | 496 | 596 | ×1.00214 | ×1.00216 |
+
+**×1.002 to ×1.004 — the ruling's ×1.003 is confirmed** for the typical
+geared character.
+
+**The strongest evidence for the thesis is the outlier.** `kazesosa`
+carries **zero** crit affixes — crit chance 5% (the bare
+`BASE_CRIT_CHANCE`), crit multiplier 2.0 (the bare baseline). On that
+character the same five nodes at the same ranks are worth **×1.199**.
+Same nodes, same ranks, gear inflation removed: **200× the effect.**
+The thesis demonstrated on live data rather than argued.
+
+### 11.3 Verified under the curve
+
+| claim | verdict |
+|---|---|
+| a CritChance affix at T=1,300 is worth ~21% | **20.99%** — `0.01 × f(1300)`, `f(1300) = 20.986` ✓ |
+| five instances ≈ 1.05 crit stacks | **1.0493** ✓ — gear affixes alone, excluding the 5% base |
+| overcrit bracket ≈ 1.07 of a possible 2.5 | **1.0705** naive ✓ — but corrected below |
+| the bucket falls to single digits | **2.06 – 6.35** at T=1,300 ✓ |
+
+**The 1.05 excludes two real sources.** Adding `BASE_CRIT_CHANCE` gives
+**1.0993**; adding the two new ring implicits from §8 gives **1.5190**.
+A real post-curve character sits nearer 1.52 stacks than 1.05. The
+bracket at 1.5190 is 1.5125 — still only 61% of the 2.5 ceiling, so
+"far from saturation" holds at all three figures.
+
+**CORRECTION — the true bracket is ~1.04, not ~1.07.**
+`crit_stack_bonus` is evaluated at a whole number of stacks, and real
+stacks are a two-point distribution (`floor(cc)` or `floor(cc)+1`), so
+the expectation is the probability-weighted average of the function at
+both — **not** the function at the average. The function is concave past
+the first stack, so by Jensen's inequality the naive figure overstates:
+
+| crit chance | naive `bracket(E[stacks])` | **exact `E[bracket]`** |
+|---|---|---|
+| 1.0493 | 1.0705 | **1.0370** |
+| 1.0993 | 1.1355 | **1.0745** |
+| 1.5190 | 1.5125 | **1.3893** |
+
+`Character::combat_total_output_per_sec` already does this correctly and
+its own doc calls out the Jensen trap explicitly
+(`character.rs:3337-3349`). **This makes the conclusion stronger, not
+weaker — the build is even further from saturation than stated.**
+
+On the bucket: the ruling's **~1205** is the full
+`combat_increased_damage` including the passive-tree multiplicative
+layer. The **gear-only** bucket on the same top character is **766**.
+Both are correct readings of different quantities, and this spec's own
+tables from §4 onward are gear-only, so the two should not be compared
+directly. Either reading supports the claim — under the curve at
+T=1,300 the gear bucket runs 2.06 (average affix luck) to 6.35 (eleven
+damage-bucket affixes).
+
+### 11.4 The revival, quantified — and it is conditional
+
+**New finding, not in the ruling: the three overflow nodes are gated on
+evasion actually exceeding the 75% cap, and the curve moves that gate.**
+
+At T=1,300 one Evasion affix is worth 33.58%, so **2.23 instances are
+needed before any overflow exists at all.** Average affix luck across
+nine slots is 0.69 instances → evasion 0.231 → **zero overflow, and all
+three nodes pay exactly nothing.**
+
+| Evasion instances | evasion | overflow | the 3 nodes pay |
+|---|---|---|---|
+| 1 | 0.336 | 0.000 | **0.000** |
+| 2 | 0.672 | 0.000 | **0.000** |
+| 3 | 1.007 | 0.257 | 0.489 |
+| 4 | 1.343 | 0.593 | 0.834 |
+| 5 | 1.679 | 0.929 | **0.900** (all capped) |
+| 6 | 2.015 | 1.265 | **0.900** |
+
+So the revival is real, but **conditional on the build the nodes were
+written for**:
+
+| build at T=1,300, under the curve | five nodes worth |
+|---|---|
+| average luck, no evasion investment (Pressure Point + Nerve Strike only) | **×1.266** |
+| 3 Evasion instances | **×1.469** |
+| 5 crit + 5 Evasion instances, 5 stacks | **×1.549** |
+| 5 crit + 5 Evasion instances, 8 stacks | **×1.632** |
+| *the same 5-crit / 5-evasion build at live linear scale* | *×1.024* |
+
+**From ×1.003 to ×1.55.** The curve restores these nodes by roughly two
+orders of magnitude without touching a single line of
+`passive_tree.rs`.
+
+### 11.5 Consequence for the passive rebalance
+
+**DO NOT BUFF THESE FIVE.** Ratified. The curve restores them; buffing
+them now leaves them overtuned in the new world, and the correction
+would then have to be a nerf to nodes players had just been told were
+improved.
+
+Three things to carry into that rebalance, all flagged rather than
+decided:
+
+**The opposite risk is now live.** Three nodes contributing a flat +0.90
+into a bucket of ~2.06 is **+44% from three nodes.** The caps (+0.30
+each) were sized against a linear world where they were rounding errors,
+and nothing has re-derived them for a world where the bucket is single
+digits. "Do not buff" is settled; **"do these now need a nerf" is a
+real question**, and it is the same class of finding as this ruling
+pointing the other way.
+
+**The gate is the saving grace and should stay.** The overflow nodes pay
+nothing below ~2.23 Evasion instances, which keeps them a genuine
+evasion-build reward rather than a free +0.90 for everyone. Any change
+to `Evasion`'s `per_tier`, or to the 75% cap, moves that gate — check it
+before touching either.
+
+**The sweep has not been run.** These five were found by review, not by
+a systematic pass. Every flat-magnitude `Special` and every capped
+`OverflowConversion` in the tree has the same shape and is subject to
+the same drowning-then-revival. That sweep should happen **before** any
+node is retuned, or the rebalance will buff nodes the curve was about to
+fix.
+
+---
+
+## 12. The last three open items, closed
+
+Decisions 11, 13 and 20's sibling were the only items this spec still
+listed as awaiting a ruling. All three are now closed. **With these, the
+spec is complete unless something contradicts it.**
+
+### 12.1 D11 — `compute_power` stays linear
+
+**RATIFIED. The five existing slots' base power is NOT curved.**
+`compute_power` (`item.rs:967-974`) keeps `base_power_for_slot(slot) ×
+tier as f64 × power_roll` exactly as it is today.
+
+The measurement that decides it, over the fresh-start range with the
+full package (four new slots, `CritMultiplier` at 0.025):
+
+| ruling | T^ (25→200) | doubling item tier |
+|---|---|---|
+| **`compute_power` LINEAR** | **T^1.44** | **×2.72** |
+| `compute_power` curved | T^0.42 | ×1.34 |
+| *§3 ratified target* | *T^1.43* | *×2.70* |
+
+**Doubling every item's tier for 34% more damage is not a progression
+game.** Linear lands on the ratified target essentially exactly.
+
+**Scope clarification, now authoritative:** "every other tier-scaled
+value" in §8's slot ruling means **AFFIX values, not slot base power.**
+The curve applies to `affix_base_value` and to the four new slots'
+implicits — the latter because those implicits are affix-equivalents by
+the "one affix's worth" ruling, *not* because they are slot powers.
+
+Three consequences worth recording:
+
+- **The 50 ms `attack_interval_ms` floor survives.** It sits at
+  T ≈ 2,500 with `compute_power` linear, and at T ≈ 2.0e10 if curved.
+  Gloves keep their only brake, which was an argument for this ruling
+  and is now a property of it.
+- **Weapon and Body power stay linear and uncapped.** They remain the
+  two layers of the original six that are *not* slowed by the curve.
+  §8.5's measurement already accounts for this — T^1.44 is the number
+  *with* them linear — so this is not a hidden cost, but it does mean
+  weapon power is the single largest untouched growth term in the new
+  world. If the post-launch exponent drifts high, that is the first
+  place to look.
+- **`[slot_base_power]` for the existing five stays at code defaults.**
+  Nothing in §10.9's launch file changes.
+
+### 12.2 D13 — the new slots use the affix jitter band
+
+**RATIFIED. The four new slots roll their base power against
+`0.85..1.15` — the affix jitter band — NOT `POWER_ROLL_RANGE`
+(`0.85..1.20`).**
+
+The reasoning: §8's ruling is that a slot's base power **equals exactly
+one affix of that type at the item's tier.** An invariant that holds at
+the floor and breaks at the ceiling is not an invariant. Under
+`POWER_ROLL_RANGE` the implicit tops out **4.3% above** the affix it is
+defined to equal — at T=100 the Amulet's ceiling is 30.00% against a
+28.75% affix maximum. Small, but it is a permanent, structural lie about
+what the slot is.
+
+**Record explicitly: this makes the four new slots the first equipment
+in the game that does not share the existing slots' roll range.** That
+is a deliberate divergence, not an oversight, and it has consequences a
+later reader will otherwise trip over:
+
+| Touch point | Consequence |
+|---|---|
+| `generate_item_at_tier` / `generate_item_at_tier_with_roll` (`item.rs:1033`, `1054`) | draw the new slots' `power_roll` from `0.85..1.15`; the existing five keep `POWER_ROLL_RANGE` |
+| `Item::power_roll` field | stores a value that is now range-dependent on `slot`. Its doc says the roll is "fixed for that item's whole lifetime" — still true, but the *range* it came from now varies |
+| `Item::quality_percent` | measures the roll against `POWER_ROLL_RANGE`'s span. **On a new slot this will read wrong** — a maxed ring would show as ~86% quality, never 100% — unless it is made range-aware. This is the one that will produce a live bug report if missed |
+| `make_item_perfect` / `apply_divine_dust` (`character.rs:2078`) | set `power_roll = POWER_ROLL_RANGE.end`. On a new slot that is 1.20, **above its own 1.15 ceiling** — must clamp to the slot's own range or a Perfect ring exceeds one affix's worth by exactly the 4.3% this ruling exists to remove |
+| `QUALITY_STEP` polish math (`character.rs:1908`, `1941-1956`) | computes `jitter_span` from `POWER_ROLL_RANGE`; needs the same range-awareness |
+| R5's pairing test (§10.5) | still passes — it tests the *coefficient*, not the roll. But the ruling's intent is now only fully enforced if the test also checks that the ranges match. Recommended addition |
+
+**The cleanest implementation shape** is a `roll_range_for_slot(slot)`
+helper beside `base_power_for_slot`, returning `POWER_ROLL_RANGE` for
+the existing five and `0.85..1.15` for the new four, with every site
+above reading through it. A bare constant swap will miss
+`quality_percent` and `make_item_perfect`, and both fail silently.
+
+**This does not change the rng draw count.** `gen_range` is called
+exactly once either way, just against a different range — so §5.3's
+constraint is respected and this contributes no additional golden-fixture
+divergence beyond the slot addition already accounted for in §8.7.
+
+### 12.3 D20-sibling — four-plus instances is the right floor
+
+**RATIFIED AND CLOSED. The step is not lowered below 350 to bring
+2-instance builds into reach.**
+
+At step 350 the splash overcap ladder is reachable by a six-instance
+build at T = 1,000 and by a four-instance build as a long tail at
+T = 10,000. A two-instance build never reaches it, peaking at 227%
+against the 350% requirement.
+
+**That is the intended shape.** The splash overcap is a heavy build
+commitment — six slots, or four slots and patience. **A threshold a
+casual allocation reaches is not a commitment**, and lowering the step
+to make it one would delete the only thing that distinguishes a splash
+build from a build that happened to roll splash twice.
+
+Closed. Do not re-open on the observation that 2-instance builds miss
+it; that observation is the ruling, not an objection to it.
+
+---
+
 ## Decisions log
 
 1. **Curve shape ratified as piecewise `sqrt` below T=100, power-0.289
@@ -1779,22 +2125,23 @@ and `weight`, and `splash_overcap_bonus_targets` /
     not to be re-derived. The existing `compute_power` mechanism
     supports a percentage-granting base power with no extension —
     `Gloves` is already precedent.
-11. **OPEN — the `compute_power` question, and it is the important one**
-    (§8.5). "Every other tier-scaled value" is ambiguous about whether
-    the existing five slots' `compute_power` is curved too. Measured:
-    leaving it linear gives T^1.44 (matching §3's ratified target);
-    curving it too gives T^0.42, four times too flat. **Recommendation:
-    leave `compute_power` linear.** Needs an owner ruling before
-    implementation.
+11. ~~**OPEN**~~ **RESOLVED — D11 (§12.1): `compute_power` STAYS
+    LINEAR.** The five existing slots' base power is not curved.
+    Measured, leaving it linear gives T^1.44, matching §3's ratified
+    target; curving it gives T^0.42 — doubling every item's tier for 34%
+    more damage is not a progression game. **"Every other tier-scaled
+    value" in §8's ruling means AFFIX values, not slot base power.**
 12. **CORRECTION to §3, independent of Decision 11.** `0.289 × 4.95` is
     valid only in the asymptotic limit where every compounding layer is
     ≫ 1, which is not true post-curve. Direct measurement gives T^1.33
     to T^2.05 across the tier windows the game will occupy. **§3's
     T^1.43 is a target, not a constant.** Measure at implementation.
-13. **OPEN — implicit roll range** (§8). `POWER_ROLL_RANGE` is
-    `0.85..1.20` while affix jitter is `0.85..1.15`, so an implicit
-    tops out 4.3% above the affix it is defined to equal. Either accept
-    or roll the new slots against the affix band. Needs a ruling.
+13. ~~**OPEN**~~ **RESOLVED — D13 (§12.2): the four new slots roll
+    against the AFFIX jitter band `0.85..1.15`, NOT `POWER_ROLL_RANGE`
+    `0.85..1.20`.** "Equals exactly one affix of that type" must hold at
+    both ends of the roll, not only at the floor. This makes the new
+    slots the first equipment in the game that does **not** share the
+    existing slots' roll range — see §12.2 for what that touches.
 14. **The new slots are a net buff, not an offset** (§8.4). Measured
     ×1.31 over T = 1–200. The crit halving contributes ×0.995–1.000 in
     that range and does not meaningfully offset anything until five
@@ -1830,15 +2177,11 @@ and `weight`, and `splash_overcap_bonus_targets` /
     sit on §3's T^1.43 target. This does not change the ruling; it
     changes its justification, and it means the implementation pass must
     not use "exponent recovered" as the acceptance test for this change.
-20. **OPEN — `Splash`'s 1000% ladder rung is the real casualty, and it
-    was not in the order** (§9.5). It moves from T ≈ 56 to T ≈ 37,750 on
-    a six-instance build. Unlike Echo it is genuinely discrete — below
-    the first rung it contributes exactly zero extra targets, with no
-    continuous fallback. Two zero-code fixes exist:
-    `[affixes.splash].per_tier`, or the `splash_ladder_step_pct` live
-    tunable (default 1000, `tunables.rs:413`), which is the more
-    surgical of the two because it leaves the 100% overcap behaviour
-    untouched. **Needs an owner ruling before launch.**
+20. ~~**OPEN**~~ **RESOLVED — R3 (§10.3): fixed via
+    `splash_ladder_step_pct = 350`**, the `LiveTunable`, leaving the
+    100% overcap behaviour untouched. Its sibling question — should the
+    step go lower to bring 2-instance builds into reach — is **CLOSED by
+    D20-sibling (§12.3): no. Four-plus instances is the right floor.**
 21. **No other affix has a death condition** (§9.5). Full sweep run.
     Two non-obvious thresholds exist and both are fine: `DivineDamage`'s
     heal-power self-buff has an Echo-shaped `floor()` threshold reached
@@ -1913,3 +2256,83 @@ and `weight`, and `splash_overcap_bonus_targets` /
     built on and which the order named. Extends `CLAUDE.md`'s BRANCH
     DISCIPLINE rule from concurrent sessions to sequential orders with
     stale SHAs.
+35. **R9 — post-curve the splash ladder is ONE rung** (§10.10). Ratified.
+    Rungs at T ≈ 998 / 10,988 / 44,692 / 120,933 / 261,742; only the
+    first is reachable. The intended shape, not a shortfall. Promoted
+    from a qualification inside §10.3 to a ruling in its own right.
+36. **R10 — do not call it a "ladder" to players** (§10.11). Ratified.
+    Wiki and patch-note wording is constrained to "passing 350% splash
+    grants one additional target." The internal `LiveTunable` key names
+    stay as they are.
+37. **R11 — rung 2 is deferred, not broken** (§10.12). Ratified. Left
+    where it falls; activates on its own if a world ever reaches those
+    tiers. Not an incomplete implementation.
+38. **R12 — the Ranger coupling ships as a buff** (§10.13). Ratified.
+    +25% to `splash_target_dmg_bonus` for a six-instance splash build at
+    T=1,000. Not suppressed — decoupling would reintroduce the drift the
+    shared helper was factored out to prevent. Goes in the patch note as
+    a buff.
+39. **R13 — the `floor()` rounding rule, promoted to its own subsection**
+    (§10.14). Ratified as general practice. The direction is not fixed:
+    Echo's coefficient is the numerator and rounds UP; the splash step is
+    the denominator and rounds DOWN. Truncating by habit breaks both.
+    Check whether a boundary is in play before deciding rounding is
+    cosmetic.
+40. **D11 — `compute_power` STAYS LINEAR** (§12.1). Ratified, closing
+    Decision 11. Linear gives T^1.44 against the ratified T^1.43 target;
+    curved gives T^0.42. "Every other tier-scaled value" means AFFIX
+    values, not slot base power. Consequences: the 50 ms attack-interval
+    floor survives at T ≈ 2,500, and weapon/body power remain the largest
+    untouched growth terms in the new world — first place to look if the
+    post-launch exponent drifts high.
+41. **D13 — the four new slots roll against the AFFIX band 0.85..1.15**
+    (§12.2). Ratified, closing Decision 13. "Equals exactly one affix"
+    must hold at both ends, not just the floor. **This makes them the
+    first equipment that does not share the existing slots' roll range.**
+    Six touch points enumerated; `Item::quality_percent` and
+    `make_item_perfect` both fail SILENTLY if missed — the latter would
+    set `power_roll = 1.20` on a slot whose ceiling is 1.15, reinstating
+    the exact 4.3% overshoot this ruling removes. Implement via a
+    `roll_range_for_slot(slot)` helper, not a bare constant swap. No
+    change to the rng draw count.
+42. **D20-sibling — four-plus instances is the right floor, CLOSED**
+    (§12.3). Ratified. The step is not lowered below 350. A threshold a
+    casual allocation reaches is not a commitment. Do not re-open on the
+    observation that 2-instance builds miss it — that observation IS the
+    ruling.
+43. **D35 — the five "dead" nodes revive under the curve; DO NOT BUFF
+    THEM** (§11). Ratified and verified. ×1.003 at live scale confirmed
+    (measured ×1.002–×1.004 across the geared roster); ~21% CritChance
+    affix at T=1,300 confirmed exactly (20.99%); 1.05 crit stacks
+    confirmed (1.0493, gear affixes excluding the 5% base); bucket falls
+    to single digits confirmed (2.06–6.35). The curve restores them from
+    ×1.003 to ×1.55 without touching `passive_tree.rs`.
+44. **CORRECTIONS and additions to D35, none weakening it** (§11.3,
+    §11.4). (a) The overcrit bracket at 1.0493 stacks is **~1.04, not
+    ~1.07** — `crit_stack_bonus` is concave past the first stack and real
+    stacks are a two-point distribution, so `E[bracket] < bracket(E[cc])`
+    by Jensen; `combat_total_output_per_sec` already does this correctly
+    (`character.rs:3337-3349`). The build is even further from
+    saturation than stated. (b) The ~1205 bucket figure is the FULL
+    `combat_increased_damage` including the tree layer; the gear-only
+    figure on the same character is 766 — this spec's tables are
+    gear-only, so do not compare them directly. (c) **NEW: the three
+    overflow nodes are gated on evasion exceeding 75%, needing ~2.23
+    Evasion instances at T=1,300.** Average affix luck yields ZERO
+    overflow and they pay nothing — the revival is conditional on the
+    build they were written for, which is the correct outcome. (d) Live
+    proof of the thesis: `kazesosa`, who carries no crit gear at all,
+    already gets ×1.199 from the same five nodes today — 200× the
+    geared-character figure, with gear inflation the only variable.
+45. **Two follow-ups for the passive rebalance, flagged not decided**
+    (§11.5). (a) **The opposite risk is now live** — three nodes adding a
+    flat +0.90 into a bucket of ~2.06 is +44% from three nodes, and the
+    +0.30 caps were sized against a linear world. "Do not buff" is
+    settled; "do these now need a NERF" is a real open question. (b)
+    **The sweep has not been run** — these five were found by review, and
+    every flat-magnitude `Special` and capped `OverflowConversion` in the
+    tree has the same shape. Run that sweep BEFORE retuning any node, or
+    the rebalance will buff nodes the curve was about to fix.
+46. **Spec status: COMPLETE.** With Decisions 11, 13 and 20's sibling
+    closed, no item in this document awaits a ruling. Further changes
+    should come only from something contradicting what is recorded here.
