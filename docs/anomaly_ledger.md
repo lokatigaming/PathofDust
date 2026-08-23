@@ -907,3 +907,79 @@ elevated operator registers `GameDataBackup` (exact command in
 `docs/ops_backup_and_watchdog.md`), **the backup exists but nothing is
 running it**, and every statement above about having no scheduled backup
 remains true of production. This is the open item.
+
+## Deploy record — 2026-08-23, pacing control-loop fixes (`0110be6`)
+
+Entered by the deploy session at merge of `fix/pacing-controller-loop`.
+No `#NN` — the log parser owns this file's numbering.
+
+**CAUSE FOUND: fixed-step control on the damage axis caused the
+ten-win/ten-loss oscillation observed in production on 2026-08-23.**
+Controller B requested a FIXED `cur * (1 + dmg_max_step_per_fight)` up or
+`cur / (1 + step)` down — the same size move whether the rolling win:loss
+ratio was 2.1:1 or 20:1. Fixed steps near equilibrium hunt by
+construction: the smallest correction available is also the largest one,
+so the controller cannot settle onto its target, only step over it and
+back. That is the mechanism behind the swings, and it is structural
+rather than a tuning miss — no value of `dmg_max_step_per_fight` removes
+it, because the defect is that the step does not depend on the error at
+all.
+
+Measured on one alternating outcome stream driven through both control
+laws (`controller_b_oscillates_less_than_the_fixed_step_law`, which keeps
+the retired law as its in-test baseline): **14.23x peak-to-trough under
+the old fixed-step law against 11.16x under the new proportional one.**
+B now scales step MAGNITUDE by `|tanh(ln(observed / target))|` with the
+existing rate limit still applied as a cap on the request. Near target
+the step approaches zero.
+
+Two further notes from the same investigation, so a future reader does
+not re-derive them:
+
+- **Controller A was never the fixed-step one.** The order that opened
+  this work attributed the fixed-step defect to A. A has always requested
+  `mean_dps x midpoint / base_pool` — the closed-form correction, i.e.
+  the error itself — with the rate limit as a cap. Two regression tests
+  now pin that. The live symptom attributed to A (1.0 → 30x over ~15
+  wins) is `1.25^15 ~= 28.4`: A taking its maximum *capped* step every
+  fight because the honest proportional request was far above it. A was
+  converging correctly on a duration target; what made the party
+  unwinnable is the duration/lethality outcome coupling the spec already
+  flags as a known limit.
+- **A could not descend during a losing streak, and the stage walk made
+  it worse.** A samples wins only (correct — a wipe reads as a short
+  fight). But a loss walks the stage back 2, which SHRINKS the organic
+  pool, which makes A's required multiplier RISE. So a losing streak
+  actively pushed A further up. Both live incidents needed a manual
+  override to break out. A relaxation path now decays A back toward
+  neutral after consecutive losses.
+
+**Deploy-process findings, both about scripts deployed earlier the same
+day — neither blocked this release:**
+
+- `Disable-ScheduledTask -TaskName 'GameProcess-Watchdog'` returns
+  **Access denied** from the deploy session's non-elevated token, the
+  same limitation that blocked `Register-ScheduledTask` in the ops
+  release above. §13 step 4's "disable the watchdog" step therefore did
+  not happen: the stop/swap window ran with `GameProcess-Watchdog`
+  enabled. It did not fire (the swap took seconds against a ~2-minute
+  repetition interval) and the deploy is unaffected, but the step is
+  currently unperformable as written and a future deploy with a slower
+  swap could race it. Either an elevated operator performs the toggle or
+  §13 should stop claiming a non-elevated session can.
+- `game-watchdog.ps1` resolves **`$ExpectedPathRoot` to EMPTY** under the
+  exact invocation its scheduled task uses
+  (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...`). The
+  default is `[string] $ExpectedPathRoot = $PSScriptRoot` in the *param
+  block*, where `$PSScriptRoot` is not yet populated; the `$LogPath`
+  default avoids this by resolving in the body instead and does work.
+  **No impact today** — at `RunLevel = Limited` the listener's image path
+  is unreadable anyway, so the verdict is `unverifiable` either way, and
+  `-RequireOwnPath` is off. It matters the moment someone raises the task
+  to `RunLevel = Highest` expecting the path check to start confirming:
+  with an empty root, `Test-UnderRoot` returns `$null` for every
+  candidate, so every listener stays `unverifiable` and the check they
+  raised the run level to obtain silently never happens. Verified live by
+  dry run against the restarted game this release: `expected root :` came
+  back blank while `log :` resolved correctly to
+  `C:\PathofDust\game-watchdog.log`.
