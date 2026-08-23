@@ -46,7 +46,7 @@ other's variable.**
 |---|---|---|
 | Axis | duration (real clock) | lethality |
 | Owns | `WorldState::hp_pacing_mult`, `recent_win_dps` | `WorldState::boss_power_mult`, `recent_boss_outcomes` |
-| Reads | winning fights' DPS samples | boss win/loss outcomes |
+| Reads | WON BOSS encounters' DPS samples | BOSS win/loss outcomes |
 | Target | fight duration inside [min,max] s (midpoint) | rolling W:L = `target_win_loss_ratio` (2.0) |
 | Rate limit | `hp_max_step_per_fight` (UPWARD only) | `dmg_max_step_per_fight` (UPWARD only) |
 | Bounds | `hp_multiplier_floor/ceiling` + hard caps | `dmg_multiplier_floor/ceiling` + hard caps |
@@ -94,10 +94,12 @@ wrong on all three counts.
 
 ## Owner rulings implemented
 
-1. **Wins-only sampling (A).** Lost fights carry no meaningful duration
-   signal; a wipe would read as a short fight, inflate HP, and cause more
-   wipes (death spiral). `push_dps_sample` gates on `won`; losses never
-   reach the window.
+1. **Wins-only sampling (A), boss-only sampling (both).** Lost fights
+   carry no meaningful duration signal; a wipe would read as a short
+   fight, inflate HP, and cause more wipes (death spiral).
+   `push_dps_sample` gates on `won`; losses never reach the window. Since
+   2026-08-23 neither controller samples a non-boss fight either - see
+   SAMPLING: BOSS ENCOUNTERS ONLY.
 2. **Stage progression IS Controller B's mechanism.** Win = +1 stage;
    LOSS = **-2** (floored at 1; was -1 before this release -
    `announcements.rs::next_boss_stage`'s batch-replay already modeled -2,
@@ -201,17 +203,65 @@ numbers and fight logs. The subtraction form is exact at the cap and
 identical everywhere else. `apply_top_layer_to` is the reference
 implementation; any new mitigation layer copies its shape.
 
-## Warmup, windows, asymmetry
+## Operating context: permanent rampage is NORMAL
+
+`permanent_rampage = true` is live in production and is the **expected
+steady state**, not a temporary test setting - players vote it on
+constantly. While it is active, `spawn_rampage_loop` is the sole driver
+of encounters: boss fights run back-to-back with instant revives (the
+downed timer is skipped entirely rather than inserted-and-expired), and
+both `spawn_encounter_loop` and `spawn_basic_encounter_loop` skip their
+ticks. Non-boss fights are interim filler that exists only to slow the
+game down when nobody is pushing for a rampage.
+
+Design that follows from it: pacing must be tuned for a world where
+almost every fight is a boss fight, and where a wipe is followed
+immediately by another boss fight rather than by a 30-second sit-out.
+
+## Sampling: BOSS ENCOUNTERS ONLY, both controllers
+
+Owner ruling 2026-08-23, replacing the original "A samples every fight's
+winners" asymmetry. **Neither controller samples a non-boss fight.**
+
+- Controller A's sampler is called from ONE place: the boss path
+  (`run_encounter_inner`). `run_basic_encounter_inner` computes no sample
+  at all.
+- Controller B's outcome window is pushed from that same single place.
+- Both multipliers and the baseline floor are still APPLIED to filler
+  generation. Only the feedback is boss-only.
+
+Why filler is excluded: its enemy pools come from
+`basic_enemy_stats_for`, a different curve from `boss_stats_for`. A
+filler DPS sample would steer the HP multiplier that governs BOSS pools
+using a measurement taken against something else - and under the normal
+operating mode above, filler barely runs anyway.
+
+**Losses reach B, never A.** A loss is an outcome (B needs it; that is
+the ratio's whole point) but never a duration sample - the wins-only rule
+exists precisely to keep wipes out of the duration average, since a wipe
+reads as a short fight and would inflate HP into more wipes. An instant
+revive is not a back door around this: a wipe is simply `won == false` at
+the single sample site, and reviving does not re-run the encounter or
+push a second outcome.
+
+**Duration is in-fight time only.** `real_duration_ms` is
+`max(event.at_ms)` over the fight's own event list, taken BEFORE
+`compress_events` (so it is the real clock, not the display window).
+`simulate_battle` reads no wall clock at all - its timeline starts at 0
+each call and advances only through in-fight scheduling - so
+inter-encounter time (the rampage loop's sleep, the `fight_gate` spacing,
+overlay playback, revive waits) can never appear in a sample.
+
+## Warmup and windows
 
 Both controllers share `pacing_window_fights` (sanitized: 0 reads as
 unset -> shipped default 20, then clamped 1..=200) and make no updates
-until a FULL window exists (samples still collect while enabled). B
-consumes BOSS outcomes only - basic encounters deliberately record no
-outcomes (pre-existing design, owner-confirmed). A samples EVERY fight's
-winners (boss and filler). This asymmetry is deliberate. The caller owns
-the window: it trims each history to `pacing_window_fights` as it pushes,
-and the update functions read the whole slice they are handed - the
-length check inside them is the warmup gate, not a second trim.
+until a FULL window exists (samples still collect while enabled). The
+caller owns the window: it trims each history to `pacing_window_fights`
+as it pushes, and the update functions read the whole slice they are
+handed - the length check inside them is the warmup gate, not a second
+trim. Encounters are serialized by `fight_gate`, so one encounter is
+always exactly one outcome push and at most one duration sample.
 
 ## Couplings that shift (balance notes)
 
