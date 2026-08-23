@@ -2354,9 +2354,18 @@ Under the curve every gate costs 2–5 affix instances instead of a
 rounding error. **That is the curve's entire effect on Class B: it turns
 fourteen free bonuses into fourteen build commitments.**
 
-### 14.3 The `Special` half — NOT COMPLETE. BLOCKED, with the method specified
+### 14.3 The `Special` half — OUT OF SCOPE FOR THIS BRANCH (D43)
 
-**BLOCKED — reason: scope.** `passive_tree.rs` contains **407**
+> **D43 — RATIFIED. This is a scoped, ready-to-resume task owned by the
+> PASSIVE REBALANCE, not an open item on this spec.** 407 sites
+> classified by read-site rather than declaration is a project in its
+> own right. It is **not to be resumed on this branch.** Everything
+> below is the starting kit for that project, and is kept for exactly
+> that purpose.
+
+
+
+**Status: HANDED OFF, not blocked.** `passive_tree.rs` contains **407**
 `Special` sites. Classification cannot be done from `passive_tree.rs`
 alone, because a `Special` node's class is decided by its **read site in
 `combat.rs` / `character.rs`**, not by its declaration — `nervestrike`
@@ -2393,6 +2402,229 @@ look.
    cost if it has an input threshold. **These are the nerf candidates.**
 
 **Do not retune any node before steps 1–5 complete for all of them.**
+
+---
+
+## 15. Final rulings (D43–D45)
+
+### 15.1 D43 — the `Special` sweep belongs to the passive rebalance
+
+**RATIFIED.** Applied to §14.3 above: that section is now marked as a
+scoped, ready-to-resume task **owned by the passive rebalance**, not as
+an open item on this spec. It is not to be resumed on this branch.
+
+Kept deliberately, because it is what that project needs to start from:
+the Class A / Class B classification rule (§14.1), the six known Class B
+bespoke layers named in `combat_increased_damage`, the confirmed Class A
+nodes, the 51 `FlatStat` starting points, and the five-step method.
+
+**This is a handoff, not a gap.** §14.2's `OverflowConversion` half is
+complete and stands on its own; the `Special` half was never in this
+spec's remit — it surfaced here only because §13's correction made the
+classification rule visible.
+
+### 15.2 D44 — the Stone Fist rank-4 behaviour is a DEFECT
+
+**RATIFIED AS A DEFECT, NOT A DESIGN.**
+
+```rust
+// character.rs:2639-2640
+let raw    = overflow * node.magnitude_at_rank(rank);                  // effective_rank = min(rank, 3)
+let capped = raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank as f64);  // RAW rank
+```
+
+`magnitude_at_rank` clamps a `Specialization` node to
+`effective_rank = min(rank, 3)` (`passive_tree.rs:531-537`) while the
+cap uses the **raw** rank. `stonefist` is a `spec()` node with
+`max_rank: 4`. Therefore **rank 4 buys +0.10 of cap and zero
+efficiency**, while the node's own description still reads *"up to +30%
+at 3/3."*
+
+Three things follow, all recorded as consequences of the defect rather
+than of any decision:
+
+1. **It is why the trio sums to exactly 1.000 rather than 0.90**
+   (0.40 + 0.30 + 0.30), which is the number the forensics session
+   back-solved from the live logs (§13.3).
+2. **Every player holding `stonefist=4` spent a passive point on cap
+   headroom they cannot use** unless their overflow is large enough to
+   be clipped by it — which, at live scale, it always is. So the point
+   is not wasted today; it is worth exactly +0.10 of flat increased
+   damage and nothing else, which is not what the node text promises.
+3. **It affects every `spec()`-tier `OverflowConversion` node**, not
+   just Stone Fist — `unbreakable`, `elusive`, `shiftingform` and
+   `aegisward` share the shape (§14.2's `max_rank: 4` rows).
+
+**Not fixed here — docs only.** Whether the fix is to clamp the cap to
+`effective_rank`, to let efficiency continue to rank 4, or to correct
+the description, is a passive-rebalance decision, and it changes live
+player power either way.
+
+**Cross-reference: anomaly ledger #54.**
+
+> ⚠ **The cross-reference could not be verified from this branch.**
+> `docs/anomaly_ledger.md` at this branch's base (`3b1dea1`, last
+> touched by `b24163e`) has a highest entry of **#45**; there is no #54.
+> Either the log-parser session has advanced the ledger past this
+> branch's base, or the number needs confirming. **The ledger's
+> numbering is canonical and owned by the log-parser session
+> (`CLAUDE.md`), so this branch has neither created an entry nor
+> renumbered anything** — the reference is recorded as given and flagged
+> for that session to confirm or correct.
+
+### 15.3 D45 — headline result: what the curve is actually for
+
+**RATIFIED AS A HEADLINE RESULT.**
+
+> **Saturating Stone Fist, Granite Skin and Overgrown Reach costs
+> 0.068 Evasion affix instances today. Under the curve at T = 1,300 it
+> costs 4.22. That is a 62× change.**
+>
+> **The curve does not weaken these nodes. It converts a free doubling
+> into a five-slot commitment.**
+
+The full progression, because the factor grows with tier:
+
+| tier | instances, **linear** | instances, **curve** | factor |
+|---|---|---|---|
+| 100 | 0.885 | 8.85 | 10× |
+| 500 | 0.177 | 5.56 | 31× |
+| **1,300** | **0.068** | **4.22** | **62×** |
+| 3,000 | 0.030 | 3.31 | 112× |
+| 10,000 | 0.009 | 2.34 | 264× |
+
+**This is the single clearest demonstration in this document of what the
+curve is for.** Every other result here is a number moving — an exponent
+falling from T^4.95 to T^1.44, a bucket shrinking from 766 to 2.06, a
+coefficient halving. This one is a *decision* coming back into
+existence. Today, "should I invest in evasion?" is not a question any
+Monk asks: 7% of one affix instance buys the entire ×2.000, so the nodes
+are free and the choice is not a choice. Under the curve the same
+×2.000 costs five slots, and the player has to weigh it against
+everything else those slots could carry.
+
+The curve's purpose was never only to slow numbers down. It was to make
+the numbers small enough that choosing between them means something
+again. These three nodes are where that shows up most legibly, and they
+are worth citing whenever the rebalance needs to explain itself.
+
+---
+
+## 16. Closing — scope, non-scope, and what happens first
+
+**NOTHING IN THIS DOCUMENT HAS BEEN IMPLEMENTED.** This branch is
+docs-only from first commit to last. No code was changed, no test was
+added, no configuration file was edited, no fixture was regenerated, and
+nothing was merged or deployed. Every number here was computed against
+the live code as it stands at `3b1dea1` and against live production data
+read read-only. **This spec is a record of decisions, not a record of
+work done.**
+
+### 16.1 What this spec covers
+
+| | |
+|---|---|
+| **The curve** | `f(T) = sqrt(T)` for T ≤ 100, `10 × (T/100)^0.289` above — replacing the tier term in `affix_base_value` only (§1–§3) |
+| **Scope of the curve** | `affix_base_value` and the four new slots' implicits. **`compute_power` stays linear** (D11, §12.1) |
+| **CritMultiplier** | `per_tier` halved 0.05 → 0.025, in code, as the `affix_def` default (§7, R4) |
+| **Four new slots** | `Ring1`, `Ring2` (crit chance 0.01), `Amulet` (crit multiplier 0.025), `Pants` (increased life 0.03), each worth exactly one affix of that type (§8) |
+| **New-slot roll range** | the **affix** band `0.85..1.15`, not `POWER_ROLL_RANGE` (D13, §12.2) |
+| **Echo** | `per_tier = 0.00857` via `adventure-item-balance.toml` (R1, §9) |
+| **Splash ladder** | `splash_ladder_step_pct = 350` via `LiveTunables` (R3, §10.3) |
+| **Reload semantics** | the two config files behave oppositely — item-balance needs a restart, live-tunables does not (R7, §10.7) |
+| **The passive-node findings** | the ×2.000 reconciliation, D35's split, the complete 14-node `OverflowConversion` sweep (§13, §14.2) |
+
+### 16.2 What this spec deliberately does NOT cover
+
+- **The `Special` half of the D41 sweep** — 407 sites, handed to the
+  passive rebalance (D43, §14.3). Starting kit kept; work not begun.
+- **D42, "do these nodes now need a nerf"** — open by design, deferred
+  until that sweep completes (§13.6, ledger entry 57).
+- **The Stone Fist rank-4 defect's fix** — recorded as a defect (D44),
+  not fixed. The fix changes live player power and belongs to the
+  rebalance.
+- **Any reweighting of affixes against each other.** Relative affix
+  weights are preserved exactly; the sole exception is
+  `CritMultiplier` (Decision 3, Decision 9). The five elementals
+  collectively out-sloping `IncreasedDamage` by 4.75×, and defensive
+  overflow supplying ~22.5% of the offensive bucket, are both recorded
+  and both untouched.
+- **The pacing controllers, the top layer, and the enemy side generally.**
+  §5.1 requires the baseline anchors be re-derived, but no new values are
+  proposed here.
+- **Anything about a live population.** This ships with a full restart;
+  §4 records the four requirements that context waives and why each
+  becomes mandatory without it.
+
+### 16.3 What an implementation pass must do, in order
+
+**Before writing code:**
+
+1. **Fit report first**, per `CLAUDE.md` PROCESS — verify these premises
+   against the code as it then stands, enumerate touch points, propose a
+   staged plan, stop for approval. This document is a year of decisions,
+   not a licence to skip that step.
+2. **Tell the owner before touching `EQUIP_SLOTS`.** Its length is read
+   by `adventure_web/wiki.rs`, which belongs to the wiki session. Per
+   `CLAUDE.md` rule 3 this must be sequenced with them, not merely
+   announced.
+3. **Notify the desktop companion's maintainer** — `ring1`, `ring2`,
+   `amulet`, `pants`, and the append-only warning (§8.8). Their item
+   codec encodes slot as a positional index; appending is safe,
+   reordering silently corrupts every previously-shared v2 link.
+
+**Then, as two separate commits — this ordering is mandatory (§8.7):**
+
+4. **Commit one — the curve and the crit cut.** `affix_base_value` gains
+   `f(T)`; `affix_def`'s `CritMultiplier` becomes 0.025. Keep the `rng`
+   draw count inside `roll_affixes` byte-identical (§5.3). Regenerate
+   the 17 golden fixtures **at merge**, attributed to "affix values
+   changed."
+5. **Commit two — the four slots.** Variants, `EQUIP_SLOTS`, `Character`
+   fields, `base_power_for_slot`, `noun_pool`, `item_stat_line`, the
+   four consumption sites, and the **six hardcoded five-slot lists in
+   `adventure_web.rs`** (3155, 3903, 4019, 5128, 5236, 5748 — none
+   compiler-caught). Add `roll_range_for_slot(slot)` and route
+   `quality_percent`, `make_item_perfect` and `apply_divine_dust`
+   through it (D13 — both fail silently otherwise). Regenerate fixtures
+   again **at merge**, attributed to "loot rng stream shifted."
+
+**Then:**
+
+6. **Add R5's pairing test**, reading through `base_power_for_slot()` /
+   `affix_balance()`, never the raw `AffixDef` constants (§10.5).
+7. **Write the launch config** (§10.9): `[affixes.echo] per_tier =
+   0.00857` and the four `[slot_base_power]` keys —
+   **restart required**; `splash_ladder_step_pct = 350` in
+   `LiveTunables` — hot. No `[affixes.critMultiplier]` block (R4), no
+   `[affixes.lingeringEffect]` block (R6).
+8. **Re-derive the pacing baseline anchors** against the new curve
+   (§5.1). Genuinely tunable after launch, but the shipped defaults
+   should not be the old ones.
+9. **Append the `WIKI_IMPACT.md` lines** listed in §8.6.
+10. **Write the patch note honestly** — the curve is a nerf and says so;
+    the Ranger Volley / Chain Lightning +25% is a buff and says so
+    (R12); Echo's coefficient is **not** described as hot-tunable (R7).
+
+**Acceptance tests — use the right ones:**
+
+- Echo: **the damage-share table in §9.3**, not the exponent (R2).
+- The curve: measure the exponent over a real tier window and expect
+  T^1.33–T^2.05 depending on the window, not a constant T^1.43
+  (Decision 12).
+- The five passive nodes: nothing. They are not being changed
+  (§13.6).
+
+### 16.4 Branch status
+
+**CLOSED.** Sixty-three decisions, §1–§16. Every item is either ratified
+or explicitly deferred with its owner named. The one deferred item
+(D42) and the one handed-off task (D43) both belong to the passive
+rebalance.
+
+Nothing here should change unless something contradicts it — as the
+damage-forensics session's ×2.000 contradicted §11's ×1.003, and was
+right to.
 
 ---
 
@@ -2732,3 +2964,45 @@ look.
 58. **Spec status: COMPLETE except D42, which is deferred BY DESIGN to
     D41's sweep.** Supersedes Decision 46. No other item awaits a
     ruling.
+59. **D43 — the `Special` half of the D41 sweep is OUT OF SCOPE for this
+    branch and is not to be resumed here** (§14.3, §15.1). It is a
+    scoped, ready-to-resume task **owned by the passive rebalance**, not
+    an open item on this spec. The classification rule, the six known
+    Class B bespoke layers, the confirmed Class A nodes, the 51
+    `FlatStat` starting points and the five-step method are kept
+    deliberately as that project's starting kit. A handoff, not a gap —
+    §14.2's `OverflowConversion` half is complete and stands alone.
+60. **D44 — the Stone Fist rank-4 behaviour is a DEFECT, not a design**
+    (§15.2). `magnitude_at_rank` clamps a Specialization to
+    `effective_rank = min(rank,3)` while the cap uses the raw rank, so
+    rank 4 buys +0.10 of cap and zero efficiency while the node text
+    reads "up to +30% at 3/3". It is why the trio sums to exactly 1.000
+    rather than 0.90. **It affects every `spec()`-tier
+    `OverflowConversion` node** — `unbreakable`, `elusive`,
+    `shiftingform`, `aegisward` share the shape. Not fixed here; the fix
+    changes live player power and belongs to the rebalance.
+    Cross-references anomaly ledger #54.
+61. **FLAG — anomaly ledger #54 could not be verified from this branch.**
+    `docs/anomaly_ledger.md` at base `3b1dea1` (last touched by
+    `b24163e`) has a highest entry of **#45**. Either the log-parser
+    session has advanced the ledger past this branch's base, or the
+    number needs confirming. The ledger's numbering is canonical and
+    owned by that session per `CLAUDE.md`, so **this branch created no
+    entry and renumbered nothing** — the reference is recorded as given
+    and flagged for that session to confirm or correct.
+62. **D45 — HEADLINE RESULT** (§15.3). Saturating Stone Fist, Granite
+    Skin and Overgrown Reach costs **0.068 Evasion instances today
+    versus 4.22 under the curve at T=1,300 — a 62x change**, rising to
+    264x at T=10,000. **The curve does not weaken these nodes; it
+    converts a free doubling into a five-slot commitment.** Recorded as
+    the clearest demonstration in this spec of what the curve is for:
+    every other result is a number moving, this one is a decision coming
+    back into existence.
+63. **BRANCH CLOSED** (§16). Nothing in this spec has been implemented —
+    docs only from first commit to last, no code, no config, no
+    fixtures, no merge, no deploy. §16 records what the spec covers,
+    what it deliberately does not, and the ordered implementation
+    sequence including the mandatory two-commit split, the wiki-session
+    and desktop-maintainer prerequisites, and which acceptance test
+    belongs to which change. Supersedes Decision 58 as the final status
+    entry.
