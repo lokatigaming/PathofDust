@@ -151,6 +151,13 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         .expect("body");
     assert!(admin_page.contains("value=\"7\""), "the retuned splash_extra_targets must render back into its own input");
     assert!(admin_page.contains("name=\"splash_ladder_step_pct\""), "the new ladder field must actually be in the form");
+    // Both pacing controllers must show the multiplier ACTUALLY in force
+    // (the max of the controller's own value and the stage baseline) -
+    // without it, a controller pinned to the baseline renders a "current"
+    // number that generation never used. See render_tunables_page.
+    assert!(admin_page.contains("Controller A (HP / duration)"), "Controller A's pacing readout must render on the admin page");
+    assert!(admin_page.contains("Controller B (damage / lethality)"), "Controller B's pacing readout must render on the admin page");
+    assert_eq!(admin_page.matches("in force").count(), 2, "both controllers must render their 'in force' multiplier, got:\n{}", admin_page.matches("in force").count());
 
     // --- form/struct drift guard (2026-08-23) --------------------------
     // Every assertion above posts a hand-written SUPERSET body, which is
