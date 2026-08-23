@@ -20296,7 +20296,13 @@ mod top_layer_tests {
     /// 0 as threshold kills and interact with NO mitigation at all.
     #[test]
     fn every_damage_landing_site_routes_through_the_top_layer() {
-        let src = include_str!("combat.rs");
+        // Line-ending agnostic: `include_str!` hands back the file's RAW
+        // bytes, so on a CRLF checkout (git's core.autocrlf=true converts
+        // on the way out) every needle below that spans a line break
+        // would miss and the whole audit would pass vacuously - or fail
+        // for a reason that has nothing to do with the landing sites.
+        // Normalize first; the needles are written with \n.
+        let src = include_str!("combat.rs").replace("\r\n", "\n");
         // apply_hit primary landing (after the full roll, before shields)
         assert!(src.contains("let mut final_damage = apply_top_layer_to(&units[target_idx], outcome.damage as f64)"));
         // true damage / flat source / reflect / volatile splash
