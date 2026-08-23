@@ -893,6 +893,68 @@ mod tests {
         assert_eq!(stage_after_loss(2), 1, "floored at 1");
         assert_eq!(stage_after_loss(1), 1, "already at the floor");
     }
+
+    /// FIX 1 coverage (2026-08-23): Controller A's request must be
+    /// PROPORTIONAL to the error, so the step shrinks automatically as
+    /// measured duration approaches target.
+    ///
+    /// A's request is `mean_dps * midpoint / base_pool` - the exact
+    /// multiplier that puts kill time on the target - so the move it asks
+    /// for IS the error. This test pins that: sampled from multipliers
+    /// where the rate-limit band is NOT the binding constraint, each
+    /// successive step toward the target is strictly smaller than the
+    /// last. A fixed-step law (`prev * (1 + step)`, which is what
+    /// Controller B does) would move a CONSTANT 25% of `prev` at every one
+    /// of these points and fail immediately.
+    #[test]
+    fn controller_a_steps_shrink_as_measured_duration_approaches_target() {
+        let p = params();
+        // True party DPS 100 against an organic pool of 1000: the
+        // multiplier that lands kill time exactly on the 37.5s midpoint is
+        // 100 * 37.5 / 1000 = 3.75.
+        let window = vec![100.0, 100.0, 100.0];
+        let mut previous_step = f64::INFINITY;
+        for mult in [3.2_f64, 3.5, 3.7, 3.74, 3.749] {
+            let next = update_hp_pacing_mult(mult, 1000.0, &window, &p).expect("a full window always updates");
+            let step_taken = (next - mult).abs();
+            let fixed_step_would_be = mult * p.hp_step;
+            assert!(
+                step_taken < previous_step,
+                "from {mult}x the step was {step_taken}, not smaller than the previous {previous_step} - A is not braking on approach"
+            );
+            assert!(
+                step_taken < fixed_step_would_be,
+                "from {mult}x A moved {step_taken}, which is not less than the {fixed_step_would_be} a fixed-step law would take - the request is not proportional to the error"
+            );
+            previous_step = step_taken;
+        }
+        assert!(previous_step < 0.01, "the final approach step must be tiny, was {previous_step}");
+    }
+
+    /// FIX 1 coverage: a long win streak must not walk PAST the target
+    /// window. This is the shape of the live incident (A ratcheted to 30x
+    /// over ~15 wins), so it is asserted every fight of the streak rather
+    /// than only at the end - an overshoot that is corrected later would
+    /// still have shipped an unwinnable fight.
+    #[test]
+    fn a_long_win_streak_does_not_overshoot_the_target_window() {
+        let p = params();
+        let window = vec![100.0, 100.0, 100.0];
+        let mut mult = 1.0_f64;
+        for fight in 0..200 {
+            mult = update_hp_pacing_mult(mult, 1000.0, &window, &p).expect("a full window always updates");
+            let expected_s = 1000.0 * mult / 100.0;
+            assert!(
+                expected_s <= p.duration_max_s + 1e-9,
+                "fight {fight}: A drove expected duration to {expected_s}s, past the {}s window ceiling",
+                p.duration_max_s
+            );
+        }
+        // And it actually arrived, rather than passing the test by never
+        // moving at all.
+        let settled_s = 1000.0 * mult / 100.0;
+        assert!(settled_s >= p.duration_min_s, "A must reach the window, settled at {settled_s}s");
+    }
 }
 
 
