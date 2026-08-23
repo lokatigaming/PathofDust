@@ -1,4 +1,4 @@
-use super::*;
+﻿use super::*;
 
 /// The "main dials" for drop rates and boss difficulty, live-editable via
 /// the admin-only `/admin/tunables` web page (see `adventure_web.rs`) with
@@ -68,18 +68,107 @@ pub struct LiveTunables {
     /// `difficulty_mult` * `boss_difficulty_dial` * `boss_damage_mult` *
     /// late-content bump).
     pub boss_power: f64,
-    /// Consolidated (2026-08-16) from 6 compile-time constants
-    /// (`LOSS_POWER_DECAY`, `WIN_MAX_BOOST`, `TARGET_WIN_RATE`,
-    /// `WIN_TARGET_MARGIN_RATIO`, `OUTCOME_WINDOW`, `BOSS_POWER_MULT_MIN`)
-    /// that drove the win/loss rubber-band (`WorldState::boss_power_mult`)
-    /// with no single live-editable dial over how reactive it is. This one
-    /// scales how far EVERY win's boost / loss's decay actually moves
-    /// `boss_power_mult` from its current value, toward the same target it
-    /// would've reached anyway: `1.0` = unchanged (identical to the old
-    /// hardcoded behavior), `0.0` = win/loss streaks stop affecting boss
-    /// power at all, `>1.0` = swings harder/faster in both directions. See
-    /// `run_encounter`'s win/loss branch for the actual application.
+    /// RETIRED (2026-08-22, dynamic-pacing release) - no longer read by
+    /// any active code path. Was the old margin-based rubber-band's
+    /// reactivity dial (`WorldState::boss_power_mult`'s win-boost/loss-
+    /// decay scaling); that system was replaced wholesale by the two
+    /// dynamic-pacing controllers, which have their own explicit
+    /// per-fight rate-limit tunables (`hp_max_step_per_fight`,
+    /// `dmg_max_step_per_fight`) instead. The field stays declared (with
+    /// its old default) purely so existing `adventure-live-tunables.toml`
+    /// files keep deserializing; it is absent from the admin page and a
+    /// saved edit preserves whatever value is already on file.
     pub dynamic_scaling_mult: f64,
+    // ------------------------------------------------------------------
+    // Dynamic pacing (2026-08-22) - shared + both controllers. See
+    // game/src/adventure/pacing.rs's module doc for the full design.
+    // ------------------------------------------------------------------
+    /// Master kill-switch for BOTH controllers - `false` makes them
+    /// completely inert: no sampling, no multiplier updates. Both
+    /// multipliers freeze wherever they sit; the old win-margin ratchet
+    /// does NOT return (owner ruling). The per-stage baseline floor and
+    /// the stage-tied top-layer mitigation are SEPARATE systems with
+    /// their own switches and are not affected by this switch.
+    pub dynamic_pacing_enabled: bool,
+    /// Rolling window length for BOTH controllers: A keeps this many
+    /// winning-fight DPS samples, B reads this many boss outcomes.
+    /// Clamped 1..=200 at read time; both warm up (no updates) until a
+    /// FULL window exists.
+    pub pacing_window_fights: u32,
+    /// Controller A - target real-clock fight-duration window lower
+    /// bound (seconds). Real duration = pre-compression event time
+    /// (`EncounterResult::real_duration_ms`), never the display clock.
+    pub target_duration_min_s: f64,
+    /// Controller A - window upper bound (seconds); the controller aims
+    /// at the MIDPOINT `(min+max)/2`.
+    pub target_duration_max_s: f64,
+    /// Controller A - max RELATIVE change of `hp_pacing_mult` per
+    /// winning fight (0.25 = +/-25%). The oscillation damper; also the
+    /// only damping either controller has (no arbitration).
+    pub hp_max_step_per_fight: f64,
+    /// Controller A - floor on the HP multiplier RELATIVE to the organic
+    /// stage curve. NOT an absolute difficulty floor: the effective floor
+    /// is the hand-authored baseline curve (anchors below); this only
+    /// bounds how far below 1.0 the controller itself may drift before
+    /// the baseline binds.
+    pub hp_multiplier_floor: f64,
+    /// Controller A - ceiling on the HP multiplier (hard-capped at
+    /// pacing::DYNAMIC_MULT_HARD_CEILING regardless of this value).
+    pub hp_multiplier_ceiling: f64,
+    /// Controller B - the rolling win:loss ratio it steers toward
+    /// (default 2 wins : 1 loss). With a win advancing the stage +1 and a
+    /// loss regressing it -2, exactly this ratio is neutral progression -
+    /// the party climbs only while beating it. Boss-fight outcomes only
+    /// (basic fights don't record outcomes; owner-confirmed asymmetry).
+    pub target_win_loss_ratio: f64,
+    /// Controller B - max RELATIVE change of the damage multiplier per
+    /// boss fight (0.15 = +/-15%).
+    pub dmg_max_step_per_fight: f64,
+    /// Controller B - floor on the damage multiplier relative to the
+    /// organic curve (see `hp_multiplier_floor`). Default 0.4 gives the
+    /// controller real easing room in BOTH directions before the
+    /// hand-authored baseline binds.
+    pub dmg_multiplier_floor: f64,
+    /// Controller B - ceiling on the damage multiplier (hard-capped at
+    /// pacing::DYNAMIC_MULT_HARD_CEILING regardless of this value).
+    pub dmg_multiplier_ceiling: f64,
+    /// Hand-authored baseline curve, X axis: STAGE anchor points,
+    /// strictly ascending (parsed from comma-separated text on the admin
+    /// page). A malformed list (length mismatch vs the value lists,
+    /// empty, non-ascending, non-finite/non-positive values) reads as
+    /// NEUTRAL (baseline 1.0 == the organic curve is the floor), so a bad
+    /// edit can loosen the floor but never corrupt difficulty.
+    pub baseline_stage_anchors: Vec<u32>,
+    /// Baseline curve, HP axis: minimum effective enemy HP as a FRACTION
+    /// of the organic stage/level/party formula - one value per stage
+    /// anchor, linearly interpolated, flat after the last. The controllers
+    /// modulate ABOVE this; neither can ever pull effective difficulty
+    /// below it. Deliberately NOT derived from live player gear - that
+    /// would be circular and the floor could never bind.
+    pub baseline_hp_anchors: Vec<f64>,
+    /// Baseline curve, damage axis - same shape as `baseline_hp_anchors`
+    /// for enemy attack.
+    pub baseline_atk_anchors: Vec<f64>,
+    /// ADDITION 4 master switch - the stage-tied top-layer mitigation
+    /// applied at the very END of every enemy-targeted damage resolution
+    /// (after every other mitigation; nothing bypasses it - no armor pen,
+    /// no "ignores DR", no true-damage exemption). Structurally separate
+    /// from `damage_reduction`: NOT routed through
+    /// `combine_reduction_sources` or bounded by
+    /// `defensive_stat_hard_cap`. Scales with STAGE only, never with
+    /// Controller A, so HP-keyed mechanics (Shattering icicles key off the
+    /// dead enemy's max_hp; Ashes to Ashes' cull thresholds are absolute)
+    /// stay sane while gear upgrades still visibly shorten fights.
+    pub top_layer_enabled: bool,
+    /// Top-layer asymptotic ceiling (fraction). Double-clamped: clamped
+    /// into [0, pacing::TOP_LAYER_ABSOLUTE_CAP] (=0.95) so NO tunable
+    /// combination can ever produce an unkillable enemy.
+    pub top_layer_cap_pct: f64,
+    /// The stage at which the top layer reaches HALF its cap (the curve's
+    /// half-saturation point; same asymptote shape as boss pierce).
+    /// Defaults put half-cap at stage 1500 (~30% mitigation there), ~41%
+    /// at the live world's stage ~3222.
+    pub top_layer_half_stage: f64,
     /// Boss-count formula (2026-08-17 replacement of the old fixed
     /// `two_boss_stage`/`three_boss_stage`/`four_boss_stage`/
     /// `five_boss_stage` thresholds - a live request: "1 boss + jitter,
@@ -379,6 +468,23 @@ impl Default for LiveTunables {
             boss_health: 1.0,
             boss_power: 1.0,
             dynamic_scaling_mult: 1.0,
+            dynamic_pacing_enabled: true,
+            pacing_window_fights: pacing::defaults::PACING_WINDOW_FIGHTS,
+            target_duration_min_s: pacing::defaults::TARGET_DURATION_MIN_S,
+            target_duration_max_s: pacing::defaults::TARGET_DURATION_MAX_S,
+            hp_max_step_per_fight: pacing::defaults::HP_MAX_STEP_PER_FIGHT,
+            hp_multiplier_floor: pacing::defaults::HP_MULTIPLIER_FLOOR,
+            hp_multiplier_ceiling: pacing::defaults::HP_MULTIPLIER_CEILING,
+            target_win_loss_ratio: pacing::defaults::TARGET_WIN_LOSS_RATIO,
+            dmg_max_step_per_fight: pacing::defaults::DMG_MAX_STEP_PER_FIGHT,
+            dmg_multiplier_floor: pacing::defaults::DMG_MULTIPLIER_FLOOR,
+            dmg_multiplier_ceiling: pacing::defaults::DMG_MULTIPLIER_CEILING,
+            baseline_stage_anchors: pacing::defaults::BASELINE_STAGE_ANCHORS.to_vec(),
+            baseline_hp_anchors: pacing::defaults::BASELINE_HP_ANCHORS.to_vec(),
+            baseline_atk_anchors: pacing::defaults::BASELINE_ATK_ANCHORS.to_vec(),
+            top_layer_enabled: pacing::defaults::TOP_LAYER_ENABLED,
+            top_layer_cap_pct: pacing::defaults::TOP_LAYER_CAP_PCT,
+            top_layer_half_stage: pacing::defaults::TOP_LAYER_HALF_STAGE,
             boss_count_tier_stages: 100,
             boss_count_cap_mult: 1.5,
             late_content_stage: 100,
@@ -422,6 +528,21 @@ pub(crate) const TUNABLES_PATH: &str = "adventure-live-tunables.toml";
 /// Fail-soft load, same spirit as `load_item_balance_file` - missing or
 /// unparseable just means "use the shipped defaults above," logged, never
 /// a boot failure.
+///
+/// **Unit tests never touch the real file - read OR write** (see the
+/// `#[cfg(test)]` twins below). `data_path` resolves CWD-relative unless
+/// `set_data_dir` has been called, and the lib's test binary cannot
+/// safely call it (process-global `OnceLock` that any test can win the
+/// race for - see paths.rs). That left every unit test reading and
+/// writing `<package root>/adventure-live-tunables.toml`: one test's
+/// saved tunables configured every other test in the run, and the file
+/// SURVIVED the run and configured every later run from the same
+/// worktree. Found live on 2026-08-23 with `dynamic_pacing_enabled =
+/// false` left behind by the kill-switch test. Integration tests link
+/// this crate WITHOUT `cfg(test)`, so they still exercise the real path -
+/// sandboxed by their own `set_data_dir` into a temp dir, which is the
+/// supported way to test persistence.
+#[cfg(not(test))]
 pub(crate) fn load_live_tunables() -> LiveTunables {
     match std::fs::read_to_string(data_path(TUNABLES_PATH)) {
         Ok(contents) => match toml::from_str::<LiveTunables>(&contents) {
@@ -437,7 +558,24 @@ pub(crate) fn load_live_tunables() -> LiveTunables {
 
 /// Persists a saved admin-page edit so it survives a restart too, on top
 /// of updating the live in-memory copy (see `AdventureManager::save_live_tunables`).
+#[cfg(not(test))]
 pub(crate) fn save_live_tunables_file(tunables: &LiveTunables) -> std::io::Result<()> {
     let contents = toml::to_string_pretty(tunables).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
     std::fs::write(data_path(TUNABLES_PATH), contents)
+}
+
+/// Unit-test twins of the two functions above - see `load_live_tunables`'s
+/// doc for why the lib's own test binary must never resolve
+/// `TUNABLES_PATH`. A unit test that needs non-default tunables sets the
+/// manager's in-memory copy directly (that is the same value every fight
+/// reads); a test that needs to prove PERSISTENCE belongs in
+/// `game/tests/`, where `set_data_dir` can sandbox it into a temp dir.
+#[cfg(test)]
+pub(crate) fn load_live_tunables() -> LiveTunables {
+    LiveTunables::default()
+}
+
+#[cfg(test)]
+pub(crate) fn save_live_tunables_file(_tunables: &LiveTunables) -> std::io::Result<()> {
+    Ok(())
 }

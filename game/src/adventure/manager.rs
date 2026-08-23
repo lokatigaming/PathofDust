@@ -153,7 +153,41 @@ pub const RAMPAGE_ENCOUNTER_COUNT: u32 = 50;
 /// delays if the current fight is taking longer than 1 minute)"). The
 /// actual wait is `max(RAMPAGE_MIN_INTERVAL, this fight's real overlay
 /// playback time)`, so a long fight is never interrupted mid-replay.
-pub const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_secs(60);
+pub const RAMPAGE_MIN_INTERVAL_MS: u64 = 60_000;
+pub const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_millis(RAMPAGE_MIN_INTERVAL_MS);
+
+/// The overlay's two fixed, event-free phases around every fight, and the
+/// spacing `run_encounter`/`run_basic_encounter` add after playback ends.
+/// Named (they were duplicated integer literals at five call sites) so
+/// the cadence budget below can be DERIVED from them rather than guessed
+/// alongside them - see `overlay.html`'s `CHARGE_MS`/`RESOLVE_MS`, which
+/// are the client-side halves of the same two numbers.
+pub const OVERLAY_CHARGE_MS: u64 = 700;
+pub const OVERLAY_RESOLVE_MS: u64 = 1_800;
+pub const FIGHT_GATE_MARGIN_MS: u64 = 5_000;
+
+/// The longest an encounter's overlay playback may run before it starts
+/// eating the rampage cadence - **a cadence cap, not a readability
+/// preference**.
+///
+/// The budget, entirely from the code above: after a fight resolves at
+/// T, `spawn_rampage_loop` sleeps `max(charge + display + resolve,
+/// RAMPAGE_MIN_INTERVAL)` while `run_encounter`'s gate independently
+/// holds the next fight until `T + charge + display + resolve +
+/// FIGHT_GATE_MARGIN_MS`. The next encounter therefore starts at
+/// `T + max(RAMPAGE_MIN_INTERVAL, charge + display + resolve + margin)`,
+/// so the 60s design interval survives exactly while
+/// `display <= RAMPAGE_MIN_INTERVAL - charge - resolve - margin` =
+/// 52,500 ms. Past that every encounter stretches the interval it was
+/// supposed to fit inside.
+///
+/// This is the ONLY hard bound on display length. It is deliberately not
+/// a presentation choice: the upper bound that governs normal fights is
+/// derived from `target_duration_max_s` (see
+/// `combat::display_upper_bound_ms`), because a presentation clamp that
+/// binds inside Controller A's operating range turns the top of A's
+/// window into work no player can see.
+pub const PLAYBACK_CADENCE_CEILING_MS: u32 = (RAMPAGE_MIN_INTERVAL_MS - OVERLAY_CHARGE_MS - OVERLAY_RESOLVE_MS - FIGHT_GATE_MARGIN_MS) as u32;
 /// !rampage vote (2026-08-17, a live request: "if 3 or more players use
 /// !rampage it will start a rampage without a mod activating the
 /// command, similar to a vote") - how many DISTINCT non-mod voters it
@@ -225,31 +259,57 @@ pub(crate) struct WorldState {
     /// fought last, same durability as `stage` itself. `None` only ever
     /// before the very first boss fight.
     last_boss_kind: Option<BossKind>,
-    /// Dynamic difficulty rubber band, multiplying every stat
-    /// `boss_stats_for` produces (cascades into `basic_enemy_stats_for`
-    /// too, same as every other boss-wide multiplier there) on top of the
-    /// normal stage/level curve - see `post_win_power_boost`. Deliberately
-    /// UNCAPPED (see `BOSS_POWER_MULT_MIN`'s doc) - per a live request,
-    /// this should keep climbing for as long as the party keeps winning
-    /// too comfortably, rather than pinning at an arbitrary ceiling once
-    /// the party's own growth outpaces it (confirmed live: it hit the old
-    /// 5.0 ceiling and sat there while stage-105 fights stayed trivial).
-    /// Still floored so a losing streak can't grind it to a permanent
-    /// zero-stat boss. Starts at 1.0 (`default_boss_power_mult`) - a
-    /// no-op on top of the existing curve until the first win pushes it.
+    /// Controller B's own damage multiplier ("how hard") - the lethality
+    /// axis of the dynamic-pacing system (2026-08-22). Field NAME kept
+    /// from the old win/loss rubber-band it replaces so persisted world
+    /// files and the admin override row keep working, but its DRIVER
+    /// changed: instead of a per-win margin ratchet (`post_win_power_boost`,
+    /// removed), it now steps toward the rolling boss win:loss ratio
+    /// targeting `LiveTunables::target_win_loss_ratio` (default 2 wins :
+    /// 1 loss - exactly neutral stage progression given the +1/-2 walk,
+    /// so the party only climbs by beating that ratio). Rate-limited by
+    /// `dmg_max_step_per_fight`, clamped to
+    /// [dmg_multiplier_floor, dmg_multiplier_ceiling], hard-capped at
+    /// pacing::DYNAMIC_MULT_HARD_CEILING. At fight generation this value
+    /// is raised to at least the hand-authored stage baseline before
+    /// touching enemy stats (`pacing::effective_multipliers`) - the
+    /// controller itself never reads the baseline. Deliberately UNCAPPED
+    /// in intent (a party that keeps winning SHOULD see damage climb;
+    /// only the hard numeric ceiling exists) - the ratio target is what
+    /// pulls growth back down, exactly as the old adaptive scaler did for
+    /// the old knob. Frozen entirely when
+    /// `LiveTunables::dynamic_pacing_enabled` is false. HP does NOT follow
+    /// this value anymore - Controller A owns that axis exclusively.
     #[serde(default = "default_boss_power_mult")]
     boss_power_mult: f64,
+    /// Controller A's OWN multiplier ("how long") - scales every fight's
+    /// TOTAL enemy HP POOL (never the per-enemy distribution) so expected
+    /// kill time lands inside the target duration window. Updated ONLY on
+    /// WON BOSS encounters, from the rolling DPS window below (owner
+    /// rulings: a lost fight carries no meaningful duration signal and
+    /// sampling wipes would create an HP-up/more-wipes death spiral;
+    /// filler fights are measured against a different enemy curve
+    /// entirely and were dropped as a signal on 2026-08-23). Same
+    /// rate-limit/clamp/hard-cap discipline as B. Starts at 1.0 -
+    /// a no-op until the first full window of winning fights exists.
+    #[serde(default = "default_hp_pacing_mult")]
+    hp_pacing_mult: f64,
     /// Rolling window of the last `OUTCOME_WINDOW` real boss fights (true
-    /// = win), oldest first - see `adaptive_difficulty_scale`'s doc. Used
-    /// to keep `boss_power_mult`'s growth actually targeting a real win
-    /// rate (per a live request, "an ideal 5:2 win:loss ratio") instead
-    /// of just reacting to each fight's own margin in isolation, which
-    /// has no way to know whether the party has been winning too much or
-    /// too little lately. Empty (and thus a no-op multiplier, see
-    /// `recent_win_rate`) until `OUTCOME_WINDOW` real fights have
-    /// happened since this field was introduced.
+    /// = win), oldest first - now consumed EXCLUSIVELY by Controller B
+    /// (see its doc); the old margin-ratchet consumers were removed with
+    /// it. Retention follows `LiveTunables::pacing_window_fights` (both
+    /// controllers share one window length). Empty = warmup (B makes no
+    /// updates until a full window exists).
     #[serde(default)]
     recent_boss_outcomes: std::collections::VecDeque<bool>,
+    /// Controller A's rolling measure: per-WINNING-fight party DPS
+    /// samples (real-clock duration vs pool-capped damage landed on
+    /// enemies), oldest first, retention =
+    /// `LiveTunables::pacing_window_fights`. Wins only (see
+    /// `hp_pacing_mult`'s doc); non-finite measurements are dropped at
+    /// the sampler, never stored.
+    #[serde(default)]
+    recent_win_dps: std::collections::VecDeque<f64>,
 }
 
 /// Manual, not derived - a brand-new install goes through this (see
@@ -262,11 +322,15 @@ pub(crate) struct WorldState {
 /// value.
 impl Default for WorldState {
     fn default() -> Self {
-        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), recent_boss_outcomes: std::collections::VecDeque::new() }
+        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), hp_pacing_mult: default_hp_pacing_mult(), recent_boss_outcomes: std::collections::VecDeque::new(), recent_win_dps: std::collections::VecDeque::new() }
     }
 }
 
 pub(crate) fn default_boss_power_mult() -> f64 {
+    1.0
+}
+
+pub(crate) fn default_hp_pacing_mult() -> f64 {
     1.0
 }
 
@@ -1297,11 +1361,15 @@ pub struct EncounterResult {
     pub display_duration_ms: u32,
     /// The fight's real, uncompressed event-clock length (2026-08-19,
     /// Release 2 observability) — the last event's `at_ms` BEFORE
-    /// `compress_events` rescales it into `display_duration_ms`'s fixed
-    /// 6-35s window. `display_duration_ms` caps at `MAX_DISPLAY_MS`
-    /// (35,000) regardless of how long the real fight ran, so any
-    /// analysis of real elapsed time (redistribution timing, golem
-    /// reform cadence, proc-rate-per-second) needs this instead.
+    /// `compress_events` rescales it into `display_duration_ms`'s window.
+    /// The two are now EQUAL for any fight inside Controller A's target
+    /// duration window (the display bound is derived from
+    /// `target_duration_max_s` - see `combat::display_upper_bound_ms`),
+    /// and differ only for fights shorter than `MIN_DISPLAY_MS` (6s,
+    /// stretched) or longer than `PLAYBACK_CADENCE_CEILING_MS` (52.5s,
+    /// compressed). Any analysis of real elapsed time (redistribution
+    /// timing, golem reform cadence, proc-rate-per-second) still wants
+    /// this field rather than the display one.
     #[serde(default)]
     pub real_duration_ms: u32,
     /// Empty on a loss - see `run_encounter`'s loot roll (one drop per 5
@@ -2084,25 +2152,56 @@ impl AdventureManager {
         Ok(())
     }
 
-    /// Current value of the win/loss dynamic-difficulty ratchet (see
-    /// `WorldState::boss_power_mult`'s doc) - for the admin tunables page's
-    /// read-out, so a crash toward `BOSS_POWER_MULT_MIN` (or a runaway
-    /// climb) is actually visible somewhere instead of only inferable from
+    /// Current value of Controller B's damage multiplier (see
+    /// `WorldState::boss_power_mult`'s doc) - for the admin tunables
+    /// page's read-out, so a crash toward the floor (or a runaway climb)
+    /// is actually visible somewhere instead of only inferable from
     /// fight-log HP numbers.
     pub async fn current_boss_power_mult(&self) -> f64 {
         self.world.lock().await.boss_power_mult
     }
 
-    /// Admin-page manual override of the win/loss dynamic-difficulty
-    /// ratchet - same "read-out + override" pairing as
-    /// `current_boss_power_mult`, for exactly the situation a bad losing
-    /// streak leaves it stuck at `BOSS_POWER_MULT_MIN` for many fights in a
-    /// row: lets the streamer just set it back to a sane value directly
-    /// instead of waiting out a slow win-streak recovery. Floored the same
-    /// way the automatic win/loss adjustment already is.
+    /// Controller A's own HP multiplier - same read-out rationale as
+    /// `current_boss_power_mult`.
+    pub async fn current_hp_pacing_mult(&self) -> f64 {
+        self.world.lock().await.hp_pacing_mult
+    }
+
+    /// Both controllers' status against the CURRENT stage and live
+    /// tunables, for the admin page: each multiplier plus its stage
+    /// baseline, with pinned flags (a controller sitting BELOW its
+    /// baseline means the party is performing under the stage baseline -
+    /// surfaced explicitly there rather than silently absorbed by the
+    /// floor's max()), and the effective multiplier generation actually
+    /// uses.
+    ///
+    /// `pub(crate)`, not `pub`: `PacingStatus` is a crate-internal view
+    /// type, and a `pub` method returning it is a private-in-public
+    /// leak the compiler warns about. The only caller is this crate's
+    /// own admin page.
+    pub(crate) async fn current_pacing_status(&self) -> pacing::PacingStatus {
+        let t = self.live_tunables();
+        let world = self.world.lock().await;
+        pacing::pacing_status(world.hp_pacing_mult, world.boss_power_mult, world.stage, &t)
+    }
+
+    /// Manual dashboard override for Controller B's damage multiplier.
+    /// Same hard range as the controllers themselves (finite-guarded,
+    /// floored at `BOSS_POWER_MULT_MIN`, capped at
+    /// pacing::DYNAMIC_MULT_HARD_CEILING) - a bad paste can freeze or
+    /// slam difficulty but never corrupt it numerically. Blank input on
+    /// the form leaves it untouched (parsed by hand in do_save_tunables).
     pub async fn set_boss_power_mult(&self, value: f64) {
         let mut world = self.world.lock().await;
-        world.boss_power_mult = value.max(BOSS_POWER_MULT_MIN);
+        world.boss_power_mult = pacing::sanitize_override_mult(value);
+        self.persist_world(&world);
+    }
+
+    /// Manual dashboard override for Controller A's HP multiplier -
+    /// mirror of `set_boss_power_mult` for the other axis.
+    pub async fn set_hp_pacing_mult(&self, value: f64) {
+        let mut world = self.world.lock().await;
+        world.hp_pacing_mult = pacing::sanitize_override_mult(value);
         self.persist_world(&world);
     }
 
@@ -4343,7 +4442,7 @@ impl AdventureManager {
                             self.announce_rampage_complete();
                         }
                     }
-                    let playback_ms = 700u64 + duration_ms.unwrap_or(0) as u64 + 1800;
+                    let playback_ms = OVERLAY_CHARGE_MS + duration_ms.unwrap_or(0) as u64 + OVERLAY_RESOLVE_MS;
                     let wait = Duration::from_millis(playback_ms).max(RAMPAGE_MIN_INTERVAL);
                     tokio::time::sleep(wait).await;
                 }
@@ -4584,8 +4683,8 @@ impl AdventureManager {
             tokio::time::sleep(*gate - now).await;
         }
         let result = self.run_encounter_inner(forced_boss).await;
-        let overlay_playback_ms = result.map(|ms| 700u64 + ms as u64 + 1800).unwrap_or(0);
-        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms) + Duration::from_secs(5);
+        let overlay_playback_ms = result.map(|ms| OVERLAY_CHARGE_MS + ms as u64 + OVERLAY_RESOLVE_MS).unwrap_or(0);
+        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms + FIGHT_GATE_MARGIN_MS);
         result
     }
 
@@ -4614,7 +4713,7 @@ impl AdventureManager {
         // five-boss stages (2026-08-16) ask for more than that, so once
         // the distinct pool runs out, `random_excluding_multiple` fills
         // the rest with plain random repeats instead - see its own doc.
-        let (stage, boss_kinds, power_mult) = {
+        let (stage, boss_kinds, hp_controller, dmg_controller) = {
             let mut world = self.world.lock().await;
             let stage = world.stage;
             // !nextencounter's forced boss (2026-08-15) - a single boss
@@ -4636,7 +4735,7 @@ impl AdventureManager {
             };
             world.last_boss_kind = boss_kinds.last().copied();
             self.persist_world(&world);
-            (stage, boss_kinds, world.boss_power_mult)
+            (stage, boss_kinds, world.hp_pacing_mult, world.boss_power_mult)
         };
         let avg_level = fighting.values().map(|c| c.level as f64).sum::<f64>() / fighting.len() as f64;
         // Each boss is independently generated at FULL strength (not a
@@ -4646,8 +4745,27 @@ impl AdventureManager {
         // across more bodies. `boss_stats_for` also applies the flat
         // `LATE_CONTENT_DIFFICULTY_MULT` bump per-boss once `stage` is
         // past `LATE_CONTENT_STAGE`, same as everything else here.
-        let bosses: Vec<(BossStats, Option<BossKind>, f64)> =
-            boss_kinds.iter().map(|&kind| (boss_stats_for(stage, fighting.len(), avg_level, power_mult, &tunables), Some(kind), power_mult)).collect();
+        //
+        // Dynamic pacing (2026-08-22): `boss_stats_for` now returns the
+        // ORGANIC curve only (controller multipliers at 1.0 - its jitter
+        // rolls once, so the unscaled pool below is the SAME roll the
+        // scaled stats carry). The two controllers then scale on top:
+        // Controller A's multiplier takes ONLY the HP pool (distribution
+        // untouched), Controller B's takes attack + the secondary stats,
+        // and both are raised to at least the hand-authored stage
+        // baseline first (`pacing::effective_multipliers`) so no
+        // controller value can ever pull a fight below it. The HP-pool
+        // hard cap is applied to A's composed multiplier before scaling,
+        // i.e. BEFORE any cast - see pacing.rs's numeric-safety table.
+        let organic: Vec<BossStats> = (0..boss_kinds.len()).map(|_| boss_stats_for(stage, fighting.len(), avg_level, &tunables)).collect();
+        let base_pool: f64 = organic.iter().map(|s| s.hp as f64).sum();
+        let eff = pacing::effective_multipliers(hp_controller, dmg_controller, stage, &tunables);
+        let hp_effective = pacing::capped_hp_mult_for_pool(base_pool, eff.hp_mult);
+        let bosses: Vec<(BossStats, Option<BossKind>, f64)> = organic
+            .iter()
+            .zip(boss_kinds.iter())
+            .map(|(stats, &kind)| (apply_dynamic_scaling(stats.clone(), hp_effective, eff.dmg_mult), Some(kind), eff.dmg_mult))
+            .collect();
         let boss_stats_snapshot: Vec<BossStats> = bosses.iter().map(|(s, _, _)| s.clone()).collect();
 
         // Party-ordering seed (2026-08-20) - see `simulate_battle`'s own
@@ -4660,7 +4778,21 @@ impl AdventureManager {
         let fight_seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
         let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, fight_seed, &mut rand::thread_rng());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
-        let (events, display_duration_ms) = compress_events(events);
+        // Dynamic pacing Controller A's per-fight sample inputs (the push
+        // itself wins-only-gates later, see pacing::push_dps_sample):
+        // damage landed on enemies, CAPPED at their total pool so an
+        // overkill finisher can't inflate measured throughput (the same
+        // reasoning the removed margin-ratchet applied to its own cap),
+        // over the REAL clock duration - pre-compression, never the
+        // display window. Computed HERE because `events` moves into
+        // compress_events just below.
+        let enemy_pool: u64 = units.iter().filter(|u| u.is_boss).map(|u| u.max_hp).sum();
+        let dealt_to_enemies: u64 = events.iter().fold(0u64, |acc, event| match event {
+            CombatEvent::Attack { target, damage, .. } if units.iter().any(|u| u.is_boss && &u.id == target) => acc.saturating_add(*damage),
+            _ => acc,
+        });
+        let pacing_sample_dps = (dealt_to_enemies.min(enemy_pool)) as f64 / ((real_duration_ms as f64 / 1000.0).max(0.001));
+        let (events, display_duration_ms) = compress_events(events, &tunables);
 
         // Anyone this fight's log actually knocked out (a real Defeat
         // event, not just "didn't fight") sits out the next REVIVE_DURATION
@@ -4975,52 +5107,65 @@ impl AdventureManager {
 
         {
             let mut world = self.world.lock().await;
-            // Rolling win/loss history for adaptive_difficulty_scale - see
-            // its doc. Pushed here, before either branch below reads it,
-            // so THIS fight's own outcome already counts toward the next
-            // fight's adaptive scale (not a one-fight-stale lag).
-            world.recent_boss_outcomes.push_back(won);
-            while world.recent_boss_outcomes.len() > OUTCOME_WINDOW {
-                world.recent_boss_outcomes.pop_front();
+            let pacing_params = pacing::PacingParams::from_tunables(&tunables);
+            // -----------------------------------------------------------------
+            // CONTROLLER B (damage / lethality axis). Rolling boss outcome
+            // history, pushed before its own update reads it so THIS fight
+            // counts toward the NEXT fight's step (not a one-fight-stale
+            // lag). Boss fights only by design - basic encounters never
+            // record outcomes (owner-confirmed asymmetry).
+            //
+            // The push sits INSIDE the kill-switch gate: recording an
+            // outcome IS sampling, and the switch means "no sampling, no
+            // updates" for both controllers, not "no updates". A disabled
+            // controller that kept filling its window would come back with
+            // a full history of fights it never governed and step off it
+            // immediately on the first fight after re-enabling - the
+            // opposite of a switch that freezes where it sits.
+            // -----------------------------------------------------------------
+            if pacing_params.enabled {
+                world.recent_boss_outcomes.push_back(won);
+                while world.recent_boss_outcomes.len() > pacing_params.window {
+                    world.recent_boss_outcomes.pop_front();
+                }
+                if let Some(next_dmg) = pacing::update_dmg_pacing_mult(world.boss_power_mult, &world.recent_boss_outcomes.iter().copied().collect::<Vec<_>>(), &pacing_params) {
+                    world.boss_power_mult = next_dmg;
+                }
             }
-            let adaptive = adaptive_difficulty_scale(&world.recent_boss_outcomes);
+            // -----------------------------------------------------------------
+            // STAGE WALK - the same mechanism Controller B targets: a win
+            // advances +1, a LOSS REGRESSES -2 (floored at 1), so exactly
+            // 2 wins : 1 loss is neutral progression and the party only
+            // climbs by beating B's target ratio. (Was -1 per loss from
+            // 2026-08-16 until this release; the batch-announcement
+            // replay helper in announcements.rs already modeled -2, and
+            // this change makes reality match it.) Nothing else writes or
+            // floors the stage.
+            // -----------------------------------------------------------------
             if won {
                 world.stage += 1;
-                // Dynamic difficulty ratchet-up - reviews THIS fight's own
-                // log and pushes boss_power_mult based on how comfortable
-                // the win was (see `post_win_power_boost`'s doc), scaled by
-                // `adaptive` so a party winning MORE than the target ~5:2
-                // rate gets pushed harder, deliberately uncapped (see
-                // `BOSS_POWER_MULT_MIN`'s doc for why no ceiling exists
-                // anymore - `adaptive` easing off is what prevents a
-                // runaway instead). `dynamic_scaling_mult` (2026-08-16,
-                // consolidating 6 previously-hardcoded constants into one
-                // live dial - see its own doc) scales how far this boost
-                // actually moves `boss_power_mult` from wherever it
-                // currently sits, toward the same target it would've hit
-                // anyway - 1.0 reproduces the old hardcoded-only behavior
-                // exactly, 0.0 freezes boss_power_mult against win/loss
-                // streaks entirely.
-                let raw_boost = post_win_power_boost(&units, &events) * adaptive;
-                let scaled_boost = 1.0 + (raw_boost - 1.0) * tunables.dynamic_scaling_mult;
-                world.boss_power_mult = (world.boss_power_mult * scaled_boost).max(BOSS_POWER_MULT_MIN);
             } else {
-                // A wipe knocks the party back 1 stage (never below 1) so
-                // losing streaks don't just stall forever at the same wall
-                // (2026-08-16: cut back from 2 stages per a live request).
-                world.stage = world.stage.saturating_sub(1).max(1);
-                // Counterweight to the win-triggered ratchet-up above -
-                // eases boss_power_mult back off, scaled by `adaptive` so
-                // a party ALREADY losing more than the target rate
-                // recovers faster (adaptive < 1 here makes the decay
-                // gentler - dividing, not multiplying, since a smaller
-                // `adaptive` should mean LESS reduction) than a flat rate
-                // would, instead of grinding an already-too-hard streak
-                // further into the ground. Same `dynamic_scaling_mult`
-                // scaling as the win branch above.
-                let raw_decay = (LOSS_POWER_DECAY / adaptive).clamp(0.3, 0.95);
-                let scaled_decay = 1.0 - (1.0 - raw_decay) * tunables.dynamic_scaling_mult;
-                world.boss_power_mult = (world.boss_power_mult * scaled_decay).max(BOSS_POWER_MULT_MIN);
+                world.stage = world.stage.saturating_sub(2).max(1);
+            }
+            // -----------------------------------------------------------------
+            // CONTROLLER A (HP / duration axis). THE ONLY SAMPLE SITE -
+            // the filler path deliberately feeds neither controller
+            // (2026-08-23 ruling, see run_basic_encounter_inner). Samples
+            // WINNING fights only (`push_dps_sample` drops losses AND
+            // non-finite values - owner ruling: sampling wipes would read
+            // as short fights and spiral HP upward; an instant revive
+            // under permanent_rampage is not a back door, since a wipe is
+            // simply `won == false` right here and a revive does not
+            // re-run the encounter), then steps this fight's own multiplier
+            // toward putting expected kill time at the window midpoint.
+            // Reads/writes ONLY hp_pacing_mult + recent_win_dps - never
+            // B's variables (independence doctrine, pacing.rs doc).
+            // -----------------------------------------------------------------
+            if pacing_params.enabled {
+                pacing::push_dps_sample(&mut world.recent_win_dps, won, pacing_sample_dps, pacing_params.window);
+                if let Some(next_hp) = pacing::update_hp_pacing_mult(world.hp_pacing_mult, base_pool, &world.recent_win_dps.iter().copied().collect::<Vec<_>>(), &pacing_params) {
+                    world.hp_pacing_mult = next_hp;
+                }
             }
             self.persist_world(&world);
         }
@@ -5097,7 +5242,7 @@ impl AdventureManager {
         {
             let manager = Arc::clone(self);
             let result_for_announce = result.clone();
-            let delay_ms = 700u64 + display_duration_ms as u64;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 manager.announce_encounter_result(&result_for_announce).await;
@@ -5127,7 +5272,7 @@ impl AdventureManager {
         let rampage_active = self.rampage_active().await;
         if !newly_downed.is_empty() && !rampage_active {
             let manager = Arc::clone(self);
-            let delay_ms = 700u64 + display_duration_ms as u64 + 1800;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64 + OVERLAY_RESOLVE_MS;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 let revive_at = SystemTime::now() + REVIVE_DURATION;
@@ -5174,8 +5319,8 @@ impl AdventureManager {
             tokio::time::sleep(*gate - now).await;
         }
         let result = self.run_basic_encounter_inner().await;
-        let overlay_playback_ms = result.map(|ms| 700u64 + ms as u64 + 1800).unwrap_or(0);
-        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms) + Duration::from_secs(5);
+        let overlay_playback_ms = result.map(|ms| OVERLAY_CHARGE_MS + ms as u64 + OVERLAY_RESOLVE_MS).unwrap_or(0);
+        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms + FIGHT_GATE_MARGIN_MS);
         result.is_some()
     }
 
@@ -5202,12 +5347,25 @@ impl AdventureManager {
             ((fighting.len() as f64 * multiplier).round() as usize).max(1)
         };
 
-        let (stage, power_mult) = {
+        let (stage, hp_controller, dmg_controller) = {
             let world = self.world.lock().await;
-            (world.stage, world.boss_power_mult)
+            (world.stage, world.hp_pacing_mult, world.boss_power_mult)
         };
         let avg_level = fighting.values().map(|c| c.level as f64).sum::<f64>() / fighting.len() as f64;
-        let group_stats = basic_enemy_stats_for(stage, num_enemies, avg_level, power_mult, &tunables);
+        // Dynamic pacing mirrors the boss path exactly: build the ORGANIC
+        // aggregate first (its HP is the base pool Controller A measures
+        // expected duration against), compose both controllers'
+        // multipliers (baseline-raised, pool-hard-capped), scale ONCE,
+        // then the even `split_into_enemies` cut - which is precisely
+        // what keeps "the controller scales the POOL, never the
+        // distribution" true for filler fights too. Controller A samples
+        // every fight's winners below; Controller B deliberately does NOT
+        // consume basic outcomes anywhere.
+        let group_stats_organic = basic_enemy_stats_for(stage, num_enemies, avg_level, &tunables);
+        let base_pool_basic: f64 = group_stats_organic.hp as f64;
+        let eff_basic = pacing::effective_multipliers(hp_controller, dmg_controller, stage, &tunables);
+        let hp_effective_basic = pacing::capped_hp_mult_for_pool(base_pool_basic, eff_basic.hp_mult);
+        let group_stats = apply_dynamic_scaling(group_stats_organic, hp_effective_basic, eff_basic.dmg_mult);
         let enemy_stats = split_into_enemies(group_stats, num_enemies);
         let enemy_name = BASIC_ENEMY_NAMES[rand::thread_rng().gen_range(0..BASIC_ENEMY_NAMES.len())].to_string();
 
@@ -5216,7 +5374,10 @@ impl AdventureManager {
         let (won, units, events, rolls) =
             simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, fight_seed, &mut rand::thread_rng());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
-        let (events, display_duration_ms) = compress_events(events);
+        // NO Controller A sample is computed here (2026-08-23 owner
+        // ruling): a filler fight is not a pacing signal. See this
+        // function's own doc and the pacing block that used to live below.
+        let (events, display_duration_ms) = compress_events(events, &tunables);
 
         let newly_downed: Vec<String> = events
             .iter()
@@ -5355,6 +5516,26 @@ impl AdventureManager {
             self.persist_characters(&characters);
         }
 
+        // Dynamic pacing: NEITHER controller samples a filler fight
+        // (2026-08-23 owner ruling, replacing the original "A samples
+        // every fight's winners" asymmetry).
+        //
+        // permanent_rampage = true is the expected steady state - players
+        // vote it on constantly, boss encounters run back-to-back, and
+        // this loop sits out entirely while it is active (see
+        // `spawn_basic_encounter_loop`). Filler fights are interim
+        // content that exists to slow the game down when nobody is
+        // pushing for a rampage, so they are the wrong signal for both
+        // axes: their enemy pools come from `basic_enemy_stats_for`, a
+        // different curve from `boss_stats_for`, so a filler DPS sample
+        // measured against a filler pool would drag Controller A's HP
+        // multiplier - which governs BOSS pools too - toward a target it
+        // was never measuring. Controller B never ran here either way.
+        //
+        // Generation still APPLIES both multipliers and the baseline
+        // floor above; only the feedback is boss-only. The stage is never
+        // touched by a basic fight.
+
         self.broadcast_state().await;
         // See `run_encounter`'s matching line for why this borrows `units`/
         // `events` before they're moved into the struct literal below.
@@ -5405,7 +5586,7 @@ impl AdventureManager {
         {
             let manager = Arc::clone(self);
             let result_for_announce = result.clone();
-            let delay_ms = 700u64 + display_duration_ms as u64;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 manager.announce_encounter_result(&result_for_announce).await;
@@ -5418,7 +5599,7 @@ impl AdventureManager {
         // playing this fight back.
         if !newly_downed.is_empty() {
             let manager = Arc::clone(self);
-            let delay_ms = 700u64 + display_duration_ms as u64 + 1800;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64 + OVERLAY_RESOLVE_MS;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 let revive_at = SystemTime::now() + REVIVE_DURATION;
@@ -5645,180 +5826,34 @@ pub struct BossStats {
 /// DIFFICULTY_MULT above - was +30%.
 pub(crate) const BOSS_DAMAGE_SCALING_MULT: f64 = 1.0;
 
-/// Floor for `WorldState::boss_power_mult` - a loss-triggered decay
-/// (`LOSS_POWER_DECAY`) could otherwise grind toward 0 (a zero-stat,
-/// unkillable-by-boredom boss) over a long enough losing streak.
-/// Deliberately NO ceiling anymore (a fixed `BOSS_POWER_MULT_MAX` used to
-/// live here, brought down from 20.0 to 5.0 in an earlier "severe loss
-/// rate" rebalance) - per a live request, the multiplier should keep
-/// climbing for as long as the party keeps winning too comfortably,
-/// confirmed live to actually be necessary: it hit that old 5.0 ceiling
-/// and just sat there pinned while stage-105 fights stayed trivial, since
-/// a party's own growth (gear/level/now-multiplicative passive tree) has
-/// no ceiling of its own. `adaptive_difficulty_scale` (see its doc) is
-/// what now keeps this from repeating the earlier 7.4x runaway instead
-/// of a hard cap - it actively pulls growth back down whenever the
-/// recent win rate drifts too far above the target ratio.
+/// Floor applied to Controller B's damage multiplier (`WorldState::
+/// boss_power_mult`) on every automatic update and manual override - a
+/// losing streak can never grind it to 0 (a zero-stat,
+/// unkillable-by-boredom boss). NOTE the semantics change (2026-08-22
+/// dynamic-pacing release): this is now a floor on the CONTROLLER'S OWN
+/// value relative to the organic stage curve, NOT an absolute difficulty
+/// floor - at fight generation the value is raised to at least the
+/// hand-authored per-stage baseline before touching enemy stats
+/// (`pacing::effective_multipliers`), so effective difficulty can never
+/// drop below that baseline no matter how low this knob sits. There is
+/// deliberately NO ceiling here beyond pacing::DYNAMIC_MULT_HARD_CEILING's
+/// numeric-safety bound: a party that keeps winning SHOULD see damage
+/// keep climbing, and it is Controller B's own ratio target (2 wins : 1
+/// loss) plus its per-fight rate limit that pull growth back down - the
+/// same job `adaptive_difficulty_scale` (removed with the old margin
+/// ratchet) used to do for this knob.
 pub(crate) const BOSS_POWER_MULT_MIN: f64 = 0.5;
 
-/// How much a loss eases `WorldState::boss_power_mult` back off by, in
-/// the ORDINARY case (see `adaptive_difficulty_scale` for how this gets
-/// adjusted based on the recent win rate) - bumped again (was 15%) in an
-/// earlier "severe loss rate" rebalance pass - the 15% rate wasn't
-/// enough to keep the live multiplier near its intended ~1.0 neutral
-/// point (it had drifted to 7.4x), so recovery needed to be faster,
-/// not just the ratchet-up capped lower.
-pub(crate) const LOSS_POWER_DECAY: f64 = 0.75;
+// The old margin-ratchet constants (`LOSS_POWER_DECAY`,
+// `WIN_TARGET_MARGIN_RATIO`, `OUTCOME_WINDOW`, `TARGET_WIN_RATE`,
+// `WIN_MAX_BOOST`) and functions (`adaptive_difficulty_scale`,
+// `post_win_power_boost`) were REMOVED with the win-margin rubber-band in
+// the 2026-08-22 dynamic-pacing release - Controller B now steps directly
+// toward the rolling boss win:loss ratio (`pacing::update_dmg_pacing_mult`),
+// with its own live rate-limit and floor/ceiling tunables replacing all of
+// them.
 
-/// The margin-of-victory ratio `post_win_power_boost` aims the NEXT real
-/// boss fight at - see that function's own doc for the full derivation.
-/// Raised from an original 0.5 (which explicitly modeled the boss to
-/// out-race the party ~2x, "very likely a loss") to 1.0 ("roughly even
-/// odds") - per a live request to retarget the whole system from "every
-/// win should probably be followed by a loss" toward "the party should
-/// win noticeably more than it loses" (an ideal ~5:2 win:loss ratio, see
-/// `TARGET_WIN_RATE`) - 1.0 is a reasoned starting point for that
-/// gentler target, not something simulated/proven exactly, so it may
-/// still need a further live tuning pass once real win/loss data comes
-/// in under the new adaptive system.
-pub(crate) const WIN_TARGET_MARGIN_RATIO: f64 = 1.0;
-
-/// How many of the most recent real boss fights `WorldState::recent_boss_outcomes`
-/// remembers - the window `adaptive_difficulty_scale` computes the
-/// live win rate over. Small enough to react to a real shift in how the
-/// fights are going within a reasonable number of fights, large enough
-/// that one lucky/unlucky fight doesn't swing the measured rate wildly.
-pub(crate) const OUTCOME_WINDOW: usize = 20;
-
-/// The win:loss ratio `adaptive_difficulty_scale` steers toward - "an
-/// ideal 5:2 ratio" per the request, i.e. winning roughly 5 fights for
-/// every 2 losses (~71.4%), engaging but not punishing.
-pub(crate) const TARGET_WIN_RATE: f64 = 5.0 / 7.0;
-
-/// Scales the ORDINARY per-fight adjustment (`post_win_power_boost` on a
-/// win, `LOSS_POWER_DECAY` on a loss) up or down based on how the recent
-/// win rate (`WorldState::recent_boss_outcomes`, last `OUTCOME_WINDOW`
-/// fights) compares to `TARGET_WIN_RATE` - the actual mechanism keeping
-/// `boss_power_mult` from needing a hard ceiling at all (see
-/// `BOSS_POWER_MULT_MIN`'s doc): winning MORE than the target rate means
-/// fights have been too easy, so growth gets amplified (pushing the next
-/// fights harder); winning AT OR BELOW the target rate means the current
-/// difficulty is doing its job (or is already too hard), so growth gets
-/// dampened - all the way down to actively easing off, not just growing
-/// slower, once the win rate drops meaningfully below target. Returns
-/// 1.0 (a pure no-op on top of the ordinary adjustment) until
-/// `OUTCOME_WINDOW` fights of history exist, so the very first fights
-/// after this system shipped aren't skewed by an empty/tiny sample.
-/// Deliberately a smooth, continuous function of the deviation (not a
-/// step/threshold), so there's no sudden cliff in behavior right at the
-/// target rate - and clamped to a moderate range so no single fight's
-/// outcome can swing growth as violently as the pre-adaptive system's
-/// static formula alone once did (the 7.4x runaway this whole mechanism
-/// exists to prevent from happening again).
-pub(crate) fn adaptive_difficulty_scale(recent: &std::collections::VecDeque<bool>) -> f64 {
-    if recent.len() < OUTCOME_WINDOW {
-        return 1.0;
-    }
-    let win_rate = recent.iter().filter(|&&w| w).count() as f64 / recent.len() as f64;
-    let deviation = win_rate - TARGET_WIN_RATE;
-    (1.0 + deviation * 2.5).clamp(0.4, 1.8)
-}
-
-/// Safety cap on how much a SINGLE win can boost `WorldState::boss_power_mult`
-/// by, however dominant that win was (an unbroken no-hit stomp would
-/// otherwise compute an unbounded boost since it'd be dividing by zero
-/// damage taken). Brought down from 6.0 (which let a single win multiply
-/// in ~2.45x) to 3.0 (~1.73x max per win) in a live "severe loss rate"
-/// rebalance pass, then to 1.75 (~1.32x max per win, ~2.38x worst case
-/// once combined with `adaptive_difficulty_scale`'s own up-to-1.8x) on
-/// 2026-08-16, per a live request - the old 3.0 cap let even one
-/// dominant win overpower several losses' worth of recovery at once.
-pub(crate) const WIN_MAX_BOOST: f64 = 1.75;
-
-/// Reads a just-finished WINNING boss fight's own combat log (`units`/
-/// `events`, straight out of `simulate_battle`) and returns the factor
-/// `WorldState::boss_power_mult` should be multiplied by so the NEXT real
-/// boss fight is tuned to very likely go the other way - per the request,
-/// "after each boss fight that results in a win... difficulty should be
-/// scaled through boss health/damage/defenses/ability affects such that
-/// the next encounter is very likely a loss."
-///
-/// The margin-of-victory signal: (the party's total HP pool * the total
-/// damage the party actually landed on the boss) vs (the boss's total HP
-/// pool * the party's NET damage taken - total incoming damage minus
-/// healing received, floored at 1 so a fully-negated fight doesn't divide
-/// by zero). Net, not raw, matters here - a healer-sustained party can log
-/// a huge raw "damage taken" total while never coming remotely close to a
-/// wipe, and crediting that as a close call (raw damage taken close to the
-/// party's HP pool) was a real bug: live fights were logging heavy raw
-/// damage but nearly all of it was getting healed back, so the computed
-/// margin barely budged `boss_power_mult` even though the party was
-/// stomping every fight (confirmed against a live `adventure-world.json` -
-/// after ~80 stage-ups it had only crawled from 1.0 to 1.32).
-///
-/// That net-damage ratio is exactly "how long the party could have kept
-/// tanking the boss's demonstrated real output" vs "how long the boss
-/// actually took to go down" - and the fight's own duration cancels out of
-/// both sides algebraically, so it doesn't matter whether the fight was
-/// quick or dragged out. Well above 1.0 means the party won with room to
-/// spare; at/under `WIN_TARGET_MARGIN_RATIO` means it was already close
-/// (returns 1.0, a no-op, rather than easing off - a win should never
-/// DECREASE the multiplier, that's what `LOSS_POWER_DECAY` is for).
-///
-/// The damage-to-boss side is capped at the boss's own HP pool - a win
-/// guarantees the party dealt AT LEAST that much, but a big splash/crit on
-/// the final blow can log well past it (a live fight logged 155% off one
-/// overkill hit), and that overkill doesn't reflect any real "spare
-/// capacity" the way surviving damage does. Uncapped, that inflated the
-/// ratio enough that a merely-decent win (47% of the party's own HP pool
-/// taken, net of healing - a real fight, not a stomp) was landing the same
-/// maxed-out `WIN_MAX_BOOST` as an actual near-flawless clear.
-///
-/// The returned factor is exactly what's needed to push that same margin
-/// down to `WIN_TARGET_MARGIN_RATIO` (clamped to `WIN_MAX_BOOST`) -
-/// scaling every boss stat by a factor `m` (see `scale_by_power_mult`)
-/// drops the margin ratio by `m` squared (both the boss's effective HP
-/// AND its effective damage output scale up together), so the needed `m`
-/// is the SQUARE ROOT of how far the ratio needs to fall.
-pub(crate) fn post_win_power_boost(units: &[CombatUnitInfo], events: &[CombatEvent]) -> f64 {
-    let party_hp: u64 = units.iter().filter(|u| !u.is_boss).map(|u| u.max_hp as u64).sum();
-    let boss_hp: u64 = units.iter().filter(|u| u.is_boss).map(|u| u.max_hp as u64).sum();
-    let is_boss_id = |id: &str| units.iter().find(|u| u.id == id).is_some_and(|u| u.is_boss);
-
-    let mut dealt_to_boss: u64 = 0;
-    let mut dealt_to_party: u64 = 0;
-    let mut healing_received_by_party: u64 = 0;
-    for event in events {
-        match event {
-            CombatEvent::Attack { target, damage, .. } => {
-                if is_boss_id(target) {
-                    dealt_to_boss += *damage as u64;
-                } else {
-                    dealt_to_party += *damage as u64;
-                }
-            }
-            CombatEvent::Heal { target, amount, .. } => {
-                if !is_boss_id(target) {
-                    healing_received_by_party += *amount as u64;
-                }
-            }
-            // Deliberately NOT counted here (unlike Heal) - a shield's
-            // mitigation is already reflected in a lower Attack.damage
-            // above (apply_hit consumes shield_hp before final_damage is
-            // computed), so also counting the grant here would double-
-            // count the same avoided damage twice and over-inflate the
-            // next fight's difficulty boost. See `CombatEvent::Shield`'s
-            // doc.
-            CombatEvent::Shield { .. } | CombatEvent::Defeat { .. } | CombatEvent::SkillCast { .. } | CombatEvent::BuffSnapshot { .. } => {}
-        }
-    }
-    let net_dealt_to_party = dealt_to_party.saturating_sub(healing_received_by_party).max(1);
-    let capped_dealt_to_boss = dealt_to_boss.min(boss_hp);
-
-    let margin_ratio = (party_hp as f64 * capped_dealt_to_boss as f64) / (boss_hp as f64 * net_dealt_to_party as f64);
-    let boost = (margin_ratio / WIN_TARGET_MARGIN_RATIO).clamp(1.0, WIN_MAX_BOOST);
-    boost.sqrt()
-}
+/// Dust cost of the "Wings of Flight" cosmetic MTX (see
 
 /// Dust cost of the "Wings of Flight" cosmetic MTX (see
 /// `AdventureManager::purchase_wings`) - purely cosmetic, no combat
@@ -6818,31 +6853,39 @@ pub(crate) const BOSS_INCREASED_DAMAGE_CAP: f64 = 10.0;
 pub(crate) const BOSS_DEFENSE_CAP: f64 = 0.75;
 pub const CRIT_CHANCE_CAP: f64 = 0.75;
 
-/// Applies the dynamic difficulty multiplier (see
-/// `WorldState::boss_power_mult`/`post_win_power_boost`) on top of a
-/// boss's stage-derived stats. `hp`/`atk` take the FULL multiplier - those
-/// are the only two stats `post_win_power_boost`'s margin-ratio math
-/// actually models (a fight's outcome as a race between "party HP vs
-/// boss's atk-driven damage rate" and "boss HP vs party's damage rate"),
-/// so scaling them by the full `m` is exactly what that derivation calls
-/// for. Every other stat here MULTIPLIES with `atk` (crit/increased-damage
-/// in `roll_attacker_damage`) or with each other (damage reduction, block,
-/// evasion all mitigating the same incoming hit) rather than standing on
-/// its own - scaling them by the SAME full `m` on top of `atk` already
-/// getting the full `m` would compound the realized outcome well past the
-/// derivation's target (confirmed live: a modest 1.5x multiplier was
-/// producing 200-380% party-wipe overkill). They still scale - "boss
-/// health/damage/defenses/ability effects" per the original request - just
-/// at the dampened `sqrt(power_mult)`, so a fight still gets harder on
-/// every axis without the compounding blowing past what the win/loss
-/// margin was actually tuned for.
+/// Applies the dynamic-pacing controllers' effective multipliers on top
+/// of a boss's ORGANIC stage-derived stats (2026-08-22 - replaces the old
+/// single-knob `scale_by_power_mult`). The two axes are independent:
+///
+/// - `hp_mult` (Controller A + baseline floor) takes ONLY the HP pool -
+///   per-enemy relative weights are decided elsewhere (`split_into_
+///   enemies`' even cut), never here.
+/// - `dmg_mult` (Controller B + baseline floor) takes the FULL multiplier
+///   on `atk`; every OTHER stat multiplies with `atk` (crit/
+///   increased-damage in `roll_attacker_damage`) or with each other
+///   (damage reduction/block/evasion all mitigating the same incoming
+///   hit), so they ride the DAMPENED sqrt(dmg_mult), each under its own
+///   existing cap - scaling them by the same full m as well would
+///   compound the realized outcome well past what either controller's
+///   margin math assumes (the exact overkill the old 200-380%-wipe
+///   finding was about). They now follow the DAMAGE axis exclusively;
+///   Controller A's duration lever deliberately cannot inflate boss
+///   crit/defenses.
+///
 /// `attack_interval_ms` is left untouched entirely - party-size-driven
 /// attack frequency is its own separate concern.
-pub(crate) fn scale_by_power_mult(stats: BossStats, power_mult: f64) -> BossStats {
-    let secondary_mult = power_mult.sqrt();
+///
+/// Numeric safety: both multipliers arrive pre-sanitized
+/// (`pacing::sanitize_mult`, non-finite -> neutral 1.0) and the scaled
+/// stats round through `pacing::sat_round_stat` (saturating, never
+/// wrapping, NaN-safe) - see pacing.rs's numeric-safety table.
+pub(crate) fn apply_dynamic_scaling(stats: BossStats, hp_mult: f64, dmg_mult: f64) -> BossStats {
+    let secondary_mult = pacing::sanitize_mult(dmg_mult).sqrt();
+    let hp_m = pacing::sanitize_mult(hp_mult);
+    let dmg_m = pacing::sanitize_mult(dmg_mult);
     BossStats {
-        hp: (stats.hp as f64 * power_mult).round() as u64,
-        atk: (stats.atk as f64 * power_mult).round() as u64,
+        hp: pacing::sat_round_stat(stats.hp as f64 * hp_m),
+        atk: pacing::sat_round_stat(stats.atk as f64 * dmg_m),
         attack_interval_ms: stats.attack_interval_ms,
         damage_reduction: (stats.damage_reduction * secondary_mult).min(BOSS_DEFENSE_CAP),
         block_chance: (stats.block_chance * secondary_mult).min(BOSS_DEFENSE_CAP),
@@ -6872,7 +6915,7 @@ pub(crate) const BOSS_ATTACK_INTERVAL_PARTY_SCALING: f64 = 0.15;
 /// `boss_stats_for`. Named 2026-08-18 for the wiki's constant audit -
 /// was a bare `2.0`.
 pub(crate) const BOSS_ATTACK_INTERVAL_FREQUENCY_DIVISOR: f64 = 2.0;
-pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, power_mult: f64, tunables: &LiveTunables) -> BossStats {
+pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, tunables: &LiveTunables) -> BossStats {
     let party_size = party_size.max(1) as f64;
     // Tripled 0.05 -> 0.15 (2026-08-18, a live request) - HP now scales
     // +15%/stage instead of +5%, e.g. stage 400 goes from a ~2100%
@@ -6939,7 +6982,7 @@ pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, powe
         crit_multiplier: 1.4 + ((s * 0.025).min(0.9) * boss_jitter).max(0.0),
         splash: ((s * 0.01).min(0.6) * boss_jitter).clamp(0.0, 1.0),
     };
-    scale_by_power_mult(stats, power_mult)
+    stats
 }
 
 /// Still meaningfully weaker than `boss_stats_for` overall, but bumped
@@ -6948,8 +6991,8 @@ pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, powe
 /// difficulty-wise. Halving HP alone used to roughly halve how many hits
 /// it takes to kill; this reverses that AND adds a real damage-output
 /// bump on top, not just a wash back to boss-equivalent.
-pub(crate) fn basic_enemy_stats_for(stage: u32, party_size: usize, avg_level: f64, power_mult: f64, tunables: &LiveTunables) -> BossStats {
-    let boss = boss_stats_for(stage, party_size, avg_level, power_mult, tunables);
+pub(crate) fn basic_enemy_stats_for(stage: u32, party_size: usize, avg_level: f64, tunables: &LiveTunables) -> BossStats {
+    let boss = boss_stats_for(stage, party_size, avg_level, tunables);
     BossStats {
         hp: (boss.hp as f64 * 1.0).round() as u64,
         atk: (boss.atk as f64 * 1.2).round() as u64,
@@ -7398,9 +7441,13 @@ mod memory_manager_tests {
 /// atomicity - same disposable-manager-with-scratch-paths harness as
 /// `memory_manager_tests` above, for the same "racing `set_data_dir` is
 /// flaky" reason. Deliberately relies on `LiveTunables::default()`
-/// (1000 dust/10 sand/1 output - no `adventure-live-tunables.toml` exists
-/// in a fresh scratch dir) rather than writing an override file, so these
-/// tests never touch `save_live_tunables`'s own disk write either.
+/// (1000 dust/10 sand/1 output) rather than writing an override file, so
+/// these tests never touch `save_live_tunables`'s own disk write either.
+/// NB the reason originally given here - "no `adventure-live-tunables.toml`
+/// exists in a fresh scratch dir" - was wrong: the scratch dir only holds
+/// the character/world/cooldown paths passed to `new`, while tunables
+/// resolve through `data_path` against the process CWD. `cfg(test)` now
+/// makes the claim true by construction (see `load_live_tunables`).
 #[cfg(test)]
 mod divine_dust_craft_tests {
     use super::*;
@@ -7912,4 +7959,229 @@ mod fail_loud_loading_tests {
         AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
     }
 }
+
+/// Dynamic pacing (2026-08-22) - manager-level wiring tests. The pure
+/// controller math lives in pacing.rs's own suite; these prove the
+/// MANAGER actually drives it: the stage walk, the wins-only sampling
+/// gate at the real call sites, and that a fight still RESOLVES with
+/// every safety ceiling maxed out.
+#[cfg(test)]
+mod dynamic_pacing_tests {
+    use super::*;
+
+    async fn disposable_manager(label: &str) -> Arc<AdventureManager> {
+        let scratch = std::env::temp_dir().join(format!("pacing_test_{label}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        // Characters/world/cooldowns are per-test scratch paths, but
+        // `TUNABLES_PATH` is a fixed RELATIVE path - one file shared by
+        // every manager in the process AND left behind between runs. A
+        // test that persisted a tunable would silently configure every
+        // later test (and every later `cargo test` invocation) from disk.
+        // Pin this manager's in-memory copy to the shipped defaults so
+        // these tests describe the shipped configuration and nothing else.
+        set_tunables(&manager, LiveTunables::default());
+        manager
+    }
+
+    /// Applies tunables to ONE manager without touching the shared
+    /// on-disk file. Fights read `self.live_tunables()` (the in-memory
+    /// copy), so this exercises exactly the same path a dashboard save
+    /// would, minus the cross-test/cross-run contamination.
+    fn set_tunables(manager: &Arc<AdventureManager>, t: LiveTunables) {
+        *manager.live_tunables.write().expect("live_tunables lock poisoned") = t;
+    }
+
+    /// A real fight through the public seam must move the stage exactly
+    /// per the new walk (+1 win / -2 loss, floored at 1), record the
+    /// outcome for Controller B, and - on a win - feed Controller A's
+    /// DPS window while a loss never does.
+    #[tokio::test]
+    async fn a_real_fight_walks_the_stage_and_feeds_the_right_controller() {
+        let manager = disposable_manager("walk").await;
+        manager.join("walker", "walker").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("walker").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        let stage_before = manager.world.lock().await.stage.max(3);
+        manager.world.lock().await.stage = stage_before;
+        let outcome = manager.trigger_encounter_now(None).await;
+        assert!(matches!(outcome, TriggerEncounterOutcome::Triggered), "a joined warrior must produce a real fight");
+        let world = manager.world.lock().await;
+        let won = *world.recent_boss_outcomes.back().expect("the fight's outcome must be recorded for Controller B");
+        if won {
+            assert_eq!(world.stage, stage_before + 1, "win advances exactly +1");
+            assert!(!world.recent_win_dps.is_empty(), "a WIN must feed Controller A's DPS window");
+            assert!(world.recent_win_dps.iter().all(|d| d.is_finite() && *d > 0.0), "samples are finite and positive");
+        } else {
+            assert_eq!(world.stage, (stage_before.saturating_sub(2)).max(1), "loss regresses exactly -2, floored at 1");
+            assert!(world.recent_win_dps.is_empty(), "a LOSS must never feed Controller A's window (owner ruling)");
+        }
+    }
+
+    /// Boss-encounters-only sampling (2026-08-23 ruling), part 1: a
+    /// FILLER fight feeds neither controller. It still runs, still scales
+    /// off both multipliers at generation, and still never walks the
+    /// stage - it just contributes no signal.
+    #[tokio::test]
+    async fn a_filler_fight_feeds_neither_controller() {
+        let manager = disposable_manager("filler").await;
+        manager.join("loafer", "loafer").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("loafer").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        let stage_before = manager.world.lock().await.stage;
+        // The inner form deliberately, to skip `run_basic_encounter`'s
+        // overlay-spacing sleep - the gate has nothing to do with sampling.
+        let ran = manager.run_basic_encounter_inner().await;
+        assert!(ran.is_some(), "a joined level-40 warrior must produce a real filler fight");
+        let world = manager.world.lock().await;
+        assert!(world.recent_win_dps.is_empty(), "a filler fight must never reach Controller A's DPS window - it is measured against basic_enemy_stats_for, a different curve from the boss pools that multiplier governs");
+        assert!(world.recent_boss_outcomes.is_empty(), "a filler fight must never reach Controller B's outcome window");
+        assert_eq!(world.stage, stage_before, "a filler fight never walks the stage");
+    }
+
+    /// Part 2: a WIPE under `permanent_rampage` (the expected steady
+    /// state - boss fights back to back, everyone instantly revived)
+    /// pushes exactly ONE outcome for Controller B and ZERO duration
+    /// samples for Controller A. The instant revive must not become a
+    /// back door around the wins-only rule.
+    #[tokio::test]
+    async fn a_wipe_under_permanent_rampage_pushes_one_outcome_and_no_sample() {
+        let manager = disposable_manager("wipe").await;
+        manager.join("doomed", "doomed").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("doomed").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        // A deterministic wipe, in memory only: an unkillable boss that
+        // one-shots the party. These are this manager's own tunables and
+        // never touch disk (see `set_tunables`).
+        let mut t = manager.live_tunables();
+        t.permanent_rampage = true;
+        t.boss_health = 1.0e9;
+        t.boss_power = 1.0e9;
+        set_tunables(&manager, t);
+        let ran = manager.run_encounter_inner(None).await;
+        assert!(ran.is_some(), "the fight must actually run");
+        let world = manager.world.lock().await;
+        assert_eq!(world.recent_boss_outcomes.len(), 1, "exactly one outcome push per encounter, wipe or not");
+        assert_eq!(world.recent_boss_outcomes.back(), Some(&false), "an unkillable one-shotting boss must produce a LOSS - the rest of this test is vacuous otherwise");
+        assert!(world.recent_win_dps.is_empty(), "a wipe contributes NO duration sample, revive or no revive");
+        drop(world);
+        assert!(
+            manager.downed_until.lock().await.is_empty(),
+            "instant revive: permanent_rampage skips the downed timer entirely, so the next encounter starts with the full party"
+        );
+    }
+
+    /// Part 3: a back-to-back boss sequence produces exactly one duration
+    /// sample per WON encounter - no double-counting, and one outcome per
+    /// encounter either way.
+    #[tokio::test]
+    async fn back_to_back_boss_wins_sample_once_each() {
+        let manager = disposable_manager("backtoback").await;
+        manager.join("runner", "runner").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("runner").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        // Deterministic wins: a boss with 1% of its normal HP that deals
+        // effectively no damage. Real attack events still occur, so the
+        // samples are real measurements, not degenerate zeroes.
+        let mut t = manager.live_tunables();
+        t.permanent_rampage = true;
+        t.boss_health = 0.01;
+        t.boss_power = 1.0e-9;
+        set_tunables(&manager, t);
+        let stage_before = manager.world.lock().await.stage;
+        for i in 0..3 {
+            assert!(manager.run_encounter_inner(None).await.is_some(), "encounter {i} must run");
+        }
+        let world = manager.world.lock().await;
+        assert_eq!(world.recent_boss_outcomes.len(), 3, "one outcome per encounter");
+        assert!(world.recent_boss_outcomes.iter().all(|won| *won), "the party must have won all three - the sample count below means nothing otherwise");
+        assert_eq!(world.recent_win_dps.len(), 3, "exactly one duration sample per WON encounter - no double-counting");
+        assert!(world.recent_win_dps.iter().all(|d| d.is_finite() && *d > 0.0), "every sample is a real, finite, positive measurement");
+        assert_eq!(world.stage, stage_before + 3, "three wins walk the stage +1 each");
+    }
+
+    /// Kill-switch OFF: a real fight still runs (passthrough generation)
+    /// but leaves both multipliers untouched and stores no DPS sample.
+    #[tokio::test]
+    async fn kill_switch_off_freezes_both_controllers_through_a_real_fight() {
+        let manager = disposable_manager("killswitch").await;
+        manager.join("frozen", "frozen").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("frozen").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        let mut t = manager.live_tunables();
+        t.dynamic_pacing_enabled = false;
+        set_tunables(&manager, t);
+        let before = { let w = manager.world.lock().await; (w.hp_pacing_mult, w.boss_power_mult, w.recent_win_dps.len(), w.recent_boss_outcomes.len()) };
+        let outcome = manager.trigger_encounter_now(None).await;
+        assert!(matches!(outcome, TriggerEncounterOutcome::Triggered));
+        let after = { let w = manager.world.lock().await; (w.hp_pacing_mult, w.boss_power_mult, w.recent_win_dps.len(), w.recent_boss_outcomes.len()) };
+        assert_eq!(before.0, after.0, "hp multiplier frozen");
+        assert_eq!(before.1, after.1, "damage multiplier frozen");
+        assert_eq!(after.2, 0, "no DPS sample while disabled");
+        // Recording an outcome is sampling too: B's window must not fill
+        // while the switch is off, or the controller would step off a
+        // history of fights it never governed the moment it comes back.
+        assert_eq!(before.3, 0, "outcome window starts empty");
+        assert_eq!(after.3, 0, "no boss outcome recorded while disabled");
+    }
+
+    /// ADDITION 4 end-to-end: maximum baseline + maximum mitigation must
+    /// still resolve. Stage pinned high, top-layer cap tunable poisoned
+    /// past the hard cap, anchors demanding enormous enemies - the fight
+    /// completes and every persisted multiplier stays finite.
+    #[tokio::test]
+    async fn a_fight_still_resolves_at_maximum_baseline_and_maximum_mitigation() {
+        let manager = disposable_manager("maxfloor").await;
+        manager.join("tank", "tank").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("tank").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = 3000;
+            // Near-limit controller values: B pinned at the hard ceiling,
+            // A at its tunable ceiling - the pool cap has to do real work.
+            world.boss_power_mult = pacing::DYNAMIC_MULT_HARD_CEILING;
+            world.hp_pacing_mult = 6.0;
+        }
+        let mut t = manager.live_tunables();
+        t.top_layer_enabled = true;
+        t.top_layer_cap_pct = 50.0; // absurd -> clamped to 0.95 hard cap
+        t.top_layer_half_stage = 1.0; // ramps in immediately
+        t.baseline_stage_anchors = vec![0, 3000];
+        t.baseline_hp_anchors = vec![1.0, 1.0e6]; // enormous floor demand
+        t.baseline_atk_anchors = vec![1.0, 1.0e6];
+        set_tunables(&manager, t);
+        let outcome = manager.trigger_encounter_now(None).await;
+        assert!(matches!(outcome, TriggerEncounterOutcome::Triggered), "the fight must RESOLVE even fully saturated");
+        let world = manager.world.lock().await;
+        assert!(world.hp_pacing_mult.is_finite() && world.boss_power_mult.is_finite(), "post-fight multipliers stay finite");
+        assert!(world.boss_power_mult <= pacing::DYNAMIC_MULT_HARD_CEILING, "hard ceiling holds through a real update");
+    }
+}
+
 

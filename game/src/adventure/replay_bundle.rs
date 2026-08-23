@@ -504,7 +504,7 @@ mod tests {
             })
             .collect();
 
-        let (compressed, _display_ms) = compress_events(events);
+        let (compressed, _display_ms) = compress_events(events, &LiveTunables::default());
 
         assert_eq!(compressed.len(), before.len(), "compress_events must map 1:1");
         let after: Vec<u64> = compressed
