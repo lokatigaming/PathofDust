@@ -945,10 +945,138 @@ percents. The correction (`0.003 / 0.006 / 0.009`) preserves that ramp,
 which means **the operator's intent was always expressible** — only the
 units were wrong.
 
-Not investigated: whether any other tunable on that page carries the same
-label/hint mismatch. That sweep is worth doing once rather than
-discovering the next one the way this one was discovered. Every
-`_pct_`-suffixed field clamped `0.0..1.0` is a candidate.
+**SWEEP DONE — 2026-08-23, same day.** The paragraph that used to close
+this entry said the page had not been swept. It has been. The sweep
+covered every one of the **59 controls** rendered on `/admin/tunables`
+(55 numeric/text + 4 checkboxes), each checked for label/hint unit
+agreement, clamp coherence against the stated units, live-vs-default
+divergence on fraction dials, and label-implies-a-unit-storage-does-not-
+use. **This entry is no longer about one control: it is eleven defects
+across four families sharing one root.**
+
+*Method note.* Audited against source at `93a136d`, which is legitimate
+because the tunables form is **byte-identical** between `b2e0bb0` (the
+commit immediately preceding the live `game.exe` build at 14:57) and
+`93a136d` — so this is the live page, not a near-live approximation. Two
+fields added on master `0110be6` (`hp_relax_after_losses`,
+`hp_relax_step_per_fight`) are **not deployed** and were out of scope.
+The page could not be scraped: `admin_tunables_page`
+(adventure_web.rs:2548) gates on a hardcoded login and returns HTTP 200
+carrying a "Not Found" body, which reads as unauthenticated success if
+you only check the status code. It is gated.
+
+### The root
+
+**Eight controls label a fraction-typed field as `%`.** Seven of them
+carry `max="1"`, which **reads as a guard and is not one**: under the
+label's own units `max="1"` would mean "at most 1%", which is
+nonsensical as a bound. What it actually does is **silently clamp the
+wrong reading instead of rejecting it** — an operator entering `50` for
+"50%" gets `1.0` stored, no error, no warning, no log line. The
+plausible-but-wrong value is always inside the bound, so the bound never
+catches the error it looks like it exists to catch. That is the `#47`
+shape, and it is systemic rather than local to Shattering.
+
+### The eleven
+
+Defects 1-8 are the root above. Defects 9-11 are live values ≥10x their
+shipped default on a fraction dial.
+
+| # | Field | file:line | Label vs storage | Clamp |
+|---|---|---|---|---|
+| 1 | `splash_damage_pct` | adventure_web.rs:3726-3728 | "Splash Damage **%**" / fraction | **NONE** |
+| 2 | `shattering_damage_pct_rank1` | 3677-3679 | "Icicle Damage **%**" / fraction | `max=1` + server clamp |
+| 3 | `shattering_damage_pct_rank2` | 3682-3684 | same | same |
+| 4 | `shattering_damage_pct_rank3` | 3687-3689 | same | same |
+| 5 | `thunder_redistribution_pct` | 3596-3598 | "…Redistribution **%**" / fraction | `max=1` + server clamp |
+| 6 | `rf_self_damage_pct_rank1` | 3607-3609 | "Self-Damage **%**" / fraction | `max=1` + server clamp |
+| 7 | `rf_self_damage_pct_rank2` | 3612-3614 | same | same |
+| 8 | `rf_self_damage_pct_rank3` | 3617-3619 | same | same |
+| 9 | `divine_dust_drop_chance` | 3645-3647 | consistent; live 1.0 = 10x default | `max=1` + server clamp |
+| 10 | `divine_dust_disenchant_chance` | 3650-3652 | consistent; live 1.0 = 10x default | `max=1` + server clamp |
+| 11 | `wings_drop_chance` | 3451-3453 | consistent; live 0.001 = 10x default | `max=1` + server clamp |
+
+Defects 9 and 10 were flagged for a reason worth keeping even though the
+owner has since ruled them intentional (below): both sit **exactly at the
+clamp ceiling**, and because `.clamp(0.0, 1.0)` emits nothing, a stored
+`1.0` is **indistinguishable from an operator having typed `10` or `100`
+and been silently clamped**. The value cannot be self-certified as
+deliberate from the data alone. That property is the defect; the specific
+values were fine.
+
+### HIGHEST SEVERITY — `splash_damage_pct`, worse than `#47`'s own field
+
+`splash_damage_pct` (adventure_web.rs:3726-3728) carries the identical
+label-says-`%` / hint-says-`Fraction` contradiction **and has no `max`
+attribute and no server clamp**. The save is
+`form.splash_damage_pct.max(0.0)` (adventure_web.rs:2765) — a floor with
+no ceiling.
+
+An operator entering `100` for "100%" stores `100.0`, giving **every
+splash target 100x the primary hit's damage, across every attack and
+every enemy in the pack**, with nothing downstream to stop it. `#47`'s
+field at least bottomed out at 90% of one dead enemy's HP; this one is
+unbounded and applies to every hit in every fight.
+
+**Live value is 1.0 — correct.** This is a trap, not a live fault. It is
+recorded at the top of this entry because the only thing currently
+standing between the page and a 100x global splash multiplier is that
+nobody has yet typed the label's own units into the box.
+
+### Owner rulings — RESOLVED, do not re-investigate
+
+- **`divine_dust_drop_chance` and `divine_dust_disenchant_chance` at 1.0
+  are DELIBERATE.** 100% is intended on both. **Not defects.** Closed.
+- **`rf_self_damage_pct_rank1/2/3` at 2x defaults** (0.2/0.4/0.6 against
+  0.1/0.2/0.3) is a **deliberate uniform doubling, not a units slip.**
+  Closed as a value question; the label defect (#6-8 above) stands
+  separately.
+- **`wings_drop_chance` at 10x** (0.001 against 0.0001) is a **coherent
+  drop-rate buff, not a slip.** Closed.
+- **`splash_damage_pct` is to be RETIRED, not relabelled.** Splash damage
+  is a fixed 1.0 by design; skills that raise splash damage go through
+  `splash_target_dmg_bonus` (combat.rs:14307), **not** the global. Keep
+  the field declared with `serde` default so existing TOML still
+  deserializes, drop the control, hardcode 1.0.
+- **The remaining label corrections are the owner's own follow-up.** Not
+  parser's, not open work for anyone else.
+
+**Pre-answered for the retirement's implementation pass** (the ruling
+asked that no other caller be confirmed to read the global directly —
+this session checked, so the implementer does not have to):
+
+- The owner's citation is **correct**: `splash_target_dmg_bonus` is at
+  combat.rs:14307, as stated.
+- **Exactly ONE production reader** of the global exists:
+  combat.rs:10225, `let damage_pct = tunables.splash_damage_pct;`.
+  Everything else matching the name is a doc comment (character.rs:3178,
+  combat.rs:10219, 10269, 10637).
+- **Two tests will need deliberate handling, not silent deletion:**
+  combat.rs:19524 asserts `pct == tunables.splash_damage_pct`, and
+  combat.rs:19636-19640 sets the tunable to 0.25 and asserts it "flows
+  straight through". That second test exists specifically to pin
+  live-retunability, so retiring the global **invalidates its premise** —
+  it must not be quietly rewritten to pass against a hardcoded 1.0, which
+  would leave a test that looks like it still guards something.
+
+### Two adjacent findings, neither a defect
+
+- **`splash_ladder_step_pct` (adventure_web.rs:3716-3718) is the only
+  `_pct_` field on the page that genuinely stores percent-points** —
+  1000 means 1000% splash, verified at combat.rs:10256 where it is
+  compared directly against `splash_pct`. Its label, hint and storage all
+  agree, so it passes every criterion. The risk is **cross-field**: an
+  operator who has learned from the other fifteen `_pct_` fields that
+  "these are 0-to-1 fractions" could enter `10` here meaning 1000%. It is
+  also unclamped and has no `max`. Not a defect; a trap of a different
+  shape.
+- **`dynamic_scaling_mult` is an orphaned key.** Retired from the form,
+  but still a `LiveTunables` field, still written to
+  `adventure-live-tunables.toml` (live 1.0), and carried forward from
+  `previous` at adventure_web.rs:2733 — with **no control and no reader**
+  anywhere in game logic. Not a defect under any criterion (no control
+  exists, so no control can mislead). Recorded only so nobody mistakes
+  the TOML key for an active dial.
 
 **#45 — `pending_veils` holds one entry per player; a second veiled
 craft silently orphans the first's spent token**
