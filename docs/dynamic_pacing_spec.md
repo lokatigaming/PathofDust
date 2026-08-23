@@ -86,11 +86,21 @@ wrong on all three counts.
    only thing left - a safety cap is not a balance knob, so it applies at
    once instead of after N fights of climbing toward it.
 
-3. **The operating window never slams `prev`.** A stored multiplier
-   already outside its configured window (a dashboard edit tightened the
-   range underneath it, or an older save) is walked back by the
-   controller's own requests, not yanked mid-flight. Only the hard caps
-   move it without being asked.
+3. **The operating window never slams `prev`, but it does CONVERGE**
+   (revised 2026-08-23, branch `fix/pacing-controller-loop`). A stored
+   multiplier already outside its configured window (a dashboard edit
+   tightened the range underneath it, or an older save) is still never
+   yanked mid-flight - but the widening that admits it now SHRINKS by one
+   rate-limited step per fight, unconditionally, until it is gone.
+
+   It was previously permanent (`lo = cfg_lo.min(prev)`,
+   `hi = cfg_hi.max(prev)`), which made a configured bound **advisory**:
+   the value could only come back if the controller happened to request
+   that direction by itself, so an operator who lowered a ceiling to rein
+   in a runaway got neither effect nor feedback. The step cap preserves
+   the no-slam property; only the hard caps still bind instantly. A
+   `*_max_step_per_fight` of 0 means the controller may not move at all,
+   so the widening correspondingly cannot close.
 
 ## Owner rulings implemented
 

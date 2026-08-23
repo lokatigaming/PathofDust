@@ -388,18 +388,47 @@ pub(crate) fn sanitize_override_mult(value: f64) -> f64 {
 ///   "no ceiling on this side" and the structural cap is the only bound
 ///   left - a safety cap is not a balance knob, so it binds at once
 ///   rather than after N fights of climbing.
-/// * **The window never slams `prev`.** A stored multiplier already
-///   outside its configured window (a dashboard edit tightened the range
-///   underneath it, or an older save) is walked back by the controller's
-///   own requests, not yanked in mid-flight; only the hard caps do that.
+/// * **The window never slams `prev`, but it does CONVERGE.** A stored
+///   multiplier already outside its configured window (a dashboard edit
+///   tightened the range underneath it, or an older save) is never yanked
+///   in mid-flight - but the widening that admits it shrinks by one
+///   rate-limited step per fight, unconditionally, until it is gone. It
+///   was previously permanent (`cfg.min(prev)` / `cfg.max(prev)`), which
+///   made a configured bound advisory: it could only be honored if the
+///   controller happened to request that direction by itself, so an
+///   operator lowering a ceiling on a runaway got neither effect nor
+///   feedback. Only the hard caps still bind instantly.
 pub(crate) fn clamp_rate_limited(prev: f64, desired: f64, step: f64, floor_v: f64, ceil_v: f64) -> f64 {
     let prev = sanitize_mult(prev);
     let step = if step.is_finite() { step.clamp(0.0, 100.0) } else { 0.0 };
     let desired = if desired.is_nan() { prev } else { desired };
     let cfg_lo = floor_v.min(ceil_v);
     let cfg_hi = floor_v.max(ceil_v);
-    let lo = sanitize_mult(cfg_lo).min(prev);
-    let hi = sanitize_mult(cfg_hi).max(prev);
+    let hard_lo = sanitize_mult(cfg_lo);
+    let hard_hi = sanitize_mult(cfg_hi);
+    // The widening SHRINKS (2026-08-23). While `prev` sits outside the
+    // configured window the effective bound is not `prev` itself - it is
+    // ONE rate-limited step of `prev` taken TOWARD the configured value.
+    // So the widening closes by a step every fight until it is gone, and
+    // the bound applies regardless of what the fight signal asked for:
+    // this clamp is the last thing to run, so an outside-the-window
+    // multiplier is pulled in even on a fight where the controller wanted
+    // to go the other way.
+    //
+    // Before this, the bounds were `cfg.min(prev)` / `cfg.max(prev)` - the
+    // window simply absorbed `prev` and never let go, so a configured
+    // bound was ADVISORY: an operator who lowered a ceiling to rein in a
+    // runaway got no effect and no feedback, because the only thing that
+    // could bring the value back was the controller happening to request
+    // that direction on its own.
+    //
+    // The no-slam property is preserved exactly - nothing is yanked
+    // mid-flight, the move is still capped at one step per fight. A `step`
+    // of 0 means "this controller may not move at all per fight", and the
+    // widening correspondingly cannot close; that is coherent rather than
+    // a special case.
+    let lo = if prev < hard_lo { hard_lo.min(prev * (1.0 + step)) } else { hard_lo };
+    let hi = if prev > hard_hi { hard_hi.max(prev / (1.0 + step)) } else { hard_hi };
     let limited = if desired > prev && cfg_hi <= DYNAMIC_MULT_HARD_CEILING {
         desired.min(prev * (1.0 + step))
     } else {
@@ -824,9 +853,16 @@ mod tests {
         // Near-limit feed: everything huge, every output still finite and
         // inside the hard range - never wraps, never NaN/inf.
         let p = params();
+        // `prev` here sits far ABOVE the configured ceiling (6.0). Since
+        // 2026-08-23 that widening SHRINKS - one rate-limited step back
+        // per fight - instead of the window absorbing prev forever, so
+        // this asserts convergence rather than the old "holds at the hard
+        // ceiling". The saturation property the test exists for is
+        // unchanged: the value stays finite and never wraps.
         let next = update_hp_pacing_mult(1.0e6, 1.0, &[f64::MAX, f64::MAX, f64::MAX], &p).expect("updates");
-        assert_eq!(next, DYNAMIC_MULT_HARD_CEILING);
-        assert!(next.is_finite());
+        assert!(next.is_finite() && next > 0.0, "{next}");
+        assert!((next - 1.0e6 / (1.0 + p.hp_step)).abs() < 1e-6, "one rate-limited step back toward the configured ceiling, got {next}");
+        assert!(next < 1.0e6, "an out-of-window multiplier must converge, not hold");
         assert_eq!(sat_round_stat(1.0e15 * DYNAMIC_MULT_HARD_CEILING), u64::MAX, "saturates, never wraps");
         assert_eq!(sat_round_stat(f64::NAN), 1, "NaN never produces a zero-stat enemy");
         assert_eq!(sat_round_stat(-5.0), 1);
