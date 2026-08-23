@@ -2563,7 +2563,6 @@ struct TunablesForm {
     celestial_shard_drop_chance: f64,
     boss_health: f64,
     boss_power: f64,
-    dynamic_scaling_mult: f64,
     boss_count_tier_stages: u32,
     boss_count_cap_mult: f64,
     late_content_stage: u32,

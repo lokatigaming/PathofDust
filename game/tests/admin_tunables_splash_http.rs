@@ -152,5 +152,38 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
     assert!(admin_page.contains("value=\"7\""), "the retuned splash_extra_targets must render back into its own input");
     assert!(admin_page.contains("name=\"splash_ladder_step_pct\""), "the new ladder field must actually be in the form");
 
+    // --- form/struct drift guard (2026-08-23) --------------------------
+    // Every assertion above posts a hand-written SUPERSET body, which is
+    // exactly why they all kept passing while `/admin/tunables` Save was
+    // dead in production: the dynamic-pacing branch dropped the retired
+    // `dynamic_scaling_mult` <input> from the page but left the field on
+    // `TunablesForm` with no `#[serde(default)]`, so a real browser save
+    // - which posts only what the page renders - 422'd on every attempt.
+    // A superset body can never catch that. Derive the field set from the
+    // rendered page and post EXACTLY it, so any future drift in either
+    // direction fails here instead of shipping.
+    let form_html = {
+        let start = admin_page.find("action=\"/admin/tunables/save\"").expect("the tunables form must be on the page");
+        let end = start + admin_page[start..].find("</form>").expect("the tunables form must be closed");
+        &admin_page[start..end]
+    };
+    let mut rendered: Vec<&str> = Vec::new();
+    for piece in form_html.split("name=\"").skip(1) {
+        let name = piece.split('"').next().expect("a name attribute must be quoted");
+        if !rendered.contains(&name) {
+            rendered.push(name);
+        }
+    }
+    assert!(rendered.len() > 40, "sanity: the tunables form renders many inputs, found {}", rendered.len());
+    let exact: Vec<(&str, &str)> = rendered.iter().map(|name| (*name, "1")).collect();
+    let exact_save =
+        client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&exact).send().await.expect("POST failed");
+    assert!(
+        exact_save.status().is_redirection(),
+        "posting exactly the {} fields the page renders must extract cleanly - got {}. A 422 here means `TunablesForm` requires a field the form no longer renders (or renders one it does not accept)",
+        rendered.len(),
+        exact_save.status()
+    );
+
     std::fs::remove_dir_all(&scratch).ok();
 }
