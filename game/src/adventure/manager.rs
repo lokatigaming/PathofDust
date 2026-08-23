@@ -310,6 +310,18 @@ pub(crate) struct WorldState {
     /// the sampler, never stored.
     #[serde(default)]
     recent_win_dps: std::collections::VecDeque<f64>,
+    /// Consecutive LOST boss fights since the last won one - Controller
+    /// A's relaxation trigger (see `pacing::relax_hp_pacing_mult`), reset
+    /// to 0 by any win.
+    ///
+    /// A's own field, deliberately NOT read off `recent_boss_outcomes`.
+    /// That window belongs to Controller B, and the independence doctrine
+    /// is that neither controller reads the other's variable - a shortcut
+    /// here would make A's behavior depend on B's window length the day
+    /// someone gives the two controllers separate windows. Counting is
+    /// also cheaper and does not care how far back B happens to retain.
+    #[serde(default)]
+    boss_losses_since_win: u32,
 }
 
 /// Manual, not derived - a brand-new install goes through this (see
@@ -322,7 +334,7 @@ pub(crate) struct WorldState {
 /// value.
 impl Default for WorldState {
     fn default() -> Self {
-        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), hp_pacing_mult: default_hp_pacing_mult(), recent_boss_outcomes: std::collections::VecDeque::new(), recent_win_dps: std::collections::VecDeque::new() }
+        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), hp_pacing_mult: default_hp_pacing_mult(), recent_boss_outcomes: std::collections::VecDeque::new(), recent_win_dps: std::collections::VecDeque::new(), boss_losses_since_win: 0 }
     }
 }
 
@@ -5163,7 +5175,28 @@ impl AdventureManager {
             // -----------------------------------------------------------------
             if pacing_params.enabled {
                 pacing::push_dps_sample(&mut world.recent_win_dps, won, pacing_sample_dps, pacing_params.window);
-                if let Some(next_hp) = pacing::update_hp_pacing_mult(world.hp_pacing_mult, base_pool, &world.recent_win_dps.iter().copied().collect::<Vec<_>>(), &pacing_params) {
+                // A's own losing-streak counter (see the field's doc for
+                // why it is not read off B's outcome window).
+                if won {
+                    world.boss_losses_since_win = 0;
+                } else {
+                    world.boss_losses_since_win = world.boss_losses_since_win.saturating_add(1);
+                }
+                // RELAXATION TAKES PRECEDENCE over the ordinary update
+                // while the streak condition holds, and that ordering is
+                // the fix - not a tie-break. During a losing streak the
+                // ordinary update reads a wins-only window that still
+                // describes the party that used to win, so it re-requests
+                // the very multiplier that got them here; and because a
+                // loss walks the stage back 2, the organic pool SHRINKS
+                // and the required multiplier RISES, pushing A further up
+                // the longer the party loses. Letting it run first would
+                // undo the release valve every other fight.
+                if let Some(relaxed) = pacing::relax_hp_pacing_mult(world.hp_pacing_mult, world.boss_losses_since_win, &pacing_params) {
+                    world.hp_pacing_mult = relaxed;
+                } else if let Some(next_hp) =
+                    pacing::update_hp_pacing_mult(world.hp_pacing_mult, base_pool, &world.recent_win_dps.iter().copied().collect::<Vec<_>>(), &pacing_params)
+                {
                     world.hp_pacing_mult = next_hp;
                 }
             }
@@ -8046,6 +8079,67 @@ mod dynamic_pacing_tests {
         assert!(world.recent_win_dps.is_empty(), "a filler fight must never reach Controller A's DPS window - it is measured against basic_enemy_stats_for, a different curve from the boss pools that multiplier governs");
         assert!(world.recent_boss_outcomes.is_empty(), "a filler fight must never reach Controller B's outcome window");
         assert_eq!(world.stage, stage_before, "a filler fight never walks the stage");
+    }
+
+    /// FIX 2 wiring (2026-08-23): the relaxation math is unit-tested in
+    /// pacing.rs, but the counter that drives it is maintained here, at
+    /// A's single sample site. This drives a REAL boss fight through the
+    /// public seam and asserts both branches, so the plumbing cannot
+    /// silently rot regardless of which way the fight goes.
+    #[tokio::test]
+    async fn a_boss_fight_maintains_controller_as_own_loss_streak_and_relaxes_on_it() {
+        let manager = disposable_manager("relax_wiring").await;
+        manager.join("streaker", "streaker").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("streaker").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        // Park A well above neutral on an already-long losing streak, so a
+        // loss must trip the relaxation path on this very fight.
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = 40;
+            world.hp_pacing_mult = 12.0;
+            world.boss_losses_since_win = 5;
+        }
+        let outcome = manager.trigger_encounter_now(None).await;
+        assert!(matches!(outcome, TriggerEncounterOutcome::Triggered), "a joined warrior must produce a real fight");
+
+        let world = manager.world.lock().await;
+        let won = *world.recent_boss_outcomes.back().expect("the fight's outcome must be recorded");
+        if won {
+            assert_eq!(world.boss_losses_since_win, 0, "any win resets Controller A's streak counter");
+        } else {
+            assert_eq!(world.boss_losses_since_win, 6, "a lost boss fight increments the streak by exactly one");
+            assert!(
+                world.hp_pacing_mult < 12.0,
+                "past the trigger a LOST fight must walk A down - it sat at {}, which is the freeze this fix exists to remove",
+                world.hp_pacing_mult
+            );
+            assert!(world.hp_pacing_mult >= 1.0, "relaxation must never carry A below neutral, got {}", world.hp_pacing_mult);
+        }
+    }
+
+    /// The counter is Controller A's own state and must NOT be inferred
+    /// from Controller B's outcome window - the independence doctrine. A
+    /// filler fight feeds neither controller, so it must not touch the
+    /// streak either, in either direction.
+    #[tokio::test]
+    async fn a_filler_fight_never_touches_controller_as_loss_streak() {
+        let manager = disposable_manager("relax_filler").await;
+        manager.join("loafer2", "loafer2").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("loafer2").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        manager.world.lock().await.boss_losses_since_win = 4;
+        let ran = manager.run_basic_encounter_inner().await;
+        assert!(ran.is_some(), "a joined level-40 warrior must produce a real filler fight");
+        assert_eq!(manager.world.lock().await.boss_losses_since_win, 4, "filler is not a boss outcome - it neither increments nor clears A's streak");
     }
 
     /// Part 2: a WIPE under `permanent_rampage` (the expected steady

@@ -2652,6 +2652,12 @@ struct TunablesForm {
     hp_multiplier_floor: f64,
     #[serde(default)]
     hp_multiplier_ceiling: f64,
+    /// See `LiveTunables::hp_relax_after_losses`'s doc.
+    #[serde(default)]
+    hp_relax_after_losses: u32,
+    /// See `LiveTunables::hp_relax_step_per_fight`'s doc.
+    #[serde(default)]
+    hp_relax_step_per_fight: f64,
     #[serde(default)]
     target_win_loss_ratio: f64,
     #[serde(default)]
@@ -2772,6 +2778,13 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 hp_max_step_per_fight: form.hp_max_step_per_fight.clamp(0.0, 100.0),
                 hp_multiplier_floor: form.hp_multiplier_floor.max(0.001),
                 hp_multiplier_ceiling: form.hp_multiplier_ceiling.max(0.001),
+                // 0 is meaningful on BOTH of these and must survive the
+                // save: on the loss count it reads as UNSET (pacing
+                // substitutes the shipped default), and on the step it is
+                // the deliberate off switch for relaxation. So neither is
+                // floored here - only the typo backstops apply.
+                hp_relax_after_losses: form.hp_relax_after_losses,
+                hp_relax_step_per_fight: form.hp_relax_step_per_fight.clamp(0.0, 100.0),
                 target_win_loss_ratio: form.target_win_loss_ratio.max(0.001),
                 dmg_max_step_per_fight: form.dmg_max_step_per_fight.clamp(0.0, 100.0),
                 dmg_multiplier_floor: form.dmg_multiplier_floor.max(0.001),
@@ -3504,6 +3517,16 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <p class=\"tunable-hint\">Ceiling on A's multiplier (hard-capped at 1,000,000 no matter what).</p>\
             </div>\
             <div class=\"tunable-row\">\
+              <label for=\"hp_relax_after_losses\">HP Relax After (consecutive losses)</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"hp_relax_after_losses\" name=\"hp_relax_after_losses\" value=\"{hp_relax_after_losses}\">\
+              <p class=\"tunable-hint\">Consecutive LOST boss fights before Controller A starts decaying back toward neutral. A samples wins only — correct, but it means a wipe teaches A nothing, so an overshoot has no way back without this. 0 = unset (uses the shipped default); to switch relaxation off set the step below to 0.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_relax_step_per_fight\">HP Relax Step (per lost fight)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"hp_relax_step_per_fight\" name=\"hp_relax_step_per_fight\" value=\"{hp_relax_step_per_fight}\">\
+              <p class=\"tunable-hint\">How far back toward neutral A moves per lost fight once that streak is reached (0.20 = 20%). Never pushes A below neutral 1.0, and never applies while A is already at or under neutral — a losing party is never made harder by this path. <strong>0 disables relaxation entirely.</strong></p>\
+            </div>\
+            <div class=\"tunable-row\">\
               <label for=\"target_win_loss_ratio\">Target Win:Loss Ratio</label>\
               <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_win_loss_ratio\" name=\"target_win_loss_ratio\" value=\"{target_win_loss_ratio}\">\
               <p class=\"tunable-hint\">Controller B (damage axis) steers the rolling BOSS win:loss ratio here. Default 2.0 = two wins per loss — exactly neutral stage progression (+1 per win, -2 per loss), so the party only climbs by beating it. Boss outcomes only.</p>\
@@ -3761,6 +3784,8 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         hp_max_step_per_fight = t.hp_max_step_per_fight,
         hp_multiplier_floor = t.hp_multiplier_floor,
         hp_multiplier_ceiling = t.hp_multiplier_ceiling,
+        hp_relax_after_losses = t.hp_relax_after_losses,
+        hp_relax_step_per_fight = t.hp_relax_step_per_fight,
         target_win_loss_ratio = t.target_win_loss_ratio,
         dmg_max_step_per_fight = t.dmg_max_step_per_fight,
         dmg_multiplier_floor = t.dmg_multiplier_floor,

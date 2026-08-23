@@ -113,6 +113,21 @@ pub(crate) mod defaults {
     pub const HP_MAX_STEP_PER_FIGHT: f64 = 0.25;
     pub const HP_MULTIPLIER_FLOOR: f64 = 0.4;
     pub const HP_MULTIPLIER_CEILING: f64 = 6.0;
+    /// Controller A's relaxation trigger (2026-08-23): consecutive LOST
+    /// boss fights before A starts decaying back toward neutral. 3 is
+    /// roughly three minutes of uninterrupted wiping under the normal
+    /// operating mode (permanent rampage, ~60 s cadence) - long enough
+    /// that a single unlucky wipe never moves A, short enough that a
+    /// genuine overshoot is not left standing for an hour.
+    pub const HP_RELAX_AFTER_LOSSES: u32 = 3;
+    /// Controller A's relaxation rate: the RELATIVE step it takes back
+    /// toward neutral per lost fight once the streak triggers. 0.20 walks
+    /// a 30x overshoot (the live incident) back to neutral in ~19 fights
+    /// while never moving more in one fight than A's own escalation step
+    /// could. **0.0 disables relaxation entirely** - the off switch lives
+    /// on this axis rather than on the loss count, because a zero-valued
+    /// integer dial is read as UNSET across this module.
+    pub const HP_RELAX_STEP_PER_FIGHT: f64 = 0.20;
     pub const TARGET_WIN_LOSS_RATIO: f64 = 2.0;
     pub const DMG_MAX_STEP_PER_FIGHT: f64 = 0.15;
     pub const DMG_MULTIPLIER_FLOOR: f64 = 0.4;
@@ -161,6 +176,13 @@ pub(crate) struct PacingParams {
     pub hp_step: f64,
     pub hp_floor: f64,
     pub hp_ceiling: f64,
+    /// Consecutive lost boss fights before Controller A's relaxation path
+    /// engages (see `relax_hp_pacing_mult`). Sanitized like every other
+    /// integer dial: 0 reads as UNSET and substitutes the shipped default.
+    pub hp_relax_after_losses: u32,
+    /// Controller A's per-fight relaxation step. 0.0 means relaxation is
+    /// OFF (see `defaults::HP_RELAX_STEP_PER_FIGHT`).
+    pub hp_relax_step: f64,
     pub wl_target: f64,
     pub dmg_step: f64,
     pub dmg_floor: f64,
@@ -185,6 +207,8 @@ impl PacingParams {
             hp_step: finite_or(t.hp_max_step_per_fight, defaults::HP_MAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             hp_floor: finite_or(t.hp_multiplier_floor, defaults::HP_MULTIPLIER_FLOOR),
             hp_ceiling: finite_or(t.hp_multiplier_ceiling, defaults::HP_MULTIPLIER_CEILING),
+            hp_relax_after_losses: if t.hp_relax_after_losses == 0 { defaults::HP_RELAX_AFTER_LOSSES } else { t.hp_relax_after_losses },
+            hp_relax_step: finite_or(t.hp_relax_step_per_fight, defaults::HP_RELAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             wl_target: finite_or(t.target_win_loss_ratio, defaults::TARGET_WIN_LOSS_RATIO).max(0.001),
             dmg_step: finite_or(t.dmg_max_step_per_fight, defaults::DMG_MAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             dmg_floor: finite_or(t.dmg_multiplier_floor, defaults::DMG_MULTIPLIER_FLOOR),
@@ -530,6 +554,51 @@ pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingPar
     Some(clamp_rate_limited(prev, desired, p.dmg_step, p.dmg_floor, p.dmg_ceiling))
 }
 
+/// CONTROLLER A's RELAXATION PATH (2026-08-23, fix/pacing-controller-loop).
+///
+/// A samples winning fights only - correct, and load-bearing: sampling a
+/// wipe would read as a short fight, inflate HP and cause more wipes. But
+/// wins-only sampling also means A cannot LEARN from a loss, so an
+/// overshoot had no path back: the stored window kept describing the
+/// party that used to win, and every fight A re-requested the multiplier
+/// that got them there. Worse, a loss walks the stage back 2, which
+/// SHRINKS the organic pool, which makes the required multiplier RISE -
+/// so a losing streak actively pushed A further up. Both live incidents
+/// needed a manual override to break out.
+///
+/// This is the release valve. After `hp_relax_after_losses` consecutive
+/// LOST boss fights, A decays one rate-limited step back toward neutral
+/// per fight, using the sample window not at all. Wins-only sampling is
+/// untouched: a loss still never becomes a duration sample, it only
+/// releases pressure.
+///
+/// **Downward only, and never past neutral.** The order framed this as
+/// "decay toward neutral", and from ABOVE neutral that is exactly what
+/// happens. From BELOW neutral, decaying "toward" 1.0 would mean raising
+/// enemy HP on a party that is already losing - the precise thing the
+/// wins-only rule exists to prevent - so this path is a no-op there. The
+/// information a wipe carries is "you went too far", which only has an up
+/// direction; when A already sits below neutral it is not what went
+/// wrong, and the normal controller (bounded by `hp_multiplier_floor`)
+/// owns that region.
+///
+/// Returns `None` when it does not apply, so the caller falls through to
+/// the ordinary update.
+pub(crate) fn relax_hp_pacing_mult(prev: f64, losses_since_win: u32, p: &PacingParams) -> Option<f64> {
+    if !p.enabled || p.hp_relax_step <= 0.0 {
+        return None;
+    }
+    if losses_since_win < p.hp_relax_after_losses.max(1) {
+        return None;
+    }
+    let cur = sanitize_mult(prev);
+    if cur <= 1.0 {
+        return None;
+    }
+    let desired = (cur / (1.0 + p.hp_relax_step)).max(1.0);
+    Some(clamp_rate_limited(prev, desired, p.hp_step, p.hp_floor, p.hp_ceiling))
+}
+
 /// Records ONE fight's DPS sample into Controller A's rolling window.
 /// WINS ONLY (a loss is never sampled - owner ruling) and FINITE ONLY
 /// (a non-finite measurement is dropped, never stored). Retention is
@@ -642,6 +711,8 @@ mod tests {
             hp_step: 0.25,
             hp_floor: 0.4,
             hp_ceiling: 6.0,
+            hp_relax_after_losses: defaults::HP_RELAX_AFTER_LOSSES,
+            hp_relax_step: defaults::HP_RELAX_STEP_PER_FIGHT,
             wl_target: 2.0,
             dmg_step: 0.15,
             dmg_floor: 0.4,
@@ -990,6 +1061,100 @@ mod tests {
         // moving at all.
         let settled_s = 1000.0 * mult / 100.0;
         assert!(settled_s >= p.duration_min_s, "A must reach the window, settled at {settled_s}s");
+    }
+
+    /// FIX 2 (2026-08-23): the ordered case - a run of consecutive losses
+    /// must walk Controller A DOWN rather than freezing it high.
+    ///
+    /// Before the relaxation path this was the live dead end: A sat at an
+    /// overshoot, the wins-only window kept describing the party that used
+    /// to win, and nothing but a manual override brought it back.
+    #[test]
+    fn a_run_of_consecutive_losses_walks_controller_a_down_instead_of_freezing_it() {
+        let p = params();
+        let mut mult = 30.0_f64;
+        // Below the trigger nothing moves - one unlucky wipe must not
+        // touch a controller that is otherwise doing its job.
+        for losses in 1..p.hp_relax_after_losses {
+            assert_eq!(relax_hp_pacing_mult(mult, losses, &p), None, "{losses} loss(es) is below the trigger");
+        }
+        // At and past the trigger it decays, one rate-limited step a fight.
+        let mut fights = 0;
+        let mut losses = p.hp_relax_after_losses;
+        while mult > 1.0 + 1e-9 {
+            let next = relax_hp_pacing_mult(mult, losses, &p).expect("the streak must keep relaxing");
+            assert!(next < mult, "frozen at {mult} after {fights} lost fights");
+            // No slam. While A also sits above its CONFIGURED ceiling the
+            // window convergence (hp_step) is pulling too, and the tighter
+            // of the two bounds wins - so the honest per-fight bound is one
+            // step of whichever rate is larger, not of the relax rate alone.
+            let widest = p.hp_step.max(p.hp_relax_step);
+            assert!(next >= mult / (1.0 + widest) - 1e-9, "slammed {mult} -> {next} in one fight");
+            assert!(next >= 1.0 - 1e-9, "relaxation must never push A below neutral, went to {next}");
+            mult = next;
+            losses += 1;
+            fights += 1;
+            assert!(fights < 200, "never came back down, stuck at {mult}");
+        }
+        assert!((mult - 1.0).abs() < 1e-9, "settles exactly at neutral, got {mult}");
+        // And it STOPS there rather than continuing into the floor.
+        assert_eq!(relax_hp_pacing_mult(mult, losses, &p), None, "at neutral there is nothing left to relax");
+    }
+
+    /// The guard that keeps the release valve from becoming the very thing
+    /// wins-only sampling exists to prevent: a party losing while A already
+    /// sits at or BELOW neutral must never have enemy HP raised by this
+    /// path. "You went too far" only has an up direction.
+    #[test]
+    fn relaxation_never_makes_a_losing_party_fight_a_bigger_pool() {
+        let p = params();
+        for mult in [1.0_f64, 0.9, 0.5, MULT_HARD_FLOOR] {
+            assert_eq!(relax_hp_pacing_mult(mult, 50, &p), None, "A at {mult}x is not what went wrong - relaxation must sit this out");
+        }
+    }
+
+    /// Both switches: the kill-switch silences relaxation like everything
+    /// else, and a zero step is the documented off switch (the loss count
+    /// keeps the module-wide "0 integer dial reads as UNSET" convention
+    /// instead, so it can never accidentally mean "relax immediately").
+    #[test]
+    fn relaxation_respects_the_kill_switch_and_its_own_off_switch() {
+        let mut off = params();
+        off.enabled = false;
+        assert_eq!(relax_hp_pacing_mult(30.0, 99, &off), None, "the master kill-switch silences relaxation too");
+
+        let mut no_step = params();
+        no_step.hp_relax_step = 0.0;
+        assert_eq!(relax_hp_pacing_mult(30.0, 99, &no_step), None, "a zero step is the off switch");
+
+        let unset = LiveTunables { hp_relax_after_losses: 0, ..Default::default() };
+        assert_eq!(
+            PacingParams::from_tunables(&unset).hp_relax_after_losses,
+            defaults::HP_RELAX_AFTER_LOSSES,
+            "0 reads as UNSET, never as 'relax on the first loss'"
+        );
+        let poisoned = LiveTunables { hp_relax_step_per_fight: f64::NAN, ..Default::default() };
+        assert_eq!(
+            PacingParams::from_tunables(&poisoned).hp_relax_step,
+            defaults::HP_RELAX_STEP_PER_FIGHT,
+            "a poisoned step substitutes the shipped default"
+        );
+    }
+
+    /// Relaxation must not quietly become a second sampler: it reads only
+    /// the loss counter and A's own stored value, never the DPS window, and
+    /// it must leave wins-only sampling exactly as it was.
+    #[test]
+    fn relaxation_reads_no_samples_and_does_not_disturb_wins_only_sampling() {
+        let p = params();
+        let from_empty = relax_hp_pacing_mult(30.0, 99, &p);
+        assert!(from_empty.is_some(), "relaxation works with no samples at all - it is not a window consumer");
+
+        // The wins-only rule is untouched: a loss still never becomes a
+        // duration sample, it only releases pressure.
+        let mut q = std::collections::VecDeque::new();
+        push_dps_sample(&mut q, false, 500.0, 20);
+        assert!(q.is_empty(), "a lost fight is still never sampled");
     }
 
     /// FIX 4 (2026-08-23): the coverage gap that let the advisory-window
