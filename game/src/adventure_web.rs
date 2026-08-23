@@ -3392,16 +3392,23 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
             ""
         }
     };
+    // Three numbers per axis, in the order an operator reads them: what
+    // the controller itself wants, the floor under it, and what the next
+    // fight is ACTUALLY built with (the max of the two). Without the
+    // third, a pinned axis showed a "current" number that generation
+    // never used.
     let hp_pacing_readout = format!(
-        "Controller A (HP / duration): current {:+.3}x — stage baseline floor {:+.3}x{}",
+        "Controller A (HP / duration): current {:+.3}x — stage baseline floor {:+.3}x — <strong>in force {:+.3}x</strong>{}",
         pacing.hp_mult,
         pacing.hp_baseline,
+        pacing.hp_effective,
         pinned_note(pacing.hp_pinned())
     );
     let dmg_pacing_readout = format!(
-        "Controller B (damage / lethality): current {:+.3}x — stage baseline floor {:+.3}x{}",
+        "Controller B (damage / lethality): current {:+.3}x — stage baseline floor {:+.3}x — <strong>in force {:+.3}x</strong>{}",
         pacing.dmg_mult,
         pacing.dmg_baseline,
+        pacing.dmg_effective,
         pinned_note(pacing.dmg_pinned())
     );
     let baseline_stage_anchors_csv = t.baseline_stage_anchors.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ");

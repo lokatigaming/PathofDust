@@ -2132,8 +2132,14 @@ impl AdventureManager {
     /// baseline, with pinned flags (a controller sitting BELOW its
     /// baseline means the party is performing under the stage baseline -
     /// surfaced explicitly there rather than silently absorbed by the
-    /// floor's max()).
-    pub async fn current_pacing_status(&self) -> pacing::PacingStatus {
+    /// floor's max()), and the effective multiplier generation actually
+    /// uses.
+    ///
+    /// `pub(crate)`, not `pub`: `PacingStatus` is a crate-internal view
+    /// type, and a `pub` method returning it is a private-in-public
+    /// leak the compiler warns about. The only caller is this crate's
+    /// own admin page.
+    pub(crate) async fn current_pacing_status(&self) -> pacing::PacingStatus {
         let t = self.live_tunables();
         let world = self.world.lock().await;
         pacing::pacing_status(world.hp_pacing_mult, world.boss_power_mult, world.stage, &t)

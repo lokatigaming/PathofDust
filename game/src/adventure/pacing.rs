@@ -534,31 +534,51 @@ pub(crate) fn is_pinned_to_baseline(controller_value: f64, baseline: f64) -> boo
     controller_value < baseline
 }
 
-/// Everything the admin page renders about both controllers.
+/// Everything the admin page renders about both controllers: each
+/// controller's OWN value, the stage baseline under it, and - the number
+/// that actually governs generation - the effective multiplier
+/// `max(controller, baseline)`. Showing only the first two left an
+/// operator to do the max() in their head to know what the next fight
+/// will be built with.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PacingStatus {
     pub hp_mult: f64,
     pub dmg_mult: f64,
     pub hp_baseline: f64,
     pub dmg_baseline: f64,
+    /// What generation multiplies by - `max(controller, baseline)` per
+    /// axis, exactly as `effective_multipliers` composed it.
+    pub hp_effective: f64,
+    pub dmg_effective: f64,
+    hp_pinned: bool,
+    dmg_pinned: bool,
 }
 
 impl PacingStatus {
+    /// True when the baseline floor - not this controller - is setting
+    /// the difficulty on this axis. Computed once by
+    /// `EffectiveMultipliers`, which is the type that knows both halves;
+    /// re-deriving it from the rendered numbers is how the two drifted
+    /// apart the first time.
     pub fn hp_pinned(&self) -> bool {
-        is_pinned_to_baseline(self.hp_mult, self.hp_baseline)
+        self.hp_pinned
     }
     pub fn dmg_pinned(&self) -> bool {
-        is_pinned_to_baseline(self.dmg_mult, self.dmg_baseline)
+        self.dmg_pinned
     }
 }
 
 pub(crate) fn pacing_status(hp_mult: f64, dmg_mult: f64, stage: u32, t: &LiveTunables) -> PacingStatus {
-    let eff = effective_multipliers(sanitize_mult(hp_mult), sanitize_mult(dmg_mult), stage, t);
+    let eff = effective_multipliers(hp_mult, dmg_mult, stage, t);
     PacingStatus {
-        hp_mult: sanitize_mult(hp_mult),
-        dmg_mult: sanitize_mult(dmg_mult),
+        hp_mult: eff.hp_controller,
+        dmg_mult: eff.dmg_controller,
         hp_baseline: eff.hp_baseline,
         dmg_baseline: eff.dmg_baseline,
+        hp_effective: eff.hp_mult,
+        dmg_effective: eff.dmg_mult,
+        hp_pinned: eff.hp_pinned(),
+        dmg_pinned: eff.dmg_pinned(),
     }
 }
 
