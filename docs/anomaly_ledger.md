@@ -850,3 +850,60 @@ release**: if fight duration at stage 3000+ does not settle back into
 the 30–45s window within the pacing window's 20 fights, the top layer
 and Controller A are fighting each other and arbitration (the known next
 step per the spec's own "known limit") is what to reach for.
+
+## Deploy record — 2026-08-23, ops scripts release (`eab210a`)
+
+Entered by the deploy session at merge of `fix/ops-backup-and-watchdog`.
+Standing-condition records, **not bugs and not parser findings** — no
+`#NN`, since the log parser owns this file's numbering. Same convention
+as the dynamic-pacing record above.
+
+**Until today the game had NO scheduled backup of character data. None.**
+Not degraded, not partial — the mechanism did not exist. Everything that
+had ever functioned as a backup was incidental to some other action:
+
+1. **Migration-time** `.pre-*-backup` copies, written only by whichever
+   one-time migration happened to be pending on a given start. Those are
+   the `adventure-characters.json.pre-*` files sitting at repo root.
+2. **Deploy-time** `backup-pre-<name>/` directories, written by hand as
+   REFACTOR_PLAN.md §13 step 4.
+
+Both are tied to a **deploy**. The consequence worth writing down, because
+it is the thing nobody had said out loud: **a world that is not being
+deployed to receives no backups at all.** That is precisely the condition
+a frozen legacy world would be in — the scoping work that found this was
+scoping a second deployment in which the existing world stops receiving
+code changes. Freezing a world would have silently removed the only
+backup mechanism its save data had.
+
+**The August 2026 UTF-8 BOM incident was recoverable only because a deploy
+had just happened to make a copy.** A BOM on `adventure-characters.json`
+took out all 60 characters. The recovery source was a deploy-time
+`backup-pre-*` directory that existed by coincidence of timing, not by
+design. Had the same corruption landed a week into a quiet period with no
+release, there would have been nothing to restore from. The roster was
+saved by luck. Recorded so that no future investigation reads that
+recovery as evidence that a backup system worked — there was no system.
+
+Two related facts from the same day, for whoever next audits data safety:
+
+- The game persists with `std::fs::write` (`game/src/state.rs`), which
+  truncates and then writes. Any copy taken inside that window is a
+  truncated file that is perfectly valid on disk and useless as a backup.
+  Any future backup tooling must parse what it copied before trusting it;
+  `backup-game-data.ps1` does, and refuses to prune on a failed verify.
+- The BOM itself is no longer fatal — `state.rs:61` strips it with a
+  warning, and `load_json_fail_loud` refuses to start rather than
+  overwriting good data with an empty default. The *absence of backups*
+  was the unaddressed half, and it stayed unaddressed for four months
+  after the incident.
+
+**Shipped today:** `backup-game-data.ps1`, hourly-for-24h then
+earliest-of-day-for-30d, verified-before-prune, safe against the live
+process. **The scheduled task that drives it was NOT registered this
+session** — `Register-ScheduledTask` and `schtasks /Create` both return
+Access denied from the deploy session's non-elevated token. Until an
+elevated operator registers `GameDataBackup` (exact command in
+`docs/ops_backup_and_watchdog.md`), **the backup exists but nothing is
+running it**, and every statement above about having no scheduled backup
+remains true of production. This is the open item.
