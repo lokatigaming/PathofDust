@@ -5068,13 +5068,23 @@ impl AdventureManager {
             // counts toward the NEXT fight's step (not a one-fight-stale
             // lag). Boss fights only by design - basic encounters never
             // record outcomes (owner-confirmed asymmetry).
+            //
+            // The push sits INSIDE the kill-switch gate: recording an
+            // outcome IS sampling, and the switch means "no sampling, no
+            // updates" for both controllers, not "no updates". A disabled
+            // controller that kept filling its window would come back with
+            // a full history of fights it never governed and step off it
+            // immediately on the first fight after re-enabling - the
+            // opposite of a switch that freezes where it sits.
             // -----------------------------------------------------------------
-            world.recent_boss_outcomes.push_back(won);
-            while world.recent_boss_outcomes.len() > pacing_params.window {
-                world.recent_boss_outcomes.pop_front();
-            }
-            if let Some(next_dmg) = pacing::update_dmg_pacing_mult(world.boss_power_mult, &world.recent_boss_outcomes.iter().copied().collect::<Vec<_>>(), &pacing_params) {
-                world.boss_power_mult = next_dmg;
+            if pacing_params.enabled {
+                world.recent_boss_outcomes.push_back(won);
+                while world.recent_boss_outcomes.len() > pacing_params.window {
+                    world.recent_boss_outcomes.pop_front();
+                }
+                if let Some(next_dmg) = pacing::update_dmg_pacing_mult(world.boss_power_mult, &world.recent_boss_outcomes.iter().copied().collect::<Vec<_>>(), &pacing_params) {
+                    world.boss_power_mult = next_dmg;
+                }
             }
             // -----------------------------------------------------------------
             // STAGE WALK - the same mechanism Controller B targets: a win
@@ -7385,9 +7395,13 @@ mod memory_manager_tests {
 /// atomicity - same disposable-manager-with-scratch-paths harness as
 /// `memory_manager_tests` above, for the same "racing `set_data_dir` is
 /// flaky" reason. Deliberately relies on `LiveTunables::default()`
-/// (1000 dust/10 sand/1 output - no `adventure-live-tunables.toml` exists
-/// in a fresh scratch dir) rather than writing an override file, so these
-/// tests never touch `save_live_tunables`'s own disk write either.
+/// (1000 dust/10 sand/1 output) rather than writing an override file, so
+/// these tests never touch `save_live_tunables`'s own disk write either.
+/// NB the reason originally given here - "no `adventure-live-tunables.toml`
+/// exists in a fresh scratch dir" - was wrong: the scratch dir only holds
+/// the character/world/cooldown paths passed to `new`, while tunables
+/// resolve through `data_path` against the process CWD. `cfg(test)` now
+/// makes the claim true by construction (see `load_live_tunables`).
 #[cfg(test)]
 mod divine_dust_craft_tests {
     use super::*;
@@ -7913,7 +7927,24 @@ mod dynamic_pacing_tests {
         let scratch = std::env::temp_dir().join(format!("pacing_test_{label}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&scratch);
         std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
-        AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"))
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        // Characters/world/cooldowns are per-test scratch paths, but
+        // `TUNABLES_PATH` is a fixed RELATIVE path - one file shared by
+        // every manager in the process AND left behind between runs. A
+        // test that persisted a tunable would silently configure every
+        // later test (and every later `cargo test` invocation) from disk.
+        // Pin this manager's in-memory copy to the shipped defaults so
+        // these tests describe the shipped configuration and nothing else.
+        set_tunables(&manager, LiveTunables::default());
+        manager
+    }
+
+    /// Applies tunables to ONE manager without touching the shared
+    /// on-disk file. Fights read `self.live_tunables()` (the in-memory
+    /// copy), so this exercises exactly the same path a dashboard save
+    /// would, minus the cross-test/cross-run contamination.
+    fn set_tunables(manager: &Arc<AdventureManager>, t: LiveTunables) {
+        *manager.live_tunables.write().expect("live_tunables lock poisoned") = t;
     }
 
     /// A real fight through the public seam must move the stage exactly
@@ -7960,14 +7991,19 @@ mod dynamic_pacing_tests {
         }
         let mut t = manager.live_tunables();
         t.dynamic_pacing_enabled = false;
-        manager.save_live_tunables(t).unwrap();
-        let before = { let w = manager.world.lock().await; (w.hp_pacing_mult, w.boss_power_mult, w.recent_win_dps.len()) };
+        set_tunables(&manager, t);
+        let before = { let w = manager.world.lock().await; (w.hp_pacing_mult, w.boss_power_mult, w.recent_win_dps.len(), w.recent_boss_outcomes.len()) };
         let outcome = manager.trigger_encounter_now(None).await;
         assert!(matches!(outcome, TriggerEncounterOutcome::Triggered));
-        let after = { let w = manager.world.lock().await; (w.hp_pacing_mult, w.boss_power_mult, w.recent_win_dps.len()) };
+        let after = { let w = manager.world.lock().await; (w.hp_pacing_mult, w.boss_power_mult, w.recent_win_dps.len(), w.recent_boss_outcomes.len()) };
         assert_eq!(before.0, after.0, "hp multiplier frozen");
         assert_eq!(before.1, after.1, "damage multiplier frozen");
         assert_eq!(after.2, 0, "no DPS sample while disabled");
+        // Recording an outcome is sampling too: B's window must not fill
+        // while the switch is off, or the controller would step off a
+        // history of fights it never governed the moment it comes back.
+        assert_eq!(before.3, 0, "outcome window starts empty");
+        assert_eq!(after.3, 0, "no boss outcome recorded while disabled");
     }
 
     /// ADDITION 4 end-to-end: maximum baseline + maximum mitigation must
@@ -7999,7 +8035,7 @@ mod dynamic_pacing_tests {
         t.baseline_stage_anchors = vec![0, 3000];
         t.baseline_hp_anchors = vec![1.0, 1.0e6]; // enormous floor demand
         t.baseline_atk_anchors = vec![1.0, 1.0e6];
-        manager.save_live_tunables(t).unwrap();
+        set_tunables(&manager, t);
         let outcome = manager.trigger_encounter_now(None).await;
         assert!(matches!(outcome, TriggerEncounterOutcome::Triggered), "the fight must RESOLVE even fully saturated");
         let world = manager.world.lock().await;
