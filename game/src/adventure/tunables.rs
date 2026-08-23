@@ -528,6 +528,21 @@ pub(crate) const TUNABLES_PATH: &str = "adventure-live-tunables.toml";
 /// Fail-soft load, same spirit as `load_item_balance_file` - missing or
 /// unparseable just means "use the shipped defaults above," logged, never
 /// a boot failure.
+///
+/// **Unit tests never touch the real file - read OR write** (see the
+/// `#[cfg(test)]` twins below). `data_path` resolves CWD-relative unless
+/// `set_data_dir` has been called, and the lib's test binary cannot
+/// safely call it (process-global `OnceLock` that any test can win the
+/// race for - see paths.rs). That left every unit test reading and
+/// writing `<package root>/adventure-live-tunables.toml`: one test's
+/// saved tunables configured every other test in the run, and the file
+/// SURVIVED the run and configured every later run from the same
+/// worktree. Found live on 2026-08-23 with `dynamic_pacing_enabled =
+/// false` left behind by the kill-switch test. Integration tests link
+/// this crate WITHOUT `cfg(test)`, so they still exercise the real path -
+/// sandboxed by their own `set_data_dir` into a temp dir, which is the
+/// supported way to test persistence.
+#[cfg(not(test))]
 pub(crate) fn load_live_tunables() -> LiveTunables {
     match std::fs::read_to_string(data_path(TUNABLES_PATH)) {
         Ok(contents) => match toml::from_str::<LiveTunables>(&contents) {
@@ -543,7 +558,24 @@ pub(crate) fn load_live_tunables() -> LiveTunables {
 
 /// Persists a saved admin-page edit so it survives a restart too, on top
 /// of updating the live in-memory copy (see `AdventureManager::save_live_tunables`).
+#[cfg(not(test))]
 pub(crate) fn save_live_tunables_file(tunables: &LiveTunables) -> std::io::Result<()> {
     let contents = toml::to_string_pretty(tunables).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
     std::fs::write(data_path(TUNABLES_PATH), contents)
+}
+
+/// Unit-test twins of the two functions above - see `load_live_tunables`'s
+/// doc for why the lib's own test binary must never resolve
+/// `TUNABLES_PATH`. A unit test that needs non-default tunables sets the
+/// manager's in-memory copy directly (that is the same value every fight
+/// reads); a test that needs to prove PERSISTENCE belongs in
+/// `game/tests/`, where `set_data_dir` can sandbox it into a temp dir.
+#[cfg(test)]
+pub(crate) fn load_live_tunables() -> LiveTunables {
+    LiveTunables::default()
+}
+
+#[cfg(test)]
+pub(crate) fn save_live_tunables_file(_tunables: &LiveTunables) -> std::io::Result<()> {
+    Ok(())
 }
