@@ -983,3 +983,99 @@ day — neither blocked this release:**
   dry run against the restarted game this release: `expected root :` came
   back blank while `log :` resolved correctly to
   `C:\PathofDust\game-watchdog.log`.
+
+## Deploy record — 2026-08-24, watchdog maintenance gate (`2cf4cfd`)
+
+Entered by the deploy session at merge of `fix/watchdog-maintenance-gate`.
+No `#NN` — the log parser owns this file's numbering. Scripts and docs
+only: no Rust, no binary swap, neither the game nor the bot stopped or
+restarted at any point.
+
+**REFACTOR_PLAN.md §13 step 4 was unperformable from a non-elevated
+deploy session, and had been silently skipped on every deploy to date.**
+The step instructed "disable `GameProcess-Watchdog`" before the binary
+swap and "re-enable" it after. `Disable-ScheduledTask` requires an
+elevated token; a deploy session does not have one and gets
+`Access denied`. Because the failure was a denied cmdlet rather than a
+crash, nothing downstream noticed — the deploy simply carried on with the
+step not done.
+
+**Consequence, stated plainly: the 2026-08-23 pacing deploy ran its whole
+stop/swap window with `GameProcess-Watchdog` live.** It did not fire, and
+the deploy was unaffected — but only because the swap finished well
+inside the task's ~2 minute repetition interval. That is luck, not
+protection. A slower swap (a large backup, a retried copy, a stalled
+disk) races it, and the watchdog would have restarted the game off a
+half-written `game.exe`. The same was true of every earlier deploy in
+this repo's history; the 2026-08-23 one is simply where it was noticed
+and written down. The bot half of the step (`TwitchBotRS-Watchdog`) had
+the identical defect and the same silent skip.
+
+Fixed by suppression that a non-elevated session CAN perform: a flag
+file. `maintenance-flag.ps1 -Target Game|Bot -Set/-Status/-Clear` writes
+and removes it; both watchdogs honour their own. The flag is a **lease,
+not a switch** — one older than 30 minutes (or unreadable, undated, or
+dated in the future) is IGNORED, the fact logged loudly, and protection
+resumes. A forgotten flag disabling protection indefinitely would be a
+worse and quieter failure than the one being fixed, so every ambiguous
+case fails toward protecting the world. §13 step 4 and its conditional
+bot branch were rewritten to match.
+
+**Both watchdogs now detect by LISTENING PORT rather than by image
+name.** The game side moved on 2026-08-23; the bot side moved with this
+release (`watchdog.ps1` had still been using
+`Get-Process -Name "twitch-bot-rs"`). Image-name detection cannot
+distinguish two deployments: the check returns non-empty whenever EITHER
+process is alive, so standing up a second deployment would have silently
+un-protected the first — each watchdog reading the other deployment's
+process as proof its own was alive. Port detection is per-deployment by
+construction and uses the same port-to-PID resolution CLAUDE.md's
+PRODUCTION SAFETY rule already requires. Neither script terminates
+anything, by image name or otherwise.
+
+The bot's port was chosen from the code, not assumed: 4001 (alerts) is
+unconditional and the earliest of its three, and `start_alert_server`
+awaits `TcpListener::bind` before returning. 4002 was disqualified as
+CONDITIONAL — it only binds when `config.youtube_api_keys` is non-empty,
+so clearing the YouTube keys would have made a watchdog keyed to it
+restart a healthy bot forever. 4003 binds last, behind a Twitch
+round-trip that would read as death when slow.
+
+**Two false-confidence defects found and fixed alongside**, both of the
+same shape — a safety check that reports success while doing nothing:
+
+- `game-watchdog.ps1`'s `$ExpectedPathRoot` defaulted to `$PSScriptRoot`
+  in the PARAM BLOCK, where that variable is empty under the `-File`
+  invocation the scheduled task uses. The root arrived empty,
+  `Test-UnderRoot` returned `$null` for every candidate, and every
+  listener resolved `unverifiable` regardless of where it lived — so
+  `-RequireOwnPath` silently did nothing. Harmless at today's
+  `RunLevel = Limited` (paths are unreadable anyway), but raising the
+  task to `Highest` — the ruled prerequisite for a second deployment —
+  would have bought false confidence instead of the check it was raised
+  for. `watchdog.ps1` never had this defect: it had no param block at
+  all. Resolved in the body, as `$LogPath` always was.
+- The first draft of `maintenance-flag.ps1` defaulted its flag path off
+  its own `$PSScriptRoot`, so running the helper from a worktree — where
+  a deploy session naturally has a shell open — wrote a flag the live
+  watchdog never reads while `-Status` still reported `SUPPRESSED`.
+  Caught in review by a second session before it shipped. `-Set` now
+  resolves the authoritative root from the scheduled task's own action
+  and refuses to write anywhere else; `-Status` always ends with a
+  `scope :` line stating whether the flag it just described is the one
+  that task actually reads.
+
+**The two flags are separate files** (`game-watchdog-maintenance.flag`,
+`bot-watchdog-maintenance.flag`) and that is load-bearing: §13 deploys
+the game unconditionally and the bot only when the diff says so, so a
+single shared flag would have suppressed the BOT's watchdog through every
+game-only deploy — exactly the window in which §13 says the bot runs
+untouched. A bot crash there would have gone unrecovered.
+
+**Still open, deliberately:** neither watchdog task's `RunLevel` was
+changed by this release. Elevation and `-RequireOwnPath` remain gated on
+the second deployment, per the owner's ruling. Until then both listeners'
+image paths stay unreadable and both watchdogs resolve
+`listening-unverifiable` on a healthy process — which is treated as
+healthy, and is why the restart decision deliberately hinges only on the
+port.
