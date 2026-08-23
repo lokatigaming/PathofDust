@@ -1064,6 +1064,322 @@ be made by this session.
 
 ---
 
+## 9. Echo — owner ruling on Decision 8
+
+**Ruling: Echo does not ship as a dead affix, and this needs no code.**
+Every `per_tier` is already overridable in
+`adventure-item-balance.toml` (`affix.rs:305-372`,
+`balance.rs:32-52`). Echo's coefficient is set there at world launch.
+
+**Provisional value: `per_tier = 0.00857`**, derived so a six-instance
+build reaches its first guaranteed repeat at T = 1,000:
+
+```
+6 × 0.00857 × f(1000) = 6 × 0.00857 × 19.4536 = 1.0003
+```
+
+The value is **confirmed** — see 9.2. What did not survive verification
+is the premise behind it; see 9.4.
+
+---
+
+### 9.1 The problem, restated precisely
+
+At the code default `per_tier = 0.000125`, the curve pushes Echo's first
+guaranteed repeat to T ≈ 2.25e9 even on a six-instance build (§6). At the
+tiers this game will ever occupy, Echo contributes:
+
+| | T=100 | T=500 | T=1,000 | T=3,000 |
+|---|---|---|---|---|
+| 1 instance | 0.125% | 0.199% | 0.243% | 0.334% |
+| 6 instances | 0.750% | 1.194% | 1.459% | 2.004% |
+
+**Correction to my own §6 / Decision 8 wording.** I described this as the
+curve "deleting the layer." That is the right conclusion but the wrong
+mechanism, and the distinction matters for an authority document:
+**there is no cliff at 100%.** `roll_echo` (`combat.rs:10148-10156`) is
+
+```rust
+let guaranteed = pct.floor() as u32;
+let remainder  = pct - guaranteed as f64;
+let succeeded  = remainder > 0.0 && rng.gen_bool(remainder.min(1.0));
+(guaranteed + if succeeded { 1 } else { 0 }, remainder, succeeded)
+```
+
+so `E[repeats] = floor(pct) + remainder = pct` **exactly**, for every
+`pct`. Echo below 100% is not inert — it is a linear-in-expectation
+damage multiplier of `(1 + pct)`, continuously. The 100% mark is a
+*readability landmark* ("you now always get one extra hit"), not a
+mechanical threshold.
+
+So the real problem is **magnitude, not death**: at 0.000125 the layer
+is worth ×1.015 on a six-instance build at T=1,000, which rounds to
+nothing. The fix is the same either way; the reasoning recorded for it
+should be accurate.
+
+---
+
+### 9.2 Arithmetic verification
+
+| | |
+|---|---|
+| `f(1000)` = `10 × 10^0.289` | **19.45360082** |
+| `6 × 0.00857 × 19.45360082` | **1.00030415** |
+| coefficient for *exactly* 1.0 — `1 / (6 × f(1000))` | **0.0085673942** |
+| `0.00857` overshoots by | **0.0304%** |
+
+**`0.00857` is confirmed, and the rounding direction is load-bearing.**
+`0.00856` gives `6 × 0.00856 × 19.4536 = 0.999137`, which does **not**
+reach 1.0 at T=1,000 — a six-instance build would sit one hair below its
+first guaranteed repeat at exactly the tier the value was derived to
+hit. Rounding up is required. Use `0.00857`, not the truncation.
+
+(This is the same class of check as `0.289` vs `ln2/ln11` in §1, and
+lands the same way: the rounded literal is correct and readable, the
+deviation is under a tenth of a percent, and the direction was chosen
+rather than accidental.)
+
+**Scale.** `0.000125 → 0.00857` is a **×68.6 increase**. This is not a
+tweak — it moves Echo from the smallest coefficient in the table to
+11th of 13, between `Intervene` (0.01) and `Leech` (0.001):
+
+| rank | affix | per_tier |
+|---|---|---|
+| 1–3 | `IncreasedDamage`, `Splash`, `IncreasedLife` | 0.03 |
+| 4 | `CritMultiplier` (post-cut) | 0.025 |
+| 5 | each elemental | 0.0225 |
+| 6–7 | `DamageReduction`, `BlockChance` | 0.02 |
+| 8 | `Evasion` | 0.016 |
+| 9–10 | `CritChance`, `Intervene` | 0.01 |
+| **11** | **`Echo` (new)** | **0.00857** |
+| 12 | `Leech` | 0.001 |
+| — | *`Echo` (old)* | *0.000125* |
+
+That placement is defensible for a MORE layer, and arguably still
+conservative: at six instances and T=1,000 Echo is worth ×2.00, while
+six instances of `IncreasedDamage` at the same tier put 350% into the
+shared bucket for ×4.50. Echo repeats splash along with the primary hit
+(`Affix::Echo`'s doc), so the ×2.00 is a true pack-damage doubling, not
+a single-target-only figure — and it is still less than the additive
+affix it sits beside.
+
+---
+
+### 9.3 Echo's share of total damage
+
+Share = `pct / (1 + pct)`, since the layer multiplies by `(1 + pct)`:
+
+| T | f(T) | 1 instance | share | 6 instances | share |
+|---|---|---|---|---|---|
+| 100 | 10.0000 | 8.6% | **7.89%** | 51.4% | **33.96%** |
+| 500 | 15.9222 | 13.6% | **12.01%** | 81.9% | **45.02%** |
+| 1,000 | 19.4536 | 16.7% | **14.29%** | 100.0% | **50.01%** |
+| 3,000 | 26.7232 | 22.9% | **18.63%** | 137.4% | **57.88%** |
+
+Compare the same table at the old coefficient — 0.744% to 2.004% at six
+instances across the whole range.
+
+A six-instance Echo build at T=3,000 draws **58% of its damage from
+Echo**. That is a large share for one affix, but it is the correct
+consequence of a six-slot commitment to a single MORE layer, and it is
+the same shape a six-instance `Splash` or `IncreasedDamage` build
+produces. Flagged for visibility, not as an objection.
+
+---
+
+### 9.4 Exponent with Echo dead vs Echo at 0.00857 — and the contradiction
+
+Measured under the §8.5 recommended ruling (affix curve only,
+`compute_power` linear, 9 slots, `CritMultiplier` 0.025):
+
+| window | Echo 0.000125 | Echo 0.00857 | delta |
+|---|---|---|---|
+| 25 → 200 | T^1.445 | T^1.464 | **+0.019** |
+| 100 → 400 | T^1.791 | T^1.810 | +0.019 |
+| 200 → 800 | T^2.003 | T^2.026 | +0.023 |
+| 700 → 1,400 | T^2.205 | T^2.234 | +0.029 |
+| 1,000 → 3,000 | T^2.289 | T^2.323 | +0.034 |
+
+Doubling item tier over the 25→200 window: **×2.722 with Echo dead,
+×2.759 with Echo at 0.00857.**
+
+**The value is confirmed. The premise behind it is contradicted.**
+
+The order states "T^1.43 assumed all six layers survive," implying
+Echo's death was costing a meaningful share of the exponent. It was not.
+**Reviving Echo moves the exponent by +0.019 to +0.034 — between 1% and
+2%.** Both the dead and the revived figures sit on §3's T^1.43 target.
+
+The reason is the same one §8.5 already established for §3 generally: a
+layer's exponent contribution scales with how far above 1 it sits, not
+with whether it exists. A layer at `(1 + 0.015)` and a layer at
+`(1 + 1.0)` are both far below the `(1 + 76)` regime where a layer
+contributes a full factor of T. Echo was never carrying a sixth of the
+exponent under the curve — it was carrying about 2% of it.
+
+**What this changes: nothing about the ruling, everything about its
+justification.** Set Echo to 0.00857 because an affix that contributes
+1.5% of damage on a full six-slot commitment is a dud that makes drops
+feel bad — that is a real and sufficient reason. Do **not** set it
+expecting to recover exponent; there is no exponent to recover, and if
+the implementation pass measures against a T^1.43 target it will find
+the target met either way. Decision 8 is amended accordingly.
+
+---
+
+### 9.5 Every threshold and breakpoint in the system
+
+The order asks whether any non-obvious ones exist. **Yes — two, plus one
+that matters more than Echo did.** Full sweep, computed:
+
+| Affix | Threshold | 1 inst | 6 inst | today, 6 inst |
+|---|---|---|---|---|
+| `DamageReduction` | 75% hard cap | 9,689 | 39 | 6 |
+| `BlockChance` | 75% hard cap | 9,689 | 39 | 6 |
+| `Evasion` | 75% hard cap | 20,970 | 61 | 8 |
+| `Intervene` | 50% hard cap (per-char **and** party pool) | 26,217 | 69 | 8 |
+| `CritChance` | 200% = half the overcrit asymptote | 3,175,659 | 6,446 | 33 |
+| `CritChance` | 1000% = 90% of the asymptote | 8.33e8 | 1,689,859 | 167 |
+| `Splash` | 100% = overcap, guaranteed + bonus target | 6,446 | 31 | 6 |
+| **`Splash`** | **1000% = first ladder rung (+1 target)** | **1.86e7** | **37,750** | **56** |
+| `Echo` @ 0.00857 | 100% = 1st guaranteed repeat | 492,162 | **999** | — |
+| *`Echo` @ 0.000125* | *100% = 1st guaranteed repeat* | *1.11e12* | *2.25e9* | *1,333* |
+| **each elemental** | **1000% = proc chance clamps at 100%** | **5.03e7** | **102,147** | **74** |
+| **`DivineDamage`** | **100% = 1st guaranteed heal-power self-buff stack** | **17,441** | **55** | **7** |
+
+**Non-obvious #1 — `DivineDamage` has a second, Echo-shaped threshold.**
+`roll_divine_heal_power_proc` (`combat.rs:7631-7645`) is the one
+elemental proc that does **not** go through
+`ELEMENTAL_PROC_CHANCE_DIVISOR`. It reads the rolled fraction *directly*
+as a stack count — `guaranteed = raw_pct.floor()`, plus
+`Bernoulli(remainder)` — byte-for-byte the same shape as `roll_echo`.
+**Verdict: not a problem.** Six instances reach the first guaranteed
+stack at T ≈ 55 (today: T ≈ 7), and like Echo it has no cliff —
+`E[stacks] = raw_pct` continuously below 1.0. Solo is pushed to
+T ≈ 17,441, which is far, but a Cleric/Druid investing in Divine will be
+running multiple instances by design. No override needed.
+
+**Non-obvious #2 — the elemental proc chance clamps at 1000%, not
+100%.** `ELEMENTAL_PROC_CHANCE_DIVISOR = 10.0` (`combat.rs:5354`), and
+`fire_damage_pct` etc. are the raw `sum_affix` fractions
+(`combat.rs:2567-2577`, `combat.rs:11317-11325`), so
+`chance = fraction / 10` clamped to 1.0 at `fraction = 10.0`. Today a
+six-instance build clamps at T ≈ 74; under the curve, T ≈ 102,147.
+**Verdict: not a problem, and not a death condition** — the clamp is a
+*ceiling*, not a floor. Proc chance scales linearly from zero with no
+threshold anywhere below it, so elementals degrade gracefully; they
+simply stop reaching guaranteed-proc status. Arguably an improvement:
+a stat that maxed out at tier 74 now has room to grow. Note also that
+elementals feed the increased-damage bucket in parallel
+(`character.rs:3015-3072`), which is uncapped, so they can never become
+dead regardless.
+
+**The one that matters more than Echo did — `Splash`'s ladder.** Splash
+has two thresholds, and the curve treats them very differently. The
+**100% overcap** (guaranteed + `splash_overcap_bonus_targets`) stays
+reachable at T ≈ 31 on six instances. The **1000% ladder rung**
+(`splash_overcap_target_count`, `combat.rs:10254-10262` — +1 target per
+full 1000%, uncapped) moves from **T ≈ 56 today to T ≈ 37,750**. That is
+not a landmark being pushed out; **it is an entire live mechanic
+becoming structurally unreachable**, in exactly the way Decision 8
+described for Echo — and unlike Echo, the splash ladder genuinely *is*
+discrete, so there is no continuous fallback. Below the first rung the
+ladder contributes literally zero extra targets, always.
+
+**This is flagged, not decided.** It is the same class of problem the
+Echo ruling just solved, it was not in the order, and it has the same
+zero-code fix available: `[affixes.splash].per_tier`, or the
+`splash_ladder_step_pct` live tunable (default 1000, `tunables.rs:413`),
+which is a *separate* config surface and can be lowered without touching
+the affix at all. Lowering the ladder step is the more surgical of the
+two — it leaves Splash's 100% overcap behaviour exactly where it is.
+**Needs an owner ruling before launch.**
+
+Everything else was checked and has no tier-magnitude threshold:
+`IncreasedDamage` (floored at −0.9, unreachable upward),
+`IncreasedLife`/`FlatLife` (no cap in `combat_max_hp`), `Leech` (no cap
+on the gear path; `combat.rs:3618`'s ceiling is on Slayer's archetype
+bonus, not the affix), `CritMultiplier` (no threshold — crit *stacks*
+come from crit chance). `ELEMENTAL_LIGHTNING_MAX_STACKS = 200` and
+`ELEMENTAL_DIVINE_ENEMY_MAX_STACKS = 100` are caps on accumulated
+in-fight stacks, reached through proc *frequency* over time, not through
+affix magnitude — unaffected by the curve.
+
+One non-affix breakpoint worth recording because it bears on Decision
+11: the **50 ms `attack_interval_ms` floor** sits at T ≈ 2,500 if
+`compute_power` stays linear, and at T ≈ 2.0e10 if it is curved. If the
+existing five slots are curved, gloves lose their only brake — one more
+argument for leaving `compute_power` linear.
+
+---
+
+### 9.6 The launch configuration, as a single reviewed list
+
+`adventure-item-balance.toml`, to be set once before the world opens.
+Keys are `Affix`'s camelCase serde names and `EquipSlot`'s lowercase
+serde names (`balance.rs:32-52`).
+
+```toml
+# --- ratified overrides, world launch ---
+
+[affixes.echo]
+per_tier = 0.00857          # sec 9. 6 instances reach 1 guaranteed repeat at T=1000.
+                            # Do NOT round to 0.00856 - it misses the anchor.
+
+[affixes.critMultiplier]
+per_tier = 0.025            # sec 7. See the coupling warning below.
+
+[slot_base_power]
+ring1  = 0.01               # MUST equal [affixes.critChance].per_tier
+ring2  = 0.01               # MUST equal [affixes.critChance].per_tier
+amulet = 0.025              # MUST equal [affixes.critMultiplier].per_tier
+pants  = 0.03               # MUST equal [affixes.increasedLife].per_tier
+```
+
+Nothing else needs setting. Deliberately left at code defaults:
+`[slot_power_cap]` (no caps — `default_slot_power_cap` returns `None`
+for every slot, and the 2026-08-16 removal of the Gloves cap is on
+record as deliberate), `[cooldown.*]` (the four new slots inherit the
+`default` curve and never read it), `[craft_action_cost]`, and every
+other affix's `per_tier` and `weight`.
+
+**Four things about this file that will bite if not recorded:**
+
+**1. The base-power coupling is an invariant that nothing enforces.**
+§8's ruling — "a slot's base power equals exactly one affix of that type"
+— spans two independent TOML sections. `[affixes.critMultiplier]` and
+`[slot_base_power].amulet` must move together, always; likewise
+`critChance` ↔ both rings and `increasedLife` ↔ pants. There is no code
+check, no test, and no warning if they drift. **Anyone tuning a crit
+number in this file must edit two keys.** A test asserting the four
+pairings would be cheap insurance and is recommended for the
+implementation pass.
+
+**2. Decide crit's home: code or TOML.** The §7 halving is a ratified
+permanent design change, not a launch knob — it belongs in
+`affix_def` (`affix.rs:225`) as the new code default, with no TOML entry
+at all. Echo's 0.00857 is explicitly a config value by this ruling and
+belongs in TOML. Putting the crit cut in TOML instead works identically
+but makes the code default a lie and doubles the number of places a
+future reader has to check. **Recommendation: crit in code, Echo in
+TOML.** If crit goes in code, delete the `[affixes.critMultiplier]`
+block above and keep only `[slot_base_power].amulet = 0.025`.
+
+**3. "No deploy" is right; "no restart" is not.** `AFFIX_BALANCE` and
+`SLOT_POWER` are both `OnceLock`s (`affix.rs:303`, `item.rs:930`),
+initialised lazily on first read and never re-read. A TOML edit needs a
+**process restart** to take effect — no rebuild, no deploy, but not hot.
+
+**4. Strip the retired `[affixes.lingeringEffect]` header.** It is
+sitting in the live file today. It is harmless *now* — `affix_balance`
+gained an explicit guard for exactly this case — but that guard exists
+because this precise situation **panicked every request in production
+for ~2.5 minutes before rollback on 2026-08-21** (`affix.rs:318-331`).
+A fresh world should not carry the header that caused it. Start the new
+file clean.
+
+---
+
 ## Decisions log
 
 1. **Curve shape ratified as piecewise `sqrt` below T=100, power-0.289
@@ -1091,13 +1407,14 @@ be made by this session.
    is T ≈ 10,077, not 10,400. Every table in this document is computed,
    not transcribed. The curve, its anchors, and the T^1.43 / x2.70
    effect figures are all confirmed correct as ordered.
-8. **OPEN — not ratified, surfaced by this document.** The curve pushes
-   `Echo`'s first guaranteed repeat to T ≈ 2.3e9 even on a six-instance
-   build, which removes one of the six compounding layers entirely
-   rather than slowing it. See §6. Either accept Echo as a
-   permanently-fractional affix, or give it a `per_tier` of its own
-   under Decision 3's exemption. Needs an owner ruling before
-   implementation.
+8. ~~**OPEN**~~ **RESOLVED (§9) — `Affix::Echo` `per_tier` set to
+   0.00857 via `adventure-item-balance.toml`, no code.** Owner ruling.
+   **Amended in two places by §9:** (a) Echo has no cliff at 100% —
+   `E[repeats] = pct` exactly and continuously, so the problem was
+   magnitude, not death; (b) reviving Echo moves the exponent by only
+   +0.019 to +0.034, so it does not "restore a sixth of the exponent."
+   Set it because a 1.5%-of-damage affix is a dud, not to recover
+   scaling.
 9. **`Affix::CritMultiplier` per_tier halved, 0.05 → 0.025** (§7).
    Owner-ratified. The single explicit exception to Decision 3.
    Rationale: highest coefficient in the table AND the only affix
@@ -1143,3 +1460,52 @@ be made by this session.
     already degrades gracefully; reordering silently decodes every
     previously-shared v2 link to the wrong slot. Its maintainer needs
     notice before the restart ships. Not this session's repo to change.
+17. **`Affix::Echo` `per_tier = 0.00857`, set in
+    `adventure-item-balance.toml`** (§9). Owner-ratified. Value verified
+    exactly: `6 × 0.00857 × f(1000) = 1.00030`. The rounding direction
+    is load-bearing — `0.00856` yields `0.99914` and misses the anchor.
+18. **CORRECTION to §6 and Decision 8, recorded plainly.** `roll_echo`
+    gives `floor(pct)` guaranteed repeats **plus** `Bernoulli(remainder)`,
+    so `E[repeats] = pct` exactly, for every `pct`. Echo below 100% is a
+    continuous linear multiplier, not an inert affix. §6's "the curve
+    deletes the layer" reached the right conclusion by the wrong
+    mechanism; the real problem was that the layer was worth ×1.015 on a
+    full six-slot commitment. Same correction applies to
+    `roll_divine_heal_power_proc`, which has the identical shape.
+19. **CONTRADICTED — Echo's death was not costing meaningful exponent**
+    (§9.4). Reviving Echo moves the measured exponent by **+0.019 to
+    +0.034** (1–2%), not by a sixth. Both the dead and revived figures
+    sit on §3's T^1.43 target. This does not change the ruling; it
+    changes its justification, and it means the implementation pass must
+    not use "exponent recovered" as the acceptance test for this change.
+20. **OPEN — `Splash`'s 1000% ladder rung is the real casualty, and it
+    was not in the order** (§9.5). It moves from T ≈ 56 to T ≈ 37,750 on
+    a six-instance build. Unlike Echo it is genuinely discrete — below
+    the first rung it contributes exactly zero extra targets, with no
+    continuous fallback. Two zero-code fixes exist:
+    `[affixes.splash].per_tier`, or the `splash_ladder_step_pct` live
+    tunable (default 1000, `tunables.rs:413`), which is the more
+    surgical of the two because it leaves the 100% overcap behaviour
+    untouched. **Needs an owner ruling before launch.**
+21. **No other affix has a death condition** (§9.5). Full sweep run.
+    Two non-obvious thresholds exist and both are fine: `DivineDamage`'s
+    heal-power self-buff has an Echo-shaped `floor()` threshold reached
+    at T ≈ 55 on six instances, with the same continuous fallback; and
+    the elemental proc chance clamps at a rolled fraction of 10.0
+    (`ELEMENTAL_PROC_CHANCE_DIVISOR = 10.0`), which is a ceiling rather
+    than a floor and becomes unreachable harmlessly. `IncreasedDamage`,
+    `IncreasedLife`, `FlatLife`, `Leech` and `CritMultiplier` have no
+    tier-magnitude threshold at all.
+22. **The base-power coupling is an unenforced invariant** (§9.6).
+    `[affixes.critChance]` ↔ `[slot_base_power].ring1`/`ring2`,
+    `[affixes.critMultiplier]` ↔ `.amulet`, `[affixes.increasedLife]` ↔
+    `.pants` must always match per §8's ruling, and they live in
+    separate TOML sections with no code check between them. A test
+    asserting the four pairings is recommended.
+23. **Crit belongs in code, Echo in TOML** (§9.6). The §7 halving is a
+    permanent ratified design change and should become the `affix_def`
+    default; Echo's coefficient is explicitly a launch config value by
+    Decision 17. Splitting them this way keeps the code default honest.
+24. **A TOML edit needs a process restart** (§9.6). `AFFIX_BALANCE` and
+    `SLOT_POWER` are `OnceLock`s. "No deploy" is accurate; "no restart"
+    is not.
