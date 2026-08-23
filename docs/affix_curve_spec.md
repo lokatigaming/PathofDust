@@ -325,8 +325,10 @@ Under `T^1.43` that premise no longer holds — party power will track the
 stage curve very differently, and a floor shaped for runaway linear
 growth will be wrong in both directions. Re-derive all three anchor
 lists against the new curve before the restart goes live. They are
-already dashboard-shapable live tunables, so this can be tuned after
-launch, but the shipped defaults should not be the old ones.
+already dashboard-shapable `LiveTunables`, so this **can** genuinely be
+tuned after launch without a restart (see §10.7 — `LiveTunables` is the
+hot config surface; `adventure-item-balance.toml` is not). The shipped
+defaults should still not be the old ones.
 
 ### 5.2 All 17 golden fixtures regenerate at merge
 
@@ -368,8 +370,16 @@ coefficient and a per-slot `base_power` / `power_cap` (`affix.rs:305-372`,
 there is no override hook for the `* tier as f64` term, and adding one is
 out of scope here.
 
-So the level-cut half of a rebalance is testable live with no deploy,
-but this curve is not. It ships as a code change or it does not ship.
+So the level-cut half of a rebalance can be changed **without a
+rebuild**, but this curve cannot. It ships as a code change or it does
+not ship.
+
+> **Corrected (§10, R7).** An earlier revision of this paragraph read
+> "testable live with no deploy," which implies hot tuning. It is not
+> hot: `adventure-item-balance.toml` is read through `OnceLock`s and
+> **requires a process restart**. See §10.7 — the two config files in
+> this system have opposite reload semantics, and the distinction is
+> load-bearing.
 
 ---
 
@@ -1380,6 +1390,348 @@ file clean.
 
 ---
 
+## 10. Ratified rulings (R1–R8)
+
+Eight owner rulings, each recorded as ratified. Where a ruling carries a
+number, the number was independently verified; where it carries
+reasoning, the reasoning is preserved so a later reader can tell what
+the decision was *for*.
+
+---
+
+### 10.1 R1 — Echo `per_tier = 0.00857`, rounding UP
+
+**RATIFIED.** `0.00856` gives `6 × 0.00856 × f(1000) = 0.999137` and
+misses the anchor the value was derived to hit — a six-instance build
+would sit one hair below its first guaranteed repeat at exactly the tier
+chosen for it. `0.00857` gives `1.00030415`.
+
+Same discipline as `0.289` over `ln2/ln11` (§1): prefer the short
+readable literal, verify which side of the anchor it lands on, and
+choose the rounding direction deliberately rather than by default. In
+both cases the deviation is under a tenth of a percent and the direction
+is the whole point.
+
+**Note the mirror image in R3.** Echo's coefficient rounds *up*; the
+splash ladder step rounds *down*. Same underlying reason: both anchors
+are `floor()` thresholds, and the derived quantity sits on opposite
+sides of the division. Rule of thumb worth carrying — **when a value is
+derived to hit a `floor()` boundary, round in whichever direction clears
+the boundary, and state which direction that was.**
+
+---
+
+### 10.2 R2 — the acceptance test for Echo
+
+**RATIFIED, and recorded here specifically so the implementation pass
+cannot pick the wrong criterion.**
+
+**The acceptance test for the Echo change is NOT "exponent recovered."**
+That test passes whether or not the change ships: measured, Echo's
+revival moves the exponent by +0.019 to +0.034 — roughly 1–2% — and both
+the dead and the revived figures sit on §3's T^1.43 target (§9.4). An
+implementation pass measuring exponent will conclude either that the
+change was unnecessary, or that it worked when it was never the
+mechanism.
+
+**The justification is that a 1.5%-of-damage affix on a full six-slot
+commitment is a dud.** At the code default, six instances of Echo at
+T=1,000 are worth ×1.015. A player who rolls Echo on every slot has
+committed an entire gear set to a stat that does approximately nothing,
+and every Echo drop reads as a wasted roll. That is a drop-quality and
+player-experience problem, and it is a complete and sufficient reason on
+its own.
+
+**The correct acceptance test** is the damage-share table in §9.3: at
+`0.00857`, a six-instance build draws **33.96% / 45.02% / 50.01% /
+57.88%** of its damage from Echo at T = 100 / 500 / 1,000 / 3,000.
+Verify those. Do not verify the exponent.
+
+---
+
+### 10.3 R3 — splash ladder via `splash_ladder_step_pct = 350`
+
+**RATIFIED. Value verified; two qualifications and one side effect
+recorded below.**
+
+The fix goes through the `splash_ladder_step_pct` `LiveTunable`
+(`tunables.rs:413`, default 1000), **not** `[affixes.splash].per_tier`.
+This is the surgical option: it leaves Splash's 100% overcap behaviour —
+the chance-to-guaranteed transition and `splash_overcap_bonus_targets` —
+exactly where it is, and touches only rung spacing.
+
+**Arithmetic.**
+
+| | |
+|---|---|
+| `f(1000)` | 19.45360082 |
+| `6 × 0.03 × f(1000)` | 3.50164815 → **350.1648%** |
+| `floor(350.1648 / 350)` | **1 rung** ✓ |
+| largest integer step still giving 1 rung at T=1,000 | **350** |
+| step 351 → `floor(350.1648 / 351)` | **0 rungs — misses** |
+
+**Rounding DOWN is required**, the mirror image of R1. `350` is the
+largest integer clearing the anchor. Value confirmed.
+
+**Rungs by instance count and tier, at step 350:**
+
+| instances | T=100 | T=500 | T=1,000 | T=3,000 | T=10,000 |
+|---|---|---|---|---|---|
+| 1 | — (30%) | — (48%) | — (58%) | — (80%) | 0 rungs (114%) |
+| 2 | — (60%) | — (96%) | 0 rungs (117%) | 0 rungs (160%) | 0 rungs (227%) |
+| 4 | 0 rungs (120%) | 0 rungs (191%) | 0 rungs (233%) | 0 rungs (321%) | **1 rung** (454%) |
+| 6 | 0 rungs (180%) | 0 rungs (287%) | **1 rung** (350%) | **1 rung** (481%) | **1 rung** (681%) |
+
+"—" means the splash fraction is ≤ 1.0, so `roll_splash` never enters
+the overcap branch at all — splash is still a chance roll there and no
+ladder is reachable by construction.
+
+**Qualification 1 — post-curve the "ladder" is one step, not a ladder.**
+For a six-instance build the rungs land at:
+
+| rung | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| T at step 350 | **998** | 10,988 | 44,692 | 120,933 | 261,742 |
+| T at old step 1000 | 37,750 | 415,468 | — | — | — |
+
+Step 350 brings the first rung from T ≈ 37,750 to T ≈ 998 — a ~37×
+improvement in reachability, which is the point. But rung two still sits
+at T ≈ 10,988. In any realistic tier range this is **a single +1 target,
+once.** That is the sublinear curve behaving correctly and is not an
+argument against the value; it *is* an argument for not calling the
+mechanic a "ladder" in the wiki or patch notes, because players will
+look for rung two and not find it.
+
+**Qualification 2 — it is a 4+ instance mechanic only.** A 1-instance
+build does not reach overcap until T = 10,000, and a 2-instance build
+never reaches a rung anywhere up to T = 10,000 (peaking at 227% against
+a 350% requirement). Only 4- and 6-instance builds ever see a rung.
+Whether the ladder should be reachable on lighter investment is an owner
+call; flagged, not adjusted.
+
+**Side effect, and it is a buff.** `splash_overcap_target_count` has a
+**second consumer**: Ranger's Volley / Chain Lightning damage-bonus
+sizing line (`combat.rs:14307`), which deliberately reuses the same
+count formula so it can never drift from `roll_splash`'s overcap math.
+Lowering the step raises `max_targets_reachable`, and
+`splash_target_dmg_bonus = volley_per_target × max_targets_reachable`
+scales directly with it. For a six-instance splash build at T=1,000 the
+reachable count goes 4 → 5 — **a +25% bump to that passive.** The
+coupling is intended by construction (the shared helper exists precisely
+so the two stay in step), but it is not neutral and belongs in the patch
+note.
+
+**Enemies are unaffected, by construction.** Gelatinous Cube's splash
+and the Dragon's full-party sweep force `splash_fraction` to exactly
+`1.0`, and `roll_splash` gates the overcap branch on
+`splash_fraction > 1.0` — strictly. `1.0` is not `> 1.0`, so neither
+reaches the ladder at any step value.
+
+---
+
+### 10.4 R4 — the crit multiplier halving goes in CODE
+
+**RATIFIED.** `Affix::CritMultiplier`'s `per_tier` becomes `0.025` as
+the `affix_def` default (`affix.rs:225`). **No `[affixes.critMultiplier]`
+block in the launch TOML.**
+
+The reasoning, recorded because it generalises: **a TOML override that
+permanently contradicts the code default makes the code default a lie.**
+Every future reader of `affix_def` would see `0.05`, believe it, and be
+wrong — and the only thing telling them otherwise is a data file that is
+not in the repository. A ratified permanent design change belongs in the
+source; a launch-time config value belongs in the config. The halving is
+the former; Echo's `0.00857` is the latter.
+
+`[slot_base_power].amulet = 0.025` **stays in the TOML**, because the
+four new slots' base powers are launch configuration for a world that
+does not exist yet — and because R5's test catches it if the two drift.
+
+Supersedes §9.6's launch block; the corrected block is §10.9.
+
+---
+
+### 10.5 R5 — a test asserting the four base-power pairings
+
+**RATIFIED.** The implementation pass adds a test asserting:
+
+| slot | must equal |
+|---|---|
+| `slot_base_power.ring1` | `affix_balance(Affix::CritChance).0` |
+| `slot_base_power.ring2` | `affix_balance(Affix::CritChance).0` |
+| `slot_base_power.amulet` | `affix_balance(Affix::CritMultiplier).0` |
+| `slot_base_power.pants` | `affix_balance(Affix::IncreasedLife).0` |
+
+§8's ruling — "a slot's base power equals exactly one affix of that type
+at the item's tier" — is an invariant spanning two independent config
+sections (`[slot_base_power]` and `[affixes.*]`, plus the `affix_def`
+code defaults after R4), with no check of any kind between them. It will
+drift the first time someone tunes a crit number, and the drift is
+silent: the amulet simply stops being worth one affix and nothing
+reports it.
+
+**The test must read through the resolved accessors** —
+`base_power_for_slot()` and `affix_balance()` — **not** the raw
+`AffixDef` constants. Reading the constants would pass while the live
+game was mismatched, which is the exact failure the test exists to
+prevent.
+
+This is a *design* invariant, not a physical one: if a future ruling
+deliberately breaks a pairing, the test is updated alongside it. Its job
+is to make the break visible and deliberate.
+
+---
+
+### 10.6 R6 — strip `[affixes.lingeringEffect]` from the launch file
+
+**RATIFIED.** The retired header is not carried into the new world's
+config.
+
+**Why, recorded in full because the guard makes it look harmless:** on
+2026-08-21 this exact header — an `[affixes.*]` block naming an affix
+that deserializes to a real `Affix` variant but is absent from
+`ALL_AFFIXES` — **panicked every request in production for roughly 2.5
+minutes before rollback.** `affix_balance` now handles it
+(`affix.rs:318-331`): `resolved.get_mut(&affix)` returns `None`, a
+warning is logged, the entry is skipped.
+
+That guard is **scar tissue from the incident, not a licence to keep the
+header.** Carrying it forward means every startup logs a warning about
+an affix that has not existed since 2026-08-21, and it leaves a live
+example of the shape that caused the outage sitting in the file where
+the next person to copy a block will find it. A fresh world starts with
+a clean file.
+
+The `LingeringEffect` variant itself stays in the `Affix` enum and in
+`affix_def` — it must, or unmigrated saved items fail to deserialize
+(see the variant's own doc). This ruling is about the *config file*
+only.
+
+---
+
+### 10.7 R7 — reload semantics, recorded prominently
+
+**RATIFIED, and this section is the authority for it. Any doc, patch
+note, or comment claiming `adventure-item-balance.toml` is hot-tunable
+is wrong.**
+
+**The two config files in this system have opposite reload semantics,
+and conflating them is the failure mode this ruling exists to prevent:**
+
+| File | Held as | Re-read | Restart needed? |
+|---|---|---|---|
+| `adventure-item-balance.toml` — affix `per_tier`/`weight`, `slot_base_power`, `slot_power_cap`, `cooldown`, `craft_action_cost` | `OnceLock` (`AFFIX_BALANCE` `affix.rs:303`, `SLOT_POWER` `item.rs:930`, `COOLDOWN_CURVES`) | **never** — initialised lazily on first read | **YES** |
+| `adventure-live-tunables.toml` — `LiveTunables`, incl. `splash_ladder_step_pct`, the pacing controllers, the top layer | `std::sync::RwLock` in `AdventureManager` | **every fight** | **NO — genuinely hot** |
+
+`LiveTunables`' own doc states the contrast explicitly
+(`tunables.rs:8-9`): *"unlike ... `OnceLock`, this is held live in
+`AdventureManager` behind a `std::sync::RwLock` and re-read on every
+fight, so a saved change takes effect"* without a restart.
+
+**The practical consequence for the two rulings above:**
+
+- **R1 (Echo, `[affixes.echo].per_tier`) → `adventure-item-balance.toml`
+  → no rebuild, no deploy, but a RESTART IS REQUIRED.**
+- **R3 (splash, `splash_ladder_step_pct`) → `LiveTunables` → no rebuild,
+  no deploy, no restart. Genuinely hot, dashboard-editable, effective
+  from the next fight.**
+
+Both were described as "zero-code fixes," and both are — but only one
+can be changed on a running game. Saying "no deploy" for both is
+accurate and, on its own, actively misleading.
+
+**Corrections applied to this document under this ruling:**
+
+1. **§5.4** said the level-cut half of a rebalance was "testable live
+   with no deploy." Corrected to "without a rebuild," with a pointer
+   here. `adventure-item-balance.toml` is not hot.
+2. **§5.1** said the pacing baseline anchors are "dashboard-shapable
+   live tunables, so this can be tuned after launch." That claim is
+   **correct and stays** — they are `LiveTunables`. Annotated with a
+   pointer here so a later reader does not "fix" a true statement while
+   correcting the false one.
+3. **§9.6 point 3** already stated the `OnceLock` restart requirement
+   and is unchanged.
+
+Patch notes for the launch must not describe Echo's coefficient as
+hot-tunable.
+
+---
+
+### 10.8 R8 — never reset pushed work to a SHA quoted in an order
+
+**RATIFIED AS HOUSE PRACTICE.**
+
+**When an order names a base SHA that is behind the branch head, append
+to HEAD and flag the discrepancy. Never reset, never force-push, never
+rewrite pushed history to match the quoted SHA.**
+
+The precedent: the order that produced §9 said "append to
+`docs/affix-curve-spec` branch at `8bdb30d`" while the branch was at
+`691f050` — `8bdb30d` was simply where the Decision being ruled on had
+been *written*, two commits earlier. Resetting to it would have silently
+discarded the crit-cut and new-slots work from the immediately preceding
+order.
+
+The general shape: **a SHA in an order is usually a citation, not an
+instruction.** It identifies where the thing being discussed lives. The
+cost asymmetry is decisive — appending to a head the owner did not
+expect is trivially corrected in the next message, while discarding
+pushed work is not always recoverable, and is never recoverable *by the
+owner without being told it happened.* Append, then state plainly in the
+report which SHA you built on and which one the order named.
+
+This sits alongside the existing BRANCH DISCIPLINE rule in `CLAUDE.md`
+("don't rebase/reset/stash shared state — another session may have work
+in flight") and extends it: the hazard is not only *concurrent*
+sessions, it is also *sequential* orders whose quoted SHAs have gone
+stale.
+
+---
+
+### 10.9 The launch configuration, corrected
+
+Supersedes §9.6's block.
+
+```toml
+# --- world launch: adventure-item-balance.toml ---
+# RESTART REQUIRED for any change here (OnceLock - see 10.7).
+# NOT hot. Do not describe these as live-tunable.
+
+[affixes.echo]
+per_tier = 0.00857      # R1. 6 instances -> 1 guaranteed repeat at T=1000.
+                        # Round UP: 0.00856 = 0.999137, misses the anchor.
+
+[slot_base_power]
+ring1  = 0.01           # R5-tested: must equal affixes.critChance per_tier
+ring2  = 0.01           # R5-tested: must equal affixes.critChance per_tier
+amulet = 0.025          # R5-tested: must equal affixes.critMultiplier per_tier
+pants  = 0.03           # R5-tested: must equal affixes.increasedLife per_tier
+
+# NO [affixes.critMultiplier] block - R4 puts the 0.05 -> 0.025 halving
+# in affix_def (affix.rs:225) as the code default instead.
+# NO [affixes.lingeringEffect] block - R6.
+```
+
+And separately — **a different file, with different reload semantics,
+hot from the next fight**:
+
+```toml
+# --- world launch: adventure-live-tunables.toml ---
+# Hot (RwLock, re-read every fight). No restart needed.
+
+splash_ladder_step_pct = 350    # R3, from 1000. 6 instances -> rung 1 at
+                                # T=1000. Round DOWN: 351 misses.
+```
+
+Everything else stays at its code default: `[slot_power_cap]`,
+`[cooldown.*]`, `[craft_action_cost]`, every other affix's `per_tier`
+and `weight`, and `splash_overcap_bonus_targets` /
+`splash_ladder_targets_per_step` / `splash_damage_pct` /
+`splash_extra_targets`.
+
+---
+
 ## Decisions log
 
 1. **Curve shape ratified as piecewise `sqrt` below T=100, power-0.289
@@ -1509,3 +1861,55 @@ file clean.
 24. **A TOML edit needs a process restart** (§9.6). `AFFIX_BALANCE` and
     `SLOT_POWER` are `OnceLock`s. "No deploy" is accurate; "no restart"
     is not.
+25. **R1 — Echo `per_tier = 0.00857`, rounding UP** (§10.1). Ratified.
+    `0.00856` = 0.999137 and misses the anchor. General rule adopted:
+    when a value is derived to hit a `floor()` boundary, round in
+    whichever direction clears it, and state which direction that was.
+26. **R2 — Echo's acceptance test is the damage-share table, NOT the
+    exponent** (§10.2). Ratified. Exponent passes either way (+0.019 to
+    +0.034). The justification is that a 1.5%-of-damage affix on a full
+    six-slot commitment is a dud. Verify §9.3's shares; do not verify
+    exponent.
+27. **R3 — `splash_ladder_step_pct = 350`** (§10.3). Ratified via the
+    `LiveTunable`, not `[affixes.splash].per_tier`, so the 100% overcap
+    behaviour is untouched. Verified: `floor(350.1648/350) = 1` rung at
+    T=1,000 on six instances; **step 351 gives 0 and misses**, so this
+    one rounds DOWN — the mirror image of R1.
+28. **R3 qualifications, recorded** (§10.3). Post-curve the ladder is
+    effectively ONE rung — rung 2 sits at T ≈ 10,988 — so it should not
+    be described as a "ladder" to players. And it is a **4+ instance
+    mechanic only**: a 2-instance build never reaches a rung anywhere up
+    to T = 10,000. Neither changes the value; both need saying.
+29. **R3 side effect: Ranger's Volley / Chain Lightning gains ~25%**
+    (§10.3). `splash_overcap_target_count` has a second consumer at
+    `combat.rs:14307` that sizes `splash_target_dmg_bonus` off the same
+    count. Intended coupling, but not neutral — belongs in the patch
+    note. Enemies (Cube/Dragon) are unaffected by construction: they
+    force `splash_fraction` to exactly 1.0 and the overcap branch is
+    gated on `> 1.0`, strictly.
+30. **R4 — the CritMultiplier halving goes in CODE, not TOML** (§10.4).
+    Ratified. A TOML override that permanently contradicts the code
+    default makes the code default a lie. `[affixes.critMultiplier]` is
+    dropped from the launch file; `[slot_base_power].amulet = 0.025`
+    stays.
+31. **R5 — test the four base-power/affix pairings** (§10.5). Ratified.
+    Must read through `base_power_for_slot()` / `affix_balance()`, not
+    the raw `AffixDef` constants — reading the constants would pass
+    while the live game was mismatched.
+32. **R6 — strip `[affixes.lingeringEffect]` from the launch file**
+    (§10.6). Ratified. The guard that makes it survivable is scar tissue
+    from the 2026-08-21 outage, not a licence to keep it. The enum
+    variant stays; only the config block goes.
+33. **R7 — the two config files have OPPOSITE reload semantics**
+    (§10.7). Ratified and now the authority for it.
+    `adventure-item-balance.toml` is `OnceLock` — **restart required.**
+    `adventure-live-tunables.toml` is `RwLock`, re-read every fight —
+    **genuinely hot.** So R1 (Echo) needs a restart and R3 (splash) does
+    not, despite both being "zero-code." §5.4 corrected; §5.1's claim
+    verified correct and annotated so nobody "fixes" it.
+34. **R8 — never reset pushed work to a SHA quoted in an order** (§10.8).
+    Ratified as house practice. A SHA in an order is usually a citation,
+    not an instruction. Append to HEAD, then state plainly which SHA you
+    built on and which the order named. Extends `CLAUDE.md`'s BRANCH
+    DISCIPLINE rule from concurrent sessions to sequential orders with
+    stale SHAs.
