@@ -1116,15 +1116,24 @@ separately, not to an automatic cleanup.
    false "clean build" read before).
 4. If this deploy changes the game binary's behavior (not a source/docs-
    only or template-hot-reload-only change) — the game side of this step
-   is unconditional and runs on every behavior-changing deploy: disable
-   `GameProcess-Watchdog` → stop `GameProcess` → confirm it actually
-   exited → SHA-256 hash the current live `target\release\game.exe` and
-   the freshly-built one, confirming they differ → back up the current
-   `game.exe` to a new, deploy-named `backup-pre-<name>/` directory
-   (gitignored — add the entry and a tiny separate commit) → copy the
-   new `game.exe` into `target\release\` → start `GameProcess`, verify
-   healthy (curl its ports, plus a real page like `/passives`) →
-   re-enable `GameProcess-Watchdog`. While in this same stop window
+   is unconditional and runs on every behavior-changing deploy:
+   **suppress `GameProcess-Watchdog` with the maintenance flag** — run
+   the DEPLOYMENT'S OWN copy by absolute path,
+   `C:\PathofDust\maintenance-flag.ps1 -Target Game -Set -Reason "<release> <sha>"`,
+   then confirm with `-Status` that it prints
+   `scope : this IS the flag 'GameProcess-Watchdog' reads` (never a
+   worktree copy: both scripts default the flag path off their own
+   directory, so a copy writes a flag the live watchdog never reads while
+   still reporting "SUPPRESSED" — `-Set` refuses that outright, and this
+   confirmation is the second belt) — → stop `GameProcess` → confirm it
+   actually exited → SHA-256 hash the current live
+   `target\release\game.exe` and the freshly-built one, confirming they
+   differ → back up the current `game.exe` to a new, deploy-named
+   `backup-pre-<name>/` directory (gitignored — add the entry and a tiny
+   separate commit) → copy the new `game.exe` into `target\release\` →
+   start `GameProcess`, verify healthy (curl its ports, plus a real page
+   like `/passives`) → **`.\maintenance-flag.ps1 -Clear`**, and say in
+   the report that you cleared it. While in this same stop window
    (2026-08-20 addition): copy `adventure-fights-summary/` as it stands
    at stop time into that deploy's `backup-pre-<name>/` dir as a pinned
    pre-deploy snapshot. The live summary corpus is capped at 200 files,
@@ -1132,6 +1141,45 @@ separately, not to an automatic cleanup.
    — this has already blocked before/after verification twice. It's one
    file copy inside a stop window the deploy is already taking, and
    gives every release a permanent baseline to diff against.
+
+   **Why a flag and not `Disable-ScheduledTask` (2026-08-23 amendment,
+   branch `fix/watchdog-maintenance-gate`):** this step used to say
+   "disable `GameProcess-Watchdog`" and "re-enable" it. **A deploy
+   session cannot do either.** `Disable-ScheduledTask` needs an elevated
+   token; from a deploy session it returns `Access denied`. So the step
+   was silently skipped on every deploy up to and including the
+   2026-08-23 pacing release, and every binary swap ran with the watchdog
+   live — nothing broke only because swaps finish well inside the task's
+   ~2 minute repetition interval. That is luck, not protection: a slower
+   swap (a large backup, a retried copy, a stalled disk) races it, and
+   the watchdog restarts the game off a half-written binary.
+   `maintenance-flag.ps1` writes a file instead, which a non-elevated
+   session *can* do, and `game-watchdog.ps1` honours it.
+
+   The flag is a **lease, not a switch**: `game-watchdog.ps1` ignores one
+   older than `-MaintenanceMaxAgeMinutes` (default 30) and logs loudly
+   that it did, so a forgotten flag cannot disable protection
+   indefinitely. Anything unreadable, undated, or dated in the future is
+   ignored the same way. Still run `-Clear` — the expiry is a backstop
+   for the deploy that goes wrong, not the normal exit path. If a deploy
+   genuinely needs longer than the window, re-run `-Set`; do not raise
+   the limit.
+
+   **The bot half of this step had the identical defect and was fixed the
+   same way (2026-08-24, same branch).** `watchdog.ps1` now honours its
+   OWN maintenance flag, driven by `-Target Bot`. Note that
+   `watchdog.ps1` never had the `$ExpectedPathRoot` bug — it has no param
+   block at all, and its one `$PSScriptRoot` use was always in the body —
+   so nothing there needed changing.
+
+   **The two flags are SEPARATE FILES and that is load-bearing**
+   (`game-watchdog-maintenance.flag`, `bot-watchdog-maintenance.flag`).
+   The game deploys on every behaviour change and the bot only when the
+   diff says so, so game-only is the common case; a single shared flag
+   would suppress the BOT's watchdog through every game-only deploy —
+   exactly the window in which the bullets below say the bot "runs
+   untouched". If the bot crashed there, nothing would restart it.
+   Suppress only what you are actually swapping.
 
    **Conditional bot redeploy (2026-08-21 addition):** the bot binary
    (`twitch-bot-rs.exe`) only moves when this release actually changes
@@ -1162,15 +1210,23 @@ separately, not to an automatic cleanup.
      workspace-member restructure, a path that doesn't cleanly resolve
      to either crate) — deploy both, as before this amendment. When in
      doubt, don't skip.
-   - **If the bot deploys:** disable `TwitchBotRS-Watchdog` → stop
-     `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
+   - **If the bot deploys:** suppress `TwitchBotRS-Watchdog` with its own
+     maintenance flag — `C:\PathofDust\maintenance-flag.ps1 -Target Bot
+     -Set -Reason "<release> <sha>"`, confirming with `-Target Bot
+     -Status` that it prints
+     `scope : this IS the flag 'TwitchBotRS-Watchdog' reads` (same
+     absolute-path rule as the game side: a worktree copy writes a flag
+     the live watchdog never reads, and `-Set` refuses that outright) →
+     stop `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
      `twitch-bot-rs.exe` → back up the old one into the *same*
      `backup-pre-<name>/` dir used for the game binary → copy in the
      new one → start `TwitchBotRS` only after `GameProcess` is confirmed
-     healthy → verify healthy (curl its ports) → re-enable
-     `TwitchBotRS-Watchdog`. Game always comes up and is verified
+     healthy → verify healthy (curl its ports) →
+     `C:\PathofDust\maintenance-flag.ps1 -Target Bot -Clear`, and say in
+     the report that you cleared it. Game always comes up and is verified
      healthy before the bot starts — never the other order, whether or
-     not the bot is moving this release.
+     not the bot is moving this release. **Do not set the Bot flag on a
+     game-only release** — see the two-flags note above.
    - **If the bot does not deploy:** it runs untouched through the
      entire stop/swap window — no watchdog disable, no stop, no binary
      touched, no backup entry for it. The deploy report states

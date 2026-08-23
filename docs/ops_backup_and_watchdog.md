@@ -264,6 +264,179 @@ That turns the two-deployment port-collision case from "silently assumed
 healthy" into a logged warning. Worth doing before a second deployment
 exists; not required for the single-instance setup.
 
+> **That recommendation would not have worked as written until 2026-08-23**
+> (branch `fix/watchdog-maintenance-gate`). `$ExpectedPathRoot` defaulted
+> to `$PSScriptRoot` **in the param block**, where that variable is not
+> populated under the `-File` invocation the scheduled task uses — so the
+> root arrived empty, `Test-UnderRoot` returned `$null` for every
+> candidate, and every listener resolved `unverifiable` no matter where it
+> lived. Raising the run level would have produced *false confidence*: the
+> path would finally be readable and the comparison would still never
+> confirm anything. `$LogPath` was always resolved in the body and always
+> worked; both now do. Verified on a listener with a readable path:
+> correct root → `verdict=confirmed`, deliberately wrong root →
+> `verdict=foreign`; the pre-fix script gave `unverifiable` for both.
+
+### The maintenance gate (2026-08-23)
+
+**The defect.** REFACTOR_PLAN.md §13 step 4 told a deploy session to
+disable `GameProcess-Watchdog` before swapping the binary and re-enable
+it after. **A deploy session cannot do either** — `Disable-ScheduledTask`
+requires an elevated token and returns `Access denied` without one. The
+step was therefore silently skipped on every deploy up to and including
+the 2026-08-23 pacing release, and every binary swap ran with the
+watchdog live. Nothing has broken only because swaps finish well inside
+the task's ~2 minute repetition interval. That is luck: a slower swap — a
+large backup, a retried copy, a stalled disk — races it, and the watchdog
+restarts the game off a half-written binary.
+
+**Both watchdogs had it.** The game side was found during the 2026-08-23
+pacing deploy; `watchdog.ps1` / `TwitchBotRS-Watchdog` carries the
+identical defect, and §13's conditional bot branch instructs the same
+impossible `disable TwitchBotRS-Watchdog`. Both are fixed (2026-08-24).
+
+**The fix.** A file, which a non-elevated session *can* create.
+`maintenance-flag.ps1` writes it (gitignored — per-deployment runtime
+state, exactly like the port the game watchdog is scoped by), and each
+watchdog honours its own.
+
+> **`watchdog.ps1` did NOT have the `$ExpectedPathRoot` defect.** It has
+> no param block at all — its single `$PSScriptRoot` use, the log path,
+> was always resolved in the body, which is why `watchdog.log` has always
+> landed in the deployment root. Nothing was changed on that account.
+
+```powershell
+C:\PathofDust\maintenance-flag.ps1 -Target Game -Set -Reason "deploy 0110be6"
+C:\PathofDust\maintenance-flag.ps1 -Target Game -Status
+C:\PathofDust\maintenance-flag.ps1 -Target Game -Clear   # safe when absent
+```
+
+`-Target Bot` drives `TwitchBotRS-Watchdog` and its own separate flag; see
+"Scoping: two flags, never one" below.
+
+**Always the deployment's own copy, by absolute path.** Both scripts
+default the flag path off their *own* directory, and those agree only
+because both sit in the deployment root. Run the helper from a worktree —
+where a deploy session naturally has a shell open — and the flag lands
+somewhere the live watchdog never reads, while `-Status` cheerfully
+reports `SUPPRESSED`. The swap then runs unprotected under an operator
+who believes it is gated: the same false-confidence shape as the
+`$ExpectedPathRoot` bug above, relocated.
+
+`-Set` therefore resolves the authoritative root from the scheduled
+task's own action (`-File "<path>"`, readable unelevated) and **refuses**
+to write anywhere else, naming both directories and the command to run
+instead. `-Force` overrides it for a deliberate second-deployment case;
+when the task cannot be read at all it warns and proceeds rather than
+becoming unusable. `-Status` always ends with a `scope :` line saying
+whether the flag it just described is the one that task actually reads —
+so a wrong-directory flag cannot look like a working one even under
+`-Force`.
+
+### Scoping: two flags, never one
+
+| Watchdog | Flag file | `-Target` |
+|---|---|---|
+| `GameProcess-Watchdog` | `game-watchdog-maintenance.flag` | `Game` (default) |
+| `TwitchBotRS-Watchdog` | `bot-watchdog-maintenance.flag` | `Bot` |
+
+Both watchdogs live in the same deployment root, so the **filename** is
+what keeps their suppressions apart. One shared flag, and one flag
+carrying a scope field, were both rejected:
+
+- **§13 deploys the game unconditionally and the bot only when the diff
+  says so**, so game-only is the common case. A shared flag would
+  suppress the bot's watchdog through every game-only deploy — precisely
+  the window in which §13 says the bot "runs untouched through the entire
+  stop/swap window". A bot crash there would go unrecovered. The two
+  suppressions need independent lifetimes because the two deploys do.
+- **Two files have the fewest states**: each is present or absent, and
+  `-Clear` on one cannot affect the other. A scope field adds parsing
+  that can be malformed, and a malformed scope could under- *or*
+  over-suppress. With separate files that state does not exist.
+- Each watchdog derives its path from **its own** `$PSScriptRoot` and its
+  own filename, so neither can read the other's flag even by accident.
+
+`-Target` also selects which scheduled task the root guard validates
+against, so a helper run from a worktree refuses to write for *either*
+target — and the refusal message repeats `-Target` in the command it
+tells you to run instead, so following it cannot silently flag the other
+watchdog.
+
+**It is a lease, not a switch.** Each watchdog ignores a flag older
+than `-MaintenanceMaxAgeMinutes` (default 30) and logs loudly that it
+did. A forgotten flag disabling protection forever is a worse failure
+than the one being fixed, and a quieter one. Everything ambiguous fails
+the same way — toward protecting the world, never toward staying silent:
+
+| Flag state | Watchdog behaviour |
+|---|---|
+| absent | unchanged; full protection |
+| valid and within the age limit | logs the suppression, restarts nothing |
+| older than the limit | logs `IGNORING a maintenance flag …`, **then acts normally** |
+| unreadable / not JSON | same as expired |
+| no `created` timestamp | same as expired |
+| dated in the future (>2 min skew) | same as expired |
+| `-MaintenanceMaxAgeMinutes 0` | gate disabled; every flag ignored |
+
+The gate is consulted **only on runs that would otherwise act**, so a
+healthy run still logs nothing at all whether or not a flag exists — a
+deploy window does not fill the log with suppression lines.
+
+The flag records an ISO 8601 timestamp *with its real UTC offset*,
+deliberately not the bare-`Z`-on-local-time shape `game-watchdog.log`
+uses. That shape is a known-wrong format preserved in the log only for
+compatibility with existing greps (see §5 below), and it must not spread
+into a value something computes an age from.
+
+### The bot watchdog now detects by port too (2026-08-24)
+
+`watchdog.ps1` used to detect with `Get-Process -Name "twitch-bot-rs"` —
+the same flaw `game-watchdog.ps1` was rewritten away from a day earlier.
+Two deployments share an image name, so the check returned non-empty
+whenever *either* bot was alive, and the watchdog stopped detecting the
+death of either one. It is now the same port-to-PID resolution, the same
+three-state path verdict, the same `-RequireOwnPath`, and the same
+recheck/startup guards.
+
+**Port 4001, chosen from the code — not assumed.** The bot binds three
+(`src/config.rs`): 4001 alerts, 4002 song requests, 4003 chat overlay.
+(4004/4005 are still *declared* in the bot's config but are bound by the
+GAME since the 2026-08-22 decoupling — keying on either would watch the
+wrong process.) Of the three:
+
+| port | why not / why |
+|---|---|
+| 4002 | **Conditional.** `start_song_overlay_server` only runs when `config.youtube_api_keys` is non-empty (`main.rs:555`). Clear the YouTube keys and it never binds — a watchdog keyed to it would restart a healthy bot forever. Disqualified. |
+| 4003 | Binds **last**, after `emotes::fetch_all` — a Twitch round-trip. A slow emote fetch would read as death. |
+| **4001** | **Unconditional** (`main.rs:550`) and the **earliest** of the three, and `start_alert_server` awaits `TcpListener::bind` before returning (`alerts.rs:60`), so "listening" is a true synchronous signal. |
+
+A crash releases all three, so any of them catches a real death equally —
+the difference is entirely in **false** positives, and 4001 has the
+fewest.
+
+**Startup grace is 45s, not the game's 90s.** The game needs 90 because
+`AdventureManager::new` loads a 3.3 MB roster and runs migrations before
+its servers start. The bot's pre-bind path is the log dir, `Config::load`,
+`AuthClient::new` (local `tokens.json`) and ONE Helix call
+(`get_user_id_by_login`). Neither `auth.rs` nor `helix.rs` has a retry
+loop, sleep or explicit timeout, so the normal case is sub-second and the
+worst case is one slow HTTPS round-trip. 45s is a large margin over that
+while recovering a dead bot in half the game's window — which matters,
+since four unrecovered crashes are why the file exists.
+
+**Defaults match the live task, which needs no change.** The registered
+`TwitchBotRS-Watchdog` action is
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\PathofDust\watchdog.ps1"`
+— **no script arguments** — so `-Port 4001` and `-TaskName TwitchBotRS`
+had to be the defaults, and are. Verified against the live task before
+the rewrite, and confirmed after: port 4001's owning PID is the live
+`twitch-bot-rs` process.
+
+The restart action, the `bot process not found (LastTaskResult=…) -
+restarting` line and its timestamp format are byte-identical to the
+pre-rewrite script, and the maintenance gate above is unchanged.
+
 ### Two guards the port-based check needs
 
 The old name-based check saw a process the instant it was created. A

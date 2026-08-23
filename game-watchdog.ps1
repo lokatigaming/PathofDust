@@ -59,6 +59,50 @@
 #
 # Registering or altering scheduled tasks is out of this script's scope -
 # see docs/ops_backup_and_watchdog.md for the recommended task changes.
+#
+# ---------------------------------------------------------------------
+# MAINTENANCE GATE (2026-08-23, fix/watchdog-maintenance-gate)
+# ---------------------------------------------------------------------
+# REFACTOR_PLAN.md section 13 step 4 tells a deploy session to disable
+# this watchdog before swapping the binary. It cannot: Disable-
+# ScheduledTask needs an elevated token and no deploy session has one, so
+# the step silently did not happen and every binary swap so far has run
+# with the watchdog live. It has not fired mid-swap only because swaps
+# have been fast relative to the task's ~2 minute repetition interval.
+# That is luck, not protection.
+#
+# So the suppression a deploy actually needs is a FILE, which a non-
+# elevated session can create and delete: while a valid flag exists at
+# $MaintenanceFlagPath, this script logs that it is suppressed and exits
+# without restarting anything.
+#
+# THE FLAG EXPIRES, and that is the point. A flag someone forgot to
+# remove would otherwise disable protection forever - a strictly worse
+# failure than the one this fixes, and a silent one. Past
+# $MaintenanceMaxAgeMinutes (default 30) the flag is IGNORED, the fact
+# that it was ignored is logged loudly, and normal protection resumes.
+# Anything unreadable, undated, or dated in the future is treated the
+# same way: a flag that cannot be positively verified as current does not
+# suppress anything. Every ambiguous case fails toward protecting the
+# world, never toward staying quiet.
+#
+# The gate is checked only on runs that would otherwise ACT. A healthy
+# run still logs nothing at all, flag or no flag, so a deploy window does
+# not fill the log with suppression lines.
+#
+# ---------------------------------------------------------------------
+# $ExpectedPathRoot RESOLVES IN THE BODY (2026-08-23, same branch)
+# ---------------------------------------------------------------------
+# It used to default to `$PSScriptRoot` in the PARAM BLOCK, where that
+# variable is not yet populated under the `-File` invocation the
+# scheduled task actually uses - so the root arrived EMPTY, Test-UnderRoot
+# returned $null for every candidate, and every listener resolved
+# `unverifiable` no matter where it lived. Harmless at today's
+# RunLevel = Limited (paths are unreadable anyway, so that is the same
+# verdict either way) but it would have silently defeated -RequireOwnPath
+# the moment the task was raised to RunLevel = Highest to obtain exactly
+# that check - false confidence in place of protection. $LogPath was
+# always resolved in the body and always worked; both now do.
 
 [CmdletBinding()]
 param(
@@ -74,9 +118,23 @@ param(
 
     # The deployment root the listening process is expected to live
     # under. Only consulted when the image path is readable at all.
-    [string] $ExpectedPathRoot = $PSScriptRoot,
+    # Resolved in the BODY, not here - see the header. A param-block
+    # default of $PSScriptRoot arrives empty under -File.
+    [string] $ExpectedPathRoot,
 
     [string] $LogPath,
+
+    # The maintenance flag a deploy session drops to suppress this
+    # watchdog without elevation (see the header, and
+    # maintenance-flag.ps1 which writes it). Resolved in the BODY for the
+    # same reason as the two above.
+    [string] $MaintenanceFlagPath,
+
+    # How long a maintenance flag stays valid. Past this it is ignored
+    # and the fact is logged loudly - a forgotten flag must not disable
+    # protection indefinitely. 0 disables the gate entirely (every flag
+    # is ignored), which is the safe direction to fail.
+    [int] $MaintenanceMaxAgeMinutes = 30,
 
     # A single in-run re-check before believing the world is down. The
     # old name-based check saw a process the instant it was created; a
@@ -106,6 +164,22 @@ $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($LogPath)) {
     $LogPath = Join-Path $PSScriptRoot 'game-watchdog.log'
+}
+
+# Both of these default off $PSScriptRoot for the same reason $LogPath
+# does, and in the same place - the body, where $PSScriptRoot is actually
+# populated under -File. See the header.
+if ([string]::IsNullOrWhiteSpace($ExpectedPathRoot)) {
+    $ExpectedPathRoot = $PSScriptRoot
+}
+if ([string]::IsNullOrWhiteSpace($MaintenanceFlagPath)) {
+    # NAMED FOR ITS WATCHDOG, not for "the watchdog". The bot watchdog has
+    # its own gate and its own separate flag beside this one; a shared file
+    # would mean a game-only deploy (the common case - section 13 deploys
+    # the bot only when the diff says so) silently suppressed the BOT's
+    # watchdog too, through a window where section 13 explicitly leaves the
+    # bot running untouched. Two files, two independent lifetimes.
+    $MaintenanceFlagPath = Join-Path $PSScriptRoot 'game-watchdog-maintenance.flag'
 }
 
 function Get-ListenerPids {
@@ -168,6 +242,78 @@ function Get-ProcessFacts {
     return $facts
 }
 
+function Get-MaintenanceGate {
+    # Three-state, returned as a hashtable:
+    #   State  = 'none'    - no flag file; behave exactly as before.
+    #          = 'active'  - a valid, current flag; suppress the restart.
+    #          = 'expired' - a flag that exists but cannot be positively
+    #                        verified as current. Ignored, loudly.
+    #   Detail = human-readable, goes straight into the log line.
+    #
+    # EVERY ambiguous case resolves to 'expired', never 'active':
+    # unreadable file, unparseable contents, missing/garbage timestamp, a
+    # timestamp in the future, or a non-positive max age. Suppression has
+    # to be positively proven current; the absence of proof protects the
+    # world rather than silencing the watchdog.
+    param([string] $Path, [int] $MaxAgeMinutes)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return @{ State = 'none'; Detail = '' }
+    }
+
+    if ($MaxAgeMinutes -le 0) {
+        return @{ State = 'expired'; Detail = "flag present but the maintenance gate is disabled (-MaintenanceMaxAgeMinutes $MaxAgeMinutes)" }
+    }
+
+    $raw = $null
+    try { $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop } catch { }
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return @{ State = 'expired'; Detail = 'flag file is empty or unreadable' }
+    }
+
+    $parsed = $null
+    try { $parsed = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }
+    if ($null -eq $parsed) {
+        return @{ State = 'expired'; Detail = 'flag file is not valid JSON' }
+    }
+
+    $reason = 'no reason recorded'
+    if ($parsed.PSObject.Properties.Name -contains 'reason' -and -not [string]::IsNullOrWhiteSpace($parsed.reason)) {
+        $reason = $parsed.reason
+    }
+    $by = ''
+    if ($parsed.PSObject.Properties.Name -contains 'by' -and -not [string]::IsNullOrWhiteSpace($parsed.by)) {
+        $by = " by=$($parsed.by)"
+    }
+
+    if ($parsed.PSObject.Properties.Name -notcontains 'created') {
+        return @{ State = 'expired'; Detail = "flag file carries no 'created' timestamp (reason='$reason')" }
+    }
+
+    # Written by maintenance-flag.ps1 as a round-trip ISO 8601 string WITH
+    # its real UTC offset - deliberately NOT the bare-"Z"-on-local-time
+    # shape this script's own log lines use. That shape is preserved below
+    # for compatibility with anything already grepping the log; it is not
+    # a format to build new comparisons on.
+    $created = $null
+    try { $created = [datetimeoffset]::Parse([string]$parsed.created, [Globalization.CultureInfo]::InvariantCulture) } catch { }
+    if ($null -eq $created) {
+        return @{ State = 'expired'; Detail = "flag file's 'created' value is not a parseable timestamp (reason='$reason')" }
+    }
+
+    $ageMinutes = ([datetimeoffset]::Now - $created).TotalMinutes
+
+    # Clock skew or a hand-edited future date. Not current, so not honored.
+    if ($ageMinutes -lt -2) {
+        return @{ State = 'expired'; Detail = ("flag is dated {0:N1} minutes in the FUTURE (reason='$reason'$by)" -f [Math]::Abs($ageMinutes)) }
+    }
+    if ($ageMinutes -gt $MaxAgeMinutes) {
+        return @{ State = 'expired'; Detail = ("flag is {0:N1} minutes old, past the {1}-minute limit (reason='$reason'$by)" -f $ageMinutes, $MaxAgeMinutes) }
+    }
+
+    return @{ State = 'active'; Detail = ("reason='$reason'$by age={0:N1}m limit={1}m" -f [Math]::Max($ageMinutes, 0), $MaxAgeMinutes) }
+}
+
 function Test-UnderRoot {
     # $true / $false / $null, where $null means "could not tell".
     param([string] $CandidatePath, [string] $Root)
@@ -228,6 +374,11 @@ if ($DryRun) {
     Write-Host "port             : $Port"
     Write-Host "task             : $TaskName"
     Write-Host "expected root    : $ExpectedPathRoot"
+    Write-Host "maintenance flag : $MaintenanceFlagPath"
+    $gateDry = Get-MaintenanceGate -Path $MaintenanceFlagPath -MaxAgeMinutes $MaintenanceMaxAgeMinutes
+    $gateShown = $gateDry.State
+    if ($gateDry.Detail) { $gateShown = "$($gateDry.State) - $($gateDry.Detail)" }
+    Write-Host "maintenance gate : $gateShown"
     Write-Host "log              : $LogPath"
     Write-Host "listening PIDs   : $shownPids"
     Write-Host "listener detail  : $shownDetail"
@@ -249,6 +400,15 @@ if ($DryRun) {
         if ($RequireOwnPath) { $action = 'WOULD LOG an unverifiable-listener warning and NOT restart' }
         else { $action = 'nothing (listening; path unverifiable at this run level)' }
     }
+    # The gate only intercepts runs that would otherwise act - a healthy
+    # run is unaffected by it, so the dry run must say so the same way.
+    if ($action -ne 'nothing (healthy)' -and $action -notlike 'nothing (listening*') {
+        if ($gateDry.State -eq 'active') {
+            $action = "SUPPRESSED by the maintenance flag - WOULD LOG the suppression and do nothing else"
+        } elseif ($gateDry.State -eq 'expired') {
+            $action = "$action, AND would first log loudly that it ignored a stale maintenance flag"
+        }
+    }
     Write-Host "would do         : $action"
     Write-Host 'would terminate  : nothing, ever - this script has no process-termination code'
     return
@@ -260,6 +420,29 @@ if ($DryRun) {
 
 if ($state -eq 'healthy') { return }
 if ($state -eq 'listening-unverifiable' -and -not $RequireOwnPath) { return }
+
+# ---------------------------------------------------------------------
+# Maintenance gate - checked ONLY here, past the two silent-return paths
+# above, so a healthy run still logs nothing whether or not a flag
+# exists. See the header for why this is a file rather than
+# Disable-ScheduledTask.
+# ---------------------------------------------------------------------
+$gate = Get-MaintenanceGate -Path $MaintenanceFlagPath -MaxAgeMinutes $MaintenanceMaxAgeMinutes
+$gateStamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+
+if ($gate.State -eq 'active') {
+    $line = "$gateStamp - SUPPRESSED by maintenance flag ($($gate.Detail)) - state was '$state', taking no action on $TaskName"
+    Add-Content -Path $LogPath -Value $line -Encoding utf8
+    return
+}
+
+if ($gate.State -eq 'expired') {
+    # Loud on purpose. Protection has just been restored underneath
+    # someone who may still believe it is suppressed, and the flag is
+    # still sitting on disk telling them otherwise.
+    $line = "$gateStamp - IGNORING a maintenance flag at ${MaintenanceFlagPath}: $($gate.Detail) - protection is ACTIVE and the checks below WILL run; delete the flag"
+    Add-Content -Path $LogPath -Value $line -Encoding utf8
+}
 
 # Every remaining branch logs, so resolve the task info once - the
 # original script queried it inline for exactly this purpose.
