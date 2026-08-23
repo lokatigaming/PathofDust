@@ -9,8 +9,10 @@
 //! over the last `pacing_window_fights` fights; at fight generation the
 //! enemy HP POOL is scaled so expected kill time lands near the window
 //! midpoint. Per-enemy relative HP weights are never touched - the
-//! controller scales the pool, never the distribution. Applies to every
-//! enemy, boss or filler.
+//! controller scales the pool, never the distribution. The multiplier is
+//! APPLIED to every enemy, boss or filler; it is MEASURED from boss
+//! encounters only (2026-08-23 ruling - see "Boss encounters only"
+//! below).
 //!
 //! **Controller B - dynamic damage (the lethality axis, "how hard").**
 //! The old rubber-band's punishing role is KEPT and retargeted: enemy
@@ -36,6 +38,22 @@
 //! meaningful duration signal (a wipe reads as a short fight, which
 //! would inflate HP and cause MORE wipes - a death spiral). Controller
 //! A samples real duration and party DPS from WINNING fights only.
+//!
+//! **Boss encounters only, BOTH controllers (owner ruling 2026-08-23).**
+//! `permanent_rampage = true` is the expected steady state in production:
+//! players vote it on constantly and boss encounters run back-to-back
+//! with instant revives, so the filler loop sits out entirely. Non-boss
+//! fights exist to slow the game down when nobody is pushing for a
+//! rampage, and they are the wrong signal for both axes - filler pools
+//! come from `basic_enemy_stats_for`, a different curve from
+//! `boss_stats_for`, so a filler DPS sample would steer the HP
+//! multiplier that governs BOSS pools using a measurement taken against
+//! something else. A's sampler is therefore called from the boss path
+//! only; B's outcome window already was. Losses still reach B (an
+//! outcome) and still never reach A (no duration sample) - the wins-only
+//! rule exists to keep wipes out of the duration average, and an instant
+//! revive is not a back door around it: a wipe is `won == false` at the
+//! single sample site, and reviving does not re-run the encounter.
 //!
 //! **Per-stage baseline floor (owner ruling).** A hand-authored curve
 //! (`baseline_stage_anchors`/`baseline_hp_anchors`/

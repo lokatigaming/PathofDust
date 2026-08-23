@@ -251,9 +251,11 @@ pub(crate) struct WorldState {
     /// Controller A's OWN multiplier ("how long") - scales every fight's
     /// TOTAL enemy HP POOL (never the per-enemy distribution) so expected
     /// kill time lands inside the target duration window. Updated ONLY on
-    /// winning fights, from the rolling DPS window below (owner ruling:
-    /// a lost fight carries no meaningful duration signal, and sampling
-    /// wipes would create an HP-up/more-wipes death spiral). Same
+    /// WON BOSS encounters, from the rolling DPS window below (owner
+    /// rulings: a lost fight carries no meaningful duration signal and
+    /// sampling wipes would create an HP-up/more-wipes death spiral;
+    /// filler fights are measured against a different enemy curve
+    /// entirely and were dropped as a signal on 2026-08-23). Same
     /// rate-limit/clamp/hard-cap discipline as B. Starts at 1.0 -
     /// a no-op until the first full window of winning fights exists.
     #[serde(default = "default_hp_pacing_mult")]
@@ -5108,10 +5110,15 @@ impl AdventureManager {
                 world.stage = world.stage.saturating_sub(2).max(1);
             }
             // -----------------------------------------------------------------
-            // CONTROLLER A (HP / duration axis). Samples WINNING fights
-            // only (`push_dps_sample` drops losses AND non-finite values -
-            // owner ruling: sampling wipes would read as short fights and
-            // spiral HP upward), then steps this fight's own multiplier
+            // CONTROLLER A (HP / duration axis). THE ONLY SAMPLE SITE -
+            // the filler path deliberately feeds neither controller
+            // (2026-08-23 ruling, see run_basic_encounter_inner). Samples
+            // WINNING fights only (`push_dps_sample` drops losses AND
+            // non-finite values - owner ruling: sampling wipes would read
+            // as short fights and spiral HP upward; an instant revive
+            // under permanent_rampage is not a back door, since a wipe is
+            // simply `won == false` right here and a revive does not
+            // re-run the encounter), then steps this fight's own multiplier
             // toward putting expected kill time at the window midpoint.
             // Reads/writes ONLY hp_pacing_mult + recent_win_dps - never
             // B's variables (independence doctrine, pacing.rs doc).
@@ -5329,16 +5336,9 @@ impl AdventureManager {
         let (won, units, events, rolls) =
             simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, fight_seed, &mut rand::thread_rng());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
-        // Controller A's sample inputs for THIS filler fight - identical
-        // shape to the boss path (pool-capped damage over real-clock
-        // duration), computed pre-compression because `events` moves into
-        // compress_events below.
-        let enemy_pool: u64 = units.iter().filter(|u| u.is_boss).map(|u| u.max_hp).sum();
-        let dealt_to_enemies: u64 = events.iter().fold(0u64, |acc, event| match event {
-            CombatEvent::Attack { target, damage, .. } if units.iter().any(|u| u.is_boss && &u.id == target) => acc.saturating_add(*damage),
-            _ => acc,
-        });
-        let pacing_sample_dps = (dealt_to_enemies.min(enemy_pool)) as f64 / ((real_duration_ms as f64 / 1000.0).max(0.001));
+        // NO Controller A sample is computed here (2026-08-23 owner
+        // ruling): a filler fight is not a pacing signal. See this
+        // function's own doc and the pacing block that used to live below.
         let (events, display_duration_ms) = compress_events(events);
 
         let newly_downed: Vec<String> = events
@@ -5478,23 +5478,25 @@ impl AdventureManager {
             self.persist_characters(&characters);
         }
 
-        // Dynamic pacing, Controller A (HP / duration axis) - filler
-        // fights sample their winners too ("all enemies, every fight").
-        // Controller B deliberately does NOT run here: basic encounters
-        // never record outcomes, and B's ratio is defined on boss wins
-        // and losses only (owner-confirmed asymmetry). The stage is never
+        // Dynamic pacing: NEITHER controller samples a filler fight
+        // (2026-08-23 owner ruling, replacing the original "A samples
+        // every fight's winners" asymmetry).
+        //
+        // permanent_rampage = true is the expected steady state - players
+        // vote it on constantly, boss encounters run back-to-back, and
+        // this loop sits out entirely while it is active (see
+        // `spawn_basic_encounter_loop`). Filler fights are interim
+        // content that exists to slow the game down when nobody is
+        // pushing for a rampage, so they are the wrong signal for both
+        // axes: their enemy pools come from `basic_enemy_stats_for`, a
+        // different curve from `boss_stats_for`, so a filler DPS sample
+        // measured against a filler pool would drag Controller A's HP
+        // multiplier - which governs BOSS pools too - toward a target it
+        // was never measuring. Controller B never ran here either way.
+        //
+        // Generation still APPLIES both multipliers and the baseline
+        // floor above; only the feedback is boss-only. The stage is never
         // touched by a basic fight.
-        {
-            let mut world = self.world.lock().await;
-            let pacing_params = pacing::PacingParams::from_tunables(&tunables);
-            if pacing_params.enabled {
-                pacing::push_dps_sample(&mut world.recent_win_dps, won, pacing_sample_dps, pacing_params.window);
-                if let Some(next_hp) = pacing::update_hp_pacing_mult(world.hp_pacing_mult, base_pool_basic, &world.recent_win_dps.iter().copied().collect::<Vec<_>>(), &pacing_params) {
-                    world.hp_pacing_mult = next_hp;
-                }
-                self.persist_world(&world);
-            }
-        }
 
         self.broadcast_state().await;
         // See `run_encounter`'s matching line for why this borrows `units`/
@@ -7981,6 +7983,100 @@ mod dynamic_pacing_tests {
             assert_eq!(world.stage, (stage_before.saturating_sub(2)).max(1), "loss regresses exactly -2, floored at 1");
             assert!(world.recent_win_dps.is_empty(), "a LOSS must never feed Controller A's window (owner ruling)");
         }
+    }
+
+    /// Boss-encounters-only sampling (2026-08-23 ruling), part 1: a
+    /// FILLER fight feeds neither controller. It still runs, still scales
+    /// off both multipliers at generation, and still never walks the
+    /// stage - it just contributes no signal.
+    #[tokio::test]
+    async fn a_filler_fight_feeds_neither_controller() {
+        let manager = disposable_manager("filler").await;
+        manager.join("loafer", "loafer").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("loafer").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        let stage_before = manager.world.lock().await.stage;
+        // The inner form deliberately, to skip `run_basic_encounter`'s
+        // overlay-spacing sleep - the gate has nothing to do with sampling.
+        let ran = manager.run_basic_encounter_inner().await;
+        assert!(ran.is_some(), "a joined level-40 warrior must produce a real filler fight");
+        let world = manager.world.lock().await;
+        assert!(world.recent_win_dps.is_empty(), "a filler fight must never reach Controller A's DPS window - it is measured against basic_enemy_stats_for, a different curve from the boss pools that multiplier governs");
+        assert!(world.recent_boss_outcomes.is_empty(), "a filler fight must never reach Controller B's outcome window");
+        assert_eq!(world.stage, stage_before, "a filler fight never walks the stage");
+    }
+
+    /// Part 2: a WIPE under `permanent_rampage` (the expected steady
+    /// state - boss fights back to back, everyone instantly revived)
+    /// pushes exactly ONE outcome for Controller B and ZERO duration
+    /// samples for Controller A. The instant revive must not become a
+    /// back door around the wins-only rule.
+    #[tokio::test]
+    async fn a_wipe_under_permanent_rampage_pushes_one_outcome_and_no_sample() {
+        let manager = disposable_manager("wipe").await;
+        manager.join("doomed", "doomed").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("doomed").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        // A deterministic wipe, in memory only: an unkillable boss that
+        // one-shots the party. These are this manager's own tunables and
+        // never touch disk (see `set_tunables`).
+        let mut t = manager.live_tunables();
+        t.permanent_rampage = true;
+        t.boss_health = 1.0e9;
+        t.boss_power = 1.0e9;
+        set_tunables(&manager, t);
+        let ran = manager.run_encounter_inner(None).await;
+        assert!(ran.is_some(), "the fight must actually run");
+        let world = manager.world.lock().await;
+        assert_eq!(world.recent_boss_outcomes.len(), 1, "exactly one outcome push per encounter, wipe or not");
+        assert_eq!(world.recent_boss_outcomes.back(), Some(&false), "an unkillable one-shotting boss must produce a LOSS - the rest of this test is vacuous otherwise");
+        assert!(world.recent_win_dps.is_empty(), "a wipe contributes NO duration sample, revive or no revive");
+        drop(world);
+        assert!(
+            manager.downed_until.lock().await.is_empty(),
+            "instant revive: permanent_rampage skips the downed timer entirely, so the next encounter starts with the full party"
+        );
+    }
+
+    /// Part 3: a back-to-back boss sequence produces exactly one duration
+    /// sample per WON encounter - no double-counting, and one outcome per
+    /// encounter either way.
+    #[tokio::test]
+    async fn back_to_back_boss_wins_sample_once_each() {
+        let manager = disposable_manager("backtoback").await;
+        manager.join("runner", "runner").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("runner").unwrap();
+            character.level = 40;
+            character.archetype = Archetype::Warrior;
+        }
+        // Deterministic wins: a boss with 1% of its normal HP that deals
+        // effectively no damage. Real attack events still occur, so the
+        // samples are real measurements, not degenerate zeroes.
+        let mut t = manager.live_tunables();
+        t.permanent_rampage = true;
+        t.boss_health = 0.01;
+        t.boss_power = 1.0e-9;
+        set_tunables(&manager, t);
+        let stage_before = manager.world.lock().await.stage;
+        for i in 0..3 {
+            assert!(manager.run_encounter_inner(None).await.is_some(), "encounter {i} must run");
+        }
+        let world = manager.world.lock().await;
+        assert_eq!(world.recent_boss_outcomes.len(), 3, "one outcome per encounter");
+        assert!(world.recent_boss_outcomes.iter().all(|won| *won), "the party must have won all three - the sample count below means nothing otherwise");
+        assert_eq!(world.recent_win_dps.len(), 3, "exactly one duration sample per WON encounter - no double-counting");
+        assert!(world.recent_win_dps.iter().all(|d| d.is_finite() && *d > 0.0), "every sample is a real, finite, positive measurement");
+        assert_eq!(world.stage, stage_before + 3, "three wins walk the stage +1 each");
     }
 
     /// Kill-switch OFF: a real fight still runs (passthrough generation)
