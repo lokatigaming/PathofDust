@@ -389,17 +389,53 @@ uses. That shape is a known-wrong format preserved in the log only for
 compatibility with existing greps (see §5 below), and it must not spread
 into a value something computes an age from.
 
-**Still open on the bot side: image-name detection.** `watchdog.ps1`
-still detects with `Get-Process -Name "twitch-bot-rs"`, which is the flaw
-`game-watchdog.ps1` was rewritten away from on 2026-08-23 — two
-deployments share an image name, so the check returns non-empty whenever
-*either* bot is alive and the watchdog stops detecting the death of
-either one. It only **reads** the name and never terminates anything, so
-it is not a PRODUCTION SAFETY violation; but it needs the same port-based
-rewrite before a second deployment exists, or the second bot's watchdog
-will read the first bot as proof its own is alive. Deliberately not done
-with the gate work: that change touches detection, and the gate change
-was scoped to leave detection, log shapes and restart logic untouched.
+### The bot watchdog now detects by port too (2026-08-24)
+
+`watchdog.ps1` used to detect with `Get-Process -Name "twitch-bot-rs"` —
+the same flaw `game-watchdog.ps1` was rewritten away from a day earlier.
+Two deployments share an image name, so the check returned non-empty
+whenever *either* bot was alive, and the watchdog stopped detecting the
+death of either one. It is now the same port-to-PID resolution, the same
+three-state path verdict, the same `-RequireOwnPath`, and the same
+recheck/startup guards.
+
+**Port 4001, chosen from the code — not assumed.** The bot binds three
+(`src/config.rs`): 4001 alerts, 4002 song requests, 4003 chat overlay.
+(4004/4005 are still *declared* in the bot's config but are bound by the
+GAME since the 2026-08-22 decoupling — keying on either would watch the
+wrong process.) Of the three:
+
+| port | why not / why |
+|---|---|
+| 4002 | **Conditional.** `start_song_overlay_server` only runs when `config.youtube_api_keys` is non-empty (`main.rs:555`). Clear the YouTube keys and it never binds — a watchdog keyed to it would restart a healthy bot forever. Disqualified. |
+| 4003 | Binds **last**, after `emotes::fetch_all` — a Twitch round-trip. A slow emote fetch would read as death. |
+| **4001** | **Unconditional** (`main.rs:550`) and the **earliest** of the three, and `start_alert_server` awaits `TcpListener::bind` before returning (`alerts.rs:60`), so "listening" is a true synchronous signal. |
+
+A crash releases all three, so any of them catches a real death equally —
+the difference is entirely in **false** positives, and 4001 has the
+fewest.
+
+**Startup grace is 45s, not the game's 90s.** The game needs 90 because
+`AdventureManager::new` loads a 3.3 MB roster and runs migrations before
+its servers start. The bot's pre-bind path is the log dir, `Config::load`,
+`AuthClient::new` (local `tokens.json`) and ONE Helix call
+(`get_user_id_by_login`). Neither `auth.rs` nor `helix.rs` has a retry
+loop, sleep or explicit timeout, so the normal case is sub-second and the
+worst case is one slow HTTPS round-trip. 45s is a large margin over that
+while recovering a dead bot in half the game's window — which matters,
+since four unrecovered crashes are why the file exists.
+
+**Defaults match the live task, which needs no change.** The registered
+`TwitchBotRS-Watchdog` action is
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\PathofDust\watchdog.ps1"`
+— **no script arguments** — so `-Port 4001` and `-TaskName TwitchBotRS`
+had to be the defaults, and are. Verified against the live task before
+the rewrite, and confirmed after: port 4001's owning PID is the live
+`twitch-bot-rs` process.
+
+The restart action, the `bot process not found (LastTaskResult=…) -
+restarting` line and its timestamp format are byte-identical to the
+pre-rewrite script, and the maintenance gate above is unchanged.
 
 ### Two guards the port-based check needs
 
