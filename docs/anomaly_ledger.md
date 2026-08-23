@@ -152,6 +152,34 @@ exists in fight logs to check directly - only `attack`/`heal`/`shield`/
 observability gap `#35` is blocked on). `#35`/`#36` remain open, still
 owned by tree, not resolved by this entry.
 
+**#55 — The zolaries damage gap itself**
+CLOSED 2026-08-23 with **no action** — the originating question of the
+damage-forensics investigation that opened `#46`-`#54`, resolved as **not
+a defect**.
+
+The premise under investigation was that zolaries out-damages the field
+by 4-7x. He does not. He is **1.83x over second place**; the 4-7x figure
+is real but is measured against **ranks 4-11**, not against the player
+directly behind him. Comparing a leader to the middle of a leaderboard
+and reporting the ratio as his lead overstates it by roughly 3x.
+
+His actual lead is **Echo**, which is linear, correct, working as
+designed, and available to every archetype. Nothing about it is
+exclusive to him or to his build.
+
+Recorded rather than dropped so no future session re-opens "why is
+zolaries so far ahead" from the same starting assumption. Two conditions
+attach to this closure:
+
+1. It was re-checked against `#46`, and survives it — the comparison is
+   between credited player totals, and `#46`'s uncredited Environmental
+   damage does not accrue to zolaries in a way that would change the
+   1.83x. **It is the only pre-`#46` damage comparison in this file that
+   has been re-checked.** Every other one remains suspect until `#46`
+   lands.
+2. The investigation this question triggered produced nine real defects.
+   The question was not a waste; the answer to it was simply "no."
+
 ## Reconciliation note — 2026-08-21, later sweep
 
 This sweep's own kickoff order seeded a ledger reconstruction from a
@@ -563,6 +591,207 @@ CLOSED, exact.**
 
 ## Open
 
+### Zolaries damage forensics — 2026-08-23 (`#46`–`#54`)
+
+Nine entries opened from one investigation. All nine were handed to this
+session as another session's findings; **every one was independently
+re-verified in code against `93a136d` before being written here** —
+file:line evidence is inline in each entry. What was NOT done today is
+live fight-log confirmation of the runtime magnitudes (the `5.065e14`,
+the `3.3e12`, the `0.847`, the `80-90%`); those are
+**carried-forward from the originating investigation**, and each entry
+says so where it relies on one. The structural claims are this session's
+own.
+
+**#46 — Environmental damage is credited to nobody**
+`full_player_fight_stats` (manager.rs:1087) matches
+`AttackSourceKind::Environmental => {}` — an empty arm, on a comment
+(manager.rs:1081-1086) claiming the arm "never actually runs in
+practice - kept only for match exhaustiveness." **The comment is stale
+and this ledger already contains the proof.** It was written for Thunder
+Golem redistribution, whose sentinel attacker id genuinely never
+resolves; but `Environmental` is also the tag Holy Fire and Shattering
+deliver under, and this file's own 2026-08-21 Holy Fire verification
+sampled **329 Environmental hits** with real casters. Every one of those
+was uncredited.
+
+Carried-forward magnitudes from the originating fight
+(`__golem_wrightthewrong_2`, validated there, not re-sampled here):
+5.065e14 across 87 Environmental hits — **3.7x the top credited player's
+entire fight total**, credited to nobody. Understatement per player:
+WrightTheWrong **85.6x**, kuokkiz 4.1x, Xcercs 3.7x, Tarekis 1.6x.
+
+**SEVERITY — this is the highest-consequence entry in this file.** Every
+balance judgement derived from the leaderboard or from
+`full_player_fight_stats` is unsound until this is fixed, and that
+includes judgements already made. Parser-relevant consequence: any prior
+ledger entry that reasoned from relative player damage totals is
+suspect, and `#55` below is the only one so far re-checked against it.
+**Owner has ruled it gets fixed.**
+
+**#47 — A Water Golem dealing 3.3e12 per hit**
+Separate investigation from `#46`, and deliberately kept separate:
+`#46` is a crediting bug, `#47` is the magnitude that crediting bug
+concealed. Fixing `#46` alone would make this number visible on the
+leaderboard without explaining it. Magnitude carried forward, not
+re-derived here. Needs: which multiplier chain produces it, whether it
+is Shattering (`#29`'s family) or the base golem hit, and whether the
+golem inherits a player-side stack it should not. **Do not close `#46`
+as "leaderboard now correct" while this is open** — a correct
+leaderboard showing an incorrect number is not a resolved state.
+
+**#48 — Three live passive overrides are inert (TUNABLES DOCTRINE
+violation)**
+`chakraoflife`, `unyieldingspirit` and `shattering` are all set in the
+live `adventure-passive-overrides.toml`, and all three call sites read
+`passive_node_rank` (structure) instead of `passive_node_magnitude`
+(value), so the stored values reach nothing. Verified live and in code:
+
+| Node | Live override | Call site | Reads |
+|---|---|---|---|
+| `chakraoflife` | `[0.33, 0.66, 1.0]` | combat.rs:11997 `chakraoflife_duration_ms: rank * 1_000` | rank |
+| `unyieldingspirit` | `[0.33, 0.66, 1.0]` | combat.rs:11452 `let rank = ...` | rank |
+| `shattering` | `[2.0, 4.0, 6.0]` | combat.rs:6139 `watergolem_shattering_extra_targets = rank` | rank |
+
+`chakraoflife` runs at **3x** its tuned value at rank 3 (the code gives
+3000 ms; the tuned rank-3 value is 1.0). `shattering` runs at **half**
+(rank 3 gives 3 extra targets against a tuned 6.0).
+
+The doctrine violation is not that the values are wrong — it is that
+`magnitude_at_rank` (passive_tree.rs:505) is documented as the single
+funnel every numeric read of every node passes through, and these three
+bypass it. The admin page therefore **shows and saves values that do
+nothing, silently, in both directions**: an operator tuning `shattering`
+down sees the save succeed and observes no change, with no error and no
+log line. Same failure shape as the `dynamic_scaling_mult` 422 recorded
+in CLAUDE.md — a control surface that accepts input and discards it.
+
+**#49 — Crippling Grip and Unbroken skip
+`OVERFLOW_CONVERSION_CAP_PER_RANK`**
+Both hand-rolled `Special` getters end in a bare `overflow * efficiency`
+with no cap: `combat_unbroken_ignore_evasion_pct` (character.rs:2929) and
+`combat_crippling_grip_dr_pct` (character.rs:2944). Every generic
+`OverflowConversion` node obeys
+`raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank)` at character.rs:2640
+(`OVERFLOW_CONVERSION_CAP_PER_RANK = 0.10`, combat.rs:342). These two
+reused the *input* and not the *cap* — the getter's own doc says it
+reuses `combined_stat_overflow` "for the same ... input every other
+overflow node already draws from," which is precisely the half that was
+copied.
+
+Carried-forward magnitudes: Crippling Grip returns **0.847** against node
+text promising 0.15; `qugetus_` returns **3.841**. Shared by **11 of 14
+Monks**, so this is not an outlier build.
+
+Why nobody noticed: the excess is bounded downstream by the `-0.75`
+per-source clamp in `combine_reduction_sources` (see `#50`), so a 0.847
+shred and a 0.20 shred can produce the same observable result. The
+overflow is invisible rather than absent. **`#49` and `#50` must be fixed
+together, or the fix to either will look like it did nothing.**
+
+**#50 — DR shred lands in the wrong layer (OWNER RULING RECORDED)**
+`combine_reduction_sources` (character.rs:889) is
+`1.0 - Π(1 - s.clamp(-0.75, 1.0))`. It multiplies complements and applies
+**no floor to the combined result**. A negative source therefore makes
+its own factor `> 1`, and the product grows without bound: every DR
+shred in the game is currently an **uncapped MORE damage multiplier**,
+not a reduction of the target's DR.
+
+The consequence that makes this a design bug rather than a tuning one: a
+shred works **identically against a 72%-DR boss and a bare target**. It
+never interacts with the DR it is described as shredding.
+
+Affects Crippling Grip, Vital Points, Curse of Weakness, Predator, and
+the lightning damage-taken stack (combat.rs:4770-4772 — pushed as a
+negative source into this same vec).
+
+**OWNER RULING: shreds subtract from the target's DR, floored at zero DR.
+The code is wrong, not the node text.** Recorded here so no future
+session re-opens the "which is authoritative" question — it is settled.
+
+**#51 — The lightning debuff's top 62% is discarded**
+`ELEMENTAL_LIGHTNING_MAX_STACKS = 200` at 1% per stack (combat.rs:343-346,
+with the design text quoted in its own doc: "lightning damage debuff can
+stack up to 200% increased damage taken"), so the intended ceiling is
+**x3.0**. It is delivered as a negative source into
+`combine_reduction_sources`, where `.clamp(-0.75, 1.0)` truncates it at
+**x1.75** — binding at exactly **75 stacks** and discarding everything
+above. Stacks 76-200 are accumulated, displayed, and worth nothing.
+
+Same wrong-layer family as `#50` and the same clamp as `#49`; listed
+separately because it has its own explicit design number to restore, and
+will need its own re-verification once `#50`'s layer change lands.
+
+**#52 — `temp_damage_reduction_bonus` has ten writers and one label**
+**Premise correction, stated because this ledger is a reference:** the
+routing order described this as an upgrade from "the existing
+logging-only entry." **There is no such entry in this file** — `grep`
+for the field name across `docs/anomaly_ledger.md` returns nothing. The
+prior finding lived only in auto-memory, flagged there as "a candidate
+new anomaly-ledger entry if it ever comes up," and was never numbered.
+This is that candidate's **first** ledger entry, not an upgrade of one.
+That memory also recorded "at least 8 nodes"; the true count is ten, so
+the count moved with this investigation.
+
+Verified in code: twelve assignments to the field in combat.rs, of which
+one is a reset (`golem... = 0.0`, 6275) and one is a test fixture
+(16792), leaving **ten real writers** across unrelated mechanics — 7554,
+7791 (Harmonize), 7798 (Serenity), 9227, 9703 (Unbreakable Bond), 10386
+(Armorbreaker, **negative**), 10567 (Wild Instinct), 10828 (Compassion),
+13263 (Dreadful Death, **negative**), 14072 (Bonded Devotion). All plain
+assignment. **Last writer wins across ten unrelated mechanics**, so any
+of them can silently erase any other.
+
+**This session found the failure to be worse than reported.** There is
+exactly **one** read site — combat.rs:4777 — and it is guarded
+`if def.temp_damage_reduction_bonus > 0.0` and hardcoded to the label
+`"Guardian Spirit (Divine Intervention)"`. The two negative writers are
+therefore filtered out at the only place the field is consumed:
+Armorbreaker and Dreadful Death deliver **no debuff at all** through this
+path, while still overwriting whatever defensive value a teammate's node
+had just written. They are pure erasers. That is not a mislabel — it is
+silent cross-mechanic overwriting in which two of the ten mechanics are
+net-negative-value.
+
+*Code-traced only; NOT yet live-log confirmed.* Needs a fight where an
+Armorbreaker or Dreadful Death application provably lands in the same
+window as a Compassion/Harmonize/Serenity grant. Same class as `#39`
+(Symbiosis stale label) — read the two together.
+
+**#53 — `temp_party_increased_damage_bonus` is firing right now**
+Four real writers (combat.rs:7822 Rising Storm, 8732 and 14211 — two
+separate Warlord's Resolve implementations, 9850 Dark Ritual), plus one
+reset at 6290. All plain assignment, all party-wide, one shared field.
+
+`spicymufin` (berserker/slayer) rebroadcasts **0.03** party-wide in
+**80-90% of hits** (magnitude carried forward, not re-sampled here),
+overwriting any other grant within a fraction of a second.
+
+The damage impact is **latent, not zero**: nobody currently allocates
+`risingstorm`, so no live fight is losing damage to it today. The real
+consequence is a testing one, and it is why this is open rather than
+watch-listed — **`risingstorm` cannot be tested or tuned at all while a
+Berserker or Slayer is in the party.** Any future attempt to measure that
+node will silently measure spicymufin's 0.03 instead. Flag this entry to
+whoever next touches Rising Storm *before* they build a scenario.
+
+**#54 — Specialisation rank-4 cap mismatch**
+`accumulate_overflow_conversion_bonus` (character.rs:2639-2640) takes the
+magnitude from `node.magnitude_at_rank(rank)`, which routes through
+`effective_rank` (passive_tree.rs:531) and returns `rank.min(3)` for a
+`Specialization`-tier node — but the cap on the very next line uses the
+**raw** `rank`: `raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank as f64)`.
+A 4/4 specialisation therefore gets a **0.40** cap against node text
+saying 0.30, while its magnitude was computed at rank 3.
+
+*Precision note on the routing order's wording:* `effective_rank` is
+`rank.min(3)` — a **ceiling** at 3, not a floor. Recorded correctly here
+because a future reader will act on this line.
+
+Correctness note, not a balance one — the mismatch only bites where the
+raw magnitude would otherwise exceed 0.30, which `#49`'s uncapped
+siblings show is reachable.
+
 **#45 — `pending_veils` holds one entry per player; a second veiled
 craft silently orphans the first's spent token**
 Flagged by the fix session while closing #44, untracked until now.
@@ -808,6 +1037,51 @@ untested, deploy/code territory). Session end: this file is left
 uncommitted per this session's standing instruction (the deploy
 session commits it with its next release) — everything above is on
 disk at `docs/anomaly_ledger.md` for that commit to pick up.
+
+**Zolaries damage forensics sweep — 2026-08-23.** Nine opened
+(`#46`-`#54`), one closed with no action (`#55`). Full write-ups at the
+top of **Open**; `#55` in **Closed**.
+
+**`#46` is the one to read first, and it outranks everything else
+currently open in this file.** Environmental damage is credited to
+nobody, so **every balance judgement derived from the leaderboard is
+unsound until it is fixed** — including judgements already made and
+acted on. Anyone reaching for a past damage comparison should treat it
+as suspect unless it has been re-checked against `#46`; `#55` is the
+only one that has been. Owner has ruled `#46` gets fixed.
+
+Three of the nine are one structural family and should be fixed as one
+piece of work, not three: `#49` (two getters skip the overflow cap),
+`#50` (DR shred multiplies instead of subtracting — owner ruling
+recorded: shreds subtract, floored at zero DR) and `#51` (the lightning
+debuff's top 62% clipped by the same `-0.75` clamp). `#49`'s excess is
+currently *invisible* because `#50`'s clamp hides it, so fixing either
+alone will read as a no-op or as a sudden unexplained magnitude jump.
+`#54` is a fourth cap mismatch in the same subsystem but independent of
+the other three.
+
+Two are shared-mutable-field bugs of the `#39` class: `#52` (ten writers,
+one hardcoded label, and — this session's own finding, worse than
+reported — a single read site guarded `> 0.0` that silently discards the
+two negative writers entirely) and `#53` (four writers; latent on damage
+today, but it makes `risingstorm` untestable while a Berserker or Slayer
+is in the party). `#48` is a TUNABLES DOCTRINE violation: three live
+overrides that the admin page saves and nothing reads.
+
+**Method note, since it differs from prior sweeps.** These nine arrived
+as another session's findings rather than from this session's own log
+work. Every *structural* claim was independently re-verified in code
+against `93a136d` before being written, with file:line inline. Every
+*runtime magnitude* is carried-forward and labelled as such — no live
+fight-log confirmation was performed this sweep. `#52` in particular is
+code-traced only and names the live evidence it still needs.
+
+Two premise corrections are on the record inside the entries rather than
+silently absorbed: `#52` was routed as an upgrade to an existing
+logging-only ledger entry, but no such entry exists in this file (the
+prior finding lived only in auto-memory, unnumbered, and said "at least
+8" writers where the true count is ten); and `#54`'s `effective_rank` is
+`rank.min(3)`, a ceiling at 3, not a floor.
 
 ## Deploy record — 2026-08-23, dynamic pacing release
 
