@@ -264,6 +264,94 @@ That turns the two-deployment port-collision case from "silently assumed
 healthy" into a logged warning. Worth doing before a second deployment
 exists; not required for the single-instance setup.
 
+> **That recommendation would not have worked as written until 2026-08-23**
+> (branch `fix/watchdog-maintenance-gate`). `$ExpectedPathRoot` defaulted
+> to `$PSScriptRoot` **in the param block**, where that variable is not
+> populated under the `-File` invocation the scheduled task uses — so the
+> root arrived empty, `Test-UnderRoot` returned `$null` for every
+> candidate, and every listener resolved `unverifiable` no matter where it
+> lived. Raising the run level would have produced *false confidence*: the
+> path would finally be readable and the comparison would still never
+> confirm anything. `$LogPath` was always resolved in the body and always
+> worked; both now do. Verified on a listener with a readable path:
+> correct root → `verdict=confirmed`, deliberately wrong root →
+> `verdict=foreign`; the pre-fix script gave `unverifiable` for both.
+
+### The maintenance gate (2026-08-23)
+
+**The defect.** REFACTOR_PLAN.md §13 step 4 told a deploy session to
+disable `GameProcess-Watchdog` before swapping the binary and re-enable
+it after. **A deploy session cannot do either** — `Disable-ScheduledTask`
+requires an elevated token and returns `Access denied` without one. The
+step was therefore silently skipped on every deploy up to and including
+the 2026-08-23 pacing release, and every binary swap ran with the
+watchdog live. Nothing has broken only because swaps finish well inside
+the task's ~2 minute repetition interval. That is luck: a slower swap — a
+large backup, a retried copy, a stalled disk — races it, and the watchdog
+restarts the game off a half-written binary.
+
+**The fix.** A file, which a non-elevated session *can* create.
+`maintenance-flag.ps1` writes `watchdog-maintenance.flag` next to the
+scripts (gitignored — per-deployment runtime state, exactly like the port
+it is scoped by); `game-watchdog.ps1` honours it.
+
+```powershell
+C:\PathofDust\maintenance-flag.ps1 -Set -Reason "pacing deploy 0110be6"
+C:\PathofDust\maintenance-flag.ps1 -Status
+C:\PathofDust\maintenance-flag.ps1 -Clear   # safe when no flag exists
+```
+
+**Always the deployment's own copy, by absolute path.** Both scripts
+default the flag path off their *own* directory, and those agree only
+because both sit in the deployment root. Run the helper from a worktree —
+where a deploy session naturally has a shell open — and the flag lands
+somewhere the live watchdog never reads, while `-Status` cheerfully
+reports `SUPPRESSED`. The swap then runs unprotected under an operator
+who believes it is gated: the same false-confidence shape as the
+`$ExpectedPathRoot` bug above, relocated.
+
+`-Set` therefore resolves the authoritative root from the scheduled
+task's own action (`-File "<path>"`, readable unelevated) and **refuses**
+to write anywhere else, naming both directories and the command to run
+instead. `-Force` overrides it for a deliberate second-deployment case;
+when the task cannot be read at all it warns and proceeds rather than
+becoming unusable. `-Status` always ends with a `scope :` line saying
+whether the flag it just described is the one that task actually reads —
+so a wrong-directory flag cannot look like a working one even under
+`-Force`.
+
+**It is a lease, not a switch.** `game-watchdog.ps1` ignores a flag older
+than `-MaintenanceMaxAgeMinutes` (default 30) and logs loudly that it
+did. A forgotten flag disabling protection forever is a worse failure
+than the one being fixed, and a quieter one. Everything ambiguous fails
+the same way — toward protecting the world, never toward staying silent:
+
+| Flag state | Watchdog behaviour |
+|---|---|
+| absent | unchanged; full protection |
+| valid and within the age limit | logs the suppression, restarts nothing |
+| older than the limit | logs `IGNORING a maintenance flag …`, **then acts normally** |
+| unreadable / not JSON | same as expired |
+| no `created` timestamp | same as expired |
+| dated in the future (>2 min skew) | same as expired |
+| `-MaintenanceMaxAgeMinutes 0` | gate disabled; every flag ignored |
+
+The gate is consulted **only on runs that would otherwise act**, so a
+healthy run still logs nothing at all whether or not a flag exists — a
+deploy window does not fill the log with suppression lines.
+
+The flag records an ISO 8601 timestamp *with its real UTC offset*,
+deliberately not the bare-`Z`-on-local-time shape `game-watchdog.log`
+uses. That shape is a known-wrong format preserved in the log only for
+compatibility with existing greps (see §5 below), and it must not spread
+into a value something computes an age from.
+
+**Still not fixed: the bot half.** `watchdog.ps1` /
+`TwitchBotRS-Watchdog` has the identical elevation defect and no
+maintenance gate — §13's `disable TwitchBotRS-Watchdog` instruction is
+equally unperformable from a deploy session. Out of scope for the branch
+that fixed the game side; a real follow-up.
+
 ### Two guards the port-based check needs
 
 The old name-based check saw a process the instant it was created. A
