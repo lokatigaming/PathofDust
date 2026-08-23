@@ -394,8 +394,10 @@ pub(crate) fn sanitize_override_mult(value: f64) -> f64 {
 /// 2. rate-limit the move, then
 /// 3. clamp into the operating window = the configured
 ///    `[floor, ceiling]` hard-capped into
-///    `[MULT_HARD_FLOOR, DYNAMIC_MULT_HARD_CEILING]`, widened to include
-///    `prev`.
+///    `[MULT_HARD_FLOOR, DYNAMIC_MULT_HARD_CEILING]`. When `prev` sits
+///    OUTSIDE that window the bound widens to admit it, but only by one
+///    rate-limited step at a time, so the widening closes every fight
+///    until it is gone (see the third asymmetry below).
 ///
 /// Three asymmetries, each load-bearing:
 ///
@@ -502,10 +504,45 @@ pub(crate) fn update_hp_pacing_mult(prev: f64, base_pool: f64, dps_window: &[f64
 
 /// CONTROLLER B - one per-BOSS-fight update of the damage multiplier from
 /// the rolling win/loss history (boss outcomes only - basic fights don't
-/// record outcomes by design, owner-confirmed asymmetry). Above target ->
-/// grow one step; below target -> ease one step; AT target -> no change
-/// (2 wins : 1 loss is exactly neutral progression given the +1/-2 stage
-/// walk). Same warmup, sanitization, rate-limit and clamps as A.
+/// record outcomes by design, owner-confirmed asymmetry). AT target -> no
+/// change (2 wins : 1 loss is exactly neutral progression given the +1/-2
+/// stage walk). Same warmup, sanitization, rate-limit and clamps as A.
+///
+/// **PROPORTIONAL since 2026-08-23 (fix/pacing-controller-loop).** B used
+/// to request a FIXED `cur * (1 + step)` up or `cur / (1 + step)` down -
+/// the same 15% swing whether the rolling ratio was 2.1:1 or 20:1. Fixed
+/// steps near equilibrium hunt by construction: the smallest correction
+/// available is the largest one, so the controller can only ever step
+/// over the target and back, and production oscillated in roughly
+/// ten-win / ten-loss swings.
+///
+/// Unlike A there is no closed form here - no algebraic multiplier yields
+/// a given win:loss ratio - so the step MAGNITUDE is scaled by the error
+/// instead:
+///
+/// 1. the error is the LOG RATIO `ln(observed / target)`, which is
+///    symmetric by construction: observed = k x target and
+///    observed = target / k are equal and opposite errors, so 4:1 and 1:4
+///    read as the same size miss in opposite directions (a raw
+///    difference would call 4:1 a miss of 2 and 1:4 a miss of 1.75);
+/// 2. `tanh` squashes it into [-1, 1]. Deliberately parameter-free: a
+///    gain constant here would be a numeric knob that the tunables
+///    doctrine says must ship as a `LiveTunable`, and there is no need
+///    for one - `tanh` saturates on its own, so
+///    `dmg_max_step_per_fight` stays the ONE knob on this axis;
+/// 3. the request is `cur` moved by `dmg_step * |normalized|`, and the
+///    existing rate limit then caps it in `clamp_rate_limited` exactly as
+///    it does for A. The rate limit itself is unchanged - it is a cap on
+///    the request, never the request.
+///
+/// Near target the normalized error approaches 0, so the step approaches
+/// 0 and the controller settles instead of hunting. That is the whole
+/// point of the change.
+///
+/// Degenerate windows take explicit branches rather than inf arithmetic:
+/// an undefeated window (no losses) and an all-loss window (no wins) both
+/// saturate at full scale in their respective directions, and a window
+/// that is not yet full does not update at all (the warmup gate).
 pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingParams) -> Option<f64> {
     if !p.enabled || outcomes.len() < p.window {
         return None;
@@ -517,40 +554,41 @@ pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingPar
     // chose to keep and would read a 3:1 window as 2:1.
     let wins = outcomes.iter().filter(|&&w| w).count();
     let losses = outcomes.len() - wins;
-    // Direction of THIS update. Undefeated/all-loss windows take explicit
-    // branches - never inf arithmetic; a mixed window compares its exact
-    // integer-derived win:loss ratio against the target.
-    enum Dir {
-        Up,
-        Down,
-        Hold,
-    }
-    let dir = if losses == 0 {
-        Dir::Up
+    // Signed, normalized error in [-1, 1]. +1 means "as far above target
+    // as this controller can be told about", -1 its mirror; the sign is
+    // the direction of travel and the magnitude is how hard to push.
+    let normalized_error = if losses == 0 {
+        // An undefeated window. Full scale up - and never `ratio = inf`.
+        if wins == 0 {
+            // Unreachable: the warmup gate above guarantees a non-empty
+            // window (`p.window` is sanitized to >= 1). Guarded anyway so
+            // an empty slice can never divide 0/0 into a NaN error.
+            return None;
+        }
+        1.0
     } else if wins == 0 {
-        Dir::Down
+        -1.0
     } else {
         let ratio = wins as f64 / losses as f64;
         if !ratio.is_finite() {
             return None;
         }
-        if ratio > p.wl_target {
-            Dir::Up
-        } else if ratio < p.wl_target {
-            Dir::Down
-        } else {
-            Dir::Hold
+        // Exactly at target is a HOLD, not a zero-size step: the caller
+        // distinguishes "no update" from "an update that happened to
+        // change nothing", and neutral progression should leave the
+        // stored multiplier untouched.
+        if ratio == p.wl_target {
+            return None;
         }
+        let error = (ratio / p.wl_target).ln();
+        if !error.is_finite() {
+            return None;
+        }
+        error.tanh()
     };
-    if matches!(dir, Dir::Hold) {
-        return None;
-    }
     let cur = sanitize_mult(prev);
-    let desired = if matches!(dir, Dir::Up) {
-        cur * (1.0 + p.dmg_step)
-    } else {
-        cur / (1.0 + p.dmg_step)
-    };
+    let magnitude = p.dmg_step * normalized_error.abs();
+    let desired = if normalized_error > 0.0 { cur * (1.0 + magnitude) } else { cur / (1.0 + magnitude) };
     Some(clamp_rate_limited(prev, desired, p.dmg_step, p.dmg_floor, p.dmg_ceiling))
 }
 
@@ -791,10 +829,12 @@ mod tests {
         let p = params();
         // At exactly 2:1 (window 3 = WWL) B must HOLD - neutral progression.
         assert_eq!(update_dmg_pacing_mult(1.5, &[true, true, false], &p), None);
-        // Over-performing (WWW) grows one step...
+        // Over-performing (WWW) grows - an undefeated window is full
+        // scale, so this one does take the whole rate-limited step...
         let up = update_dmg_pacing_mult(1.5, &[true, true, true], &p).expect("updates");
         assert!(up > 1.5 && up <= 1.5 * (1.0 + p.dmg_step) + 1e-12, "{up}");
-        // ...under-performing (WLL) eases one step.
+        // ...and under-performing (WLL) eases, by a magnitude scaled to
+        // how far 1:2 sits from the 2:1 target (see FIX 5).
         let down = update_dmg_pacing_mult(1.5, &[true, false, false], &p).expect("updates");
         assert!(down < 1.5 && down >= 1.5 / (1.0 + p.dmg_step) - 1e-12, "{down}");
         // A mixed window ABOVE target still grows (3:1 > 2:1).
@@ -1061,6 +1101,189 @@ mod tests {
         // moving at all.
         let settled_s = 1000.0 * mult / 100.0;
         assert!(settled_s >= p.duration_min_s, "A must reach the window, settled at {settled_s}s");
+    }
+
+    /// A window of `wins` wins followed by `losses` losses - order is
+    /// irrelevant to Controller B, which reads only the counts.
+    fn window_of(wins: usize, losses: usize) -> Vec<bool> {
+        let mut w = vec![true; wins];
+        w.resize(wins + losses, false);
+        w
+    }
+
+    /// Controller B's PRE-2026-08-23 fixed-step law, kept verbatim as the
+    /// comparison baseline for `controller_b_oscillates_less_than_the_fixed_step_law`.
+    /// It is the thing that shipped and oscillated; a test claiming the
+    /// new law damps oscillation has to measure against something, and a
+    /// remembered number would rot the moment any shared knob moved.
+    fn fixed_step_reference(prev: f64, outcomes: &[bool], p: &PacingParams) -> Option<f64> {
+        if !p.enabled || outcomes.len() < p.window {
+            return None;
+        }
+        let wins = outcomes.iter().filter(|&&w| w).count();
+        let losses = outcomes.len() - wins;
+        let up = if losses == 0 {
+            true
+        } else if wins == 0 {
+            false
+        } else {
+            let ratio = wins as f64 / losses as f64;
+            if ratio == p.wl_target {
+                return None;
+            }
+            ratio > p.wl_target
+        };
+        let cur = sanitize_mult(prev);
+        let desired = if up { cur * (1.0 + p.dmg_step) } else { cur / (1.0 + p.dmg_step) };
+        Some(clamp_rate_limited(prev, desired, p.dmg_step, p.dmg_floor, p.dmg_ceiling))
+    }
+
+    /// FIX 5 (2026-08-23): B's step must SHRINK as the observed win:loss
+    /// ratio approaches the target. Under the old fixed-step law every one
+    /// of these windows moved the multiplier by exactly `dmg_step`, which
+    /// is why it could only step over the target and back.
+    #[test]
+    fn controller_b_steps_shrink_as_the_ratio_approaches_target() {
+        let mut p = params();
+        // A 60-fight window so the discrete win/loss splits can actually
+        // approach 2:1 finely - with a 3-fight window the only reachable
+        // ratios are extremes.
+        p.window = 60;
+        // Ratios closing on the 2.0 target from above: 5.0, 2.75, 2.16.
+        let approaching = [(50, 10), (44, 16), (41, 19)];
+        let mut previous_step = f64::INFINITY;
+        for (wins, losses) in approaching {
+            let window = window_of(wins, losses);
+            let next = update_dmg_pacing_mult(1.5, &window, &p).expect("a full window updates");
+            let step_taken = (next - 1.5).abs();
+            let fixed_step_would_be = (fixed_step_reference(1.5, &window, &p).expect("baseline updates") - 1.5).abs();
+            assert!(
+                step_taken < previous_step,
+                "{wins}W/{losses}L moved {step_taken}, not smaller than the previous {previous_step} - B is not braking on approach"
+            );
+            assert!(
+                step_taken < fixed_step_would_be,
+                "{wins}W/{losses}L moved {step_taken}, which the old fixed-step law would also have moved ({fixed_step_would_be})"
+            );
+            previous_step = step_taken;
+        }
+        assert!(previous_step < 0.05, "the closest approach must be a small step, was {previous_step}");
+    }
+
+    /// A window sitting EXACTLY on target produces no update at all -
+    /// distinct from an update that happens to be zero-sized, because
+    /// neutral progression should leave the stored multiplier untouched.
+    #[test]
+    fn controller_b_holds_exactly_at_target() {
+        let mut p = params();
+        p.window = 60;
+        assert_eq!(update_dmg_pacing_mult(1.5, &window_of(40, 20), &p), None, "40W/20L is exactly 2:1");
+        // And on the 3-fight window the original case still holds.
+        let p3 = params();
+        assert_eq!(update_dmg_pacing_mult(1.5, &[true, true, false], &p3), None);
+        // A window that is not yet full never updates either, at any ratio.
+        assert_eq!(update_dmg_pacing_mult(1.5, &[true, true], &p3), None, "warmup gate");
+        assert_eq!(update_dmg_pacing_mult(1.5, &[], &p3), None, "an empty window can never divide 0/0");
+    }
+
+    /// Proportional magnitude must never escape the EXISTING rate limit -
+    /// it scales the request, and `clamp_rate_limited` still caps it. Both
+    /// degenerate windows (undefeated, winless) saturate at full scale and
+    /// must land exactly on the cap, not past it.
+    #[test]
+    fn controller_b_far_from_target_still_respects_the_rate_limit_cap() {
+        let mut p = params();
+        p.window = 60;
+        let cap_up = 1.5 * (1.0 + p.dmg_step);
+        let cap_down = 1.5 / (1.0 + p.dmg_step);
+
+        // Undefeated: full scale up, exactly at the cap.
+        let next = update_dmg_pacing_mult(1.5, &window_of(60, 0), &p).expect("updates");
+        assert!(next <= cap_up + 1e-12, "{next} exceeded the rate-limit cap {cap_up}");
+        assert!((next - cap_up).abs() < 1e-12, "an undefeated window saturates at full scale, got {next}");
+
+        // Winless: full scale down.
+        let next = update_dmg_pacing_mult(1.5, &window_of(0, 60), &p).expect("updates");
+        assert!(next >= cap_down - 1e-12, "{next} undercut the rate-limit cap {cap_down}");
+        assert!((next - cap_down).abs() < 1e-12, "a winless window saturates at full scale, got {next}");
+
+        // And a merely lopsided mixed window stays inside the cap too.
+        for (wins, losses) in [(59, 1), (1, 59), (55, 5), (5, 55)] {
+            let next = update_dmg_pacing_mult(1.5, &window_of(wins, losses), &p).expect("updates");
+            assert!(next <= cap_up + 1e-12 && next >= cap_down - 1e-12, "{wins}W/{losses}L left the rate-limit band at {next}");
+        }
+    }
+
+    /// FIX 5's live symptom: production oscillated in roughly ten-win /
+    /// ten-loss swings. Fixed steps hunt near equilibrium by construction -
+    /// the smallest correction available is the largest one - so the
+    /// controller can only step over the target and back.
+    ///
+    /// Drives the SAME alternating outcome stream through both laws and
+    /// asserts the proportional one's peak-to-trough excursion is smaller.
+    /// The bounds are widened so neither law saturates on floor/ceiling:
+    /// this must measure the control law, not the clamp.
+    ///
+    /// **This test fails against the pre-fix code** - there
+    /// `update_dmg_pacing_mult` IS `fixed_step_reference`, so the two
+    /// excursions are identical and a strict `<` cannot hold. That is the
+    /// point: it is testing the change, not restating it.
+    #[test]
+    fn controller_b_oscillates_less_than_the_fixed_step_law() {
+        let mut p = params();
+        p.window = 10;
+        p.dmg_floor = MULT_HARD_FLOOR;
+        p.dmg_ceiling = DYNAMIC_MULT_HARD_CEILING;
+
+        // Alternating runs of 10 wins and 10 losses: the rolling window
+        // sweeps the whole range each half-cycle, crossing the 2:1 target
+        // twice per cycle, which is exactly an oscillation.
+        let mut stream: Vec<bool> = Vec::new();
+        for _ in 0..3 {
+            stream.extend([true; 10]);
+            stream.extend([false; 10]);
+        }
+
+        // One update function under test - either the live law or the
+        // retired fixed-step baseline, driven over the same stream.
+        type ControlLaw = dyn Fn(f64, &[bool], &PacingParams) -> Option<f64>;
+        let run = |law: &ControlLaw| -> f64 {
+            let mut window: std::collections::VecDeque<bool> = std::collections::VecDeque::new();
+            let mut mult = 1.0_f64;
+            let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            for &outcome in &stream {
+                window.push_back(outcome);
+                while window.len() > p.window {
+                    window.pop_front();
+                }
+                let outcomes: Vec<bool> = window.iter().copied().collect();
+                if let Some(next) = law(mult, &outcomes, &p) {
+                    mult = next;
+                }
+                if window.len() == p.window {
+                    lo = lo.min(mult);
+                    hi = hi.max(mult);
+                }
+            }
+            assert!(lo.is_finite() && hi.is_finite() && lo > 0.0, "the run must produce a real excursion");
+            // Peak-to-trough as a RATIO - this controller is multiplicative,
+            // so a fixed difference means different things at 0.5x and 5x.
+            hi / lo
+        };
+
+        let proportional = run(&update_dmg_pacing_mult);
+        let fixed = run(&fixed_step_reference);
+
+        assert!(
+            proportional < fixed,
+            "the proportional law swung {proportional:.4}x peak-to-trough against the fixed-step law's {fixed:.4}x - it is not damping the oscillation"
+        );
+        // Not a hairline win: the whole reason for the change is that the
+        // near-target steps collapse.
+        assert!(
+            proportional < fixed * 0.9,
+            "expected a materially smaller excursion, got {proportional:.4}x vs {fixed:.4}x"
+        );
     }
 
     /// FIX 2 (2026-08-23): the ordered case - a run of consecutive losses
