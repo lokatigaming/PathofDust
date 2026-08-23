@@ -252,6 +252,61 @@ each call and advances only through in-fight scheduling - so
 inter-encounter time (the rampage loop's sleep, the `fight_gate` spacing,
 overlay playback, revive waits) can never appear in a sample.
 
+## Presentation clamps are SUBORDINATE to the pacing window
+
+**Rule: no presentation clamp may bind inside Controller A's operating
+range.** Simulated duration and player-experienced duration are the same
+number inside `[target_duration_min_s, target_duration_max_s]`, by
+construction - `compress_events`' scale is exactly 1.0 there and no
+event's timestamp moves.
+
+The upper display bound is therefore **derived, never authored**:
+`combat::display_upper_bound_ms(&tunables)` reads
+`target_duration_max_s`. Widen the pacing window and the display bound
+widens with it. Do not replace it with a constant.
+
+**What the failure looked like** (found 2026-08-23, fixed same day - this
+paragraph exists so nobody re-hardcodes it):
+
+`MAX_DISPLAY_MS` was a flat 35,000 ms, chosen as a presentation
+preference ("a 90-second slugfest should still read well"). Controller A
+targets 30-45 s. Everything from 35 s upward therefore rendered as
+*exactly* 35 s of screen time:
+
+| Real duration (A's axis) | Battle watched | Total on screen |
+|---|---|---|
+| 30.0 s | 30.0 s | 32.5 s |
+| 37.5 s (A's midpoint target) | 35.0 s | 37.5 s |
+| 45.0 s (window ceiling) | 35.0 s | 37.5 s |
+| 90.0 s | 35.0 s | 37.5 s |
+
+So A's top 10 seconds were invisible work: it inflated boss HP pools by
+up to ~29% to move duration from 35 s toward 37.5 s, and no player could
+see any of it as duration - only as tankier bosses. The trap that hid it:
+`CHARGE_MS + 35,000 + RESOLVE_MS` = `700 + 35,000 + 1,800` = 37,500, so
+"target 37.5 s, 37.5 s on screen" looks correct at exactly the midpoint.
+That identity holds for *every* fight of 35 s or longer, because the
+clamp has already saturated.
+
+**The one hard bound left protects CADENCE, not readability.**
+`PLAYBACK_CADENCE_CEILING_MS` = 52,500 ms, itself derived:
+`RAMPAGE_MIN_INTERVAL_MS - OVERLAY_CHARGE_MS - OVERLAY_RESOLVE_MS -
+FIGHT_GATE_MARGIN_MS` (60,000 - 700 - 1,800 - 5,000). After a fight
+resolves at T the rampage loop sleeps `max(charge + display + resolve,
+RAMPAGE_MIN_INTERVAL)` while the fight gate independently holds the next
+fight until `T + charge + display + resolve + margin`, so the next
+encounter starts at `T + max(60 s, charge + display + resolve + margin)`
+- the 60 s design interval survives exactly while display <= 52.5 s. Past
+that, every encounter stretches the interval it was meant to fit inside.
+If `target_duration_max_s` is ever set above 52.5 s the cadence ceiling
+wins (stacking encounters is a functional failure; invisible steering is
+a fidelity one) and the correct fix is to raise `RAMPAGE_MIN_INTERVAL`,
+which the ceiling derives from.
+
+`MIN_DISPLAY_MS` (6,000 ms) is unchanged and cannot conflict with A: it
+is a readability floor for short filler fights, and A's own floor sits
+five times above it. It binds only below 6 s, where fights are stretched.
+
 ## Warmup and windows
 
 Both controllers share `pacing_window_fights` (sanitized: 0 reads as
