@@ -1119,7 +1119,7 @@ separately, not to an automatic cleanup.
    is unconditional and runs on every behavior-changing deploy:
    **suppress `GameProcess-Watchdog` with the maintenance flag** — run
    the DEPLOYMENT'S OWN copy by absolute path,
-   `C:\PathofDust\maintenance-flag.ps1 -Set -Reason "<release> <sha>"`,
+   `C:\PathofDust\maintenance-flag.ps1 -Target Game -Set -Reason "<release> <sha>"`,
    then confirm with `-Status` that it prints
    `scope : this IS the flag 'GameProcess-Watchdog' reads` (never a
    worktree copy: both scripts default the flag path off their own
@@ -1165,13 +1165,21 @@ separately, not to an automatic cleanup.
    genuinely needs longer than the window, re-run `-Set`; do not raise
    the limit.
 
-   **The bot half of this step has the same defect and no fix yet.** The
-   `disable TwitchBotRS-Watchdog` / re-enable instructions below are
-   equally unperformable from a deploy session, and `watchdog.ps1` has no
-   maintenance gate. Until it gets one, a bot deploy either runs its swap
-   against a live watchdog (today's actual behaviour) or needs an
-   elevated operator. Say which in the report rather than reporting a
-   disable that did not happen.
+   **The bot half of this step had the identical defect and was fixed the
+   same way (2026-08-24, same branch).** `watchdog.ps1` now honours its
+   OWN maintenance flag, driven by `-Target Bot`. Note that
+   `watchdog.ps1` never had the `$ExpectedPathRoot` bug — it has no param
+   block at all, and its one `$PSScriptRoot` use was always in the body —
+   so nothing there needed changing.
+
+   **The two flags are SEPARATE FILES and that is load-bearing**
+   (`game-watchdog-maintenance.flag`, `bot-watchdog-maintenance.flag`).
+   The game deploys on every behaviour change and the bot only when the
+   diff says so, so game-only is the common case; a single shared flag
+   would suppress the BOT's watchdog through every game-only deploy —
+   exactly the window in which the bullets below say the bot "runs
+   untouched". If the bot crashed there, nothing would restart it.
+   Suppress only what you are actually swapping.
 
    **Conditional bot redeploy (2026-08-21 addition):** the bot binary
    (`twitch-bot-rs.exe`) only moves when this release actually changes
@@ -1202,15 +1210,23 @@ separately, not to an automatic cleanup.
      workspace-member restructure, a path that doesn't cleanly resolve
      to either crate) — deploy both, as before this amendment. When in
      doubt, don't skip.
-   - **If the bot deploys:** disable `TwitchBotRS-Watchdog` → stop
-     `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
+   - **If the bot deploys:** suppress `TwitchBotRS-Watchdog` with its own
+     maintenance flag — `C:\PathofDust\maintenance-flag.ps1 -Target Bot
+     -Set -Reason "<release> <sha>"`, confirming with `-Target Bot
+     -Status` that it prints
+     `scope : this IS the flag 'TwitchBotRS-Watchdog' reads` (same
+     absolute-path rule as the game side: a worktree copy writes a flag
+     the live watchdog never reads, and `-Set` refuses that outright) →
+     stop `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
      `twitch-bot-rs.exe` → back up the old one into the *same*
      `backup-pre-<name>/` dir used for the game binary → copy in the
      new one → start `TwitchBotRS` only after `GameProcess` is confirmed
-     healthy → verify healthy (curl its ports) → re-enable
-     `TwitchBotRS-Watchdog`. Game always comes up and is verified
+     healthy → verify healthy (curl its ports) →
+     `C:\PathofDust\maintenance-flag.ps1 -Target Bot -Clear`, and say in
+     the report that you cleared it. Game always comes up and is verified
      healthy before the bot starts — never the other order, whether or
-     not the bot is moving this release.
+     not the bot is moving this release. **Do not set the Bot flag on a
+     game-only release** — see the two-flags note above.
    - **If the bot does not deploy:** it runs untouched through the
      entire stop/swap window — no watchdog disable, no stop, no binary
      touched, no backup entry for it. The deploy report states

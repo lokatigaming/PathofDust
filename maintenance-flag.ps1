@@ -27,12 +27,36 @@
 #
 # USAGE
 # -----
-#   .\maintenance-flag.ps1 -Set -Reason "pacing deploy 0110be6"
-#   .\maintenance-flag.ps1 -Status
-#   .\maintenance-flag.ps1 -Clear
+#   .\maintenance-flag.ps1 -Target Game -Set -Reason "deploy 0110be6"
+#   .\maintenance-flag.ps1 -Target Game -Status
+#   .\maintenance-flag.ps1 -Target Game -Clear
+#   .\maintenance-flag.ps1 -Target Bot  -Set -Reason "bot deploy abc1234"
 #
 # -Clear is safe to run unconditionally, including when no flag exists,
 # so a deploy's cleanup path never needs a conditional around it.
+#
+# TWO FLAGS, NEVER ONE (2026-08-24). The game and bot watchdogs get
+# SEPARATE flag files - `game-watchdog-maintenance.flag` and
+# `bot-watchdog-maintenance.flag` - and -Target picks which one you are
+# driving. One shared flag, or one flag with a scope field, was rejected:
+#
+#   * Section 13 deploys the GAME unconditionally and the BOT only when
+#     the diff says so, so game-only is the common case. A shared flag
+#     would suppress the bot's watchdog through a window in which section
+#     13 explicitly leaves the bot running untouched - if the bot crashed
+#     there, nothing would restart it. The two suppressions need
+#     independent lifetimes because the two deploys do.
+#   * Two files have the fewest states: each is present or absent, and
+#     -Clear on one cannot affect the other. A scope field adds parsing
+#     that can be malformed, and a malformed scope could under- OR
+#     over-suppress; with separate files that state does not exist.
+#   * Each watchdog derives its own path from its own $PSScriptRoot and
+#     its own filename, so neither can read the other's flag even by
+#     accident.
+#
+# -Target also selects which scheduled task the root guard validates
+# against, so a helper run from a worktree refuses to write for EITHER
+# target rather than only the game one.
 #
 # THE FLAG MUST LAND WHERE THE RUNNING WATCHDOG LOOKS. Both scripts
 # default their flag path off their OWN $PSScriptRoot, which agree only
@@ -85,10 +109,19 @@ param(
     # with to be meaningful.
     [int] $MaintenanceMaxAgeMinutes = 30,
 
+    # Which watchdog you are suppressing. Selects the flag FILENAME and
+    # the scheduled task the root guard validates against - see the
+    # header for why these are two separate files. Defaults to Game
+    # because section 13 deploys the game on every behaviour change and
+    # the bot only conditionally.
+    [ValidateSet('Game', 'Bot')]
+    [string] $Target = 'Game',
+
     # The scheduled task whose deployment root is authoritative for where
-    # the flag belongs. Reading its action tells us which game-watchdog.ps1
+    # the flag belongs. Reading its action tells us which watchdog script
     # is actually running, and therefore which directory it will look in.
-    [string] $WatchdogTaskName = 'GameProcess-Watchdog',
+    # Defaulted from -Target in the body; pass explicitly only to override.
+    [string] $WatchdogTaskName,
 
     # Write the flag even when it would not land in the running
     # watchdog's own directory. For a second deployment whose task is not
@@ -107,8 +140,16 @@ if ($Set -and [string]::IsNullOrWhiteSpace($Reason)) {
     throw "-Reason cannot be blank: the flag records why the watchdog is suppressed, and an unexplained flag is indistinguishable from a forgotten one."
 }
 
+# Per-target names. Both watchdogs live in the same deployment root, so
+# the FILENAME is what keeps their flags apart (see the header).
+$targetFlagName = if ($Target -eq 'Bot') { 'bot-watchdog-maintenance.flag' } else { 'game-watchdog-maintenance.flag' }
+$targetTaskName = if ($Target -eq 'Bot') { 'TwitchBotRS-Watchdog' } else { 'GameProcess-Watchdog' }
+
+if ([string]::IsNullOrWhiteSpace($WatchdogTaskName)) {
+    $WatchdogTaskName = $targetTaskName
+}
 if ([string]::IsNullOrWhiteSpace($FlagPath)) {
-    $FlagPath = Join-Path $PSScriptRoot 'watchdog-maintenance.flag'
+    $FlagPath = Join-Path $PSScriptRoot $targetFlagName
 }
 
 function Get-WatchdogRoot {
@@ -206,8 +247,9 @@ are about to swap. Writing here would report "SUPPRESSED" while leaving
 the real watchdog fully live - the exact false confidence this guard
 exists to prevent.
 
-Run the deployment's own copy instead:
-  $watchdogRoot\maintenance-flag.ps1 -Set -Reason "..."
+Run the deployment's own copy instead, keeping -Target so you do not
+silently flag the other watchdog:
+  $watchdogRoot\maintenance-flag.ps1 -Target $Target -Set -Reason "..."
 
 Or pass -Force if you genuinely mean to flag a different deployment.
 "@

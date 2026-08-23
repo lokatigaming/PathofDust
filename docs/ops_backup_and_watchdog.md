@@ -290,16 +290,29 @@ the task's ~2 minute repetition interval. That is luck: a slower swap — a
 large backup, a retried copy, a stalled disk — races it, and the watchdog
 restarts the game off a half-written binary.
 
+**Both watchdogs had it.** The game side was found during the 2026-08-23
+pacing deploy; `watchdog.ps1` / `TwitchBotRS-Watchdog` carries the
+identical defect, and §13's conditional bot branch instructs the same
+impossible `disable TwitchBotRS-Watchdog`. Both are fixed (2026-08-24).
+
 **The fix.** A file, which a non-elevated session *can* create.
-`maintenance-flag.ps1` writes `watchdog-maintenance.flag` next to the
-scripts (gitignored — per-deployment runtime state, exactly like the port
-it is scoped by); `game-watchdog.ps1` honours it.
+`maintenance-flag.ps1` writes it (gitignored — per-deployment runtime
+state, exactly like the port the game watchdog is scoped by), and each
+watchdog honours its own.
+
+> **`watchdog.ps1` did NOT have the `$ExpectedPathRoot` defect.** It has
+> no param block at all — its single `$PSScriptRoot` use, the log path,
+> was always resolved in the body, which is why `watchdog.log` has always
+> landed in the deployment root. Nothing was changed on that account.
 
 ```powershell
-C:\PathofDust\maintenance-flag.ps1 -Set -Reason "pacing deploy 0110be6"
-C:\PathofDust\maintenance-flag.ps1 -Status
-C:\PathofDust\maintenance-flag.ps1 -Clear   # safe when no flag exists
+C:\PathofDust\maintenance-flag.ps1 -Target Game -Set -Reason "deploy 0110be6"
+C:\PathofDust\maintenance-flag.ps1 -Target Game -Status
+C:\PathofDust\maintenance-flag.ps1 -Target Game -Clear   # safe when absent
 ```
+
+`-Target Bot` drives `TwitchBotRS-Watchdog` and its own separate flag; see
+"Scoping: two flags, never one" below.
 
 **Always the deployment's own copy, by absolute path.** Both scripts
 default the flag path off their *own* directory, and those agree only
@@ -320,7 +333,37 @@ whether the flag it just described is the one that task actually reads —
 so a wrong-directory flag cannot look like a working one even under
 `-Force`.
 
-**It is a lease, not a switch.** `game-watchdog.ps1` ignores a flag older
+### Scoping: two flags, never one
+
+| Watchdog | Flag file | `-Target` |
+|---|---|---|
+| `GameProcess-Watchdog` | `game-watchdog-maintenance.flag` | `Game` (default) |
+| `TwitchBotRS-Watchdog` | `bot-watchdog-maintenance.flag` | `Bot` |
+
+Both watchdogs live in the same deployment root, so the **filename** is
+what keeps their suppressions apart. One shared flag, and one flag
+carrying a scope field, were both rejected:
+
+- **§13 deploys the game unconditionally and the bot only when the diff
+  says so**, so game-only is the common case. A shared flag would
+  suppress the bot's watchdog through every game-only deploy — precisely
+  the window in which §13 says the bot "runs untouched through the entire
+  stop/swap window". A bot crash there would go unrecovered. The two
+  suppressions need independent lifetimes because the two deploys do.
+- **Two files have the fewest states**: each is present or absent, and
+  `-Clear` on one cannot affect the other. A scope field adds parsing
+  that can be malformed, and a malformed scope could under- *or*
+  over-suppress. With separate files that state does not exist.
+- Each watchdog derives its path from **its own** `$PSScriptRoot` and its
+  own filename, so neither can read the other's flag even by accident.
+
+`-Target` also selects which scheduled task the root guard validates
+against, so a helper run from a worktree refuses to write for *either*
+target — and the refusal message repeats `-Target` in the command it
+tells you to run instead, so following it cannot silently flag the other
+watchdog.
+
+**It is a lease, not a switch.** Each watchdog ignores a flag older
 than `-MaintenanceMaxAgeMinutes` (default 30) and logs loudly that it
 did. A forgotten flag disabling protection forever is a worse failure
 than the one being fixed, and a quieter one. Everything ambiguous fails
@@ -346,11 +389,17 @@ uses. That shape is a known-wrong format preserved in the log only for
 compatibility with existing greps (see §5 below), and it must not spread
 into a value something computes an age from.
 
-**Still not fixed: the bot half.** `watchdog.ps1` /
-`TwitchBotRS-Watchdog` has the identical elevation defect and no
-maintenance gate — §13's `disable TwitchBotRS-Watchdog` instruction is
-equally unperformable from a deploy session. Out of scope for the branch
-that fixed the game side; a real follow-up.
+**Still open on the bot side: image-name detection.** `watchdog.ps1`
+still detects with `Get-Process -Name "twitch-bot-rs"`, which is the flaw
+`game-watchdog.ps1` was rewritten away from on 2026-08-23 — two
+deployments share an image name, so the check returns non-empty whenever
+*either* bot is alive and the watchdog stops detecting the death of
+either one. It only **reads** the name and never terminates anything, so
+it is not a PRODUCTION SAFETY violation; but it needs the same port-based
+rewrite before a second deployment exists, or the second bot's watchdog
+will read the first bot as proof its own is alive. Deliberately not done
+with the gate work: that change touches detection, and the gate change
+was scoped to leave detection, log shapes and restart logic untouched.
 
 ### Two guards the port-based check needs
 

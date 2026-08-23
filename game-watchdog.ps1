@@ -173,7 +173,13 @@ if ([string]::IsNullOrWhiteSpace($ExpectedPathRoot)) {
     $ExpectedPathRoot = $PSScriptRoot
 }
 if ([string]::IsNullOrWhiteSpace($MaintenanceFlagPath)) {
-    $MaintenanceFlagPath = Join-Path $PSScriptRoot 'watchdog-maintenance.flag'
+    # NAMED FOR ITS WATCHDOG, not for "the watchdog". The bot watchdog has
+    # its own gate and its own separate flag beside this one; a shared file
+    # would mean a game-only deploy (the common case - section 13 deploys
+    # the bot only when the diff says so) silently suppressed the BOT's
+    # watchdog too, through a window where section 13 explicitly leaves the
+    # bot running untouched. Two files, two independent lifetimes.
+    $MaintenanceFlagPath = Join-Path $PSScriptRoot 'game-watchdog-maintenance.flag'
 }
 
 function Get-ListenerPids {
