@@ -991,6 +991,117 @@ mod tests {
         let settled_s = 1000.0 * mult / 100.0;
         assert!(settled_s >= p.duration_min_s, "A must reach the window, settled at {settled_s}s");
     }
+
+    /// FIX 4 (2026-08-23): the coverage gap that let the advisory-window
+    /// bug ship. Every committed clamp test started `prev` AT a bound or
+    /// inside the window and checked saturation; none started it OUTSIDE,
+    /// which is the only state in which the widening was observable. These
+    /// four cases pin convergence INTO the window rather than indefinite
+    /// widening, on both controllers and in both directions.
+    ///
+    /// Asserted on the pure clamp so the property is independent of either
+    /// controller's signal - including the case where the signal pulls the
+    /// wrong way, which is exactly the state an operator hits when they
+    /// lower a ceiling on a controller that still wants to climb.
+    #[test]
+    fn a_multiplier_above_its_configured_ceiling_converges_down_into_the_window() {
+        let p = params();
+        // Far above the configured 6.0 ceiling, with the controller asking
+        // to go HIGHER every single fight. The window must still win.
+        let mut mult = 40.0_f64;
+        let mut steps = 0;
+        while mult > p.hp_ceiling + 1e-9 {
+            let next = clamp_rate_limited(mult, f64::INFINITY, p.hp_step, p.hp_floor, p.hp_ceiling);
+            assert!(next < mult, "stalled at {mult} - the widening is not shrinking");
+            // No slam: never more than one rate-limited step per fight.
+            assert!(next >= mult / (1.0 + p.hp_step) - 1e-9, "slammed from {mult} to {next} in one fight");
+            mult = next;
+            steps += 1;
+            assert!(steps < 500, "did not converge");
+        }
+        assert!((mult - p.hp_ceiling).abs() < 1e-9, "settled at {mult}, not the configured ceiling");
+        // And it STAYS: once inside, the window holds it there.
+        let held = clamp_rate_limited(mult, f64::INFINITY, p.hp_step, p.hp_floor, p.hp_ceiling);
+        assert!((held - p.hp_ceiling).abs() < 1e-9, "{held}");
+    }
+
+    #[test]
+    fn a_multiplier_below_its_configured_floor_converges_up_into_the_window() {
+        let p = params();
+        // Below the configured 0.4 floor, with the controller begging to go
+        // lower. MULT_HARD_FLOOR (0.05) is the only thing under it.
+        let mut mult = 0.06_f64;
+        let mut steps = 0;
+        while mult < p.hp_floor - 1e-9 {
+            let next = clamp_rate_limited(mult, 0.0, p.hp_step, p.hp_floor, p.hp_ceiling);
+            assert!(next > mult, "stalled at {mult} - the widening is not shrinking");
+            assert!(next <= mult * (1.0 + p.hp_step) + 1e-9, "slammed from {mult} to {next} in one fight");
+            mult = next;
+            steps += 1;
+            assert!(steps < 500, "did not converge");
+        }
+        assert!((mult - p.hp_floor).abs() < 1e-9, "settled at {mult}, not the configured floor");
+    }
+
+    /// Controller B's clamp is the same shared function, but its step size
+    /// differs, so the convergence is pinned on B's own knobs too - a
+    /// future per-controller clamp split cannot silently drop one side.
+    #[test]
+    fn controller_b_also_converges_into_its_configured_window_from_both_sides() {
+        let p = params();
+        // Above the configured 4.0 ceiling, signal pulling up.
+        let mut mult = 25.0_f64;
+        for _ in 0..500 {
+            if mult <= p.dmg_ceiling + 1e-9 {
+                break;
+            }
+            let next = clamp_rate_limited(mult, f64::INFINITY, p.dmg_step, p.dmg_floor, p.dmg_ceiling);
+            assert!(next < mult, "stalled at {mult}");
+            assert!(next >= mult / (1.0 + p.dmg_step) - 1e-9, "slammed {mult} -> {next}");
+            mult = next;
+        }
+        assert!((mult - p.dmg_ceiling).abs() < 1e-9, "settled at {mult}, not {}", p.dmg_ceiling);
+
+        // Below the configured 0.4 floor, signal pulling down.
+        let mut mult = 0.06_f64;
+        for _ in 0..500 {
+            if mult >= p.dmg_floor - 1e-9 {
+                break;
+            }
+            let next = clamp_rate_limited(mult, 0.0, p.dmg_step, p.dmg_floor, p.dmg_ceiling);
+            assert!(next > mult, "stalled at {mult}");
+            assert!(next <= mult * (1.0 + p.dmg_step) + 1e-9, "slammed {mult} -> {next}");
+            mult = next;
+        }
+        assert!((mult - p.dmg_floor).abs() < 1e-9, "settled at {mult}, not {}", p.dmg_floor);
+    }
+
+    /// The operator-facing case end to end: a runaway multiplier sitting
+    /// above a ceiling the operator has just LOWERED comes back down
+    /// through the controller's own update path, not just through the bare
+    /// clamp. This is the failure the order describes - "an operator who
+    /// lowers a ceiling to rein in a runaway gets no effect and no
+    /// feedback" - and it must converge even while the DPS window keeps
+    /// demanding a bigger pool every fight.
+    #[test]
+    fn lowering_the_ceiling_reins_in_a_runaway_controller_a() {
+        let mut p = params();
+        // The operator's correction: pull the ceiling down to 2.0 while A
+        // sits at 30x, the shape of the live incident.
+        p.hp_ceiling = 2.0;
+        // A window that keeps asking for far more pool than the ceiling
+        // allows - the controller never stops pulling up.
+        let window = vec![1.0e6, 1.0e6, 1.0e6];
+        let mut mult = 30.0_f64;
+        for fight in 0..500 {
+            mult = update_hp_pacing_mult(mult, 1.0, &window, &p).expect("a full window always updates");
+            if (mult - p.hp_ceiling).abs() < 1e-9 {
+                break;
+            }
+            assert!(fight < 499, "never reached the lowered ceiling, stuck at {mult}");
+        }
+        assert!((mult - p.hp_ceiling).abs() < 1e-9, "settled at {mult}, not the lowered ceiling {}", p.hp_ceiling);
+    }
 }
 
 
