@@ -113,6 +113,21 @@ pub(crate) mod defaults {
     pub const HP_MAX_STEP_PER_FIGHT: f64 = 0.25;
     pub const HP_MULTIPLIER_FLOOR: f64 = 0.4;
     pub const HP_MULTIPLIER_CEILING: f64 = 6.0;
+    /// Controller A's relaxation trigger (2026-08-23): consecutive LOST
+    /// boss fights before A starts decaying back toward neutral. 3 is
+    /// roughly three minutes of uninterrupted wiping under the normal
+    /// operating mode (permanent rampage, ~60 s cadence) - long enough
+    /// that a single unlucky wipe never moves A, short enough that a
+    /// genuine overshoot is not left standing for an hour.
+    pub const HP_RELAX_AFTER_LOSSES: u32 = 3;
+    /// Controller A's relaxation rate: the RELATIVE step it takes back
+    /// toward neutral per lost fight once the streak triggers. 0.20 walks
+    /// a 30x overshoot (the live incident) back to neutral in ~19 fights
+    /// while never moving more in one fight than A's own escalation step
+    /// could. **0.0 disables relaxation entirely** - the off switch lives
+    /// on this axis rather than on the loss count, because a zero-valued
+    /// integer dial is read as UNSET across this module.
+    pub const HP_RELAX_STEP_PER_FIGHT: f64 = 0.20;
     pub const TARGET_WIN_LOSS_RATIO: f64 = 2.0;
     pub const DMG_MAX_STEP_PER_FIGHT: f64 = 0.15;
     pub const DMG_MULTIPLIER_FLOOR: f64 = 0.4;
@@ -161,6 +176,13 @@ pub(crate) struct PacingParams {
     pub hp_step: f64,
     pub hp_floor: f64,
     pub hp_ceiling: f64,
+    /// Consecutive lost boss fights before Controller A's relaxation path
+    /// engages (see `relax_hp_pacing_mult`). Sanitized like every other
+    /// integer dial: 0 reads as UNSET and substitutes the shipped default.
+    pub hp_relax_after_losses: u32,
+    /// Controller A's per-fight relaxation step. 0.0 means relaxation is
+    /// OFF (see `defaults::HP_RELAX_STEP_PER_FIGHT`).
+    pub hp_relax_step: f64,
     pub wl_target: f64,
     pub dmg_step: f64,
     pub dmg_floor: f64,
@@ -185,6 +207,8 @@ impl PacingParams {
             hp_step: finite_or(t.hp_max_step_per_fight, defaults::HP_MAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             hp_floor: finite_or(t.hp_multiplier_floor, defaults::HP_MULTIPLIER_FLOOR),
             hp_ceiling: finite_or(t.hp_multiplier_ceiling, defaults::HP_MULTIPLIER_CEILING),
+            hp_relax_after_losses: if t.hp_relax_after_losses == 0 { defaults::HP_RELAX_AFTER_LOSSES } else { t.hp_relax_after_losses },
+            hp_relax_step: finite_or(t.hp_relax_step_per_fight, defaults::HP_RELAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             wl_target: finite_or(t.target_win_loss_ratio, defaults::TARGET_WIN_LOSS_RATIO).max(0.001),
             dmg_step: finite_or(t.dmg_max_step_per_fight, defaults::DMG_MAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             dmg_floor: finite_or(t.dmg_multiplier_floor, defaults::DMG_MULTIPLIER_FLOOR),
@@ -370,8 +394,10 @@ pub(crate) fn sanitize_override_mult(value: f64) -> f64 {
 /// 2. rate-limit the move, then
 /// 3. clamp into the operating window = the configured
 ///    `[floor, ceiling]` hard-capped into
-///    `[MULT_HARD_FLOOR, DYNAMIC_MULT_HARD_CEILING]`, widened to include
-///    `prev`.
+///    `[MULT_HARD_FLOOR, DYNAMIC_MULT_HARD_CEILING]`. When `prev` sits
+///    OUTSIDE that window the bound widens to admit it, but only by one
+///    rate-limited step at a time, so the widening closes every fight
+///    until it is gone (see the third asymmetry below).
 ///
 /// Three asymmetries, each load-bearing:
 ///
@@ -388,18 +414,47 @@ pub(crate) fn sanitize_override_mult(value: f64) -> f64 {
 ///   "no ceiling on this side" and the structural cap is the only bound
 ///   left - a safety cap is not a balance knob, so it binds at once
 ///   rather than after N fights of climbing.
-/// * **The window never slams `prev`.** A stored multiplier already
-///   outside its configured window (a dashboard edit tightened the range
-///   underneath it, or an older save) is walked back by the controller's
-///   own requests, not yanked in mid-flight; only the hard caps do that.
+/// * **The window never slams `prev`, but it does CONVERGE.** A stored
+///   multiplier already outside its configured window (a dashboard edit
+///   tightened the range underneath it, or an older save) is never yanked
+///   in mid-flight - but the widening that admits it shrinks by one
+///   rate-limited step per fight, unconditionally, until it is gone. It
+///   was previously permanent (`cfg.min(prev)` / `cfg.max(prev)`), which
+///   made a configured bound advisory: it could only be honored if the
+///   controller happened to request that direction by itself, so an
+///   operator lowering a ceiling on a runaway got neither effect nor
+///   feedback. Only the hard caps still bind instantly.
 pub(crate) fn clamp_rate_limited(prev: f64, desired: f64, step: f64, floor_v: f64, ceil_v: f64) -> f64 {
     let prev = sanitize_mult(prev);
     let step = if step.is_finite() { step.clamp(0.0, 100.0) } else { 0.0 };
     let desired = if desired.is_nan() { prev } else { desired };
     let cfg_lo = floor_v.min(ceil_v);
     let cfg_hi = floor_v.max(ceil_v);
-    let lo = sanitize_mult(cfg_lo).min(prev);
-    let hi = sanitize_mult(cfg_hi).max(prev);
+    let hard_lo = sanitize_mult(cfg_lo);
+    let hard_hi = sanitize_mult(cfg_hi);
+    // The widening SHRINKS (2026-08-23). While `prev` sits outside the
+    // configured window the effective bound is not `prev` itself - it is
+    // ONE rate-limited step of `prev` taken TOWARD the configured value.
+    // So the widening closes by a step every fight until it is gone, and
+    // the bound applies regardless of what the fight signal asked for:
+    // this clamp is the last thing to run, so an outside-the-window
+    // multiplier is pulled in even on a fight where the controller wanted
+    // to go the other way.
+    //
+    // Before this, the bounds were `cfg.min(prev)` / `cfg.max(prev)` - the
+    // window simply absorbed `prev` and never let go, so a configured
+    // bound was ADVISORY: an operator who lowered a ceiling to rein in a
+    // runaway got no effect and no feedback, because the only thing that
+    // could bring the value back was the controller happening to request
+    // that direction on its own.
+    //
+    // The no-slam property is preserved exactly - nothing is yanked
+    // mid-flight, the move is still capped at one step per fight. A `step`
+    // of 0 means "this controller may not move at all per fight", and the
+    // widening correspondingly cannot close; that is coherent rather than
+    // a special case.
+    let lo = if prev < hard_lo { hard_lo.min(prev * (1.0 + step)) } else { hard_lo };
+    let hi = if prev > hard_hi { hard_hi.max(prev / (1.0 + step)) } else { hard_hi };
     let limited = if desired > prev && cfg_hi <= DYNAMIC_MULT_HARD_CEILING {
         desired.min(prev * (1.0 + step))
     } else {
@@ -449,10 +504,45 @@ pub(crate) fn update_hp_pacing_mult(prev: f64, base_pool: f64, dps_window: &[f64
 
 /// CONTROLLER B - one per-BOSS-fight update of the damage multiplier from
 /// the rolling win/loss history (boss outcomes only - basic fights don't
-/// record outcomes by design, owner-confirmed asymmetry). Above target ->
-/// grow one step; below target -> ease one step; AT target -> no change
-/// (2 wins : 1 loss is exactly neutral progression given the +1/-2 stage
-/// walk). Same warmup, sanitization, rate-limit and clamps as A.
+/// record outcomes by design, owner-confirmed asymmetry). AT target -> no
+/// change (2 wins : 1 loss is exactly neutral progression given the +1/-2
+/// stage walk). Same warmup, sanitization, rate-limit and clamps as A.
+///
+/// **PROPORTIONAL since 2026-08-23 (fix/pacing-controller-loop).** B used
+/// to request a FIXED `cur * (1 + step)` up or `cur / (1 + step)` down -
+/// the same 15% swing whether the rolling ratio was 2.1:1 or 20:1. Fixed
+/// steps near equilibrium hunt by construction: the smallest correction
+/// available is the largest one, so the controller can only ever step
+/// over the target and back, and production oscillated in roughly
+/// ten-win / ten-loss swings.
+///
+/// Unlike A there is no closed form here - no algebraic multiplier yields
+/// a given win:loss ratio - so the step MAGNITUDE is scaled by the error
+/// instead:
+///
+/// 1. the error is the LOG RATIO `ln(observed / target)`, which is
+///    symmetric by construction: observed = k x target and
+///    observed = target / k are equal and opposite errors, so 4:1 and 1:4
+///    read as the same size miss in opposite directions (a raw
+///    difference would call 4:1 a miss of 2 and 1:4 a miss of 1.75);
+/// 2. `tanh` squashes it into [-1, 1]. Deliberately parameter-free: a
+///    gain constant here would be a numeric knob that the tunables
+///    doctrine says must ship as a `LiveTunable`, and there is no need
+///    for one - `tanh` saturates on its own, so
+///    `dmg_max_step_per_fight` stays the ONE knob on this axis;
+/// 3. the request is `cur` moved by `dmg_step * |normalized|`, and the
+///    existing rate limit then caps it in `clamp_rate_limited` exactly as
+///    it does for A. The rate limit itself is unchanged - it is a cap on
+///    the request, never the request.
+///
+/// Near target the normalized error approaches 0, so the step approaches
+/// 0 and the controller settles instead of hunting. That is the whole
+/// point of the change.
+///
+/// Degenerate windows take explicit branches rather than inf arithmetic:
+/// an undefeated window (no losses) and an all-loss window (no wins) both
+/// saturate at full scale in their respective directions, and a window
+/// that is not yet full does not update at all (the warmup gate).
 pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingParams) -> Option<f64> {
     if !p.enabled || outcomes.len() < p.window {
         return None;
@@ -464,41 +554,87 @@ pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingPar
     // chose to keep and would read a 3:1 window as 2:1.
     let wins = outcomes.iter().filter(|&&w| w).count();
     let losses = outcomes.len() - wins;
-    // Direction of THIS update. Undefeated/all-loss windows take explicit
-    // branches - never inf arithmetic; a mixed window compares its exact
-    // integer-derived win:loss ratio against the target.
-    enum Dir {
-        Up,
-        Down,
-        Hold,
-    }
-    let dir = if losses == 0 {
-        Dir::Up
+    // Signed, normalized error in [-1, 1]. +1 means "as far above target
+    // as this controller can be told about", -1 its mirror; the sign is
+    // the direction of travel and the magnitude is how hard to push.
+    let normalized_error = if losses == 0 {
+        // An undefeated window. Full scale up - and never `ratio = inf`.
+        if wins == 0 {
+            // Unreachable: the warmup gate above guarantees a non-empty
+            // window (`p.window` is sanitized to >= 1). Guarded anyway so
+            // an empty slice can never divide 0/0 into a NaN error.
+            return None;
+        }
+        1.0
     } else if wins == 0 {
-        Dir::Down
+        -1.0
     } else {
         let ratio = wins as f64 / losses as f64;
         if !ratio.is_finite() {
             return None;
         }
-        if ratio > p.wl_target {
-            Dir::Up
-        } else if ratio < p.wl_target {
-            Dir::Down
-        } else {
-            Dir::Hold
+        // Exactly at target is a HOLD, not a zero-size step: the caller
+        // distinguishes "no update" from "an update that happened to
+        // change nothing", and neutral progression should leave the
+        // stored multiplier untouched.
+        if ratio == p.wl_target {
+            return None;
         }
+        let error = (ratio / p.wl_target).ln();
+        if !error.is_finite() {
+            return None;
+        }
+        error.tanh()
     };
-    if matches!(dir, Dir::Hold) {
+    let cur = sanitize_mult(prev);
+    let magnitude = p.dmg_step * normalized_error.abs();
+    let desired = if normalized_error > 0.0 { cur * (1.0 + magnitude) } else { cur / (1.0 + magnitude) };
+    Some(clamp_rate_limited(prev, desired, p.dmg_step, p.dmg_floor, p.dmg_ceiling))
+}
+
+/// CONTROLLER A's RELAXATION PATH (2026-08-23, fix/pacing-controller-loop).
+///
+/// A samples winning fights only - correct, and load-bearing: sampling a
+/// wipe would read as a short fight, inflate HP and cause more wipes. But
+/// wins-only sampling also means A cannot LEARN from a loss, so an
+/// overshoot had no path back: the stored window kept describing the
+/// party that used to win, and every fight A re-requested the multiplier
+/// that got them there. Worse, a loss walks the stage back 2, which
+/// SHRINKS the organic pool, which makes the required multiplier RISE -
+/// so a losing streak actively pushed A further up. Both live incidents
+/// needed a manual override to break out.
+///
+/// This is the release valve. After `hp_relax_after_losses` consecutive
+/// LOST boss fights, A decays one rate-limited step back toward neutral
+/// per fight, using the sample window not at all. Wins-only sampling is
+/// untouched: a loss still never becomes a duration sample, it only
+/// releases pressure.
+///
+/// **Downward only, and never past neutral.** The order framed this as
+/// "decay toward neutral", and from ABOVE neutral that is exactly what
+/// happens. From BELOW neutral, decaying "toward" 1.0 would mean raising
+/// enemy HP on a party that is already losing - the precise thing the
+/// wins-only rule exists to prevent - so this path is a no-op there. The
+/// information a wipe carries is "you went too far", which only has an up
+/// direction; when A already sits below neutral it is not what went
+/// wrong, and the normal controller (bounded by `hp_multiplier_floor`)
+/// owns that region.
+///
+/// Returns `None` when it does not apply, so the caller falls through to
+/// the ordinary update.
+pub(crate) fn relax_hp_pacing_mult(prev: f64, losses_since_win: u32, p: &PacingParams) -> Option<f64> {
+    if !p.enabled || p.hp_relax_step <= 0.0 {
+        return None;
+    }
+    if losses_since_win < p.hp_relax_after_losses.max(1) {
         return None;
     }
     let cur = sanitize_mult(prev);
-    let desired = if matches!(dir, Dir::Up) {
-        cur * (1.0 + p.dmg_step)
-    } else {
-        cur / (1.0 + p.dmg_step)
-    };
-    Some(clamp_rate_limited(prev, desired, p.dmg_step, p.dmg_floor, p.dmg_ceiling))
+    if cur <= 1.0 {
+        return None;
+    }
+    let desired = (cur / (1.0 + p.hp_relax_step)).max(1.0);
+    Some(clamp_rate_limited(prev, desired, p.hp_step, p.hp_floor, p.hp_ceiling))
 }
 
 /// Records ONE fight's DPS sample into Controller A's rolling window.
@@ -613,6 +749,8 @@ mod tests {
             hp_step: 0.25,
             hp_floor: 0.4,
             hp_ceiling: 6.0,
+            hp_relax_after_losses: defaults::HP_RELAX_AFTER_LOSSES,
+            hp_relax_step: defaults::HP_RELAX_STEP_PER_FIGHT,
             wl_target: 2.0,
             dmg_step: 0.15,
             dmg_floor: 0.4,
@@ -691,10 +829,12 @@ mod tests {
         let p = params();
         // At exactly 2:1 (window 3 = WWL) B must HOLD - neutral progression.
         assert_eq!(update_dmg_pacing_mult(1.5, &[true, true, false], &p), None);
-        // Over-performing (WWW) grows one step...
+        // Over-performing (WWW) grows - an undefeated window is full
+        // scale, so this one does take the whole rate-limited step...
         let up = update_dmg_pacing_mult(1.5, &[true, true, true], &p).expect("updates");
         assert!(up > 1.5 && up <= 1.5 * (1.0 + p.dmg_step) + 1e-12, "{up}");
-        // ...under-performing (WLL) eases one step.
+        // ...and under-performing (WLL) eases, by a magnitude scaled to
+        // how far 1:2 sits from the 2:1 target (see FIX 5).
         let down = update_dmg_pacing_mult(1.5, &[true, false, false], &p).expect("updates");
         assert!(down < 1.5 && down >= 1.5 / (1.0 + p.dmg_step) - 1e-12, "{down}");
         // A mixed window ABOVE target still grows (3:1 > 2:1).
@@ -824,9 +964,16 @@ mod tests {
         // Near-limit feed: everything huge, every output still finite and
         // inside the hard range - never wraps, never NaN/inf.
         let p = params();
+        // `prev` here sits far ABOVE the configured ceiling (6.0). Since
+        // 2026-08-23 that widening SHRINKS - one rate-limited step back
+        // per fight - instead of the window absorbing prev forever, so
+        // this asserts convergence rather than the old "holds at the hard
+        // ceiling". The saturation property the test exists for is
+        // unchanged: the value stays finite and never wraps.
         let next = update_hp_pacing_mult(1.0e6, 1.0, &[f64::MAX, f64::MAX, f64::MAX], &p).expect("updates");
-        assert_eq!(next, DYNAMIC_MULT_HARD_CEILING);
-        assert!(next.is_finite());
+        assert!(next.is_finite() && next > 0.0, "{next}");
+        assert!((next - 1.0e6 / (1.0 + p.hp_step)).abs() < 1e-6, "one rate-limited step back toward the configured ceiling, got {next}");
+        assert!(next < 1.0e6, "an out-of-window multiplier must converge, not hold");
         assert_eq!(sat_round_stat(1.0e15 * DYNAMIC_MULT_HARD_CEILING), u64::MAX, "saturates, never wraps");
         assert_eq!(sat_round_stat(f64::NAN), 1, "NaN never produces a zero-stat enemy");
         assert_eq!(sat_round_stat(-5.0), 1);
@@ -892,6 +1039,456 @@ mod tests {
         assert_eq!(stage_after_loss(3222), 3220, "a loss regresses exactly 2");
         assert_eq!(stage_after_loss(2), 1, "floored at 1");
         assert_eq!(stage_after_loss(1), 1, "already at the floor");
+    }
+
+    /// FIX 1 coverage (2026-08-23): Controller A's request must be
+    /// PROPORTIONAL to the error, so the step shrinks automatically as
+    /// measured duration approaches target.
+    ///
+    /// A's request is `mean_dps * midpoint / base_pool` - the exact
+    /// multiplier that puts kill time on the target - so the move it asks
+    /// for IS the error. This test pins that: sampled from multipliers
+    /// where the rate-limit band is NOT the binding constraint, each
+    /// successive step toward the target is strictly smaller than the
+    /// last. A fixed-step law (`prev * (1 + step)`, which is what
+    /// Controller B does) would move a CONSTANT 25% of `prev` at every one
+    /// of these points and fail immediately.
+    #[test]
+    fn controller_a_steps_shrink_as_measured_duration_approaches_target() {
+        let p = params();
+        // True party DPS 100 against an organic pool of 1000: the
+        // multiplier that lands kill time exactly on the 37.5s midpoint is
+        // 100 * 37.5 / 1000 = 3.75.
+        let window = vec![100.0, 100.0, 100.0];
+        let mut previous_step = f64::INFINITY;
+        for mult in [3.2_f64, 3.5, 3.7, 3.74, 3.749] {
+            let next = update_hp_pacing_mult(mult, 1000.0, &window, &p).expect("a full window always updates");
+            let step_taken = (next - mult).abs();
+            let fixed_step_would_be = mult * p.hp_step;
+            assert!(
+                step_taken < previous_step,
+                "from {mult}x the step was {step_taken}, not smaller than the previous {previous_step} - A is not braking on approach"
+            );
+            assert!(
+                step_taken < fixed_step_would_be,
+                "from {mult}x A moved {step_taken}, which is not less than the {fixed_step_would_be} a fixed-step law would take - the request is not proportional to the error"
+            );
+            previous_step = step_taken;
+        }
+        assert!(previous_step < 0.01, "the final approach step must be tiny, was {previous_step}");
+    }
+
+    /// FIX 1 coverage: a long win streak must not walk PAST the target
+    /// window. This is the shape of the live incident (A ratcheted to 30x
+    /// over ~15 wins), so it is asserted every fight of the streak rather
+    /// than only at the end - an overshoot that is corrected later would
+    /// still have shipped an unwinnable fight.
+    #[test]
+    fn a_long_win_streak_does_not_overshoot_the_target_window() {
+        let p = params();
+        let window = vec![100.0, 100.0, 100.0];
+        let mut mult = 1.0_f64;
+        for fight in 0..200 {
+            mult = update_hp_pacing_mult(mult, 1000.0, &window, &p).expect("a full window always updates");
+            let expected_s = 1000.0 * mult / 100.0;
+            assert!(
+                expected_s <= p.duration_max_s + 1e-9,
+                "fight {fight}: A drove expected duration to {expected_s}s, past the {}s window ceiling",
+                p.duration_max_s
+            );
+        }
+        // And it actually arrived, rather than passing the test by never
+        // moving at all.
+        let settled_s = 1000.0 * mult / 100.0;
+        assert!(settled_s >= p.duration_min_s, "A must reach the window, settled at {settled_s}s");
+    }
+
+    /// A window of `wins` wins followed by `losses` losses - order is
+    /// irrelevant to Controller B, which reads only the counts.
+    fn window_of(wins: usize, losses: usize) -> Vec<bool> {
+        let mut w = vec![true; wins];
+        w.resize(wins + losses, false);
+        w
+    }
+
+    /// Controller B's PRE-2026-08-23 fixed-step law, kept verbatim as the
+    /// comparison baseline for `controller_b_oscillates_less_than_the_fixed_step_law`.
+    /// It is the thing that shipped and oscillated; a test claiming the
+    /// new law damps oscillation has to measure against something, and a
+    /// remembered number would rot the moment any shared knob moved.
+    fn fixed_step_reference(prev: f64, outcomes: &[bool], p: &PacingParams) -> Option<f64> {
+        if !p.enabled || outcomes.len() < p.window {
+            return None;
+        }
+        let wins = outcomes.iter().filter(|&&w| w).count();
+        let losses = outcomes.len() - wins;
+        let up = if losses == 0 {
+            true
+        } else if wins == 0 {
+            false
+        } else {
+            let ratio = wins as f64 / losses as f64;
+            if ratio == p.wl_target {
+                return None;
+            }
+            ratio > p.wl_target
+        };
+        let cur = sanitize_mult(prev);
+        let desired = if up { cur * (1.0 + p.dmg_step) } else { cur / (1.0 + p.dmg_step) };
+        Some(clamp_rate_limited(prev, desired, p.dmg_step, p.dmg_floor, p.dmg_ceiling))
+    }
+
+    /// FIX 5 (2026-08-23): B's step must SHRINK as the observed win:loss
+    /// ratio approaches the target. Under the old fixed-step law every one
+    /// of these windows moved the multiplier by exactly `dmg_step`, which
+    /// is why it could only step over the target and back.
+    #[test]
+    fn controller_b_steps_shrink_as_the_ratio_approaches_target() {
+        let mut p = params();
+        // A 60-fight window so the discrete win/loss splits can actually
+        // approach 2:1 finely - with a 3-fight window the only reachable
+        // ratios are extremes.
+        p.window = 60;
+        // Ratios closing on the 2.0 target from above: 5.0, 2.75, 2.16.
+        let approaching = [(50, 10), (44, 16), (41, 19)];
+        let mut previous_step = f64::INFINITY;
+        for (wins, losses) in approaching {
+            let window = window_of(wins, losses);
+            let next = update_dmg_pacing_mult(1.5, &window, &p).expect("a full window updates");
+            let step_taken = (next - 1.5).abs();
+            let fixed_step_would_be = (fixed_step_reference(1.5, &window, &p).expect("baseline updates") - 1.5).abs();
+            assert!(
+                step_taken < previous_step,
+                "{wins}W/{losses}L moved {step_taken}, not smaller than the previous {previous_step} - B is not braking on approach"
+            );
+            assert!(
+                step_taken < fixed_step_would_be,
+                "{wins}W/{losses}L moved {step_taken}, which the old fixed-step law would also have moved ({fixed_step_would_be})"
+            );
+            previous_step = step_taken;
+        }
+        assert!(previous_step < 0.05, "the closest approach must be a small step, was {previous_step}");
+    }
+
+    /// A window sitting EXACTLY on target produces no update at all -
+    /// distinct from an update that happens to be zero-sized, because
+    /// neutral progression should leave the stored multiplier untouched.
+    #[test]
+    fn controller_b_holds_exactly_at_target() {
+        let mut p = params();
+        p.window = 60;
+        assert_eq!(update_dmg_pacing_mult(1.5, &window_of(40, 20), &p), None, "40W/20L is exactly 2:1");
+        // And on the 3-fight window the original case still holds.
+        let p3 = params();
+        assert_eq!(update_dmg_pacing_mult(1.5, &[true, true, false], &p3), None);
+        // A window that is not yet full never updates either, at any ratio.
+        assert_eq!(update_dmg_pacing_mult(1.5, &[true, true], &p3), None, "warmup gate");
+        assert_eq!(update_dmg_pacing_mult(1.5, &[], &p3), None, "an empty window can never divide 0/0");
+    }
+
+    /// Proportional magnitude must never escape the EXISTING rate limit -
+    /// it scales the request, and `clamp_rate_limited` still caps it. Both
+    /// degenerate windows (undefeated, winless) saturate at full scale and
+    /// must land exactly on the cap, not past it.
+    #[test]
+    fn controller_b_far_from_target_still_respects_the_rate_limit_cap() {
+        let mut p = params();
+        p.window = 60;
+        let cap_up = 1.5 * (1.0 + p.dmg_step);
+        let cap_down = 1.5 / (1.0 + p.dmg_step);
+
+        // Undefeated: full scale up, exactly at the cap.
+        let next = update_dmg_pacing_mult(1.5, &window_of(60, 0), &p).expect("updates");
+        assert!(next <= cap_up + 1e-12, "{next} exceeded the rate-limit cap {cap_up}");
+        assert!((next - cap_up).abs() < 1e-12, "an undefeated window saturates at full scale, got {next}");
+
+        // Winless: full scale down.
+        let next = update_dmg_pacing_mult(1.5, &window_of(0, 60), &p).expect("updates");
+        assert!(next >= cap_down - 1e-12, "{next} undercut the rate-limit cap {cap_down}");
+        assert!((next - cap_down).abs() < 1e-12, "a winless window saturates at full scale, got {next}");
+
+        // And a merely lopsided mixed window stays inside the cap too.
+        for (wins, losses) in [(59, 1), (1, 59), (55, 5), (5, 55)] {
+            let next = update_dmg_pacing_mult(1.5, &window_of(wins, losses), &p).expect("updates");
+            assert!(next <= cap_up + 1e-12 && next >= cap_down - 1e-12, "{wins}W/{losses}L left the rate-limit band at {next}");
+        }
+    }
+
+    /// FIX 5's live symptom: production oscillated in roughly ten-win /
+    /// ten-loss swings. Fixed steps hunt near equilibrium by construction -
+    /// the smallest correction available is the largest one - so the
+    /// controller can only step over the target and back.
+    ///
+    /// Drives the SAME alternating outcome stream through both laws and
+    /// asserts the proportional one's peak-to-trough excursion is smaller.
+    /// The bounds are widened so neither law saturates on floor/ceiling:
+    /// this must measure the control law, not the clamp.
+    ///
+    /// **This test fails against the pre-fix code** - there
+    /// `update_dmg_pacing_mult` IS `fixed_step_reference`, so the two
+    /// excursions are identical and a strict `<` cannot hold. That is the
+    /// point: it is testing the change, not restating it.
+    #[test]
+    fn controller_b_oscillates_less_than_the_fixed_step_law() {
+        let mut p = params();
+        p.window = 10;
+        p.dmg_floor = MULT_HARD_FLOOR;
+        p.dmg_ceiling = DYNAMIC_MULT_HARD_CEILING;
+
+        // Alternating runs of 10 wins and 10 losses: the rolling window
+        // sweeps the whole range each half-cycle, crossing the 2:1 target
+        // twice per cycle, which is exactly an oscillation.
+        let mut stream: Vec<bool> = Vec::new();
+        for _ in 0..3 {
+            stream.extend([true; 10]);
+            stream.extend([false; 10]);
+        }
+
+        // One update function under test - either the live law or the
+        // retired fixed-step baseline, driven over the same stream.
+        type ControlLaw = dyn Fn(f64, &[bool], &PacingParams) -> Option<f64>;
+        let run = |law: &ControlLaw| -> f64 {
+            let mut window: std::collections::VecDeque<bool> = std::collections::VecDeque::new();
+            let mut mult = 1.0_f64;
+            let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            for &outcome in &stream {
+                window.push_back(outcome);
+                while window.len() > p.window {
+                    window.pop_front();
+                }
+                let outcomes: Vec<bool> = window.iter().copied().collect();
+                if let Some(next) = law(mult, &outcomes, &p) {
+                    mult = next;
+                }
+                if window.len() == p.window {
+                    lo = lo.min(mult);
+                    hi = hi.max(mult);
+                }
+            }
+            assert!(lo.is_finite() && hi.is_finite() && lo > 0.0, "the run must produce a real excursion");
+            // Peak-to-trough as a RATIO - this controller is multiplicative,
+            // so a fixed difference means different things at 0.5x and 5x.
+            hi / lo
+        };
+
+        let proportional = run(&update_dmg_pacing_mult);
+        let fixed = run(&fixed_step_reference);
+
+        assert!(
+            proportional < fixed,
+            "the proportional law swung {proportional:.4}x peak-to-trough against the fixed-step law's {fixed:.4}x - it is not damping the oscillation"
+        );
+        // Not a hairline win: the whole reason for the change is that the
+        // near-target steps collapse.
+        assert!(
+            proportional < fixed * 0.9,
+            "expected a materially smaller excursion, got {proportional:.4}x vs {fixed:.4}x"
+        );
+    }
+
+    /// FIX 2 (2026-08-23): the ordered case - a run of consecutive losses
+    /// must walk Controller A DOWN rather than freezing it high.
+    ///
+    /// Before the relaxation path this was the live dead end: A sat at an
+    /// overshoot, the wins-only window kept describing the party that used
+    /// to win, and nothing but a manual override brought it back.
+    #[test]
+    fn a_run_of_consecutive_losses_walks_controller_a_down_instead_of_freezing_it() {
+        let p = params();
+        let mut mult = 30.0_f64;
+        // Below the trigger nothing moves - one unlucky wipe must not
+        // touch a controller that is otherwise doing its job.
+        for losses in 1..p.hp_relax_after_losses {
+            assert_eq!(relax_hp_pacing_mult(mult, losses, &p), None, "{losses} loss(es) is below the trigger");
+        }
+        // At and past the trigger it decays, one rate-limited step a fight.
+        let mut fights = 0;
+        let mut losses = p.hp_relax_after_losses;
+        while mult > 1.0 + 1e-9 {
+            let next = relax_hp_pacing_mult(mult, losses, &p).expect("the streak must keep relaxing");
+            assert!(next < mult, "frozen at {mult} after {fights} lost fights");
+            // No slam. While A also sits above its CONFIGURED ceiling the
+            // window convergence (hp_step) is pulling too, and the tighter
+            // of the two bounds wins - so the honest per-fight bound is one
+            // step of whichever rate is larger, not of the relax rate alone.
+            let widest = p.hp_step.max(p.hp_relax_step);
+            assert!(next >= mult / (1.0 + widest) - 1e-9, "slammed {mult} -> {next} in one fight");
+            assert!(next >= 1.0 - 1e-9, "relaxation must never push A below neutral, went to {next}");
+            mult = next;
+            losses += 1;
+            fights += 1;
+            assert!(fights < 200, "never came back down, stuck at {mult}");
+        }
+        assert!((mult - 1.0).abs() < 1e-9, "settles exactly at neutral, got {mult}");
+        // And it STOPS there rather than continuing into the floor.
+        assert_eq!(relax_hp_pacing_mult(mult, losses, &p), None, "at neutral there is nothing left to relax");
+    }
+
+    /// The guard that keeps the release valve from becoming the very thing
+    /// wins-only sampling exists to prevent: a party losing while A already
+    /// sits at or BELOW neutral must never have enemy HP raised by this
+    /// path. "You went too far" only has an up direction.
+    #[test]
+    fn relaxation_never_makes_a_losing_party_fight_a_bigger_pool() {
+        let p = params();
+        for mult in [1.0_f64, 0.9, 0.5, MULT_HARD_FLOOR] {
+            assert_eq!(relax_hp_pacing_mult(mult, 50, &p), None, "A at {mult}x is not what went wrong - relaxation must sit this out");
+        }
+    }
+
+    /// Both switches: the kill-switch silences relaxation like everything
+    /// else, and a zero step is the documented off switch (the loss count
+    /// keeps the module-wide "0 integer dial reads as UNSET" convention
+    /// instead, so it can never accidentally mean "relax immediately").
+    #[test]
+    fn relaxation_respects_the_kill_switch_and_its_own_off_switch() {
+        let mut off = params();
+        off.enabled = false;
+        assert_eq!(relax_hp_pacing_mult(30.0, 99, &off), None, "the master kill-switch silences relaxation too");
+
+        let mut no_step = params();
+        no_step.hp_relax_step = 0.0;
+        assert_eq!(relax_hp_pacing_mult(30.0, 99, &no_step), None, "a zero step is the off switch");
+
+        let unset = LiveTunables { hp_relax_after_losses: 0, ..Default::default() };
+        assert_eq!(
+            PacingParams::from_tunables(&unset).hp_relax_after_losses,
+            defaults::HP_RELAX_AFTER_LOSSES,
+            "0 reads as UNSET, never as 'relax on the first loss'"
+        );
+        let poisoned = LiveTunables { hp_relax_step_per_fight: f64::NAN, ..Default::default() };
+        assert_eq!(
+            PacingParams::from_tunables(&poisoned).hp_relax_step,
+            defaults::HP_RELAX_STEP_PER_FIGHT,
+            "a poisoned step substitutes the shipped default"
+        );
+    }
+
+    /// Relaxation must not quietly become a second sampler: it reads only
+    /// the loss counter and A's own stored value, never the DPS window, and
+    /// it must leave wins-only sampling exactly as it was.
+    #[test]
+    fn relaxation_reads_no_samples_and_does_not_disturb_wins_only_sampling() {
+        let p = params();
+        let from_empty = relax_hp_pacing_mult(30.0, 99, &p);
+        assert!(from_empty.is_some(), "relaxation works with no samples at all - it is not a window consumer");
+
+        // The wins-only rule is untouched: a loss still never becomes a
+        // duration sample, it only releases pressure.
+        let mut q = std::collections::VecDeque::new();
+        push_dps_sample(&mut q, false, 500.0, 20);
+        assert!(q.is_empty(), "a lost fight is still never sampled");
+    }
+
+    /// FIX 4 (2026-08-23): the coverage gap that let the advisory-window
+    /// bug ship. Every committed clamp test started `prev` AT a bound or
+    /// inside the window and checked saturation; none started it OUTSIDE,
+    /// which is the only state in which the widening was observable. These
+    /// four cases pin convergence INTO the window rather than indefinite
+    /// widening, on both controllers and in both directions.
+    ///
+    /// Asserted on the pure clamp so the property is independent of either
+    /// controller's signal - including the case where the signal pulls the
+    /// wrong way, which is exactly the state an operator hits when they
+    /// lower a ceiling on a controller that still wants to climb.
+    #[test]
+    fn a_multiplier_above_its_configured_ceiling_converges_down_into_the_window() {
+        let p = params();
+        // Far above the configured 6.0 ceiling, with the controller asking
+        // to go HIGHER every single fight. The window must still win.
+        let mut mult = 40.0_f64;
+        let mut steps = 0;
+        while mult > p.hp_ceiling + 1e-9 {
+            let next = clamp_rate_limited(mult, f64::INFINITY, p.hp_step, p.hp_floor, p.hp_ceiling);
+            assert!(next < mult, "stalled at {mult} - the widening is not shrinking");
+            // No slam: never more than one rate-limited step per fight.
+            assert!(next >= mult / (1.0 + p.hp_step) - 1e-9, "slammed from {mult} to {next} in one fight");
+            mult = next;
+            steps += 1;
+            assert!(steps < 500, "did not converge");
+        }
+        assert!((mult - p.hp_ceiling).abs() < 1e-9, "settled at {mult}, not the configured ceiling");
+        // And it STAYS: once inside, the window holds it there.
+        let held = clamp_rate_limited(mult, f64::INFINITY, p.hp_step, p.hp_floor, p.hp_ceiling);
+        assert!((held - p.hp_ceiling).abs() < 1e-9, "{held}");
+    }
+
+    #[test]
+    fn a_multiplier_below_its_configured_floor_converges_up_into_the_window() {
+        let p = params();
+        // Below the configured 0.4 floor, with the controller begging to go
+        // lower. MULT_HARD_FLOOR (0.05) is the only thing under it.
+        let mut mult = 0.06_f64;
+        let mut steps = 0;
+        while mult < p.hp_floor - 1e-9 {
+            let next = clamp_rate_limited(mult, 0.0, p.hp_step, p.hp_floor, p.hp_ceiling);
+            assert!(next > mult, "stalled at {mult} - the widening is not shrinking");
+            assert!(next <= mult * (1.0 + p.hp_step) + 1e-9, "slammed from {mult} to {next} in one fight");
+            mult = next;
+            steps += 1;
+            assert!(steps < 500, "did not converge");
+        }
+        assert!((mult - p.hp_floor).abs() < 1e-9, "settled at {mult}, not the configured floor");
+    }
+
+    /// Controller B's clamp is the same shared function, but its step size
+    /// differs, so the convergence is pinned on B's own knobs too - a
+    /// future per-controller clamp split cannot silently drop one side.
+    #[test]
+    fn controller_b_also_converges_into_its_configured_window_from_both_sides() {
+        let p = params();
+        // Above the configured 4.0 ceiling, signal pulling up.
+        let mut mult = 25.0_f64;
+        for _ in 0..500 {
+            if mult <= p.dmg_ceiling + 1e-9 {
+                break;
+            }
+            let next = clamp_rate_limited(mult, f64::INFINITY, p.dmg_step, p.dmg_floor, p.dmg_ceiling);
+            assert!(next < mult, "stalled at {mult}");
+            assert!(next >= mult / (1.0 + p.dmg_step) - 1e-9, "slammed {mult} -> {next}");
+            mult = next;
+        }
+        assert!((mult - p.dmg_ceiling).abs() < 1e-9, "settled at {mult}, not {}", p.dmg_ceiling);
+
+        // Below the configured 0.4 floor, signal pulling down.
+        let mut mult = 0.06_f64;
+        for _ in 0..500 {
+            if mult >= p.dmg_floor - 1e-9 {
+                break;
+            }
+            let next = clamp_rate_limited(mult, 0.0, p.dmg_step, p.dmg_floor, p.dmg_ceiling);
+            assert!(next > mult, "stalled at {mult}");
+            assert!(next <= mult * (1.0 + p.dmg_step) + 1e-9, "slammed {mult} -> {next}");
+            mult = next;
+        }
+        assert!((mult - p.dmg_floor).abs() < 1e-9, "settled at {mult}, not {}", p.dmg_floor);
+    }
+
+    /// The operator-facing case end to end: a runaway multiplier sitting
+    /// above a ceiling the operator has just LOWERED comes back down
+    /// through the controller's own update path, not just through the bare
+    /// clamp. This is the failure the order describes - "an operator who
+    /// lowers a ceiling to rein in a runaway gets no effect and no
+    /// feedback" - and it must converge even while the DPS window keeps
+    /// demanding a bigger pool every fight.
+    #[test]
+    fn lowering_the_ceiling_reins_in_a_runaway_controller_a() {
+        let mut p = params();
+        // The operator's correction: pull the ceiling down to 2.0 while A
+        // sits at 30x, the shape of the live incident.
+        p.hp_ceiling = 2.0;
+        // A window that keeps asking for far more pool than the ceiling
+        // allows - the controller never stops pulling up.
+        let window = vec![1.0e6, 1.0e6, 1.0e6];
+        let mut mult = 30.0_f64;
+        for fight in 0..500 {
+            mult = update_hp_pacing_mult(mult, 1.0, &window, &p).expect("a full window always updates");
+            if (mult - p.hp_ceiling).abs() < 1e-9 {
+                break;
+            }
+            assert!(fight < 499, "never reached the lowered ceiling, stuck at {mult}");
+        }
+        assert!((mult - p.hp_ceiling).abs() < 1e-9, "settled at {mult}, not the lowered ceiling {}", p.hp_ceiling);
     }
 }
 

@@ -48,7 +48,8 @@ other's variable.**
 | Owns | `WorldState::hp_pacing_mult`, `recent_win_dps` | `WorldState::boss_power_mult`, `recent_boss_outcomes` |
 | Reads | WON BOSS encounters' DPS samples | BOSS win/loss outcomes |
 | Target | fight duration inside [min,max] s (midpoint) | rolling W:L = `target_win_loss_ratio` (2.0) |
-| Rate limit | `hp_max_step_per_fight` (UPWARD only) | `dmg_max_step_per_fight` (UPWARD only) |
+| Control law | proportional: closed-form `mean_dps x midpoint / base_pool` | proportional: step magnitude scaled by `tanh(ln(observed / target))` |
+| Rate limit | `hp_max_step_per_fight` (UPWARD only, a CAP on the request) | `dmg_max_step_per_fight` (UPWARD only, a CAP on the request) |
 | Bounds | `hp_multiplier_floor/ceiling` + hard caps | `dmg_multiplier_floor/ceiling` + hard caps |
 
 No arbitration, no priority, no alternation - the per-fight rate limits
@@ -64,6 +65,53 @@ each under its existing cap - exactly the old coupling shape, now sourced
 solely from the damage axis. Per-enemy relative HP weights are never
 touched by either controller (the pool scales; `split_into_enemies`' even
 cut happens after scaling).
+
+## BOTH controllers are proportional with a rate-limit CAP
+
+Revised 2026-08-23 (branch `fix/pacing-controller-loop`). Each controller
+computes the correction it actually wants and the rate limit then caps
+it. **The rate limit is never the request.**
+
+| | How the request is formed |
+|---|---|
+| A | Closed form. `required = mean_dps x midpoint_s / base_pool` is exactly the multiplier that puts kill time on target, so the request IS the error. Shipped this way. |
+| B | No closed form exists - no algebraic multiplier yields a given win:loss ratio - so the step MAGNITUDE is scaled by the error instead: `dmg_step x |tanh(ln(observed / target))|`. |
+
+B's error is a **log ratio** so it is symmetric by construction:
+`observed = k x target` and `observed = target / k` are equal and
+opposite errors, and 4:1 against 1:4 read as the same size miss in
+opposite directions. A raw difference would not: against a 1:1 target it
+calls 4:1 a miss of 3 and 1:4 a miss of 0.75.
+
+`tanh` squashes that into `[-1, 1]` and is deliberately
+**parameter-free**. A gain constant here would be a numeric knob, which
+the tunables doctrine says must ship as a `LiveTunable`; `tanh` saturates
+on its own, so `dmg_max_step_per_fight` remains the ONE knob on this
+axis and the rate limit is unchanged.
+
+Degenerate windows take explicit branches rather than inf arithmetic: an
+undefeated window and a winless window saturate at full scale in their
+respective directions, a window exactly at target is a HOLD (no update at
+all, not a zero-sized one), and a window short of `pacing_window_fights`
+does not update - the warmup gate.
+
+### Why this changed: fixed-step control caused the observed oscillation
+
+B previously requested a FIXED `cur * (1 + step)` up or
+`cur / (1 + step)` down - the same 15% swing whether the rolling ratio
+was 2.1:1 or 20:1. **Fixed steps near equilibrium hunt by construction:**
+the smallest correction available is also the largest one, so the
+controller cannot settle onto the target, only step over it and back.
+Production oscillated in roughly ten-win / ten-loss swings on the day
+dynamic pacing shipped, and that is the cause.
+
+Near target the normalized error now approaches 0, so the step approaches
+0 and B settles. `controller_b_oscillates_less_than_the_fixed_step_law`
+pins this by driving one alternating outcome stream through both laws and
+comparing peak-to-trough excursion: the proportional law swings 11.16x
+against the fixed-step law's 14.23x on the same stream. That test keeps
+the retired fixed-step law as its in-test baseline on purpose - it fails
+against the pre-fix code, where the two laws are the same function.
 
 ## The clamp chain (`clamp_rate_limited`) - THREE ASYMMETRIES
 
@@ -86,11 +134,21 @@ wrong on all three counts.
    only thing left - a safety cap is not a balance knob, so it applies at
    once instead of after N fights of climbing toward it.
 
-3. **The operating window never slams `prev`.** A stored multiplier
-   already outside its configured window (a dashboard edit tightened the
-   range underneath it, or an older save) is walked back by the
-   controller's own requests, not yanked mid-flight. Only the hard caps
-   move it without being asked.
+3. **The operating window never slams `prev`, but it does CONVERGE**
+   (revised 2026-08-23, branch `fix/pacing-controller-loop`). A stored
+   multiplier already outside its configured window (a dashboard edit
+   tightened the range underneath it, or an older save) is still never
+   yanked mid-flight - but the widening that admits it now SHRINKS by one
+   rate-limited step per fight, unconditionally, until it is gone.
+
+   It was previously permanent (`lo = cfg_lo.min(prev)`,
+   `hi = cfg_hi.max(prev)`), which made a configured bound **advisory**:
+   the value could only come back if the controller happened to request
+   that direction by itself, so an operator who lowered a ceiling to rein
+   in a runaway got neither effect nor feedback. The step cap preserves
+   the no-slam property; only the hard caps still bind instantly. A
+   `*_max_step_per_fight` of 0 means the controller may not move at all,
+   so the widening correspondingly cannot close.
 
 ## Owner rulings implemented
 
@@ -176,7 +234,9 @@ scaling arithmetic f64. Guards, all BEFORE any cast:
   clamping it to 1 would turn a cleared field into the twitchiest
   possible setting;
 - clamp chain per update: upward rate-limit band, THEN the configured
-  `[floor, ceiling]` window widened to include `prev`, THEN the hard
+  `[floor, ceiling]` window - widened to admit an outside-the-window
+  `prev` by only ONE rate-limited step at a time, so the widening closes
+  every fight until it is gone - THEN the hard
   `[MULT_HARD_FLOOR=0.05, DYNAMIC_MULT_HARD_CEILING=1e6]` - see THE CLAMP
   CHAIN above for which of these bind at once and which are walked to;
 - HP pool hard cap `ENEMY_HP_POOL_HARD_CAP = 1e15` applied to A's

@@ -115,6 +115,21 @@ pub struct LiveTunables {
     /// Controller A - ceiling on the HP multiplier (hard-capped at
     /// pacing::DYNAMIC_MULT_HARD_CEILING regardless of this value).
     pub hp_multiplier_ceiling: f64,
+    /// Controller A - how many CONSECUTIVE lost boss fights before the
+    /// relaxation path engages and A starts decaying back toward neutral
+    /// (see `pacing::relax_hp_pacing_mult`). A exists to keep fights the
+    /// right LENGTH and samples wins only, so without this an overshoot
+    /// had no path back: the window kept describing the party that used
+    /// to win. 0 reads as UNSET and substitutes the shipped default,
+    /// matching every other integer dial in this module; to turn
+    /// relaxation OFF set `hp_relax_step_per_fight` to 0 instead.
+    pub hp_relax_after_losses: u32,
+    /// Controller A - the RELATIVE step back toward neutral it takes per
+    /// lost fight once `hp_relax_after_losses` is reached (0.20 = 20%).
+    /// Never moves A below neutral 1.0 and never applies while A already
+    /// sits at or under neutral: a losing party is never made harder by
+    /// this path. **0.0 disables relaxation entirely.**
+    pub hp_relax_step_per_fight: f64,
     /// Controller B - the rolling win:loss ratio it steers toward
     /// (default 2 wins : 1 loss). With a win advancing the stage +1 and a
     /// loss regressing it -2, exactly this ratio is neutral progression -
@@ -475,6 +490,8 @@ impl Default for LiveTunables {
             hp_max_step_per_fight: pacing::defaults::HP_MAX_STEP_PER_FIGHT,
             hp_multiplier_floor: pacing::defaults::HP_MULTIPLIER_FLOOR,
             hp_multiplier_ceiling: pacing::defaults::HP_MULTIPLIER_CEILING,
+            hp_relax_after_losses: pacing::defaults::HP_RELAX_AFTER_LOSSES,
+            hp_relax_step_per_fight: pacing::defaults::HP_RELAX_STEP_PER_FIGHT,
             target_win_loss_ratio: pacing::defaults::TARGET_WIN_LOSS_RATIO,
             dmg_max_step_per_fight: pacing::defaults::DMG_MAX_STEP_PER_FIGHT,
             dmg_multiplier_floor: pacing::defaults::DMG_MULTIPLIER_FLOOR,
