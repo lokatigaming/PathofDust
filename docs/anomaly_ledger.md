@@ -808,3 +808,45 @@ untested, deploy/code territory). Session end: this file is left
 uncommitted per this session's standing instruction (the deploy
 session commits it with its next release) — everything above is on
 disk at `docs/anomaly_ledger.md` for that commit to pick up.
+
+## Deploy record — 2026-08-23, dynamic pacing release
+
+Entered by the deploy session at merge of `feature/dynamic-pacing`.
+These are **known consequences recorded ahead of time, not bugs and not
+parser findings** — they carry no `#NN` because the log parser owns this
+file's numbering. Each exists so a future investigation starts here
+instead of rediscovering it.
+
+**Overlay broadcast worst-case event volume up ~50%**
+A maximally dense fight's worst-case event count rises from roughly
+52.5k to roughly 78.8k. Cause is known and structural, not a leak: event
+thinning budgets per DISPLAY-second, and the display timeline got longer
+(the playback ceiling moved 35s → 45s, derived from the pacing window
+rather than a constant). More display-seconds at the same per-second
+budget is more events. If overlay lag is ever reported after this
+release, start from this line — the volume increase is expected and the
+question is whether the consumer keeps up with it, not where the extra
+events came from.
+
+**Fixture regeneration moved TIMING as well as damage, in 8 of 14**
+The deploy order predicted damage would change and timing would not.
+Timing moved: `party_ally_targeted_passives_stage500` 41032 → 46207 ms,
+`ranger_vs_lich_stage3000` 6000 → 9800 ms, and
+`berserker_vs_lich_stage1000` 8300 → **7800** ms. All attributable to
+ADDITION 4's top layer: enemies take less damage, so they survive longer
+and keep acting — wins lengthen, and the one loss shortens because the
+enemy lives long enough to finish the player sooner. `won` is unchanged
+in all 14. Recorded because the order's prediction was wrong, and the
+next person to diff these fixtures should not read moved timestamps as
+an unexplained second cause.
+
+**Stage 3000: the top layer alone stretched a scenario ~2.4x in event
+count** — `ranger_vs_lich_stage3000` went 87 → 211 events (rolls 485 →
+1236) at layer 0.400. The golden corpus runs with hand-authored boss
+stats and no live pacing controller, so this is the RAW top-layer effect
+with nothing compensating. Live, Controller A is supposed to absorb it
+by pulling HP down. **This is the high-stage case to watch after
+release**: if fight duration at stage 3000+ does not settle back into
+the 30–45s window within the pacing window's 20 fights, the top layer
+and Controller A are fighting each other and arbitration (the known next
+step per the spec's own "known limit") is what to reach for.
