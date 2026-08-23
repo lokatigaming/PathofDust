@@ -3408,6 +3408,7 @@ mod render_fights_page_tests {
 /// A save POSTs everything at once (not per-field) and redirects back here
 /// with `?saved=1` for the confirmation banner - same query-param-flash
 /// pattern `IndexParams`'s fields already use elsewhere on this dashboard.
+///
 /// `stage_bounds` is `(current stage, highest an operator override may
 /// set)` straight from `AdventureManager::stage_override_bounds` - the
 /// stage row below only labels itself with them, the real enforcement
