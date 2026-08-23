@@ -180,6 +180,77 @@ attach to this closure:
 2. The investigation this question triggered produced nine real defects.
    The question was not a waste; the answer to it was simply "no."
 
+**#47 — A Water Golem dealing 3.3e12 per hit**
+CLOSED 2026-08-23 — **not a code defect.** Opened the same day from the
+zolaries damage forensics; investigated in code against `93a136d` plus
+live coarse-tier fight data.
+
+**The damage path is correct and bypasses nothing it should not.**
+Shattering icicles resolve through `apply_flat_source_damage`
+(combat.rs:7301), which applies the target's combined damage reduction,
+the `defensive_stat_hard_cap` (0.95), and the stage-tied top layer
+(`apply_top_layer_to` — *the same function* `apply_hit` calls, not a
+copy). Measured live: **70.19% mitigation actually applied** on the
+golem's 146 icicles in one stage-3470 fight. It skips evasion, block,
+shield, crit, the attacker's damage-multiplier stack, Doom accumulation
+and splash — every one of those deliberate and documented. There is no
+per-hit cap anywhere in the codebase, so none is bypassed.
+
+The two incidents this path's design exists to prevent are **genuinely
+prevented**: the 110,000x compounding excursion (an earlier version
+routed icicles through `apply_hit`, letting a golem's full multiplier
+stack compound on a "% of max HP" base) and the 196x Doom inflation
+(`curse_damage_taken_total` only accumulates inside `apply_hit`). Both
+hold.
+
+**Premise correction for the record:** `GOLEM_STAT_SCALE` is not in this
+path at all. The investigation was framed as tracing summoner stats
+through the 0.33 golem scale; no golem stat, no summoner `atk`, no crit
+and no increased-damage touch the number. The whole formula is
+`icicle = dead_enemy_max_hp × shattering_damage_pct_rank{N}`, then target
+DR and top layer. The summoner's `splash` and `shattering` rank affect
+**target count** only (rank additionally selects which tunable row is
+read).
+
+**Cause: CONFIGURATION.** `shattering_damage_pct_rank1/2/3` were live at
+**0.3 / 0.6 / 0.9** against a code default of **0.01** — a
+percent-vs-fraction units error, **owner-confirmed**. Verified
+numerically rather than assumed: 4 of the 5 distinct icicle amounts in
+the pinned fight are exactly `0.9 × ` a unit's max HP, to the integer
+(e.g. `52313673100500 = 0.9 × 58126303445000`). At stage 3470 enemy max
+HP is 6.25e12-6.36e13, so 90% of it per icicle is the entire story.
+
+Scale at the time of closure: `__golem_wrightthewrong_2` dealt **5.74e14**
+against the top player's (`zolaries`) **9.477e13** — **6.1x the
+highest-damage character in the game**, from a support-role golem,
+invisible only because of `#46`. Note this is *higher* than the 3.7x the
+opening entry carried forward; the effect had grown with stage.
+
+Roster scan, 62 characters: **exactly one** player can fire icicles —
+`wrightthewrong` (water slot + shattering rank 3). `colonyna` has rank 3
+but no water golem; `kazesosa` has a water golem but rank 0. So this was
+one build — but one input away from not being, which is why it was
+treated as a mechanic.
+
+**RESOLVED 2026-08-23 by live tunable, no deploy** — set to **0.003 /
+0.006 / 0.009**, preserving the intended 1x/2x/3x rank ramp. Takes effect
+on the next fight; no binary moved.
+
+**NOT YET VERIFIED — this closure is on arithmetic, not on live
+observation.** Expected result is roughly **8% of a top DPS** (the same
+fight recomputed at the old default 0.01 gave 7.185e12 against
+`zolaries`'s 9.477e13, i.e. 0.076x; the new 0.009 sits just under that).
+That prediction needs confirming over the next fights and **has not been
+confirmed as of this entry**. Whoever next sweeps: pull the golem's
+Environmental total from a coarse-tier fight at a comparable stage and
+check it lands near 8% of the top player, not near 600%. If it does not,
+reopen — the arithmetic was right about the cause but wrong about the
+correction. Note the coarse tier holds only 5 fights and rotated *during*
+the original investigation, so pin a fight before analysing it.
+
+Spawned `#56` (the admin control whose contradictory units caused this)
+and two amendments to `#46`.
+
 ## Reconciliation note — 2026-08-21, later sweep
 
 This sweep's own kickoff order seeded a ledger reconstruction from a
@@ -591,7 +662,7 @@ CLOSED, exact.**
 
 ## Open
 
-### Zolaries damage forensics — 2026-08-23 (`#46`–`#54`)
+### Zolaries damage forensics — 2026-08-23 (`#46`–`#54`, `#56`)
 
 Nine entries opened from one investigation. All nine were handed to this
 session as another session's findings; **every one was independently
@@ -629,16 +700,59 @@ ledger entry that reasoned from relative player damage totals is
 suspect, and `#55` below is the only one so far re-checked against it.
 **Owner has ruled it gets fixed.**
 
-**#47 — A Water Golem dealing 3.3e12 per hit**
-Separate investigation from `#46`, and deliberately kept separate:
-`#46` is a crediting bug, `#47` is the magnitude that crediting bug
-concealed. Fixing `#46` alone would make this number visible on the
-leaderboard without explaining it. Magnitude carried forward, not
-re-derived here. Needs: which multiplier chain produces it, whether it
-is Shattering (`#29`'s family) or the base golem hit, and whether the
-golem inherits a player-side stack it should not. **Do not close `#46`
-as "leaderboard now correct" while this is open** — a correct
-leaderboard showing an incorrect number is not a resolved state.
+**AMENDMENT 1 (2026-08-23, from the `#47` investigation) — a
+prerequisite, not a nice-to-have.** `handle_shattering_on_enemy_death`
+(combat.rs:7402-7406) selects the **first alive Water Golem by unit
+order**, and its own doc justifies ignoring rank on the explicit
+assumption that every Water Golem belongs to one Elementalist, so the
+pick "can only ever affect event attribution, never the damage dealt."
+
+**That assumption is already false.** The icicle tunable is
+rank-dependent (`shattering_damage_pct_rank1/2/3`), so two summoners at
+different ranks deal *different* damage, and which one fires is decided
+by arbitrary unit ordering. Today that only misattributes an event; the
+moment `#46` credits Environmental damage, **the credit for the entire
+fight's icicle total lands arbitrarily too** — and that total was
+measured at 5.74e14 in a single fight.
+
+Latent only because exactly one player currently qualifies (see `#47`).
+It goes live the instant a second one does, and `#47`'s roster scan found
+two players one input away. **Fix the selection to highest-rank-wins,
+matching `select_primary_watergolem`'s existing pattern, before or with
+`#46`** — otherwise `#46` ships a correct-looking leaderboard whose
+largest single row is assigned by array order.
+
+**AMENDMENT 2 (2026-08-23) — `#46` erases its own evidence, which
+constrains how it can ever be verified.** The 200-fight summary tier is
+built from `full_player_fight_stats` — the very function that drops
+Environmental — so there is **zero Environmental data and zero golem rows
+across all 200 summary files** (confirmed by direct scan, not inferred).
+Event-level Environmental data survives only in the coarse tier, which
+holds **5 fights**, and the bundle tier, which holds 3.
+
+Two consequences worth stating before someone plans work around them:
+
+1. **Long-window analysis of this damage class is impossible until `#46`
+   is fixed.** Any question of the form "how much Environmental damage
+   has X dealt over the last N fights" has no answerable form for N
+   beyond about 5. `#47` hit this directly and could only characterise 5
+   fights.
+2. **The fix cannot be validated retroactively.** There is no historical
+   baseline to compare a corrected leaderboard against, because the
+   uncorrected leaderboard is all that was ever retained. Verification of
+   `#46` has to be set up *before* the fix ships — pin coarse-tier fights
+   deliberately, or the before-and-after comparison will not exist. This
+   is the same trap §13 step 4's pinned `adventure-fights-summary/`
+   snapshot was added to solve, and the summary tier is exactly the tier
+   that cannot help here.
+
+**#47 — A Water Golem dealing 3.3e12 per hit — CLOSED 2026-08-23, NOT A
+CODE DEFECT.** Cause was configuration: a percent-vs-fraction units error
+in the live icicle tunable, owner-confirmed, resolved same day by live
+tunable with no deploy. Full write-up in the **Closed** section. It
+spawned `#56` (the admin control that caused it) and an amendment to
+`#46` (golem-selection prerequisite). **Live confirmation of the new
+values is still outstanding** — see the closed entry.
 
 **#48 — Three live passive overrides are inert (TUNABLES DOCTRINE
 violation)**
@@ -791,6 +905,50 @@ because a future reader will act on this line.
 Correctness note, not a balance one — the mismatch only bites where the
 raw magnitude would otherwise exceed 0.30, which `#49`'s uncapped
 siblings show is reachable.
+
+**#56 — The icicle-damage admin control contradicts its own units**
+Opened 2026-08-23. **This is what caused `#47`**, and it is still live —
+`#47` was resolved by correcting the stored values, which does nothing
+about the control that invited the error.
+
+One widget, two different units:
+
+| Where | Text |
+|---|---|
+| adventure_web.rs:3677 | label: `Icicle Damage **%** (Rank 1)` |
+| adventure_web.rs:3679 | hint: `0 to 1 — **fraction** of the dead enemy's max HP` |
+| adventure_web.rs:3678 | input: `min="0" max="1"` |
+
+An operator reading the label and entering `0.3 / 0.6 / 0.9` reasonably
+believes they have set 0.3% / 0.6% / 0.9% — a gentle per-rank ramp just
+under the documented 1%. They have in fact set **30% / 60% / 90%**, 30-90x
+the intended value. That is exactly what happened.
+
+**`max="1"` reads as a safety rail and provides none.** It blocks >100%
+while permitting 90%, so the one value that mattered sailed through. A
+bound that only rejects the physically impossible is not a guard against
+a units error — the plausible-but-wrong value is always inside it.
+
+Same family as `#48`: **a control surface whose stated units do not match
+what it stores.** `#48` is a control that saves values nothing reads;
+this is a control that reads values but not in the units it claims. Both
+fail silently and in both directions, and neither produces an error, a
+warning, or a log line. Worth reading the two together when the admin
+page is next touched.
+
+Corroborating evidence that this is a units trap and not a one-off slip:
+the entered values `0.3 / 0.6 / 0.9` form a clean 1x/2x/3x ramp, which is
+what someone typing percentages produces — the code default is a flat
+`0.01` at every rank, so the live config was not a scaled version of the
+default curve, it was a differently-shaped curve that only parses as
+percents. The correction (`0.003 / 0.006 / 0.009`) preserves that ramp,
+which means **the operator's intent was always expressible** — only the
+units were wrong.
+
+Not investigated: whether any other tunable on that page carries the same
+label/hint mismatch. That sweep is worth doing once rather than
+discovering the next one the way this one was discovered. Every
+`_pct_`-suffixed field clamped `0.0..1.0` is a candidate.
 
 **#45 — `pending_veils` holds one entry per player; a second veiled
 craft silently orphans the first's spent token**
@@ -1082,6 +1240,54 @@ logging-only ledger entry, but no such entry exists in this file (the
 prior finding lived only in auto-memory, unnumbered, and said "at least
 8" writers where the true count is ten); and `#54`'s `effective_rank` is
 `rank.min(3)`, a ceiling at 3, not a floor.
+
+**Same day, after the `#47` investigation.** `#47` **closed — not a code
+defect** — and one new entry opened (`#56`). Running total for this
+sweep: opened `#46`-`#54` and `#56`, closed `#47` and `#55`, leaving
+**eight open**.
+
+`#47`'s cause was **configuration, not code**: the icicle tunable was
+live at 0.3/0.6/0.9 against a code default of 0.01 — a
+percent-vs-fraction units error, owner-confirmed. One support golem was
+dealing 5.74e14 against the top player's 9.477e13, **6.1x the
+highest-damage character in the game**. Resolved same day by live tunable
+(0.003/0.006/0.009, preserving the intended 1x/2x/3x ramp), no deploy.
+
+Two things about that closure that must not be lost:
+
+1. **It is not verified.** The closure rests on arithmetic, not on live
+   observation. Expected result is ~8% of a top DPS; nobody has yet
+   watched a fight confirm it. The closed entry names the check and the
+   reopen condition. **Do not treat `#47` as settled until that check is
+   run** — and pin a coarse-tier fight before analysing, because the
+   coarse tier holds only 5 and rotated *during* the original
+   investigation.
+2. **The control that caused it is still live.** `#47` was fixed by
+   correcting stored values; `#56` is the widget that invited the wrong
+   ones — label says `%`, hint says `fraction`, and `max="1"` blocks
+   >100% while permitting 90%. Fixing values without fixing the control
+   means the next operator repeats it.
+
+`#47` also produced two **amendments to `#46`**, both prerequisites
+rather than commentary. First: `handle_shattering_on_enemy_death` picks
+the first Water Golem by array order on a doc-stated assumption that is
+already false now the tunable is rank-dependent — once `#46` credits
+Environmental damage, the largest single row on the leaderboard is
+assigned by array order. Second: **`#46` erases its own evidence.** The
+200-fight summary tier is built from the very function that drops
+Environmental, so zero Environmental data and zero golem rows exist
+across all 200 files (confirmed by direct scan). Long-window analysis of
+this damage class is impossible until `#46` is fixed, and — the part that
+needs acting on *before* the fix — there is no historical baseline to
+validate the fix against, so verification has to be set up in advance.
+
+Method note for this half: unlike the entries above, `#47` **was**
+investigated directly against live fight data (coarse-tier events, the
+roster, the live tunables file) rather than carried forward. Its
+magnitudes are this session's own measurements. One premise correction is
+on the record inside it: the investigation was framed as tracing summoner
+stats through `GOLEM_STAT_SCALE`, and that constant is not in the icicle
+path at all.
 
 ## Deploy record — 2026-08-23, dynamic pacing release
 
