@@ -197,3 +197,4 @@ REPORTS/
 # same "backup before overwrite" discipline as every backup-pre-* above.
 /backup-pre-fail-loud
 /backup-pre-build-seam
+/backup-pre-dynamic-pacing
