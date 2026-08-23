@@ -14764,18 +14764,56 @@ pub(crate) fn simulate_battle(
     (won, unit_infos, events, rolls)
 }
 
-/// How long the overlay should actually take to play a fight back,
-/// regardless of how long the real simulated fight naturally ran — a
-/// one-hit boss kill and a 90-second slugfest both need to read well as
-/// an on-screen encounter. Rescales every event's timestamp by the same
-/// factor, so the real fight's *shape* (who acted when, relative to
-/// everyone else) is preserved, just sped up or slowed down uniformly.
+/// Readability FLOOR for the short end: a one-hit kill still needs to
+/// last long enough to read as an encounter, so anything shorter is
+/// stretched. Unchanged since it was written, and it cannot collide with
+/// Controller A, whose own floor (`target_duration_min_s`, 30s) sits far
+/// above it.
 pub(crate) const MIN_DISPLAY_MS: u32 = 6_000;
-pub(crate) const MAX_DISPLAY_MS: u32 = 35_000;
 
-pub(crate) fn compress_events(events: Vec<CombatEvent>) -> (Vec<CombatEvent>, u32) {
+/// The upper end of the display window for a fight generated under `t`.
+///
+/// **Derived from `target_duration_max_s`, never hardcoded.** A
+/// presentation clamp must never bind inside Controller A's operating
+/// range: this used to be a flat `MAX_DISPLAY_MS = 35_000`, which meant
+/// every real duration from 35s to A's 45s ceiling rendered as exactly
+/// 35s of screen time. A was doing real work up there - inflating boss HP
+/// pools by up to ~29% to move duration from 35s toward its 37.5s
+/// midpoint target - that no player could see as duration. Deriving the
+/// bound makes that failure structurally impossible: widen the window and
+/// the bound widens with it.
+///
+/// The only hard bound left is `PLAYBACK_CADENCE_CEILING_MS`, which
+/// protects fight CADENCE rather than readability (see its own doc). If
+/// an owner sets `target_duration_max_s` past it, the cadence ceiling
+/// wins - stacking encounters is a functional failure, while invisible
+/// steering is a fidelity one - and the fix is to raise
+/// `RAMPAGE_MIN_INTERVAL`, which the ceiling is derived from.
+pub(crate) fn display_upper_bound_ms(t: &LiveTunables) -> u32 {
+    let target_max_ms = pacing::finite_or(t.target_duration_max_s, pacing::defaults::TARGET_DURATION_MAX_S).max(0.0) * 1000.0;
+    // `target_max_ms` is finite but may be astronomically large; clamp in
+    // f64 BEFORE the cast so an absurd tunable saturates instead of
+    // wrapping (same discipline as pacing.rs's own casts).
+    let derived = target_max_ms.round().clamp(0.0, PLAYBACK_CADENCE_CEILING_MS as f64) as u32;
+    derived.clamp(MIN_DISPLAY_MS, PLAYBACK_CADENCE_CEILING_MS)
+}
+
+/// How long the overlay should actually take to play a fight back.
+/// Rescales every event's timestamp by one shared factor, so the real
+/// fight's *shape* (who acted when, relative to everyone else) is
+/// preserved, just sped up or slowed down uniformly.
+///
+/// **Inside `[target_duration_min_s, target_duration_max_s]` the scale is
+/// exactly 1.0 by construction** - the display window contains the whole
+/// pacing window, so simulated duration and player-experienced duration
+/// are the same number there, and the identity case returns the events
+/// untouched rather than round-tripping them through float math.
+pub(crate) fn compress_events(events: Vec<CombatEvent>, t: &LiveTunables) -> (Vec<CombatEvent>, u32) {
     let real_duration = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
-    let display_duration = real_duration.clamp(MIN_DISPLAY_MS, MAX_DISPLAY_MS);
+    let display_duration = real_duration.clamp(MIN_DISPLAY_MS, display_upper_bound_ms(t));
+    if display_duration == real_duration {
+        return (events, display_duration);
+    }
     let scale = display_duration as f64 / real_duration as f64;
     let rescaled = events
         .into_iter()
@@ -15572,7 +15610,7 @@ mod full_detail_combat_log_tests {
                 source_kind: AttackSourceKind::Direct,
             },
         ];
-        let (compressed, _display_duration_ms) = compress_events(events);
+        let (compressed, _display_duration_ms) = compress_events(events, &LiveTunables::default());
         assert_eq!(compressed.len(), 2);
         let kinds: Vec<AttackSourceKind> = compressed
             .iter()
@@ -15582,6 +15620,106 @@ mod full_detail_combat_log_tests {
             })
             .collect();
         assert_eq!(kinds, vec![AttackSourceKind::Dot, AttackSourceKind::Direct], "source_kind must survive compress_events' rescale, not reset to Direct");
+    }
+
+    /// One `Attack` at `at_ms`, plus a marker at 0, so a fight of any
+    /// chosen real duration can be built for the display-window tests.
+    fn fight_lasting(at_ms: u32) -> Vec<CombatEvent> {
+        [0, at_ms]
+            .iter()
+            .map(|t| CombatEvent::Attack {
+                at_ms: *t,
+                attacker: "attacker".to_string(),
+                target: "target".to_string(),
+                damage: 1,
+                unmitigated_damage: 1,
+                target_hp_after: 1,
+                is_crit: false,
+                evaded: false,
+                hit_id: 1,
+                source_kind: AttackSourceKind::Direct,
+            })
+            .collect()
+    }
+
+    /// THE invariant this whole derivation exists for: anywhere inside
+    /// Controller A's target window, simulated duration and
+    /// player-experienced duration are the same number, and no event's
+    /// timestamp moves at all.
+    #[test]
+    fn inside_the_target_window_the_display_scale_is_exactly_one() {
+        let t = LiveTunables::default();
+        let min_ms = (t.target_duration_min_s * 1000.0) as u32;
+        let max_ms = (t.target_duration_max_s * 1000.0) as u32;
+        for real_ms in [min_ms, 33_000, 37_500, 41_000, max_ms] {
+            let (compressed, display) = compress_events(fight_lasting(real_ms), &t);
+            assert_eq!(display, real_ms, "real {real_ms}ms must display as itself - a clamp binding here is invisible work for Controller A");
+            let ats: Vec<u32> = compressed.iter().map(|e| e.at_ms()).collect();
+            assert_eq!(ats, vec![0, real_ms], "no timestamp may move inside the window");
+        }
+    }
+
+    /// The bound is DERIVED, so widening the pacing window widens it too -
+    /// the failure mode (a hardcoded clamp eating the top of the window)
+    /// cannot be reintroduced by a tunable edit.
+    #[test]
+    fn raising_the_target_ceiling_raises_the_display_bound_with_it() {
+        let mut t = LiveTunables::default();
+        assert_eq!(display_upper_bound_ms(&t), 45_000, "default bound tracks target_duration_max_s (45s), not a hardcoded 35s");
+        // A 48s fight is compressed at the default ceiling...
+        let (_, display) = compress_events(fight_lasting(48_000), &t);
+        assert_eq!(display, 45_000);
+        // ...and stops being compressed the moment the window admits it.
+        t.target_duration_max_s = 50.0;
+        assert_eq!(display_upper_bound_ms(&t), 50_000);
+        let (compressed, display) = compress_events(fight_lasting(48_000), &t);
+        assert_eq!(display, 48_000, "the derived bound followed the widened window");
+        assert_eq!(compressed.iter().map(|e| e.at_ms()).collect::<Vec<_>>(), vec![0, 48_000]);
+    }
+
+    /// The one hard bound left is about CADENCE, and it holds against any
+    /// tunable value - including ones that would overflow a cast.
+    #[test]
+    fn the_cadence_ceiling_holds_for_pathological_targets() {
+        assert_eq!(PLAYBACK_CADENCE_CEILING_MS, 52_500, "derived from RAMPAGE_MIN_INTERVAL minus the charge/resolve/gate overhead");
+        let mut t = LiveTunables::default();
+        // A FINITE but absurd ceiling saturates at the cadence cap...
+        for absurd in [1.0e6_f64, 1.0e300, f64::MAX] {
+            t.target_duration_max_s = absurd;
+            assert_eq!(display_upper_bound_ms(&t), PLAYBACK_CADENCE_CEILING_MS, "target_duration_max_s = {absurd} must saturate at the cadence ceiling, never wrap");
+        }
+        // ...while a NON-finite one never reaches this arithmetic at all:
+        // `finite_or` substitutes the shipped default first (pacing.rs's
+        // own doctrine - a poisoned dial reads as its default, it does not
+        // read as "unbounded").
+        for poisoned in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            t.target_duration_max_s = poisoned;
+            assert_eq!(
+                display_upper_bound_ms(&t),
+                (pacing::defaults::TARGET_DURATION_MAX_S * 1000.0) as u32,
+                "a non-finite target_duration_max_s substitutes the shipped default, not the ceiling"
+            );
+        }
+        t.target_duration_max_s = 1.0e6;
+        let (_, display) = compress_events(fight_lasting(600_000), &t);
+        assert_eq!(display, PLAYBACK_CADENCE_CEILING_MS, "a 10-minute fight still fits inside one rampage interval");
+        // A negative/zero ceiling can never invert the clamp either.
+        for degenerate in [0.0_f64, -5.0] {
+            t.target_duration_max_s = degenerate;
+            assert_eq!(display_upper_bound_ms(&t), MIN_DISPLAY_MS, "the readability floor is the last line, and clamp(lo, hi) never inverts");
+        }
+    }
+
+    /// The short end is untouched by any of this.
+    #[test]
+    fn the_readability_floor_still_stretches_short_fights() {
+        let t = LiveTunables::default();
+        assert_eq!(MIN_DISPLAY_MS, 6_000);
+        let (compressed, display) = compress_events(fight_lasting(2_000), &t);
+        assert_eq!(display, MIN_DISPLAY_MS, "a 2s fight still stretches to the 6s floor");
+        assert_eq!(compressed.iter().map(|e| e.at_ms()).collect::<Vec<_>>(), vec![0, 6_000], "stretched 3x, shape preserved");
+        let (_, display) = compress_events(fight_lasting(6_000), &t);
+        assert_eq!(display, 6_000, "exactly at the floor, nothing moves");
     }
 
     #[test]

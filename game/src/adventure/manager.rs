@@ -153,7 +153,41 @@ pub const RAMPAGE_ENCOUNTER_COUNT: u32 = 50;
 /// delays if the current fight is taking longer than 1 minute)"). The
 /// actual wait is `max(RAMPAGE_MIN_INTERVAL, this fight's real overlay
 /// playback time)`, so a long fight is never interrupted mid-replay.
-pub const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_secs(60);
+pub const RAMPAGE_MIN_INTERVAL_MS: u64 = 60_000;
+pub const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_millis(RAMPAGE_MIN_INTERVAL_MS);
+
+/// The overlay's two fixed, event-free phases around every fight, and the
+/// spacing `run_encounter`/`run_basic_encounter` add after playback ends.
+/// Named (they were duplicated integer literals at five call sites) so
+/// the cadence budget below can be DERIVED from them rather than guessed
+/// alongside them - see `overlay.html`'s `CHARGE_MS`/`RESOLVE_MS`, which
+/// are the client-side halves of the same two numbers.
+pub const OVERLAY_CHARGE_MS: u64 = 700;
+pub const OVERLAY_RESOLVE_MS: u64 = 1_800;
+pub const FIGHT_GATE_MARGIN_MS: u64 = 5_000;
+
+/// The longest an encounter's overlay playback may run before it starts
+/// eating the rampage cadence - **a cadence cap, not a readability
+/// preference**.
+///
+/// The budget, entirely from the code above: after a fight resolves at
+/// T, `spawn_rampage_loop` sleeps `max(charge + display + resolve,
+/// RAMPAGE_MIN_INTERVAL)` while `run_encounter`'s gate independently
+/// holds the next fight until `T + charge + display + resolve +
+/// FIGHT_GATE_MARGIN_MS`. The next encounter therefore starts at
+/// `T + max(RAMPAGE_MIN_INTERVAL, charge + display + resolve + margin)`,
+/// so the 60s design interval survives exactly while
+/// `display <= RAMPAGE_MIN_INTERVAL - charge - resolve - margin` =
+/// 52,500 ms. Past that every encounter stretches the interval it was
+/// supposed to fit inside.
+///
+/// This is the ONLY hard bound on display length. It is deliberately not
+/// a presentation choice: the upper bound that governs normal fights is
+/// derived from `target_duration_max_s` (see
+/// `combat::display_upper_bound_ms`), because a presentation clamp that
+/// binds inside Controller A's operating range turns the top of A's
+/// window into work no player can see.
+pub const PLAYBACK_CADENCE_CEILING_MS: u32 = (RAMPAGE_MIN_INTERVAL_MS - OVERLAY_CHARGE_MS - OVERLAY_RESOLVE_MS - FIGHT_GATE_MARGIN_MS) as u32;
 /// !rampage vote (2026-08-17, a live request: "if 3 or more players use
 /// !rampage it will start a rampage without a mod activating the
 /// command, similar to a vote") - how many DISTINCT non-mod voters it
@@ -1327,11 +1361,15 @@ pub struct EncounterResult {
     pub display_duration_ms: u32,
     /// The fight's real, uncompressed event-clock length (2026-08-19,
     /// Release 2 observability) — the last event's `at_ms` BEFORE
-    /// `compress_events` rescales it into `display_duration_ms`'s fixed
-    /// 6-35s window. `display_duration_ms` caps at `MAX_DISPLAY_MS`
-    /// (35,000) regardless of how long the real fight ran, so any
-    /// analysis of real elapsed time (redistribution timing, golem
-    /// reform cadence, proc-rate-per-second) needs this instead.
+    /// `compress_events` rescales it into `display_duration_ms`'s window.
+    /// The two are now EQUAL for any fight inside Controller A's target
+    /// duration window (the display bound is derived from
+    /// `target_duration_max_s` - see `combat::display_upper_bound_ms`),
+    /// and differ only for fights shorter than `MIN_DISPLAY_MS` (6s,
+    /// stretched) or longer than `PLAYBACK_CADENCE_CEILING_MS` (52.5s,
+    /// compressed). Any analysis of real elapsed time (redistribution
+    /// timing, golem reform cadence, proc-rate-per-second) still wants
+    /// this field rather than the display one.
     #[serde(default)]
     pub real_duration_ms: u32,
     /// Empty on a loss - see `run_encounter`'s loot roll (one drop per 5
@@ -4404,7 +4442,7 @@ impl AdventureManager {
                             self.announce_rampage_complete();
                         }
                     }
-                    let playback_ms = 700u64 + duration_ms.unwrap_or(0) as u64 + 1800;
+                    let playback_ms = OVERLAY_CHARGE_MS + duration_ms.unwrap_or(0) as u64 + OVERLAY_RESOLVE_MS;
                     let wait = Duration::from_millis(playback_ms).max(RAMPAGE_MIN_INTERVAL);
                     tokio::time::sleep(wait).await;
                 }
@@ -4645,8 +4683,8 @@ impl AdventureManager {
             tokio::time::sleep(*gate - now).await;
         }
         let result = self.run_encounter_inner(forced_boss).await;
-        let overlay_playback_ms = result.map(|ms| 700u64 + ms as u64 + 1800).unwrap_or(0);
-        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms) + Duration::from_secs(5);
+        let overlay_playback_ms = result.map(|ms| OVERLAY_CHARGE_MS + ms as u64 + OVERLAY_RESOLVE_MS).unwrap_or(0);
+        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms + FIGHT_GATE_MARGIN_MS);
         result
     }
 
@@ -4754,7 +4792,7 @@ impl AdventureManager {
             _ => acc,
         });
         let pacing_sample_dps = (dealt_to_enemies.min(enemy_pool)) as f64 / ((real_duration_ms as f64 / 1000.0).max(0.001));
-        let (events, display_duration_ms) = compress_events(events);
+        let (events, display_duration_ms) = compress_events(events, &tunables);
 
         // Anyone this fight's log actually knocked out (a real Defeat
         // event, not just "didn't fight") sits out the next REVIVE_DURATION
@@ -5204,7 +5242,7 @@ impl AdventureManager {
         {
             let manager = Arc::clone(self);
             let result_for_announce = result.clone();
-            let delay_ms = 700u64 + display_duration_ms as u64;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 manager.announce_encounter_result(&result_for_announce).await;
@@ -5234,7 +5272,7 @@ impl AdventureManager {
         let rampage_active = self.rampage_active().await;
         if !newly_downed.is_empty() && !rampage_active {
             let manager = Arc::clone(self);
-            let delay_ms = 700u64 + display_duration_ms as u64 + 1800;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64 + OVERLAY_RESOLVE_MS;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 let revive_at = SystemTime::now() + REVIVE_DURATION;
@@ -5281,8 +5319,8 @@ impl AdventureManager {
             tokio::time::sleep(*gate - now).await;
         }
         let result = self.run_basic_encounter_inner().await;
-        let overlay_playback_ms = result.map(|ms| 700u64 + ms as u64 + 1800).unwrap_or(0);
-        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms) + Duration::from_secs(5);
+        let overlay_playback_ms = result.map(|ms| OVERLAY_CHARGE_MS + ms as u64 + OVERLAY_RESOLVE_MS).unwrap_or(0);
+        *gate = Instant::now() + Duration::from_millis(overlay_playback_ms + FIGHT_GATE_MARGIN_MS);
         result.is_some()
     }
 
@@ -5339,7 +5377,7 @@ impl AdventureManager {
         // NO Controller A sample is computed here (2026-08-23 owner
         // ruling): a filler fight is not a pacing signal. See this
         // function's own doc and the pacing block that used to live below.
-        let (events, display_duration_ms) = compress_events(events);
+        let (events, display_duration_ms) = compress_events(events, &tunables);
 
         let newly_downed: Vec<String> = events
             .iter()
@@ -5548,7 +5586,7 @@ impl AdventureManager {
         {
             let manager = Arc::clone(self);
             let result_for_announce = result.clone();
-            let delay_ms = 700u64 + display_duration_ms as u64;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 manager.announce_encounter_result(&result_for_announce).await;
@@ -5561,7 +5599,7 @@ impl AdventureManager {
         // playing this fight back.
         if !newly_downed.is_empty() {
             let manager = Arc::clone(self);
-            let delay_ms = 700u64 + display_duration_ms as u64 + 1800;
+            let delay_ms = OVERLAY_CHARGE_MS + display_duration_ms as u64 + OVERLAY_RESOLVE_MS;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 let revive_at = SystemTime::now() + REVIVE_DURATION;
