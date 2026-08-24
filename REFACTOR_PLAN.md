@@ -1234,8 +1234,30 @@ separately, not to an automatic cleanup.
 5. `git push origin master` — keeps origin as the authoritative record
    of what's actually deployed; never skip this even if everything
    "looks" deployed locally.
-6. Clean up the isolated build target-dir.
-7. Report: what shipped, the patch-notes entry added, all relevant
+6. **If this release changed `CLAUDE.md`, refresh the Cline mirror in the
+   deployment root:**
+
+   ```powershell
+   Copy-Item C:\PathofDust\CLAUDE.md C:\PathofDust\.clinerules -Force
+   ```
+
+   Then confirm the two are byte-identical (`Get-FileHash` on both) and
+   say so in the report. `.clinerules` is a verbatim copy of `CLAUDE.md`
+   that the Cline/Ox agent reads instead of `CLAUDE.md`, and it is
+   **gitignored by convention** ("Local agent-tooling copies (never
+   committed)"), so it exists ONLY in the deployment root. That means no
+   feature session can update it: a branch cannot carry it, a merge
+   cannot place it, and any session barred from touching
+   `C:\PathofDust` — which is most of them — cannot write it at all.
+   Nothing anywhere fails when it drifts, so without this step it goes
+   silently stale and Ox sessions keep working from an older rulebook
+   than every Claude session. Found 2026-08-24, when the mirror was a
+   full CLAUDE.md revision behind.
+
+   This is the deploy session's job precisely BECAUSE it is the only
+   session that can reach the file.
+7. Clean up the isolated build target-dir.
+8. Report: what shipped, the patch-notes entry added, all relevant
    hashes (merge/final commit, old/new binary SHA-256 for whichever
    binaries moved), the bot's deploy/skip determination and which paths
    in the diff drove it (or `bot: unchanged, not redeployed (diff-clean)`
