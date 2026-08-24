@@ -1247,15 +1247,122 @@ impl Character {
         EQUIP_SLOTS.iter().filter_map(|&slot| self.equipped(slot).as_ref()).find(|i| i.id == id).or_else(|| self.inventory.iter().find(|i| i.id == id))
     }
 
-    /// Mutable counterpart to `find_item_by_id` - what `Character::craft`
-    /// mutates the target item through, wherever it currently lives.
-    pub(crate) fn find_item_by_id_mut(&mut self, id: &str) -> Option<&mut Item> {
+    /// **The only way to get a `&mut Item` for a mutation a lock is meant
+    /// to be able to stop.** Every currency craft, Polish, Reforge, Divine
+    /// Dust apply, unique-affix apply and Chancing reroll goes through
+    /// here.
+    ///
+    /// This exists because a per-site lock check does not survive contact
+    /// with a growing codebase. Auditing this file on 2026-08-24 turned up
+    /// 34 distinct paths that mutate an item and **five that checked
+    /// nothing at all** - the commit halves of veiled Annulment
+    /// (`apply_annulment_removal`), veiled Chancing (`apply_chancing_reroll`),
+    /// the generic veiled add (`apply_craft_affix`), Unique Shard
+    /// (`apply_unique_affix`) and Recombine (`apply_recombine_roll`). Each
+    /// was defensible in isolation: the matching INSERT-time branch in
+    /// `AdventureManager::craft_item_ex` already checked, and nothing could
+    /// change the flag in between. That argument dies the moment a player
+    /// can toggle a lock from their own dashboard mid-transaction, which is
+    /// exactly what the disenchant-protect tick-box does.
+    ///
+    /// So the check moved to the only place a `&mut Item` can be obtained.
+    /// `find_item_by_id_mut_unguarded` below is private to this module and
+    /// the compiler enumerates every caller - a future mutation path cannot
+    /// forget the guard, because there is no other handle to forget it
+    /// with. The genuine bypasses are named `*_unguarded`, documented one
+    /// by one, and pinned by
+    /// `guard_tests::every_unguarded_item_accessor_is_a_named_exemption`.
+    pub(crate) fn find_mutable_item(&mut self, id: &str) -> Result<&mut Item, CraftError> {
+        let item = self.find_item_by_id_mut_unguarded(id).ok_or(CraftError::ItemNotFound)?;
+        if item.locked {
+            return Err(CraftError::ItemLocked);
+        }
+        Ok(item)
+    }
+
+    /// Mutable counterpart to `find_item_by_id`, with NO lock check -
+    /// private on purpose. Use [`Character::find_mutable_item`]; this is
+    /// its implementation detail, plus the two deliberately-unguarded
+    /// accessors below.
+    fn find_item_by_id_mut_unguarded(&mut self, id: &str) -> Option<&mut Item> {
         for slot in EQUIP_SLOTS {
             if self.equipped(slot).as_ref().is_some_and(|i| i.id == id) {
                 return self.equipped_mut(slot).as_mut();
             }
         }
         self.inventory.iter_mut().find(|i| i.id == id)
+    }
+
+    /// EXEMPTION 1 of 2 (bulk): every item this character owns, equipped
+    /// and bagged, mutably and without a lock check.
+    ///
+    /// The three callers are the ones a lock must NOT stop, because each
+    /// is upkeep rather than modification:
+    ///
+    /// * `grow_krangled_items` - re-tiers Krangled gear on every level-up.
+    ///   Blocking this would silently nerf the entire point of Krangle,
+    ///   and it keys on `locked` being true, so a guard rejecting `locked`
+    ///   would reject exactly the items it is meant to act on.
+    /// * `repair_all_gear` / `repair_all` - durability only (`uses = 0`).
+    ///   Repair has never been lock-gated (see `Item::locked`'s own doc:
+    ///   Krangled gear stays "fully equippable, repairable").
+    /// * `migrations` - startup data fixups. A migration that skipped
+    ///   locked or protected items would leave a permanently inconsistent
+    ///   save, which is strictly worse than the drift it repairs.
+    pub(crate) fn owned_items_mut_unguarded(&mut self) -> impl Iterator<Item = &mut Item> {
+        // Named field-by-field rather than through `equipped_mut` in a
+        // loop: the borrow checker cannot see that five successive
+        // `equipped_mut(slot)` calls touch five DISJOINT fields, so a loop
+        // would need one mutable borrow of `self` per slot and they would
+        // overlap. Listing the fields borrows each exactly once, which is
+        // also why this cannot simply chain over `EQUIP_SLOTS`.
+        [&mut self.weapon, &mut self.helm, &mut self.body, &mut self.gloves, &mut self.boots]
+            .into_iter()
+            .filter_map(|slot| slot.as_mut())
+            .chain(self.inventory.iter_mut())
+    }
+
+    /// EXEMPTION 2 of 2 (single slot): the item in one equip slot, mutably
+    /// and without a lock check. Two callers, both upkeep:
+    ///
+    /// * combat durability wear (`uses += 1` after a boss fight) - the
+    ///   counterpart to repair above, and equally never lock-gated;
+    /// * the one-time crit-reforge equipped backfill in
+    ///   `AdventureManager::new` - a startup make-good grant, same
+    ///   "migrations must not skip anything" reasoning as above.
+    pub(crate) fn equipped_item_mut_unguarded(&mut self, slot: EquipSlot) -> Option<&mut Item> {
+        self.equipped_mut(slot).as_mut()
+    }
+
+    /// Sets (or, with an empty `nickname`, permanently declines) a Krangled
+    /// item's custom name - see `Item::nickname`. `false` if no such item
+    /// exists or it isn't Krangled.
+    ///
+    /// Its own narrow method rather than a raw `&mut Item` handed to
+    /// `AdventureManager::name_item`, because naming is the one mutation
+    /// that REQUIRES `locked` to be true: routing it through
+    /// `find_mutable_item` would reject exactly the items it exists to
+    /// name. Keeping it narrow means the manager never needs an unguarded
+    /// accessor at all, and a nickname can never be the crack a real
+    /// mutation slips through - the only field this can touch is
+    /// `nickname`.
+    pub(crate) fn set_item_nickname(&mut self, item_id: &str, nickname: &str) -> bool {
+        let capped: String = nickname.trim().chars().take(NICKNAME_MAX_LEN).collect();
+        match self.find_item_by_id_mut_unguarded(item_id) {
+            Some(item) if item.locked => {
+                item.nickname = Some(capped);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Test-only handle onto an item, bypassing every guard - lets a test
+    /// in another module set up a locked/unique/sacred fixture directly.
+    /// Never compiled into a release binary.
+    #[cfg(test)]
+    pub(crate) fn item_mut_for_test(&mut self, id: &str) -> Option<&mut Item> {
+        self.find_item_by_id_mut_unguarded(id)
     }
 
     /// Removes and returns an item by id, wherever it currently lives -
@@ -1290,7 +1397,7 @@ impl Character {
     /// bag - recombination is a real forge, not a free reroll.
     pub(crate) fn recombine(&mut self, item_id_a: &str, item_id_b: &str, rng: &mut impl Rng) -> Result<RecombineOutcome, RecombineError> {
         let roll = self.roll_recombine(item_id_a, item_id_b, false, rng)?;
-        Ok(self.apply_recombine_roll(item_id_a, item_id_b, roll, rng))
+        self.apply_recombine_roll(item_id_a, item_id_b, roll, rng)
     }
 
     /// Decides everything a recombine would do (new tier, which affixes
@@ -1441,7 +1548,31 @@ impl Character {
     /// items are ALWAYS consumed on success, even if the result ends up
     /// lost to a full bag - recombination is a real forge, not a free
     /// reroll.
-    pub(crate) fn apply_recombine_roll(&mut self, item_id_a: &str, item_id_b: &str, roll: RecombineRoll, rng: &mut impl Rng) -> RecombineOutcome {
+    ///
+    /// Was the fifth commit half that checked nothing (see
+    /// `find_mutable_item`): `roll_recombine` validated both sources at
+    /// INSERT time and this trusted that, which held only because nothing
+    /// could change either item in between. A player-toggleable lock can,
+    /// so both sources are re-validated here before either is consumed -
+    /// and it now returns a `Result`, because "consumed both items and
+    /// returned an outcome anyway" is not an honest answer to a refused
+    /// recombine. This is the one guard site that cannot go through
+    /// `find_mutable_item`'s handle alone: the mutation is a `take`, not a
+    /// field write, so the check has to be an explicit precondition.
+    pub(crate) fn apply_recombine_roll(
+        &mut self,
+        item_id_a: &str,
+        item_id_b: &str,
+        roll: RecombineRoll,
+        rng: &mut impl Rng,
+    ) -> Result<RecombineOutcome, RecombineError> {
+        for id in [item_id_a, item_id_b] {
+            match self.find_mutable_item(id) {
+                Ok(_) => {}
+                Err(CraftError::ItemNotFound) => return Err(RecombineError::ItemNotFound),
+                Err(_) => return Err(RecombineError::ItemLocked),
+            }
+        }
         self.take_item_by_id(item_id_a);
         self.take_item_by_id(item_id_b);
 
@@ -1456,7 +1587,7 @@ impl Character {
         let item_id = new_item.id.clone();
         self.receive_item(new_item);
 
-        RecombineOutcome { item_id, item_name, slot: roll.slot, new_tier: roll.new_tier, bonus_affix: roll.bonus_affix }
+        Ok(RecombineOutcome { item_id, item_name, slot: roll.slot, new_tier: roll.new_tier, bonus_affix: roll.bonus_affix })
     }
 
     /// Applies one of the currency crafting actions (see `CraftAction`)
@@ -1473,7 +1604,14 @@ impl Character {
     /// anything - the tier bump only ever applies on success.
     pub(crate) fn craft(&mut self, item_id: &str, action: CraftAction, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
         let mut outcome = self.craft_inner(item_id, action, rng)?;
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+        // Unguarded, and it MUST be: `craft_inner` has already run and
+        // already passed the guard, and if the action was Krangle it has
+        // just set `locked` itself (see `apply_craft_affix`). Re-checking
+        // here would reject every Krangle's own tier bump - the item is
+        // locked by the very craft this is the tail of. Authorisation
+        // happened one line up; this is the same craft finishing, not a
+        // new mutation asking permission.
+        let item = self.find_item_by_id_mut_unguarded(item_id).ok_or(CraftError::ItemNotFound)?;
         let bump = if item.tier < 25 { 3 } else if item.tier < 50 { 2 } else { 1 };
         item.sync_tier_to(item.tier + bump);
         outcome.tier = item.tier;
@@ -1486,10 +1624,7 @@ impl Character {
     /// applied uniformly after whichever branch below succeeds.
     pub(crate) fn craft_inner(&mut self, item_id: &str, action: CraftAction, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
         if action == CraftAction::Scour {
-            let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            let item = self.find_mutable_item(item_id)?;
             if item.affixes.is_empty() {
                 return Err(CraftError::NothingToRemove);
             }
@@ -1545,7 +1680,7 @@ impl Character {
             if self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id) && self.has_conflicting_unique_affix_value(UniqueAffix::CelestialConversion, slot) {
                 return Err(CraftError::ConflictingUniqueAffix);
             }
-            let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+            let item = self.find_mutable_item(item_id)?;
             let item_name = item.name.clone();
             let tier = item.tier;
             let perfect = item.perfect;
@@ -1642,7 +1777,7 @@ impl Character {
     /// `roll_craft_affix_value`) go through.
     pub(crate) fn apply_craft_affix(&mut self, item_id: &str, action: CraftAction, affix: Affix, value: f64) -> Result<CraftOutcome, CraftError> {
         let level = self.level;
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+        let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
         item.affixes.push((affix, value));
@@ -1689,10 +1824,7 @@ impl Character {
     /// `recombine_crit_used` are derived from presence in `affixes`, so
     /// removing the entry here already re-opens that gate on its own.
     pub(crate) fn annul_random_affix(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
-        }
+        let item = self.find_mutable_item(item_id)?;
         if item.affixes.is_empty() {
             return Err(CraftError::NothingToRemove);
         }
@@ -1729,7 +1861,7 @@ impl Character {
     /// nothing else mutates the item between the veil roll and this
     /// commit.
     pub(crate) fn apply_annulment_removal(&mut self, item_id: &str, affix: Affix) -> Result<CraftOutcome, CraftError> {
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+        let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
         let tier = item.tier;
@@ -1779,7 +1911,7 @@ impl Character {
         if self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id) && self.has_conflicting_unique_affix_value(unique, slot) {
             return Err(CraftError::ConflictingUniqueAffix);
         }
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+        let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
         let tier = item.tier;
@@ -1836,7 +1968,7 @@ impl Character {
             let pool = self.craftable_affix_pool(item_id, CraftAction::Chancing)?;
             let new_affix = *weighted_affix_pick(&pool, 1, rng).first().ok_or(CraftError::NoCandidatesLeft)?;
             let new_value = self.roll_craft_affix_value(item_id, new_affix, rng).ok_or(CraftError::ItemNotFound)?;
-            let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
+            let item = self.find_mutable_item(item_id)?;
             if let Some(slot_entry) = item.affixes.iter_mut().find(|(a, _)| *a == old_affix) {
                 *slot_entry = (new_affix, new_value);
             }
@@ -1871,8 +2003,14 @@ impl Character {
     /// `(Affix, f64)` tuple with `(new_affix, new_value)`, same
     /// `crit_bonus_affixes`-follows-the-slot behavior as the non-veiled
     /// path (`chance_all_affixes`).
+    /// Was one of the five commit halves that checked nothing (see
+    /// `find_mutable_item`) - it now goes through the guard like every
+    /// other mutation, so a lock that appeared between this veil's insert
+    /// and this commit stops it. `.ok()?` because this reports failure as
+    /// `None` rather than a `CraftError`, and a rejected commit is exactly
+    /// the "slot could not be rerolled" case the `None` already meant.
     pub(crate) fn apply_chancing_reroll(&mut self, item_id: &str, old_affix: Affix, new_affix: Affix, new_value: f64) -> Option<()> {
-        let item = self.find_item_by_id_mut(item_id)?;
+        let item = self.find_mutable_item(item_id).ok()?;
         let entry = item.affixes.iter_mut().find(|(a, _)| *a == old_affix)?;
         *entry = (new_affix, new_value);
         if let Some(pos) = item.crit_bonus_affixes.iter().position(|&(a, _)| a == old_affix) {
@@ -1906,10 +2044,7 @@ impl Character {
     pub(crate) fn polish(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
         const QUALITY_STEP: f64 = 0.05;
         let jitter_span = POWER_ROLL_RANGE.end - POWER_ROLL_RANGE.start;
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
-        }
+        let item = self.find_mutable_item(item_id)?;
         // Refuse the craft entirely (no sand deducted - this check runs
         // BEFORE the caller ever computes/charges a cost) when nothing on
         // the item could actually improve - 2026-08-17, a live report:
@@ -1996,10 +2131,7 @@ impl Character {
     /// matches that instead. Same underlying tier-jump/rare-bonus-affix
     /// logic otherwise.
     pub(crate) fn reforge_item(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<ReforgeOutcome, CraftError> {
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
-        }
+        let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
         let old_tier = item.tier;
@@ -2057,10 +2189,7 @@ impl Character {
     ///   has 17 variants, excluding 1 always leaves 16) but implemented
     ///   and tested per the spec's explicit call for the guard.
     pub(crate) fn apply_divine_dust(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<DivineDustOutcome, CraftError> {
-        let item = self.find_item_by_id_mut(item_id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
-        }
+        let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
         let tier = item.tier;
@@ -2217,12 +2346,9 @@ impl Character {
     /// auto-repair-on-retreat payoff (see `retreated_since`), not a
     /// dust-costing action.
     pub(crate) fn repair_all_gear(&mut self) {
-        for slot in EQUIP_SLOTS {
-            if let Some(item) = self.equipped_mut(slot) {
-                item.uses = 0;
-            }
-        }
-        for item in self.inventory.iter_mut() {
+        // Unguarded on purpose - durability is upkeep, not modification;
+        // see `owned_items_mut_unguarded`.
+        for item in self.owned_items_mut_unguarded() {
             item.uses = 0;
         }
     }
@@ -2296,14 +2422,8 @@ impl Character {
             return Err(RepairError::InsufficientDust(cost));
         }
         self.dust -= cost;
-        for slot in EQUIP_SLOTS {
-            if let Some(item) = self.equipped_mut(slot) {
-                if item.needs_repair() {
-                    item.uses = 0;
-                }
-            }
-        }
-        for item in self.inventory.iter_mut() {
+        // Unguarded on purpose - see `owned_items_mut_unguarded`.
+        for item in self.owned_items_mut_unguarded() {
             if item.needs_repair() {
                 item.uses = 0;
             }
@@ -3445,17 +3565,119 @@ impl Character {
     /// stayed frozen, which made the tier number purely cosmetic.
     pub(crate) fn grow_krangled_items(&mut self) {
         let level = self.level;
-        for slot in EQUIP_SLOTS {
-            if let Some(item) = self.equipped_mut(slot) {
-                if item.locked {
-                    item.sync_tier_to(level);
-                }
-            }
-        }
-        for item in self.inventory.iter_mut() {
+        // Unguarded on purpose, and this is the clearest case of the five:
+        // the guard rejects `locked`, and `locked` is precisely the set
+        // this iterates. Routed through the guard it would grow nothing at
+        // all. See `owned_items_mut_unguarded`.
+        for item in self.owned_items_mut_unguarded() {
             if item.locked {
                 item.sync_tier_to(level);
             }
+        }
+    }
+}
+
+/// The mechanism half of the mutation guard (see
+/// `Character::find_mutable_item`). The guard itself is enforced by the
+/// compiler - `find_item_by_id_mut_unguarded` is a private fn, so nothing
+/// outside this module can reach it. What the compiler CANNOT enforce is
+/// that the deliberately-public bypasses stay confined to the handful of
+/// upkeep paths they were carved out for, so that is pinned here by
+/// scanning the source, the same way
+/// `passive_overrides::the_stale_druid_rework_reads_stay_removed` pins the
+/// absence of stale combat reads.
+#[cfg(test)]
+mod guard_tests {
+    /// Every production source file that is allowed to reach an item
+    /// mutably WITHOUT the lock guard, and the one reason each is exempt.
+    /// Adding a file here is a design decision, not a formality: it means
+    /// asserting that the mutation it performs is upkeep the player's lock
+    /// is not meant to be able to stop.
+    const EXEMPT: &[(&str, &str, &str)] = &[
+        ("character.rs", include_str!("character.rs"), "defines the accessors; repair + Krangle growth are upkeep, not modification"),
+        ("migrations.rs", include_str!("migrations.rs"), "one-shot startup fixups - skipping items would leave a half-migrated save"),
+        ("manager.rs", include_str!("manager.rs"), "post-fight durability wear and the one-time crit-reforge backfill"),
+        ("combat.rs", include_str!("combat.rs"), "test fixture only - builds a geared character to simulate with"),
+    ];
+
+    /// The bypass accessors, and which of the files above may name them.
+    /// `equipped_mut` is on the list because it hands out a
+    /// `&mut Option<Item>`: legitimate for moving an item into or out of a
+    /// slot, but equally a way to reach the item inside without passing
+    /// the guard, so its reach is pinned too.
+    const BYPASSES: &[(&str, &[&str])] = &[
+        ("owned_items_mut_unguarded", &["character.rs", "migrations.rs"]),
+        ("equipped_item_mut_unguarded", &["character.rs", "manager.rs", "combat.rs"]),
+        ("equipped_mut(", &["character.rs", "migrations.rs"]),
+    ];
+
+    #[test]
+    fn every_unguarded_item_accessor_is_a_named_exemption() {
+        for &(bypass, allowed) in BYPASSES {
+            for &(file, source, _) in EXEMPT {
+                let uses = source.matches(bypass).count();
+                if uses > 0 && !allowed.contains(&file) {
+                    panic!(
+                        "{file} reaches an item through `{bypass}` {uses}x, but is not on that bypass's allowlist. \
+                         Either route the mutation through Character::find_mutable_item, or - if it is genuinely \
+                         upkeep a player's lock must not stop - add {file} to BYPASSES with a written reason."
+                    );
+                }
+            }
+        }
+    }
+
+    /// The guard is only worth anything if the unguarded finder stays
+    /// private. A `pub`/`pub(crate)` on it would silently reopen all 34
+    /// mutation paths to the rest of the crate, and nothing else would
+    /// complain - the code would keep compiling and the tests would keep
+    /// passing.
+    ///
+    /// Inspects the DECLARATION LINE rather than searching the file for a
+    /// `pub ...` spelling: `include_str!` pulls in this test module too, so
+    /// a literal naming the forbidden form would match itself and the test
+    /// would fail on its own text. Filtering on `fn <name>(` also excludes
+    /// every call site, which reads `self.<name>(`.
+    #[test]
+    fn the_unguarded_finder_stays_private_to_this_module() {
+        let needle = format!("fn {}(", "find_item_by_id_mut_unguarded");
+        let declaration = include_str!("character.rs")
+            .lines()
+            .find(|line| line.contains(&needle))
+            .unwrap_or_else(|| panic!("{needle} was renamed or removed - re-point this test at whatever replaced it"));
+        assert!(
+            declaration.trim_start().starts_with("fn "),
+            "the unguarded finder has been given visibility outside this module ({}) - that is the whole guard, undone",
+            declaration.trim()
+        );
+    }
+
+    /// The five commit halves that checked nothing before 2026-08-24 (see
+    /// `find_mutable_item`'s doc). Each is named individually so that a
+    /// revert shows up as a specific, greppable failure rather than a
+    /// vague one.
+    #[test]
+    fn the_five_unchecked_commit_halves_go_through_the_guard() {
+        let source = include_str!("character.rs");
+        // The audit's own row numbers, kept so a failure here traces
+        // straight back to the table that found them.
+        for (function, row) in [
+            ("apply_annulment_removal", 6),
+            ("apply_chancing_reroll", 9),
+            ("apply_craft_affix", 11),
+            ("apply_unique_affix", 13),
+            // Row 19 consumes both sources with `take_item_by_id` rather
+            // than writing a field, so its guard is an explicit
+            // precondition at the top of the fn - same call, different
+            // shape.
+            ("apply_recombine_roll", 19),
+        ] {
+            let body = source.split(&format!("fn {function}(")).nth(1).unwrap_or_else(|| panic!("{function} must still exist"));
+            let head: String = body.chars().take(700).collect();
+            assert!(
+                head.contains("find_mutable_item"),
+                "{function} (audit row {row}) no longer takes its item through the guard - it was one of the five commit halves that checked nothing"
+            );
         }
     }
 }
@@ -3525,7 +3747,7 @@ mod divine_dust_apply_tests {
             assert_ne!(outcome.new_affix, original_affix, "reroll must never land back on the affix it just replaced");
             // Reset for the next iteration so every roll starts from the
             // same known current affix.
-            character.find_item_by_id_mut(&id).unwrap().sacred_affix = Some((original_affix, 1.0));
+            character.item_mut_for_test(&id).unwrap().sacred_affix = Some((original_affix, 1.0));
         }
     }
 

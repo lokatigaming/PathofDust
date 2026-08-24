@@ -3,13 +3,15 @@
 /// Applies `f` to every item a character has - both equipped slots and
 /// the bag - the "every item this character owns" iteration every
 /// gear-value migration needs (see `run_item_migrations`'s callers).
+///
+/// Deliberately unguarded (see `Character::owned_items_mut_unguarded`): a
+/// migration that skipped locked or disenchant-protected items would leave
+/// a permanently inconsistent save - half a roster on the new shape and
+/// half on the old, with no second chance to finish the job, because every
+/// migration here is marker-gated to run exactly once. That is strictly
+/// worse than the drift it repairs.
 pub(crate) fn for_each_item_mut(character: &mut Character, mut f: impl FnMut(&mut Item)) {
-    for slot in EQUIP_SLOTS {
-        if let Some(item) = character.equipped_mut(slot) {
-            f(item);
-        }
-    }
-    for item in character.inventory.iter_mut() {
+    for item in character.owned_items_mut_unguarded() {
         f(item);
     }
 }

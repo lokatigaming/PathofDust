@@ -1853,7 +1853,7 @@ impl AdventureManager {
                 let mut changed = false;
                 for character in characters.values_mut() {
                     for slot in EQUIP_SLOTS {
-                        let Some(item) = character.equipped_mut(slot) else { continue };
+                        let Some(item) = character.equipped_item_mut_unguarded(slot) else { continue };
                         if !item.legacy_reforge_crit_used || item.reforge_crit_used() {
                             continue;
                         }
@@ -3482,13 +3482,9 @@ impl AdventureManager {
     pub async fn name_item(&self, username: &str, item_id: &str, nickname: &str) {
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&username.to_lowercase()) else { return };
-        let Some(item) = character.find_item_by_id_mut(item_id) else { return };
-        if !item.locked {
+        if !character.set_item_nickname(item_id, nickname) {
             return;
         }
-        let trimmed = nickname.trim();
-        let capped: String = trimmed.chars().take(NICKNAME_MAX_LEN).collect();
-        item.nickname = Some(capped);
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -4171,10 +4167,19 @@ impl AdventureManager {
             }
             (PendingVeilAction::Recombine { item_id_a, item_id_b }, VeilCandidate::Recombine(roll)) => {
                 let mut rng = rand::thread_rng();
-                let outcome = character.apply_recombine_roll(item_id_a, item_id_b, roll.clone(), &mut rng);
-                recombine_crit = Some((outcome.item_name.clone(), outcome.slot, outcome.new_tier, outcome.bonus_affix));
-                character.last_crafted_item_id = Some(outcome.item_id.clone());
-                result = Some(VeilChosenOutcome::Recombine(outcome));
+                // `apply_recombine_roll` re-validates both sources now
+                // (2026-08-24, the guarded-mutation pass) - a lock that
+                // appeared between this veil's insert and this commit
+                // refuses the commit rather than consuming both items
+                // anyway. Nothing has been taken from the character when
+                // it refuses, so falling through leaves the veil resolved
+                // and both items intact, matching how every other
+                // commit-time rejection in this match behaves.
+                if let Ok(outcome) = character.apply_recombine_roll(item_id_a, item_id_b, roll.clone(), &mut rng) {
+                    recombine_crit = Some((outcome.item_name.clone(), outcome.slot, outcome.new_tier, outcome.bonus_affix));
+                    character.last_crafted_item_id = Some(outcome.item_id.clone());
+                    result = Some(VeilChosenOutcome::Recombine(outcome));
+                }
             }
             _ => {}
         }
@@ -4927,7 +4932,7 @@ impl AdventureManager {
                 // after. Basic-enemy filler fights (run_basic_encounter)
                 // don't cost durability at all - only real boss fights do.
                 for slot in EQUIP_SLOTS {
-                    let Some(item) = character.equipped_mut(slot) else { continue };
+                    let Some(item) = character.equipped_item_mut_unguarded(slot) else { continue };
                     let Some(max_uses) = item.max_uses else { continue };
                     if item.uses < max_uses {
                         item.uses += 1;
@@ -7735,7 +7740,7 @@ mod unique_shard_tests {
         let id = joined_with_unique_shard_and_item(&manager, "locker", 1).await;
         {
             let mut characters = manager.characters.lock().await;
-            characters.get_mut("locker").unwrap().find_item_by_id_mut(&id).unwrap().locked = true;
+            characters.get_mut("locker").unwrap().item_mut_for_test(&id).unwrap().locked = true;
         }
 
         let err = manager.craft_item_ex("locker", &id, CraftAction::UniqueShard, false, true).await.expect_err("a locked item must reject");
@@ -7754,7 +7759,7 @@ mod unique_shard_tests {
         let id = joined_with_unique_shard_and_item(&manager, "dupe", 1).await;
         {
             let mut characters = manager.characters.lock().await;
-            characters.get_mut("dupe").unwrap().find_item_by_id_mut(&id).unwrap().unique_affix = Some(UniqueAffix::CelestialConversion);
+            characters.get_mut("dupe").unwrap().item_mut_for_test(&id).unwrap().unique_affix = Some(UniqueAffix::CelestialConversion);
         }
 
         let err = manager.craft_item_ex("dupe", &id, CraftAction::UniqueShard, false, true).await.expect_err("an already-unique item must reject");
