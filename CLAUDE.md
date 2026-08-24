@@ -39,6 +39,49 @@ A parallel session may be overhauling the wiki module at any time.
 7. wiki/*.md files are live content — the owner edits them directly;
    sessions request changes via WIKI_IMPACT.md, never edit them unasked.
 
+## EFFICIENCY — BINDING
+
+Token cost is a hard constraint on this project, not a preference. A task
+that takes four times longer than it should is a failed task even if the
+code is correct.
+
+1. FIND THE PRECEDENT FIRST. This codebase is mature. Almost every task
+   is "do what that other thing already does." Before reading anything
+   broadly, search for an existing feature of the same shape and copy its
+   pattern. Name the precedent you copied in your report. Adding a
+   tunable field means finding the last tunable field that was added and
+   mirroring it in the same four places — not reading the tunables
+   system.
+
+2. NEVER READ A LARGE FILE WHOLE. combat.rs is ~19,000 lines; manager.rs,
+   character.rs, item.rs and adventure_web.rs are also large. Use
+   targeted search and read narrow line ranges around the hits. A
+   whole-file read poisons the rest of the session — context only grows,
+   so every later tool call is charged against it.
+
+3. ONE TASK PER SESSION. Stop at the task boundary and report, even if
+   you have budget left. Multi-stage work runs as separate sessions with
+   clean context. If an order contains several stages, do the first and
+   say so.
+
+4. TEST NARROWLY WHILE WORKING, BROADLY ONCE. Run the single relevant
+   test while iterating. Run the full workspace suite once, before
+   reporting. Report the summary line, not the dump.
+
+5. ANSWER THE QUESTION ASKED. Do not audit adjacent code, enumerate
+   related defects, or verify things nobody asked about. If you notice
+   something, put ONE line in the journal under FOUND and move on. An
+   exhaustive audit is a task someone orders explicitly, never a bonus.
+
+6. STOP WHEN YOU ARE STUCK. If a mechanical problem has taken more than
+   a few attempts, or you are reasoning in circles, stop and report.
+   Trying harder on a stuck problem is the most expensive thing a session
+   can do.
+
+7. REPORT UNDER 400 WORDS. Detail belongs in the commit message, the
+   journal, or a doc that can be read on demand. A long report is charged
+   twice — once to write, once to read.
+
 ## Multi-session house rules (all Claude sessions in this repo)
 
 ROLES. Feature sessions build on branches. The deploy session alone merges to master and deploys. The log parser verifies from fight logs and owns the anomaly ledger (its numbering is canonical). One release at a time, deployed only on the owner's explicit go.
