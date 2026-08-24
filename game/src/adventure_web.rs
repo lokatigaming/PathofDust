@@ -41,7 +41,8 @@ use crate::adventure::{
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
-    NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
+    HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST,
+    WEB_REFORGE_DUST_COST, WINGS_COST,
 };
 use crate::adventure::default_memory_name;
 use crate::adventure::passive_overrides;
@@ -1649,10 +1650,6 @@ async fn do_craft_divine_dust_batch(state: &AppState, login: &str, times: u32) -
     Redirect::to(&divine_dust_craft_popup_url(total, &prefix))
 }
 
-/// The fixed 5-step chain Hideout Warrior runs, in order - the only
-/// sequence of existing `CraftAction::required_affix_count` preconditions
-/// that takes a bare item all the way through to Krangled.
-const HIDEOUT_WARRIOR_STEPS: [CraftAction; 5] = [CraftAction::Transmute, CraftAction::Augment, CraftAction::Regal, CraftAction::Exalt, CraftAction::Krangle];
 
 /// Hideout Warrior (2026-08-17, a live request) - runs every step of
 /// `HIDEOUT_WARRIOR_STEPS` against one item in a single click, always

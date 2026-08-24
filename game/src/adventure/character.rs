@@ -1376,6 +1376,94 @@ impl Character {
         }
     }
 
+    /// Divinity, planning half (2026-08-24) - decides which BAG items the
+    /// Hideout Warrior chain will be run over, reading only. Nothing is
+    /// mutated and no shard is spent here, so a caller can plan, decide the
+    /// run is worthless, and refuse it without having cost the player
+    /// anything.
+    ///
+    /// Bag only, by ruling: equipped gear is what a player is actually
+    /// fighting with and Krangle is irreversible, so Divinity never touches
+    /// a worn item even though the normal crafting picker offers them.
+    ///
+    /// Both kinds of lock are skipped rather than refused, and counted
+    /// separately - "19 already Krangled" and "19 you ticked Keep on" want
+    /// different reactions, and collapsing them into one number would hide
+    /// which.
+    pub(crate) fn plan_divinity(&self) -> DivinityPlan {
+        let mut plan = DivinityPlan { targets: Vec::new(), skipped_krangled: 0, skipped_kept: 0, bag_items: self.inventory.len() };
+        for item in &self.inventory {
+            match item.mutation_block() {
+                Some(CraftError::ItemLocked) => plan.skipped_krangled += 1,
+                Some(_) => plan.skipped_kept += 1,
+                None => plan.targets.push(item.id.clone()),
+            }
+        }
+        plan
+    }
+
+    /// Divinity, applying half - runs `HIDEOUT_WARRIOR_STEPS` over every
+    /// item `plan` selected, paying no dust and consuming no craft tokens.
+    ///
+    /// Identical to what Hideout Warrior does per item, deliberately via
+    /// the same `Character::craft` entry point, so the two cannot diverge
+    /// on affix weighting, jitter, the per-step tier bump, or Krangle's
+    /// level-sync. The ONLY difference is the missing dust deduction, which
+    /// lives in `AdventureManager::craft_item_ex` and is simply never
+    /// reached from here - that is what "waives the dust cost entirely"
+    /// means mechanically.
+    ///
+    /// A step whose precondition doesn't match right now is skipped, not
+    /// failed, exactly as in `do_hideout_warrior`: the existing affix-count
+    /// preconditions ARE the eligibility check, so most bag items (which
+    /// carry one modifier) run Augment, Regal, Exalt, Krangle and skip
+    /// Transmute.
+    ///
+    /// Every item that reaches Krangle is named `DIVINITY_NICKNAME` on the
+    /// spot. That is not decoration: Krangle normally leaves the item
+    /// awaiting a name, and `render_nickname_prompt` shows one un-named
+    /// locked item per dashboard load, so a 150-item run would otherwise
+    /// hand the player 150 consecutive prompts before their dashboard was
+    /// usable again.
+    ///
+    /// Pure CPU - no I/O, no locking, no `.await`. The caller holds the
+    /// characters lock across the whole run and persists once at the end.
+    pub(crate) fn apply_divinity(&mut self, plan: &DivinityPlan, rng: &mut impl Rng) -> DivinityReport {
+        let mut report = DivinityReport {
+            bag_items: plan.bag_items,
+            skipped_krangled: plan.skipped_krangled,
+            skipped_kept: plan.skipped_kept,
+            ..DivinityReport::default()
+        };
+        for item_id in &plan.targets {
+            let mut steps_here = 0usize;
+            let mut krangled_here = false;
+            for action in HIDEOUT_WARRIOR_STEPS {
+                // Every failure is a skip, hence `if let` rather than a
+                // match with an error arm. There is no InsufficientDust to
+                // stop on - that is the whole feature - and the rest
+                // (PreconditionNotMet, NoCandidatesLeft,
+                // CannotKrangleUnique) mean "this step doesn't apply to
+                // this item", which is the chain working as designed.
+                if let Ok(outcome) = self.craft(item_id, action, rng) {
+                    steps_here += 1;
+                    krangled_here |= outcome.now_locked;
+                }
+            }
+            if krangled_here {
+                report.krangled += 1;
+                self.set_item_nickname(item_id, DIVINITY_NICKNAME);
+            }
+            report.steps_applied += steps_here;
+            if steps_here > 0 {
+                report.items_changed += 1;
+            } else {
+                report.unchanged += 1;
+            }
+        }
+        report
+    }
+
     /// Flips a BAG item's "Keep" protection and returns the new state -
     /// `None` if no such item is in the bag. The one writer of
     /// `Item::disenchant_protected`.
@@ -3862,6 +3950,175 @@ mod protection_tests {
 
         character.grow_krangled_items();
         assert_eq!(character.find_item_by_id(&id).expect("still there").tier, 90, "Krangle growth must still reach a protected item");
+    }
+}
+
+/// Divinity (2026-08-24) - the planning/applying halves. The manager-level
+/// shard spend, single persist and single broadcast are exercised in
+/// `manager.rs`; these cover what actually happens to the gear.
+#[cfg(test)]
+mod divinity_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// A bag shaped like the live roster's: the 2026-08-24 audit measured
+    /// 3753 of 4760 real bag items carrying exactly ONE modifier, so a
+    /// one-modifier item is the case that actually matters.
+    fn bagged_character(count: usize) -> Character {
+        let mut character = Character::new("divine".to_string());
+        character.level = 200;
+        character.inventory.clear();
+        let mut rng = StdRng::seed_from_u64(99);
+        for _ in 0..count {
+            let mut item = generate_item_at_tier(EquipSlot::Helm, 100, &mut rng);
+            item.affixes = vec![(Affix::CritChance, 0.05)];
+            character.inventory.push(item);
+        }
+        character
+    }
+
+    /// The headline behaviour: a one-modifier item runs Augment, Regal,
+    /// Exalt, Krangle - four of the five steps, Transmute skipped because
+    /// its precondition is zero modifiers - and comes out Krangled and
+    /// named.
+    #[test]
+    fn a_one_modifier_bag_item_runs_four_steps_and_ends_krangled_and_named() {
+        let mut character = bagged_character(1);
+        let plan = character.plan_divinity();
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(5));
+
+        assert_eq!(report.steps_applied, 4, "Transmute must be skipped on a 1-modifier item, the other four must land");
+        assert_eq!(report.krangled, 1);
+        assert_eq!(report.items_changed, 1);
+        assert_eq!(report.unchanged, 0);
+
+        let item = &character.inventory[0];
+        assert!(item.locked, "the Krangle step must have locked it");
+        assert_eq!(item.nickname.as_deref(), Some(DIVINITY_NICKNAME), "every Krangled item must be named, so the prompt has nothing to ask");
+        assert_eq!(item.affixes.len(), 5, "one starting modifier plus the four the chain added");
+    }
+
+    /// Bag only, by ruling. Equipped gear is what a player is fighting
+    /// with, and Krangle is irreversible - so the one thing this feature
+    /// must never do is touch a worn item.
+    #[test]
+    fn equipped_gear_is_never_touched() {
+        let mut character = bagged_character(3);
+        let equipped_before: Vec<Item> = EQUIP_SLOTS.iter().filter_map(|&slot| character.equipped(slot).clone()).collect();
+        assert!(!equipped_before.is_empty(), "sanity: the starter kit must have equipped something to compare against");
+
+        let plan = character.plan_divinity();
+        assert_eq!(plan.targets.len(), 3, "only the three bag items may be planned");
+        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(6));
+
+        let equipped_after: Vec<Item> = EQUIP_SLOTS.iter().filter_map(|&slot| character.equipped(slot).clone()).collect();
+        for (before, after) in equipped_before.iter().zip(equipped_after.iter()) {
+            assert_eq!(before.id, after.id, "an equipped item must not have been replaced");
+            assert_eq!(before.affixes, after.affixes, "an equipped item must not have gained a modifier");
+            assert_eq!(before.tier, after.tier, "an equipped item must not have been re-tiered");
+            assert!(!after.locked || before.locked, "an equipped item must not have been Krangled");
+        }
+    }
+
+    /// Both kinds of lock are skipped and counted separately, and the
+    /// eligible items around them still run - a locked item in the middle
+    /// of the bag must not stop the sweep.
+    #[test]
+    fn locked_and_kept_items_are_skipped_counted_and_left_untouched() {
+        let mut character = bagged_character(5);
+        character.inventory[1].locked = true;
+        character.inventory[3].disenchant_protected = true;
+        let kept_affixes = character.inventory[3].affixes.clone();
+        let krangled_tier = character.inventory[1].tier;
+
+        let plan = character.plan_divinity();
+        assert_eq!(plan.skipped_krangled, 1);
+        assert_eq!(plan.skipped_kept, 1);
+        assert_eq!(plan.targets.len(), 3, "the other three must still be planned");
+
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(7));
+        assert_eq!(report.skipped_krangled, 1, "the report must carry the skip counts, not just the plan");
+        assert_eq!(report.skipped_kept, 1);
+        assert_eq!(report.items_changed, 3);
+        assert_eq!(report.bag_items, 5);
+
+        assert_eq!(character.inventory[1].tier, krangled_tier, "an already-Krangled item must be left exactly as it was");
+        assert_eq!(character.inventory[3].affixes, kept_affixes, "a Keep-ticked item must be left exactly as it was");
+        assert!(!character.inventory[3].locked, "and must certainly not have been Krangled");
+    }
+
+    /// A unique item cannot be Krangled (`CannotKrangleUnique`), and at 4
+    /// modifiers no affix-add step matches either - so every step is
+    /// ineligible. That is a skip, not a failure, and it must be visible in
+    /// the report rather than silently counted as a success.
+    #[test]
+    fn an_item_no_step_can_touch_is_reported_as_unchanged() {
+        let mut character = bagged_character(1);
+        character.inventory[0].unique_affix = Some(UniqueAffix::SplitPersonality);
+        character.inventory[0].affixes =
+            vec![(Affix::CritChance, 0.05), (Affix::Evasion, 0.05), (Affix::IncreasedDamage, 0.05), (Affix::CritMultiplier, 0.05)];
+
+        let plan = character.plan_divinity();
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(8));
+
+        assert_eq!(report.steps_applied, 0);
+        assert_eq!(report.unchanged, 1);
+        assert_eq!(report.items_changed, 0);
+        assert_eq!(report.krangled, 0);
+        assert!(!character.inventory[0].locked, "a unique item must survive Divinity un-Krangled");
+    }
+
+    /// A full live-sized bag. Two things are being pinned: that the run
+    /// completes at the real scale (150 items, ~600 steps) rather than
+    /// only on toy fixtures, and that it costs no dust - the entire point
+    /// of the feature.
+    #[test]
+    fn a_full_bag_run_completes_at_live_scale_and_costs_no_dust() {
+        let mut character = bagged_character(150);
+        character.dust = 0;
+
+        let plan = character.plan_divinity();
+        assert_eq!(plan.targets.len(), 150);
+
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(9));
+
+        assert_eq!(report.items_changed, 150, "every eligible item must have been worked on");
+        assert_eq!(report.krangled, 150, "and every one of them Krangled - Krangle is in the chain by ruling");
+        assert_eq!(report.steps_applied, 600, "150 items x 4 eligible steps each");
+        assert_eq!(character.dust, 0, "Divinity waives dust entirely - a player with none must still get the full run");
+        assert!(
+            character.inventory.iter().all(|i| i.nickname.as_deref() == Some(DIVINITY_NICKNAME)),
+            "every Krangled item must be named, or the dashboard prompts once per page load until they all are"
+        );
+    }
+
+    /// Krangle syncs an item's tier to the owner's level (see
+    /// `apply_craft_affix`), then the per-craft bump adds one more. Worth
+    /// pinning because it is the mechanical reason profit-crafting works:
+    /// disenchant value scales with tier.
+    #[test]
+    fn krangled_items_come_out_at_the_owners_level() {
+        let mut character = bagged_character(1);
+        character.level = 200;
+        let plan = character.plan_divinity();
+        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(10));
+
+        assert_eq!(character.inventory[0].tier, 201, "level-synced by Krangle, then +1 from that step's own tier bump");
+    }
+
+    /// An empty bag plans nothing. The manager turns this into a refusal
+    /// so no shard is spent; here the point is just that planning is total
+    /// - it never panics on an empty bag.
+    #[test]
+    fn an_empty_bag_plans_no_targets() {
+        let mut character = bagged_character(0);
+        let plan = character.plan_divinity();
+        assert!(plan.targets.is_empty());
+        assert_eq!(plan.bag_items, 0);
+
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(11));
+        assert_eq!(report.steps_applied, 0);
+        assert_eq!(report.items_changed, 0);
     }
 }
 
