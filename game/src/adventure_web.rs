@@ -364,7 +364,7 @@ async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params):
             let character = state.adventure.character(&login).await;
             let (used_this_hour, next_reset_ms) = state.adventure.reforge_status(&login).await;
             let popup = if params.reforged.is_some() { render_reforge_popup(&params) } else { String::new() };
-            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms))
+            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables()))
         }
     };
     Html(render_page(&body))
@@ -2133,7 +2133,7 @@ async fn character_detail(State(state): State<AppState>, headers: HeaderMap, Pat
         Some((viewer_login, _)) => {
             let viewer = state.adventure.character(&viewer_login).await;
             match state.adventure.character(&login).await {
-                Some(c) => render_character_detail(&login, &c, viewer.as_ref()),
+                Some(c) => render_character_detail(&login, &c, viewer.as_ref(), &state.adventure.live_tunables()),
                 None => format!(
                     "{}<div class=\"card\"><h1>Not Found</h1><p>No such character.</p><p class=\"muted\"><a href=\"/characters\">&larr; Back to the character list</a></p></div>",
                     top_nav(viewer.as_ref())
@@ -2436,6 +2436,14 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                 .collect();
 
             let marker = if overridden { "<span class=\"passive-tuned-badge\">differs from default</span>" } else { "" };
+            // Half-tunable nodes (PARTIALLY_TUNABLE_NODES): the input below
+            // genuinely works for the node's PRIMARY value, but a secondary
+            // aspect still reads node RANK in combat.rs - say so instead of
+            // letting the row look fully honest.
+            let partial = match crate::adventure::node_partial_tunable_note(key) {
+                Some(note) => format!("<p class=\"tunable-hint\">⚠ Half-tunable — this row's inputs work, but {note}</p>"),
+                None => String::new(),
+            };
             let revert = if overridden {
                 format!(
                     "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\">\
@@ -2452,6 +2460,7 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             format!(
                 "<div class=\"passive-row\">\
                    <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {marker}</div>\
+                   {partial}\
                    <div class=\"passive-default\">Default: {default_text}</div>\
                    <div class=\"passive-controls\">\
                      <form method=\"post\" action=\"/admin/passives/save\" class=\"passive-edit\">\
@@ -2631,6 +2640,20 @@ struct TunablesForm {
     splash_damage_pct: f64,
     /// See `LiveTunables::verdantburst_echo_threshold_pct`'s doc.
     verdantburst_echo_threshold_pct: f64,
+    /// Stage 1 overflow-economy caps (2026-08-24). `#[serde(default)]` on
+    /// every one of these per CLAUDE.md's BUILD & TEST rule - a POST body
+    /// from an older page (or any test that forgets a field) must never
+    /// 422 just because new dials shipped.
+    #[serde(default)]
+    overflow_conversion_cap_per_rank: f64,
+    #[serde(default)]
+    evasion_overflow_cap: f64,
+    #[serde(default)]
+    block_overflow_cap: f64,
+    #[serde(default)]
+    dr_overflow_cap: f64,
+    #[serde(default)]
+    intervene_overflow_cap: f64,
     /// See `LiveTunables::buffsnapshot_dedupe_window_ms`'s doc.
     buffsnapshot_dedupe_window_ms: u32,
     // ---- Dynamic pacing (2026-08-22) - every field #[serde(default)] so
@@ -2771,6 +2794,11 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 splash_damage_pct: form.splash_damage_pct.max(0.0),
                 verdantburst_echo_threshold_pct: form.verdantburst_echo_threshold_pct.max(0.0),
                 buffsnapshot_dedupe_window_ms: form.buffsnapshot_dedupe_window_ms.max(1),
+                overflow_conversion_cap_per_rank: form.overflow_conversion_cap_per_rank.clamp(0.0, 1.0),
+                evasion_overflow_cap: form.evasion_overflow_cap.clamp(0.0, 1.0),
+                block_overflow_cap: form.block_overflow_cap.clamp(0.0, 1.0),
+                dr_overflow_cap: form.dr_overflow_cap.clamp(0.0, 1.0),
+                intervene_overflow_cap: form.intervene_overflow_cap.clamp(0.0, 1.0),
                 dynamic_pacing_enabled: form.dynamic_pacing_enabled.is_some(),
                 pacing_window_fights: form.pacing_window_fights.max(1),
                 target_duration_min_s: form.target_duration_min_s.max(0.001),
@@ -2910,11 +2938,11 @@ fn stat_breakdown_tip(breakdown: &StatBreakdown) -> String {
     escape_html(&lines.join("\n"))
 }
 
-fn render_combat_stats_card(c: &Character) -> String {
+fn render_combat_stats_card(c: &Character, tunables: &LiveTunables) -> String {
     // Only shown at all when nonzero (Slayer or a lucky Leech affix roll) -
     // 0% Leech on the other ten archetypes would just be dead space on
     // every other character's card.
-    let leech = c.combat_life_leech();
+    let leech = c.combat_life_leech(tunables);
     let leech_stat = if leech > 0.0 {
         format!(
             "<div class=\"stat\"><div class=\"stat-label\" data-tip=\"Fraction of a hit's actual damage healed back to you, capped at {cap:.0}% of your max hp per second.\">Life Leech</div><div class=\"stat-value\">{leech_pct:.2}%</div></div>",
@@ -2927,7 +2955,7 @@ fn render_combat_stats_card(c: &Character) -> String {
     // Same "only shown when nonzero" convention as Life Leech - most
     // characters won't have rolled any Echo gear, and 0% would just be
     // dead space on every other card.
-    let echo_pct = c.combat_echo_pct();
+    let echo_pct = c.combat_echo_pct(tunables);
     let echo_stat = if echo_pct > 0.0 {
         format!(
             "<div class=\"stat\"><div class=\"stat-label\" data-tip=\"Chance for your unified hit (damage or heal share) to fire again with fresh rolls. Past 100%, extra echoes become guaranteed: floor(value/100) guaranteed repeats plus a remainder% chance of one more - e.g. 250% is 2 guaranteed plus a 50% chance of a 3rd.\">Echo</div><div class=\"stat-value\">{echo_pct:.2}%</div></div>",
@@ -2937,20 +2965,20 @@ fn render_combat_stats_card(c: &Character) -> String {
         String::new()
     };
     let (dr_label, dr_value) =
-        if c.combat_damage_reduction() >= 0.0 { ("Reduced Dmg Taken", c.combat_damage_reduction() * 100.0) } else { ("Increased Dmg Taken", -c.combat_damage_reduction() * 100.0) };
+        if c.combat_damage_reduction(tunables) >= 0.0 { ("Reduced Dmg Taken", c.combat_damage_reduction(tunables) * 100.0) } else { ("Increased Dmg Taken", -c.combat_damage_reduction(tunables) * 100.0) };
     let (dmg_label, dmg_value) =
-        if c.combat_increased_damage() >= 0.0 {
-            ("Increased Dmg Dealt", c.combat_increased_damage() * 100.0)
+        if c.combat_increased_damage(tunables) >= 0.0 {
+            ("Increased Dmg Dealt", c.combat_increased_damage(tunables) * 100.0)
         } else {
-            ("Reduced Dmg Dealt", -c.combat_increased_damage() * 100.0)
+            ("Reduced Dmg Dealt", -c.combat_increased_damage(tunables) * 100.0)
         };
-    let crit_dmg_delta = (c.combat_crit_multiplier() - 1.0) * 100.0;
+    let crit_dmg_delta = (c.combat_crit_multiplier(tunables) - 1.0) * 100.0;
     let (crit_dmg_label, crit_dmg_value) = if crit_dmg_delta >= 0.0 { ("Increased Crit Dmg Dealt", crit_dmg_delta) } else { ("Reduced Crit Dmg Dealt", -crit_dmg_delta) };
-    let dr_tip = stat_breakdown_tip(&c.damage_reduction_breakdown());
-    let block_tip = stat_breakdown_tip(&c.block_breakdown());
-    let evasion_tip = stat_breakdown_tip(&c.evasion_breakdown());
-    let intervene_tip = stat_breakdown_tip(&c.intervene_breakdown());
-    let dmg_tip = stat_breakdown_tip(&c.increased_damage_breakdown());
+    let dr_tip = stat_breakdown_tip(&c.damage_reduction_breakdown(tunables));
+    let block_tip = stat_breakdown_tip(&c.block_breakdown(tunables));
+    let evasion_tip = stat_breakdown_tip(&c.evasion_breakdown(tunables));
+    let intervene_tip = stat_breakdown_tip(&c.intervene_breakdown(tunables));
+    let dmg_tip = stat_breakdown_tip(&c.increased_damage_breakdown(tunables));
     // Past 100% Healing Power, the extra no longer inflates each heal's
     // own size (see `Character::combat_hps`'s doc) - it shortens the
     // action interval instead (`Character::attack_interval_ms`), so the
@@ -2958,10 +2986,10 @@ fn render_combat_stats_card(c: &Character) -> String {
     // healer to wonder why HPS keeps climbing with no bigger heals to
     // show for it in the combat log. Only shown once it's actually
     // doing anything (heal power > 100%) - clutter for everyone else.
-    let hps_tip = if c.combat_heal_power() > 1.0 {
+    let hps_tip = if c.combat_heal_power(tunables) > 1.0 {
         escape_html(&format!(
             "Average healing you do per second across a fight. Past 100% Healing Power, extra no longer makes each heal bigger - it makes you heal more often instead: you're currently acting every {interval}ms.",
-            interval = c.combat_action_interval_ms(),
+            interval = c.combat_action_interval_ms(tunables),
         ))
     } else {
         "Average healing you do per second across a fight.".to_string()
@@ -2990,27 +3018,27 @@ fn render_combat_stats_card(c: &Character) -> String {
         // see Character::combat_max_hp) - scales with level the same way
         // every other combat stat here does, not the plain unscaled
         // Character::hp() base.
-        max_hp = format_number(c.combat_max_hp() as f64),
-        dps = format_number(c.combat_dps()),
-        hps = format_number(c.combat_hps()),
+        max_hp = format_number(c.combat_max_hp(tunables) as f64),
+        dps = format_number(c.combat_dps(tunables)),
+        hps = format_number(c.combat_hps(tunables)),
         // .max(0.0) here is just a "-0%" float-rounding guard (these are
         // already floored at 0 mechanically) - cosmetic, not a real
         // negative-value case the way the four dynamic-label stats above are.
-        block = (c.combat_block_chance() * 100.0).max(0.0),
-        evasion = (c.combat_evasion() * 100.0).max(0.0),
+        block = (c.combat_block_chance(tunables) * 100.0).max(0.0),
+        evasion = (c.combat_evasion(tunables) * 100.0).max(0.0),
         // Crit Chance is deliberately shown uncapped past 100% now (see
         // Character::combat_crit_chance's doc) - e.g. "250%" tells a
         // player they get a guaranteed double crit plus a 50% chance of
         // a third, not a display bug.
-        crit_chance = (c.combat_crit_chance() * 100.0).max(0.0),
-        splash = (c.combat_splash() * 100.0).max(0.0),
+        crit_chance = (c.combat_crit_chance(tunables) * 100.0).max(0.0),
+        splash = (c.combat_splash(tunables) * 100.0).max(0.0),
         // Healing Power is a plain 0%+ magnitude now, not a delta off a
         // universal 100% baseline (see Character::combat_heal_power's
         // doc - the baseline itself now varies: 0% off a Melee/Ranged
         // archetype, 100% off a Heal one) - same sign-free plain-number
         // treatment as Block/Evasion/Crit Chance/Splash above.
-        heal_power = (c.combat_heal_power() * 100.0).max(0.0),
-        intervene = (c.combat_intervene() * 100.0).max(0.0),
+        heal_power = (c.combat_heal_power(tunables) * 100.0).max(0.0),
+        intervene = (c.combat_intervene(tunables) * 100.0).max(0.0),
     )
 }
 
@@ -3157,14 +3185,14 @@ fn render_inventory_item_readonly(item: &Item) -> String {
 /// dashboard (profile header, Combat Stats via the SAME shared
 /// `render_combat_stats_card` the owner's page uses, Gear, Bag), just
 /// with every action button stripped out.
-fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character>) -> String {
+fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character>, tunables: &LiveTunables) -> String {
     let nav = top_nav(viewer);
     let name = escape_html(&c.display_name);
     let sprite = c.effective_sprite(login);
     let xp_pct = if c.xp_needed() > 0 { (c.xp as f64 / c.xp_needed() as f64 * 100.0).clamp(0.0, 100.0) } else { 100.0 };
     let games = c.wins + c.losses;
     let winrate = if games > 0 { format!("{:.0}%", c.wins as f64 / games as f64 * 100.0) } else { "—".to_string() };
-    let combat_stats_html = render_combat_stats_card(c);
+    let combat_stats_html = render_combat_stats_card(c, tunables);
     let gear_html = [(EquipSlot::Weapon, "Weapon"), (EquipSlot::Helm, "Helm"), (EquipSlot::Body, "Body"), (EquipSlot::Gloves, "Gloves"), (EquipSlot::Boots, "Boots")]
         .into_iter()
         .map(|(slot, label)| render_gear_slot_readonly(c.equipped(slot).as_ref(), label))
@@ -3718,6 +3746,33 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"defensive_stat_hard_cap\" name=\"defensive_stat_hard_cap\" value=\"{defensive_stat_hard_cap}\">\
               <p class=\"tunable-hint\">0 to 1 — a landed hit always deals at least (1 − this) of its raw mitigable damage, however stacked a defender's DR sources get. Default 0.95.</p>\
             </div>\
+            <h2>Overflow Economy (cross-class caps)</h2>\
+            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
+              <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
+              <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
+              <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
+              <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
+              <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
+            </div>\
             <h2>Splash</h2>\
             <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
             <div class=\"tunable-row\">\
@@ -3832,6 +3887,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         splash_damage_pct = t.splash_damage_pct,
         verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
         buffsnapshot_dedupe_window_ms = t.buffsnapshot_dedupe_window_ms,
+        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
+        evasion_overflow_cap = t.evasion_overflow_cap,
+        block_overflow_cap = t.block_overflow_cap,
+        dr_overflow_cap = t.dr_overflow_cap,
+        intervene_overflow_cap = t.intervene_overflow_cap,
     )
 }
 
@@ -3882,6 +3942,7 @@ fn render_dashboard(
     character: Option<&Character>,
     reforge_used_this_hour: bool,
     reforge_next_reset_ms: u64,
+    tunables: &LiveTunables,
 ) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
@@ -3960,7 +4021,7 @@ fn render_dashboard(
         </form>"
     );
 
-    let combat_stats_html = render_combat_stats_card(c);
+    let combat_stats_html = render_combat_stats_card(c, tunables);
 
     let archetype_picker_html = render_archetype_picker(c);
     let model_picker_html = render_model_picker(c, login);
@@ -4107,7 +4168,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
     // main dashboard uses (see render_combat_stats_card), so a player
     // crafting/reforging can see whether it actually moved a number
     // without tabbing back to "/".
-    let combat_stats_html = render_combat_stats_card(c);
+    let combat_stats_html = render_combat_stats_card(c, tunables);
 
     // Top row: Equipped Items (left) / Crafting (right), same
     // dashboard-grid 2-column layout the main dashboard itself uses -

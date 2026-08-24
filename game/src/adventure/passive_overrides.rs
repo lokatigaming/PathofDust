@@ -174,35 +174,61 @@ pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()
 /// `character.rs`, `manager.rs` and the web layer (2026-08-19). See
 /// `docs/passive_tunables_spec.md` for the audit table and the
 /// per-class batch order.
+/// **Stage 0 (2026-08-24):** this list grew 28 → 47 when the tunable
+/// audit's CI consumption guard landed
+/// (`every_special_node_whose_value_has_no_magnitude_read_is_tracked_as_not_yet_tunable`
+/// below). The entries tagged `stage-0` are nodes whose ONLY consumers
+/// read `passive_node_rank` (structure), so an override never reached
+/// the game - found by docs/tunable_audit.md §3 and now enforced by the
+/// guard rather than by re-auditing by hand.
 pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "assassinate", // rogue
+    "blazing", // elementalist - stage-0: Flame Golem AS is fn(rank) in combat.rs
     "bloodrush", // berserker
     "bloodscent", // berserker
+    "chakraoflife", // monk - stage-0: immunity duration is rank*1000ms at the call site
     "clarity", // monk
     "compassion", // cleric
+    "cursedblood", // warlock - stage-0: auto-curse target COUNT reads rank
     "crush", // berserker
+    "deathdefiant", // berserker - stage-0: grace window is rank*3000ms at the call site
     "deathwish", // berserker
+    "demonicspeed", // warlock - stage-0: burst window is 5s+2s*rank at the call site
     "doubletap", // rogue
     "finalblow", // ranger
+    "finaloffering", // slayer - stage-0: unlock-use ladder AND the -33% both live in combat.rs
     "frenzy", // berserker
     "gloriousdeath", // berserker
-    "guardianspirit", // monk
+    "golemmaster", // elementalist - stage-0: slot count reads rank
+    "guardianspirit", // cleric
+    "healingflames", // elementalist - stage-0: regen is fn(rank) (irregular 3/6/10%)
+    "huntersfocus", // ranger - stage-0: ally share is rank/3 at the call site
     "lastlaugh", // berserker
     "lastrites", // slayer
+    "livingbond", // druid - stage-0: Wild Roar charge COUNT reads rank
     "markedfordeath", // rogue
+    "naturesembrace", // druid - stage-0: heal-target COUNT reads rank
     "neverending", // berserker
     "payback", // warrior
     "piercingshots", // ranger
     "quickdraw", // rogue
     "reckless", // berserker
     "relentlessassault", // monk
+    "risingphoenix", // elementalist - stage-0: revive COUNT reads rank
     "sanctifiedtouch", // cleric
     "secondwind", // warrior
     "shatter", // berserker
+    "shattering", // elementalist - stage-0: icicle target count reads rank; damage pct is LiveTunable
     "surgicalstrike", // rogue
+    "timewarp", // mage - stage-0: burst window is 5s+2s*rank at the call site
     "undying", // slayer
     "undyingwill", // warrior
+    "unwavering", // paladin - stage-0: low-HP party-DR threshold ladder is rank-keyed
+    "unyieldingfaith", // cleric - stage-0: same ladder shape as unwavering
+    "unyieldingspirit", // monk - stage-0: Last Stand HP threshold ladder is rank-keyed
+    "verdantburst", // druid - stage-0: save-charge COUNT reads rank (threshold half is LiveTunable)
     "vitalstrike", // rogue
+    "virulence", // warlock - stage-0: Soul Stone max COUNT reads rank
 ];
 
 /// Nodes whose magnitude is a COUNT (extra targets, extra hits, banked
@@ -273,6 +299,61 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
 pub const UNWIRED_NODES: &[&str] = &[
     "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
 ];
+
+/// Nodes where ONE numeric aspect is still fed by `passive_node_rank`
+/// (structure) even though the node's PRIMARY magnitude IS live-tunable
+/// through this store - the "half-tunable" shape.
+///
+/// **Why a second table:** `node_is_tunable` is a whole-node boolean and
+/// cannot express "half". Hiding the row would cut off the node's wired
+/// aspect (an override on it genuinely works); offering it silently
+/// would repeat the inert-input lie Stage 0 exists to kill. A key→note
+/// side table is the smallest mechanism that expresses the half:
+/// `/admin/passives` keeps the input AND shows exactly which secondary
+/// aspect still reads node RANK until its migration batch lands.
+///
+/// Every entry must have BOTH kinds of reads in the sources (a wired
+/// magnitude/count read AND a rank read) - enforced by
+/// `partially_tunable_nodes_are_half_by_construction_and_stay_offered`
+/// below. mercifultouch was audited as a candidate and DELIBERATELY
+/// excluded: its rank read is only an invested-gate; its value comes
+/// from `passive_node_magnitude`.
+pub const PARTIALLY_TUNABLE_NODES: &[(&str, &str)] = &[
+    (
+        "naturesblessing",
+        "the crit-chance value is live here, but this node's rank-2/3 heal-crit bonus ladder still reads node RANK in combat.rs.",
+    ),
+    (
+        "bloomingfield",
+        "the heal-power multiplier is live here, but the bounce-target count still reads node RANK in combat.rs.",
+    ),
+    (
+        "reaperscall",
+        "the chain chance is live here, but the chain max-extra-targets count still reads node RANK in combat.rs.",
+    ),
+    (
+        "ravage",
+        "the ramp multiplier is live here, but the rank-3 stack ladder still reads node RANK in combat.rs.",
+    ),
+    (
+        "unrelenting",
+        "the duration bonus is live here, but the rank-3 extra-bonus ladder still reads node RANK in combat.rs.",
+    ),
+    (
+        "endlessthirst",
+        "the stack-cap bonus is live here, but the 'uncapped at rank 3' rule still reads node RANK in combat.rs.",
+    ),
+    (
+        "sacrifice",
+        "the Bloodpact HP cost is live here, but Bloodpact's damage multiplier (1 + rank) still reads node RANK in combat.rs.",
+    ),
+];
+
+/// The note `/admin/passives` should show for `key`'s untunable secondary
+/// aspect - `None` when the node has no known rank-fed aspect.
+pub fn node_partial_tunable_note(key: &str) -> Option<&'static str> {
+    PARTIALLY_TUNABLE_NODES.iter().find(|(k, _)| *k == key).map(|(_, note)| *note)
+}
 
 /// Whether an override on `key` would actually reach the game today.
 /// `false` means either the node still hardcodes its numbers in
@@ -490,13 +571,16 @@ mod passive_override_tests {
 
     #[test]
     fn the_pending_list_matches_the_audit_and_has_no_duplicates() {
-        // The audit found exactly 60 nodes whose values live in
-        // combat.rs rather than in their own declaration. If this
-        // changes without a migration batch landing, the list has
-        // drifted and the admin page is now lying about what is tunable.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 28, "Stage 3 Mage batch migrated absolutezero/arcaneinstability/empoweredbolt/infiniteloop");
+        // Pinned so a silent edit cannot drift the list without the
+        // suite noticing. 28 was the 2026-08-19 audit; Stage 0
+        // (2026-08-24, docs/tunable_audit.md §3 + the CI consumption
+        // guard below) added the 19 rank-only-consumed nodes its scan
+        // found, taking it to 47. This number only moves again when a
+        // migration batch deletes its entries or a NEW guard-verified
+        // drift is listed - both deliberate, reviewed changes.
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 47, "Stage 0 audit grew the list from 28; see docs/passive_tunables_spec.md Stage 0 record");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 28, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 47, "the pending list must not contain duplicates");
     }
 
     #[test]
@@ -790,5 +874,137 @@ mod passive_override_tests {
             !combat.contains("passive_node_rank(\"rootednetwork\")"),
             "rootednetwork is feeding the protect-count again - the rework moved it to Thick Hide's cleanse count (#39)"
         );
+    }
+
+    // ---- Stage 0 (2026-08-24): the consumption guard ----------------
+
+    /// Source scan helper for the guards below: concatenates the four
+    /// files that hold every passive accessor call site
+    /// (`combat.rs`, `character.rs`, `manager.rs`, `adventure_web.rs`),
+    /// drops comment lines (doc comments legitimately MENTION accessor
+    /// calls when explaining them), then strips all whitespace so a
+    /// wrapped multi-line call still matches its single-line pattern.
+    fn flat_source() -> String {
+        let mut src = String::new();
+        src.push_str(include_str!("combat.rs"));
+        src.push_str(include_str!("character.rs"));
+        src.push_str(include_str!("manager.rs"));
+        src.push_str(include_str!("../adventure_web.rs"));
+        let no_comments: String = src
+            .split('\n')
+            .map(|line| {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") {
+                    ""
+                } else {
+                    line
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        no_comments.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    /// THE `/admin/passives` honesty invariant: every node that declares a
+    /// real value (`Special`/`SpecialPerRank`) must have that value reach
+    /// the game through `passive_node_magnitude` or `passive_node_count`
+    /// somewhere - or it must be tracked in `PENDING_MIGRATION_NODES` /
+    /// `UNWIRED_NODES` so the page stops offering an input that would
+    /// silently do nothing.
+    ///
+    /// FlatStat and OverflowConversion nodes are exempt: they are consumed
+    /// GENERICALLY by `Character::passive_bonus`/
+    /// `passive_overflow_bonus` and so have no direct read by design, and
+    /// `NotYetImplemented` declares no value at all.
+    ///
+    /// A Special node whose only reads are `passive_node_rank` (structure)
+    /// is exactly the inert-override shape the 2026-08-24 tunable audit
+    /// documented (chakraoflife/unyieldingspirit/shattering et al.). This
+    /// test is what keeps that class from regrowing: the repo's older
+    /// existence checks could not see it, because a key can exist in the
+    /// tree and still never be consumed.
+    #[test]
+    fn every_special_node_whose_value_has_no_magnitude_read_is_tracked_as_not_yet_tunable() {
+        let flat = flat_source();
+        let mut offenders: Vec<&str> = Vec::new();
+        for archetype in crate::adventure::ALL_ARCHETYPES.iter() {
+            for n in archetype.passive_nodes() {
+                if matches!(
+                    n.effect,
+                    crate::passive_tree::PassiveEffect::FlatStat { .. }
+                        | crate::passive_tree::PassiveEffect::OverflowConversion { .. }
+                        | crate::passive_tree::PassiveEffect::NotYetImplemented
+                ) {
+                    continue;
+                }
+                let magnitude_read =
+                    flat.contains(&format!("passive_node_magnitude(\"{}\")", n.key))
+                        || flat.contains(&format!("passive_node_count(\"{}\")", n.key));
+                if !magnitude_read && !PENDING_MIGRATION_NODES.contains(&n.key) && !UNWIRED_NODES.contains(&n.key) {
+                    offenders.push(n.key);
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these Special nodes' declared values never reach the game (no \
+             passive_node_magnitude/passive_node_count read anywhere), yet they are \
+             still OFFERED as tunable on /admin/passives - add them to \
+             PENDING_MIGRATION_NODES until their migration batch lands: {offenders:?}"
+        );
+    }
+
+    /// The half-tunable table's own invariant: every entry really is
+    /// MIXED - a wired magnitude/count read somewhere (its offered aspect)
+    /// AND a rank read somewhere (its noted, not-yet-tunable aspect) -
+    /// and every entry STAYS OFFERED, because hiding it would cut off the
+    /// working half. A node that loses its rank-fed aspect (migration
+    /// landed) must leave this list; a node with no magnitude read never
+    /// belongs here (it's pending/unwired territory).
+    #[test]
+    fn partially_tunable_nodes_are_half_by_construction_and_stay_offered() {
+        assert!(
+            !PARTIALLY_TUNABLE_NODES.is_empty(),
+            "Stage 0 tracked the mixed-read nodes; an empty list means they were all migrated - good, delete this test's expectations then"
+        );
+        let flat = flat_source();
+        for (key, note) in PARTIALLY_TUNABLE_NODES {
+            assert!(!note.is_empty(), "{key:?} must explain which aspect is still rank-fed");
+            assert!(node_is_tunable(key), "{key:?} has a live primary aspect and must keep its input on /admin/passives");
+            assert!(node_untunable_reason(key).is_none(), "{key:?} must not carry an untunable reason while partially tunable");
+            // The WIRED half's proof: a DIRECT magnitude/count read - or
+            // membership in the generically-consumed shapes (FlatStat /
+            // OverflowConversion), whose values flow through
+            // passive_bonus/passive_overflow_bonus with no direct call
+            // site. Both are genuine override paths; only "no consumer of
+            // either kind" would mean pending/unwired instead.
+            let declared = crate::adventure::ALL_ARCHETYPES
+                .iter()
+                .find_map(|a| a.passive_nodes().iter().find(|n| n.key == *key))
+                .unwrap_or_else(|| panic!("{key:?} is listed as partially tunable but no longer exists in any archetype's tree"));
+            let generically_consumed = matches!(
+                declared.effect,
+                crate::passive_tree::PassiveEffect::FlatStat { .. } | crate::passive_tree::PassiveEffect::OverflowConversion { .. }
+            );
+            let magnitude_read = flat.contains(&format!("passive_node_magnitude(\"{key}\")"))
+                || flat.contains(&format!("passive_node_count(\"{key}\")"));
+            assert!(
+                magnitude_read || generically_consumed,
+                "{key:?} claims to be half-tunable but its primary value has no consumer (no direct read, not generic-pooled) - it belongs in PENDING_MIGRATION_NODES instead"
+            );
+            assert!(
+                flat.contains(&format!("passive_node_rank(\"{key}\")")),
+                "{key:?} claims a rank-fed secondary aspect but no passive_node_rank read exists anymore - migration landed, remove it from PARTIALLY_TUNABLE_NODES"
+            );
+        }
+    }
+
+    #[test]
+    fn partially_tunable_never_overlaps_the_hard_off_lists() {
+        for (key, _) in PARTIALLY_TUNABLE_NODES {
+            assert!(!PENDING_MIGRATION_NODES.contains(key), "{key:?} cannot be both partially tunable and pending - pending hides its working input");
+            assert!(!UNWIRED_NODES.contains(key), "{key:?} cannot be both partially tunable and unwired");
+            assert!(!INTEGER_COUNT_NODES.contains(key), "{key:?} cannot be both partially tunable and an integer-count node");
+        }
     }
 }

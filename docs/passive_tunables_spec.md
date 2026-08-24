@@ -211,3 +211,106 @@ Ranger, Mage → Rogue, Slayer, Warrior, Cleric → Berserker last.
 - **Golden-corpus fixtures are neither regenerated nor deleted.** Each
   migration batch must leave its class's fixture byte-identical; that is
   the behavior-neutrality proof.
+
+---
+
+## Owner doctrine (2026-08-24, BINDING)
+
+> **EVERY numerical value in EVERY passive is tunable.** Magnitudes,
+> caps, thresholds, counts, rates, durations. A hardcoded number in a
+> passive is a defect, not a design. New passives must ship tunable.
+
+This supersedes any earlier framing of hardcoded passive values as
+deliberate. Decision 16's shared-constant exception remains the only
+escape hatch, and it covers genuinely STRUCTURAL constants — not
+class/skill numbers.
+
+## Stage 0 record (2026-08-24) — making /admin/passives honest
+
+Branch `feature/passive-tunables-stage0`, cut from origin/master at
+95cd06e. Hygiene only: no combat.rs behavior change, no magnitude
+changes, live TOML untouched, golden fixtures byte-identical.
+
+1. **PENDING_MIGRATION_NODES grew 28 → 47.** The tunable audit
+   (docs/tunable_audit.md §3) found 19 more nodes whose declared value
+   never reaches the game because their only consumers read
+   `passive_node_rank` (structure): the audit's original three
+   (chakraoflife, unyieldingspirit, shattering) plus its Group-B drifts
+   (deathdefiant, timewarp, demonicspeed, unwavering, unyieldingfaith,
+   huntersfocus, golemmaster, healingflames, blazing, risingphoenix,
+   virulence, cursedblood, livingbond, naturesembrace, verdantburst,
+   finaloffering). Until each node's migration batch lands, an override
+   on it would silently do nothing — so the page now renders it as
+   pending instead of offering a dead input.
+
+2. **PARTIALLY_TUNABLE_NODES — new mechanism, 7 mixed nodes:**
+   naturesblessing, bloomingfield, reaperscall, ravage, unrelenting,
+   endlessthirst, sacrifice. `node_is_tunable` is a whole-node boolean
+   and cannot express a half-tunable node; hiding the row would cut off
+   the node's WIRED aspect, offering it silently would repeat the
+   inert-input lie. The smallest change that can express the half is a
+   key→note side table: the node STAYS offered (its primary value
+   accepts overrides through this store) while `/admin/passives` shows
+   exactly which secondary aspect still reads node RANK.
+   **mercifultouch**, flagged in the audit as "verify body", is
+   VERIFIED WIRED — combat.rs reads its MAGNITUDE for Prayer of
+   Mending's bounce value; its rank read is only an invested-gate, which
+   is legitimate structure. It is deliberately on NEITHER list.
+
+3. **CI consumption guard:**
+   `every_special_node_whose_value_has_no_magnitude_read_is_tracked_as_not_yet_tunable`
+   scans combat.rs / character.rs / manager.rs / adventure_web.rs
+   (comment lines stripped, whitespace-insensitive, so wrapped call
+   sites still match) for every Special/SpecialPerRank node's
+   magnitude/count read. Any such node with NO read anywhere that is not
+   tracked fails the suite naming the key. Demonstrated RED against the
+   pre-fix lists — it named exactly the 19 keys above — then GREEN once
+   they were listed. The older existence checks could not see this
+   failure class: a key can exist in the tree and still never be
+   consumed.
+
+## Stage 1 record (2026-08-24) — the overflow economy becomes tunable
+
+Branch `feature/passive-tunables-stage1`, stacked on Stage 0
+(d246ee6) so the two deploy together. Behavior-neutral at defaults;
+golden fixtures must stay byte-identical.
+
+Five new `LiveTunables` fields (all HOT - read from each fight's own
+snapshot during `CombatSimUnit` construction; nothing cached in
+OnceLock/LazyLock anywhere in the chain):
+
+| field | default | replaces |
+|---|---|---|
+| `overflow_conversion_cap_per_rank` | 0.10 | combat.rs's compile-time `OVERFLOW_CONVERSION_CAP_PER_RANK` (deleted), applied in `accumulate_overflow_conversion_bonus` |
+| `evasion_overflow_cap` | 0.75 | the hardcoded Evasion arm in `combined_stat_overflow` AND `combat_evasion`'s own clamp |
+| `block_overflow_cap` | 0.75 | same, for BlockChance / `combat_block_chance` |
+| `dr_overflow_cap` | 0.75 | same, for DamageReduction's POSITIVE cap / `combat_damage_reduction` (the −0.75 floor is structural and stays fixed) |
+| `intervene_overflow_cap` | 0.50 | same, for IntervenePct / `combat_intervene` INCLUDING its per-character combine `.min()` ceiling |
+
+The three 0.75 caps stay SEPARATE fields (owner asked for the reasoning):
+they gate different stats consumed by different builds, so one lane can
+be nerfed without collateral on the others; DR additionally sits next to
+the `defensive_stat_hard_cap` doctrine boundary and keeping its dial
+distinct avoids any implied coupling. Cost is three floats.
+
+Threading shape: `PassiveStat::overflow_cap(self, t: &LiveTunables)` is
+now parameterized (it was only ever a gate - the REAL literals lived in
+`combined_stat_overflow`'s match and each defensive getter, all of which
+now take `t: &LiveTunables`), and every consumer of
+`passive_overflow_bonus`/`combined_stat_overflow`/the defensive getters
+threads the fight's snapshot through. The web dashboard fetches
+`state.adventure.live_tunables()` at its handlers so the sheet shows what
+fights actually use; `/admin/tunables` renders the five under a new
+"Overflow Economy (cross-class caps)" heading, each form field carrying
+`#[serde(default)]` per the CLAUDE.md trap rule, and the existing
+page-derived POST drift guard now scrapes and posts them automatically.
+
+Tests: `overflow_economy_tunables_tests` (character.rs) proves (1)
+defaults reproduce the old math exactly (saturated Monk trio = +90%
+under defaults), (2) `overflow_conversion_cap_per_rank = 0.05` halves it
+to +45%, (3) input caps move each pool's start point by exactly their
+delta, (4) two different snapshots against one Character give different
+results and the untouched default still reads identically afterwards -
+per-call freshness, no cache.
+
+

@@ -102,6 +102,14 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         ("shattering_damage_pct_rank2", baseline.shattering_damage_pct_rank2.to_string()),
         ("shattering_damage_pct_rank3", baseline.shattering_damage_pct_rank3.to_string()),
         ("defensive_stat_hard_cap", baseline.defensive_stat_hard_cap.to_string()),
+        // Stage 1 overflow-economy caps - distinctive non-default values,
+        // same reasoning as the splash block below: a name mismatch must
+        // show up as a wrong number, not a false pass.
+        ("overflow_conversion_cap_per_rank", "0.07".to_string()),
+        ("evasion_overflow_cap", "0.60".to_string()),
+        ("block_overflow_cap", "0.70".to_string()),
+        ("dr_overflow_cap", "0.65".to_string()),
+        ("intervene_overflow_cap", "0.40".to_string()),
         ("verdantburst_echo_threshold_pct", baseline.verdantburst_echo_threshold_pct.to_string()),
         ("buffsnapshot_dedupe_window_ms", baseline.buffsnapshot_dedupe_window_ms.to_string()),
         // Distinctive, non-default splash values - the actual point of this test.
@@ -132,6 +140,18 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
     assert_eq!(saved.splash_ladder_targets_per_step, 3);
     assert!((saved.splash_damage_pct - 0.42).abs() < 1e-9);
 
+    // Stage 1 (2026-08-24): the five overflow-economy dials round-trip
+    // too. These have #[serde(default)] on TunablesForm, so the failure
+    // mode this guards is the OTHER direction - the page stops rendering
+    // one of them (or its name drifts) and a real browser save silently
+    // resets it to Default, which the distinctive values here turn into a
+    // loud wrong number instead of a quiet pass.
+    assert!((saved.overflow_conversion_cap_per_rank - 0.07).abs() < 1e-9);
+    assert!((saved.evasion_overflow_cap - 0.60).abs() < 1e-9);
+    assert!((saved.block_overflow_cap - 0.70).abs() < 1e-9);
+    assert!((saved.dr_overflow_cap - 0.65).abs() < 1e-9);
+    assert!((saved.intervene_overflow_cap - 0.40).abs() < 1e-9);
+
     // It reached the file, so it survives a restart.
     let tunables_file = scratch.join("adventure-live-tunables.toml");
     assert!(tunables_file.exists(), "the save must persist to disk");
@@ -151,6 +171,13 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         .expect("body");
     assert!(admin_page.contains("value=\"7\""), "the retuned splash_extra_targets must render back into its own input");
     assert!(admin_page.contains("name=\"splash_ladder_step_pct\""), "the new ladder field must actually be in the form");
+    // Stage 1: the overflow-economy group must render its heading and all
+    // five dials, or the page-derived drift guard below would silently
+    // stop covering them.
+    assert!(admin_page.contains("Overflow Economy (cross-class caps)"), "the Stage 1 group heading must render");
+    for field in ["overflow_conversion_cap_per_rank", "evasion_overflow_cap", "block_overflow_cap", "dr_overflow_cap", "intervene_overflow_cap"] {
+        assert!(admin_page.contains(&format!("name=\"{field}\"")), "{field} must render as a form input");
+    }
     // Both pacing controllers must show the multiplier ACTUALLY in force
     // (the max of the controller's own value and the stage baseline) -
     // without it, a controller pinned to the baseline renders a "current"

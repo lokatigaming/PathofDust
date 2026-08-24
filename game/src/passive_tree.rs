@@ -397,10 +397,26 @@ impl PassiveStat {
     /// `combat_evasion`/`combat_intervene`) this is, if any - only these
     /// four have a real "overflow past the cap" concept an
     /// `OverflowConversion` node's `input` can draw from.
-    pub fn overflow_cap(self) -> Option<f64> {
+    /// Which of the 12 pooled stats has a real "overflow past the cap"
+    /// concept an `OverflowConversion` node's `input` (or
+    /// `Character::combined_stat_overflow`) can draw from, and WHERE that
+    /// saturation point sits. Stage 1 (2026-08-24): the caps are
+    /// LiveTunables (`evasion_overflow_cap`/`block_overflow_cap`/
+    /// `dr_overflow_cap`/`intervene_overflow_cap`) instead of constants -
+    /// the value arrives per call from the fight's own tunables snapshot,
+    /// never cached. Defaults reproduce the old hardcoded arms exactly.
+    ///
+    /// CONSISTENCY RULE: `Character::combined_stat_overflow` and the
+    /// defensive `combat_*` getters clamp with these same values - if you
+    /// add a stat here, thread the same tunable into every place that
+    /// clamps it, or conversions and the stat itself will disagree about
+    /// where "past the cap" starts.
+    pub fn overflow_cap(self, t: &crate::adventure::LiveTunables) -> Option<f64> {
         match self {
-            PassiveStat::DamageReduction | PassiveStat::BlockChance | PassiveStat::Evasion => Some(0.75),
-            PassiveStat::IntervenePct => Some(0.5),
+            PassiveStat::DamageReduction => Some(t.dr_overflow_cap),
+            PassiveStat::BlockChance => Some(t.block_overflow_cap),
+            PassiveStat::Evasion => Some(t.evasion_overflow_cap),
+            PassiveStat::IntervenePct => Some(t.intervene_overflow_cap),
             _ => None,
         }
     }
