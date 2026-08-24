@@ -269,3 +269,48 @@ changes, live TOML untouched, golden fixtures byte-identical.
    failure class: a key can exist in the tree and still never be
    consumed.
 
+## Stage 1 record (2026-08-24) — the overflow economy becomes tunable
+
+Branch `feature/passive-tunables-stage1`, stacked on Stage 0
+(d246ee6) so the two deploy together. Behavior-neutral at defaults;
+golden fixtures must stay byte-identical.
+
+Five new `LiveTunables` fields (all HOT - read from each fight's own
+snapshot during `CombatSimUnit` construction; nothing cached in
+OnceLock/LazyLock anywhere in the chain):
+
+| field | default | replaces |
+|---|---|---|
+| `overflow_conversion_cap_per_rank` | 0.10 | combat.rs's compile-time `OVERFLOW_CONVERSION_CAP_PER_RANK` (deleted), applied in `accumulate_overflow_conversion_bonus` |
+| `evasion_overflow_cap` | 0.75 | the hardcoded Evasion arm in `combined_stat_overflow` AND `combat_evasion`'s own clamp |
+| `block_overflow_cap` | 0.75 | same, for BlockChance / `combat_block_chance` |
+| `dr_overflow_cap` | 0.75 | same, for DamageReduction's POSITIVE cap / `combat_damage_reduction` (the −0.75 floor is structural and stays fixed) |
+| `intervene_overflow_cap` | 0.50 | same, for IntervenePct / `combat_intervene` INCLUDING its per-character combine `.min()` ceiling |
+
+The three 0.75 caps stay SEPARATE fields (owner asked for the reasoning):
+they gate different stats consumed by different builds, so one lane can
+be nerfed without collateral on the others; DR additionally sits next to
+the `defensive_stat_hard_cap` doctrine boundary and keeping its dial
+distinct avoids any implied coupling. Cost is three floats.
+
+Threading shape: `PassiveStat::overflow_cap(self, t: &LiveTunables)` is
+now parameterized (it was only ever a gate - the REAL literals lived in
+`combined_stat_overflow`'s match and each defensive getter, all of which
+now take `t: &LiveTunables`), and every consumer of
+`passive_overflow_bonus`/`combined_stat_overflow`/the defensive getters
+threads the fight's snapshot through. The web dashboard fetches
+`state.adventure.live_tunables()` at its handlers so the sheet shows what
+fights actually use; `/admin/tunables` renders the five under a new
+"Overflow Economy (cross-class caps)" heading, each form field carrying
+`#[serde(default)]` per the CLAUDE.md trap rule, and the existing
+page-derived POST drift guard now scrapes and posts them automatically.
+
+Tests: `overflow_economy_tunables_tests` (character.rs) proves (1)
+defaults reproduce the old math exactly (saturated Monk trio = +90%
+under defaults), (2) `overflow_conversion_cap_per_rank = 0.05` halves it
+to +45%, (3) input caps move each pool's start point by exactly their
+delta, (4) two different snapshots against one Character give different
+results and the untouched default still reads identically afterwards -
+per-call freshness, no cache.
+
+
