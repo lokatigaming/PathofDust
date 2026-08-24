@@ -2443,7 +2443,7 @@ async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, 
     let body = match session {
         Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
-            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some())
+            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), state.adventure.live_tunables().overflow_conversion_cap_per_rank)
         }
         // Same generic fallback as `/admin/tunables` - a restricted
         // page's existence isn't hinted at.
@@ -2452,7 +2452,7 @@ async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, 
     Html(render_page(&body))
 }
 
-fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool) -> String {
+fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool, global_conversion_cap: f64) -> String {
     let nav = top_nav(viewer);
     let overrides = passive_overrides();
     let banner = if saved {
@@ -2535,6 +2535,25 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                 Some(note) => format!("<p class=\"tunable-hint\">⚠ Half-tunable — this row's inputs work, but {note}</p>"),
                 None => String::new(),
             };
+            // Per-node conversion-output cap - offered on the 13
+            // OverflowConversion rows ONLY, right beside their magnitude.
+            // Blank = follow the global Conversion Output Cap / Rank on
+            // /admin/tunables (shown as the placeholder so the fallback is
+            // visible, never guessed).
+            let is_conversion = matches!(n.effect, crate::passive_tree::PassiveEffect::OverflowConversion { .. });
+            let (conversion_input, conversion_hint) = if is_conversion {
+                let input = match overrides.conversion_cap_for(key) {
+                    Some(cap) => format!("<label class=\"passive-rank\"><span>Cap / rank</span><input type=\"number\" step=\"any\" name=\"conversion_cap\" value=\"{}\"></label>", trim_float(cap)),
+                    None => format!("<label class=\"passive-rank\"><span>Cap / rank</span><input type=\"number\" step=\"any\" name=\"conversion_cap\" placeholder=\"{}\"></label>", trim_float(global_conversion_cap)),
+                };
+                let hint = format!(
+                    "<p class=\"tunable-hint\">Cap / rank: the ceiling on THIS node's own converted output per invested rank. Blank follows the global Conversion Output Cap / Rank ({}).</p>",
+                    trim_float(global_conversion_cap)
+                );
+                (input, hint)
+            } else {
+                (String::new(), String::new())
+            };
             let revert = if overridden {
                 format!(
                     "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\">\
@@ -2552,12 +2571,14 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                 "<div class=\"passive-row\">\
                    <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {marker}</div>\
                    {partial}\
+                   {conversion_hint}\
                    <div class=\"passive-default\">Default: {default_text}</div>\
                    <div class=\"passive-controls\">\
                      <form method=\"post\" action=\"/admin/passives/save\" class=\"passive-edit\">\
                        <input type=\"hidden\" name=\"class\" value=\"{slug}\">\
                        <input type=\"hidden\" name=\"node_key\" value=\"{key}\">\
                        {inputs}\
+                       {conversion_input}\
                        <button class=\"btn-sm\" type=\"submit\">Save</button>\
                      </form>\
                      {revert}\
@@ -2591,6 +2612,13 @@ struct PassiveOverrideForm {
     r1: f64,
     r2: f64,
     r3: f64,
+    /// Only the 13 `OverflowConversion` rows render this input (beside
+    /// their magnitude); every other row's POST omits it entirely - hence
+    /// `#[serde(default)]` per the house trap rule, so old field sets
+    /// keep deserializing. `Some("")` is a blank field = follow the
+    /// global cap again; `Some(text)` parses as the node's own cap.
+    #[serde(default)]
+    conversion_cap: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2619,6 +2647,21 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
             if known && finite {
                 let mut overrides = passive_overrides();
                 overrides.nodes.insert(form.node_key.clone(), vec![form.r1, form.r2, form.r3]);
+                // The per-node conversion cap (OverflowConversion rows
+                // render it beside the magnitude; other rows' POSTs carry
+                // no such field, which lands as None here). Blank clears
+                // any explicit cap - back to following the global.
+                match form.conversion_cap.as_deref().map(str::trim) {
+                    None | Some("") => {
+                        overrides.conversion_caps.remove(&form.node_key);
+                    }
+                    Some(text) => match text.parse::<f64>() {
+                        Ok(cap) if cap.is_finite() => {
+                            overrides.conversion_caps.insert(form.node_key.clone(), cap);
+                        }
+                        _ => tracing::warn!("admin/passives: ignoring non-numeric conversion cap {text:?} for {}", form.node_key),
+                    },
+                }
                 if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
                     tracing::error!("failed to persist passive overrides: {err}");
                 }
@@ -6300,13 +6343,19 @@ mod memories_render_tests {
 mod admin_passives_tests {
     use super::*;
 
+    /// Every render test wants the compiled-in global cap as the
+    /// fallback display - the LIVE global belongs to the handler.
+    fn admin_page(archetype: Archetype, saved: bool) -> String {
+        render_admin_passives_page(None, archetype, saved, crate::adventure::LiveTunables::default().overflow_conversion_cap_per_rank)
+    }
+
     fn node(archetype: Archetype, key: &str) -> &'static PassiveNode {
         archetype.passive_nodes().iter().find(|n| n.key == key).unwrap_or_else(|| panic!("no node {key:?}"))
     }
 
     #[test]
     fn the_page_lists_every_node_in_the_selected_class_only() {
-        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        let html = admin_page(Archetype::Warrior, false);
         for n in Archetype::Warrior.passive_nodes() {
             assert!(html.contains(n.key), "Warrior node {} must appear", n.key);
         }
@@ -6315,10 +6364,29 @@ mod admin_passives_tests {
 
     #[test]
     fn a_tunable_node_gets_three_rank_inputs_and_shows_its_default() {
-        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        let html = admin_page(Archetype::Warrior, false);
         let bulwark_default = (1..=3).map(|r| trim_float(node(Archetype::Warrior, "bulwark").magnitude_at_rank(r))).collect::<Vec<_>>().join(" / ");
         assert!(html.contains(&format!("Default: {bulwark_default}")), "bulwark's compiled-in values must be visible");
         assert!(html.contains("name=\"r1\"") && html.contains("name=\"r2\"") && html.contains("name=\"r3\""));
+    }
+
+    #[test]
+    fn the_conversion_cap_input_appears_on_overflow_conversion_rows_only() {
+        // The per-node cap belongs to the 13 OverflowConversion nodes -
+        // exactly those rows carry the input, nothing else does.
+        for &a in ALL_ARCHETYPES.iter() {
+            let html = admin_page(a, false);
+            let conversions = a.passive_nodes().iter().filter(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::OverflowConversion { .. })).count();
+            assert_eq!(html.matches("name=\"conversion_cap\"").count(), conversions, "{a:?} must offer the cap on each of its {conversions} conversion rows and no others");
+            if conversions > 0 {
+                assert!(html.contains("Blank follows the global"), "{a:?}'s conversion rows must say what blank means");
+            }
+        }
+        // And the owner's named trio is really among them.
+        for key in ["stonefist", "graniteskin", "risingdefiance"] {
+            let n = node(Archetype::Monk, key);
+            assert!(matches!(n.effect, crate::passive_tree::PassiveEffect::OverflowConversion { .. }), "{key} must be an OverflowConversion node");
+        }
     }
 
     #[test]
@@ -6327,7 +6395,7 @@ mod admin_passives_tests {
         // `payback` is a Warrior node whose numbers still live in
         // combat.rs - see PENDING_MIGRATION_NODES.
         assert!(!crate::adventure::node_is_tunable("payback"), "sanity: payback must still be pending");
-        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        let html = admin_page(Archetype::Warrior, false);
         assert!(html.contains("payback"), "a pending node must still be listed, so its state is visible");
         assert!(html.contains("Pending migration"), "and must say why it can't be edited");
     }
@@ -6346,14 +6414,14 @@ mod admin_passives_tests {
                     .map(|n| (a, n))
             })
             .expect("the tree still has at least one unimplemented node somewhere");
-        let html = render_admin_passives_page(None, archetype, false);
+        let html = admin_page(archetype, false);
         assert!(html.contains(inert.key), "{:?}'s inert node {} must still be listed", archetype, inert.key);
         assert!(html.contains("No mechanic yet"), "an inert node must say why it can't be tuned");
     }
 
     #[test]
     fn every_class_is_reachable_from_the_class_nav() {
-        let html = render_admin_passives_page(None, Archetype::Warrior, false);
+        let html = admin_page(Archetype::Warrior, false);
         for &a in ALL_ARCHETYPES.iter() {
             let slug = format!("{a:?}").to_lowercase();
             assert!(html.contains(&format!("/admin/passives?class={slug}")), "{a:?} must be reachable from the class nav");
@@ -6362,8 +6430,8 @@ mod admin_passives_tests {
 
     #[test]
     fn the_save_banner_only_appears_after_a_save() {
-        assert!(!render_admin_passives_page(None, Archetype::Warrior, false).contains("Saved"));
-        assert!(render_admin_passives_page(None, Archetype::Warrior, true).contains("Saved"));
+        assert!(!admin_page(Archetype::Warrior, false).contains("Saved"));
+        assert!(admin_page(Archetype::Warrior, true).contains("Saved"));
     }
 
     #[test]
@@ -6371,7 +6439,7 @@ mod admin_passives_tests {
         // The shipping-dark property at the UI layer: an untuned tree
         // shows no badges and offers no reverts anywhere.
         for &a in ALL_ARCHETYPES.iter() {
-            let html = render_admin_passives_page(None, a, false);
+            let html = admin_page(a, false);
             assert!(!html.contains("differs from default"), "{a:?} shows a tuned badge with no overrides loaded");
             assert!(!html.contains("/admin/passives/revert"), "{a:?} offers a revert with nothing to revert");
         }

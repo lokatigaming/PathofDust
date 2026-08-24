@@ -2881,10 +2881,27 @@ impl Character {
                 // LiveTunables::overflow_conversion_cap_per_rank (default
                 // 0.10 = the old compile-time const), read fresh from the
                 // fight's own snapshot on every call - never cached.
-                let capped = raw.min(t.overflow_conversion_cap_per_rank * rank as f64).max(0.0);
+                // Per-node follow-up: an entry in
+                // adventure-passive-overrides.toml's [conversion_caps]
+                // table (editable on /admin/passives beside that node's
+                // magnitude) overrides the global for THIS node alone;
+                // every node without one falls back to the global and
+                // computes byte-identically to Stage 1.
+                let capped = Self::clamp_overflow_conversion(raw, rank, crate::adventure::passive_conversion_cap_override(node.key), t);
                 output.add(result, capped);
             }
         }
+    }
+
+    /// Pure core of the conversion clamp, split out so tests can drive
+    /// it with a hand-built override (never the process-global store -
+    /// see `overflow_economy_tunables_tests`) - the same
+    /// production/global vs `_with`/injected split as
+    /// `PassiveNode::magnitude_at_rank` / `_with`.
+    /// `cap_override = None` means "follow the global tunable".
+    fn clamp_overflow_conversion(raw: f64, rank: u32, cap_override: Option<f64>, t: &crate::adventure::LiveTunables) -> f64 {
+        let cap_per_rank = cap_override.unwrap_or(t.overflow_conversion_cap_per_rank);
+        raw.min(cap_per_rank * rank as f64).max(0.0)
     }
 
     /// How many points are invested in a specific passive node by key,
@@ -4681,6 +4698,26 @@ mod overflow_economy_tunables_tests {
             "a 0.05/rank cap must halve EVERY saturated channel (3 x 0.15 = 0.45), got {}",
             bonus.increased_damage
         );
+    }
+
+    #[test]
+    fn a_per_node_cap_override_tunes_one_channel_without_touching_its_siblings() {
+        let t = LiveTunables::default();
+        // Hand-built overrides, deliberately NOT written into the
+        // process-global store - other in-process tests (golden corpus
+        // included) read that store concurrently. The store -> game
+        // wiring is proven over real HTTP in tests/admin_passives_http.rs;
+        // what this pins is the resolution rule itself: an entry wins for
+        // ITS node alone, a miss falls back byte-identically to Stage 1.
+        let mut o = crate::adventure::PassiveOverrides::default();
+        o.conversion_caps.insert("stonefist".to_string(), 0.05);
+        // stonefist at 3 ranks now binds at 0.05 * 3...
+        assert!((Character::clamp_overflow_conversion(1.0, 3, o.conversion_cap_for("stonefist"), &t) - 0.15).abs() < 1e-9);
+        // ...while graniteskin and risingdefiance keep the global 0.30.
+        assert!((Character::clamp_overflow_conversion(1.0, 3, o.conversion_cap_for("graniteskin"), &t) - 0.30).abs() < 1e-9);
+        assert!((Character::clamp_overflow_conversion(1.0, 3, o.conversion_cap_for("risingdefiance"), &t) - 0.30).abs() < 1e-9);
+        // And the no-entry fallback IS the Stage-1 math exactly.
+        assert!((Character::clamp_overflow_conversion(1.0, 3, None, &t) - 0.30).abs() < 1e-9);
     }
 
     #[test]
