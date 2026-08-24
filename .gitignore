@@ -199,3 +199,8 @@ REPORTS/
 /backup-pre-build-seam
 /backup-pre-dynamic-pacing
 backup-pre-pacing-controller-loop/
+
+# Crash-window temp files from state.rs's atomic save path (write beside
+# the target, fsync, rename over). Removed on both success and failure, so
+# one only ever survives a hard kill mid-write.
+*.tmp
