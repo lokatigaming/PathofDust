@@ -1853,7 +1853,7 @@ impl AdventureManager {
                 let mut changed = false;
                 for character in characters.values_mut() {
                     for slot in EQUIP_SLOTS {
-                        let Some(item) = character.equipped_mut(slot) else { continue };
+                        let Some(item) = character.equipped_item_mut_unguarded(slot) else { continue };
                         if !item.legacy_reforge_crit_used || item.reforge_crit_used() {
                             continue;
                         }
@@ -2607,9 +2607,7 @@ impl AdventureManager {
     pub async fn toggle_disenchant_protect(&self, username: &str, item_id: &str) -> Option<bool> {
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase())?;
-        let item = character.inventory.iter_mut().find(|i| i.id == item_id)?;
-        item.disenchant_protected = !item.disenchant_protected;
-        let new_state = item.disenchant_protected;
+        let new_state = character.toggle_item_protection(item_id)?;
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -3482,13 +3480,9 @@ impl AdventureManager {
     pub async fn name_item(&self, username: &str, item_id: &str, nickname: &str) {
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&username.to_lowercase()) else { return };
-        let Some(item) = character.find_item_by_id_mut(item_id) else { return };
-        if !item.locked {
+        if !character.set_item_nickname(item_id, nickname) {
             return;
         }
-        let trimmed = nickname.trim();
-        let capped: String = trimmed.chars().take(NICKNAME_MAX_LEN).collect();
-        item.nickname = Some(capped);
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -3747,10 +3741,12 @@ impl AdventureManager {
                 // entirely until a token is actually held.
                 return Err(CraftError::InsufficientDust(u64::MAX));
             }
-            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // Insert-time gate: this branch charges dust or consumes a
+            // token BEFORE the item is ever touched, so it has to refuse a
+            // locked or "Keep"-ticked item here rather than leaving it to
+            // the commit-time guard - otherwise the player pays in full
+            // and the craft fails later. See `Character::check_item_mutable`.
+            let item = character.check_item_mutable(item_id)?;
             if item.unique_affix.is_some() {
                 return Err(CraftError::AlreadyUnique);
             }
@@ -3836,10 +3832,12 @@ impl AdventureManager {
         }
 
         if veiled && action == CraftAction::Annulment {
-            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // Insert-time gate: this branch charges dust or consumes a
+            // token BEFORE the item is ever touched, so it has to refuse a
+            // locked or "Keep"-ticked item here rather than leaving it to
+            // the commit-time guard - otherwise the player pays in full
+            // and the craft fails later. See `Character::check_item_mutable`.
+            let item = character.check_item_mutable(item_id)?;
             if item.affixes.is_empty() {
                 return Err(CraftError::NothingToRemove);
             }
@@ -3889,10 +3887,12 @@ impl AdventureManager {
         }
 
         if veiled && action == CraftAction::Chancing {
-            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // Insert-time gate: this branch charges dust or consumes a
+            // token BEFORE the item is ever touched, so it has to refuse a
+            // locked or "Keep"-ticked item here rather than leaving it to
+            // the commit-time guard - otherwise the player pays in full
+            // and the craft fails later. See `Character::check_item_mutable`.
+            let item = character.check_item_mutable(item_id)?;
             if item.affixes.is_empty() {
                 return Err(CraftError::NothingToReroll);
             }
@@ -4009,6 +4009,63 @@ impl AdventureManager {
     /// deducted together - insufficient EITHER currency fails the whole
     /// unit before anything is consumed (no spending dust alone on a sand
     /// shortfall, or vice versa).
+    /// Divinity (2026-08-24) - one Unique Shard runs the Hideout Warrior
+    /// chain over EVERY eligible item in the player's bag, for free.
+    /// Roughly 560 craft steps across a full 150-item bag, in one click.
+    ///
+    /// # Why this is not a loop over `craft_item_ex`
+    ///
+    /// It would be the obvious implementation and it would be a bad one.
+    /// `craft_item_ex` persists and broadcasts on EVERY step: 560 of them
+    /// means 560 serializations of the whole roster and 560 synchronous
+    /// 3.3MB writes, measured at 7-22 seconds of wall clock and ~1.85GB of
+    /// disk per use. Worse, crafting shares its runtime with the fight loop
+    /// (both are `tokio::spawn`ed onto the one multi-threaded runtime built
+    /// in main.rs) and `self.characters` is the same mutex the post-fight
+    /// award block takes - so those 560 acquire/release cycles would each
+    /// nudge a fight resolving for forty players.
+    ///
+    /// So: take the lock ONCE, plan and apply entirely in memory, persist
+    /// ONCE, broadcast ONCE. Total lock hold is one ordinary craft's worth
+    /// (~20ms), not 560. For scale, the fight loop already blocks a worker
+    /// for ~350ms of raw I/O per boss fight writing its ~349MB detail
+    /// archive, so a single Divinity persist sits an order of magnitude
+    /// under the noise floor the game already lives with.
+    ///
+    /// The shard is consumed only after planning proves there is real work
+    /// to do - an empty or wholly-locked bag refuses without cost.
+    pub async fn apply_divinity(&self, username: &str) -> Result<DivinityReport, DivinityError> {
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&username.to_lowercase()).ok_or(DivinityError::NotJoined)?;
+        if character.craft_token_count(CraftAction::UniqueShard) == 0 {
+            return Err(DivinityError::NoShard);
+        }
+        let plan = character.plan_divinity();
+        if plan.bag_items == 0 {
+            return Err(DivinityError::EmptyBag);
+        }
+        if plan.targets.is_empty() {
+            return Err(DivinityError::NothingEligible);
+        }
+        let report = {
+            // `ThreadRng` isn't `Send`, so it must be dropped before the
+            // `.await` below - same block-scoping every other craft path in
+            // this file uses for the same reason.
+            let mut rng = rand::thread_rng();
+            character.consume_craft_token(CraftAction::UniqueShard);
+            character.apply_divinity(&plan, &mut rng)
+        };
+        // Points the crafting picker at the last item Divinity handled, the
+        // same courtesy every other craft does for its own target.
+        character.last_crafted_item_id = plan.targets.last().cloned();
+        self.persist_characters(&characters);
+        drop(characters);
+        // The single completion broadcast. Per-step broadcasting is exactly
+        // what this function exists to avoid.
+        self.broadcast_state().await;
+        Ok(report)
+    }
+
     pub async fn craft_divine_dust(&self, username: &str) -> Result<u64, DivineDustCraftError> {
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase()).ok_or(DivineDustCraftError::NotJoined)?;
@@ -4171,10 +4228,19 @@ impl AdventureManager {
             }
             (PendingVeilAction::Recombine { item_id_a, item_id_b }, VeilCandidate::Recombine(roll)) => {
                 let mut rng = rand::thread_rng();
-                let outcome = character.apply_recombine_roll(item_id_a, item_id_b, roll.clone(), &mut rng);
-                recombine_crit = Some((outcome.item_name.clone(), outcome.slot, outcome.new_tier, outcome.bonus_affix));
-                character.last_crafted_item_id = Some(outcome.item_id.clone());
-                result = Some(VeilChosenOutcome::Recombine(outcome));
+                // `apply_recombine_roll` re-validates both sources now
+                // (2026-08-24, the guarded-mutation pass) - a lock that
+                // appeared between this veil's insert and this commit
+                // refuses the commit rather than consuming both items
+                // anyway. Nothing has been taken from the character when
+                // it refuses, so falling through leaves the veil resolved
+                // and both items intact, matching how every other
+                // commit-time rejection in this match behaves.
+                if let Ok(outcome) = character.apply_recombine_roll(item_id_a, item_id_b, roll.clone(), &mut rng) {
+                    recombine_crit = Some((outcome.item_name.clone(), outcome.slot, outcome.new_tier, outcome.bonus_affix));
+                    character.last_crafted_item_id = Some(outcome.item_id.clone());
+                    result = Some(VeilChosenOutcome::Recombine(outcome));
+                }
             }
             _ => {}
         }
@@ -4208,7 +4274,20 @@ impl AdventureManager {
     /// That crit is reported back via `ReforgeOutcome::bonus_affix` so
     /// the caller can announce it specially.
     pub(crate) fn reforge_equipped_item(character: &mut Character) -> Option<ReforgeOutcome> {
-        let eligible: Vec<EquipSlot> = EQUIP_SLOTS.into_iter().filter(|&slot| character.equipped(slot).as_ref().is_some_and(|i| !i.locked)).collect();
+        // Filters on the shared mutation rule rather than `locked` alone
+        // (2026-08-24): this path REPLACES the item with a freshly
+        // generated one, new id and all, which makes it the single most
+        // destructive thing that can happen to a piece of gear short of
+        // disenchanting it - exactly what a "Keep" tick means to refuse.
+        //
+        // A no-op in practice today, and deliberately kept anyway: the
+        // protection control is bag-only (see
+        // `Character::toggle_item_protection`) while this only ever picks
+        // EQUIPPED slots, so no live item can currently be both. If
+        // protection is ever extended to worn gear, this is already
+        // correct instead of being the hole nobody remembered.
+        let eligible: Vec<EquipSlot> =
+            EQUIP_SLOTS.into_iter().filter(|&slot| character.equipped(slot).as_ref().is_some_and(|i| i.mutation_block().is_none())).collect();
         if eligible.is_empty() {
             return None;
         }
@@ -4927,7 +5006,7 @@ impl AdventureManager {
                 // after. Basic-enemy filler fights (run_basic_encounter)
                 // don't cost durability at all - only real boss fights do.
                 for slot in EQUIP_SLOTS {
-                    let Some(item) = character.equipped_mut(slot) else { continue };
+                    let Some(item) = character.equipped_item_mut_unguarded(slot) else { continue };
                     let Some(max_uses) = item.max_uses else { continue };
                     if item.uses < max_uses {
                         item.uses += 1;
@@ -7735,7 +7814,7 @@ mod unique_shard_tests {
         let id = joined_with_unique_shard_and_item(&manager, "locker", 1).await;
         {
             let mut characters = manager.characters.lock().await;
-            characters.get_mut("locker").unwrap().find_item_by_id_mut(&id).unwrap().locked = true;
+            characters.get_mut("locker").unwrap().item_mut_for_test(&id).unwrap().locked = true;
         }
 
         let err = manager.craft_item_ex("locker", &id, CraftAction::UniqueShard, false, true).await.expect_err("a locked item must reject");
@@ -7754,7 +7833,7 @@ mod unique_shard_tests {
         let id = joined_with_unique_shard_and_item(&manager, "dupe", 1).await;
         {
             let mut characters = manager.characters.lock().await;
-            characters.get_mut("dupe").unwrap().find_item_by_id_mut(&id).unwrap().unique_affix = Some(UniqueAffix::CelestialConversion);
+            characters.get_mut("dupe").unwrap().item_mut_for_test(&id).unwrap().unique_affix = Some(UniqueAffix::CelestialConversion);
         }
 
         let err = manager.craft_item_ex("dupe", &id, CraftAction::UniqueShard, false, true).await.expect_err("an already-unique item must reject");
@@ -8279,3 +8358,169 @@ mod dynamic_pacing_tests {
 }
 
 
+
+/// Divinity's manager half (2026-08-24) - the shard spend, the refusals
+/// that must cost nothing, and the single-persist contract. What happens
+/// to the gear itself is covered by `character::divinity_tests`.
+#[cfg(test)]
+mod divinity_manager_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("divinity_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    /// Joins `login` with `shards` Unique Shards and `bag` one-modifier bag
+    /// items - the shape 3753 of the live roster's 4760 bag items have.
+    async fn joined_with(manager: &Arc<AdventureManager>, login: &str, shards: u32, bag: usize) {
+        manager.join(login, login).await;
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.level = 150;
+        character.dust = 0;
+        character.inventory.clear();
+        character.add_craft_token(CraftAction::UniqueShard, shards);
+        let mut rng = rand::thread_rng();
+        for _ in 0..bag {
+            let mut item = generate_item_at_tier(EquipSlot::Helm, 80, &mut rng);
+            item.affixes = vec![(Affix::CritChance, 0.05)];
+            character.inventory.push(item);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_spends_exactly_one_shard_regardless_of_bag_size() {
+        let (manager, scratch) = disposable_manager("one_shard");
+        joined_with(&manager, "divine", 3, 40).await;
+
+        let report = manager.apply_divinity("divine").await.expect("a shard and a full bag must run");
+        assert_eq!(report.items_changed, 40);
+        assert_eq!(report.krangled, 40);
+
+        let character = manager.character("divine").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 2, "one shard per USE, not per item - 40 items must cost exactly one");
+        assert_eq!(character.dust, 0, "and no dust, which is the entire point of the feature");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn without_a_shard_nothing_runs_and_nothing_changes() {
+        let (manager, scratch) = disposable_manager("no_shard");
+        joined_with(&manager, "broke", 0, 5).await;
+
+        let err = manager.apply_divinity("broke").await.expect_err("no shard held");
+        assert_eq!(err, DivinityError::NoShard);
+
+        let character = manager.character("broke").await.expect("still joined");
+        assert!(character.inventory.iter().all(|i| !i.locked), "a refused run must not have Krangled anything");
+        assert!(character.inventory.iter().all(|i| i.affixes.len() == 1), "nor added a single modifier");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// The refusal that matters most: a bag where every item is locked
+    /// must not silently burn the shard on a run that could do nothing.
+    #[tokio::test]
+    async fn a_wholly_locked_bag_refuses_without_spending_the_shard() {
+        let (manager, scratch) = disposable_manager("all_locked");
+        joined_with(&manager, "hoarder", 1, 4).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("hoarder").expect("joined");
+            character.inventory[0].locked = true;
+            character.inventory[1].locked = true;
+            character.inventory[2].disenchant_protected = true;
+            character.inventory[3].disenchant_protected = true;
+        }
+
+        let err = manager.apply_divinity("hoarder").await.expect_err("nothing is eligible");
+        assert_eq!(err, DivinityError::NothingEligible);
+
+        let character = manager.character("hoarder").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a run that can touch nothing must not cost a shard");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn an_empty_bag_refuses_distinctly_from_a_locked_one() {
+        let (manager, scratch) = disposable_manager("empty_bag");
+        joined_with(&manager, "empty", 1, 0).await;
+
+        let err = manager.apply_divinity("empty").await.expect_err("nothing to work on");
+        assert_eq!(err, DivinityError::EmptyBag, "an empty bag and a fully-locked one need different messages");
+
+        let character = manager.character("empty").await.expect("still joined");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "and neither costs a shard");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Locked items are skipped, the rest still run, and the report carries
+    /// the counts - the owner's ruling was that Divinity never refuses to
+    /// run just because something is locked.
+    #[tokio::test]
+    async fn locked_items_are_skipped_and_counted_while_the_rest_run() {
+        let (manager, scratch) = disposable_manager("mixed");
+        joined_with(&manager, "mixed", 1, 6).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("mixed").expect("joined");
+            character.inventory[0].locked = true;
+            character.inventory[5].disenchant_protected = true;
+        }
+
+        let report = manager.apply_divinity("mixed").await.expect("four eligible items is a real run");
+        assert_eq!(report.bag_items, 6);
+        assert_eq!(report.skipped_krangled, 1);
+        assert_eq!(report.skipped_kept, 1);
+        assert_eq!(report.items_changed, 4);
+        assert_eq!(report.krangled, 4);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// The stall contract, asserted the only way a test reasonably can: the
+    /// run persists, and what it persisted is complete. A loop over
+    /// `craft_item_ex` would rewrite the whole roster ~560 times for a full
+    /// bag and the resulting GEAR would look identical, so no gear
+    /// assertion can catch that regression - this checks the write itself.
+    #[tokio::test]
+    async fn the_whole_run_persists_once_and_completely() {
+        let (manager, scratch) = disposable_manager("one_persist");
+        joined_with(&manager, "persister", 1, 30).await;
+        let path = scratch.join("adventure-characters.json");
+
+        let report = manager.apply_divinity("persister").await.expect("30 items is a real run");
+        assert_eq!(report.steps_applied, 120, "30 items x 4 eligible steps - the run really did do the work");
+
+        // The property atomic writes exist for, checked on the largest
+        // write this feature performs: the file on disk is complete and
+        // parses, with every Krangle and every stamped name in it.
+        let reloaded: HashMap<String, Character> = crate::state::load_json(&path).expect("the persisted roster must parse");
+        let persisted = reloaded.get("persister").expect("the character must be in it");
+        assert_eq!(persisted.inventory.iter().filter(|i| i.locked).count(), 30, "every Krangle must have survived the persist");
+        assert!(
+            persisted.inventory.iter().all(|i| i.nickname.as_deref() == Some(DIVINITY_NICKNAME)),
+            "and so must every name Divinity stamped"
+        );
+        assert_eq!(persisted.craft_token_count(CraftAction::UniqueShard), 0, "and the shard spend must be on disk, not just in memory");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[tokio::test]
+    async fn a_character_who_never_joined_is_rejected() {
+        let (manager, scratch) = disposable_manager("not_joined");
+        let err = manager.apply_divinity("ghost").await.expect_err("never joined");
+        assert_eq!(err, DivinityError::NotJoined);
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+}

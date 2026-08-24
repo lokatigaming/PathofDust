@@ -36,12 +36,13 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
-    NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST,
+    HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST,
+    WEB_REFORGE_DUST_COST, WINGS_COST,
 };
 use crate::adventure::default_memory_name;
 use crate::adventure::passive_overrides;
@@ -354,6 +355,12 @@ struct IndexParams {
     /// ran out)" batch-shortfall prefix `do_craft_batch` already uses.
     divine_dust_crafted: Option<String>,
     divine_dust_amount: Option<u64>,
+    /// Set by `do_craft` after a Divinity run - see
+    /// `render_divinity_popup`. Own marker for the same reason
+    /// `divine_dust_crafted` has one: the run has no single item, slot or
+    /// tier, so `crafted`/`tier` can't describe it. Reuses `change` for the
+    /// whole-run summary (`divinity_summary_text`).
+    divinity_run: Option<String>,
 }
 
 async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
@@ -394,6 +401,8 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
                 render_disenchant_popup(&params)
             } else if params.divine_dust_crafted.is_some() {
                 render_divine_dust_craft_popup(&params)
+            } else if params.divinity_run.is_some() {
+                render_divinity_popup(&params)
             } else {
                 String::new()
             };
@@ -501,6 +510,30 @@ fn render_divine_dust_craft_popup(params: &IndexParams) -> String {
             <p>Gained <strong>{amount} Divine Dust</strong></p>\
             <p class=\"modal-tier\">{change}</p>\
             <button class=\"btn\" onclick=\"document.getElementById('divine-dust-craft-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
+          </div>\
+        </div>"
+    )
+}
+
+/// Shown once after a Divinity run (see `do_craft`'s `"divinity"` branch
+/// and `divinity_popup_url`). Same POST-redirect-GET popup pattern as
+/// `render_divine_dust_craft_popup` above; `change` carries the whole-run
+/// aggregate built by `divinity_summary_text`.
+///
+/// One aggregate line, no per-item log: a full bag is up to 150 items and
+/// ~560 craft steps, and the run has already renamed everything it
+/// Krangled to "From Divinity", so the bag itself is the detailed record
+/// for anyone who wants one.
+fn render_divinity_popup(params: &IndexParams) -> String {
+    let change = escape_html(params.change.as_deref().unwrap_or(""));
+    format!(
+        "<div class=\"modal-backdrop\" id=\"divinity-modal\">\
+          <div class=\"modal\">\
+            <div class=\"modal-icon\">\u{1F31F}</div>\
+            <h2>Divinity</h2>\
+            <p>Your bag has been remade.</p>\
+            <p class=\"modal-tier\">{change}</p>\
+            <button class=\"btn\" onclick=\"document.getElementById('divinity-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
           </div>\
         </div>"
     )
@@ -1289,6 +1322,50 @@ fn divine_dust_craft_popup_url(amount: u64, change: &str) -> String {
     format!("/inventory?divine_dust_crafted=1&divine_dust_amount={amount}&change={}", urlencoding::encode(change))
 }
 
+/// One-line summary of a whole Divinity run - what its popup shows.
+///
+/// Aggregate, never per-item: a full bag is up to 150 items and ~600 craft
+/// steps, and a per-item log of that is not something anyone reads. The
+/// skip counts are stated separately and only when non-zero, because "19
+/// already Krangled" and "19 you ticked Keep on" call for different
+/// reactions from the player - and a zero of either is noise.
+fn divinity_summary_text(report: &DivinityReport) -> String {
+    let mut parts = vec![format!(
+        "{} item{} crafted, {} Krangled",
+        report.items_changed,
+        if report.items_changed == 1 { "" } else { "s" },
+        report.krangled
+    )];
+    if report.skipped_krangled > 0 {
+        parts.push(format!("{} already Krangled, left alone", report.skipped_krangled));
+    }
+    if report.skipped_kept > 0 {
+        parts.push(format!("{} marked Keep, left alone", report.skipped_kept));
+    }
+    if report.unchanged > 0 {
+        parts.push(format!("{} had no eligible step", report.unchanged));
+    }
+    format!("{} \u{2014} {} craft steps in total, no dust spent.", parts.join(" \u{00B7} "), report.steps_applied)
+}
+
+fn divinity_popup_url(report: &DivinityReport) -> String {
+    format!("/inventory?divinity_run=1&change={}", urlencoding::encode(&divinity_summary_text(report)))
+}
+
+/// Player-facing reason a Divinity run didn't start. Every one of these is
+/// a refusal that cost nothing - the shard is only consumed once planning
+/// has proved there is real work to do.
+fn divinity_error_text(err: DivinityError) -> String {
+    match err {
+        DivinityError::NotJoined => "You haven't joined the adventure yet.".to_string(),
+        DivinityError::NoShard => "Divinity needs a Unique Shard \u{2014} you don't have one right now.".to_string(),
+        DivinityError::EmptyBag => "Your bag is empty \u{2014} Divinity only works on bagged items, never equipped gear.".to_string(),
+        DivinityError::NothingEligible => {
+            "Every item in your bag is already Krangled or marked \u{1F512} Keep, so Divinity had nothing to work on \u{2014} your shard wasn't spent.".to_string()
+        }
+    }
+}
+
 /// One-line "what changed" for a currency craft's popup - Scour reports
 /// how many modifiers it stripped; every affix-adding action reports the
 /// one it added (plus a permanent-lock note for Krangle specifically).
@@ -1391,6 +1468,7 @@ fn recombine_error_text(err: RecombineError) -> String {
         RecombineError::SlotMismatch => "Both items need to be the same gear slot (e.g. two helms, two gloves).".to_string(),
         RecombineError::InsufficientDust(cost) => format!("Not enough dust — this needs {cost}."),
         RecombineError::IncompatibleUniqueAffixes => "Both items have a unique affix and they're not the same one — those can't be combined.".to_string(),
+        RecombineError::ItemProtected => "That item is marked 🔒 Keep — untick Keep on its card first, since recombining consumes it.".to_string(),
     }
 }
 
@@ -1401,6 +1479,11 @@ fn craft_error_text(err: CraftError) -> String {
         CraftError::NotJoined => "You haven't joined the adventure yet.".to_string(),
         CraftError::ItemNotFound => "Pick an item first — your selection was empty or no longer exists.".to_string(),
         CraftError::ItemLocked => "A Krangled (locked) item can't be crafted on.".to_string(),
+        // Deliberately different wording from ItemLocked above: this one is
+        // the player's own tick-box and they can undo it, so the message
+        // says where to go. "Locked" would send them looking for a Krangle
+        // they never did.
+        CraftError::ItemProtected => "That item is marked 🔒 Keep — untick Keep on its card to craft on it.".to_string(),
         CraftError::PreconditionNotMet => "That item doesn't have the right number of modifiers for this action.".to_string(),
         CraftError::NothingToRemove => "That item has no modifiers to remove.".to_string(),
         CraftError::NothingToReroll => "That item has no modifiers to reroll.".to_string(),
@@ -1459,12 +1542,14 @@ fn craft_error_popup_url(reason: &str) -> String {
 async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<CraftForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
         let veiled = form.veiled.is_some();
-        // Every action below except "divine dust craft" needs a real
-        // item - validated once here rather than at each branch, since
-        // an absent `item_a` (now `Option`, see the field's own doc) is
-        // the exact same "nothing to act on" condition regardless of
-        // which of those actions was requested.
-        let item_a = if form.action != "divine dust craft" {
+        // Every action below except the two that have no target item at
+        // all - the Divine Dust recipe (a pure currency conversion) and
+        // Divinity (which acts on the WHOLE bag) - needs a real item.
+        // Validated once here rather than at each branch, since an absent
+        // `item_a` (now `Option`, see the field's own doc) is the exact
+        // same "nothing to act on" condition regardless of which of those
+        // actions was requested.
+        let item_a = if !matches!(form.action.as_str(), "divine dust craft" | "divinity") {
             match form.item_a.as_deref() {
                 Some(id) => Some(id),
                 None => return Redirect::to(&craft_error_popup_url("No item selected.")),
@@ -1483,8 +1568,18 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
                 Err(err) => return Redirect::to(&craft_error_popup_url(&recombine_error_text(err))),
             }
         } else if form.action == "hideout warrior" {
-            let item_a = item_a.expect("validated above - only \"divine dust craft\" skips this");
+            let item_a = item_a.expect("validated above - only the no-target actions skip this");
             return do_hideout_warrior(&state, &login, item_a, form.hideout_krangle.is_some()).await;
+        } else if form.action == "divinity" {
+            // Whole-bag action, no target item - a fourth string-matched
+            // pseudo-action alongside "recombine"/"hideout warrior"/"divine
+            // dust craft". Never batched: `times` is meaningless when the
+            // unit of work is already "the entire bag", and the shard cost
+            // is per USE by ruling, so a x10 would silently be ten shards.
+            return match state.adventure.apply_divinity(&login).await {
+                Ok(report) => Redirect::to(&divinity_popup_url(&report)),
+                Err(err) => Redirect::to(&craft_error_popup_url(&divinity_error_text(err))),
+            };
         } else if form.action == "divine dust craft" {
             // Currency-only recipe, no item involved at all - a third
             // string-matched pseudo-action alongside "recombine"/"hideout
@@ -1643,10 +1738,6 @@ async fn do_craft_divine_dust_batch(state: &AppState, login: &str, times: u32) -
     Redirect::to(&divine_dust_craft_popup_url(total, &prefix))
 }
 
-/// The fixed 5-step chain Hideout Warrior runs, in order - the only
-/// sequence of existing `CraftAction::required_affix_count` preconditions
-/// that takes a bare item all the way through to Krangled.
-const HIDEOUT_WARRIOR_STEPS: [CraftAction; 5] = [CraftAction::Transmute, CraftAction::Augment, CraftAction::Regal, CraftAction::Exalt, CraftAction::Krangle];
 
 /// Hideout Warrior (2026-08-17, a live request) - runs every step of
 /// `HIDEOUT_WARRIOR_STEPS` against one item in a single click, always
@@ -5252,7 +5343,18 @@ fn all_items(c: &Character) -> Vec<&Item> {
 /// point of this pass (a live request: "each item should list the quality
 /// %/perfect/sacred/etc").
 fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str>) -> String {
-    let lock = if item.locked { " \u{1F512}" } else { "" };
+    // A Krangled item and a "Keep"-ticked one both refuse every craft now
+    // (2026-08-24), so both need to say so in the picker - otherwise the
+    // only feedback is an error popup after the click. Same padlock, and
+    // the trailing word is what separates them: Krangle's lock is
+    // permanent, Keep is the player's own tick-box on the item's card.
+    let lock = if item.locked {
+        " \u{1F512}".to_string()
+    } else if item.disenchant_protected {
+        " \u{1F512} Keep".to_string()
+    } else {
+        String::new()
+    };
     let unique_mark = if item.unique_affix.is_some() { " \u{2726}" } else { "" };
     let mods = item.affixes.len();
     let selected = if selected_id == Some(item.id.as_str()) { " selected" } else { "" };
@@ -5384,6 +5486,12 @@ const RECOMBINE_TIP: &str = "Forges item A and item B (same slot) into one new i
 const VEIL_TIP: &str = "Turns this craft's randomness into a choice: pay extra dust up front and get 3 independently-rolled outcomes to pick from, instead of one outcome applied automatically. A banked free token always veils at no extra cost. Scour has nothing to pick between, so veiling it does nothing.";
 
 const HIDEOUT_WARRIOR_TIP: &str = "Runs Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle on this item in order, skipping any step that isn't eligible right now, paying each step's normal dust cost as it goes \u{2014} always in full, never a banked token. Stops early if you run out of dust; whatever already landed stays. Never veiled, regardless of the checkbox above. Reaching the Krangle step permanently locks the item, same as using Krangle directly \u{2014} uncheck \"Include Krangle\" to stop after Exalt and leave the item unlocked.";
+
+/// Divinity (2026-08-24) - the whole-bag run. Says "ignores the item
+/// pickers" explicitly because this button sits in the same `<form>` as
+/// six per-item actions and is the only one there that does not act on
+/// the selection.
+const DIVINITY_TIP: &str = "Costs one Unique Shard and runs the whole Hideout Warrior chain \u{2014} Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle \u{2014} over EVERY eligible item in your bag at once, paying no dust at all. Ignores the item pickers above: this is a whole-bag action, not a per-item one. Equipped gear is never touched. Items already Krangled or ticked \u{1F512} Keep are skipped, not refused, and everything Krangle lands on is permanently locked and auto-named \u{201C}From Divinity\u{201D}. One shard per use \u{2014} there is no x10.";
 
 /// The Divine Dust craft recipe row (docs/divine_dust_spec.md) - a
 /// separate, standalone `<form>` from the main item-crafting one below
@@ -5536,6 +5644,56 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
         "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"divine dust\" data-divine-dust-apply=\"1\" data-divine-dust=\"{}\" data-tip=\"{divine_dust_apply_tip}\">Apply Divine Dust</button>",
         c.divine_dust,
     );
+    // Divinity (2026-08-24) - its own row, not another button in the
+    // craft-actions row above, because every button there acts on the
+    // item pickers and this one acts on the whole bag; sitting among them
+    // it would read as "Divinity the selected item". Hidden entirely
+    // until a Unique Shard is actually held, the same hidden-until-earned
+    // shape celestial_btn/unique_shard_btn already use - a permanently
+    // unaffordable button for a currency most players have never seen is
+    // clutter, and it reveals itself the moment one drops.
+    //
+    // `plan_divinity` is pure reads (see its own doc), so calling it here
+    // just to LABEL the button costs nothing and cannot mutate anything.
+    // The label states the real eligible count rather than the bag size:
+    // "Divinity (42 items)" when 19 of a 61-item bag are locked would be
+    // a lie about what the shard is going to buy.
+    let divinity_row = if c.craft_token_count(CraftAction::UniqueShard) > 0 {
+        let plan = c.plan_divinity();
+        let eligible = plan.targets.len();
+        let skipped = plan.skipped_krangled + plan.skipped_kept;
+        // Disabled rather than hidden when nothing is eligible: the
+        // player HAS a shard, so the button existing-but-refusing plus a
+        // reason is the honest state. `apply_divinity` refuses this same
+        // case for free anyway (DivinityError::NothingEligible), so the
+        // disable is a courtesy, not the safeguard.
+        let disabled = if eligible == 0 { " disabled" } else { "" };
+        let skipped_note = if skipped > 0 {
+            format!(" <span class=\"muted\">{skipped} skipped (\u{1F512} Krangled or Keep)</span>")
+        } else {
+            String::new()
+        };
+        // Whole-bag, shard-priced and mostly irreversible, so it gets the
+        // confirm gate - but NOT the item-named message the per-item
+        // destructive actions use (see base.html's confirm block), which
+        // would name whatever happened to be selected in a picker this
+        // action ignores. `data-confirm-msg` overrides that text with one
+        // that names the real scope instead.
+        let confirm_msg = escape_html(&format!(
+            "Run Divinity over all {eligible} eligible item{} in your bag? This spends 1 Unique Shard, Krangles most of them permanently, and cannot be undone.",
+            if eligible == 1 { "" } else { "s" }
+        ));
+        format!(
+            "<div class=\"craft-actions\">\
+              <span class=\"muted\">Whole bag:</span>\
+              <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"divinity\" data-confirm=\"1\" data-confirm-msg=\"{confirm_msg}\" data-tip=\"{DIVINITY_TIP}\"{disabled}>Divinity ({eligible} item{plural}, 1 Unique Shard)</button>\
+              {skipped_note}\
+            </div>",
+            plural = if eligible == 1 { "" } else { "s" },
+        )
+    } else {
+        String::new()
+    };
     format!(
         "<div class=\"card\" id=\"crafting-card\">\
           <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
@@ -5562,6 +5720,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"hideout warrior\" data-confirm=\"1\" data-tip=\"{HIDEOUT_WARRIOR_TIP}\">Hideout Warrior</button>\
               <label class=\"veil-check\" data-tip=\"Leave checked to end on Krangle (permanently locks the item). Uncheck to stop after Exalt and leave it unlocked.\"><input type=\"checkbox\" name=\"hideout_krangle\" value=\"1\" checked> Include Krangle</label>\
             </div>\
+            {divinity_row}\
           </form>\
         </div>",
         dust = format_number(c.dust as f64),

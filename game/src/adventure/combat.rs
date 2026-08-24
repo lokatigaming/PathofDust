@@ -20233,7 +20233,7 @@ mod echo_tests {
         let mut c = Character::new(name.to_string());
         c.archetype = Archetype::Warrior;
         c.level = 100;
-        let weapon = c.equipped_mut(EquipSlot::Weapon).as_mut().expect("starter kit fills every slot");
+        let weapon = c.equipped_item_mut_unguarded(EquipSlot::Weapon).expect("starter kit fills every slot");
         weapon.affixes.push((Affix::Echo, echo_pct));
         c
     }

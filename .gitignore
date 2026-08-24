@@ -204,3 +204,8 @@ backup-pre-pacing-controller-loop/
 # every backup-pre-* above.
 /backup-pre-passive-tunables-stage1
 *-watchdog-maintenance.flag
+
+# Crash-window temp files from state.rs's atomic save path (write beside
+# the target, fsync, rename over). Removed on both success and failure, so
+# one only ever survives a hard kill mid-write.
+*.tmp

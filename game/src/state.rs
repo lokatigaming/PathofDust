@@ -5,7 +5,9 @@
 // small local files.
 
 use serde::{de::DeserializeOwned, Serialize};
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub fn load_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> Option<T> {
     let path = path.as_ref();
@@ -87,10 +89,107 @@ fn display_absolute(path: &Path) -> String {
     }
 }
 
+/// How many times [`write_atomic`] retries its final rename before giving
+/// up, and how long it waits between attempts. Windows fails a rename with
+/// ACCESS_DENIED for as long as ANY other process holds the destination
+/// open without `FILE_SHARE_DELETE` - and several do read these files
+/// routinely (`backup-game-data.ps1`, `game-watchdog.ps1`, a mod eyeballing
+/// a save in an editor). A brief overlap is normal operation, not an error,
+/// so a few short retries turn what would be a spurious "failed to persist"
+/// into a non-event. Deliberately small: this runs synchronously on a tokio
+/// worker (see `AdventureManager::persist_characters`' callers), so the
+/// worst case a contended write can park that worker for is
+/// `ATOMIC_RENAME_ATTEMPTS - 1` times `ATOMIC_RENAME_RETRY`, i.e. 80ms.
+const ATOMIC_RENAME_ATTEMPTS: u32 = 5;
+const ATOMIC_RENAME_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// Monotonic suffix for [`write_atomic`]'s temp files, so two concurrent
+/// writers aimed at the same path can never pick the same temp name.
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Writes `contents` to `path` such that a reader - or a crash - can only
+/// ever observe the OLD complete file or the NEW complete file, never a
+/// half-written one.
+///
+/// The plain `std::fs::write` this replaces truncated the target and then
+/// streamed into it: a crash, a power loss, or a full disk anywhere inside
+/// that window left a truncated file behind, and for
+/// `adventure-characters.json` that file IS the entire roster. This is not
+/// hypothetical - see [`load_json_fail_loud`]'s doc for the 2026-08-22
+/// incident where a corrupt characters file was recoverable only from
+/// backup. That fix made a corrupt file refuse to start; this one stops it
+/// being written in the first place.
+///
+/// Three steps, in order, and each is load-bearing:
+///
+/// 1. write into a temp file **in the same directory** as `path`. `rename`
+///    is only atomic within a single filesystem, so putting the temp in the
+///    system temp dir would silently degrade this into a copy;
+/// 2. `sync_all` (fsync) the temp file, so its bytes are on the physical
+///    device before anything points at them. Without this the rename can
+///    land while the data is still only in the page cache - which is
+///    precisely the crash-truncation this exists to prevent, just moved;
+/// 3. `rename` over the target. Both `MoveFileEx`-with-replace (Windows)
+///    and `rename(2)` (unix) replace the destination atomically, so no
+///    reader ever observes the path as missing.
+///
+/// Not done: fsync of the containing DIRECTORY. On unix that is what makes
+/// the rename itself durable across a power loss (the file's data would
+/// survive, the directory entry might not); this codebase ships on Windows,
+/// where NTFS journals the rename's metadata and there is no directory
+/// handle to sync anyway. Worth knowing before anyone ports it.
+///
+/// Temp files are named `<file-name>.<pid>.<n>.tmp`. The `.tmp` extension
+/// specifically keeps them out of `fight_storage::list_fight_files`, which
+/// selects on a `.json` extension - a temp that matched that filter would
+/// be pruned as if it were an archived fight, or worse, read as one.
+fn write_atomic(path: &Path, contents: &str) -> anyhow::Result<()> {
+    // A bare relative filename ("adventure-characters.json") has a parent
+    // of "" rather than None, and joining onto "" would produce a path
+    // relative to the drive root instead of the CWD - so both the empty
+    // and the absent case have to fall back to ".".
+    let dir: PathBuf = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let stem = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "state".to_string());
+    let unique = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp = dir.join(format!("{stem}.{}.{unique}.tmp", std::process::id()));
+
+    // Scoped so the handle is definitely closed before the rename -
+    // Windows will not rename a file that is still open for writing.
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()
+    })();
+    if let Err(err) = write_result {
+        let _ = std::fs::remove_file(&temp);
+        return Err(anyhow::Error::new(err).context(format!("writing temp file {}", temp.display())));
+    }
+
+    let mut last_err = None;
+    for attempt in 0..ATOMIC_RENAME_ATTEMPTS {
+        match std::fs::rename(&temp, path) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt + 1 < ATOMIC_RENAME_ATTEMPTS {
+                    std::thread::sleep(ATOMIC_RENAME_RETRY);
+                }
+            }
+        }
+    }
+    // Never leave the temp behind - a failed save must not also litter the
+    // data directory with partial copies that accumulate every retry.
+    let _ = std::fs::remove_file(&temp);
+    Err(anyhow::Error::new(last_err.expect("the loop runs at least once, so a failure path always set this"))
+        .context(format!("renaming {} over {}", temp.display(), path.display())))
+}
+
 pub fn save_json<T: Serialize>(path: impl AsRef<Path>, value: &T) -> anyhow::Result<()> {
     let contents = serde_json::to_string_pretty(value)?;
-    std::fs::write(path, contents)?;
-    Ok(())
+    write_atomic(path.as_ref(), &contents)
 }
 
 /// Same as `save_json`, but compact: no indentation, no spaces.
@@ -110,8 +209,126 @@ pub fn save_json<T: Serialize>(path: impl AsRef<Path>, value: &T) -> anyhow::Res
 /// on disk keep loading with no migration.
 pub fn save_json_compact<T: Serialize>(path: impl AsRef<Path>, value: &T) -> anyhow::Result<()> {
     let contents = serde_json::to_string(value)?;
-    std::fs::write(path, contents)?;
-    Ok(())
+    write_atomic(path.as_ref(), &contents)
+}
+
+#[cfg(test)]
+mod atomic_save_tests {
+    use super::*;
+    use std::sync::atomic::AtomicU32;
+
+    fn scratch_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("pod_atomic_{label}_{}_{}", std::process::id(), unique));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir must be creatable");
+        dir
+    }
+
+    /// The property the whole helper exists for: an overwrite leaves the
+    /// target complete and correct, and leaves NO temp file behind. A
+    /// leftover temp in a fight-archive directory is not cosmetic - see
+    /// `write_atomic`'s doc on `list_fight_files`.
+    #[test]
+    fn a_successful_overwrite_replaces_the_file_and_leaves_no_temp_behind() {
+        let dir = scratch_dir("overwrite");
+        let path = dir.join("state.json");
+
+        save_json(&path, &serde_json::json!({ "generation": 1 })).expect("first save must succeed");
+        save_json(&path, &serde_json::json!({ "generation": 2 })).expect("overwrite must succeed");
+
+        let parsed: serde_json::Value = load_json(&path).expect("must parse back");
+        assert_eq!(parsed, serde_json::json!({ "generation": 2 }), "the overwrite must be the version on disk");
+
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .expect("scratch dir must be readable")
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "state.json")
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(leftovers.is_empty(), "an atomic save must clean up after itself, found: {leftovers:?}");
+    }
+
+    /// Repeated overwrites of the same path must not accumulate anything -
+    /// the temp names carry a counter precisely so two writers can't pick
+    /// the same one, and every attempt has to clear its own temp whether it
+    /// succeeded or not.
+    #[test]
+    fn repeated_overwrites_never_accumulate_temp_files() {
+        let dir = scratch_dir("repeat");
+        let path = dir.join("state.json");
+
+        for generation in 0..8 {
+            write_atomic(&path, &format!(r#"{{"generation":{generation}}}"#)).expect("write must succeed");
+        }
+
+        let parsed: serde_json::Value = load_json(&path).expect("must parse back");
+        let entries = std::fs::read_dir(&dir).expect("readable").filter_map(|e| e.ok()).count();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(parsed, serde_json::json!({ "generation": 7 }), "the last write must be the one on disk");
+        assert_eq!(entries, 1, "only the target itself may remain in the directory");
+    }
+
+    /// A brand-new file (no existing target to replace) must work too -
+    /// `rename` onto a non-existent destination is the fresh-install path
+    /// every marker file and every first-ever save takes.
+    #[test]
+    fn creating_a_file_that_does_not_exist_yet_works() {
+        let dir = scratch_dir("create");
+        let path = dir.join("fresh.json");
+        assert!(!path.exists(), "sanity: must not exist yet");
+
+        save_json_compact(&path, &serde_json::json!({ "fresh": true })).expect("create must succeed");
+        let parsed: serde_json::Value = load_json(&path).expect("must parse back");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(parsed, serde_json::json!({ "fresh": true }));
+    }
+
+    /// A bare relative filename has a parent of `""`, not `None` - joining
+    /// onto `""` would aim the temp at the drive root instead of the CWD,
+    /// which on Windows is a different volume often enough to matter.
+    /// This is the case every production save file actually uses
+    /// ("adventure-characters.json"), so it gets its own test.
+    #[test]
+    fn a_bare_relative_filename_writes_next_to_the_cwd_not_the_drive_root() {
+        let dir = scratch_dir("relative");
+        let path = dir.join("relative-target.json");
+        // Exercise the parent-resolution branch directly rather than
+        // changing the process CWD, which would race every other test.
+        write_atomic(Path::new(&path), r#"{"ok":true}"#).expect("write must succeed");
+        let parsed: serde_json::Value = load_json(&path).expect("must parse back");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(parsed, serde_json::json!({ "ok": true }));
+    }
+
+    /// An unwritable destination must surface as an `Err` carrying the
+    /// path, not a panic and not a silent success - `persist_characters`
+    /// logs that error, and a save that quietly did nothing is the exact
+    /// failure mode the fail-loud loader was added to catch later.
+    #[test]
+    fn an_unwritable_destination_reports_an_error_and_leaves_no_temp() {
+        let dir = scratch_dir("unwritable");
+        // A directory standing where the file should be: File::create on
+        // the temp still succeeds, but the rename over a directory fails
+        // on every platform.
+        let path = dir.join("blocked.json");
+        std::fs::create_dir_all(&path).expect("stand-in directory must be creatable");
+
+        let result = save_json(&path, &serde_json::json!({ "nope": true }));
+        assert!(result.is_err(), "renaming over a directory must fail loudly");
+
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .expect("readable")
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "blocked.json")
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(leftovers.is_empty(), "a failed save must still clean up its temp, found: {leftovers:?}");
+    }
 }
 
 #[cfg(test)]

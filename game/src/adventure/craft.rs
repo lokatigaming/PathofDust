@@ -40,6 +40,27 @@ pub const VEIL_EXTRA_COST: u64 = 500;
 /// a token craft stays entirely free, not just base-cost-free.
 pub const TIER_CRAFT_DUST_COST: u64 = 3;
 
+/// The fixed 5-step chain Hideout Warrior runs, in order - the only
+/// sequence of existing `CraftAction::required_affix_count` preconditions
+/// that takes a bare item all the way through to Krangled.
+///
+/// Lives here rather than in `adventure_web.rs` (where it was defined
+/// until 2026-08-24) because it now has two consumers: `do_hideout_warrior`
+/// and Divinity, which is defined as "Hideout Warrior over the whole bag".
+/// One definition is the point - if this chain ever gains or loses a step,
+/// a Divinity that had its own copy would silently stop meaning what its
+/// own name says.
+pub(crate) const HIDEOUT_WARRIOR_STEPS: [CraftAction; 5] =
+    [CraftAction::Transmute, CraftAction::Augment, CraftAction::Regal, CraftAction::Exalt, CraftAction::Krangle];
+
+/// Nickname stamped on every item Divinity Krangles (2026-08-24, an owner
+/// ruling). Krangle normally opens a "name your item" prompt
+/// (`render_nickname_prompt`), which shows one un-named locked item per
+/// dashboard load - after a full-bag Divinity that would be up to 150
+/// consecutive forced prompts. Naming them up front means the prompt has
+/// nothing left to ask about.
+pub const DIVINITY_NICKNAME: &str = "From Divinity";
+
 /// Every `CraftAction` - what a new character's starter free-token grant
 /// (see `Character::new`) and the existing-character backfill (see
 /// `AdventureManager::new`) both hand out one of each from.
@@ -319,6 +340,16 @@ pub enum CraftError {
     /// The item is locked (Krangled) - excluded from every crafting
     /// action.
     ItemLocked,
+    /// The player has ticked "Keep" on this item (`Item::disenchant_protected`)
+    /// - 2026-08-24, the tick-box was widened from a disenchant guard into
+    /// a full "don't touch this" lock, so it now refuses every mutation
+    /// too, not just destruction. Deliberately a SEPARATE variant from
+    /// `ItemLocked` even though both mean "refused, this item is
+    /// protected": `ItemLocked` is permanent and the game imposed it
+    /// (Krangle), this one is the player's own choice and they can undo it
+    /// from the item's own card, so the two need different player-facing
+    /// text or the message is actively unhelpful.
+    ItemProtected,
     /// The item's current affix count doesn't match what this action
     /// requires - see `CraftAction::required_affix_count`.
     PreconditionNotMet,
@@ -374,6 +405,74 @@ pub enum CraftError {
     /// unequipped. Checked BEFORE token consumption, same convention
     /// `ItemLocked`/`AlreadyUnique` already use.
     ConflictingUniqueAffix,
+}
+
+/// Why `AdventureManager::apply_divinity` didn't run at all. Own error
+/// type rather than a `CraftError` variant for the same reason
+/// `DivineDustCraftError` has one: Divinity has no single target item, so
+/// every item-shaped `CraftError` variant is meaningless for it. A
+/// per-ITEM refusal inside a run is not an error at all - it is a skip,
+/// counted in `DivinityReport`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DivinityError {
+    /// Hasn't `!join`ed the adventure yet.
+    NotJoined,
+    /// No Unique Shard banked - Divinity's only price (see
+    /// `CraftAction::UniqueShard`). Checked before anything is planned, so
+    /// a refusal never costs a shard.
+    NoShard,
+    /// The bag is empty. Distinct from `NothingEligible` below so the
+    /// message can say which - "you have nothing" and "everything you have
+    /// is locked" want very different responses from the player.
+    EmptyBag,
+    /// The bag has items but every one of them is Krangled or "Keep"-
+    /// ticked. Deliberately an error rather than a zero-work success: a
+    /// shard must never be spent on a run that could not touch anything.
+    NothingEligible,
+}
+
+/// What one Divinity run planned to do, decided BEFORE anything is
+/// mutated (see `Character::plan_divinity`). Splitting the decision from
+/// the application is what lets the whole run happen inside a single
+/// `characters` lock with a single persist at the end: the planning half
+/// is pure reads, so it cannot fail partway and leave a half-crafted bag.
+#[derive(Debug, Clone)]
+pub struct DivinityPlan {
+    /// Bag item ids to run the chain over, in bag order. Equipped gear is
+    /// never included - Divinity is bag-only by ruling.
+    pub targets: Vec<String>,
+    /// Items skipped because they are already Krangled (`Item::locked`).
+    pub skipped_krangled: usize,
+    /// Items skipped because the player ticked "Keep"
+    /// (`Item::disenchant_protected`).
+    pub skipped_kept: usize,
+    /// How many items were in the bag when this was planned.
+    pub bag_items: usize,
+}
+
+/// What one Divinity run actually did - the summary the single completion
+/// broadcast and the result popup are both built from. Deliberately
+/// aggregate: a full bag is up to 150 items and ~560 craft steps, and a
+/// per-item log of that is not something anyone can read.
+#[derive(Debug, Clone, Default)]
+pub struct DivinityReport {
+    /// Bag size at plan time.
+    pub bag_items: usize,
+    /// Items that ended up with at least one step applied.
+    pub items_changed: usize,
+    /// Total craft steps that landed across every item.
+    pub steps_applied: usize,
+    /// How many items reached the Krangle step (and so got named
+    /// `DIVINITY_NICKNAME`).
+    pub krangled: usize,
+    /// Already-Krangled items left alone.
+    pub skipped_krangled: usize,
+    /// "Keep"-ticked items left alone.
+    pub skipped_kept: usize,
+    /// Eligible items where every step turned out to be ineligible - a
+    /// 4-modifier item carrying a unique affix, for instance: no affix-add
+    /// step matches its count and Krangle refuses a unique.
+    pub unchanged: usize,
 }
 
 /// Why `AdventureManager::craft_divine_dust` (the dust+sand → Divine Dust
