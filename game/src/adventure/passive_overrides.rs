@@ -56,6 +56,23 @@ pub const PASSIVE_OVERRIDES_PATH: &str = "adventure-passive-overrides.toml";
 pub struct PassiveOverrides {
     #[serde(default)]
     pub nodes: HashMap<String, Vec<f64>>,
+    /// Node key -> explicit per-node conversion-output cap (per invested
+    /// rank), for that node's OWN contribution - consumed only by
+    /// `Character::accumulate_overflow_conversion_bonus`, so it is
+    /// meaningful on the 13 `OverflowConversion` nodes (the admin page
+    /// offers the input on exactly those rows). Absent = follow the
+    /// global `LiveTunables::overflow_conversion_cap_per_rank`, so a
+    /// store without entries computes byte-identically to before.
+    ///
+    /// Deliberately NOT folded into `nodes`: that vec is indexed by
+    /// effective rank and feeds every `magnitude_at_rank` read, while a
+    /// cap is one scalar per node feeding a different call site - mixing
+    /// them would make every existing override array mean two things at
+    /// once. Serialized as its own optional `[conversion_caps]` TOML
+    /// table; files written before this field existed parse unchanged
+    /// (missing table = empty map).
+    #[serde(default)]
+    pub conversion_caps: HashMap<String, f64>,
 }
 
 impl PassiveOverrides {
@@ -80,16 +97,27 @@ impl PassiveOverrides {
         per_rank.get(effective_rank as usize - 1).copied()
     }
 
+    /// The overridden per-rank conversion-output cap for `key`, or `None`
+    /// to mean "follow the global
+    /// `LiveTunables::overflow_conversion_cap_per_rank`".
+    pub fn conversion_cap_for(&self, key: &str) -> Option<f64> {
+        self.conversion_caps.get(key).copied()
+    }
+
     /// Whether `key` has any override at all - what the admin page's
-    /// "differs from default" marker keys off.
+    /// "differs from default" marker keys off. A conversion-cap-only
+    /// override counts: the node IS retuned even if its magnitudes are
+    /// not, so it must earn the badge and the Revert button too.
     pub fn has_override(&self, key: &str) -> bool {
-        self.nodes.get(key).is_some_and(|v| !v.is_empty())
+        self.nodes.get(key).is_some_and(|v| !v.is_empty()) || self.conversion_caps.contains_key(key)
     }
 
     /// Drops every override for `key`, returning it to its compiled-in
-    /// values - the admin page's per-node Revert.
+    /// values - the admin page's per-node Revert. Both maps, since a
+    /// node can be overridden on either axis.
     pub fn revert(&mut self, key: &str) {
         self.nodes.remove(key);
+        self.conversion_caps.remove(key);
     }
 }
 
@@ -141,6 +169,14 @@ fn load_passive_overrides_file() -> PassiveOverrides {
 /// page simply doesn't offer them.
 pub fn passive_override_for(key: &str, effective_rank: u32) -> Option<f64> {
     PASSIVE_OVERRIDES.read().expect("passive overrides lock poisoned").value_for(key, effective_rank)
+}
+
+/// The live per-node conversion-cap override for `key`, if one is set -
+/// same store, same HOT swap-on-save path as `passive_override_for`.
+/// Read by `accumulate_overflow_conversion_bonus` on every fight; a
+/// miss means "use LiveTunables::overflow_conversion_cap_per_rank".
+pub fn passive_conversion_cap_override(key: &str) -> Option<f64> {
+    PASSIVE_OVERRIDES.read().expect("passive overrides lock poisoned").conversion_cap_for(key)
 }
 
 /// A snapshot of the current overrides, for the admin page to render.
@@ -404,7 +440,7 @@ mod passive_override_tests {
     }
 
     fn overrides(entries: &[(&str, &[f64])]) -> PassiveOverrides {
-        PassiveOverrides { nodes: entries.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect() }
+        PassiveOverrides { nodes: entries.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect(), ..Default::default() }
     }
 
     // ---- the lookup itself -----------------------------------------
@@ -526,6 +562,37 @@ mod passive_override_tests {
         assert!(!o.has_override("bulwark"));
         let bulwark = node(Archetype::Warrior, "bulwark");
         assert_eq!(bulwark.magnitude_at_rank_with(2, &o), bulwark.magnitude_at_rank_with(2, &PassiveOverrides::default()));
+    }
+
+    #[test]
+    fn a_legacy_file_without_a_caps_table_parses_unchanged() {
+        // The shape every adventure-passive-overrides.toml had before
+        // per-node conversion caps shipped: it must keep loading, with
+        // no cap entries invented.
+        let text = "[nodes]\nbulwark = [0.08, 0.14, 0.20]\n";
+        let parsed: PassiveOverrides = toml::from_str(text).expect("the legacy layout must still parse");
+        assert_eq!(parsed.value_for("bulwark", 1), Some(0.08));
+        assert!(parsed.conversion_caps.is_empty(), "no [conversion_caps] table must mean no caps");
+    }
+
+    #[test]
+    fn conversion_caps_round_trip_and_revert_clears_both_axes() {
+        let mut o = overrides(&[("bulwark", &[0.08, 0.14, 0.20])]);
+        o.conversion_caps.insert("stonefist".to_string(), 0.05);
+        let text = toml::to_string_pretty(&o).expect("must serialize");
+        assert!(text.contains("[conversion_caps]"), "caps get their own table, got:\n{text}");
+        let back: PassiveOverrides = toml::from_str(&text).expect("must deserialize");
+        assert_eq!(back.conversion_cap_for("stonefist"), Some(0.05));
+        // A cap-only override IS an override - the badge and Revert key
+        // off this - but it must not invent magnitude values.
+        assert!(back.has_override("stonefist"));
+        assert_eq!(back.nodes.get("stonefist"), None);
+        let mut reverted = back;
+        reverted.revert("stonefist");
+        assert!(!reverted.has_override("stonefist"));
+        assert_eq!(reverted.conversion_cap_for("stonefist"), None);
+        // ...and the untouched magnitude override survives next door.
+        assert_eq!(reverted.value_for("bulwark", 1), Some(0.08));
     }
 
     // ---- shipping safety --------------------------------------------

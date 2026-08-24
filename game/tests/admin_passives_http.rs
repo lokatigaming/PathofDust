@@ -191,5 +191,104 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
         client.get(format!("{base}/passives")).header(reqwest::header::COOKIE, "adv_session=admin-token").send().await.expect("GET failed").text().await.expect("body");
     assert!(!player_page.contains("class=\"passive-tuned\""), "and the tuned note must disappear with it");
 
+    // --- per-node conversion caps (OverflowConversion rows only) ------
+    // Both POSTs below are built from the field set SCRAPED off the
+    // rendered page, per the house trap rule - never from a hand-
+    // maintained list, so drift in either direction fails here.
+    let admin_body = client
+        .get(format!("{base}/admin/passives?class=warrior"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .send()
+        .await
+        .expect("GET failed")
+        .text()
+        .await
+        .expect("body");
+    let unbreakable_fields = save_form_field_names(&admin_body, "unbreakable");
+    assert!(
+        unbreakable_fields.contains(&"conversion_cap".to_string()),
+        "an OverflowConversion row must render the per-node cap beside its magnitude, got {unbreakable_fields:?}"
+    );
+    let bulwark_fields = save_form_field_names(&admin_body, "bulwark");
+    assert!(
+        !bulwark_fields.contains(&"conversion_cap".to_string()),
+        "a non-conversion row must NOT offer the cap, got {bulwark_fields:?}"
+    );
+
+    // Saving a cap persists it to the file...
+    let cap_save = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[
+            ("class", "warrior"),
+            ("node_key", "unbreakable"),
+            ("r1", "0.5"),
+            ("r2", "0.75"),
+            ("r3", "1.0"),
+            ("conversion_cap", "0.05"),
+        ])
+        .send()
+        .await
+        .expect("POST failed");
+    assert!(cap_save.status().is_redirection());
+    let contents = std::fs::read_to_string(&overrides_file).expect("readable");
+    assert!(contents.contains("[conversion_caps]") && contents.contains("unbreakable"), "the cap must land in its own table, got:\n{contents}");
+
+    // ...swap into the live store HOT...
+    assert_eq!(
+        game::adventure::passive_conversion_cap_override("unbreakable"),
+        Some(0.05),
+        "the saved cap must be readable through the accessor combat resolves caps through"
+    );
+    assert_eq!(game::adventure::passive_conversion_cap_override("bulwark"), None, "nodes without an entry fall back to the global");
+    // ...and mark the node as retuned on the page.
+    let marked = client
+        .get(format!("{base}/admin/passives?class=warrior"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .send()
+        .await
+        .expect("GET failed")
+        .text()
+        .await
+        .expect("body");
+    assert!(marked.contains("differs from default"), "a cap-only override must earn the tuned marker");
+
+    // A blank cap field means "follow the global again".
+    client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[
+            ("class", "warrior"),
+            ("node_key", "unbreakable"),
+            ("r1", "0.5"),
+            ("r2", "0.75"),
+            ("r3", "1.0"),
+            ("conversion_cap", ""),
+        ])
+        .send()
+        .await
+        .expect("POST failed");
+    assert_eq!(game::adventure::passive_conversion_cap_override("unbreakable"), None, "blank must clear the per-node cap");
+
     std::fs::remove_dir_all(&scratch).ok();
+}
+
+/// Names of every input inside the save form whose hidden node_key
+/// carries `key` - the rendered-page-derived field set the house trap
+/// rule demands a POST be built from.
+fn save_form_field_names(page: &str, key: &str) -> Vec<String> {
+    let anchor = format!("value=\"{key}\"");
+    let row = page.find(&anchor).unwrap_or_else(|| panic!("node {key} must render on the page"));
+    let start = page[..row].rfind("<form method=\"post\" action=\"/admin/passives/save\"").unwrap_or_else(|| panic!("node {key}'s save form must precede its hidden key"));
+    let end = start + page[start..].find("</form>").expect("the form must close");
+    let mut names = Vec::new();
+    let mut rest = &page[start..end];
+    while let Some(i) = rest.find("name=\"") {
+        rest = &rest[i + 6..];
+        let close = rest.find('"').expect("a name attribute must close");
+        names.push(rest[..close].to_string());
+        rest = &rest[close + 1..];
+    }
+    names.sort();
+    names
 }
