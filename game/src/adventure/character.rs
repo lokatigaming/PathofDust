@@ -2382,10 +2382,10 @@ impl Character {
     /// sheet vs. passive tree always compound, never just add" principle
     /// (see `combine_reduction_sources`'s doc for the capped-stat version
     /// of the same idea).
-    pub fn combat_max_hp(&self) -> u32 {
+    pub fn combat_max_hp(&self, t: &crate::adventure::LiveTunables) -> u32 {
         let base = self.hp() as f64 + self.body.as_ref().map(|i| i.effective_power()).unwrap_or(0.0) + self.sum_affix(Affix::FlatLife);
         let gear_increased = self.archetype.bonus(self.level).max_hp_pct + self.sum_affix(Affix::IncreasedLife);
-        let tree_increased = self.passive_bonus().max_hp_pct + self.passive_overflow_bonus().max_hp_pct;
+        let tree_increased = self.passive_bonus().max_hp_pct + self.passive_overflow_bonus(t).max_hp_pct;
         (base * (1.0 + gear_increased) * (1.0 + tree_increased)).max(1.0).round() as u32
     }
 
@@ -2435,7 +2435,7 @@ impl Character {
     /// gear/tree speed layers above, as a further compounding speedup,
     /// not a replacement for it. Only ever pulls the interval down for
     /// someone already past 100% heal power - it can't push it back up.
-    pub(crate) fn attack_interval_ms(&self) -> u32 {
+    pub(crate) fn attack_interval_ms(&self, t: &crate::adventure::LiveTunables) -> u32 {
         let base = match self.archetype.combat_function() {
             CombatFunction::Melee => MELEE_BASE_ATTACK_INTERVAL_MS,
             CombatFunction::Ranged => RANGED_BASE_ATTACK_INTERVAL_MS,
@@ -2443,9 +2443,9 @@ impl Character {
         };
         let gloves_bonus = self.gloves.as_ref().map(|i| i.effective_power()).unwrap_or(0.0);
         let gear_bonus = gloves_bonus + self.archetype.bonus(self.level).attack_speed;
-        let tree_bonus = self.passive_bonus().attack_speed + self.passive_overflow_bonus().attack_speed;
+        let tree_bonus = self.passive_bonus().attack_speed + self.passive_overflow_bonus(t).attack_speed;
         let speed_adjusted = (base as f64) / ((1.0 + gear_bonus) * (1.0 + tree_bonus)).max(0.01);
-        let heal_excess = (self.combat_heal_power() - 1.0).max(0.0);
+        let heal_excess = (self.combat_heal_power(t) - 1.0).max(0.0);
         // Druid's Wild Surge/Overgrowth (2026-08-17) - widens the SAME
         // excess-heal-power divisor every archetype already gets for free
         // above 100% heal power, rather than adding a separate mechanism.
@@ -2465,15 +2465,15 @@ impl Character {
     /// excludes healing-power's own interval speedup below - that's a
     /// different mechanism (shortens the cadence directly, never reads as
     /// an "attack speed" stat anywhere else either).
-    pub(crate) fn combat_attack_speed_pct(&self) -> f64 {
+    pub(crate) fn combat_attack_speed_pct(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let gloves_bonus = self.gloves.as_ref().map(|i| i.effective_power()).unwrap_or(0.0);
         let gear_bonus = gloves_bonus + self.archetype.bonus(self.level).attack_speed;
-        let tree_bonus = self.passive_bonus().attack_speed + self.passive_overflow_bonus().attack_speed;
+        let tree_bonus = self.passive_bonus().attack_speed + self.passive_overflow_bonus(t).attack_speed;
         // Onslaught - Overwhelming Force's own converted value also grants
         // attack speed, same live-DR-derived source `combat_increased_damage`'s
         // own `overwhelmingforce` term reads (duplicated here rather than
         // shared, since the two getters have no common caller to hang it off).
-        let onslaught = self.combat_damage_reduction().max(0.0) * self.passive_node_magnitude("overwhelmingforce") * self.passive_node_magnitude("onslaught");
+        let onslaught = self.combat_damage_reduction(t).max(0.0) * self.passive_node_magnitude("overwhelmingforce") * self.passive_node_magnitude("onslaught");
         (1.0 + gear_bonus) * (1.0 + tree_bonus) * (1.0 + onslaught) - 1.0
     }
 
@@ -2482,8 +2482,8 @@ impl Character {
     /// the HPS stat's tooltip), same "expose read-only for display"
     /// pattern as `combat_damage_reduction`/the other `pub combat_*`
     /// getters here.
-    pub fn combat_action_interval_ms(&self) -> u32 {
-        self.attack_interval_ms()
+    pub fn combat_action_interval_ms(&self, t: &crate::adventure::LiveTunables) -> u32 {
+        self.attack_interval_ms(t)
     }
 
     /// (dps-per-stack, stack-interval-ms) for the helm's stacking dps
@@ -2613,31 +2613,35 @@ impl Character {
     /// this pegs every individual node's OWN contribution to the same
     /// "~10% per point" budget the rest of the tree targets, regardless
     /// of how much overflow is actually available to convert).
-    pub(crate) fn passive_overflow_bonus(&self) -> ArchetypeBonus {
+    pub(crate) fn passive_overflow_bonus(&self, t: &crate::adventure::LiveTunables) -> ArchetypeBonus {
         // Already includes both trees - see `passive_bonus`'s own 2026-08-18
         // fix.
         let tree_bonus = self.passive_bonus();
         let mut result = ArchetypeBonus::default();
-        self.accumulate_overflow_conversion_bonus(self.archetype, &self.passive_allocations, &tree_bonus, &mut result);
+        self.accumulate_overflow_conversion_bonus(self.archetype, &self.passive_allocations, &tree_bonus, t, &mut result);
         if let Some(secondary) = self.effective_secondary_archetype() {
-            self.accumulate_overflow_conversion_bonus(secondary, &self.secondary_passive_allocations, &tree_bonus, &mut result);
+            self.accumulate_overflow_conversion_bonus(secondary, &self.secondary_passive_allocations, &tree_bonus, t, &mut result);
         }
         result
     }
 
     /// Shared by `passive_overflow_bonus`'s primary/secondary call sites -
     /// same parameterized-loop-body shape as `accumulate_flat_stat_bonus`.
-    fn accumulate_overflow_conversion_bonus(&self, archetype: Archetype, allocations: &HashMap<String, u32>, tree_bonus: &ArchetypeBonus, result: &mut ArchetypeBonus) {
+    fn accumulate_overflow_conversion_bonus(&self, archetype: Archetype, allocations: &HashMap<String, u32>, tree_bonus: &ArchetypeBonus, t: &crate::adventure::LiveTunables, result: &mut ArchetypeBonus) {
         let nodes = archetype.passive_nodes();
         for (key, &rank) in allocations {
             let Some(node) = nodes.iter().find(|n| n.key == key.as_str()) else { continue };
             if let crate::passive_tree::PassiveEffect::OverflowConversion { input, output, .. } = node.effect {
-                if input.overflow_cap().is_none() {
+                if input.overflow_cap(t).is_none() {
                     continue;
                 }
-                let overflow = self.combined_stat_overflow(input, tree_bonus);
+                let overflow = self.combined_stat_overflow(input, tree_bonus, t);
                 let raw = overflow * node.magnitude_at_rank(rank);
-                let capped = raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank as f64).max(0.0);
+                // Stage 1 (2026-08-24): the per-rank ceiling is
+                // LiveTunables::overflow_conversion_cap_per_rank (default
+                // 0.10 = the old compile-time const), read fresh from the
+                // fight's own snapshot on every call - never cached.
+                let capped = raw.min(t.overflow_conversion_cap_per_rank * rank as f64).max(0.0);
                 output.add(result, capped);
             }
         }
@@ -2803,15 +2807,15 @@ impl Character {
     /// a plain negative "-15% dmg reduction" reads as confusing, not
     /// threatening. `pub` (unlike most of `Character`'s other
     /// combat-stat getters) so the web dashboard can display it directly.
-    pub fn combat_damage_reduction(&self) -> f64 {
+    pub fn combat_damage_reduction(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let raw = self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction;
-        let gear_capped = capped_stat_with_overflow(raw, -0.75, 0.75).0;
+        let gear_capped = capped_stat_with_overflow(raw, -0.75, t.dr_overflow_cap).0;
         // Tree side sums BOTH passive_bonus (FlatStat nodes) and
         // passive_overflow_bonus (OverflowConversion nodes) - a gap a
         // later audit caught: this used to read passive_bonus() alone,
         // silently excluding overflow-conversion nodes' contribution to
         // this stat from the tree's multiplicative layer.
-        let tree_capped = capped_stat_with_overflow(self.passive_bonus().damage_reduction + self.passive_overflow_bonus().damage_reduction, -0.75, 0.75).0;
+        let tree_capped = capped_stat_with_overflow(self.passive_bonus().damage_reduction + self.passive_overflow_bonus(t).damage_reduction, -0.75, t.dr_overflow_cap).0;
         // Berserker's Reckless Swing/Death Wish "taken" half - a
         // NEGATIVE reduction source (more damage taken, not less),
         // combined the same multiplicative way as every other source
@@ -2842,19 +2846,19 @@ impl Character {
 
     /// % chance an incoming hit is blocked (halving its damage) - capped
     /// same as the other defensive stats.
-    pub fn combat_block_chance(&self) -> f64 {
+    pub fn combat_block_chance(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let raw = self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance;
-        let gear_capped = capped_stat_with_overflow(raw, 0.0, 0.75).0;
-        let tree_capped = capped_stat_with_overflow(self.passive_bonus().block_chance + self.passive_overflow_bonus().block_chance, 0.0, 0.75).0;
+        let gear_capped = capped_stat_with_overflow(raw, 0.0, t.block_overflow_cap).0;
+        let tree_capped = capped_stat_with_overflow(self.passive_bonus().block_chance + self.passive_overflow_bonus(t).block_chance, 0.0, t.block_overflow_cap).0;
         combine_reduction_sources(&[gear_capped, tree_capped])
     }
 
     /// % chance an incoming hit is avoided entirely - capped same as the
     /// other defensive stats.
-    pub fn combat_evasion(&self) -> f64 {
+    pub fn combat_evasion(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let raw = self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion;
-        let gear_capped = capped_stat_with_overflow(raw, 0.0, 0.75).0;
-        let tree_capped = capped_stat_with_overflow(self.passive_bonus().evasion + self.passive_overflow_bonus().evasion, 0.0, 0.75).0;
+        let gear_capped = capped_stat_with_overflow(raw, 0.0, t.evasion_overflow_cap).0;
+        let tree_capped = capped_stat_with_overflow(self.passive_bonus().evasion + self.passive_overflow_bonus(t).evasion, 0.0, t.evasion_overflow_cap).0;
         combine_reduction_sources(&[gear_capped, tree_capped])
     }
 
@@ -2872,15 +2876,15 @@ impl Character {
     /// `combat_damage_reduction`'s doc) - block chance/evasion/intervene
     /// have no other source to multiply against yet, so their overflow
     /// here is still their real total, not a per-source slice.
-    pub(crate) fn defensive_overflow(&self) -> f64 {
+    pub(crate) fn defensive_overflow(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let dr_raw = self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction;
         let block_raw = self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance;
         let evasion_raw = self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion;
         let intervene_raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct;
-        capped_stat_with_overflow(dr_raw, -0.75, 0.75).1
-            + capped_stat_with_overflow(block_raw, 0.0, 0.75).1
-            + capped_stat_with_overflow(evasion_raw, 0.0, 0.75).1
-            + capped_stat_with_overflow(intervene_raw, 0.0, 0.5).1
+        capped_stat_with_overflow(dr_raw, -0.75, t.dr_overflow_cap).1
+            + capped_stat_with_overflow(block_raw, 0.0, t.block_overflow_cap).1
+            + capped_stat_with_overflow(evasion_raw, 0.0, t.evasion_overflow_cap).1
+            + capped_stat_with_overflow(intervene_raw, 0.0, t.intervene_overflow_cap).1
     }
 
     /// Combined gear+archetype+tree overflow for one of the 4 capped
@@ -2896,13 +2900,13 @@ impl Character {
     /// push any of these 4 stats anywhere close to its own cap (the
     /// highest is Druid's Evasion at 47% tree-only, still short of 75%),
     /// but gear commonly blows FAR past 75%/50% on its own.
-    pub(crate) fn combined_stat_overflow(&self, stat: crate::passive_tree::PassiveStat, tree_bonus: &ArchetypeBonus) -> f64 {
+    pub(crate) fn combined_stat_overflow(&self, stat: crate::passive_tree::PassiveStat, tree_bonus: &ArchetypeBonus, t: &crate::adventure::LiveTunables) -> f64 {
         use crate::passive_tree::PassiveStat;
         let (gear_raw, floor, cap) = match stat {
-            PassiveStat::DamageReduction => (self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction, -0.75, 0.75),
-            PassiveStat::BlockChance => (self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance, 0.0, 0.75),
-            PassiveStat::Evasion => (self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion, 0.0, 0.75),
-            PassiveStat::IntervenePct => (self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct, 0.0, 0.5),
+            PassiveStat::DamageReduction => (self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction, -0.75, t.dr_overflow_cap),
+            PassiveStat::BlockChance => (self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance, 0.0, t.block_overflow_cap),
+            PassiveStat::Evasion => (self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion, 0.0, t.evasion_overflow_cap),
+            PassiveStat::IntervenePct => (self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct, 0.0, t.intervene_overflow_cap),
             // No other PassiveStat has a defined `overflow_cap` - see its
             // doc - so no `OverflowConversion` node's `input` can ever be
             // anything else. Unreachable in practice, 0.0 is harmless if
@@ -2926,12 +2930,12 @@ impl Character {
     /// `combined_stat_overflow` directly for the same "combined gear+tree
     /// overflow past the cap" input every other overflow node already
     /// draws from.
-    pub fn combat_unbroken_ignore_evasion_pct(&self) -> f64 {
+    pub fn combat_unbroken_ignore_evasion_pct(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let efficiency = self.passive_node_magnitude("unbroken");
         if efficiency <= 0.0 {
             return 0.0;
         }
-        let overflow = self.combined_stat_overflow(crate::passive_tree::PassiveStat::Evasion, &self.passive_bonus());
+        let overflow = self.combined_stat_overflow(crate::passive_tree::PassiveStat::Evasion, &self.passive_bonus(), t);
         overflow * efficiency
     }
 
@@ -2940,12 +2944,12 @@ impl Character {
     /// independent channel off the same overflow pool at half the
     /// efficiency (0.05/rank vs Unbroken's own 0.10/rank), converting into
     /// a flat DR shred instead of evasion-ignore.
-    pub fn combat_crippling_grip_dr_pct(&self) -> f64 {
+    pub fn combat_crippling_grip_dr_pct(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let efficiency = self.passive_node_magnitude("lastbastion");
         if efficiency <= 0.0 {
             return 0.0;
         }
-        let overflow = self.combined_stat_overflow(crate::passive_tree::PassiveStat::Evasion, &self.passive_bonus());
+        let overflow = self.combined_stat_overflow(crate::passive_tree::PassiveStat::Evasion, &self.passive_bonus(), t);
         overflow * efficiency
     }
 
@@ -2977,20 +2981,20 @@ impl Character {
         StatBreakdown { sources, raw, capped, overflow }
     }
 
-    pub fn damage_reduction_breakdown(&self) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::DamageReduction, self.archetype.bonus(self.level).damage_reduction, -0.75, 0.75)
+    pub fn damage_reduction_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
+        self.capped_stat_breakdown(Affix::DamageReduction, self.archetype.bonus(self.level).damage_reduction, -0.75, t.dr_overflow_cap)
     }
 
-    pub fn block_breakdown(&self) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::BlockChance, self.archetype.bonus(self.level).block_chance, 0.0, 0.75)
+    pub fn block_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
+        self.capped_stat_breakdown(Affix::BlockChance, self.archetype.bonus(self.level).block_chance, 0.0, t.block_overflow_cap)
     }
 
-    pub fn evasion_breakdown(&self) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::Evasion, self.archetype.bonus(self.level).evasion, 0.0, 0.75)
+    pub fn evasion_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
+        self.capped_stat_breakdown(Affix::Evasion, self.archetype.bonus(self.level).evasion, 0.0, t.evasion_overflow_cap)
     }
 
-    pub fn intervene_breakdown(&self) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::Intervene, self.archetype.bonus(self.level).intervene_pct, 0.0, 0.5)
+    pub fn intervene_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
+        self.capped_stat_breakdown(Affix::Intervene, self.archetype.bonus(self.level).intervene_pct, 0.0, t.intervene_overflow_cap)
     }
 
     /// % more damage dealt, multiplicative - not capped like the
@@ -3012,7 +3016,7 @@ impl Character {
     /// restored the flat contribution ALONGSIDE the procs rather than
     /// instead of them - rolling one is both a flat damage bump AND a
     /// proc-chance roll now.
-    pub fn combat_increased_damage(&self) -> f64 {
+    pub fn combat_increased_damage(&self, t: &crate::adventure::LiveTunables) -> f64 {
         // Character sheet (gear+archetype+defensive overflow) and passive
         // tree are two independent multiplicative layers - `(1+gear)*
         // (1+tree) - 1` - not summed into one fraction, per the
@@ -3025,8 +3029,8 @@ impl Character {
             + self.sum_affix(Affix::LightningDamage)
             + self.sum_affix(Affix::DivineDamage)
             + self.sum_affix(Affix::ChaosDamage);
-        let gear_total = self.sum_affix(Affix::IncreasedDamage) + damage_type_bonus + self.archetype.bonus(self.level).increased_damage + self.defensive_overflow();
-        let tree_total = self.passive_bonus().increased_damage + self.passive_overflow_bonus().increased_damage;
+        let gear_total = self.sum_affix(Affix::IncreasedDamage) + damage_type_bonus + self.archetype.bonus(self.level).increased_damage + self.defensive_overflow(t);
+        let tree_total = self.passive_bonus().increased_damage + self.passive_overflow_bonus(t).increased_damage;
         // Every bespoke ("conversion"-shaped, hand-coded `Special`
         // effect rather than a plain `FlatStat`/`OverflowConversion`
         // pooled node) increased-damage source is its OWN independent
@@ -3055,12 +3059,12 @@ impl Character {
         let titans_grip = self.titans_grip_increased_damage();
         // Grim Resolve - increases Overwhelming Force's own conversion
         // efficiency directly.
-        let overwhelm = self.combat_damage_reduction().max(0.0) * (self.passive_node_magnitude("overwhelmingforce") + self.passive_node_magnitude("grimresolve"));
+        let overwhelm = self.combat_damage_reduction(t).max(0.0) * (self.passive_node_magnitude("overwhelmingforce") + self.passive_node_magnitude("grimresolve"));
         // Momentous Blow - Overwhelming Force ALSO converts a slice of
         // live block chance, its own separate multiplicative layer (same
         // "independent layer per bespoke conversion" principle as every
         // other entry here).
-        let momentousblow = self.combat_block_chance().max(0.0) * self.passive_node_magnitude("momentousblow");
+        let momentousblow = self.combat_block_chance(t).max(0.0) * self.passive_node_magnitude("momentousblow");
         let reckless_swing = reckless_swing_dealt_pct(self.passive_node_rank("reckless"));
         // Glory Hound - Death Wish's damage bonus increased further.
         let death_wish = death_wish_dealt_pct(self.passive_node_rank("deathwish")) + self.passive_node_magnitude("gloryhound");
@@ -3086,7 +3090,7 @@ impl Character {
     /// separately") multiply as their OWN independent layer rather than
     /// adding, per `combat_increased_damage`'s own formula. `overflow` is
     /// unused (this stat has no cap).
-    pub fn increased_damage_breakdown(&self) -> StatBreakdown {
+    pub fn increased_damage_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
         let mut sources: Vec<(String, f64)> = Vec::new();
         let mut push = |label: &str, value: f64| {
             if value.abs() >= f64::EPSILON {
@@ -3100,19 +3104,19 @@ impl Character {
         push("Chaos Damage", self.sum_affix(Affix::ChaosDamage));
         push("Gear (Increased Damage)", self.sum_affix(Affix::IncreasedDamage));
         push("Archetype", self.archetype.bonus(self.level).increased_damage);
-        push("Overflow (from capped defensive stats)", self.defensive_overflow());
-        push("Passive Tree", self.passive_bonus().increased_damage + self.passive_overflow_bonus().increased_damage);
+        push("Overflow (from capped defensive stats)", self.defensive_overflow(t));
+        push("Passive Tree", self.passive_bonus().increased_damage + self.passive_overflow_bonus(t).increased_damage);
         push("Titan's Grip (compounds separately)", self.titans_grip_increased_damage());
-        let overwhelm = self.combat_damage_reduction().max(0.0) * (self.passive_node_magnitude("overwhelmingforce") + self.passive_node_magnitude("grimresolve"));
+        let overwhelm = self.combat_damage_reduction(t).max(0.0) * (self.passive_node_magnitude("overwhelmingforce") + self.passive_node_magnitude("grimresolve"));
         push("Overwhelming Force (compounds separately)", overwhelm);
-        let momentousblow = self.combat_block_chance().max(0.0) * self.passive_node_magnitude("momentousblow");
+        let momentousblow = self.combat_block_chance(t).max(0.0) * self.passive_node_magnitude("momentousblow");
         push("Momentous Blow (compounds separately)", momentousblow);
         push("Reckless Swing (compounds separately)", reckless_swing_dealt_pct(self.passive_node_rank("reckless")));
         let death_wish = death_wish_dealt_pct(self.passive_node_rank("deathwish")) + self.passive_node_magnitude("gloryhound");
         push("Death Wish (compounds separately)", death_wish);
         let life_tap = self.passive_node_magnitude("lifetap") * (2.0 + self.passive_node_magnitude("soulexchange"));
         push("Life Tap (compounds separately)", life_tap);
-        let raw = self.combat_increased_damage();
+        let raw = self.combat_increased_damage(t);
         StatBreakdown { sources, raw, capped: raw, overflow: 0.0 }
     }
 
@@ -3126,7 +3130,7 @@ impl Character {
     /// leftover fraction still rolled normally for one more possible
     /// stack. Only floored at 0 - a stat this can never meaningfully
     /// go negative.
-    pub fn combat_crit_chance(&self) -> f64 {
+    pub fn combat_crit_chance(&self, t: &crate::adventure::LiveTunables) -> f64 {
         // Character sheet (BASE_CRIT_CHANCE + gear + archetype - i.e.
         // everything this stat would be with zero tree investment) is
         // the base the tree then multiplies, not a 4th term summed in
@@ -3141,7 +3145,7 @@ impl Character {
         // off this same crit_chance rather than needing its own separate
         // bolt-on) - a flat additive bump into the same pooled tree total
         // every other generic crit-chance passive already lands in.
-        let tree_total = self.passive_bonus().crit_chance + self.passive_overflow_bonus().crit_chance + self.passive_node_magnitude("deadeye");
+        let tree_total = self.passive_bonus().crit_chance + self.passive_overflow_bonus(t).crit_chance + self.passive_node_magnitude("deadeye");
         (gear_total * (1.0 + tree_total)).max(0.0)
     }
 
@@ -3150,9 +3154,9 @@ impl Character {
     /// CritMultiplier affixes rolled) plus every rolled bonus and the
     /// archetype's own bonus (e.g. Mage's), floored so it can never drop
     /// below a normal hit.
-    pub fn combat_crit_multiplier(&self) -> f64 {
+    pub fn combat_crit_multiplier(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let gear_total = BASE_CRIT_MULTIPLIER + self.sum_affix(Affix::CritMultiplier) + self.archetype.bonus(self.level).crit_multiplier;
-        let tree_total = self.passive_bonus().crit_multiplier + self.passive_overflow_bonus().crit_multiplier;
+        let tree_total = self.passive_bonus().crit_multiplier + self.passive_overflow_bonus(t).crit_multiplier;
         (gear_total * (1.0 + tree_total)).max(1.0)
     }
 
@@ -3177,7 +3181,7 @@ impl Character {
     /// do nothing. Every splash-hit target still takes the SAME fraction
     /// of the primary hit/heal's own amount (`LiveTunables::splash_damage_pct`,
     /// default full value) regardless of how many targets a roll grants.
-    pub fn combat_splash(&self) -> f64 {
+    pub fn combat_splash(&self, t: &crate::adventure::LiveTunables) -> f64 {
         // No innate baseline (unlike crit chance's guaranteed 5%) - most
         // characters start at exactly 0% gear splash, so `gear*(1+tree)`
         // would zero out a tree investment entirely without matching
@@ -3185,7 +3189,7 @@ impl Character {
         // standalone (0% gear + 30% tree = 30%) while still compounding
         // when both are present (20% gear + 30% tree = 56%, not 50%).
         let gear_total = self.sum_affix(Affix::Splash) + self.archetype.bonus(self.level).splash;
-        let tree_total = self.passive_bonus().splash + self.passive_overflow_bonus().splash;
+        let tree_total = self.passive_bonus().splash + self.passive_overflow_bonus(t).splash;
         // Primal Force (Druid only, 2026-08-16 rework - see
         // passive_tree.rs) - its own independent multiplicative layer,
         // same "bespoke bonus gets its own (1+x) factor" principle as
@@ -3217,10 +3221,10 @@ impl Character {
     /// investment past 50% stops helping YOU", that one says "the group
     /// can never redirect more than half of any hit no matter how many
     /// Paladins are stacked").
-    pub fn combat_intervene(&self) -> f64 {
+    pub fn combat_intervene(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct;
-        let gear_capped = capped_stat_with_overflow(raw, 0.0, 0.5).0;
-        let tree_capped = capped_stat_with_overflow(self.passive_bonus().intervene_pct + self.passive_overflow_bonus().intervene_pct, 0.0, 0.5).0;
+        let gear_capped = capped_stat_with_overflow(raw, 0.0, t.intervene_overflow_cap).0;
+        let tree_capped = capped_stat_with_overflow(self.passive_bonus().intervene_pct + self.passive_overflow_bonus(t).intervene_pct, 0.0, t.intervene_overflow_cap).0;
         // Wiki audit finding #2 (2026-08-18): each SOURCE was already
         // capped at 50%, but two 50%-capped sources still combine
         // multiplicatively to 1-(0.5*0.5) = 75% - the same combine-past-
@@ -3230,7 +3234,7 @@ impl Character {
         // Vanish's temp buff) feeding into it, so the cap belongs right
         // here rather than deferred to a combat.rs call site - this IS
         // the complete per-character combine.
-        combine_reduction_sources(&[gear_capped, tree_capped]).min(0.5)
+        combine_reduction_sources(&[gear_capped, tree_capped]).min(t.intervene_overflow_cap)
     }
 
     /// Fraction of a hit's actual damage this character leeches back as
@@ -3239,14 +3243,14 @@ impl Character {
     /// every other combat stat here combines gear + archetype. Consumed
     /// by `simulate_battle`'s `CombatSimUnit::life_leech_pct` and applied
     /// in `apply_hit`.
-    pub fn combat_life_leech(&self) -> f64 {
+    pub fn combat_life_leech(&self, t: &crate::adventure::LiveTunables) -> f64 {
         // Same "no reliable baseline, so let the tree work standalone"
         // shape as combat_splash - Slayer's tiny 0.1%-ish archetype leech
         // is nowhere near a guaranteed nonzero floor the way crit
         // chance's 5% is, so `gear*(1+tree)` would nearly zero out a
         // tree-only leech build.
         let gear_total = self.sum_affix(Affix::Leech) + self.archetype.bonus(self.level).life_leech_pct;
-        let tree_total = self.passive_bonus().life_leech_pct + self.passive_overflow_bonus().life_leech_pct;
+        let tree_total = self.passive_bonus().life_leech_pct + self.passive_overflow_bonus(t).life_leech_pct;
         ((1.0 + gear_total) * (1.0 + tree_total) - 1.0).max(0.0)
     }
 
@@ -3287,14 +3291,14 @@ impl Character {
     /// own magnitudes DOUBLED in the same pass, per the live design call
     /// that a healer's own build (archetype + tree) should absorb the
     /// lost gear lever rather than leaving Cleric/Druid strictly weaker.
-    pub fn combat_heal_power(&self) -> f64 {
+    pub fn combat_heal_power(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let base = if self.archetype.combat_function() == CombatFunction::Heal { 0.5 } else { 0.0 };
         // Same "let the tree work standalone" shape as combat_splash/
         // combat_life_leech - a non-Heal archetype has no baseline here
         // at all (base = 0.0), so `gear*(1+tree)` would zero out any
         // tree-granted healing power for them entirely.
         let gear_total = base + self.archetype.bonus(self.level).heal_power_pct;
-        let tree_total = self.passive_bonus().heal_power_pct + self.passive_overflow_bonus().heal_power_pct;
+        let tree_total = self.passive_bonus().heal_power_pct + self.passive_overflow_bonus(t).heal_power_pct;
         // Regrowth (Druid only - 2026-08-16 rework, see its own doc in
         // passive_tree.rs) grants its OWN separate multiplicative layer on
         // top of everything else, same "bespoke Special-shaped bonus gets
@@ -3332,8 +3336,8 @@ impl Character {
     /// of that) rather than showing either the day-one (0 stacks) or
     /// best-case (fully stacked) number - meaningfully rewards a tankier
     /// build without pretending the fight never ends.
-    pub(crate) fn combat_total_output_per_sec(&self) -> f64 {
-        let hits_per_sec = 1000.0 / self.attack_interval_ms() as f64;
+    pub(crate) fn combat_total_output_per_sec(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        let hits_per_sec = 1000.0 / self.attack_interval_ms(t) as f64;
         // `crit_ev` must match real combat's `crit_bonus_mult` exactly
         // (2026-08-18, a live bug report - this used to omit
         // `CRIT_BONUS_MULT`/the overcrit curve entirely, overstating
@@ -3347,14 +3351,14 @@ impl Character {
         // `crit_stack_bonus(E[crit_stacks], ...)` (Jensen's inequality) -
         // still closed-form and exact, just needs both terms instead of
         // one.
-        let crit_chance = self.combat_crit_chance();
-        let crit_multiplier = self.combat_crit_multiplier();
+        let crit_chance = self.combat_crit_chance(t);
+        let crit_multiplier = self.combat_crit_multiplier(t);
         let guaranteed_stacks = crit_chance.floor();
         let remainder = crit_chance - guaranteed_stacks;
         let crit_ev = 1.0
             + (1.0 - remainder) * crit_stack_bonus(guaranteed_stacks, crit_multiplier)
             + remainder * crit_stack_bonus(guaranteed_stacks + 1.0, crit_multiplier);
-        let increased_dmg_mult = 1.0 + self.combat_increased_damage();
+        let increased_dmg_mult = 1.0 + self.combat_increased_damage(t);
         let primary = self.combat_atk() as f64 * hits_per_sec * crit_ev * increased_dmg_mult;
         let helm = match self.helm_skill() {
             Some((power, cooldown_ms)) => {
@@ -3376,8 +3380,8 @@ impl Character {
     /// `combat_heal_power`'s doc - floors at 0 once heal power reaches
     /// 100%: a fully-invested healer has nothing left to attack with
     /// (see `simulate_battle`'s unified attack action).
-    pub fn combat_dps(&self) -> f64 {
-        self.combat_total_output_per_sec() * (1.0 - self.combat_heal_power()).max(0.0)
+    pub fn combat_dps(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        self.combat_total_output_per_sec(t) * (1.0 - self.combat_heal_power(t)).max(0.0)
     }
 
     /// Counterpart to `combat_dps` - expected average healing per
@@ -3396,8 +3400,8 @@ impl Character {
     /// gear no longer grants it (see `combat_heal_power`'s doc) - a
     /// Warrior/Rogue/etc. with zero tree investment in a `HealPowerPct`
     /// node stays at a flat 0 here.
-    pub fn combat_hps(&self) -> f64 {
-        self.combat_total_output_per_sec() * self.combat_heal_power().clamp(0.0, 1.0)
+    pub fn combat_hps(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        self.combat_total_output_per_sec(t) * self.combat_heal_power(t).clamp(0.0, 1.0)
     }
 
     /// This character's Echo chance (2026-08-21, replaces Lingering
@@ -3411,8 +3415,8 @@ impl Character {
     /// Echo chance. Reads as a harmless 0.0 for every other archetype (no
     /// "evergrowth" key exists outside Druid's own tree). See `roll_echo`
     /// for how this percentage becomes an actual number of repeats.
-    pub fn combat_echo_pct(&self) -> f64 {
-        self.sum_affix(Affix::Echo) + self.passive_node_magnitude("evergrowth") * self.combat_heal_power()
+    pub fn combat_echo_pct(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        self.sum_affix(Affix::Echo) + self.passive_node_magnitude("evergrowth") * self.combat_heal_power(t)
     }
 
     /// Adds xp, applying as many level-ups as it covers (in case a big
@@ -3767,21 +3771,21 @@ mod crit_ev_tests {
         // simplified expected-value formula (which doesn't model the
         // helm's own separate ramp-up term) stays valid.
         character.unequip(EquipSlot::Helm);
-        assert_eq!(character.combat_heal_power(), 0.0, "a non-healer with zero tree investment must have zero heal power, or this test's dps-equals-total-output assumption breaks");
+        assert_eq!(character.combat_heal_power(&LiveTunables::default()), 0.0, "a non-healer with zero tree investment must have zero heal power, or this test's dps-equals-total-output assumption breaks");
         assert!(character.helm_skill().is_none(), "helm should be unequipped by now");
 
-        let crit_chance = character.combat_crit_chance();
-        let crit_multiplier = character.combat_crit_multiplier();
+        let crit_chance = character.combat_crit_chance(&LiveTunables::default());
+        let crit_multiplier = character.combat_crit_multiplier(&LiveTunables::default());
         let guaranteed_stacks = crit_chance.floor();
         let remainder = crit_chance - guaranteed_stacks;
         let expected_crit_ev =
             1.0 + (1.0 - remainder) * crit_stack_bonus(guaranteed_stacks, crit_multiplier) + remainder * crit_stack_bonus(guaranteed_stacks + 1.0, crit_multiplier);
 
-        let hits_per_sec = 1000.0 / character.attack_interval_ms() as f64;
-        let increased_dmg_mult = 1.0 + character.combat_increased_damage();
+        let hits_per_sec = 1000.0 / character.attack_interval_ms(&LiveTunables::default()) as f64;
+        let increased_dmg_mult = 1.0 + character.combat_increased_damage(&LiveTunables::default());
         let expected_dps = character.combat_atk() as f64 * hits_per_sec * expected_crit_ev * increased_dmg_mult;
 
-        assert!((character.combat_dps() - expected_dps).abs() < 0.01, "expected combat_dps() ~= {expected_dps}, got {}", character.combat_dps());
+        assert!((character.combat_dps(&LiveTunables::default()) - expected_dps).abs() < 0.01, "expected combat_dps() ~= {expected_dps}, got {}", character.combat_dps(&LiveTunables::default()));
     }
 }
 
@@ -3807,7 +3811,7 @@ mod combat_intervene_tests {
         character.equip(item);
         character.passive_allocations.insert("oath".to_string(), 3); // a real, easily reachable 10% tree investment
 
-        let intervene = character.combat_intervene();
+        let intervene = character.combat_intervene(&LiveTunables::default());
         assert!(intervene <= 0.5 + 1e-9, "combined gear+tree Intervene must never exceed the documented 50% per-character cap, got {intervene}");
     }
 }
@@ -3923,8 +3927,8 @@ mod split_personality_tests {
         // construction calls (combat.rs:7502/7513) - must reflect the
         // secondary contribution too, not just the raw `passive_bonus()`
         // struct.
-        assert!(character.combat_crit_multiplier() > 2.0, "base crit multiplier (2.0) must be boosted by the secondary tree's Deadly Precision");
-        assert!(character.combat_evasion() > 0.0, "evasion must be nonzero from the secondary tree's Shadowstep alone");
+        assert!(character.combat_crit_multiplier(&LiveTunables::default()) > 2.0, "base crit multiplier (2.0) must be boosted by the secondary tree's Deadly Precision");
+        assert!(character.combat_evasion(&LiveTunables::default()) > 0.0, "evasion must be nonzero from the secondary tree's Shadowstep alone");
     }
 
     #[test]
@@ -3949,8 +3953,127 @@ mod split_personality_tests {
         // confirming this resolves without error/panic and produces a
         // real (if small/zero) crit_chance figure is enough to prove the
         // secondary tree's OverflowConversion node is being read at all.
-        let overflow_bonus = character.passive_overflow_bonus();
+        let overflow_bonus = character.passive_overflow_bonus(&LiveTunables::default());
         assert!(overflow_bonus.crit_chance >= 0.0, "must resolve cleanly for a secondary-tree OverflowConversion node");
+    }
+}
+
+#[cfg(test)]
+mod overflow_economy_tunables_tests {
+    //! Stage 1 (2026-08-24): the five overflow-economy LiveTunables.
+    //! Contract under test: (1) shipped defaults byte-reproduce the old
+    //! hardcoded math, (2) each dial actually moves its computed value,
+    //! (3) values are read fresh per call from the passed-in snapshot -
+    //! nothing cached on `Character`, so a per-fight snapshot is honored.
+
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// The owner's Monk problem, materialized: stonefist + graniteskin +
+    /// risingdefiance (the three independent Evasion-overflow ->
+    /// IncreasedDamage channels) all at 3/3, wearing enough raw Evasion
+    /// gear that every channel saturates its per-rank output cap several
+    /// times over.
+    fn saturated_monk() -> Character {
+        let mut c = Character::new("monk".to_string());
+        c.archetype = Archetype::Monk;
+        c.level = 40;
+        for key in ["stonefist", "graniteskin", "risingdefiance"] {
+            c.passive_allocations.insert(key.to_string(), 3);
+        }
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut boots = generate_item_at_tier(EquipSlot::Boots, 10, &mut rng);
+        boots.affixes = vec![(Affix::Evasion, 3.0)]; // +300% evasion: the pool dwarfs every cap
+        c.equip(boots);
+        c
+    }
+
+    #[test]
+    fn defaults_reproduce_the_old_hardcoded_overflow_math_exactly() {
+        let c = saturated_monk();
+        let t = LiveTunables::default();
+        assert_eq!(t.overflow_conversion_cap_per_rank, 0.10, "shipped default IS the old const");
+        assert_eq!(t.evasion_overflow_cap, 0.75);
+        assert_eq!(t.block_overflow_cap, 0.75);
+        assert_eq!(t.dr_overflow_cap, 0.75);
+        assert_eq!(t.intervene_overflow_cap, 0.50);
+        // Old math, by hand: every channel draws the same pool and is
+        // clamped to min(raw * efficiency, 0.10 * rank) = 0.30 here, so
+        // three saturated channels land at exactly +90% increased damage.
+        let bonus = c.passive_overflow_bonus(&t);
+        assert!(
+            (bonus.increased_damage - 0.90).abs() < 1e-9,
+            "defaults must reproduce the shipped per-rank cap exactly, got {}",
+            bonus.increased_damage
+        );
+    }
+
+    #[test]
+    fn lowering_the_conversion_cap_nerfs_the_saturated_monk_trio() {
+        let c = saturated_monk();
+        let mut tuned = LiveTunables::default();
+        tuned.overflow_conversion_cap_per_rank = 0.05;
+        let bonus = c.passive_overflow_bonus(&tuned);
+        assert!(
+            (bonus.increased_damage - 0.45).abs() < 1e-9,
+            "a 0.05/rank cap must halve EVERY saturated channel (3 x 0.15 = 0.45), got {}",
+            bonus.increased_damage
+        );
+    }
+
+    #[test]
+    fn input_overflow_caps_move_where_each_pool_starts() {
+        let c = saturated_monk();
+        let tree = c.passive_bonus();
+        let base_eva = c.combined_stat_overflow(crate::passive_tree::PassiveStat::Evasion, &tree, &LiveTunables::default());
+        let mut lower = LiveTunables::default();
+        lower.evasion_overflow_cap = 0.50;
+        let lowered_eva = c.combined_stat_overflow(crate::passive_tree::PassiveStat::Evasion, &tree, &lower);
+        // Same raw total with the cap moved down 0.25 => exactly 0.25 more spill.
+        assert!((lowered_eva - base_eva - 0.25).abs() < 1e-9, "evasion cap drives where the conversion pool starts");
+
+        // Block: same relationship on its own stat.
+        let mut blocker = Character::new("warrior".to_string());
+        blocker.archetype = Archetype::Warrior;
+        let mut rng = StdRng::seed_from_u64(9);
+        let mut chest = generate_item_at_tier(EquipSlot::Body, 10, &mut rng);
+        chest.affixes = vec![(Affix::BlockChance, 2.0)];
+        blocker.equip(chest);
+        let block_tree = blocker.passive_bonus();
+        let base_blk = blocker.combined_stat_overflow(crate::passive_tree::PassiveStat::BlockChance, &block_tree, &LiveTunables::default());
+        let mut raised = LiveTunables::default();
+        raised.block_overflow_cap = 0.85;
+        let raised_blk = blocker.combined_stat_overflow(crate::passive_tree::PassiveStat::BlockChance, &block_tree, &raised);
+        assert!((raised_blk - base_blk + 0.10).abs() < 1e-9, "raising the block cap shrinks the spill by exactly the delta");
+    }
+
+    #[test]
+    fn tunables_are_read_per_call_never_cached_on_the_character() {
+        let c = saturated_monk();
+        let defaults = LiveTunables::default();
+        let first = c.passive_overflow_bonus(&defaults).increased_damage;
+        let mut tuned = LiveTunables::default();
+        tuned.overflow_conversion_cap_per_rank = 0.05;
+        let second = c.passive_overflow_bonus(&tuned).increased_damage;
+        assert!(first > second, "the same character must compute different overflow output under different snapshots - proves the value flows through the parameter, not a cache");
+        // And the untouched default snapshot still reads identically after
+        // any number of tuned reads in between.
+        assert!((c.passive_overflow_bonus(&defaults).increased_damage - first).abs() < 1e-12);
+    }
+
+    #[test]
+    fn intervene_cap_tuning_flows_through_the_per_character_combine() {
+        let mut pally = Character::new("pally".to_string());
+        pally.archetype = Archetype::Paladin;
+        let mut rng = StdRng::seed_from_u64(11);
+        let mut weapon = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rng);
+        weapon.affixes = vec![(Affix::Intervene, 2.0)]; // raw 200%: saturates any sane cap
+        pally.equip(weapon);
+        let d = LiveTunables::default();
+        assert!((pally.combat_intervene(&d) - d.intervene_overflow_cap).abs() < 1e-9, "saturated intervene lands exactly on the cap");
+        let mut lower = LiveTunables::default();
+        lower.intervene_overflow_cap = 0.35;
+        assert!((pally.combat_intervene(&lower) - 0.35).abs() < 1e-9, "the combine ceiling follows the tunable too");
     }
 }
 

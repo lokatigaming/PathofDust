@@ -467,6 +467,30 @@ pub struct LiveTunables {
     /// resolution) or narrow it toward the fidelity/bandwidth tradeoff's
     /// other end, no deploy required.
     pub buffsnapshot_dedupe_window_ms: u32,
+    /// Stage 1 of the overflow-economy tuning (2026-08-24) - the cap on
+    /// any single `OverflowConversion` passive node's OWN output, per
+    /// invested rank (replaces combat.rs's compile-time
+    /// `OVERFLOW_CONVERSION_CAP_PER_RANK`). Bounds what stonefist /
+    /// graniteskin / risingdefiance / shiftingform & siblings can each
+    /// contribute no matter how much gear-driven overflow feeds them -
+    /// one number now nerfs all 13 conversion nodes at once. Default
+    /// 0.10/rank is exactly the shipped constant, so untouched saves are
+    /// behavior-identical.
+    pub overflow_conversion_cap_per_rank: f64,
+    /// Where Evasion saturates - and therefore where its overflow pool
+    /// starts feeding every conversion channel plus Unbroken's
+    /// evasion-ignore and Last Bastion's DR shred (was a hardcoded 0.75
+    /// literal). Default = shipped behavior.
+    pub evasion_overflow_cap: f64,
+    /// Same role as `evasion_overflow_cap`, for Block Chance.
+    pub block_overflow_cap: f64,
+    /// Same role, for Damage Reduction's POSITIVE saturation point (the
+    /// -0.75 floor is structural safety, not a balance dial, and stays
+    /// compile-time).
+    pub dr_overflow_cap: f64,
+    /// Same role, for Intervene - default 0.50, intervene's own historic
+    /// ceiling, deliberately separate from the defensive trio's 0.75.
+    pub intervene_overflow_cap: f64,
 }
 
 impl Default for LiveTunables {
@@ -536,6 +560,11 @@ impl Default for LiveTunables {
             splash_damage_pct: 1.0,
             verdantburst_echo_threshold_pct: 1.0,
             buffsnapshot_dedupe_window_ms: 1_000,
+            overflow_conversion_cap_per_rank: 0.10,
+            evasion_overflow_cap: 0.75,
+            block_overflow_cap: 0.75,
+            dr_overflow_cap: 0.75,
+            intervene_overflow_cap: 0.50,
         }
     }
 }

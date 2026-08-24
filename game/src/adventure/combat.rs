@@ -331,15 +331,13 @@ pub const ELEMENTAL_DEFENSE_FLOOR: f64 = 0.25;
 /// ("capped at the normal caps"), matching the same 75% ceiling
 /// DR/Block/Evasion already respect everywhere else.
 pub const ELEMENTAL_DEFENSE_CEILING: f64 = 0.75;
-/// Hard ceiling on any single `OverflowConversion` passive node's OWN
-/// contribution, per invested rank - see `Character::passive_overflow_bonus`'s
-/// doc for why this exists (2026-08-16: "for something like overflow
-/// where its scaling based on an outside source, we just put a ceiling
-/// ... capped for each point individually at 10% more contribution").
-/// A 3-rank node maxes at 30% no matter how much overflow is actually
-/// available to convert, matching the ~10%-per-point budget the rest of
-/// the tree targets.
-pub(crate) const OVERFLOW_CONVERSION_CAP_PER_RANK: f64 = 0.10;
+// Stage 1 (2026-08-24): the old
+// `pub(crate) const OVERFLOW_CONVERSION_CAP_PER_RANK: f64 = 0.10;` that
+// used to live right here is GONE - it is now
+// `LiveTunables::overflow_conversion_cap_per_rank` (same 0.10 default),
+// read fresh from each fight's snapshot in
+// `Character::accumulate_overflow_conversion_bonus`. See
+// docs/passive_tunables_spec.md Stage 1.
 /// Lightning's damage-taken stack cap - explicit in the design text
 /// ("lightning damage debuff can stack up to 200% increased damage
 /// taken"), 1% per stack.
@@ -11064,12 +11062,12 @@ pub(crate) fn simulate_battle(
                 // Pain Bond - reduces the HP COST specifically, without
                 // touching the damage bonus (which stays keyed off the
                 // full, un-discounted `lifetap` magnitude above).
-                hp: (c.combat_max_hp() as f64 * (1.0 - (c.passive_node_magnitude("lifetap") - c.passive_node_magnitude("painbond")).max(0.0))).round().max(1.0) as i64,
-                max_hp: (c.combat_max_hp() as f64 * (1.0 - (c.passive_node_magnitude("lifetap") - c.passive_node_magnitude("painbond")).max(0.0))).round().max(1.0) as u64,
+                hp: (c.combat_max_hp(tunables) as f64 * (1.0 - (c.passive_node_magnitude("lifetap") - c.passive_node_magnitude("painbond")).max(0.0))).round().max(1.0) as i64,
+                max_hp: (c.combat_max_hp(tunables) as f64 * (1.0 - (c.passive_node_magnitude("lifetap") - c.passive_node_magnitude("painbond")).max(0.0))).round().max(1.0) as u64,
                 atk: c.combat_atk() as u64,
-                heal_power: c.combat_heal_power(),
-                intervene: c.combat_intervene(),
-                attack_interval_ms: c.attack_interval_ms(),
+                heal_power: c.combat_heal_power(tunables),
+                intervene: c.combat_intervene(tunables),
+                attack_interval_ms: c.attack_interval_ms(tunables),
                 next_action_at_ms: 0,
                 alive: true,
                 helm_power,
@@ -11089,9 +11087,9 @@ pub(crate) fn simulate_battle(
                 // the formula here.
                 // Demonic Resilience - a flat DR bonus for the rest of the
                 // fight, on top of the character's own combined DR.
-                damage_reduction: c.combat_damage_reduction() + c.passive_node_magnitude("demonicresilience"),
-                block_chance: c.combat_block_chance(),
-                evasion: c.combat_evasion(),
+                damage_reduction: c.combat_damage_reduction(tunables) + c.passive_node_magnitude("demonicresilience"),
+                block_chance: c.combat_block_chance(tunables),
+                evasion: c.combat_evasion(tunables),
                 // Warrior's Overwhelming Force/Berserker's Reckless
                 // Swing+Death Wish/Warlock's Life Tap all live directly
                 // inside `combat_increased_damage()` itself now - see
@@ -11100,16 +11098,16 @@ pub(crate) fn simulate_battle(
                 // used to, which is exactly how these 4 nodes went
                 // missing from the dashboard's own DPS/Increased Dmg
                 // Dealt display for so long).
-                increased_damage: c.combat_increased_damage(),
-                crit_chance: c.combat_crit_chance(),
-                crit_multiplier: c.combat_crit_multiplier(),
+                increased_damage: c.combat_increased_damage(tunables),
+                crit_chance: c.combat_crit_chance(tunables),
+                crit_multiplier: c.combat_crit_multiplier(tunables),
                 // Entropic Force - Unstable Power's excess-baseline-
                 // attack-speed conversion also feeds a flat splash bonus
                 // at construction (baseline only, not live - same
                 // "duplicated computation, no shared param" approach
                 // Paradox's crit-chance half takes).
-                splash: c.combat_splash()
-                    + (c.combat_attack_speed_pct() - speed_overflow_threshold_for(c)).max(0.0) * c.passive_node_magnitude("entropicforce"),
+                splash: c.combat_splash(tunables)
+                    + (c.combat_attack_speed_pct(tunables) - speed_overflow_threshold_for(c)).max(0.0) * c.passive_node_magnitude("entropicforce"),
                 late_stage_damage_penalty_pct: 0.0,
                 boss_pierce_pct: 0.0,
                 top_layer_mitigation: 0.0,
@@ -11124,7 +11122,7 @@ pub(crate) fn simulate_battle(
                 cube_shred_expires_at_ms: 0,
                 damage_dealt_total: 0,
                 level: c.level,
-                life_leech_pct: c.combat_life_leech(),
+                life_leech_pct: c.combat_life_leech(tunables),
                 leech_window_start_ms: 0,
                 leech_gained_in_window: 0.0,
                 skills: c.archetype.skills().to_vec(),
@@ -11221,7 +11219,7 @@ pub(crate) fn simulate_battle(
                 bondeddevotion_duration_ms: (c.passive_node_magnitude("steadfast") * 1000.0).round() as u32,
                 // Mage's Temporal Rift / Warlock's Unstable Power - share
                 // one field bundle (mutually exclusive by archetype).
-                attack_speed_pct: c.combat_attack_speed_pct(),
+                attack_speed_pct: c.combat_attack_speed_pct(tunables),
                 // Dilation extends Temporal Rift's own conversion rate.
                 speed_overflow_dmg_pct: c.passive_node_magnitude("temporalrift") + c.passive_node_magnitude("unstablepower") + c.passive_node_magnitude("dilation") + c.passive_node_magnitude("voidenergy"),
                 speed_overflow_crit_pct: c.passive_node_magnitude("paradox"),
@@ -11290,7 +11288,7 @@ pub(crate) fn simulate_battle(
                 // contributors give 0.02-0.06 each.
                 templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian"),
                 next_templeguardian_heal_at_ms: 0,
-                echo_pct: c.combat_echo_pct(),
+                echo_pct: c.combat_echo_pct(tunables),
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
@@ -11303,7 +11301,7 @@ pub(crate) fn simulate_battle(
                 // stored as a 0.0-1.0+ fraction, so `.floor()` directly
                 // gives "how many full 100%s").
                 thickhide_target_count: if c.has_archetype(Archetype::Druid) && c.passive_node_rank("symbiosis") > 0 {
-                    1 + c.passive_node_magnitude("rootednetwork") as u32 + c.combat_splash().floor() as u32
+                    1 + c.passive_node_magnitude("rootednetwork") as u32 + c.combat_splash(tunables).floor() as u32
                 } else {
                     0
                 },
@@ -11446,8 +11444,8 @@ pub(crate) fn simulate_battle(
                 laststand_berserkvigor_pct: c.passive_node_magnitude("berserkvigor"),
                 immovable_crit_dr_pct: c.passive_node_magnitude("immovable"),
                 reserves_heal_received_pct: c.passive_node_magnitude("reserves"),
-                unbroken_ignore_evasion_pct: c.combat_unbroken_ignore_evasion_pct(),
-                unbroken_crippling_grip_dr_pct: c.combat_crippling_grip_dr_pct(),
+                unbroken_ignore_evasion_pct: c.combat_unbroken_ignore_evasion_pct(tunables),
+                unbroken_crippling_grip_dr_pct: c.combat_crippling_grip_dr_pct(tunables),
                 unyieldingspirit_threshold: {
                     let rank = c.passive_node_rank("unyieldingspirit");
                     if rank > 0 { 0.25 + 0.10 * rank as f64 } else { 0.0 }
@@ -19144,7 +19142,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         character.body = Some(generate_item(EquipSlot::Body, 1000, &mut gear_rng));
         character.gloves = Some(generate_item(EquipSlot::Gloves, 1000, &mut gear_rng));
         character.boots = Some(generate_item(EquipSlot::Boots, 1000, &mut gear_rng));
-        let predicted_owner_max_hp = character.combat_max_hp() as f64;
+        let predicted_owner_max_hp = character.combat_max_hp(&LiveTunables::default()) as f64;
 
         let mut ally = Character::new("ally_a".to_string());
         ally.archetype = Archetype::Cleric;
@@ -19202,7 +19200,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         // one-shottable for longer within that same window.
         character.passive_allocations.insert("growing".to_string(), 1);
         character.golem_slot_types = vec![GolemType::Thunder];
-        let owner_pre_buff_max_hp = character.combat_max_hp() as f64;
+        let owner_pre_buff_max_hp = character.combat_max_hp(&LiveTunables::default()) as f64;
 
         let mut ally = Character::new("healer".to_string());
         ally.archetype = Archetype::Cleric;
