@@ -401,6 +401,8 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
                 render_disenchant_popup(&params)
             } else if params.divine_dust_crafted.is_some() {
                 render_divine_dust_craft_popup(&params)
+            } else if params.divinity_run.is_some() {
+                render_divinity_popup(&params)
             } else {
                 String::new()
             };
@@ -508,6 +510,30 @@ fn render_divine_dust_craft_popup(params: &IndexParams) -> String {
             <p>Gained <strong>{amount} Divine Dust</strong></p>\
             <p class=\"modal-tier\">{change}</p>\
             <button class=\"btn\" onclick=\"document.getElementById('divine-dust-craft-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
+          </div>\
+        </div>"
+    )
+}
+
+/// Shown once after a Divinity run (see `do_craft`'s `"divinity"` branch
+/// and `divinity_popup_url`). Same POST-redirect-GET popup pattern as
+/// `render_divine_dust_craft_popup` above; `change` carries the whole-run
+/// aggregate built by `divinity_summary_text`.
+///
+/// One aggregate line, no per-item log: a full bag is up to 150 items and
+/// ~560 craft steps, and the run has already renamed everything it
+/// Krangled to "From Divinity", so the bag itself is the detailed record
+/// for anyone who wants one.
+fn render_divinity_popup(params: &IndexParams) -> String {
+    let change = escape_html(params.change.as_deref().unwrap_or(""));
+    format!(
+        "<div class=\"modal-backdrop\" id=\"divinity-modal\">\
+          <div class=\"modal\">\
+            <div class=\"modal-icon\">\u{1F31F}</div>\
+            <h2>Divinity</h2>\
+            <p>Your bag has been remade.</p>\
+            <p class=\"modal-tier\">{change}</p>\
+            <button class=\"btn\" onclick=\"document.getElementById('divinity-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
           </div>\
         </div>"
     )
@@ -5400,6 +5426,12 @@ const VEIL_TIP: &str = "Turns this craft's randomness into a choice: pay extra d
 
 const HIDEOUT_WARRIOR_TIP: &str = "Runs Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle on this item in order, skipping any step that isn't eligible right now, paying each step's normal dust cost as it goes \u{2014} always in full, never a banked token. Stops early if you run out of dust; whatever already landed stays. Never veiled, regardless of the checkbox above. Reaching the Krangle step permanently locks the item, same as using Krangle directly \u{2014} uncheck \"Include Krangle\" to stop after Exalt and leave the item unlocked.";
 
+/// Divinity (2026-08-24) - the whole-bag run. Says "ignores the item
+/// pickers" explicitly because this button sits in the same `<form>` as
+/// six per-item actions and is the only one there that does not act on
+/// the selection.
+const DIVINITY_TIP: &str = "Costs one Unique Shard and runs the whole Hideout Warrior chain \u{2014} Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle \u{2014} over EVERY eligible item in your bag at once, paying no dust at all. Ignores the item pickers above: this is a whole-bag action, not a per-item one. Equipped gear is never touched. Items already Krangled or ticked \u{1F512} Keep are skipped, not refused, and everything Krangle lands on is permanently locked and auto-named \u{201C}From Divinity\u{201D}. One shard per use \u{2014} there is no x10.";
+
 /// The Divine Dust craft recipe row (docs/divine_dust_spec.md) - a
 /// separate, standalone `<form>` from the main item-crafting one below
 /// (its own `times` x1/x10/x50 radio group under the SAME `name`, which
@@ -5551,6 +5583,56 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
         "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"divine dust\" data-divine-dust-apply=\"1\" data-divine-dust=\"{}\" data-tip=\"{divine_dust_apply_tip}\">Apply Divine Dust</button>",
         c.divine_dust,
     );
+    // Divinity (2026-08-24) - its own row, not another button in the
+    // craft-actions row above, because every button there acts on the
+    // item pickers and this one acts on the whole bag; sitting among them
+    // it would read as "Divinity the selected item". Hidden entirely
+    // until a Unique Shard is actually held, the same hidden-until-earned
+    // shape celestial_btn/unique_shard_btn already use - a permanently
+    // unaffordable button for a currency most players have never seen is
+    // clutter, and it reveals itself the moment one drops.
+    //
+    // `plan_divinity` is pure reads (see its own doc), so calling it here
+    // just to LABEL the button costs nothing and cannot mutate anything.
+    // The label states the real eligible count rather than the bag size:
+    // "Divinity (42 items)" when 19 of a 61-item bag are locked would be
+    // a lie about what the shard is going to buy.
+    let divinity_row = if c.craft_token_count(CraftAction::UniqueShard) > 0 {
+        let plan = c.plan_divinity();
+        let eligible = plan.targets.len();
+        let skipped = plan.skipped_krangled + plan.skipped_kept;
+        // Disabled rather than hidden when nothing is eligible: the
+        // player HAS a shard, so the button existing-but-refusing plus a
+        // reason is the honest state. `apply_divinity` refuses this same
+        // case for free anyway (DivinityError::NothingEligible), so the
+        // disable is a courtesy, not the safeguard.
+        let disabled = if eligible == 0 { " disabled" } else { "" };
+        let skipped_note = if skipped > 0 {
+            format!(" <span class=\"muted\">{skipped} skipped (\u{1F512} Krangled or Keep)</span>")
+        } else {
+            String::new()
+        };
+        // Whole-bag, shard-priced and mostly irreversible, so it gets the
+        // confirm gate - but NOT the item-named message the per-item
+        // destructive actions use (see base.html's confirm block), which
+        // would name whatever happened to be selected in a picker this
+        // action ignores. `data-confirm-msg` overrides that text with one
+        // that names the real scope instead.
+        let confirm_msg = escape_html(&format!(
+            "Run Divinity over all {eligible} eligible item{} in your bag? This spends 1 Unique Shard, Krangles most of them permanently, and cannot be undone.",
+            if eligible == 1 { "" } else { "s" }
+        ));
+        format!(
+            "<div class=\"craft-actions\">\
+              <span class=\"muted\">Whole bag:</span>\
+              <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"divinity\" data-confirm=\"1\" data-confirm-msg=\"{confirm_msg}\" data-tip=\"{DIVINITY_TIP}\"{disabled}>Divinity ({eligible} item{plural}, 1 Unique Shard)</button>\
+              {skipped_note}\
+            </div>",
+            plural = if eligible == 1 { "" } else { "s" },
+        )
+    } else {
+        String::new()
+    };
     format!(
         "<div class=\"card\" id=\"crafting-card\">\
           <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
@@ -5577,6 +5659,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"hideout warrior\" data-confirm=\"1\" data-tip=\"{HIDEOUT_WARRIOR_TIP}\">Hideout Warrior</button>\
               <label class=\"veil-check\" data-tip=\"Leave checked to end on Krangle (permanently locks the item). Uncheck to stop after Exalt and leave it unlocked.\"><input type=\"checkbox\" name=\"hideout_krangle\" value=\"1\" checked> Include Krangle</label>\
             </div>\
+            {divinity_row}\
           </form>\
         </div>",
         dust = format_number(c.dust as f64),

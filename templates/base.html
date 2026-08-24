@@ -935,6 +935,14 @@
       craftForm.addEventListener('submit', function(e) {
         var btn = e.submitter;
         if (!btn || !btn.hasAttribute('data-confirm')) return;
+        // A whole-bag action (Divinity) supplies its own message: the
+        // default text below names the item_a selection, which that
+        // action ignores entirely, so it would confirm the wrong scope.
+        var ownMsg = btn.getAttribute('data-confirm-msg');
+        if (ownMsg) {
+          if (!window.confirm(ownMsg)) e.preventDefault();
+          return;
+        }
         var itemSelect = craftForm.querySelector('select[name="item_a"]');
         var itemLabel = itemSelect && itemSelect.selectedOptions.length ? itemSelect.selectedOptions[0].textContent : 'this item';
         var actionLabel = btn.getAttribute('data-label') || btn.textContent;
