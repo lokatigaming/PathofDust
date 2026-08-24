@@ -1182,3 +1182,47 @@ check — already covers this correctly; only the "is 0" wording is
 misleading and should probably read "not 1 (or any other non-running
 failure code)" instead. Not blocking, and it didn't affect this
 deploy's outcome — flagged for the next edit of the recipe.
+
+## Deploy record — 2026-08-24, per-node conversion caps (`81ec2ae`)
+
+Entered by the deploy session at merge of
+`feature/per-node-conversion-cap` (`7e68cc7`) into master, base
+`2759648`.
+
+**What shipped:** each `OverflowConversion` node's own
+per-rank contribution cap is now individually overridable — a new
+additive `[conversion_caps]` table in `adventure-passive-overrides.toml`
+(`HashMap<String, f64>`; legacy files without it parse unchanged), and a
+"Cap / rank" input rendered on `/admin/passives` beside the magnitude,
+on every conversion row. NOTE the count: the docs have long said 13
+conversion nodes, but the tree holds **14** today (Warrior 1, Rogue 3,
+Monk 4 — stonefist/graniteskin/earthenwill/risingdefiance, Paladin 2,
+Ranger 1, Druid 3); the implementation matches the effect generically,
+so all 14 are covered. Blank follows the global
+`LiveTunables::overflow_conversion_cap_per_rank`, which remains the
+fallback for every node; `has_override`/`revert` cover both axes so a
+cap-only override still earns the tuned marker and Revert clears both.
+HOT via the same swap-on-save store the magnitudes use. Admin-tooling +
+override-plumbing only — no default value moves.
+
+**Fixtures:** expected NO divergence (behaviour-neutral at defaults:
+the no-entry fallback IS the Stage-1 math byte-for-byte, pinned by
+`a_per_node_cap_override_tunes_one_channel_without_touching_its_siblings`);
+`golden_corpus` passed clean, nothing regenerated.
+
+**Verification:** full workspace suite on the merged state, isolated
+target dir — 711 passed, 0 failed. Clippy clean on touched lines.
+Real-config smoke: fresh `game.exe` against copies of production's three
+live config files via `GAME_DATA_DIR`, isolated scratch cwd + seeded
+admin session — all 12 class pages of `/admin/passives` render; the
+Cap / rank inputs total 14 (per-class counts above); a page-shaped save
+round-tripped into the scratch overrides file (303 + `[conversion_caps]`
+entry), a blank field cleared it again (empty table left behind, same
+serialization convention as `[nodes]`), and `adventure-item-balance.toml`
+/ `adventure-live-tunables.toml` SHA-256s were byte-identical before and
+after the run — no tunable value moved.
+
+**Bot redeploy determination: diff-clean** — `git diff --name-only
+2759648..7e68cc7` touches only `game/**` and `WIKI_IMPACT.md`; nothing
+under `src/**` or root `Cargo.toml`/`Cargo.lock`. Bot: unchanged, not
+redeployed.

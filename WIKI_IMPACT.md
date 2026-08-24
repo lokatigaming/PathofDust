@@ -443,3 +443,4 @@ DEPLOY-SESSION NOTE (divinity-and-item-locks deploy, 2026-08-24, merge ce32085):
 ---
 
 game/src/adventure/passive_overrides.rs:"conversion_caps" (PassiveOverrides) + game/src/adventure/character.rs:clamp_overflow_conversion — each OverflowConversion node's own per-rank contribution cap is now individually overridable ([conversion_caps] table in adventure-passive-overrides.toml) and editable on /admin/passives beside that node's magnitude; blank follows the global overflow_conversion_cap_per_rank, which remains the fallback for all 13 nodes — affects passives
+NOTE - deploy session (2026-08-24, per-node-conversion-cap deploy): added an Internal section to patch-notes.json's existing August 24 block ("Admin Panel Gains Per-Node Conversion Caps"); wiki session: no backfill needed. Also corrected the conversion-node count 13 -> 14 in this file's context - the tree holds 14 OverflowConversion nodes today.

@@ -1173,12 +1173,18 @@ separately, not to an automatic cleanup.
    5. **Copy the new `game.exe` into `target\release\`** and let the copy
       return before doing anything else.
    6. **`Start-ScheduledTask -TaskName GameProcess`** — only after step 3
-      came back empty and step 5 returned. Then confirm
+      came back empty and step 5 returned. Then check
       `(Get-ScheduledTaskInfo -TaskName GameProcess).LastTaskResult` is
-      `0` and health-check a real page (`/passives`), not just the port.
-      Starting ahead of that races the copy: on 2026-08-24 the first
-      restart died with `LastTaskResult=1`, and the retry cost **~90
-      seconds of live downtime**.
+      NOT a failure code, and health-check a real page (`/passives`), not
+      just the port. **A healthy long-running game never reads `0`:** a
+      process that stays alive never lets its task instance complete, so
+      the steady state is `267009` (`SCHED_S_TASK_RUNNING`) — that IS the
+      healthy reading. `0` appears only after a run has finished; a
+      non-running failure code (the `487aaf4` incident's
+      `LastTaskResult=1`) means the start died immediately. Starting ahead
+      of step 5 races the copy: on 2026-08-24 the first restart died with
+      `LastTaskResult=1`, and the retry cost **~90 seconds of live
+      downtime**.
    7. **Clear the flag after the health check passes**, not before — a
       failed health check is exactly when you still want the watchdog
       suppressed while you put the renamed binary back. Say in the

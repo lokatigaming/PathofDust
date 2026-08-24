@@ -59,8 +59,8 @@ pub struct PassiveOverrides {
     /// Node key -> explicit per-node conversion-output cap (per invested
     /// rank), for that node's OWN contribution - consumed only by
     /// `Character::accumulate_overflow_conversion_bonus`, so it is
-    /// meaningful on the 13 `OverflowConversion` nodes (the admin page
-    /// offers the input on exactly those rows). Absent = follow the
+    /// meaningful on the `OverflowConversion` nodes (14 at this writing;
+    /// the admin page offers the input on exactly those rows). Absent = follow the
     /// global `LiveTunables::overflow_conversion_cap_per_rank`, so a
     /// store without entries computes byte-identically to before.
     ///

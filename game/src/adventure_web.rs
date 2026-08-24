@@ -2612,8 +2612,8 @@ struct PassiveOverrideForm {
     r1: f64,
     r2: f64,
     r3: f64,
-    /// Only the 13 `OverflowConversion` rows render this input (beside
-    /// their magnitude); every other row's POST omits it entirely - hence
+    /// Only the `OverflowConversion` rows (14 at this writing) render this
+    /// input beside their magnitude; every other row's POST omits it entirely - hence
     /// `#[serde(default)]` per the house trap rule, so old field sets
     /// keep deserializing. `Some("")` is a blank field = follow the
     /// global cap again; `Some(text)` parses as the node's own cap.
