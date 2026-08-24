@@ -203,6 +203,10 @@ backup-pre-pacing-controller-loop/
 # fight-summary snapshot), same "backup before overwrite" discipline as
 # every backup-pre-* above.
 /backup-pre-passive-tunables-stage1
+# Pre-divinity-and-item-locks-deploy rollback backup (game.exe +
+# twitch-bot-rs.exe + pinned fight-summary snapshot), same "backup
+# before overwrite" discipline as every backup-pre-* above.
+/backup-pre-divinity
 *-watchdog-maintenance.flag
 
 # Crash-window temp files from state.rs's atomic save path (write beside
