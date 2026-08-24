@@ -1079,3 +1079,106 @@ image paths stay unreadable and both watchdogs resolve
 `listening-unverifiable` on a healthy process — which is treated as
 healthy, and is why the restart decision deliberately hinges only on the
 port.
+
+## Deploy record — 2026-08-24, passive-tunables release (`487aaf4`) — BACKFILLED
+
+Entered retroactively by the divinity-and-item-locks deploy session
+(2026-08-24, later the same day) because this record was never written
+at deploy time — the last record on file was the watchdog-maintenance-
+gate entry above, itself docs/scripts-only with no binary swap. This is
+a genuine gap: `487aaf4` DID swap the live `game.exe` (Stage 0 admin-
+passives-honesty + Stage 1 overflow-economy `LiveTunables`), and that
+was the binary the divinity deploy found live and hashed against when
+it started.
+
+**What shipped:** Stage 0 (`d246ee6`) made `/admin/passives` honest — it
+now tracks rank-only-consumed nodes and half-tunable notes, plus a CI
+guard against future drift. Stage 1 (`35cccba`) added the overflow-
+economy `LiveTunables`: one cap on how much any single passive
+conversion node can output per rank, and four more setting where
+Evasion, Block, Damage Reduction and Intervene saturate and start
+feeding conversions. Every new default reproduces the previous
+hardcoded numbers exactly — patch notes correctly filed this
+`Internal:` (no player-facing change at deploy; nothing moves until an
+admin deliberately retunes a cap).
+
+**Live incident during this deploy — the reason §13 step 4a exists.**
+The first `GameProcess` restart raced the binary copy and died
+immediately, `LastTaskResult=1` — the scheduled task tried to start the
+new exe before the copy had finished landing. The retry cost roughly 90
+seconds of live downtime before the game came back healthy. This is the
+deploy that motivated writing the numbered swap recipe now documented as
+§13 step 4a (`docs/section-13-swap-recipe`, merged into master by the
+divinity-and-item-locks deploy immediately ahead of this backfill) — its
+ordering (rename-not-overwrite, poll the port before renaming, copy-
+then-start never start-then-copy) exists specifically to close the race
+that caused this incident.
+
+**Not independently re-verified** — reconstructed from REFACTOR_PLAN.md
+§13 step 4a's own account of the incident (written by the session that
+fixed it) plus the merge commit's diffstat, not from this session's own
+live observation of the 2026-08-24 11:55 deploy. *(Carried forward, not
+independently re-verified, per this file's own convention for entries
+built from a prior session's summary rather than fresh verification.)*
+
+## Deploy record — 2026-08-24, Divinity and item locks (`ce32085`)
+
+Entered by the deploy session at merge of `docs/section-13-swap-recipe`
+(`b64c27d`) followed by `feature/divinity-and-item-locks` (`ce32085`)
+into master, base `d730be7`.
+
+**What shipped:** a new whole-bag crafting action, Divinity (1 Unique
+Shard, runs the full Hideout Warrior chain over every eligible bag item
+at once, no Dust cost, Krangled items auto-named "From Divinity"); the
+Keep lock now blocks ALL item modification, not just disenchant (crafts,
+Polish, Reforge, Divine Dust, unique apply, Recombine as either input —
+Repair and Krangle level-growth still apply); every JSON persist path
+(both `game/src/state.rs` and the bot's own mirrored `src/state.rs`) now
+writes via temp-file + fsync + rename instead of a direct `fs::write`,
+closing the crash-mid-write truncation risk. Also carries §13's own new
+step 4a, the numbered binary-swap recipe — this release is its first
+live use.
+
+**Fixtures:** `golden_corpus_matches_committed_fixtures` passed with no
+divergence, as predicted — this release is crafting-side only, nothing
+touches `combat.rs`'s simulation logic. No regeneration needed.
+
+**Verification:** full workspace suite, `cargo test --release
+--workspace --quiet --target-dir target-deploy-divinity` — 707 passed, 0
+failed. Clippy clean: default lints, zero diagnostics on any of the 10
+files this merge actually touched. (`-D warnings` over the whole
+workspace was tried and rejected as a signal — it turns ~250 pre-
+existing pedantic warnings in untouched `pacing.rs` into hard failures
+unrelated to this merge.) Real-config smoke test: a fresh `game.exe`
+started clean against copies of production's three live config files
+(`adventure-item-balance.toml`, `adventure-live-tunables.toml`,
+`adventure-passive-overrides.toml`) via `GAME_DATA_DIR`, served
+`/passives` and `/` at HTTP 200, and a crafted-session `/join` call
+produced a valid, non-truncated `adventure-characters.json` with zero
+`.tmp` residue anywhere in the scratch directory — confirms the Stage 0
+atomic-save path against a real running binary, not just the unit tests
+already covering it.
+
+**Bot redeploy determination: NOT diff-clean.** `git diff --name-only
+487aaf4..ce32085` touches `src/state.rs` (the bot's own atomic-save
+mirror) — squarely inside the bot's dependency set (`src/**`) per §13's
+post-severance definition (confirmed directly: root `Cargo.toml` carries
+no `game = { path = "game" }` dependency any more). Bot deployed
+alongside the game, each under its own maintenance-flag window; the bot
+was started only after `GameProcess` was confirmed healthy.
+
+**4a swap recipe — first live use, worked as written, both targets
+(Game then Bot).** One note for whoever owns the doc next: step 6's
+literal check ("`LastTaskResult` is `0`") never actually reads `0` for a
+healthy long-running task in this environment — the observed steady
+state for both scheduled tasks, both before touching anything and again
+right after a clean restart, was `267009` (`SCHED_S_TASK_RUNNING`),
+because a game/bot process that stays alive by definition never lets the
+task instance complete. `0` only appears once a run has already finished
+(the `487aaf4` incident's `LastTaskResult=1` fits this shape — that
+process died immediately, so its run WAS a complete, failed instance).
+The recipe's real health signal — port-listening plus a real page/curl
+check — already covers this correctly; only the "is 0" wording is
+misleading and should probably read "not 1 (or any other non-running
+failure code)" instead. Not blocking, and it didn't affect this
+deploy's outcome — flagged for the next edit of the recipe.
