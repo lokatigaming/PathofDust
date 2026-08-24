@@ -1133,7 +1133,9 @@ separately, not to an automatic cleanup.
    separate commit) → copy the new `game.exe` into `target\release\` →
    start `GameProcess`, verify healthy (curl its ports, plus a real page
    like `/passives`) → **`.\maintenance-flag.ps1 -Clear`**, and say in
-   the report that you cleared it. While in this same stop window
+   the report that you cleared it. **Run that chain as the numbered swap
+   recipe in 4a below** — same sequence, mechanics pinned down. While in
+   this same stop window
    (2026-08-20 addition): copy `adventure-fights-summary/` as it stands
    at stop time into that deploy's `backup-pre-<name>/` dir as a pinned
    pre-deploy snapshot. The live summary corpus is capped at 200 files,
@@ -1141,6 +1143,50 @@ separately, not to an automatic cleanup.
    — this has already blocked before/after verification twice. It's one
    file copy inside a stop window the deploy is already taking, and
    gives every release a permanent baseline to diff against.
+
+   **4a. Swap recipe — the exact mechanics (worked out on the 2026-08-24
+   passive-tunables deploy).** In order. Every step is here because a
+   simpler version of it failed; the WHY lines are the point.
+
+   1. **Set the maintenance flag first**, per the chain above, and
+      confirm its `scope :` line. Before the stop, never after: a window
+      that opens with the watchdog live is a window in which the
+      watchdog restarts the game you just stopped.
+   2. **`Stop-ScheduledTask -TaskName GameProcess`.** Not `Stop-Process`
+      — a non-elevated deploy session, which is every deploy session,
+      gets `Access denied` from it. And never by image name at all
+      (CLAUDE.md, PRODUCTION SAFETY).
+   3. **Poll until port 4005 is free** —
+      `Get-NetTCPConnection -State Listen -LocalPort 4005` until it
+      returns nothing. This poll IS the "confirm it actually exited"
+      step: a process started by a scheduled task reports an **empty
+      `Path`**, so the old process-identity detection could not confirm
+      what it was stopping. A released port can. (Bot: port 4001.)
+   4. **Rename the old binary aside — do not overwrite, do not delete.**
+      `Rename-Item target\release\game.exe game.exe.pre-<name>`. The
+      running .exe is file-locked, so a copy over it simply fails; and
+      the renamed file is a rollback already sitting on disk if the new
+      binary won't come up. A rename that fails means the process still
+      holds the file — go back to step 3, don't force it. (The
+      `backup-pre-<name>/` copy and both SHA-256 hashes still happen,
+      per the chain above.)
+   5. **Copy the new `game.exe` into `target\release\`** and let the copy
+      return before doing anything else.
+   6. **`Start-ScheduledTask -TaskName GameProcess`** — only after step 3
+      came back empty and step 5 returned. Then confirm
+      `(Get-ScheduledTaskInfo -TaskName GameProcess).LastTaskResult` is
+      `0` and health-check a real page (`/passives`), not just the port.
+      Starting ahead of that races the copy: on 2026-08-24 the first
+      restart died with `LastTaskResult=1`, and the retry cost **~90
+      seconds of live downtime**.
+   7. **Clear the flag after the health check passes**, not before — a
+      failed health check is exactly when you still want the watchdog
+      suppressed while you put the renamed binary back. Say in the
+      report that you cleared it.
+   8. **If the window runs long, refresh the lease.** The flag expires at
+      30 minutes (see below); re-running `-Set` restarts the clock. This
+      was needed on 2026-08-24. Refresh it — never raise
+      `-MaintenanceMaxAgeMinutes`.
 
    **Why a flag and not `Disable-ScheduledTask` (2026-08-23 amendment,
    branch `fix/watchdog-maintenance-gate`):** this step used to say
@@ -1226,7 +1272,9 @@ separately, not to an automatic cleanup.
      the report that you cleared it. Game always comes up and is verified
      healthy before the bot starts — never the other order, whether or
      not the bot is moving this release. **Do not set the Bot flag on a
-     game-only release** — see the two-flags note above.
+     game-only release** — see the two-flags note above. The 4a recipe
+     applies unchanged, substituting `-Target Bot`, task `TwitchBotRS`,
+     port `4001`, and `twitch-bot-rs.exe.pre-<name>`.
    - **If the bot does not deploy:** it runs untouched through the
      entire stop/swap window — no watchdog disable, no stop, no binary
      touched, no backup entry for it. The deploy report states
