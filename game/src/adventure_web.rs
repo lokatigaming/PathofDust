@@ -2436,6 +2436,14 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                 .collect();
 
             let marker = if overridden { "<span class=\"passive-tuned-badge\">differs from default</span>" } else { "" };
+            // Half-tunable nodes (PARTIALLY_TUNABLE_NODES): the input below
+            // genuinely works for the node's PRIMARY value, but a secondary
+            // aspect still reads node RANK in combat.rs - say so instead of
+            // letting the row look fully honest.
+            let partial = match crate::adventure::node_partial_tunable_note(key) {
+                Some(note) => format!("<p class=\"tunable-hint\">⚠ Half-tunable — this row's inputs work, but {note}</p>"),
+                None => String::new(),
+            };
             let revert = if overridden {
                 format!(
                     "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\">\
@@ -2452,6 +2460,7 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             format!(
                 "<div class=\"passive-row\">\
                    <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {marker}</div>\
+                   {partial}\
                    <div class=\"passive-default\">Default: {default_text}</div>\
                    <div class=\"passive-controls\">\
                      <form method=\"post\" action=\"/admin/passives/save\" class=\"passive-edit\">\

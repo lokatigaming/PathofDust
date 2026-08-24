@@ -211,3 +211,61 @@ Ranger, Mage → Rogue, Slayer, Warrior, Cleric → Berserker last.
 - **Golden-corpus fixtures are neither regenerated nor deleted.** Each
   migration batch must leave its class's fixture byte-identical; that is
   the behavior-neutrality proof.
+
+---
+
+## Owner doctrine (2026-08-24, BINDING)
+
+> **EVERY numerical value in EVERY passive is tunable.** Magnitudes,
+> caps, thresholds, counts, rates, durations. A hardcoded number in a
+> passive is a defect, not a design. New passives must ship tunable.
+
+This supersedes any earlier framing of hardcoded passive values as
+deliberate. Decision 16's shared-constant exception remains the only
+escape hatch, and it covers genuinely STRUCTURAL constants — not
+class/skill numbers.
+
+## Stage 0 record (2026-08-24) — making /admin/passives honest
+
+Branch `feature/passive-tunables-stage0`, cut from origin/master at
+95cd06e. Hygiene only: no combat.rs behavior change, no magnitude
+changes, live TOML untouched, golden fixtures byte-identical.
+
+1. **PENDING_MIGRATION_NODES grew 28 → 47.** The tunable audit
+   (docs/tunable_audit.md §3) found 19 more nodes whose declared value
+   never reaches the game because their only consumers read
+   `passive_node_rank` (structure): the audit's original three
+   (chakraoflife, unyieldingspirit, shattering) plus its Group-B drifts
+   (deathdefiant, timewarp, demonicspeed, unwavering, unyieldingfaith,
+   huntersfocus, golemmaster, healingflames, blazing, risingphoenix,
+   virulence, cursedblood, livingbond, naturesembrace, verdantburst,
+   finaloffering). Until each node's migration batch lands, an override
+   on it would silently do nothing — so the page now renders it as
+   pending instead of offering a dead input.
+
+2. **PARTIALLY_TUNABLE_NODES — new mechanism, 7 mixed nodes:**
+   naturesblessing, bloomingfield, reaperscall, ravage, unrelenting,
+   endlessthirst, sacrifice. `node_is_tunable` is a whole-node boolean
+   and cannot express a half-tunable node; hiding the row would cut off
+   the node's WIRED aspect, offering it silently would repeat the
+   inert-input lie. The smallest change that can express the half is a
+   key→note side table: the node STAYS offered (its primary value
+   accepts overrides through this store) while `/admin/passives` shows
+   exactly which secondary aspect still reads node RANK.
+   **mercifultouch**, flagged in the audit as "verify body", is
+   VERIFIED WIRED — combat.rs reads its MAGNITUDE for Prayer of
+   Mending's bounce value; its rank read is only an invested-gate, which
+   is legitimate structure. It is deliberately on NEITHER list.
+
+3. **CI consumption guard:**
+   `every_special_node_whose_value_has_no_magnitude_read_is_tracked_as_not_yet_tunable`
+   scans combat.rs / character.rs / manager.rs / adventure_web.rs
+   (comment lines stripped, whitespace-insensitive, so wrapped call
+   sites still match) for every Special/SpecialPerRank node's
+   magnitude/count read. Any such node with NO read anywhere that is not
+   tracked fails the suite naming the key. Demonstrated RED against the
+   pre-fix lists — it named exactly the 19 keys above — then GREEN once
+   they were listed. The older existence checks could not see this
+   failure class: a key can exist in the tree and still never be
+   consumed.
+
