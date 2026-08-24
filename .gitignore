@@ -199,4 +199,8 @@ REPORTS/
 /backup-pre-build-seam
 /backup-pre-dynamic-pacing
 backup-pre-pacing-controller-loop/
+# Pre-passive-tunables-stage0+1-deploy rollback backup (game.exe + pinned
+# fight-summary snapshot), same "backup before overwrite" discipline as
+# every backup-pre-* above.
+/backup-pre-passive-tunables-stage1
 *-watchdog-maintenance.flag
