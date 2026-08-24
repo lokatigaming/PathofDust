@@ -2607,9 +2607,7 @@ impl AdventureManager {
     pub async fn toggle_disenchant_protect(&self, username: &str, item_id: &str) -> Option<bool> {
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase())?;
-        let item = character.inventory.iter_mut().find(|i| i.id == item_id)?;
-        item.disenchant_protected = !item.disenchant_protected;
-        let new_state = item.disenchant_protected;
+        let new_state = character.toggle_item_protection(item_id)?;
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -3743,10 +3741,12 @@ impl AdventureManager {
                 // entirely until a token is actually held.
                 return Err(CraftError::InsufficientDust(u64::MAX));
             }
-            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // Insert-time gate: this branch charges dust or consumes a
+            // token BEFORE the item is ever touched, so it has to refuse a
+            // locked or "Keep"-ticked item here rather than leaving it to
+            // the commit-time guard - otherwise the player pays in full
+            // and the craft fails later. See `Character::check_item_mutable`.
+            let item = character.check_item_mutable(item_id)?;
             if item.unique_affix.is_some() {
                 return Err(CraftError::AlreadyUnique);
             }
@@ -3832,10 +3832,12 @@ impl AdventureManager {
         }
 
         if veiled && action == CraftAction::Annulment {
-            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // Insert-time gate: this branch charges dust or consumes a
+            // token BEFORE the item is ever touched, so it has to refuse a
+            // locked or "Keep"-ticked item here rather than leaving it to
+            // the commit-time guard - otherwise the player pays in full
+            // and the craft fails later. See `Character::check_item_mutable`.
+            let item = character.check_item_mutable(item_id)?;
             if item.affixes.is_empty() {
                 return Err(CraftError::NothingToRemove);
             }
@@ -3885,10 +3887,12 @@ impl AdventureManager {
         }
 
         if veiled && action == CraftAction::Chancing {
-            let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // Insert-time gate: this branch charges dust or consumes a
+            // token BEFORE the item is ever touched, so it has to refuse a
+            // locked or "Keep"-ticked item here rather than leaving it to
+            // the commit-time guard - otherwise the player pays in full
+            // and the craft fails later. See `Character::check_item_mutable`.
+            let item = character.check_item_mutable(item_id)?;
             if item.affixes.is_empty() {
                 return Err(CraftError::NothingToReroll);
             }
@@ -4213,7 +4217,20 @@ impl AdventureManager {
     /// That crit is reported back via `ReforgeOutcome::bonus_affix` so
     /// the caller can announce it specially.
     pub(crate) fn reforge_equipped_item(character: &mut Character) -> Option<ReforgeOutcome> {
-        let eligible: Vec<EquipSlot> = EQUIP_SLOTS.into_iter().filter(|&slot| character.equipped(slot).as_ref().is_some_and(|i| !i.locked)).collect();
+        // Filters on the shared mutation rule rather than `locked` alone
+        // (2026-08-24): this path REPLACES the item with a freshly
+        // generated one, new id and all, which makes it the single most
+        // destructive thing that can happen to a piece of gear short of
+        // disenchanting it - exactly what a "Keep" tick means to refuse.
+        //
+        // A no-op in practice today, and deliberately kept anyway: the
+        // protection control is bag-only (see
+        // `Character::toggle_item_protection`) while this only ever picks
+        // EQUIPPED slots, so no live item can currently be both. If
+        // protection is ever extended to worn gear, this is already
+        // correct instead of being the hole nobody remembered.
+        let eligible: Vec<EquipSlot> =
+            EQUIP_SLOTS.into_iter().filter(|&slot| character.equipped(slot).as_ref().is_some_and(|i| i.mutation_block().is_none())).collect();
         if eligible.is_empty() {
             return None;
         }

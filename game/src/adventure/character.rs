@@ -1274,10 +1274,29 @@ impl Character {
     /// `guard_tests::every_unguarded_item_accessor_is_a_named_exemption`.
     pub(crate) fn find_mutable_item(&mut self, id: &str) -> Result<&mut Item, CraftError> {
         let item = self.find_item_by_id_mut_unguarded(id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
+        match item.mutation_block() {
+            Some(err) => Err(err),
+            None => Ok(item),
         }
-        Ok(item)
+    }
+
+    /// Read-only twin of [`Character::find_mutable_item`], for the gates
+    /// that validate BEFORE any mutation - `craftable_affix_pool`,
+    /// `roll_recombine`, and `craft_item_ex`'s veiled-insert branches.
+    ///
+    /// These matter as much as the mutable guard, and for a reason that is
+    /// easy to miss: a veiled craft charges dust (or consumes a token) at
+    /// INSERT time and only touches the item at COMMIT time. If the insert
+    /// gate accepted a protected item and only the commit guard refused
+    /// it, the player would pay in full and get nothing - the failure mode
+    /// would have moved rather than been fixed. Both halves ask the same
+    /// question, so both call `Item::mutation_block`.
+    pub(crate) fn check_item_mutable(&self, id: &str) -> Result<&Item, CraftError> {
+        let item = self.find_item_by_id(id).ok_or(CraftError::ItemNotFound)?;
+        match item.mutation_block() {
+            Some(err) => Err(err),
+            None => Ok(item),
+        }
     }
 
     /// Mutable counterpart to `find_item_by_id`, with NO lock check -
@@ -1357,6 +1376,26 @@ impl Character {
         }
     }
 
+    /// Flips a BAG item's "Keep" protection and returns the new state -
+    /// `None` if no such item is in the bag. The one writer of
+    /// `Item::disenchant_protected`.
+    ///
+    /// Its own narrow method for the same reason `set_item_nickname` is
+    /// one: the guard rejects protected items, so unlocking through the
+    /// guard would be impossible - a player who ticked the box could never
+    /// untick it. Keeping the bypass to a single field on a single method
+    /// means the escape hatch cannot widen into a general one.
+    ///
+    /// Bag-only, matching where the tick-box is actually rendered
+    /// (`render_inventory_item`). Equipped gear has no protection control
+    /// today, so an equipped item can never be protected in the first
+    /// place - worth knowing before assuming the lock covers worn gear.
+    pub(crate) fn toggle_item_protection(&mut self, item_id: &str) -> Option<bool> {
+        let item = self.inventory.iter_mut().find(|i| i.id == item_id)?;
+        item.disenchant_protected = !item.disenchant_protected;
+        Some(item.disenchant_protected)
+    }
+
     /// Test-only handle onto an item, bypassing every guard - lets a test
     /// in another module set up a locked/unique/sacred fixture directly.
     /// Never compiled into a release binary.
@@ -1414,11 +1453,16 @@ impl Character {
         if item_id_a == item_id_b {
             return Err(RecombineError::SameItem);
         }
+        // Both sources go through the shared mutation rule (see
+        // `Item::mutation_block`), so a "Keep"-ticked item is refused as an
+        // INPUT too - recombine consumes both sides, which makes it the
+        // most destructive thing that can happen to a protected item short
+        // of disenchanting it.
+        for id in [item_id_a, item_id_b] {
+            self.check_item_mutable(id).map_err(RecombineError::from)?;
+        }
         let item_a = self.find_item_by_id(item_id_a).ok_or(RecombineError::ItemNotFound)?;
         let item_b = self.find_item_by_id(item_id_b).ok_or(RecombineError::ItemNotFound)?;
-        if item_a.locked || item_b.locked {
-            return Err(RecombineError::ItemLocked);
-        }
         if item_a.slot != item_b.slot {
             return Err(RecombineError::SlotMismatch);
         }
@@ -1567,11 +1611,7 @@ impl Character {
         rng: &mut impl Rng,
     ) -> Result<RecombineOutcome, RecombineError> {
         for id in [item_id_a, item_id_b] {
-            match self.find_mutable_item(id) {
-                Ok(_) => {}
-                Err(CraftError::ItemNotFound) => return Err(RecombineError::ItemNotFound),
-                Err(_) => return Err(RecombineError::ItemLocked),
-            }
+            self.find_mutable_item(id).map_err(RecombineError::from)?;
         }
         self.take_item_by_id(item_id_a);
         self.take_item_by_id(item_id_b);
@@ -1651,7 +1691,7 @@ impl Character {
             // arm only exists for a not-yet-migrated straggler token, and
             // unconditionally grants `CelestialConversion` (the only thing
             // a real CelestialShard token could ever have meant).
-            let item = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
+            let item = self.check_item_mutable(item_id)?;
             // Locked and unique are mutually exclusive in BOTH
             // directions - an already-Krangled item can't receive a
             // unique affix either, same as Krangle itself refusing an
@@ -1660,10 +1700,8 @@ impl Character {
             // affix locks the item" - it explicitly does NOT (per the
             // request, "still craftable and recombinable, it just always
             // stays with the item") - this is only about the two states
-            // never being allowed to coexist on the same item.
-            if item.locked {
-                return Err(CraftError::ItemLocked);
-            }
+            // never being allowed to coexist on the same item - the
+            // locked half of that is `check_item_mutable` above.
             if item.unique_affix.is_some() {
                 return Err(CraftError::AlreadyUnique);
             }
@@ -1720,10 +1758,7 @@ impl Character {
     /// nothing. Never called for `CraftAction::Scour`, which has no
     /// affix pool to speak of.
     pub(crate) fn craftable_affix_pool(&self, item_id: &str, action: CraftAction) -> Result<Vec<Affix>, CraftError> {
-        let item = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
-        }
+        let item = self.check_item_mutable(item_id)?;
         if action == CraftAction::Krangle && item.unique_affix.is_some() {
             return Err(CraftError::CannotKrangleUnique);
         }
@@ -1950,10 +1985,7 @@ impl Character {
     /// slot to its NEW type - "retain and reroll" a crit-granted affix,
     /// per the live request, rather than losing the marking.
     pub(crate) fn chance_all_affixes(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
-        let item = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-        if item.locked {
-            return Err(CraftError::ItemLocked);
-        }
+        let item = self.check_item_mutable(item_id)?;
         if item.affixes.is_empty() {
             return Err(CraftError::NothingToReroll);
         }
@@ -3679,6 +3711,157 @@ mod guard_tests {
                 "{function} (audit row {row}) no longer takes its item through the guard - it was one of the five commit halves that checked nothing"
             );
         }
+    }
+}
+
+/// Change B (2026-08-24): the player's "Keep" tick-box was widened from a
+/// disenchant guard into a full "don't modify this" lock. These tests are
+/// the behavioural half - `guard_tests` above pins the mechanism, this pins
+/// what a player actually experiences.
+#[cfg(test)]
+mod protection_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn protected_item_character() -> (Character, String) {
+        let mut character = Character::new("keeper".to_string());
+        character.inventory.clear();
+        let mut item = generate_item_at_tier(EquipSlot::Helm, 40, &mut StdRng::seed_from_u64(7));
+        item.affixes = vec![(Affix::CritChance, 0.05)];
+        item.disenchant_protected = true;
+        let id = item.id.clone();
+        character.inventory.push(item);
+        (character, id)
+    }
+
+    /// The headline: every mutation path refuses a protected item. Table-
+    /// driven over the actions rather than one test each, so a NEW craft
+    /// action is one line here instead of an omission nobody notices.
+    #[test]
+    fn every_craft_action_refuses_a_protected_item() {
+        for action in [
+            CraftAction::Transmute,
+            CraftAction::Scour,
+            CraftAction::Augment,
+            CraftAction::Regal,
+            CraftAction::Exalt,
+            CraftAction::Krangle,
+            CraftAction::Annulment,
+            CraftAction::Chancing,
+            CraftAction::CelestialShard,
+        ] {
+            let (mut character, id) = protected_item_character();
+            let before = character.find_item_by_id(&id).cloned().expect("fixture item must exist");
+            let err = character
+                .craft(&id, action, &mut StdRng::seed_from_u64(1))
+                .expect_err("a protected item must refuse {action:?}");
+            assert!(
+                matches!(err, CraftError::ItemProtected),
+                "{action:?} on a protected item must report ItemProtected, got {err:?}"
+            );
+            let after = character.find_item_by_id(&id).expect("the item must still be there");
+            assert_eq!(after.affixes, before.affixes, "{action:?} must not have changed the item");
+            assert_eq!(after.tier, before.tier, "{action:?} must not have bumped the tier either");
+        }
+    }
+
+    /// Polish, Reforge and Divine Dust each bypass the generic craft
+    /// machinery via their own branch in `craft_item_ex`, so "the currency
+    /// actions are covered" says nothing about them - they are covered
+    /// because they take their item through the same guard.
+    #[test]
+    fn the_three_bespoke_currency_paths_refuse_a_protected_item() {
+        let (mut character, id) = protected_item_character();
+        let mut rng = StdRng::seed_from_u64(2);
+
+        assert!(matches!(character.polish(&id, &mut rng), Err(CraftError::ItemProtected)), "Polish must refuse a protected item");
+        assert!(matches!(character.reforge_item(&id, &mut rng), Err(CraftError::ItemProtected)), "Reforge must refuse a protected item");
+        assert!(
+            matches!(character.apply_divine_dust(&id, &mut rng), Err(CraftError::ItemProtected)),
+            "Divine Dust must refuse a protected item"
+        );
+    }
+
+    /// The five commit halves (audit rows 6/9/11/13/19). These are the
+    /// reason the guard exists at all: each is reachable ONLY as the second
+    /// half of a veiled craft, so a lock ticked while the veil panel is
+    /// open lands exactly here and nowhere else.
+    #[test]
+    fn the_commit_halves_refuse_an_item_protected_mid_transaction() {
+        let (mut character, id) = protected_item_character();
+        let mut rng = StdRng::seed_from_u64(3);
+
+        assert!(
+            matches!(character.apply_annulment_removal(&id, Affix::CritChance), Err(CraftError::ItemProtected)),
+            "row 6: the Annulment commit must refuse"
+        );
+        assert!(character.apply_chancing_reroll(&id, Affix::CritChance, Affix::Evasion, 0.1).is_none(), "row 9: the Chancing commit must refuse");
+        assert!(
+            matches!(character.apply_craft_affix(&id, CraftAction::Exalt, Affix::Evasion, 0.1), Err(CraftError::ItemProtected)),
+            "row 11: the generic veiled-add commit must refuse"
+        );
+        assert!(
+            matches!(character.apply_unique_affix(&id, UniqueAffix::SplitPersonality), Err(CraftError::ItemProtected)),
+            "row 13: the Unique Shard commit must refuse"
+        );
+
+        // Row 19 consumes BOTH sources, so a refusal has to leave both
+        // where they were - a half-consumed recombine would be worse than
+        // no guard at all.
+        let mut partner = generate_item_at_tier(EquipSlot::Helm, 40, &mut rng);
+        partner.affixes = vec![(Affix::Evasion, 0.05)];
+        let partner_id = partner.id.clone();
+        character.inventory.push(partner);
+        let roll = character.roll_recombine(&partner_id, &id, false, &mut rng);
+        assert!(matches!(roll, Err(RecombineError::ItemProtected)), "row 19: the recombine gate must refuse a protected input");
+        assert!(character.find_item_by_id(&id).is_some(), "the protected item must survive a refused recombine");
+        assert!(character.find_item_by_id(&partner_id).is_some(), "its partner must survive too");
+    }
+
+    /// Protection has to be reversible, and the guard rejects protected
+    /// items - so if unticking went through the guard a player could tick
+    /// the box once and never untick it. This is the escape hatch working.
+    #[test]
+    fn protection_can_still_be_toggled_back_off() {
+        let (mut character, id) = protected_item_character();
+
+        assert_eq!(character.toggle_item_protection(&id), Some(false), "unticking must be allowed on a protected item");
+        assert!(character.find_mutable_item(&id).is_ok(), "and the item must be craftable again immediately after");
+        assert_eq!(character.toggle_item_protection(&id), Some(true), "and re-ticking must work too");
+        assert!(matches!(character.find_mutable_item(&id), Err(CraftError::ItemProtected)), "re-ticked, it refuses again");
+    }
+
+    /// The pre-existing half of the tick-box's job, asserted so widening it
+    /// into a mutation lock cannot quietly cost it its original one.
+    #[test]
+    fn protection_still_blocks_both_disenchant_paths() {
+        let (mut character, id) = protected_item_character();
+        let mut rng = StdRng::seed_from_u64(4);
+
+        assert!(character.disenchant_from_inventory(&id, &mut rng, 1.0, 0.0).is_none(), "single disenchant must still refuse");
+        assert_eq!(character.disenchant_all_from_inventory(&mut rng, 1.0, 0.0).0, 0, "disenchant-all must still skip it");
+        assert!(character.find_item_by_id(&id).is_some(), "and the item must still be in the bag");
+    }
+
+    /// Upkeep is NOT modification - the exemptions have to keep working on
+    /// a protected item, or ticking Keep would silently stop the item being
+    /// repaired and (if Krangled) stop it growing with its owner.
+    #[test]
+    fn upkeep_still_reaches_a_protected_item() {
+        let (mut character, id) = protected_item_character();
+        character.level = 90;
+        {
+            let item = character.item_mut_for_test(&id).expect("fixture");
+            item.uses = 5;
+            item.max_uses = Some(10);
+            item.locked = true;
+        }
+
+        character.repair_all_gear();
+        assert_eq!(character.find_item_by_id(&id).expect("still there").uses, 0, "repair must still reach a protected item");
+
+        character.grow_krangled_items();
+        assert_eq!(character.find_item_by_id(&id).expect("still there").tier, 90, "Krangle growth must still reach a protected item");
     }
 }
 

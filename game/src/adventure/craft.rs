@@ -319,6 +319,16 @@ pub enum CraftError {
     /// The item is locked (Krangled) - excluded from every crafting
     /// action.
     ItemLocked,
+    /// The player has ticked "Keep" on this item (`Item::disenchant_protected`)
+    /// - 2026-08-24, the tick-box was widened from a disenchant guard into
+    /// a full "don't touch this" lock, so it now refuses every mutation
+    /// too, not just destruction. Deliberately a SEPARATE variant from
+    /// `ItemLocked` even though both mean "refused, this item is
+    /// protected": `ItemLocked` is permanent and the game imposed it
+    /// (Krangle), this one is the player's own choice and they can undo it
+    /// from the item's own card, so the two need different player-facing
+    /// text or the message is actively unhelpful.
+    ItemProtected,
     /// The item's current affix count doesn't match what this action
     /// requires - see `CraftAction::required_affix_count`.
     PreconditionNotMet,

@@ -1391,6 +1391,7 @@ fn recombine_error_text(err: RecombineError) -> String {
         RecombineError::SlotMismatch => "Both items need to be the same gear slot (e.g. two helms, two gloves).".to_string(),
         RecombineError::InsufficientDust(cost) => format!("Not enough dust — this needs {cost}."),
         RecombineError::IncompatibleUniqueAffixes => "Both items have a unique affix and they're not the same one — those can't be combined.".to_string(),
+        RecombineError::ItemProtected => "That item is marked 🔒 Keep — untick Keep on its card first, since recombining consumes it.".to_string(),
     }
 }
 
@@ -1401,6 +1402,11 @@ fn craft_error_text(err: CraftError) -> String {
         CraftError::NotJoined => "You haven't joined the adventure yet.".to_string(),
         CraftError::ItemNotFound => "Pick an item first — your selection was empty or no longer exists.".to_string(),
         CraftError::ItemLocked => "A Krangled (locked) item can't be crafted on.".to_string(),
+        // Deliberately different wording from ItemLocked above: this one is
+        // the player's own tick-box and they can undo it, so the message
+        // says where to go. "Locked" would send them looking for a Krangle
+        // they never did.
+        CraftError::ItemProtected => "That item is marked 🔒 Keep — untick Keep on its card to craft on it.".to_string(),
         CraftError::PreconditionNotMet => "That item doesn't have the right number of modifiers for this action.".to_string(),
         CraftError::NothingToRemove => "That item has no modifiers to remove.".to_string(),
         CraftError::NothingToReroll => "That item has no modifiers to reroll.".to_string(),
@@ -5191,7 +5197,18 @@ fn all_items(c: &Character) -> Vec<&Item> {
 /// point of this pass (a live request: "each item should list the quality
 /// %/perfect/sacred/etc").
 fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str>) -> String {
-    let lock = if item.locked { " \u{1F512}" } else { "" };
+    // A Krangled item and a "Keep"-ticked one both refuse every craft now
+    // (2026-08-24), so both need to say so in the picker - otherwise the
+    // only feedback is an error popup after the click. Same padlock, and
+    // the trailing word is what separates them: Krangle's lock is
+    // permanent, Keep is the player's own tick-box on the item's card.
+    let lock = if item.locked {
+        " \u{1F512}".to_string()
+    } else if item.disenchant_protected {
+        " \u{1F512} Keep".to_string()
+    } else {
+        String::new()
+    };
     let unique_mark = if item.unique_affix.is_some() { " \u{2726}" } else { "" };
     let mods = item.affixes.len();
     let selected = if selected_id == Some(item.id.as_str()) { " selected" } else { "" };

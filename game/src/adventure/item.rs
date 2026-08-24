@@ -334,6 +334,27 @@ impl Item {
         }
     }
 
+    /// The single definition of "may this item be mutated at all?", and
+    /// the reason both halves of the guard can never disagree:
+    /// `Character::find_mutable_item` (the mutable route every craft takes)
+    /// and `Character::check_item_mutable` (the read-only gate the
+    /// veiled-insert branches take) both ask this, so a rule change lands
+    /// in one place instead of two that drift.
+    ///
+    /// `None` means "go ahead". The order matters slightly: `locked` is
+    /// reported first because it is permanent and game-imposed, so telling
+    /// a player about their own removable tick-box on a Krangled item
+    /// would send them to a control that cannot help them.
+    pub(crate) fn mutation_block(&self) -> Option<CraftError> {
+        if self.locked {
+            Some(CraftError::ItemLocked)
+        } else if self.disenchant_protected {
+            Some(CraftError::ItemProtected)
+        } else {
+            None
+        }
+    }
+
     /// Whether Reforge's rare bonus-affix crit is still "spent" for this
     /// item's lineage - see `crit_bonus_affixes`'s doc for why this is a
     /// derived check (present-in-`affixes`) rather than a stored flag.
@@ -695,6 +716,28 @@ pub enum RecombineError {
     /// Both items carry a unique affix and they're not the same one -
     /// uniques can't blend into each other on Recombine.
     IncompatibleUniqueAffixes,
+    /// One or both items have the player's "Keep" tick-box set
+    /// (`Item::disenchant_protected`) - see `CraftError::ItemProtected`
+    /// for why this is separate from `ItemLocked`.
+    ItemProtected,
+}
+
+/// Lets Recombine reuse the ONE mutation rule (`Item::mutation_block`)
+/// instead of restating it in `RecombineError`'s own vocabulary - without
+/// this, recombine's gate and every other craft's gate could disagree
+/// about what "protected" means, which is exactly the drift the shared
+/// rule exists to prevent. Only the two refusal kinds a mutation check can
+/// produce are mapped; anything else means the caller passed an error this
+/// conversion was never meant to see, and `ItemNotFound` is the honest
+/// answer for "no item to speak of".
+impl From<CraftError> for RecombineError {
+    fn from(err: CraftError) -> Self {
+        match err {
+            CraftError::ItemLocked => RecombineError::ItemLocked,
+            CraftError::ItemProtected => RecombineError::ItemProtected,
+            _ => RecombineError::ItemNotFound,
+        }
+    }
 }
 
 /// Everything a recombine roll decides before either source item is
