@@ -82,6 +82,44 @@ code is correct.
    journal, or a doc that can be read on demand. A long report is charged
    twice — once to write, once to read.
 
+## THE OWNER'S ORDER IS THE SPEC — BINDING
+
+This is Lokati's game. His request is a specification, not a starting
+point for design.
+
+1. BUILD WHAT WAS ASKED FOR. Not an improved version, not a first step
+   toward it, not a more general version. If the order says "make the
+   per-rank cap tunable on the passive page", that is the deliverable —
+   a global dial on a different page is a failed task even if it is
+   better engineering.
+
+2. DISAGREE BEFORE, NEVER AFTER. If you believe a different approach is
+   better, say so in ONE sentence and STOP. Wait for the ruling. Never
+   implement your alternative and explain it in the report.
+
+3. ADD NOTHING THAT WAS NOT ASKED FOR. No extra audits, no adjacent
+   fixes, no "while I was in there". If you notice something, one line in
+   docs/session_journal.md under FOUND, then move on.
+
+4. SMALLEST CHANGE THAT SATISFIES THE ORDER. Find the existing feature
+   that already works this way and copy it. Most requests are four lines
+   in four places, not a design pass.
+
+5. CONTENT BEFORE INFRASTRUCTURE. When a choice exists between shipping
+   what the owner asked for and improving process, tooling, tests, or
+   documentation, ship the feature. Infrastructure work happens only when
+   it is blocking, or when explicitly ordered.
+
+6. CHECK YOURSELF BEFORE YOU START. Three questions:
+     - Is this exactly what was asked for?
+     - Is this the smallest version of it?
+     - Is this one thing?
+   If any answer is no, say so and stop before writing code.
+
+7. THIS PROJECT IS BEHIND SCHEDULE. Time and cost are the binding
+   constraints, not elegance. A correct, minimal change delivered today
+   beats a thorough one delivered tomorrow.
+
 ## Multi-session house rules (all Claude sessions in this repo)
 
 ROLES. Feature sessions build on branches. The deploy session alone merges to master and deploys. The log parser verifies from fight logs and owns the anomaly ledger (its numbering is canonical). One release at a time, deployed only on the owner's explicit go.
