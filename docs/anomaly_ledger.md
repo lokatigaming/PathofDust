@@ -1226,3 +1226,60 @@ after the run â€” no tunable value moved.
 2759648..7e68cc7` touches only `game/**` and `WIKI_IMPACT.md`; nothing
 under `src/**` or root `Cargo.toml`/`Cargo.lock`. Bot: unchanged, not
 redeployed.
+
+## Deploy record — 2026-08-25, passive-tunables stage 2 drift batch (`fb921b3`)
+
+Entered by the deploy session at merge of `feature/passive-tunables-stage2`
+(`9127fe0`) into master, base `879f586`.
+
+**What shipped:** tunable_audit.md §3 Groups B+C — 17 nodes moved off raw-
+rank reads onto their own declared values (16 out of PENDING_MIGRATION_NODES,
+47 ? 31; Slayer `unrelenting`'s rank-3 bonus folded into a SpecialPerRank
+table, out of PARTIALLY_TUNABLE_NODES 7 ? 3), plus seven count nodes
+(golemmaster/risingphoenix/virulence/cursedblood/livingbond/naturesembrace/
+verdantburst charges) now read via `passive_node_count` and added to
+INTEGER_COUNT_NODES 21 ? 28. golemmaster's three call sites (combat spawn /
+manager slot-unlock check / web picker) read one count; the two bespoke
+lookup fns (`healing_flames_regen_pct`, `blazing_attack_speed_pct`) deleted.
+Behaviour-neutral at defaults: every default reproduces the old rank-fed
+value exactly (pinned by tests); overrides on these nodes now actually reach
+the game.
+
+**Doc restoration:** master's tree had dropped Stage 1's doc-record lines
+from `LIVE_TUNABLES_PROGRESS.md` and `docs/passive_tunables_spec.md`
+relative to `35cccba` (the branch tip `487aaf4` merged); the substance was
+backfilled via `c9f4cbe` instead. This merge restores those doc sections on
+current master (both files applied cleanly in `9127fe0`).
+
+**Fixtures:** expected NO divergence (behaviour-neutral at defaults);
+`golden_corpus` passed clean inside the suite, nothing regenerated.
+
+**Verification:** full workspace suite on the merged state (`fb921b3`),
+isolated target dir `target-deploy-stage2` — `cargo test --release
+--workspace --quiet --target-dir target-deploy-stage2`: 712 passed, 0
+failed across 24 suites, exit code 0 captured separately. Clippy exit 0,
+zero diagnostics on any touched file. Real-config smoke: fresh `game.exe`
+from the deploy build against copies of production's three live config
+files (`adventure-item-balance.toml`, `adventure-live-tunables.toml`,
+`adventure-passive-overrides.toml`) via `GAME_DATA_DIR`, isolated scratch
+dir + ports 4199/4198 + seeded admin session — `/passives` 200;
+`/admin/passives` renders (warrior default page; elementalist page shows
+the golemmaster/healingflames rows); a `bulwark` save POST round-tripped
+303 into the scratch overrides copy with tuned badge + Revert offered;
+production TOMLs never touched (no tunable value changed).
+
+**Bot redeploy determination: diff-clean** — `git diff --name-only
+879f586..9127fe0` touches only `game/**` plus docs/`WIKI_IMPACT.md`;
+nothing under `src/**` or root `Cargo.toml`/`Cargo.lock`. Bot: unchanged,
+not redeployed (diff-clean).
+
+**4a swap:** maintenance flag SET (`scope` line verified against the
+GameProcess-Watchdog task root) BEFORE the stop; `Stop-ScheduledTask`; port
+4005 confirmed free; old `game.exe` SHA-256
+`8EE025EAB94BCCE3D4F56A9BBEACC0157BECD66544BB30EB09CFB046BB3C9BB6` renamed
+aside AND copied into `backup-pre-passive-tunables-stage2/` with the pinned
+200-file `adventure-fights-summary` snapshot; new binary SHA-256
+`5361D4AD714742D3156C002996492026FB1EF404EAED19FF4DDD0EB5895C360F` copied
+in; task restarted, `LastTaskResult` `267009` (running — see the Divinity
+record's step-6 note), `/passives` and `/` both HTTP 200; flag CLEARED
+after the health check. Downtime ˜ stop-to-start window only.
