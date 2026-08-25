@@ -181,54 +181,42 @@ pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()
 /// read `passive_node_rank` (structure), so an override never reached
 /// the game - found by docs/tunable_audit.md §3 and now enforced by the
 /// guard rather than by re-auditing by hand.
+///
+/// **Drift batch (2026-08-25):** shrank 47 → 31 when the audit's Group-B
+/// drift nodes migrated (16 entries deleted here; `sacrifice` was tracked
+/// in PARTIALLY_TUNABLE_NODES instead, its cost half already being wired).
 pub const PENDING_MIGRATION_NODES: &[&str] = &[
     "assassinate", // rogue
-    "blazing", // elementalist - stage-0: Flame Golem AS is fn(rank) in combat.rs
     "bloodrush", // berserker
     "bloodscent", // berserker
     "chakraoflife", // monk - stage-0: immunity duration is rank*1000ms at the call site
     "clarity", // monk
     "compassion", // cleric
-    "cursedblood", // warlock - stage-0: auto-curse target COUNT reads rank
     "crush", // berserker
-    "deathdefiant", // berserker - stage-0: grace window is rank*3000ms at the call site
     "deathwish", // berserker
-    "demonicspeed", // warlock - stage-0: burst window is 5s+2s*rank at the call site
     "doubletap", // rogue
     "finalblow", // ranger
-    "finaloffering", // slayer - stage-0: unlock-use ladder AND the -33% both live in combat.rs
     "frenzy", // berserker
     "gloriousdeath", // berserker
-    "golemmaster", // elementalist - stage-0: slot count reads rank
     "guardianspirit", // cleric
-    "healingflames", // elementalist - stage-0: regen is fn(rank) (irregular 3/6/10%)
-    "huntersfocus", // ranger - stage-0: ally share is rank/3 at the call site
     "lastlaugh", // berserker
     "lastrites", // slayer
-    "livingbond", // druid - stage-0: Wild Roar charge COUNT reads rank
     "markedfordeath", // rogue
-    "naturesembrace", // druid - stage-0: heal-target COUNT reads rank
     "neverending", // berserker
     "payback", // warrior
     "piercingshots", // ranger
     "quickdraw", // rogue
     "reckless", // berserker
     "relentlessassault", // monk
-    "risingphoenix", // elementalist - stage-0: revive COUNT reads rank
     "sanctifiedtouch", // cleric
     "secondwind", // warrior
     "shatter", // berserker
     "shattering", // elementalist - stage-0: icicle target count reads rank; damage pct is LiveTunable
     "surgicalstrike", // rogue
-    "timewarp", // mage - stage-0: burst window is 5s+2s*rank at the call site
     "undying", // slayer
     "undyingwill", // warrior
-    "unwavering", // paladin - stage-0: low-HP party-DR threshold ladder is rank-keyed
-    "unyieldingfaith", // cleric - stage-0: same ladder shape as unwavering
     "unyieldingspirit", // monk - stage-0: Last Stand HP threshold ladder is rank-keyed
-    "verdantburst", // druid - stage-0: save-charge COUNT reads rank (threshold half is LiveTunable)
     "vitalstrike", // rogue
-    "virulence", // warlock - stage-0: Soul Stone max COUNT reads rank
 ];
 
 /// Nodes whose magnitude is a COUNT (extra targets, extra hits, banked
@@ -279,6 +267,16 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
     "widerpack",
     "windborn",
     "windrunner",
+    // Drift batch (2026-08-25): the audit's Group-B COUNT nodes, each
+    // confirmed a plain arithmetic count at its own call site before the
+    // `passive_node_rank` read was switched to `passive_node_count`.
+    "cursedblood", // warlock - fight-start auto-curse target count
+    "golemmaster", // elementalist - golem slots (spawn, slot-unlock check and admin picker all read it)
+    "livingbond", // druid - Wild Roar per-fight charges
+    "naturesembrace", // druid - on-death full-heal target count
+    "risingphoenix", // elementalist - per-combat revive limit (the old `.min(3)` is redundant: effective_rank caps growth at 3)
+    "verdantburst", // druid - Verdant Burst save charges (threshold half stays a LiveTunable)
+    "virulence", // warlock - Soul Stone bank size
 ];
 
 /// Nodes that declare a real per-rank effect which **nothing in the
@@ -318,11 +316,23 @@ pub const UNWIRED_NODES: &[&str] = &[
 /// below. mercifultouch was audited as a candidate and DELIBERATELY
 /// excluded: its rank read is only an invested-gate; its value comes
 /// from `passive_node_magnitude`.
+///
+/// **Drift batch (2026-08-25):** three of the original seven entries left
+/// this list rather than being code-changed, because nothing of their own
+/// was rank-fed anymore:
+/// - `ravage` - the 0.5 stack value already came off the node's magnitude
+///   (Stage 2 count batch); its remaining `rank >= 3` read is the unlock
+///   gate, which is structure (same shipped shape as empoweredbolt).
+/// - `endlessthirst` - same: the cap bonus was already magnitude-fed; the
+///   `rank >= 3` "cap removed entirely" read is an unlock rule.
+/// - `naturesblessing` - its rank-2/3 reads only RELEASE sibling nodes'
+///   bonuses (bloomstrike/wildinstinct, both tunable on their own); the
+///   node owns no number that rank feeds.
+/// The three entries kept below each have a genuine SECOND VALUE of their
+/// own still fed by rank, with no second value slot to declare it in (a
+/// node has exactly one magnitude table) - migrating them would be a
+/// structural change and they stay listed per the audit's OQ6.
 pub const PARTIALLY_TUNABLE_NODES: &[(&str, &str)] = &[
-    (
-        "naturesblessing",
-        "the crit-chance value is live here, but this node's rank-2/3 heal-crit bonus ladder still reads node RANK in combat.rs.",
-    ),
     (
         "bloomingfield",
         "the heal-power multiplier is live here, but the bounce-target count still reads node RANK in combat.rs.",
@@ -330,18 +340,6 @@ pub const PARTIALLY_TUNABLE_NODES: &[(&str, &str)] = &[
     (
         "reaperscall",
         "the chain chance is live here, but the chain max-extra-targets count still reads node RANK in combat.rs.",
-    ),
-    (
-        "ravage",
-        "the ramp multiplier is live here, but the rank-3 stack ladder still reads node RANK in combat.rs.",
-    ),
-    (
-        "unrelenting",
-        "the duration bonus is live here, but the rank-3 extra-bonus ladder still reads node RANK in combat.rs.",
-    ),
-    (
-        "endlessthirst",
-        "the stack-cap bonus is live here, but the 'uncapped at rank 3' rule still reads node RANK in combat.rs.",
     ),
     (
         "sacrifice",
@@ -575,12 +573,14 @@ mod passive_override_tests {
         // suite noticing. 28 was the 2026-08-19 audit; Stage 0
         // (2026-08-24, docs/tunable_audit.md §3 + the CI consumption
         // guard below) added the 19 rank-only-consumed nodes its scan
-        // found, taking it to 47. This number only moves again when a
-        // migration batch deletes its entries or a NEW guard-verified
-        // drift is listed - both deliberate, reviewed changes.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 47, "Stage 0 audit grew the list from 28; see docs/passive_tunables_spec.md Stage 0 record");
+        // found, taking it to 47; the drift batch (2026-08-25) migrated
+        // 16 of those Group-B nodes back out, taking it to 31. This
+        // number only moves again when a migration batch deletes its
+        // entries or a NEW guard-verified drift is listed - both
+        // deliberate, reviewed changes.
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 31, "Stage 0 audit grew the list to 47; the 2026-08-25 drift batch took it to 31 - see docs/passive_tunables_spec.md");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 47, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 31, "the pending list must not contain duplicates");
     }
 
     #[test]
@@ -799,6 +799,75 @@ mod passive_override_tests {
         }
     }
 
+    // ---- Drift batch (2026-08-25): tunable_audit.md §3 Groups B+C ----
+
+    #[test]
+    fn drift_batch_declarations_reproduce_the_old_rank_fed_values_exactly() {
+        // Each entry pins a migrated node's declared table against the
+        // exact formula its combat.rs call site used before the drift
+        // batch - `==`, not an epsilon, for the same reason
+        // `final_judgment_migration_is_exactly_behavior_neutral` gives:
+        // an approximate check would hide exactly the drift that matters.
+        let empty = PassiveOverrides::default();
+        let mag = |archetype: Archetype, key: &str, rank: u32| node(archetype, key).magnitude_at_rank_with(rank, &empty);
+
+        // Berserker deathdefiant: grace was `rank * 3000ms`; declared in seconds.
+        for rank in 1..=3u32 {
+            assert_eq!(mag(Archetype::Berserker, "deathdefiant", rank) * 1000.0, (rank * 3_000) as f64);
+        }
+        // Mage timewarp / Warlock demonicspeed: window was `5000 + 2000*rank` ms.
+        for (archetype, key) in [(Archetype::Mage, "timewarp"), (Archetype::Warlock, "demonicspeed")] {
+            for rank in 1..=3u32 {
+                assert_eq!(mag(archetype, key, rank) * 1000.0, (5_000 + 2_000 * rank) as f64);
+            }
+        }
+        // Paladin unwavering / Cleric unyieldingfaith: threshold ladder 0/.50/.65.
+        for (archetype, key) in [(Archetype::Paladin, "unwavering"), (Archetype::Cleric, "unyieldingfaith")] {
+            for (rank, expected) in [(1u32, 0.0), (2, 0.50), (3, 0.65)] {
+                assert_eq!(mag(archetype, key, rank), expected);
+            }
+        }
+        // Ranger huntersfocus: ally share was `rank / 3` - bit-exact.
+        for rank in 1..=3u32 {
+            assert_eq!(mag(Archetype::Ranger, "huntersfocus", rank), rank as f64 / 3.0, "huntersfocus rank {rank} must be the identical f64 the old division produced");
+        }
+        // Elementalist healingflames: irregular 3/6/10% (was `healing_flames_regen_pct`).
+        for (rank, expected) in [(1u32, 0.03), (2, 0.06), (3, 0.10)] {
+            assert_eq!(mag(Archetype::Elementalist, "healingflames", rank), expected);
+        }
+        // Rank 4 floors at rank 3's row (Specialization rule), matching the
+        // old lookup's `r if r >= 3 => 0.10` arm.
+        assert_eq!(mag(Archetype::Elementalist, "healingflames", 4), 0.10);
+        // Elementalist blazing: irregular 6/9/18% (was `blazing_attack_speed_pct`).
+        for (rank, expected) in [(1u32, 0.06), (2, 0.09), (3, 0.18)] {
+            assert_eq!(mag(Archetype::Elementalist, "blazing", rank), expected);
+        }
+        // Slayer finaloffering: unlock ladder was `4 - rank` prior uses.
+        for rank in 1..=3u32 {
+            assert_eq!(mag(Archetype::Slayer, "finaloffering", rank), (4 - rank) as f64);
+        }
+        // Slayer unrelenting: `rank*1333ms` below rank 3, flat 600_000 at rank 3.
+        for (rank, expected) in [(1u32, 1333.0), (2, 2666.0), (3, 600_000.0)] {
+            assert_eq!(mag(Archetype::Slayer, "unrelenting", rank), expected);
+        }
+        // The seven COUNT nodes keep magnitude == rank exactly (their
+        // declarations were already `1.0 / 1.0`), so the swap to
+        // `passive_node_count` is neutral by construction.
+        for (archetype, key) in [
+            (Archetype::Warlock, "virulence"),
+            (Archetype::Warlock, "cursedblood"),
+            (Archetype::Elementalist, "golemmaster"),
+            (Archetype::Elementalist, "risingphoenix"),
+            (Archetype::Druid, "livingbond"),
+            (Archetype::Druid, "naturesembrace"),
+            (Archetype::Druid, "verdantburst"),
+        ] {
+            for rank in 1..=3u32 {
+                assert_eq!(node(archetype, key).magnitude_at_rank_with(rank, &empty), rank as f64, "{key} must stay a whole count of {rank} at rank {rank}");
+            }
+        }
+    }
+
     #[test]
     fn final_judgment_is_now_tunable() {
         assert!(node_is_tunable("finaljudgment"), "the Paladin batch migrated it");
@@ -808,6 +877,53 @@ mod passive_override_tests {
         let node = node(Archetype::Paladin, "finaljudgment");
         let o = overrides(&[("finaljudgment", &[0.25, 0.30, 0.35])]);
         assert_eq!(crate::adventure::JUDGMENT_BASE_THRESHOLD + node.magnitude_at_rank_with(3, &o), 0.85);
+    }
+
+    #[test]
+    fn drift_batch_nodes_are_tunable_and_overrides_reach_their_values() {
+        // All sixteen Group-B keys left PENDING_MIGRATION_NODES this batch:
+        // each must now be offered as tunable with no untunable reason,
+        // looked up against its own archetype's tree.
+        for (archetype, key) in [
+            (Archetype::Berserker, "deathdefiant"),
+            (Archetype::Mage, "timewarp"),
+            (Archetype::Warlock, "demonicspeed"),
+            (Archetype::Paladin, "unwavering"),
+            (Archetype::Cleric, "unyieldingfaith"),
+            (Archetype::Ranger, "huntersfocus"),
+            (Archetype::Elementalist, "golemmaster"),
+            (Archetype::Elementalist, "healingflames"),
+            (Archetype::Elementalist, "blazing"),
+            (Archetype::Elementalist, "risingphoenix"),
+            (Archetype::Warlock, "virulence"),
+            (Archetype::Warlock, "cursedblood"),
+            (Archetype::Druid, "livingbond"),
+            (Archetype::Druid, "naturesembrace"),
+            (Archetype::Druid, "verdantburst"),
+            (Archetype::Slayer, "finaloffering"),
+        ] {
+            assert!(node_is_tunable(key), "{key:?} was migrated by the drift batch and must no longer be listed as pending");
+            assert!(node_untunable_reason(key).is_none(), "{key:?} must have no untunable reason");
+            assert!(archetype.passive_nodes().iter().any(|n| n.key == key), "{key:?} lookup must use the right archetype");
+        }
+
+        // And an override genuinely moves what combat.rs reads now.
+        let empty = PassiveOverrides::default();
+        // Threshold ladder: an unwavering override moves the low-HP party-DR trigger.
+        let unwavering = node(Archetype::Paladin, "unwavering");
+        let o = overrides(&[("unwavering", &[0.10, 0.20, 0.30])]);
+        assert_eq!(unwavering.magnitude_at_rank_with(2, &o), 0.20);
+        assert_ne!(unwavering.magnitude_at_rank_with(2, &o), unwavering.magnitude_at_rank_with(2, &empty));
+        // Count nodes: an override raises the count past the old rank cap
+        // (golemmaster slots, risingphoenix revives) - rounding keeps them
+        // whole numbers, and negatives floor at 0 in `passive_node_count`.
+        let golem = node(Archetype::Elementalist, "golemmaster");
+        let o = overrides(&[("golemmaster", &[5.0])]);
+        assert_eq!(golem.magnitude_at_rank_with(1, &o).round() as u32, 5);
+        // Irregular tables tune per rank like any other node.
+        let flames = node(Archetype::Elementalist, "healingflames");
+        let o = overrides(&[("healingflames", &[0.04, 0.07, 0.12])]);
+        assert_eq!(flames.magnitude_at_rank_with(3, &o), 0.12);
     }
 
     #[test]
