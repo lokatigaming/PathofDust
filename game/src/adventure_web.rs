@@ -4952,7 +4952,7 @@ fn render_passive_tree_page(display_name: &str, character: Option<&Character>, p
     // "hidden, not just disabled" reasoning as Split Personality's own
     // section below.
     let golem_slot_section = if c.archetype == Archetype::Elementalist {
-        let unlocked_slots = c.passive_node_rank("golemmaster");
+        let unlocked_slots = c.passive_node_count("golemmaster");
         if unlocked_slots == 0 {
             String::new()
         } else {

@@ -313,4 +313,51 @@ delta, (4) two different snapshots against one Character give different
 results and the untouched default still reads identically afterwards -
 per-call freshness, no cache.
 
+## Drift-batch record (2026-08-25) — Stage 2: tunable_audit.md §3 Groups B+C
+
+Branch `feature/passive-tunables-stage1`. Behavior-neutral at defaults;
+golden fixtures untouched and byte-identical; live TOML untouched.
+
+**Migrated (17 nodes code-changed).** Each switched its call site from
+`passive_node_rank` to `passive_node_magnitude`/`passive_node_count`,
+declaring the true per-rank values in the tree:
+
+| node | old rank-fed shape | declared now |
+|---|---|---|
+| deathdefiant | grace = rank×3000ms | Special 3s/+3s (site ×1000) |
+| timewarp / demonicspeed | window = 5000+2000×rank ms | Special 7s/+2s (site ×1000); invested-gate keeps its rank read |
+| unwavering / unyieldingfaith | threshold ladder 0/.50/.65 by rank | SpecialPerRank [0, 0.50, 0.65] |
+| huntersfocus | ally share = rank/3 | SpecialPerRank [1⁄3, 2⁄3, 1] literals, pinned bit-equal to the old division |
+| healingflames | irregular fn(rank) 3/6/10% (`healing_flames_regen_pct`, deleted) | SpecialPerRank [0.03, 0.06, 0.10] |
+| blazing | irregular fn(rank) 6/9/18% (`blazing_attack_speed_pct`, deleted) | SpecialPerRank [0.06, 0.09, 0.18] |
+| finaloffering | unlock ladder = 4−rank prior uses | Special 3/−1 (the −33% discount was never rank-fed; stays a constant) |
+| unrelenting | rank×1333ms below r3, flat 600_000ms at r3 | SpecialPerRank [1333, 2666, 600000] (folded totals) |
+| golemmaster, risingphoenix, virulence, cursedblood, livingbond, naturesembrace, verdantburst(charges) | count = rank | unchanged 1/1 declarations read via `passive_node_count`; added to INTEGER_COUNT_NODES (+7 → 28). golemmaster reads the same count at all three sites (spawn, slot-unlock check, admin picker); the redundant `.min(3)` clamps dropped — effective_rank already caps growth at 3 |
+
+List edits: PENDING_MIGRATION_NODES 47 → 31 (16 Group-B keys out;
+chakraoflife/shattering/unyieldingspirit stay for their own batch);
+PARTIALLY_TUNABLE_NODES 7 → 3.
+
+**Left behind (BLOCKED + reason):** bloomingfield (bounce-target count),
+reaperscall (chain max-extra), sacrifice (Bloodpact damage multiplier) —
+each has a genuine SECOND value of its own still fed by rank, but a node
+has exactly one magnitude table and all three tables are occupied by
+their wired primaries; migrating them is a structural change (audit OQ6).
+They stay listed in PARTIALLY_TUNABLE_NODES with honest notes.
+
+**Needed no code change:** mercifultouch (verified wired in Stage 0 —
+its rank read is only an invested-gate; never on either list); ravage
+and endlessthirst (values were already magnitude-fed; residual
+`rank >= N` reads are unlock-gate structure, the empoweredbolt shipped
+shape); naturesblessing (its rank reads only RELEASE sibling bonuses
+that are themselves tunable — bloomstrike/wildinstinct). Ravage,
+endlessthirst and naturesblessing left PARTIALLY_TUNABLE_NODES — their
+inputs were never lying.
+
+Tests: `drift_batch_declarations_reproduce_the_old_rank_fed_values_exactly`
+pins every migrated table against its old formula with `==`;
+`drift_batch_nodes_are_tunable_and_overrides_reach_their_values` proves
+the sixteen keys are offered and that overrides move the values combat.rs
+reads. The deleted lookup-fn test moved into these.
+
 

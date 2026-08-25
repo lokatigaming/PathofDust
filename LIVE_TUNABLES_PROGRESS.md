@@ -220,3 +220,19 @@ would have nothing to do.
   at its own call site
 - `UNWIRED_NODES`: **2**
 - Tunable nodes overall: **372** of 471 (was 351)
+
+## Drift batch (2026-08-25): tunable_audit.md §3 Groups B+C land
+
+Branch `feature/passive-tunables-stage1`, stacked on Stage 1's spec.
+Behavior-neutral at defaults, golden corpus untouched. 17 nodes migrated
+off raw-rank reads onto their own declared values (16 out of
+PENDING_MIGRATION_NODES → 31; unrelenting came out of
+PARTIALLY_TUNABLE_NODES by folding its rank-3 bonus into a
+SpecialPerRank table). INTEGER_COUNT_NODES 21 → 28 with golemmaster,
+risingphoenix, virulence, cursedblood, livingbond, naturesembrace and
+verdantburst. Three mixed nodes stay honestly half-listed
+(bloomingfield/reaperscall/sacrifice: second value, no second slot);
+ravage/endlessthirst/naturesblessing left the partial list as fully-wired
+(only structural unlock-gates still read rank), matching empoweredbolt's
+shipped shape; mercifultouch confirmed wired, never listed. Full record:
+docs/passive_tunables_spec.md "Drift-batch record".

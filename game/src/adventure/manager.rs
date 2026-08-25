@@ -2998,7 +2998,7 @@ impl AdventureManager {
         if character.archetype != Archetype::Elementalist {
             return Err(SetGolemSlotTypeError::NotElementalist);
         }
-        let unlocked_slots = character.passive_node_rank("golemmaster") as usize;
+        let unlocked_slots = character.passive_node_count("golemmaster") as usize;
         if slot >= unlocked_slots {
             return Err(SetGolemSlotTypeError::SlotNotUnlocked);
         }
@@ -3307,7 +3307,7 @@ impl AdventureManager {
         // genuinely golem-less new Memory (Golem Master never invested)
         // leaving a stale prior assignment in place, which is harmless:
         // `golem_slot_types` is only ever read scoped to
-        // `passive_node_rank("golemmaster")` many slots, so an unused
+        // `passive_node_count("golemmaster")` many slots, so an unused
         // entry past that count is simply never read.
         if !build.golem_slot_types.is_empty() {
             character.golem_slot_types = build.golem_slot_types;

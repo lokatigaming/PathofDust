@@ -796,7 +796,11 @@ static BERSERKER_NODES: &[PassiveNode] = &[
         "gambit",
         "Death Defiant",
         "Gambit's crit bonus persists 3 additional seconds per rank after healing back above its missing-HP threshold (up to 9s at 3/3).",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): combat.rs used to compute the
+        // grace window as `rank * 3000ms`; these declared seconds ARE that
+        // real value, and the call site now reads this magnitude (x1000
+        // to ms, same shape as warpspeed/bastion).
+        Special { at_rank_1: 3.0, per_additional_rank: 3.0 },
     ),
 ];
 
@@ -1093,7 +1097,11 @@ static PALADIN_NODES: &[PassiveNode] = &[
         "vowofprotection",
         "Unwavering",
         "Vow of Protection's bonus doubles for the party while you are below 50% HP, unlocked at rank 2 - rank 3 lowers this threshold to 65%.",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): the 0 / 0.50 / 0.65 ladder
+        // used to be hardcoded in combat.rs off the raw rank; now declared
+        // here and read directly (same shape as Mage's absolutezero).
+        // Rank 1's row is 0.0 because rank 1 alone genuinely does nothing.
+        SpecialPerRank { values: &[0.0, 0.50, 0.65] },
     ),
     modifier_with_effect("martyrsblessing", "unbreakablefaith", "Martyr's Blessing", "Unbreakable Faith's self-heal is increased by another 5% per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("graciousburden", "unbreakablefaith", "Gracious Burden", "Unbreakable Faith also heals the ally whose damage you redirected, for 5% of the redirected amount per rank (up to 15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -1233,7 +1241,12 @@ static RANGER_NODES: &[PassiveNode] = &[
         "predatorseye",
         "Hunter's Focus",
         "Predator's Eye's crit damage bonus also applies to allies' hits against the marked target, at 1/3 value per rank (up to full value at 3/3).",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): the ally share used to be
+        // computed as `rank / 3` in combat.rs. These literals are exactly
+        // the f64 values `1.0/3.0`, `2.0/3.0` and `1.0` produce (asserted
+        // bit-equal in passive_overrides' drift-batch test), so the swap
+        // is behavior-neutral at defaults while making the share tunable.
+        SpecialPerRank { values: &[0.3333333333333333, 0.6666666666666666, 1.0] },
     ),
     modifier_with_effect("coordinatedstrike", "packtactics", "Coordinated Strike", "Pack Tactics' bonus is increased by another 5% per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("alphaspredator", "packtactics", "Alpha's Predator", "Pack Tactics also grants allies +5% increased damage per rank against the marked target (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -1264,8 +1277,9 @@ static RANGER_NODES: &[PassiveNode] = &[
 // echoingpower, resonance, infiniteloop, perpetualmotion, riptide,
 // unbrokenrhythm, dilation, paradox, eternalmoment, thunderstruck,
 // staticfield, stormcaller, conflagration, risingheat, infernalpact,
-// blizzard, permafrost, absolutezero) is real too - only timewarp stays
-// deferred (see the module doc's closing summary for why). Also real
+// blizzard, permafrost, absolutezero) is real too - timewarp joined them
+// (2026-08-25 drift batch: its burst window is declared and read like the
+// rest). Also real
 // (2026-08-15 Cleric-clone follow-up): arcaneshield - a single new
 // crit-triggered `grant_shield` call in `apply_hit` (see
 // `crit_shield_max_hp_pct`).
@@ -1320,7 +1334,12 @@ static MAGE_NODES: &[PassiveNode] = &[
         "quickcast",
         "Timewarp",
         "Quickcast's bonus is doubled for the first 5s of each fight, per rank this window extends by 2s (up to 11s at 3/3).",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): combat.rs built the burst
+        // window as `5000 + 2000 * rank` ms off the raw rank. These are
+        // those real window lengths in seconds (rank1 = 5s base + one
+        // extension already included), read x1000 at the call site -
+        // same units convention as warpspeed/unbrokenrhythm.
+        Special { at_rank_1: 7.0, per_additional_rank: 2.0 },
     ),
     modifier_with_effect("perpetualmotion", "flowstate", "Perpetual Motion", "Flow State's max stacks are increased by 1 per rank (up to 8 at 3/3, from the base 5).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("riptide", "flowstate", "Riptide", "Flow State's stacks also grant +2% crit chance per rank per stack (up to +6% per stack at 3/3).", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
@@ -1366,9 +1385,8 @@ static MAGE_NODES: &[PassiveNode] = &[
 // sharedsuffering, covenant, unbreakablebond. cursedblood/virulence
 // (renamed "Soul Stone", both 2026-08-17) were repurposed away from their
 // original Doom-expiry-dependent flavor into standalone mechanics - see
-// their own doc comments below. Only demonicspeed (baseline-only-stat gap,
-// same as Mage's Timewarp) stays deferred - see the module doc's closing
-// summary.
+// their own doc comments below. demonicspeed joined them (2026-08-25
+// drift batch, same window declaration as Mage's Timewarp).
 // ---------------------------------------------------------------------
 static WARLOCK_NODES: &[PassiveNode] = &[
     skill("pact", "Dark Pact", "Increases attack speed by 6% at rank 1 - +4% per rank (14% at 3/3).", FlatStat { stat: AttackSpeed, at_rank_1: 0.06, per_additional_rank: 0.04 }),
@@ -1396,7 +1414,11 @@ static WARLOCK_NODES: &[PassiveNode] = &[
         "felhaste",
         "Demonic Speed",
         "Fel Haste's bonus is doubled for the first 5s of each fight, per rank this window extends 2s (up to 11s at 3/3).",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): identical gap/fix to Mage's
+        // Timewarp - combat.rs built the burst window as
+        // `5000 + 2000 * rank` ms off the raw rank; these are those real
+        // window lengths in seconds, read x1000 at the call site.
+        Special { at_rank_1: 7.0, per_additional_rank: 2.0 },
     ),
     modifier_with_effect("voidenergy", "unstablepower", "Void Energy", "Unstable Power's conversion efficiency is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("entropicforce", "unstablepower", "Entropic Force", "Unstable Power also converts excess into splash, at 15% efficiency per rank (up to 45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
@@ -1541,7 +1563,10 @@ static CLERIC_NODES: &[PassiveNode] = &[
         "sanctuary",
         "Unyielding Faith",
         "Sanctuary's bonus doubles for the party while you are below 50% HP, unlocked at rank 2 - rank 3 lowers this threshold to 65%.",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): same 0/0.50/0.65 table as
+        // Paladin's Unwavering - the two share one mechanic and now one
+        // declaration shape too.
+        SpecialPerRank { values: &[0.0, 0.50, 0.65] },
     ),
     modifier_with_effect("secondchance", "guardianspirit", "Second Chance", "Guardian Spirit's save heal is increased by another 8% max HP per rank (up to +24% at 3/3, on top of the base 20%).", Special { at_rank_1: 0.08, per_additional_rank: 0.08 }),
     modifier_with_effect("divineintervention", "guardianspirit", "Divine Intervention", "Guardian Spirit's save also grants the saved unit +10% damage reduction per rank for 5s (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
@@ -1854,7 +1879,11 @@ static SLAYER_NODES: &[PassiveNode] = &[
     // Unrelenting - approximated as extending the shared expiry window
     // (see the construction-site doc) rather than a true decay-rate
     // change.
-    modifier_with_effect("unrelenting", "bloodfrenzy", "Unrelenting", "Blood Frenzy's attack speed bonus decays 33% slower per rank - stops decaying entirely at 3/3.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-25 (drift batch): combat.rs used to extend Blood
+    // Frenzy's expiry by `rank * 1333ms`, replaced by a flat 600_000ms at
+    // rank 3 (effectively non-decaying for any real fight). Those real
+    // per-rank totals are this table now, read straight off the magnitude.
+    modifier_with_effect("unrelenting", "bloodfrenzy", "Unrelenting", "Blood Frenzy's attack speed bonus decays 33% slower per rank - stops decaying entirely at 3/3.", SpecialPerRank { values: &[1333.0, 2666.0, 600_000.0] }),
     modifier_with_effect("warcry", "bloodfrenzy", "War Cry", "Blood Frenzy also grants nearby allies +5% attack speed per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("adrenaline", "bloodfrenzy", "Adrenaline", "FlickerStrike's dash hits deal +20% crit damage per rank (up to +60% at 3/3).", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
     modifier_with_effect("overflowvessel", "endlessthirst", "Overflow Vessel", "Leech beyond the cap becomes a 5-second shield worth 25% of the overcap amount per rank (up to 75% at 3/3).", Special { at_rank_1: 0.25, per_additional_rank: 0.25 }),
@@ -1889,7 +1918,12 @@ static SLAYER_NODES: &[PassiveNode] = &[
         "bloodsac",
         "Final Offering",
         "Once you've used Bloodpact enough times this fight (the 4th use at rank 1, 3rd at rank 2, 2nd at rank 3), every use after that costs 33% less HP - combined with Triage's own discount, capped together at 90% off.",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-25 (drift batch): combat.rs computed the
+        // unlock ladder as `4 - rank` prior uses; this linear table IS
+        // those values (3/2/1). The -33% discount itself was never
+        // rank-fed (flat at every rank) and stays a named constant at
+        // the call site.
+        Special { at_rank_1: 3.0, per_additional_rank: -1.0 },
     ),
     modifier_with_effect("guardiansblood", "martyrdom", "Guardian's Blood", "Martyrdom's shield also reflects 10% of absorbed damage per rank (up to 30% at 3/3) back at the attacker.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("sharedpain", "martyrdom", "Shared Pain", "Shielding an ally also heals you for 25% of the shield's value per rank (up to 75% at 3/3).", Special { at_rank_1: 0.25, per_additional_rank: 0.25 }),
@@ -1965,9 +1999,10 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "golemmaster",
         "Golem Master",
         "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems have 33% of your stats; you deal 33% less damage per summoned golem, additive (1% of normal damage at 3 golems).",
-        // A COUNT (1/2/3), not a magnitude - read via `passive_node_rank`
-        // directly (`spawn_golem`'s own call site), same
-        // `onehundredhands_bonus_stacks`-style precedent as Rising Phoenix.
+        // A COUNT (1/2/3) - read via `passive_node_count` at every call
+        // site since the 2026-08-25 drift batch (spawn, slot-unlock
+        // validation and the admin-page picker all read the same count
+        // now; it equals the rank at every default rank).
         PassiveEffect::Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     spec(
@@ -1975,13 +2010,13 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "righteousfire",
         "Healing Flames",
         "Regenerate 3% of your health per second at rank 1, 6% at rank 2, 10% at rank 3 (irregular scaling - see this file's own note above).",
-        // Irregular 3/6/10% progression - this Special's own numbers are
-        // NOT the real per-rank value (linear can't hit all 3 points at
-        // once); the real value is `combat.rs`'s own
-        // `healing_flames_regen_pct(rank)` lookup, read via
-        // `passive_node_rank`, not this magnitude. See that function's
-        // own doc.
-        PassiveEffect::Special { at_rank_1: 0.03, per_additional_rank: 0.035 },
+        // Migrated 2026-08-25 (drift batch): the irregular 3/6/10%
+        // progression used to live only in combat.rs's
+        // `healing_flames_regen_pct(rank)` lookup (deleted); this
+        // SpecialPerRank table IS that progression now, and the call
+        // site reads it via `passive_node_magnitude` like every other
+        // node. Rank 4 (Specialization) floors at rank 3's row.
+        PassiveEffect::SpecialPerRank { values: &[0.03, 0.06, 0.10] },
     ),
     spec(
         "cleansingflames",
@@ -2065,8 +2100,11 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "healingflames",
         "Rising Phoenix",
         "When nearby allies die, up to 1 of them revives and rejoins the battle 1 second after death at rank 1 - +1 per additional rank (3 at 3/3, a per-combat limit). Only applies to allies that had survived at least 3 seconds.",
-        // A COUNT (1/2/3), not a magnitude - read via `passive_node_rank`
-        // directly at the real call site, same as
+        // A COUNT (1/2/3) - read via `passive_node_count` at the real
+        // call site since the 2026-08-25 drift batch (was
+        // `passive_node_rank(...).min(3)`; the count equals the rank at
+        // every default rank, and effective_rank already caps a node's
+        // own growth at 3 points), same as
         // `onehundredhands_bonus_stacks`'s own precedent.
         Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
@@ -2166,10 +2204,10 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         "flamegolem",
         "Blazing",
         "Flame Golems gain 6% multiplicative attack speed at rank 1, 9% at rank 2, 18% at rank 3 (irregular scaling - see this file's own note above).",
-        // Irregular 6/9/18% - same "Special is decorative, real value is
-        // a small local lookup" pattern as Healing Flames - see
-        // `blazing_attack_speed_pct`'s own doc in combat.rs.
-        Special { at_rank_1: 0.06, per_additional_rank: 0.06 },
+        // Migrated 2026-08-25 (drift batch): same shape as Healing
+        // Flames - the irregular 6/9/18% table moved here from combat.rs's
+        // `blazing_attack_speed_pct(rank)` lookup (deleted).
+        SpecialPerRank { values: &[0.06, 0.09, 0.18] },
     ),
     modifier_with_effect(
         "surging",

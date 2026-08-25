@@ -2227,7 +2227,8 @@ pub(crate) struct CombatSimUnit {
     own_curse_spread_bonus_pct: f64,
     /// Soul Stone (2026-08-17, repurposed from the formerly-inert
     /// "Virulence") - how many soul stones this Warlock can bank at once
-    /// this fight (1/2/3 by rank, `c.passive_node_rank("virulence")` - the
+    /// this fight (1/2/3 by rank; read via `c.passive_node_count("virulence")`
+    /// since the 2026-08-25 drift batch - the
     /// passive-tree KEY stays `"virulence"`, only the label/effect changed,
     /// same "keep the key, redefine the ability" precedent as Mage's
     /// Finite Loop). 0 without it invested.
@@ -3018,7 +3019,9 @@ pub(crate) struct CombatSimUnit {
     /// without the respective modifier invested.
     low_hp_party_dr_pct: f64,
     /// Below this much of THIS unit's own HP, the broadcast above fires -
-    /// 0.50 at rank 1/2, 0.65 at rank 3. `0.0` (never triggers, since hp%
+    /// the node's own per-rank threshold table (0 / 0.50 / 0.65, declared
+    /// in passive_tree.rs since the 2026-08-25 drift batch and read off
+    /// the magnitude). `0.0` (never triggers, since hp%
     /// is always > 0) without it invested.
     low_hp_party_dr_threshold: f64,
     /// Slayer's War Cry - THIS unit's own magnitude, broadcast to the
@@ -5934,18 +5937,9 @@ pub(crate) fn golem_unit_id(summoner_id: &str, slot: u32) -> String {
     format!("{GOLEM_ID_PREFIX}{summoner_id}_{slot}")
 }
 
-/// Flame Golem's own Blazing modifier - an IRREGULAR 6/9/18% per-rank
-/// progression (not an even step), same "Special is decorative, this
-/// small lookup is the real value" pattern `healing_flames_regen_pct`
-/// already established.
-fn blazing_attack_speed_pct(rank: u32) -> f64 {
-    match rank {
-        1 => 0.06,
-        2 => 0.09,
-        r if r >= 3 => 0.18,
-        _ => 0.0,
-    }
-}
+// (The Blazing lookup fn was removed 2026-08-25 - drift batch. The node
+// declares its irregular 6/9/18% table itself now; the spawn site reads
+// `passive_node_magnitude("blazing")` directly.)
 
 /// Elementalist's Golem Master (docs/elementalist_spec.md, Stages 5-6) -
 /// builds one golem unit holding `GOLEM_STAT_SCALE` (33%, or more with
@@ -6077,7 +6071,8 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
             let volcanicash_pct = c.passive_node_magnitude("volcanicash");
             golem.fire_damage_pct = summoner.fire_damage_pct * (1.0 + volcanicash_pct);
             // Blazing - "X% MULTIPLICATIVE attack speed" (irregular
-            // 6/9/18%, see `blazing_attack_speed_pct`) means attacking
+            // 6/9/18%, declared on the node itself since the 2026-08-25
+            // drift batch) means attacking
             // more OFTEN - `attack_speed_pct` is a different, unrelated
             // mechanic in this codebase (only ever feeds the "convert
             // excess speed above 100% into damage" overflow calculation,
@@ -6085,7 +6080,7 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
             // copied `attack_interval_ms` directly instead, same
             // `base / (1.0 + bonus)` shape `Character::attack_interval_ms`
             // already uses for gear/tree attack-speed bonuses.
-            let blazing_pct = blazing_attack_speed_pct(c.passive_node_rank("blazing"));
+            let blazing_pct = c.passive_node_magnitude("blazing");
             if blazing_pct > 0.0 {
                 golem.attack_interval_ms = ((golem.attack_interval_ms as f64) / (1.0 + blazing_pct)).round().max(50.0) as u32;
                 golem.next_action_at_ms = golem.attack_interval_ms;
@@ -6517,28 +6512,10 @@ mod thunder_golem_redirect_party_wide_tests {
     }
 }
 
-/// Healing Flames' own per-rank regen fraction (docs/elementalist_spec.md)
-/// - an IRREGULAR progression (3%/6%/10%, not an even step), unlike every
-/// other Elementalist node so far. `PassiveTier::Specialization`'s
-/// `magnitude_at_rank` formula is strictly linear
-/// (`at_rank_1 + per_additional_rank * (rank-1)`), which cannot hit all
-/// three of 3/6/10 at once - flagged in this exact spot back in Stage 1's
-/// own header comment. Rather than extend the shared `PassiveEffect` enum
-/// with a new irregular-table variant (a bigger, riskier change touching
-/// every archetype's node type), this stays a small local lookup read
-/// directly off the raw rank (`passive_node_rank`, not
-/// `passive_node_magnitude`) at the one call site that needs the real
-/// value - the node's own `Special{0.03, 0.035}` stays for structural/
-/// display consistency but is never actually consulted for Healing
-/// Flames specifically.
-pub(crate) fn healing_flames_regen_pct(rank: u32) -> f64 {
-    match rank {
-        1 => 0.03,
-        2 => 0.06,
-        r if r >= 3 => 0.10,
-        _ => 0.0,
-    }
-}
+/// (The `healing_flames_regen_pct` lookup was removed 2026-08-25 - drift
+/// batch. Healing Flames' irregular 3/6/10% table is declared on the node
+/// itself now and read via `passive_node_magnitude` at its one call site,
+/// like every other Special/SpecialPerRank node.)
 
 /// Applies `amount` of true (unmitigated - no crit/evasion/mitigation
 /// roll) damage to `units[target_idx]`, same "a detonation, not an
@@ -10952,29 +10929,40 @@ pub(crate) fn simulate_battle(
             } else {
                 0.0
             };
-            let early_fight_speed_window_end_ms = if early_fight_speed_rank > 0 { 5_000 + 2_000 * early_fight_speed_rank } else { 0 };
+            // Migrated 2026-08-25 (drift batch): the window length used to
+            // be `5000 + 2000 * rank` ms; the node now declares its real
+            // per-rank window in seconds (7/9/11s, rank 1 already includes
+            // the first extension) and it is read off the magnitude. The
+            // rank read above stays only as the invested-gate for the
+            // whole mechanic ("unlocked at all" is structure).
+            let early_fight_speed_window_end_ms = if early_fight_speed_rank > 0 {
+                let window_secs = match c.archetype {
+                    Archetype::Mage => c.passive_node_magnitude("timewarp"),
+                    Archetype::Warlock => c.passive_node_magnitude("demonicspeed"),
+                    _ => 0.0,
+                };
+                (window_secs * 1000.0).round() as u32
+            } else {
+                0
+            };
             // Paladin's Unwavering / Cleric's Unyielding Faith - see
             // `low_hp_party_dr_pct`'s own doc. Mutually exclusive by
             // archetype, same convention as `early_fight_speed_*` above.
-            let (low_hp_party_dr_pct, low_hp_party_dr_rank) = match c.archetype {
+            // Migrated 2026-08-25 (drift batch): the 0 / 0.50 / 0.65 HP
+            // threshold ladder used to be derived from the raw rank here;
+            // both nodes declare that table now and the threshold reads
+            // straight off the magnitude (unallocated and rank 1 both
+            // read 0.0, which never triggers).
+            let (low_hp_party_dr_pct, low_hp_party_dr_threshold) = match c.archetype {
                 Archetype::Paladin => (
                     c.passive_node_magnitude("vowofprotection") + c.passive_node_magnitude("beaconoflight") + c.passive_node_magnitude("hallowedground"),
-                    c.passive_node_rank("unwavering"),
+                    c.passive_node_magnitude("unwavering"),
                 ),
                 Archetype::Cleric => (
                     c.passive_node_magnitude("sanctuary") + c.passive_node_magnitude("consecratedearth") + c.passive_node_magnitude("wardingprayer"),
-                    c.passive_node_rank("unyieldingfaith"),
+                    c.passive_node_magnitude("unyieldingfaith"),
                 ),
-                _ => (0.0, 0),
-            };
-            // "Unlocked at rank 2" per the original text - rank 1 alone
-            // does nothing (threshold 0.0, never triggers).
-            let low_hp_party_dr_threshold = if low_hp_party_dr_rank >= 3 {
-                0.65
-            } else if low_hp_party_dr_rank >= 2 {
-                0.50
-            } else {
-                0.0
+                _ => (0.0, 0.0),
             };
             // Vampiric Frenzy's real per-unit FlickerStrike cadence,
             // reduced from the base constant by the Slayer's own
@@ -11292,8 +11280,8 @@ pub(crate) fn simulate_battle(
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
-                wildroar_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("livingbond") } else { 0 },
-                naturesembrace_heal_targets: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("naturesembrace") } else { 0 },
+                wildroar_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_count("livingbond") } else { 0 },
+                naturesembrace_heal_targets: if c.has_archetype(Archetype::Druid) { c.passive_node_count("naturesembrace") } else { 0 },
                 thickhide_cycle_ms: if c.has_archetype(Archetype::Druid) && c.passive_node_rank("symbiosis") > 0 { c.passive_node_magnitude("symbiosis") as u32 } else { 0 },
                 next_thickhide_cleanse_at_ms: 0,
                 // Rooted Network - its own rank PLUS 1 more protected
@@ -11561,7 +11549,7 @@ pub(crate) fn simulate_battle(
                 bloodpact_triage_pct: c.passive_node_magnitude("triage"),
                 bloodpact_finaloffering_min_prior_uses: {
                     let rank = c.passive_node_rank("finaloffering");
-                    if rank > 0 { 4 - rank } else { u32::MAX }
+                    if rank > 0 { c.passive_node_magnitude("finaloffering").round() as u32 } else { u32::MAX }
                 },
                 bloodpact_finaloffering_pct: if c.passive_node_rank("finaloffering") > 0 { 0.33 } else { 0.0 },
                 bloodpact_warlordsresolve_pct: c.passive_node_magnitude("warlordsresolve"),
@@ -11601,7 +11589,7 @@ pub(crate) fn simulate_battle(
                 naturesward_dr_vs_boss_pct: c.passive_node_magnitude("naturesward"),
                 // Berserker's Gambit - see `roll_attacker_damage`'s doc.
                 gambit_crit_per_missing_20pct: c.passive_node_magnitude("gambit"),
-                deathdefiant_grace_ms: c.passive_node_rank("deathdefiant") * 3_000,
+                deathdefiant_grace_ms: (c.passive_node_magnitude("deathdefiant") * 1000.0).round() as u32,
                 deathdefiant_frozen_crit_bonus: 0.0,
                 deathdefiant_frozen_crit_bonus_expires_at_ms: 0,
                 // Druid's Bramblegrowth (+Thornlash's bonus folded in) and
@@ -11696,7 +11684,7 @@ pub(crate) fn simulate_battle(
                 },
                 guardian_spirit_save_dr_pct: c.passive_node_magnitude("divineintervention"),
                 guardian_spirit_save_heal_power_pct: c.passive_node_magnitude("finalblessing"),
-                verdantburst_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_rank("verdantburst") } else { 0 },
+                verdantburst_charges: if c.has_archetype(Archetype::Druid) { c.passive_node_count("verdantburst") } else { 0 },
                 verdantburst_echo_threshold_pct: tunables.verdantburst_echo_threshold_pct,
                 temp_heal_power_bonus: 0.0,
                 temp_heal_power_bonus_expires_at_ms: 0,
@@ -11950,10 +11938,10 @@ pub(crate) fn simulate_battle(
                 relentlessflames_dmg_taken_pct: 0.0,
                 cauterizingflames_pct: c.passive_node_magnitude("cauterizingflames"),
                 ashestoashes_pct: c.passive_node_magnitude("ashestoashes"),
-                healingflames_pct: healing_flames_regen_pct(c.passive_node_rank("healingflames")),
+                healingflames_pct: c.passive_node_magnitude("healingflames"),
                 fanningflames_pct: c.passive_node_magnitude("fanningflames"),
                 shieldingflames_pct: c.passive_node_magnitude("shieldingflames"),
-                risingphoenix_max_revives: c.passive_node_rank("risingphoenix").min(3),
+                risingphoenix_max_revives: c.passive_node_count("risingphoenix"),
                 risingphoenix_revives_used: 0,
                 alive_since_ms: 0,
                 revive_at_ms: u32::MAX,
@@ -12007,7 +11995,7 @@ pub(crate) fn simulate_battle(
                 // Ranger's OWN Predator's Eye+Apex Hunter total, not an
                 // independent magnitude.
                 own_mark_ally_crit_mult: (c.passive_node_magnitude("predatorseye") + c.passive_node_magnitude("apexhunter"))
-                    * (c.passive_node_rank("huntersfocus") as f64 / 3.0),
+                    * c.passive_node_magnitude("huntersfocus"),
                 own_mark_spread_count: c.passive_node_count("widerpack"),
                 killzone_threshold: if c.passive_node_rank("finalblow") >= 3 {
                     0.45
@@ -12027,8 +12015,8 @@ pub(crate) fn simulate_battle(
                 own_doom_detonate_pct: c.passive_node_magnitude("doom") + c.passive_node_magnitude("harbinger"),
                 own_curse_heal_reduction_pct: c.passive_node_magnitude("witheringcurse"),
                 own_curse_spread_bonus_pct: c.passive_node_magnitude("epidemic"),
-                own_soul_stone_max: c.passive_node_rank("virulence"),
-                own_cursed_blood_target_count: c.passive_node_rank("cursedblood"),
+                own_soul_stone_max: c.passive_node_count("virulence"),
+                own_cursed_blood_target_count: c.passive_node_count("cursedblood"),
                 own_dreadfuldeath_shred_pct: c.passive_node_magnitude("dreadfuldeath"),
                 own_apocalypse_splash_pct: c.passive_node_magnitude("apocalypse"),
                 has_applied_mark_this_fight: false,
@@ -12074,11 +12062,11 @@ pub(crate) fn simulate_battle(
                 early_fight_speed_window_end_ms,
                 // Slayer's Blood Frenzy / Endless Thirst / Reaper's Momentum.
                 flicker_frenzy_speed_bonus: c.passive_node_magnitude("bloodfrenzy"),
-                unrelenting_duration_bonus_ms: if c.passive_node_rank("unrelenting") >= 3 {
-                    600_000
-                } else {
-                    (c.passive_node_magnitude("unrelenting") * 1333.0).round() as u32
-                },
+                // Migrated 2026-08-25 (drift batch): the old shape was
+                // `rank*1333ms` below rank 3, flat 600_000ms at rank 3 -
+                // those real totals now live in the node's SpecialPerRank
+                // table and are read straight off the magnitude.
+                unrelenting_duration_bonus_ms: c.passive_node_magnitude("unrelenting").round() as u32,
                 adrenaline_crit_mult_bonus: c.passive_node_magnitude("adrenaline"),
                 chainreaper_heal_pct: c.passive_node_magnitude("chainreaper"),
                 deathspiral_heal_pct: c.passive_node_magnitude("deathspiral"),
@@ -12157,7 +12145,7 @@ pub(crate) fn simulate_battle(
         if c.archetype != Archetype::Elementalist {
             continue;
         }
-        let golem_count = c.passive_node_rank("golemmaster").min(3);
+        let golem_count = c.passive_node_count("golemmaster");
         if golem_count == 0 {
             continue;
         }
@@ -16886,15 +16874,6 @@ mod elementalist_stage_4_tests {
 
     fn ally(id: &str, hp: i64, max_hp: u64) -> CombatSimUnit {
         CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp, max_hp, ..Default::default() }
-    }
-
-    #[test]
-    fn healing_flames_regen_pct_matches_the_irregular_3_6_10_progression() {
-        assert_eq!(healing_flames_regen_pct(0), 0.0);
-        assert_eq!(healing_flames_regen_pct(1), 0.03);
-        assert_eq!(healing_flames_regen_pct(2), 0.06);
-        assert_eq!(healing_flames_regen_pct(3), 0.10);
-        assert_eq!(healing_flames_regen_pct(4), 0.10, "no rank above 3 exists, but the lookup should never panic or under-return");
     }
 
     #[test]
