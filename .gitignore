@@ -213,3 +213,8 @@ backup-pre-pacing-controller-loop/
 # the target, fsync, rename over). Removed on both success and failure, so
 # one only ever survives a hard kill mid-write.
 *.tmp
+
+# Pre-passive-tunables-stage2-deploy rollback backup (game.exe + pinned
+# fight-summary snapshot), same "backup before overwrite" discipline as
+# every backup-pre-* above.
+/backup-pre-passive-tunables-stage2
