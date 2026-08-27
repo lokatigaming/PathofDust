@@ -17,7 +17,7 @@ use flate2::Compression;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tower_http::services::ServeDir;
 
 use crate::adventure::{AdventureManager, AdventureSnapshot, EncounterResult};
@@ -126,6 +126,32 @@ struct EncounterEnvelope<'a> {
     result: &'a EncounterResult,
 }
 
+/// World 2 Stage 2 (2026-08-28) - the whole announcement ring, sent once
+/// the moment a client connects. One mechanism covers first paint, a
+/// client that connected mid-session and a client that dropped and
+/// reconnected, which is why there is deliberately no catch-up endpoint
+/// beside it. A client REPLACES whatever it is holding with `lines`.
+///
+/// Not `flatten`ed like the two envelopes above, since the payload is a
+/// bare list rather than a struct.
+#[derive(Serialize)]
+struct AnnouncementBacklogEnvelope<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    lines: &'a [String],
+}
+
+/// One newly-emitted announcement, appended by the client to what the
+/// backlog above gave it. Consumers that don't know this type (the OBS
+/// overlay, the desktop app) already ignore unknown `type` values - see
+/// `overlay.html`'s `handleOverlayMessage`.
+#[derive(Serialize)]
+struct AnnouncementEnvelope<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    line: &'a str,
+}
+
 /// `compress: false` sends the exact same `Message::Text(json)` frame as
 /// before this feature existed. `compress: true` zlib-compresses `json`
 /// (RFC 1950 - a 2-byte zlib header, e.g. `0x78 ..`, then a raw deflate
@@ -184,6 +210,13 @@ pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManag
         let _ = out_tx.send(send_ready_message(json, compress));
     }
 
+    // ...and the announcement backlog with it, so the dashboard's feed
+    // card is populated the instant the socket opens rather than after
+    // the next thing the game happens to say.
+    if let Ok(json) = serde_json::to_string(&AnnouncementBacklogEnvelope { kind: "announcements", lines: &manager.recent_announcements() }) {
+        let _ = out_tx.send(send_ready_message(json, compress));
+    }
+
     let mut sink_task = tokio::spawn(async move {
         while let Some(msg) = out_rx.recv().await {
             if sink.send(msg).await.is_err() {
@@ -218,6 +251,29 @@ pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManag
         })
     };
 
+    // World 2 Stage 2 (2026-08-28) - the same `subscribe_announcements()`
+    // the SSE endpoint uses, teed onto this socket. A lagged reader skips
+    // what it missed rather than ending the loop, matching the SSE
+    // endpoint's own handling of the identical channel.
+    let mut announcement_task = {
+        let out_tx = out_tx.clone();
+        let mut rx = manager.subscribe_announcements();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(line) => {
+                        let Ok(json) = serde_json::to_string(&AnnouncementEnvelope { kind: "announcement", line: &line }) else { continue };
+                        if out_tx.send(send_ready_message(json, compress)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    };
+
     // Push-only page (all animation/layout is local browser state) — just
     // drain incoming frames so close/ping frames are handled, and let a
     // closed socket end the send loops above too.
@@ -227,11 +283,13 @@ pub(crate) async fn handle_socket(socket: WebSocket, manager: Arc<AdventureManag
         _ = &mut sink_task => {}
         _ = &mut state_task => {}
         _ = &mut encounter_task => {}
+        _ = &mut announcement_task => {}
         _ = &mut recv_task => {}
     }
     sink_task.abort();
     state_task.abort();
     encounter_task.abort();
+    announcement_task.abort();
     recv_task.abort();
 }
 
