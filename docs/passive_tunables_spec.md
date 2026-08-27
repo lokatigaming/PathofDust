@@ -361,3 +361,97 @@ the sixteen keys are offered and that overrides move the values combat.rs
 reads. The deleted lookup-fn test moved into these.
 
 
+## Stage 3 record (2026-08-27) — the rank-fed backlog closes
+
+Branch `feature/passive-tunables-stage3`, off `origin/master` (234a487).
+Behavior-neutral at defaults, golden corpus untouched (`run_scenario`
+never populates `passive_allocations`, so no fixture exercises a passive).
+
+**25 nodes migrated** off `passive_node_rank`-only consumption onto
+declared per-rank tables read through `magnitude_at_rank` →
+`passive_override_for`:
+
+| node(s) | old rank-fed value at the call site | now declared as |
+| --- | --- | --- |
+| payback | 0 / 0.30 / 0.45 | SpecialPerRank (old decl said 0.30/0.45/0.60 — wrong by a rank) |
+| secondwind | 0 / 0.50 / 0.65 | SpecialPerRank (old decl 0.50/0.65/0.80) |
+| crush | 0 / 0.50 / 0.65 | SpecialPerRank (old decl 0.50/0.65/0.80) |
+| bloodscent | 0 / 0.50 / 0.65 | SpecialPerRank |
+| vitalstrike | 0.50 / 0.65 / 0.80 | SpecialPerRank (old decl 0.65/0.80/0.95) |
+| finalblow | 0.35 / 0.40 / 0.45 | SpecialPerRank |
+| unyieldingspirit | `0.25 + 0.10×rank` | SpecialPerRank [0.35, 0.45, 0.55] (bit-exact) |
+| piercingshots | 0 / 0 / 0.10 | SpecialPerRank |
+| compassion | 0 / 0 / 0.05 | SpecialPerRank |
+| shatter | flat 1.0 behind an invested check | SpecialPerRank [1, 1, 1] |
+| surgicalstrike | ×1 until r3, ×2 at r3 | SpecialPerRank [1, 1, 2] (a multiplier) |
+| relentlessassault | flat 2_000ms at r3 | SpecialPerRank [0, 0, 2] SECONDS, ×1000 at the read |
+| chakraoflife | `rank × 1000ms` | unchanged 1/1 decl = 1/2/3 SECONDS, ×1000 at the read |
+| frenzy | extra strikes = rank | SpecialPerRank [1, 2, 3] COUNT |
+| doubletap | `rank × 3` | SpecialPerRank [3, 6, 9] COUNT (old decl was a stale 10/20/30% chance) |
+| markedfordeath | 0 / 2 / 3 | SpecialPerRank COUNT |
+| assassinate, bloodrush, undyingwill, quickdraw, guardianspirit | 0 / 1 / 2 | SpecialPerRank COUNT |
+| gloriousdeath, undying | 1 / 1 / 2 | SpecialPerRank COUNT (old decls 1/1.5/2) |
+| lastrites | 1 charge if invested | SpecialPerRank [1, 1, 1] COUNT — see below |
+| shattering | icicle targets = rank | unchanged 1/1 decl, read via `passive_node_count` |
+
+Eight old declarations disagreed with the game, always by a rank. The
+tables above are the GAME's values, read off each call site one at a
+time — never inferred from the declaration, which is exactly the trap
+that would have shipped a live number change while claiming neutrality.
+
+`lastrites` is the one node whose declared MEANING changed: it advertised
+a 33/66/100% chance nothing ever read (the shared death-interception
+check Guardian Spirit uses is a deterministic charge count, never a live
+roll), so combat.rs collapsed it to "invested at all = one charge". Its
+magnitude now carries that charge count, per the 2026-08-20 "the
+magnitude carries the primary numeric aspect" convention (same as
+shattering/virulence). **Its player-facing description still advertises a
+chance** — flagged in WIKI_IMPACT.md; rewording it is the owner's call,
+not a session's.
+
+List edits: PENDING_MIGRATION_NODES 31 → 6; INTEGER_COUNT_NODES 28 → 40.
+
+**Left behind (BLOCKED + reason).** Two kinds, both now documented on the
+list itself instead of promising a batch that is not coming:
+
+- *Structure-only* — `clarity`, `lastlaugh`, `neverending`,
+  `sanctifiedtouch`. Every rank read on these is an unlock gate: a
+  `rank >= 2/3` that flips a flag (`clarity_triggers_on_block`,
+  `lastlaugh_crit_bonus`/`_mult`, `neverending_invested`) or releases a
+  flat base plus a sibling node's own already-tunable magnitude
+  (sanctifiedtouch's 0.50 crit mult / 0.10 crit chance, shared with the
+  Druid twin naturesblessing and topped up by holycrit/divineclarity).
+  They own no rank-fed number an override could carry, and unlock gating
+  is deliberately unreachable from this store. Same ruling the drift
+  batch made for ravage/endlessthirst/naturesblessing. `node_untunable_
+  reason` was reworded so the page stops promising them a migration.
+- *Needs a second value slot* — `reckless`, `deathwish`. Each owns TWO
+  independent rank-fed ladders (`reckless_swing_dealt_pct` 15/25/35% AND
+  `reckless_swing_taken_pct` 8/13/18%; `death_wish_dealt_pct` 10/20/30%
+  AND `death_wish_taken_pct` 5/10/15%), which is why they are hand-
+  matched lookups rather than one linear formula. Exactly the
+  sacrifice/bloomingfield/reaperscall blocker (audit OQ6).
+
+**The schema change all five second-slot nodes need.** `PassiveNode` has
+exactly one magnitude table and `PassiveOverrides.nodes` is one
+`Vec<f64>` per key indexed by effective rank, so a node can express one
+value per rank and no more. Giving these nodes their second value means
+a SECOND per-rank array per node, end to end: a second effect table on
+the node (a `secondary: Option<PassiveEffect>` field, or a
+`SpecialPerRankPair { primary, secondary }` variant), a
+`magnitude_at_rank_secondary` read path with its own override hook, a
+second sparse map in `PassiveOverrides` (`secondary_nodes`, its own TOML
+table, `#[serde(default)]` so existing files parse unchanged), a second
+row of r1/r2/r3 inputs on `/admin/passives` — which makes it the one
+change in this whole feature that DOES touch `PassiveOverrideForm`, so
+the rendered-page-derived POST test is what has to catch it — and a
+revert that clears both maps. Additive and sparse throughout: absent
+secondary = today's behavior exactly. That is a stage of its own.
+
+Tests: `stage3_declarations_reproduce_the_old_rank_fed_values_exactly`
+pins all 25 tables with `==` against the old call-site values;
+`stage3_migrated_nodes_are_tunable_and_every_override_reaches_the_value`
+proves each is offered AND that an override moves the magnitude at every
+rank; `stage3_count_nodes_are_declared_as_whole_numbers` pins the
+count/fraction split by name; `the_nodes_stage3_left_pending_own_no_rank_
+fed_value` pins the six that stay.
