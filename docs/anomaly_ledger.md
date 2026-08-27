@@ -616,6 +616,74 @@ CLOSED, exact.**
 
 ## Open
 
+**#51 — `/admin/tunables/save`, `/admin/passives/save` and
+`/admin/passives/revert` answer a non-admin POST with a bare redirect and
+no status code, indistinguishable from success**
+Recorded by the deploy session 2026-08-28 during the World 2 Stage 2
+release verification, per the order. All three admin POST handlers gate
+on `current_session` + a plain `ADMIN_TUNABLES_LOGIN` equality check, and
+a session that fails that gate falls through to the same redirect the
+success path returns:
+
+- `do_save_passive_override` (`adventure_web.rs:2751`) — both the
+  no-session and the wrong-login branch `return redirect()`, and that
+  redirect is `/admin/passives?class={slug}&saved=1`. A refused request
+  is answered with a URL that literally asserts `saved=1`.
+- `do_revert_passive_override` (`adventure_web.rs:2836`) — the admin work
+  sits inside `if let Some(..) { if login == ADMIN { .. } }` with no else,
+  so a non-admin falls straight through to the tail redirect.
+- `do_save_tunables` (`adventure_web.rs:3125`) — same shape, tail
+  `Redirect::to("/admin/tunables?saved=1")`.
+
+Nothing is written in any of these cases, so this is not a privilege
+escalation — the store is untouched. The defect is that the caller cannot
+tell a refusal from a success: no 401, no 403, no message, and a
+`saved=1` query parameter that the receiving page renders as a
+confirmation. Same **outcome-does-not-match-response class** as `#46`,
+`#47` and `#50`.
+
+**`/admin/ops/next-encounter`, shipped in this release, establishes the
+correct pattern** and is the reference to bring the three older routes
+to: every outcome, refusal included, returns a visible page naming the
+exact condition with a status code that matches it — `403 Forbidden`
+"Refused - not the operator", `409 Conflict` "Refused - a fight is in
+progress" / "Refused - operator action already running", `400` "Refused -
+unrecognized boss". Both refusal shapes were exercised live during this
+deploy's checks 13 and 15 and returned the documented codes.
+
+Verified in source and live: a non-admin POST to
+`/admin/ops/next-encounter` returned `403` with the refusal text, while
+the same session's POST to the three older routes hit their form
+extractors first (`422`, a body-shape rejection) — the bare redirect is
+the behaviour reached once a well-formed body gets past the extractor,
+which is what the handler source above shows.
+
+Status: **OPEN, not fixed.** Scope is the refusal branch of three
+handlers; no change to what any of them does on the success path.
+
+**#52 — rampage removal-stage deletion candidates (pending work, not a
+defect)**
+Recorded by the deploy session 2026-08-28 on the World 2 Stage 2 release,
+as reported by the feature session. `permanent_rampage` becomes the only
+rampage state; everything below exists only to serve the retired
+countdown/vote flow and comes out at the removal stage:
+
+- State and tunables: `rampage_remaining`, `rampage_notify`,
+  `rampage_votes`, `RAMPAGE_VOTE_THRESHOLD`, `RAMPAGE_ENCOUNTER_COUNT`.
+- Types and functions: `RampageVoteOutcome`, `start_rampage`,
+  `register_rampage_vote`, `persist_rampage_remaining`,
+  `announce_rampage_complete`.
+- The countdown branch of `spawn_rampage_loop`.
+- Persistence: `RAMPAGE_STATE_PATH` and `adventure-rampage-state.json`,
+  together with that file's entry in the backup script's allow-list
+  (`backup-game-data.ps1`, `$CoreFiles`) — the allow-list entry must come
+  out with the file, or the backup's own manifest-drift check starts
+  reporting a missing core file on every run.
+
+Status: **PENDING REMOVAL-STAGE WORK.** Not a defect and nothing to fix
+now; recorded so the removal stage has the list it was derived from
+rather than re-deriving it.
+
 **#50 — `/admin/passives` Revert DELETES the override instead of
 restoring a prior value; deliberate tuning is destroyed with no undo**
 Found by the deploy session 2026-08-27 during the identity+units release
@@ -1396,7 +1464,7 @@ aside AND copied into `backup-pre-passive-tunables-stage2/` with the pinned
 `5361D4AD714742D3156C002996492026FB1EF404EAED19FF4DDD0EB5895C360F` copied
 in; task restarted, `LastTaskResult` `267009` (running — see the Divinity
 record's step-6 note), `/passives` and `/` both HTTP 200; flag CLEARED
-after the health check. Downtime ˜ stop-to-start window only.
+after the health check. Downtime ~ stop-to-start window only.
 
 ## Deploy record — 2026-08-27, passive-tunables stage 3 (`7ddfd8d`) — BACKFILLED
 
