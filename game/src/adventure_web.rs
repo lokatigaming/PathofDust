@@ -4334,8 +4334,8 @@ fn top_nav(character: Option<&Character>) -> String {
     )
 }
 
-/// The dashboard's announcement feed card (World 2 Stage 2, 2026-08-28)
-/// - the web home for the narration that used to exist only in Twitch
+/// The dashboard's announcement feed card (World 2 Stage 2, 2026-08-28):
+/// the web home for the narration that used to exist only in Twitch
 /// chat. `lines` is `AdventureManager::recent_announcements()`, oldest
 /// first; this renders them NEWEST first, which is also the end the
 /// `/ws` client prepends to (see `base.html`).
