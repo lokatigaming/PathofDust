@@ -1665,3 +1665,95 @@ values moved. `next_hit_id()` is a process-global atomic counter, so those
 ids depend on what else ran in the test process and churn on every run;
 `approx_eq` ignores both keys by design. The churn was therefore reverted
 rather than committed, and the committed fixtures stand unchanged.
+
+## Deploy record — 2026-08-28, World 2 Stage 2 (`ac5573a` + `f5c38f8`)
+
+Two additive branches merged in the ordered sequence and shipped as one
+game-only release: `feature/announcement-feed` (`e94774e`) then
+`feature/operator-levers` (`6c7d3f2`).
+
+| item | value |
+| --- | --- |
+| merge 1 (announcement feed) | `ac5573a` |
+| merge 2 (operator levers) | `f5c38f8` |
+| source state the binary was built from | `988fbb7` |
+| old `game.exe` SHA-256 | `71F524832CD20FE3EC5F46CE0C381C343C1941279A3C2985C5FF3FEEE075DE28` |
+| new `game.exe` SHA-256 | `B8D9B45969F58DA13C9D2CA7948A3CCAD29970F9C849889C189F5F72D5D9A93C` |
+| rollback | `backup-pre-world2-stage2/game.exe` + `target/release/game.exe.pre-world2-stage2` |
+| bot | unchanged, not redeployed (diff-clean) |
+
+**Backup.** `backup-game-data.ps1` run before anything else:
+`pod-backup-20260828-013322`, 252 files, 11.31 MB, `verdict=clean`, 33
+snapshots verified. The 200-file `adventure-fights-summary` corpus was
+pinned into `backup-pre-world2-stage2/` inside the stop window.
+
+**Bot determination.** `git diff --name-only 0f7f754..HEAD` touches
+`WIKI_IMPACT.md`, `docs/**`, `game/src/**`, `game/tests/**` and
+`templates/base.html`. Nothing under the bot's dependency set (root
+`src/**`, root `Cargo.toml`, `Cargo.lock`), so the bot ran untouched
+through the whole window — no flag, no stop, no binary copy.
+
+**Conflict.** One, in `manager.rs`, and mechanical: both branches
+appended a new `#[cfg(test)]` module at end of file. Kept both in merge
+order (`announcement_feed_ring_tests`, then `operator_boss_select_tests`).
+No behaviour was chosen. `adventure_web.rs` auto-merged.
+
+**Verification.** `cargo build --release --workspace --target-dir
+target-stage2` exit 0; `cargo test --release --workspace --quiet
+--target-dir target-stage2` → **741 passed, 0 failed** across 24 suites,
+exit code captured separately. Clippy exit 0; three
+`doc_lazy_continuation` warnings landed on new lines of
+`render_announcement_feed`'s doc comment and were fixed in `988fbb7`
+(prose only), after which no clippy diagnostic falls inside any line this
+release added.
+
+**Golden corpus.** Passed clean on master before the merge (4 tests, no
+fixture drift). Regenerated anyway per the order (delete + rerun): 7
+fixtures changed, 6,464 lines, of which **3,450 were `hitId` and 3,014
+`eventId` and none were anything else — zero combat values moved.**
+`approx_eq` ignores both keys by design
+(`golden_corpus.rs:508`), so the churn is invisible to the test; it was
+reverted rather than committed, and the committed fixtures stand
+unchanged. Same handling as the stage-3 release above.
+
+**Swap.** Maintenance flag set 01:58:15 with `scope : this IS the flag
+'GameProcess-Watchdog' reads` confirmed, `Stop-ScheduledTask GameProcess`,
+port 4005 free on the first 500 ms poll, old binary renamed aside to
+`game.exe.pre-world2-stage2`, new binary copied in, task restarted,
+`LastTaskResult=267009` (`SCHED_S_TASK_RUNNING`, the healthy steady
+state), `/passives` and `/` both 200. **Flag cleared after the health
+check passed**, `-Status` confirming `watchdog : NOT suppressed`.
+
+**Post-deploy checks.** The load-bearing one first:
+
+| # | check | result |
+| --- | --- | --- |
+| 7 | Twitch chat still receives announcements | **PASS** — `Last 6 fights: 4W-2L · stage 5035 → 5035` at 18:04:03Z, and a second at 18:09:18Z. The tee did not become a reroute. |
+| 8 | Feed card renders server-side | **PASS** — `ul#announcement-feed` present; the empty-state placeholder immediately post-restart, then the real line once the ring warmed. |
+| 9 | New announcement appears live, no reload | **PASS** — pushed over `/ws` at 02:09:18 local; the *same line* reached chat at 18:09:18.142Z. One `announce`, both destinations, same second. |
+| 10 | Fresh connection receives the backlog | **PASS** — a socket opened at 02:06:45 got `{"type":"announcements","lines":[..]}` with the ring's content, not an empty list. |
+| 11 | Overlay / desktop client unaffected | **PASS (overlay)** — `/overlay` serves 200; its `handleOverlayMessage` is an `if/else if` on `state`/`encounter` with no `else`, so both new types fall through ignored, and both of its own envelope types were observed still flowing on the live socket. **Desktop client: not reachable** — nothing listening besides game (4004/4005) and bot (4001-4003). |
+| 12 | Operator card on `/admin/tunables` | **PASS** — form posts to `/admin/ops/next-encounter`, 8 boss choices rendered from `FORCED_CHOICES`. |
+| 13 | Non-admin POST refused visibly | **PASS** — `403 Forbidden`, "Refused - not the operator", "Nothing was triggered." Not a bare redirect. See `#51`. |
+| 14 | Admin fires next-encounter once, no boss | **PASS** — `200`, "Encounter triggered / Ran the next encounter right now." |
+| 15 | Second press during a fight | **PASS** — `409 Conflict`, "Refused - a fight is in progress ... Nothing was queued." No second fight ran. |
+| 16 | Boss select in production | **NOT TESTED, by order.** Covered by `operator_boss_select_tests`. |
+
+**Exactly one operator-triggered encounter reached the game.** The first
+attempt at the 14/15 pair failed in the client (a `Start-Process`
+argument-quoting fault meant that press never reached the server,
+`http_code=000`), so the successful trigger was its sibling press at
+02:03:45. The pair was then re-run as two genuinely concurrent requests;
+both landed while the SCHEDULED loop already held the fight gate, so both
+returned the `FightInProgress` 409 and neither fired anything. Check 15 is
+therefore satisfied against a real in-flight fight rather than against one
+this session caused, which is the stronger reading of it.
+
+**Patch notes.** One "August 28, 2026" block at the top of the array,
+section "New: The Adventure Feed On Your Dashboard" — three items, plainly
+stating that announcements now appear on the dashboard, that the card
+updates live and arrives populated, and that chat is unchanged. Nothing
+about the operator control: it is admin-only and not player-facing.
+
+**`CLAUDE.md` unchanged this release**, so the `.clinerules` mirror needed
+no refresh (§13 step 6 is conditional on that file moving).
