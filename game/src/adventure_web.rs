@@ -384,7 +384,7 @@ async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params):
             let character = state.adventure.character(&login).await;
             let (used_this_hour, next_reset_ms) = state.adventure.reforge_status(&login).await;
             let popup = if params.reforged.is_some() { render_reforge_popup(&params) } else { String::new() };
-            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables()))
+            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables(), &state.adventure.recent_announcements()))
         }
     };
     Html(render_page(&body))
@@ -4229,6 +4229,31 @@ fn top_nav(character: Option<&Character>) -> String {
     )
 }
 
+/// The dashboard's announcement feed card (World 2 Stage 2, 2026-08-28)
+/// - the web home for the narration that used to exist only in Twitch
+/// chat. `lines` is `AdventureManager::recent_announcements()`, oldest
+/// first; this renders them NEWEST first, which is also the end the
+/// `/ws` client prepends to (see `base.html`).
+///
+/// Rendered SERVER-SIDE on purpose: the card is correct before any
+/// script runs and stays correct for a client whose socket never
+/// connects at all. The WebSocket updates this list; it does not create
+/// it.
+fn render_announcement_feed(lines: &[String]) -> String {
+    let cap = crate::adventure::ANNOUNCEMENT_FEED_CAP;
+    let items = if lines.is_empty() {
+        "<li class=\"announcement-empty muted\">Nothing yet — the feed fills up as fights resolve.</li>".to_string()
+    } else {
+        lines.iter().rev().map(|line| format!("<li>{}</li>", escape_html(line))).collect::<String>()
+    };
+    format!(
+        "<div class=\"card\">\
+           <div class=\"header-row\"><h2>📣 Feed</h2><span class=\"announcement-status muted\" id=\"announcement-status\"></span></div>\
+           <ul class=\"announcement-feed\" id=\"announcement-feed\" data-cap=\"{cap}\">{items}</ul>\
+         </div>"
+    )
+}
+
 fn render_dashboard(
     login: &str,
     display_name: &str,
@@ -4236,6 +4261,7 @@ fn render_dashboard(
     reforge_used_this_hour: bool,
     reforge_next_reset_ms: u64,
     tunables: &LiveTunables,
+    announcements: &[String],
 ) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
@@ -4248,6 +4274,8 @@ fn render_dashboard(
               <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a> &middot; <a href=\"/logout\">Log out</a></p></div>"
         );
     };
+
+    let announcement_feed_html = render_announcement_feed(announcements);
 
     let xp_pct = if c.xp_needed() > 0 { (c.xp as f64 / c.xp_needed() as f64 * 100.0).clamp(0.0, 100.0) } else { 100.0 };
     let games = c.wins + c.losses;
@@ -4361,6 +4389,7 @@ fn render_dashboard(
               {reforge_status_html}\
               <p class=\"reforge-countdown\">Resets in <span class=\"countdown-timer\">--:--</span></p>\
             </div>\
+            {announcement_feed_html}\
           </div>\
         </div>\
         <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a> &middot; <a href=\"/logout\">Log out</a></p>",

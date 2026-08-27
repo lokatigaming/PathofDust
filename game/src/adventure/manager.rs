@@ -18,6 +18,16 @@ pub const ENCOUNTER_INTERVAL: Duration = Duration::from_secs(600);
 /// per `ENCOUNTER_INTERVAL` cycle - see `AdventureManager::forced_boss_count`.
 pub const FORCE_BOSS_MAX_PER_CYCLE: u32 = 2;
 
+/// How many recent announcement lines the in-memory feed keeps (World 2
+/// Stage 2, 2026-08-28) - see `AdventureManager::announcement_feed`. A
+/// hard COUNT cap, deliberately not a time window: emission is wildly
+/// uneven (a quiet stretch produces nothing for an hour, one resolved
+/// fight batch produces a burst), so "the last 50 lines" is a bound a
+/// reader can actually reason about and a time window is not. 50
+/// comfortably covers one busy encounter cycle's burst, which is all a
+/// player scrolling the dashboard card wants to see.
+pub const ANNOUNCEMENT_FEED_CAP: usize = 50;
+
 /// What `AdventureManager::try_force_encounter` handed back - main.rs's
 /// redemption handler turns each into the right chat line/redemption
 /// status.
@@ -1719,6 +1729,24 @@ pub struct AdventureManager {
     /// Stage 3 "coexist, no cutover" instruction) the exact formatting
     /// main.rs's own broadcast subscribers still do today.
     announcements_tx: broadcast::Sender<String>,
+    /// World 2 Stage 2 (2026-08-28) - the last `ANNOUNCEMENT_FEED_CAP`
+    /// lines that went out over `announcements_tx`, so the web dashboard
+    /// can show game narration without Twitch. Written ONLY by
+    /// `announce`, which tees into here and THEN sends on the channel
+    /// exactly as the direct `.send()` calls it replaced did - nothing
+    /// about what the SSE endpoint (and therefore chat) receives changed.
+    ///
+    /// Purely in-memory, same accepted tradeoff as `pending_veils` above:
+    /// a restart just starts the feed empty, which costs a player nothing
+    /// (the fight log is the durable record). Deliberately NOT persisted,
+    /// so there is no new state file for `backup-game-data.ps1` to
+    /// enumerate.
+    ///
+    /// `std::sync::Mutex` (not tokio's), matching `live_tunables`'
+    /// `std::sync::RwLock` - three of the `announce_*` callers are
+    /// non-async fns, and the critical section is a push/pop with no
+    /// await in it.
+    announcement_feed: std::sync::Mutex<std::collections::VecDeque<String>>,
     /// Lowercased username -> an in-progress veiled craft awaiting a
     /// choice (see `PendingVeil`/`choose_veil_outcome`) - purely
     /// in-memory, same tradeoff as `last_activity_xp`/`downed_until` (a
@@ -2125,6 +2153,7 @@ impl AdventureManager {
             rampage_complete_tx,
             unique_shard_tx,
             announcements_tx,
+            announcement_feed: std::sync::Mutex::new(std::collections::VecDeque::new()),
             pending_veils: Mutex::new(HashMap::new()),
             pending_passive_previews: Mutex::new(HashMap::new()),
             forced_boss_count: Mutex::new(0),
@@ -2243,6 +2272,35 @@ impl AdventureManager {
         self.announcements_tx.subscribe()
     }
 
+    /// The announcement TEE (World 2 Stage 2, 2026-08-28). Every one of
+    /// the `announce_*` producers now goes through here instead of
+    /// calling `announcements_tx.send` directly. It appends to the
+    /// in-memory `announcement_feed` ring the dashboard and `/ws` read,
+    /// and then sends the SAME `String` on the channel, so
+    /// `GET /api/announcements/stream` - and therefore Twitch chat -
+    /// receives byte-identical lines in the same order it always did.
+    /// This ADDS a sink; it reroutes nothing.
+    ///
+    /// The send result is discarded exactly as before: zero SSE
+    /// subscribers is the normal state when the bot is down, and the
+    /// owner-ratified policy for that is "drop gracefully" (§4b).
+    fn announce(&self, msg: String) {
+        {
+            let mut feed = self.announcement_feed.lock().expect("announcement_feed lock poisoned");
+            if feed.len() == ANNOUNCEMENT_FEED_CAP {
+                feed.pop_front();
+            }
+            feed.push_back(msg.clone());
+        }
+        let _ = self.announcements_tx.send(msg);
+    }
+
+    /// The current feed ring, oldest first - what `render_dashboard`
+    /// paints server-side and what `/ws` sends as a backlog on connect.
+    pub fn recent_announcements(&self) -> Vec<String> {
+        self.announcement_feed.lock().expect("announcement_feed lock poisoned").iter().cloned().collect()
+    }
+
     /// Stage 3 API seam - ports main.rs's own encounter-result broadcast
     /// subscriber (formatting AND the Celestial Shard/launch-giveaway
     /// state mutation it does) to run here instead, closing the real
@@ -2286,9 +2344,7 @@ impl AdventureManager {
             if crate::state::load_json::<bool>(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
                 if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
                     if self.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
-                        let _ = self
-                            .announcements_tx
-                            .send(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name));
+                        self.announce(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name));
                     }
                     if let Err(err) = crate::state::save_json(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH), &true) {
                         tracing::error!("Failed to persist celestial shard first award marker: {err}");
@@ -2328,9 +2384,7 @@ impl AdventureManager {
                 let winner_id = winner_pool[rand::thread_rng().gen_range(0..winner_pool.len())].clone();
                 let display = result.units.iter().find(|u| u.id == winner_id).map(|u| u.display_name.clone()).unwrap_or_else(|| winner_id.clone());
                 if self.grant_craft_token(&winner_id, action, 1).await {
-                    let _ = self
-                        .announcements_tx
-                        .send(format!("🎁 {display} was randomly drawn from that fight's top performers and has been awarded a {item_label}!"));
+                    self.announce(format!("🎁 {display} was randomly drawn from that fight's top performers and has been awarded a {item_label}!"));
                 }
                 if let Err(err) = crate::state::save_json(data_path(marker_path), &true) {
                     tracing::error!("Failed to persist {item_label} launch giveaway marker: {err}");
@@ -2341,7 +2395,7 @@ impl AdventureManager {
         self.record_fight_for_batch(result).await;
 
         if let Some(loot_msg) = format_loot_line(result) {
-            let _ = self.announcements_tx.send(loot_msg);
+            self.announce(loot_msg);
         }
     }
 
@@ -2377,7 +2431,7 @@ impl AdventureManager {
             std::mem::take(&mut pending.fights)
         };
         if let Some(data) = aggregate_batch(&fights) {
-            let _ = self.announcements_tx.send(format_batch_summary(&data));
+            self.announce(format_batch_summary(&data));
         }
     }
 
@@ -2418,12 +2472,12 @@ impl AdventureManager {
     /// of raw `rampage_complete_tx.send(())`/`unique_shard_tx.send(...)`.
     fn announce_rampage_complete(&self) {
         let _ = self.rampage_complete_tx.send(());
-        let _ = self.announcements_tx.send(RAMPAGE_COMPLETE_MESSAGE.to_string());
+        self.announce(RAMPAGE_COMPLETE_MESSAGE.to_string());
     }
 
     fn announce_unique_shard_win(&self, display_name: String) {
         let event = UniqueShardEvent { display_name };
-        let _ = self.announcements_tx.send(format_unique_shard_win(&event));
+        self.announce(format_unique_shard_win(&event));
         let _ = self.unique_shard_tx.send(event);
     }
 
@@ -2474,7 +2528,7 @@ impl AdventureManager {
     pub(crate) fn announce_gear_crit(&self, display_name: String, source: GearCritSource, item_name: &str, slot: EquipSlot, tier: u32, affix: Option<Affix>) {
         if let Some(affix) = affix {
             let event = GearCritEvent { display_name, source, item_name: item_name.to_string(), slot, tier, affix };
-            let _ = self.announcements_tx.send(format_gear_crit(&event));
+            self.announce(format_gear_crit(&event));
             let _ = self.gear_crit_tx.send(event);
         }
     }
@@ -3466,7 +3520,7 @@ impl AdventureManager {
         // had at Stage 3. Now game-owned end to end: the caller (see
         // game/src/main.rs's own startup) no longer formats anything,
         // it just fires this once and lets the announcement carry itself.
-        let _ = self.announcements_tx.send(format!("🕊️ {display_name} has been randomly gifted the ultra-rare Wings of Flight cosmetic! Check your dashboard to toggle it on."));
+        self.announce(format!("🕊️ {display_name} has been randomly gifted the ultra-rare Wings of Flight cosmetic! Check your dashboard to toggle it on."));
         Some(display_name)
     }
 
@@ -4417,7 +4471,7 @@ impl AdventureManager {
         // for this exact message) since nothing subscribes to
         // `announcements_tx` in production yet - see its own doc.
         if let Some(new_level) = leveled {
-            let _ = self.announcements_tx.send(format!("{} leveled up to level {new_level}!", character.display_name));
+            self.announce(format!("{} leveled up to level {new_level}!", character.display_name));
         }
         self.persist_characters(&characters);
         drop(characters);
@@ -8522,5 +8576,59 @@ mod divinity_manager_tests {
         let err = manager.apply_divinity("ghost").await.expect_err("never joined");
         assert_eq!(err, DivinityError::NotJoined);
         std::fs::remove_dir_all(&scratch).ok();
+    }
+}
+
+/// The retention cap (World 2 Stage 2, 2026-08-28). Bounding the ring is
+/// the whole reason the feed can live in memory, and it takes more
+/// emissions than a real fight produces, so it is proven here against
+/// `announce` itself rather than over HTTP - see
+/// `game/tests/announcement_feed_http.rs`, which covers everything the
+/// web surface adds.
+#[cfg(test)]
+mod announcement_feed_ring_tests {
+    use super::*;
+
+    fn scratch_manager(label: &str) -> Arc<AdventureManager> {
+        let scratch = std::env::temp_dir().join(format!("announcement_ring_{}_{label}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"))
+    }
+
+    #[test]
+    fn announce_tees_into_the_ring_in_emission_order() {
+        let manager = scratch_manager("order");
+        assert!(manager.recent_announcements().is_empty(), "a fresh manager's ring must start empty");
+
+        manager.announce("first".to_string());
+        manager.announce("second".to_string());
+
+        assert_eq!(manager.recent_announcements(), vec!["first".to_string(), "second".to_string()], "the ring is oldest-first, in the order the producers emitted");
+    }
+
+    #[test]
+    fn the_ring_stays_bounded_under_sustained_emission() {
+        let manager = scratch_manager("cap");
+        // Ten times the cap, so this fails loudly if the bound were ever
+        // "prune occasionally" rather than a hard ceiling.
+        let total = ANNOUNCEMENT_FEED_CAP * 10;
+        for i in 0..total {
+            manager.announce(format!("line {i}"));
+        }
+
+        let ring = manager.recent_announcements();
+        assert_eq!(ring.len(), ANNOUNCEMENT_FEED_CAP, "the ring must never grow past ANNOUNCEMENT_FEED_CAP, however many lines the game emits");
+        assert_eq!(ring.first().map(String::as_str), Some(format!("line {}", total - ANNOUNCEMENT_FEED_CAP).as_str()), "the OLDEST line is the one dropped");
+        assert_eq!(ring.last().map(String::as_str), Some(format!("line {}", total - 1).as_str()), "the newest line must always survive");
+    }
+
+    #[test]
+    fn a_zero_subscriber_channel_still_fills_the_ring() {
+        // Nobody is subscribed to `announcements_tx` here - the normal
+        // state when the bot is down. The send falls on the floor exactly
+        // as it always did, and the web feed must be unaffected by that.
+        let manager = scratch_manager("no_subscriber");
+        manager.announce("said with nobody listening".to_string());
+        assert_eq!(manager.recent_announcements(), vec!["said with nobody listening".to_string()]);
     }
 }

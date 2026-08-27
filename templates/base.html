@@ -618,6 +618,15 @@
     background: rgba(255, 215, 106, 0.15); color: #ffd76a; border: 1px solid rgba(255, 215, 106, 0.3);
   }
   .countdown-card form { margin-top: 4px; }
+
+  /* Announcement feed (World 2 Stage 2, 2026-08-28) - the dashboard card
+     that gives game narration a home outside Twitch chat. Newest line at
+     the top; the list is capped server-side and mirrored client-side, so
+     the height ceiling here is a scroll bound, not a truncation. */
+  .announcement-feed { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+  .announcement-feed li { padding: 6px 2px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.92em; line-height: 1.35; }
+  .announcement-feed li:last-child { border-bottom: none; }
+  .announcement-status { font-size: 0.8em; }
   .retreat-card { border-color: rgba(255, 138, 138, 0.5); }
   .retreat-card h2 { color: #ff8a8a; }
   .reforge-ready { background: rgba(95,214,106,0.15); color: #5fd66a; }
@@ -1072,6 +1081,110 @@
       el.addEventListener('focus', function() { show(el); });
       el.addEventListener('blur', hide);
     });
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
+
+  try { (function() {
+    // Announcement feed (World 2 Stage 2, 2026-08-28) - live updates for
+    // the dashboard's Feed card. Only the dashboard renders
+    // #announcement-feed, so every other page bails here and never opens
+    // a socket.
+    //
+    // The card is ALREADY correct when this runs: render_announcement_feed
+    // painted the server's ring into it. This block only keeps it current
+    // - the socket updates the list, it does not create it, and a viewer
+    // whose socket never connects still sees the feed as of page load.
+    var list = document.getElementById('announcement-feed');
+    if (!list || typeof WebSocket === 'undefined') return;
+    var status = document.getElementById('announcement-status');
+    // Mirrors ANNOUNCEMENT_FEED_CAP, read off the element rather than
+    // duplicated here so the two can never drift apart.
+    var cap = parseInt(list.dataset.cap, 10) || 50;
+
+    function setStatus(text) {
+      if (status) status.textContent = text;
+    }
+    function makeItem(line) {
+      var li = document.createElement('li');
+      li.textContent = line;
+      return li;
+    }
+    function trim() {
+      while (list.children.length > cap) list.removeChild(list.lastChild);
+    }
+    function replaceAll(lines) {
+      list.textContent = '';
+      if (!lines.length) {
+        var empty = document.createElement('li');
+        empty.className = 'announcement-empty muted';
+        empty.textContent = 'Nothing yet — the feed fills up as fights resolve.';
+        list.appendChild(empty);
+        return;
+      }
+      // Server order is oldest-first; this card is newest-first, same as
+      // the server-rendered markup this replaces.
+      for (var i = lines.length - 1; i >= 0; i--) list.appendChild(makeItem(lines[i]));
+      trim();
+    }
+    function prepend(line) {
+      var empty = list.querySelector('.announcement-empty');
+      if (empty) list.removeChild(empty);
+      list.insertBefore(makeItem(line), list.firstChild);
+      trim();
+    }
+
+    // Capped exponential backoff. A feed that quietly stops updating
+    // after a network blip would look frozen AND correct, which is the
+    // failure this is here to prevent - hence the visible status text on
+    // top of the retry. 1s initial, doubling, hard cap 30s, reset to 1s
+    // on every successful open.
+    var BACKOFF_MIN_MS = 1000;
+    var BACKOFF_MAX_MS = 30000;
+    var backoff = BACKOFF_MIN_MS;
+
+    function connect() {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var ws;
+      try {
+        ws = new WebSocket(proto + '//' + location.host + '/ws');
+      } catch (err) {
+        retry();
+        return;
+      }
+      ws.onopen = function() {
+        backoff = BACKOFF_MIN_MS;
+        setStatus('');
+      };
+      ws.onmessage = function(event) {
+        if (typeof event.data !== 'string') return;
+        var msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch (err) {
+          return;
+        }
+        if (!msg) return;
+        // Every other envelope on this socket (state, encounter) belongs
+        // to the overlay and is ignored here, exactly as the overlay
+        // ignores these two.
+        if (msg.type === 'announcements' && Array.isArray(msg.lines)) {
+          replaceAll(msg.lines);
+        } else if (msg.type === 'announcement' && typeof msg.line === 'string') {
+          prepend(msg.line);
+        }
+      };
+      ws.onclose = function() {
+        setStatus('reconnecting…');
+        retry();
+      };
+      ws.onerror = function() { ws.close(); };
+    }
+    function retry() {
+      var wait = backoff;
+      backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
+      setTimeout(connect, wait);
+    }
+
+    connect();
   })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
 </script>
