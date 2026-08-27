@@ -232,3 +232,7 @@ target-stage3/
 # Rollback copy of the pre-World-2-Stage-2 game.exe (announcement feed +
 # operator levers), plus that deploy's pinned fight-summary snapshot.
 /backup-pre-world2-stage2
+
+# Rollback copy of the pre-World-2-Stage-3a game.exe (operator identity),
+# plus that deploy's pinned fight-summary snapshot.
+/backup-pre-operator-identity
