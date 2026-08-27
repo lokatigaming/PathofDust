@@ -1757,3 +1757,111 @@ about the operator control: it is admin-only and not player-facing.
 
 **`CLAUDE.md` unchanged this release**, so the `.clinerules` mirror needed
 no refresh (§13 step 6 is conditional on that file moving).
+
+## Deploy record — 2026-08-28, World 2 Stage 3a (`6b5fa51` + `cbed789`)
+
+The operator-identity gate. `feature/operator-identity` (`d016979`)
+merged and shipped as a game-only release, deployed deliberately with
+**no configuration change**: `OPERATOR_LOGIN` was absent from
+`C:\PathofDust\.env` before the swap and absent after it, so the
+`DEFAULT_OPERATOR_LOGIN` fallback (`lokati_gaming`) was the value live
+behind all three gates. The property this deploy exists to prove is that
+nothing changed, and it was verified as such rather than assumed.
+
+| item | value |
+| --- | --- |
+| merge commit | `6b5fa51` |
+| final master (gitignore commit) | `cbed789` |
+| branch head merged | `d016979` |
+| old `game.exe` SHA-256 | `B8D9B45969F58DA13C9D2CA7948A3CCAD29970F9C849889C189F5F72D5D9A93C` |
+| new `game.exe` SHA-256 | `5CE40C858647915803467DA712978238368B3FBE7ADFCE9CA2D66F4DDAF77AD1` |
+| rollback binary | `backup-pre-operator-identity/game.exe`, plus `target\release\game.exe.pre-operator-identity` |
+| pinned fight-summary snapshot | `backup-pre-operator-identity/adventure-fights-summary/` (200 files) |
+| data backup | `C:\pod-backups\PathofDust\pod-backup-20260828-025235`, verdict `clean`, 252 files, 0 failed, no manifest drift |
+| suite | 742 passed, 0 failed — `cargo test --release --workspace --quiet` |
+| bot | unchanged, not redeployed (diff-clean) |
+
+**What it changes in the code.** `ADMIN_TUNABLES_LOGIN`,
+`FIGHTS_PAGE_LOGIN` and `BUNDLE_OPERATOR_LOGIN` stop being
+`const &str` and become `LazyLock<String>` resolved by
+`operator_login_from_env()` from a single `OPERATOR_LOGIN` key,
+defaulting to `lokati_gaming`. One key rather than three, because a typo
+in one of three would leave the operator holding some admin surfaces and
+locked out of the rest. Separately and unconditionally, `lokati_gaming`
+is now a permanent entry in `RESERVED_USERNAMES` — deliberately NOT
+conditional on `OPERATOR_LOGIN`, because the live-character and
+minted-session checks that protect the name today only hold while World 1
+data exists.
+
+**Golden corpus.** Regenerated pre-merge on master (delete + rerun). 7 of
+17 fixtures changed, on exactly 3,025 lines. Key census over the changed
+lines: 3,226 `hitId` and 2,824 `eventId` half-lines — 1,613 + 1,412 =
+3,025 line pairs, accounting for every changed line with nothing left
+over. **Zero combat values moved.** Same `next_hit_id()` process-global
+counter churn documented on the 2026-08-24 deploy; reverted rather than
+committed, and the committed fixtures stand unchanged.
+
+**Phase A verification — live, against the running binary.** Sessions
+were read from `adventure-sessions.json` and replayed as `adv_session`
+cookies; no token is recorded here.
+
+| # | check | result |
+| --- | --- | --- |
+| 7 | `OPERATOR_LOGIN` absent from `.env` after the swap | **PASS** — absent before and after. |
+| 8 | Operator's existing session reaches `/admin/tunables` | **PASS** — `200`, 101,659 bytes. |
+| 9 | `/admin/passives` loads for the operator | **PASS** — `200`, 114,947 bytes. |
+| 10 | `/fights` returns the unfiltered operator view | **PASS** — `/fights.json?limit=200` returns 200 fights for the operator. Proven against a partial participant: `lokati` (a different account from `lokati_gaming`) is in 13 of those 200 fights and its session returns exactly 13. |
+| 11 | Operator encounter control still renders | **PASS** — `/admin/ops/next-encounter` form present for the operator, absent for a non-operator. |
+| 12 | Non-operator cannot reach those | **PASS** — `/admin/tunables` and `/admin/passives` return the refusal page **byte-identical to the anonymous response** (71,714 bytes) for `xcercs`. `/fights` is reachable by design since 2026-08-17 (everyone sees the page, scoped to their own fights); the gate there is the filter, verified in check 10. `/fights.json` is `401` anonymous. |
+| 13 | `lokati_gaming` registration refused as **reserved** | **PASS** — `400 Bad Request`, body contains "That username is reserved." and does NOT contain "That username is already taken." `username_rejection` orders the reserved check before the already-taken check, which is what makes the wording correct for a name that also has a live account. `adventure-accounts.json` mtime unchanged — nothing was written. |
+
+**A verification note worth keeping.** The first pass at checks 8-12 read
+non-operator `200`s and nearly-identical `/fights` byte lengths and looked
+like a gate failure. Neither reading survived: the `200`s were an
+unauthenticated refusal page (an explicit `Cookie:` header on
+`Invoke-WebRequest` in PowerShell 5.1 is dropped — only a
+`WebRequestSession` cookie is actually sent), and the identical `/fights`
+lengths are correct, because these are whole-roster fights and 43 of the
+54 distinct players appear in **all** 200. Comparing status codes alone
+would have produced a false alarm in one direction and a false pass in the
+other; the filter check only means something against a player who is not
+in every fight.
+
+**Maintenance flag** set (`operator-identity stage3a 6b5fa51`), `scope :`
+line confirmed, and **cleared** after the health check passed. Restart was
+healthy: port 4005 up on the first poll, `LastTaskResult=267009`
+(`SCHED_S_TASK_RUNNING`), `/passives` `200`.
+
+**Patch notes.** One section prepended to the existing "August 28, 2026"
+block: `Internal: Operator Account Identity`, one item — the gates read
+the operator name from configuration, no player-visible change, and
+`lokati_gaming` is now permanently reserved. Internal-only heading per
+§13 step 1, because nothing here is a player feature.
+
+**`CLAUDE.md` unchanged this release**, so the `.clinerules` mirror needed
+no refresh.
+
+**This release is a PREREQUISITE for the Twitch removal (Stage 3b), and
+the removal must not ship until the owner has confirmed the new operator
+account reaches every admin surface.** Phase B — the owner registering a
+new operator account and adding `OPERATOR_LOGIN` to `.env` — had not run
+at the time of this record. Until it does, `lokati_gaming` still holds
+every gate. Revert for Phase B is a one-liner: delete the
+`OPERATOR_LOGIN` line from `.env` and restart.
+
+**#53 — removal-stage deletion candidates: two hardcoded `lokati_gaming`
+content migrations (pending work, not a defect).**
+
+Recorded here so Stage 3b does not mistake either for an access gate and
+does not leave either behind. Both are one-time World 1 content
+migrations that become dead code in a fresh world. **Neither gates
+anything**, so neither is affected by `OPERATOR_LOGIN`, and neither was
+touched by Stage 3a.
+
+| location | what it is |
+| --- | --- |
+| `game/src/adventure/manager.rs:2413` | `LAUNCH_GIVEAWAY_EXCLUDED_WINNER: &str = "lokati_gaming"` — excludes the owner from the launch giveaway winner pool. |
+| `game/src/adventure/manager.rs:2032` | the wings launch grant — `characters.get_mut("lokati_gaming")` sets `owns_wings`, guarded by `adventure-wings-launch-grant-marker.json`. |
+
+**Deletion candidates, not defects.** They are correct as they stand for
+World 1; they simply have nothing to do in World 2.
