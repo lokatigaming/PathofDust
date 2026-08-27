@@ -48,6 +48,7 @@ use crate::adventure::default_memory_name;
 use crate::adventure::passive_overrides;
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
+mod accounts;
 mod api;
 mod render;
 mod wiki;
@@ -78,6 +79,10 @@ struct AppState {
     public_url: String,
     sessions: Arc<Mutex<HashMap<String, Session>>>,
     sessions_path: PathBuf,
+    /// Local (non-Twitch) accounts - see `accounts.rs`. Persisted the
+    /// same way `sessions` is, to a sibling file in the same directory.
+    accounts: Arc<Mutex<HashMap<String, accounts::Account>>>,
+    accounts_path: PathBuf,
     oauth_states: Arc<Mutex<HashMap<String, Instant>>>,
     http: reqwest::Client,
 }
@@ -139,6 +144,8 @@ pub async fn start_adventure_web_server(
     api_secret: Option<String>,
 ) -> anyhow::Result<std::net::SocketAddr> {
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
+    let accounts_path = accounts::accounts_path(&sessions_path);
+    let accounts: HashMap<String, accounts::Account> = crate::state::load_json(&accounts_path).unwrap_or_default();
     let api_router: Option<axum::Router<AppState>> = api::router(adventure.clone(), api_secret);
     let state = AppState {
         adventure,
@@ -147,6 +154,8 @@ pub async fn start_adventure_web_server(
         public_url,
         sessions: Arc::new(Mutex::new(sessions)),
         sessions_path,
+        accounts: Arc::new(Mutex::new(accounts)),
+        accounts_path,
         oauth_states: Arc::new(Mutex::new(HashMap::new())),
         http: reqwest::Client::new(),
     };
@@ -160,6 +169,10 @@ pub async fn start_adventure_web_server(
         .route("/inventory", get(inventory_page))
         .route("/login", get(login))
         .route("/auth/callback", get(callback))
+        // Local identity (2026-08-27) - a second session minter sitting
+        // beside the Twitch one above, which is untouched. See accounts.rs.
+        .route("/account/register", get(accounts::register_page).post(accounts::do_register))
+        .route("/account/login", get(accounts::login_page).post(accounts::do_login))
         .route("/logout", get(logout))
         .route("/join", post(do_join))
         .route("/equip", post(do_equip))
@@ -2982,8 +2995,9 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
 
 fn render_logged_out() -> String {
     "<div class=\"card\"><h1>Adventure Character Dashboard</h1>\
-      <p>Log in with your Twitch account to view and manage your adventure character.</p>\
-      <p><a class=\"btn\" href=\"/login\">Login with Twitch</a></p>\
+      <p>Log in to view and manage your adventure character.</p>\
+      <p><a class=\"btn\" href=\"/account/login\">Log in</a> <a class=\"btn\" href=\"/account/register\">Register</a></p>\
+      <p class=\"muted\"><a href=\"/login\">Login with Twitch</a></p>\
       <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a></p></div>"
         .to_string()
 }
