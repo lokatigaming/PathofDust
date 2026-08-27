@@ -1283,3 +1283,108 @@ aside AND copied into `backup-pre-passive-tunables-stage2/` with the pinned
 in; task restarted, `LastTaskResult` `267009` (running � see the Divinity
 record's step-6 note), `/passives` and `/` both HTTP 200; flag CLEARED
 after the health check. Downtime � stop-to-start window only.
+
+## Deploy record — 2026-08-27, local identity + passive-override units (`0f7f754`)
+
+Merges `3ef0651` (`feature/local-identity`) and `7af21b2`
+(`fix/passive-override-units`). Numbers below are assigned by the deploy
+session at the owner's explicit instruction; the log-parser session owns
+the sequence and may renumber.
+
+**#46 — `/admin/passives` save validation: "accept any finite number" is
+SUPERSEDED by typed per-unit validation**
+The earlier ruling — that the save path should accept any finite number,
+since the admin is trusted and the consuming code clamps what it needs to
+— is superseded as of this release. Saves are now range-checked against a
+per-node UNIT derived from the code that consumes the value: fraction,
+count, seconds, milliseconds, multiplier. All 463 editable nodes are
+classified, zero left unconfirmed. A bounded fraction rejects out-of-range
+input naming the field and the expected range (verified live: `payback`
+rank 2 = 45 → `⛔ Not saved — Rank 2 on payback is above what the code
+that reads it accepts — got 45, expected a fraction from 0 to 1 — 1 means
+100%. If you meant 45%, enter 0.45.`, nothing written). The six
+legitimately-above-1 fraction keys (`cutthroat`, `finalcut`, `volley`,
+`growing`, `echo`, `chainshot`) warn and require an explicit confirm
+rather than being refused. **The superseded doc block was REPLACED, not
+left alongside the new one — deliberately, so the file carries exactly
+one ruling on this question and no future session has to guess which of
+two co-resident blocks is current.**
+
+**#47 — Unparseable conversion cap redirected as if saved (same
+silent-accept class as #46); now rejected**
+A conversion-cap value that failed to parse used to redirect with
+`saved=1` while the value went nowhere but a `tracing` warning — the
+operator saw a success page and no change. Identical failure class to the
+validation gap above: the save path reporting success for input it did
+not store. Now refused with an error. The fix landed outside the ordered
+scope of `fix/passive-override-units`; **the owner ruled it stays**.
+
+**#48 — Backup allow-list gap: `backup-game-data.ps1` enumerates, it does
+not glob**
+The backup manifest is an explicit allow-list of filenames derived from
+the code, not a `adventure-*.json` glob. A new persisted state file is
+therefore INVISIBLE to backups — no error, no drift warning at the moment
+it is created — until a human adds it by hand.
+`adventure-accounts.json`, the local-account password-hash store, was
+missed on `feature/local-identity`'s first delivery and caught in review;
+it ships in the allow-list (with a shape-validation arm, since a lost
+password hash has no external identity provider to re-authenticate
+against). **Standing rule, adopted here: any new persisted state file
+must be added to the backup allow-list in the SAME branch that creates
+it.** Verified this deploy: the post-swap run lists
+`adventure-accounts.json` as `absent (skipped)` — legitimately absent,
+because no account has been registered yet.
+
+**Bot redeploy determination: DEPLOYED.** `git diff --name-only
+2fbdde2..0f7f754` touches `Cargo.lock` (argon2 dependencies for the game
+crate), which is inside the bot's declared dependency set per §13. No
+`src/**` or root `Cargo.toml` change, but the §13 rule is objective and
+the diff is authoritative — so the bot deployed rather than being skipped
+on a judgment that the added crates are game-only.
+
+**4a swap:** game maintenance flag SET with `scope : this IS the flag
+'GameProcess-Watchdog' reads` verified BEFORE the stop; `Stop-ScheduledTask
+GameProcess`; port 4005 confirmed free; old `game.exe` SHA-256
+`5F3B595A4EEBB8095289D2E45277F80528CA3DEE7A35A02859BA1C4C13D8741E` renamed
+aside to `game.exe.pre-identity-units` AND copied into
+`backup-pre-identity-units/` with the pinned 200-file
+`adventure-fights-summary` snapshot; new `game.exe` SHA-256
+`71F524832CD20FE3EC5F46CE0C381C343C1941279A3C2985C5FF3FEEE075DE28`; task
+restarted, `LastTaskResult` `267009` (running), `/passives` 200; flag
+CLEARED after the health check. Bot then swapped under its own separate
+flag (`scope : this IS the flag 'TwitchBotRS-Watchdog' reads`), port 4001,
+old `105D7740183E24B98D2E0AB2B3F34BA1A084C13E85B969081122145CA2DE72E2` →
+new `3DED1C682B6470D5DD681380D66EBE4C9BC87ED8032F537A45813A177041A435`,
+started only after the game was confirmed healthy; bot flag CLEARED.
+
+**Identity — nobody logged out.** A session token minted before the swap
+(`created_at` 1787725400) returned the authenticated `/passives` page at
+129,541 bytes both before and after the swap, with no login prompt in the
+body. `/login` still 303s to `id.twitch.tv/oauth2/authorize` with the
+production client id and `adventure.lokati.net/auth/callback`.
+`/account/register` and `/account/login` render 200. Collision guard
+verified in production WITHOUT creating an account: `username=xcercs`
+(an existing character key) with a valid 12-character password → 400,
+"That username is already taken."; a 7-character password on an unused
+name → 400, "Passwords must be at least 8 characters long."
+`adventure-accounts.json` does not exist on disk after either attempt.
+No account was registered — the owner creates the first one himself.
+
+**No live override value changed.** `adventure-passive-overrides.toml`
+holds the same 34 keys with the same values as its pre-deploy snapshot
+(SHA-256 of the pre-deploy copy
+`68CBB642D29814CF488CC539A3F5DB23883CEE6D0930656AF42841ACC29FAD52`;
+compared value-for-value, since the writer re-serializes from a HashMap
+and key ORDER is not stable between writes). The check-16 warn/confirm
+exercise moved `volley` rank 3 1.5 → 1.6 and back to 1.5 through the same
+warn-and-confirm path; it was reverted by RESTORING THE PRIOR VALUE rather
+than by the page's Revert button, because Revert drops the override
+entirely and would have discarded the owner's tuning of that node.
+
+**Golden corpus:** regenerated pre-merge on master (delete + rerun). All
+14 changed fixtures differed on exactly 37,126 lines, of which 20,008 were
+`hitId` and 17,118 `eventId` and none were anything else — zero combat
+values moved. `next_hit_id()` is a process-global atomic counter, so those
+ids depend on what else ran in the test process and churn on every run;
+`approx_eq` ignores both keys by design. The churn was therefore reverted
+rather than committed, and the committed fixtures stand unchanged.
