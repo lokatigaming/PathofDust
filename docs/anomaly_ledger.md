@@ -151,24 +151,19 @@ exists in fight logs to check directly - only `attack`/`heal`/`shield`/
 `skillCast`/`defeat`/`buffSnapshot` - which is presumably exactly the
 observability gap `#35` is blocked on). `#35`/`#36` remain open, still
 owned by tree, not resolved by this entry.
-
 **#49 — Migrating a node from structure-only to override-aware ACTIVATES
 any pre-existing entry for that key in the override store**
-Recorded in `docs/session_journal.md` since 2026-08-27 (the incident
-write-up and the durable rule), with the migration mechanics in the Stage
-3 record in `docs/passive_tunables_spec.md`; missing from this ledger
-until now. NOTE for the log-parser session: the backfill order stated the
-prevention rule was recorded in `passive_tunables_spec.md` — it is not.
-That file carries the Stage 3 migration record only; the rule itself is
-in `session_journal.md`, quoted below, and this entry points there.
+The 2026-08-27 incident write-up is in `docs/session_journal.md` under
+the `DEPLOY-PASSIVE-TUNABLES-STAGE3` entry; the migration mechanics are
+in the Stage 3 record in `docs/passive_tunables_spec.md`. Missing from
+this ledger until backfilled 2026-08-28.
 
 When a passive node is migrated from rank-fed (structure-only)
 consumption onto a declared per-rank magnitude read through
-`magnitude_at_rank` →
-`passive_override_for`, the override store begins feeding it. An override
-written while that node was inert is stored silently and applied silently
-the moment the node goes live — no warning at write time, none at
-migration time, none at the swap.
+`magnitude_at_rank` → `passive_override_for`, the override store begins
+feeding it. An override written while that node was inert is stored
+silently and applied silently the moment the node goes live — no warning
+at write time, none at migration time, none at the swap.
 
 Three shipped this way on the 2026-08-27 passive-tunables stage 3 release:
 
@@ -192,15 +187,19 @@ because every migration test pins DEFAULTS and the live store is by
 definition not at defaults — which is exactly why a green suite and a
 byte-identical golden corpus both passed while three live values moved.
 
-**Prevention rule (already recorded, cross-referenced here):** the
-"Durable rule this earns" paragraph in `docs/session_journal.md` under
-the `DEPLOY-PASSIVE-TUNABLES-STAGE3` entry — *"behaviour-neutral at
-defaults" is NOT behaviour-neutral; any migration that moves a node from
-rank-fed to declared-magnitude must diff the LIVE override store against
-the migrated node list BEFORE the swap, not after.* The mechanics of the
-migration itself are recorded in the Stage 3 record in
-`docs/passive_tunables_spec.md`. Note for whoever automates this: the
-rule is procedural only — nothing in code or CI enforces it today.
+**Prevention rule — `docs/passive_tunables_spec.md`, "Required
+pre-migration step (2026-08-28, BINDING)".** That section is the
+authoritative copy; it was moved there from `docs/session_journal.md` on
+2026-08-28, on the reasoning that the journal is a narrative log while
+the spec is what a migration session is actually told to read. The
+journal keeps a one-line pointer, not a duplicate. The rule: *any
+migration moving a node from rank-fed consumption onto a declared
+per-rank magnitude MUST diff the LIVE override store against that
+batch's node list BEFORE the swap, not after; every key in both is a
+value about to change in production.* Nine nodes are still un-migrated
+(six on `PENDING_MIGRATION_NODES`, three on `PARTIALLY_TUNABLE_NODES`),
+so the rule is live, not historical. Note for whoever automates it:
+procedural only — nothing in code or CI enforces it today.
 
 Closed as an incident (remediated, store audited: the 33 remaining keys
 were intersected against the 25 migrated, intersection empty, so nothing
@@ -646,12 +645,37 @@ through the same warn/confirm path) rather than using Revert. A
 verification step having to route around a control to avoid destroying
 live data is the finding.
 
-Needs an owner ruling on the intended shape before any fix: a confirm
-prompt naming what will be lost, a "restore previous value" that keeps
-one step of history, or an accepted-as-is with the button relabelled to
-say "Reset to default" rather than "Revert". **Not to be fixed without
-that ruling** — Revert-to-default is a legitimate operation and may be
-exactly what is wanted; the defect is that the control does not say so.
+The question put to the owner was the intended shape: a confirm prompt
+naming what will be lost, a "restore previous value" keeping one step of
+history, or accepted-as-is with the control relabelled. Revert-to-default
+is a legitimate operation and may be exactly what is wanted; the defect
+is that the control does not say so. Answered below.
+
+**RULED 2026-08-28 (owner) — NOT FIXED.** The ruling, so the eventual fix
+is unambiguous:
+
+> **Revert is not to become an undo.** Dropping the override IS the
+> correct behaviour — it returns the node to its declared default. The
+> defect is the LABEL and the ABSENCE OF CONFIRMATION, nothing else.
+
+The fix, when scheduled:
+
+1. **Relabel** the control to state plainly that it clears the override
+   and returns the node to its default — not "Revert", which reads as
+   "undo my last change".
+2. **Require an explicit confirm** before acting, using the
+   warn-then-confirm pattern already shipped for above-1 fraction values
+   in `#46` (a warning naming what is about to happen, and a second POST
+   carrying `confirm=1`). Reuse that path rather than inventing a second
+   confirmation mechanism.
+
+**Explicitly ruled OUT: no value history, no restore-previous.** Do not
+add a prior-value store, an undo stack, or a "restore last value"
+control. The deletion semantics stay exactly as they are.
+
+Status: **RULED, not fixed.** Scope is a label and a confirm gate on
+`do_revert_passive_override` plus its page control; no change to what the
+handler does to the store.
 
 **#45 — `pending_veils` holds one entry per player; a second veiled
 craft silently orphans the first's spent token**
@@ -1322,7 +1346,7 @@ redeployed.
 Entered by the deploy session at merge of `feature/passive-tunables-stage2`
 (`9127fe0`) into master, base `879f586`.
 
-**What shipped:** tunable_audit.md �3 Groups B+C � 17 nodes moved off raw-
+**What shipped:** tunable_audit.md §3 Groups B+C — 17 nodes moved off raw-
 rank reads onto their own declared values (16 out of PENDING_MIGRATION_NODES,
 47 ? 31; Slayer `unrelenting`'s rank-3 bonus folded into a SpecialPerRank
 table, out of PARTIALLY_TUNABLE_NODES 7 ? 3), plus seven count nodes
@@ -1345,20 +1369,20 @@ current master (both files applied cleanly in `9127fe0`).
 `golden_corpus` passed clean inside the suite, nothing regenerated.
 
 **Verification:** full workspace suite on the merged state (`fb921b3`),
-isolated target dir `target-deploy-stage2` � `cargo test --release
+isolated target dir `target-deploy-stage2` — `cargo test --release
 --workspace --quiet --target-dir target-deploy-stage2`: 712 passed, 0
 failed across 24 suites, exit code 0 captured separately. Clippy exit 0,
 zero diagnostics on any touched file. Real-config smoke: fresh `game.exe`
 from the deploy build against copies of production's three live config
 files (`adventure-item-balance.toml`, `adventure-live-tunables.toml`,
 `adventure-passive-overrides.toml`) via `GAME_DATA_DIR`, isolated scratch
-dir + ports 4199/4198 + seeded admin session � `/passives` 200;
+dir + ports 4199/4198 + seeded admin session — `/passives` 200;
 `/admin/passives` renders (warrior default page; elementalist page shows
 the golemmaster/healingflames rows); a `bulwark` save POST round-tripped
 303 into the scratch overrides copy with tuned badge + Revert offered;
 production TOMLs never touched (no tunable value changed).
 
-**Bot redeploy determination: diff-clean** � `git diff --name-only
+**Bot redeploy determination: diff-clean** — `git diff --name-only
 879f586..9127fe0` touches only `game/**` plus docs/`WIKI_IMPACT.md`;
 nothing under `src/**` or root `Cargo.toml`/`Cargo.lock`. Bot: unchanged,
 not redeployed (diff-clean).
@@ -1370,9 +1394,9 @@ GameProcess-Watchdog task root) BEFORE the stop; `Stop-ScheduledTask`; port
 aside AND copied into `backup-pre-passive-tunables-stage2/` with the pinned
 200-file `adventure-fights-summary` snapshot; new binary SHA-256
 `5361D4AD714742D3156C002996492026FB1EF404EAED19FF4DDD0EB5895C360F` copied
-in; task restarted, `LastTaskResult` `267009` (running � see the Divinity
+in; task restarted, `LastTaskResult` `267009` (running — see the Divinity
 record's step-6 note), `/passives` and `/` both HTTP 200; flag CLEARED
-after the health check. Downtime � stop-to-start window only.
+after the health check. Downtime ˜ stop-to-start window only.
 
 ## Deploy record — 2026-08-27, passive-tunables stage 3 (`7ddfd8d`) — BACKFILLED
 

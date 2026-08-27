@@ -117,10 +117,10 @@ all three to declared defaults (which reproduce the old call-site values
 bit-exact), confirmed back at pre-swap values. Live for roughly twenty
 minutes across ~20 boss fights.
 
-**Durable rule this earns:** "behaviour-neutral at defaults" is NOT
-behaviour-neutral. Any migration that moves a node from rank-fed to
-declared-magnitude must diff the LIVE override store against the migrated
-node list BEFORE the swap, not after. A green suite cannot see this.
+**Durable rule this earns:** MOVED (2026-08-28) to
+`docs/passive_tunables_spec.md`, "Required pre-migration step
+(2026-08-28, BINDING)" — the authoritative copy, kept there because that
+is the file a migration session is told to read. Ledger `#49`.
 
 Store audit (ordered follow-up): the 33 remaining keys were checked
 against the 25 migrated — intersection empty, so nothing else was

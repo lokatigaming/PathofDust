@@ -199,6 +199,49 @@ Decision 5.
 balancing appetite. Approved risk order: Druid, Paladin, Warlock → Monk,
 Ranger, Mage → Rogue, Slayer, Warrior, Cleric → Berserker last.
 
+## Required pre-migration step (2026-08-28, BINDING)
+
+Moved here from `docs/session_journal.md`, where it was earned by the
+Stage 3 incident (2026-08-27) and where a migration session would never
+have looked for it. This is the authoritative copy; the journal keeps a
+pointer only.
+
+> **"Behaviour-neutral at defaults" is NOT behaviour-neutral.** Any
+> migration that moves a node from rank-fed (structure-only) consumption
+> onto a declared per-rank magnitude MUST diff the LIVE override store
+> against that batch's migrated node list BEFORE the swap, not after.
+> Every key present in both is a value that is about to change in
+> production. Resolve each one — revert it to the declared default, or
+> get an explicit owner ruling to let it stand — before the binary goes
+> out.
+
+**Why a green suite cannot stand in for this.** Migration makes BOTH
+halves of a node live at once: its declaration AND whatever
+`adventure-passive-overrides.toml` already holds for that key. An
+override written while the node was inert was stored silently and is
+applied silently the moment the node begins reading the store. Every
+migration test pins DEFAULTS, and the live store is by definition not at
+defaults, so the suite is structurally blind to it — as is the golden
+corpus, whose scenarios never allocate passives. On 2026-08-27 that blind
+spot shipped three changed values (`chakraoflife`, `unyieldingspirit`,
+`shattering`) to 14 players for roughly 20 minutes behind a fully green
+suite and a byte-identical corpus. See ledger `#49`.
+
+**The check is one command against the live file, and it is cheap:**
+intersect the batch's node list with the `[nodes]` keys in the
+deployment's `adventure-passive-overrides.toml`. It costs seconds and it
+is the ONLY thing that catches this class.
+
+**Still applies to every remaining batch.** Nine nodes are still
+un-migrated — six on `PENDING_MIGRATION_NODES` (`clarity`, `deathwish`,
+`lastlaugh`, `neverending`, `reckless`, `sanctifiedtouch`) and three on
+`PARTIALLY_TUNABLE_NODES` whose secondary aspect still reads node rank.
+A key can be sitting in the store for any of them right now.
+
+Nothing in code or CI enforces this today; it is a procedural rule, which
+is exactly why it belongs in the file a migration session is told to
+read.
+
 ## Verification
 
 - `cargo build --release --workspace --target-dir target-tunables`
