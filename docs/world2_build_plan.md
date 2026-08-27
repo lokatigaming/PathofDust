@@ -72,7 +72,7 @@ Second constraint: **identity comes before any removal.** Removing Twitch OAuth 
 
 Each stage is independently shippable and independently testable. Each gets its own worktree, its own session, and its own deploy.
 
-### Stage 1 — Local identity *(in flight: `feature/local-identity`)*
+### Stage 1 — Local identity ✅ **SHIPPED 2026-08-27** (`3ef0651`, binary `71F52483…`)
 
 Give the game its own session minter. Username and password, argon2id, minimal.
 
@@ -84,9 +84,16 @@ The removal-scope audit established this is far cheaper than assumed: nine exist
 
 **Seam:** keep minting behind one thin function so an external identity provider — the Kibukah app — can mint sessions later without touching login internals. One function. No trait hierarchy.
 
-### Stage 2 — Replace what chat provides
+### Stage 2 — Replace what chat provides ✅ **SHIPPED 2026-08-28** (`ac5573a` + `f5c38f8`, binary `B8D9B459…`)
 
-Five capabilities have no web equivalent today. Rulings on each:
+Shipped: the announcement feed (tee into an in-memory ring, cap 50, pushed over the existing `/ws`, server-rendered card on the dashboard, 1s–30s reconnect backoff) and `POST /admin/ops/next-encounter` with a boss select, guarded by an `operator_action_gate` try-lock plus a `fight_in_progress` refusal. Twitch chat verified still receiving announcements — the tee did not become a reroute.
+
+**Two items shrank on contact with the code:**
+
+- **Rampage needed no work.** `LiveTunables::permanent_rampage` already existed and already rendered as a checkbox. The bot's `!rampage` drives a *different* variable (`rampage_remaining`), which becomes unreachable once its producers are deleted in Stage 3.
+- **Force Boss was cut, not built.** As an operator control it is a strictly worse `next_encounter` — identical effect plus a 2-per-cycle cap. Its only meaningful form is a player-facing dust-priced purchase, which is new economy design, not a chat replacement. Deferred to the content work by owner ruling.
+
+Original rulings, for the record:
 
 | Capability | Ruling |
 |---|---|
@@ -104,6 +111,13 @@ All three player-facing chat commands already have web equivalents. Every remain
 58 deletion targets across game crate, bot crate, deployment-root data files and `.env` keys. Two Cargo dependencies fall out: `url` deleted, `reqwest` demoted to dev-dependency.
 
 **At cutover, invalidate every existing session.** Deliberately. See section 6.
+
+**Split into 3a and 3b.** The operator-lockout gate below is too important to sit inside a large removal branch, so it ships first, on its own:
+
+- **Stage 3a — operator identity.** Make the three operator logins configurable rather than hardcoded constants, defaulting to today's value so nothing changes on deploy. Owner registers a local account. Point the config at it. Verify `/admin/tunables` loads under that account *while Twitch still works*. Additive, independently shippable, reversible.
+- **Stage 3b — the removal.** 58 deletion targets. Cannot start until 3a is verified live.
+
+Making the logins configuration rather than constants also means the operator account can change later without a rebuild and a swap window.
 
 #### HARD GATE — operator lockout
 
@@ -192,6 +206,12 @@ Typing `45` meaning 45% persists an always-true threshold, silently. *Mitigation
 **No login rate limiting — accepted.**
 Registration is open and there is no throttling on login attempts beyond what the site already has. Cloudflare fronts the origin and provides some bot protection. Accepted deliberately for now; revisit if abuse appears.
 
+**`/admin/passives` Revert deletes rather than restores.**
+The Revert control drops the override entirely instead of returning it to a prior value, so using it on a deliberately tuned node destroys the tuning with no undo. Same silent-destruction class as the save-path defects fixed in `fix/passive-override-units`. Found during the 2026-08-27 deploy verification. Recorded, not scheduled.
+
+**Account file could be wiped to a valid empty `{}`.**
+Backup shape validation accepts `{}` as legitimate (a game with no accounts yet), so a logic bug wiping the file would verify clean and prune normally — collapsing the safety margin from 30 days to 24 hours. The 30-day earliest-of-day retention still saves you. The guard would be a count-regression check. `adventure-characters.json` has identical exposure. Recorded, not scheduled.
+
 **Stale overrides activating on migration.**
 Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. Any node moving from structure-only to override-aware activates whatever sits in `adventure-passive-overrides.toml` for that key. *Mitigation:* the pre-migration check now recorded in `docs/passive_tunables_spec.md`.
 
@@ -203,6 +223,6 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
 
 ### Parked for discussion, not blocking
 
-- **Ledger `#46`** — damage dealt by environmental sources (water golems, hazards) is credited to no player, so any ranking or judgement derived from the damage leaderboard is unreliable. Owner to be briefed; no action scheduled.
+- **Environmental-tagged damage and attribution** — *corrected 2026-08-27: this was previously cited here as "ledger #46". No such entry exists; that citation was carried forward from a stale summary and was wrong.* What the ledger does record is that Holy Fire carries `sourceKind: "environmental"`, which by construction excludes it from Doom accumulation — logged as an evidentiary gap shared with `#29` (Shattering). Whether environmental-tagged damage is also invisible to player attribution and therefore skews the damage leaderboard is **an open question, not an established finding**. Verify against the code before acting on it or citing it.
 - **JSON → SQLite** — considered 2026-08-27, **deferred deliberately.** Real wins: partial writes (today one character save rewrites all 4.1 MB), WAL transactions replacing the hand-rolled atomic save, single-file backup, and queryable leaderboards. If done, the cheap shape is **SQLite with JSON blob columns** — one row per character, serde structs unchanged — not a relational schema. Not during World 2: no stage requires it, and changing persistence during a platform migration makes any data loss impossible to attribute. "Fresh characters makes it free" is misleading — that removes the migration, not the call-site refactor. **Trigger to revisit:** measure how often the full-file rewrite fires; if it is per-fight, that is ~5.8 GB/day of writes today and scales linearly with player count. Also revisit when a leaderboard query is wanted that cannot afford to load everything (see `#46`).
 - **Golden fixture `hitId`/`eventId` churn** — regeneration rewrites most fixtures with no semantic change, so every deploy produces diff noise that will eventually stop being read. Owner to be briefed; no action scheduled.
