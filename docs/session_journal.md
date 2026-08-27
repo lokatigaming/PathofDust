@@ -173,3 +173,35 @@ echo, chainshot — all `1.0/2.0/3.0`-shaped ladders that are legitimately
 over 100%), so re-saving one of those rows now warns and asks for an
 explicit confirm rather than refusing it. vampiricfrenzy's rank-3 `0.9`
 sits exactly on the clamp ceiling its consumer applies, and is accepted.
+
+## 2026-08-28 — STAGE2-OPERATOR-LEVERS (feature/operator-levers)
+
+Added one web operator control, `POST /admin/ops/next-encounter`, with
+the boss select. Two of the three ordered capabilities were cut on owner
+rulings after the fit report: Permanent Rampage already existed as a
+`/admin/tunables` checkbox, and Force Boss is a strictly worse
+next_encounter as an operator control (deferred to content work as the
+player-facing dust-priced version).
+
+FOUND: the existing admin POST routes (`/admin/tunables/save`,
+`/admin/passives/save`, `/admin/passives/revert`) answer a non-admin
+submission with a bare redirect and no status code — indistinguishable
+from success. Open ledger finding, not fixed here; the new ops route
+deliberately does not copy the pattern.
+
+FOUND: `LiveTunables::permanent_rampage`'s doc comment (tunables.rs:213-215)
+says `rampage_remaining` is "in-memory-only/cleared by a restart". That
+stopped being true on 2026-08-17 when `persist_rampage_remaining` /
+`RAMPAGE_STATE_PATH` landed; manager.rs:1749 states the corrected
+behavior. Stale doc only, no behavior involved.
+
+FOUND (for the removal stage): once the bot's `!rampage` command and the
+player 3-vote are deleted, nothing can set `rampage_remaining`. Deletion
+candidates at that point: `rampage_remaining`, `rampage_notify`,
+`rampage_votes`, `RAMPAGE_VOTE_THRESHOLD`, `RAMPAGE_ENCOUNTER_COUNT`,
+`RampageVoteOutcome`, `start_rampage`, `register_rampage_vote`,
+`persist_rampage_remaining`, `RAMPAGE_STATE_PATH` /
+`adventure-rampage-state.json` (and its `backup-game-data.ps1` entry),
+the countdown branch of `spawn_rampage_loop`, and
+`announce_rampage_complete`. `permanent_rampage` becomes the only
+rampage state, and `rampage_active()` collapses to reading it.
