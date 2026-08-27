@@ -42,6 +42,32 @@ pub enum TriggerEncounterOutcome {
     UnknownBoss,
 }
 
+/// What `AdventureManager::operator_trigger_encounter` handed back - the
+/// web operator control turns each into a visible outcome with its own
+/// HTTP status (2026-08-28). Deliberately a SUPERSET of
+/// `TriggerEncounterOutcome` rather than a reuse of it: the two refusals
+/// the web control adds (`Busy`, `FightInProgress`) have no chat-command
+/// equivalent, because `!nextencounter` has natural typing friction and a
+/// button does not. Every variant is reported to the operator; nothing
+/// here is ever swallowed into a bare redirect.
+pub enum OperatorTriggerOutcome {
+    /// The fight actually ran.
+    Triggered,
+    /// Another operator action was already running - this one did NOT
+    /// queue behind it. See `AdventureManager::operator_action_gate`.
+    Busy,
+    /// A fight was already in flight (from any source - the automatic
+    /// loops, a rampage, or the bot), so the trigger would have queued
+    /// rather than happened now. Refused instead.
+    FightInProgress,
+    /// Nobody was eligible to fight.
+    NobodyJoined,
+    /// The boss select carried a name `BossKind::parse_forced` does not
+    /// recognize - only reachable via a hand-crafted POST, since the page
+    /// renders `BossKind::FORCED_CHOICES`.
+    UnknownBoss,
+}
+
 /// `run_encounter`'s forced-boss parameter - two different "someone
 /// deliberately picked the boss(es)" shapes, see each variant's own doc.
 /// `None` (not a variant here) is the normal/natural roll, unaffected by
@@ -1741,6 +1767,18 @@ pub struct AdventureManager {
     /// per-use timer - purely in-memory, same "a restart just clears it"
     /// tradeoff as `reforge_cooldown`'s in-memory half.
     forced_boss_count: Mutex<u32>,
+    /// Serializes OPERATOR-initiated triggers from the web only
+    /// (2026-08-28, `/admin/ops/next-encounter`) - `try_lock`ed, never
+    /// awaited, and held for the whole call. `run_encounter`'s own
+    /// `fight_gate` already makes overlapping fights impossible, so this
+    /// is not a correctness guard for combat; it exists because that gate
+    /// QUEUES rather than refuses, and a button double-clicked by an
+    /// impatient operator would otherwise buy N sequential fights against
+    /// a live party instead of one. A failed `try_lock` is reported back
+    /// to the operator as a refusal with its reason, never swallowed.
+    /// Deliberately NOT taken by the bot's `/api/*` handlers - those keep
+    /// their exact existing behavior.
+    operator_action_gate: Mutex<()>,
     /// !rampage (mod tool, 2026-08-16) - how many more encounters should
     /// be forced to be BOSS fights, counting down by 1 on every encounter
     /// (regardless of source) while active - see `spawn_rampage_loop`/
@@ -2128,6 +2166,7 @@ impl AdventureManager {
             pending_veils: Mutex::new(HashMap::new()),
             pending_passive_previews: Mutex::new(HashMap::new()),
             forced_boss_count: Mutex::new(0),
+            operator_action_gate: Mutex::new(()),
             rampage_remaining: Mutex::new(rampage_remaining),
             rampage_notify: Notify::new(),
             rampage_votes: Mutex::new(std::collections::HashSet::new()),
@@ -4595,6 +4634,44 @@ impl AdventureManager {
         }
     }
 
+    /// The web operator control behind `/admin/ops/next-encounter`
+    /// (2026-08-28) - the same action `!nextencounter` performs, with the
+    /// two refusals a button needs and a chat command does not.
+    ///
+    /// `trigger_encounter_now` is left EXACTLY as it was and is still what
+    /// the bot seam calls; this wraps it rather than replacing it, so the
+    /// bot path keeps its existing queue-behind-the-gate behavior
+    /// unchanged. The wrapping is two checks, in this order:
+    ///
+    /// 1. `operator_action_gate.try_lock()` - refuses a second OPERATOR
+    ///    trigger outright instead of queueing it. Held for the whole
+    ///    call, so the window covers the fight itself, not just the check.
+    /// 2. `fight_in_progress()` - refuses when any OTHER source (the
+    ///    automatic loops, a rampage, the bot) already holds `fight_gate`,
+    ///    since `run_encounter` would otherwise sleep on that lock and
+    ///    silently run a bonus fight some minutes later.
+    ///
+    /// Check 1 is the one that actually closes the double-click hazard:
+    /// it is a `try_lock`, so there is no window between "is anything
+    /// running" and "start running" for a second click to slip through.
+    /// Check 2 is racy by construction (a fight can start the instant
+    /// after it reads false) and is NOT relied on for correctness -
+    /// `fight_gate` still serializes that case exactly as it always has.
+    /// It is here so the common case reports honestly instead of hanging.
+    pub async fn operator_trigger_encounter(self: &Arc<Self>, forced: Option<&str>) -> OperatorTriggerOutcome {
+        let Ok(_guard) = self.operator_action_gate.try_lock() else {
+            return OperatorTriggerOutcome::Busy;
+        };
+        if self.fight_in_progress().await {
+            return OperatorTriggerOutcome::FightInProgress;
+        }
+        match self.trigger_encounter_now(forced).await {
+            TriggerEncounterOutcome::Triggered => OperatorTriggerOutcome::Triggered,
+            TriggerEncounterOutcome::NobodyJoined => OperatorTriggerOutcome::NobodyJoined,
+            TriggerEncounterOutcome::UnknownBoss => OperatorTriggerOutcome::UnknownBoss,
+        }
+    }
+
     /// !nextencounter (mod tool) — runs one encounter right now instead
     /// of waiting for the timer, for testing/streamer pacing control.
     /// `forced` is the command's optional boss-name argument (2026-08-15,
@@ -5812,6 +5889,26 @@ impl BossKind {
         }
         picked
     }
+
+    /// The operator select on `/admin/tunables` (2026-08-28), as
+    /// (POST value, label) pairs. Every value here MUST round-trip
+    /// through `parse_forced` - see this type's own unit test. The extra
+    /// ALIASES that command accepts ("demon", "fire", "gelatinouscube")
+    /// are deliberately absent: they are chat-typing shortcuts, not
+    /// distinct choices, and a select with two entries that do the same
+    /// thing is a worse control. `bahamut`/`purple` DO earn their own
+    /// entries - they pick a different look, which "dragon" alone leaves
+    /// to a coin flip. Kept beside `parse_forced` so the two are read and
+    /// changed together.
+    pub const FORCED_CHOICES: &[(&str, &str)] = &[
+        ("lich", "The Lich"),
+        ("firedemon", "The Fire Demon"),
+        ("cthulhu", "Cthulhu"),
+        ("dragon", "The Dragon (either look)"),
+        ("bahamut", "The Dragon (Bahamut)"),
+        ("purple", "The Dragon (purple)"),
+        ("cube", "The Gelatinous Cube"),
+    ];
 
     /// !nextencounter's optional boss-name argument (2026-08-15) - `None`
     /// means "no argument, normal random pick" (the caller never calls
@@ -8522,5 +8619,36 @@ mod divinity_manager_tests {
         let err = manager.apply_divinity("ghost").await.expect_err("never joined");
         assert_eq!(err, DivinityError::NotJoined);
         std::fs::remove_dir_all(&scratch).ok();
+    }
+}
+
+#[cfg(test)]
+mod operator_boss_select_tests {
+    use super::*;
+
+    /// The select on `/admin/tunables` is rendered straight from
+    /// `FORCED_CHOICES`, and `operator_trigger_encounter` hands whatever
+    /// it POSTs to `parse_forced`. A value in one list that the other
+    /// does not know is an `UnknownBoss` refusal on a control the page
+    /// itself offered - so the two are pinned together here rather than
+    /// by convention.
+    #[test]
+    fn every_rendered_boss_choice_parses() {
+        for (value, label) in BossKind::FORCED_CHOICES {
+            assert!(BossKind::parse_forced(value).is_some(), "the operator select offers {value:?} ({label}), which parse_forced does not recognize");
+        }
+    }
+
+    /// The two Dragon looks are the only reason `bahamut`/`purple` are
+    /// separate entries at all - if they ever stopped forcing a sprite,
+    /// they would be duplicates of `dragon` and should come off the list.
+    #[test]
+    fn the_two_dragon_looks_actually_force_a_sprite() {
+        for value in ["bahamut", "purple"] {
+            let (kind, sprite) = BossKind::parse_forced(value).expect("a rendered choice must parse");
+            assert!(matches!(kind, BossKind::Dragon), "{value} must be a Dragon");
+            assert!(sprite.is_some(), "{value} exists as its own choice only because it pins the look");
+        }
+        assert!(BossKind::parse_forced("dragon").expect("a rendered choice must parse").1.is_none(), "plain dragon must leave the look to the coin flip");
     }
 }
