@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::WebSocketUpgrade;
@@ -2275,18 +2275,44 @@ async fn character_passives_readonly(State(state): State<AppState>, headers: Hea
     Html(render_page(&body))
 }
 
+/// The login every operator gate falls back to when `OPERATOR_LOGIN` is
+/// unset - the value all three constants below were hardcoded to before
+/// they became configurable (2026-08-28). An unset environment therefore
+/// leaves every gate behaving exactly as it did before that change.
+const DEFAULT_OPERATOR_LOGIN: &str = "lokati_gaming";
+
+/// The one `.env` key behind all three operator gates below. ONE key
+/// rather than three because a typo in one of three would leave the
+/// operator holding some admin surfaces and locked out of the rest - the
+/// exact half-lockout World 2's Stage 3 gate exists to prevent
+/// (docs/world2_build_plan.md, "HARD GATE - operator lockout"). The three
+/// constants stay separate, so pointing one gate somewhere else later is
+/// still a two-line change here.
+///
+/// Read through `dotenvy` like `GAME_DATA_DIR` and `ADVENTURE_API_SECRET`
+/// (see main.rs) - `main.rs`'s own `env_var` helper lives in the binary,
+/// not this library, hence the local copy. Lowercased on the way in: every
+/// gate compares against a session login, which is always lowercase.
+///
+/// Note this does NOT free `lokati_gaming` for registration when it points
+/// elsewhere - that name is permanently reserved in accounts.rs, on its own,
+/// independent of this key.
+fn operator_login_from_env() -> String {
+    std::env::var("OPERATOR_LOGIN").ok().map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty()).unwrap_or_else(|| DEFAULT_OPERATOR_LOGIN.to_string())
+}
+
 /// The streamer's own login still gets the full, unfiltered fight-history
 /// list (see `fights_for_viewer`) - everything today's `/admin/tunables`-
 /// style balance tuning is built around. Everyone else (2026-08-17, opened
 /// up from a single-account-only page) sees the same page, scoped to just
 /// the fights they personally took part in.
-const FIGHTS_PAGE_LOGIN: &str = "lokati_gaming";
+static FIGHTS_PAGE_LOGIN: LazyLock<String> = LazyLock::new(operator_login_from_env);
 
 /// Operator tier for replay bundles. Its own constant rather than a reuse
 /// of `FIGHTS_PAGE_LOGIN`/`ADMIN_TUNABLES_LOGIN`, following the precedent
 /// those two set: same value today, but this one governs full roll logs
 /// and must not silently follow a change made for an unrelated page.
-const BUNDLE_OPERATOR_LOGIN: &str = "lokati_gaming";
+static BUNDLE_OPERATOR_LOGIN: LazyLock<String> = LazyLock::new(operator_login_from_env);
 
 /// Which tier a caller reads THIS fight at.
 ///
@@ -2296,7 +2322,7 @@ const BUNDLE_OPERATOR_LOGIN: &str = "lokati_gaming";
 /// lowercased Twitch login.
 fn caller_tier_for(login: Option<&str>, participants: &[String]) -> crate::adventure::replay_bundle::Tier {
     match login {
-        Some(login) if login.eq_ignore_ascii_case(BUNDLE_OPERATOR_LOGIN) => crate::adventure::replay_bundle::Tier::Operator,
+        Some(login) if login.eq_ignore_ascii_case(BUNDLE_OPERATOR_LOGIN.as_str()) => crate::adventure::replay_bundle::Tier::Operator,
         Some(login) if participants.iter().any(|p| p.eq_ignore_ascii_case(login)) => {
             crate::adventure::replay_bundle::Tier::Participant
         }
@@ -2376,7 +2402,7 @@ struct FightsPageParams {
 /// overall happened to include them."
 fn fight_summaries_for_viewer(login: &str, requested_limit: usize) -> Vec<FightSummarySnapshot> {
     let limit = requested_limit.clamp(1, SUMMARY_FIGHTS_CAPACITY);
-    if login == FIGHTS_PAGE_LOGIN {
+    if login == *FIGHTS_PAGE_LOGIN {
         recent_summary_fights(limit)
     } else {
         recent_summary_fights(SUMMARY_FIGHTS_CAPACITY).into_iter().filter(|s| s.players.iter().any(|p| p.id == login)).take(limit).collect()
@@ -2389,7 +2415,7 @@ async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(pa
         None => render_logged_out(),
         Some((login, _)) => {
             let viewer = state.adventure.character(&login).await;
-            let is_streamer = login == FIGHTS_PAGE_LOGIN;
+            let is_streamer = login == *FIGHTS_PAGE_LOGIN;
             let limit = params.limit.unwrap_or(FIGHTS_PAGE_DISPLAY_LIMIT);
             // recent_summary_fights()'s per-fight-file read is real,
             // synchronous disk I/O (see its doc) - offloaded so it can't
@@ -2429,7 +2455,7 @@ async fn fights_json(State(state): State<AppState>, headers: HeaderMap, Query(pa
 /// hinted at) - same login as `FIGHTS_PAGE_LOGIN`, kept as its own
 /// constant rather than reused directly so this page's access isn't
 /// accidentally coupled to a future change made for that unrelated page.
-const ADMIN_TUNABLES_LOGIN: &str = "lokati_gaming";
+static ADMIN_TUNABLES_LOGIN: LazyLock<String> = LazyLock::new(operator_login_from_env);
 
 #[derive(Deserialize)]
 struct AdminTunablesParams {
@@ -2458,7 +2484,7 @@ struct AdminPassivesParams {
 async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminPassivesParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
+        Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
             render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), state.adventure.live_tunables().overflow_conversion_cap_per_rank, None)
         }
@@ -2754,7 +2780,7 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
     let Some((login, _)) = current_session(&headers, &state).await else {
         return redirect();
     };
-    if login != ADMIN_TUNABLES_LOGIN {
+    if login != *ADMIN_TUNABLES_LOGIN {
         return redirect();
     }
     // Reject a key that isn't in the class being edited - the page never
@@ -2836,7 +2862,7 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
 async fn do_revert_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveRevertForm>) -> impl IntoResponse {
     let slug = format!("{:?}", form.class).to_lowercase();
     if let Some((login, _)) = current_session(&headers, &state).await {
-        if login == ADMIN_TUNABLES_LOGIN {
+        if login == *ADMIN_TUNABLES_LOGIN {
             let mut overrides = passive_overrides();
             overrides.revert(&form.node_key);
             if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
@@ -2885,7 +2911,7 @@ fn ops_result(status: StatusCode, heading: &str, detail: &str) -> axum::response
 }
 
 async fn do_ops_next_encounter(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<OpsNextEncounterForm>) -> axum::response::Response {
-    let is_admin = matches!(current_session(&headers, &state).await, Some((login, _)) if login == ADMIN_TUNABLES_LOGIN);
+    let is_admin = matches!(current_session(&headers, &state).await, Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN);
     if !is_admin {
         return ops_result(
             StatusCode::FORBIDDEN,
@@ -2931,7 +2957,7 @@ async fn do_ops_next_encounter(State(state): State<AppState>, headers: HeaderMap
 async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminTunablesParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
+        Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
             let current_pacing = state.adventure.current_pacing_status().await;
             render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some())
@@ -3124,7 +3150,7 @@ fn parse_csv_f64_list(raw: &str) -> Vec<f64> {
 
 async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TunablesForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
-        if login == ADMIN_TUNABLES_LOGIN {
+        if login == *ADMIN_TUNABLES_LOGIN {
             // The retired `dynamic_scaling_mult` field is no longer on the
             // form - preserve whatever value is already live/on file so a
             // save never rewrites it to anything else.
