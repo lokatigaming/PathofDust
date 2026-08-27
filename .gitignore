@@ -228,3 +228,7 @@ target-stage3/
 # every backup-pre-* above.
 /backup-pre-passive-tunables-stage3
 /backup-pre-identity-units
+
+# Rollback copy of the pre-World-2-Stage-2 game.exe (announcement feed +
+# operator levers), plus that deploy's pinned fight-summary snapshot.
+/backup-pre-world2-stage2
