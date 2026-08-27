@@ -222,3 +222,8 @@ backup-pre-pacing-controller-loop/
 # Stage 3 passive-tunables feature session's own --target-dir (house rule:
 # one per feature worktree, production binaries are file-locked).
 target-stage3/
+
+# Rollback copy of the pre-Stage-3 game.exe (plus that deploy's pinned
+# fight-summary snapshot), same "backup before overwrite" discipline as
+# every backup-pre-* above.
+/backup-pre-passive-tunables-stage3
