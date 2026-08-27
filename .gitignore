@@ -227,3 +227,4 @@ target-stage3/
 # fight-summary snapshot), same "backup before overwrite" discipline as
 # every backup-pre-* above.
 /backup-pre-passive-tunables-stage3
+/backup-pre-identity-units
