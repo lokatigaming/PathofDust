@@ -104,6 +104,7 @@ $CoreFiles = @(
     'adventure-reforge-cooldown.json'  # main.rs:124 -> manager.rs:1787 (data_path)
     'adventure-rampage-state.json'     # manager.rs:206  RAMPAGE_STATE_PATH
     'adventure-sessions.json'          # main.rs:165 -> adventure_web.rs:92/140 (CWD, NOT data_path)
+    'adventure-accounts.json'          # adventure_web/accounts.rs:37 accounts_path (sibling of sessions; CWD, NOT data_path)
     'adventure-live-tunables.toml'     # tunables.rs:526 TUNABLES_PATH
     'adventure-passive-overrides.toml' # passive_overrides.rs:45 PASSIVE_OVERRIDES_PATH
     'adventure-item-balance.toml'      # balance.rs:54 ITEM_BALANCE_PATH
@@ -330,9 +331,50 @@ function Test-DataFile {
     }
 
     try {
-        $null = $text | ConvertFrom-Json -ErrorAction Stop
+        $parsed = $text | ConvertFrom-Json -ErrorAction Stop
     } catch {
         $result.Reason = "JSON parse failed: $($_.Exception.Message)"
+        return $result
+    }
+
+    if ([IO.Path]::GetFileName($Path) -eq 'adventure-accounts.json') {
+        # The ONE name-specific arm, and it earns the exception: local
+        # accounts are the only file in the manifest that cannot be
+        # reconstructed from anything else. Characters can be replayed
+        # from an older snapshot, sessions can be re-minted by logging in
+        # again - a lost password hash has no external identity provider
+        # to re-authenticate against, so the account is simply gone.
+        #
+        # INTEGRITY CHECK, NOT A SECURITY CHECK, same honesty as the TOML
+        # arm above: it asserts the shape accounts.rs writes (an object of
+        # login -> { username, password_hash, created_at }, hashes in PHC
+        # format) so a structurally-valid but credential-empty backup is
+        # refused rather than verified. It does not and cannot judge
+        # whether a hash is the right one.
+        #
+        # An empty object passes deliberately: `{}` is the legitimate
+        # state of the store after the game has written it but before
+        # anyone has registered. A file that does not exist at all - the
+        # state before the FIRST registration - never reaches here;
+        # `Add-OneFile` and the dry run both skip an absent source, the
+        # same as every other legitimately-absent manifest entry.
+        if ($null -eq $parsed -or $parsed -isnot [psobject]) {
+            $result.Reason = 'accounts shape check failed: not a JSON object'
+            return $result
+        }
+        foreach ($prop in $parsed.PSObject.Properties) {
+            $hash = $prop.Value.password_hash
+            if ([string]::IsNullOrWhiteSpace($hash)) {
+                $result.Reason = "accounts shape check failed: '$($prop.Name)' has no password_hash"
+                return $result
+            }
+            if (-not $hash.StartsWith('$argon2')) {
+                $result.Reason = "accounts shape check failed: '$($prop.Name)' has a non-argon2 password_hash"
+                return $result
+            }
+        }
+        $result.Ok = $true
+        $result.Reason = "json ok (accounts shape ok, $(@($parsed.PSObject.Properties).Count) account(s))"
         return $result
     }
 

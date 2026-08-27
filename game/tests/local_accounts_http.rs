@@ -144,6 +144,14 @@ async fn local_accounts_mint_sessions_and_refuse_to_collide_with_existing_identi
     assert!(reserved.text().await.expect("body").contains("reserved"));
     assert!(!accounts_path.exists(), "still nothing registered");
 
+    // --- the password minimum -----------------------------------------
+    let short = post_form("/account/register", "shortpw_user".to_string(), "hunter7".to_string()).await;
+    assert_eq!(short.status(), reqwest::StatusCode::BAD_REQUEST, "a 7-character password must be refused (the minimum is 8)");
+    let short_body = short.text().await.expect("body");
+    assert!(short_body.contains("at least 8 characters"), "and must say so inline on the form, got: {short_body}");
+    assert!(short_body.contains("action=\"/account/register\""), "the error is rendered on the register form itself");
+    assert!(!accounts_path.exists(), "a refused registration must not create an account store");
+
     // --- registration -------------------------------------------------
     let registered = post_form("/account/register", "NewPlayer1".to_string(), PASSWORD.to_string()).await;
     assert_eq!(registered.status(), reqwest::StatusCode::FOUND, "a valid registration redirects home with a session");
