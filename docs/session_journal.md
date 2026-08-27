@@ -75,3 +75,74 @@ Golden fixtures untouched and unregenerated.
 
 Commits: 86fb5b0 (migration), ad3f026 (lists + tests), plus this docs
 commit.
+
+
+## DEPLOY-PASSIVE-TUNABLES-STAGE3 (2026-08-27) — shipped, with one live incident caught and reverted
+
+Merge `7ddfd8d` (`feature/passive-tunables-stage3` → master), gitignore
+commit `23e2b32`, pushed. Binary swapped per §13 4a: live
+`5361D4AD…` → `5F3B595A…`. Rollback at
+`backup-pre-passive-tunables-stage3/` (old game.exe + 200-file pinned
+fight-summary snapshot) and `target/release/game.exe.pre-passive-tunables-stage3`.
+Bot diff-clean, not redeployed. Maintenance flag set before the stop and
+cleared after the health check; downtime a few seconds.
+
+Verification: `cargo test --release --workspace --quiet --target-dir
+target-deploy-stage3` → 716 passed, 0 failed (exit 0). Clippy exit 0, no
+new warnings on touched lines (blame confirms the doc-indentation hits
+pre-date this branch). Golden corpus REGENERATED at merge per house rule:
+14 of 17 fixtures rewrote, but the only changed keys across all of them
+were `hitId`/`eventId` (20008 + 17118 occurrences, zero combat values) —
+process-global counters that `approx_eq` skips by design, low here only
+because a filtered single-test run restarts them. Committed fixtures
+restored; no semantic diff.
+
+**INCIDENT — three stale overrides went live at the swap.** Stage 3
+switched 25 nodes from reading rank to reading their declared magnitude,
+which means the override store now feeds them. Three keys had sat inert
+in `adventure-passive-overrides.toml` (all three were on the OLD pending
+list, so the page never offered them — generic seed values, not owner
+tuning) and activated the moment the binary swapped:
+
+| node | pre-swap | went live as | players affected |
+| --- | --- | --- | --- |
+| chakraoflife | 1000/2000/3000 ms | 330/660/1000 ms (~3x nerf) | 4 monks |
+| unyieldingspirit | 0.35/0.45/0.55 | 0.33/0.66/1.0 (r3 always-on) | 8 monks |
+| shattering | 1/2/3 targets | 2/4/6 targets (2x) | 2 elementalists |
+
+The suite stayed green because every migration test pins DEFAULTS, and
+the live store is not at defaults. Caught post-deploy by the
+`current ≠ default` columns on `/admin/passives`. Remediated by reverting
+all three to declared defaults (which reproduce the old call-site values
+bit-exact), confirmed back at pre-swap values. Live for roughly twenty
+minutes across ~20 boss fights.
+
+**Durable rule this earns:** "behaviour-neutral at defaults" is NOT
+behaviour-neutral. Any migration that moves a node from rank-fed to
+declared-magnitude must diff the LIVE override store against the migrated
+node list BEFORE the swap, not after. A green suite cannot see this.
+
+Store audit (ordered follow-up): the 33 remaining keys were checked
+against the 25 migrated — intersection empty, so nothing else was
+activated by this deploy. All 33 are genuinely consumed via
+`magnitude_at_rank`, either by literal-key read or through the generic
+`FlatStat`/`OverflowConversion` accumulation paths; no inert overrides
+remain.
+
+**FOUND (reported, not acted on):** `/admin/passives` rows render NO unit
+word — not "fraction", "percent", "seconds" or "count". `relentlessassault`
+shows "0 / 0 / 2" with nothing saying SECONDS; `payback` shows
+"0 / 0.3 / 0.45" with nothing saying it is a 0-1 fraction of max HP. Save
+validation is only "known key + finite", with no range clamp, so typing
+45 for "45%" into payback persists 45.0 and reads as an always-true
+threshold. Stored units DO match what combat consumes on the three
+spot-checked (payback fraction, doubletap count, relentlessassault
+seconds→ms).
+
+Step 8 of the deploy order (observe an override reaching combat in a live
+fight) NOT VERIFIED: all 200 summaries covering 3.5 hours are `kind=boss`
+with all 46 players in every fight, so the owner's "wait for the boss to
+resolve" precondition has no window, and the narrowest-blast-radius
+candidate (payback, a single player) has a saturated observable — that
+character already crits on 100% of hits. Skipped rather than improvised,
+per instruction.
