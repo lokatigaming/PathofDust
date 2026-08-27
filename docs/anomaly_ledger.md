@@ -152,6 +152,60 @@ exists in fight logs to check directly - only `attack`/`heal`/`shield`/
 observability gap `#35` is blocked on). `#35`/`#36` remain open, still
 owned by tree, not resolved by this entry.
 
+**#49 — Migrating a node from structure-only to override-aware ACTIVATES
+any pre-existing entry for that key in the override store**
+Recorded in `docs/session_journal.md` since 2026-08-27 (the incident
+write-up and the durable rule), with the migration mechanics in the Stage
+3 record in `docs/passive_tunables_spec.md`; missing from this ledger
+until now. NOTE for the log-parser session: the backfill order stated the
+prevention rule was recorded in `passive_tunables_spec.md` — it is not.
+That file carries the Stage 3 migration record only; the rule itself is
+in `session_journal.md`, quoted below, and this entry points there.
+
+When a passive node is migrated from rank-fed (structure-only)
+consumption onto a declared per-rank magnitude read through
+`magnitude_at_rank` →
+`passive_override_for`, the override store begins feeding it. An override
+written while that node was inert is stored silently and applied silently
+the moment the node goes live — no warning at write time, none at
+migration time, none at the swap.
+
+Three shipped this way on the 2026-08-27 passive-tunables stage 3 release:
+
+| node | pre-swap | went live as | affected |
+| --- | --- | --- | --- |
+| chakraoflife | 1000/2000/3000 ms | 330/660/1000 ms (~3x cut to Monk cheat-death immunity) | 4 monks |
+| unyieldingspirit | 0.35/0.45/0.55 | 0.33/0.66/1.0 (Monk Last Stand effectively always-on at rank 3) | 8 monks |
+| shattering | 1/2/3 targets | 2/4/6 targets (Elementalist icicle targets doubled) | 2 elementalists |
+
+Live for roughly 20 minutes. All three reverted to their declared
+defaults — which reproduce the old call-site values bit-exact — and
+confirmed back at pre-swap behaviour.
+
+**This is the MIRROR of the declaration-drift class.** Declaration drift
+is "the declared per-rank table disagrees with what the call site
+actually computes", and every stage of this feature has checked for it by
+reading the call site. Migration makes BOTH halves live at once: the
+declaration AND whatever the store already holds for that key. Only the
+declaration was checked. The test suite cannot see the other half,
+because every migration test pins DEFAULTS and the live store is by
+definition not at defaults — which is exactly why a green suite and a
+byte-identical golden corpus both passed while three live values moved.
+
+**Prevention rule (already recorded, cross-referenced here):** the
+"Durable rule this earns" paragraph in `docs/session_journal.md` under
+the `DEPLOY-PASSIVE-TUNABLES-STAGE3` entry — *"behaviour-neutral at
+defaults" is NOT behaviour-neutral; any migration that moves a node from
+rank-fed to declared-magnitude must diff the LIVE override store against
+the migrated node list BEFORE the swap, not after.* The mechanics of the
+migration itself are recorded in the Stage 3 record in
+`docs/passive_tunables_spec.md`. Note for whoever automates this: the
+rule is procedural only — nothing in code or CI enforces it today.
+
+Closed as an incident (remediated, store audited: the 33 remaining keys
+were intersected against the 25 migrated, intersection empty, so nothing
+else was activated). The CLASS is prevented by rule, not by a guard.
+
 ## Reconciliation note — 2026-08-21, later sweep
 
 This sweep's own kickoff order seeded a ledger reconstruction from a
@@ -562,6 +616,42 @@ and every redistribution completed within-incarnation. **Verdict:
 CLOSED, exact.**
 
 ## Open
+
+**#50 — `/admin/passives` Revert DELETES the override instead of
+restoring a prior value; deliberate tuning is destroyed with no undo**
+Found by the deploy session 2026-08-27 during the identity+units release
+verification, recorded not fixed, per the order. The Revert control on a
+node row calls `do_revert_passive_override`, which removes that key from
+`adventure-passive-overrides.toml` outright and returns the node to its
+compiled-in declared default. There is no prior-value history, so on a
+node the owner has deliberately tuned, one click discards the tuning
+permanently — the only recovery is a backup snapshot or remembering the
+numbers.
+
+Same **silent-destruction class** as the two save-path defects fixed in
+`#46`/`#47`: an admin control whose visible outcome does not match what
+it actually did to stored state. The save path lied by reporting success
+for a value it dropped; Revert reads as "undo my change" and instead
+performs "delete the tuning". The distinction only matters for a node
+whose stored value IS the intended one — which is the normal case for a
+tuned node, and precisely the situation in which the control is most
+tempting to click.
+
+Concrete consequence, observed: during check 16 of the identity+units
+deploy the verification needed `volley`'s above-1 fraction warn/confirm
+path exercised and then undone. Reverting via the control would have
+deleted the owner's stored `0.5 / 1.0 / 1.5` and dropped the node to its
+declared default, so the value was restored by hand (re-saving 1.5
+through the same warn/confirm path) rather than using Revert. A
+verification step having to route around a control to avoid destroying
+live data is the finding.
+
+Needs an owner ruling on the intended shape before any fix: a confirm
+prompt naming what will be lost, a "restore previous value" that keeps
+one step of history, or an accepted-as-is with the button relabelled to
+say "Reset to default" rather than "Revert". **Not to be fixed without
+that ruling** — Revert-to-default is a legitimate operation and may be
+exactly what is wanted; the defect is that the control does not say so.
 
 **#45 — `pending_veils` holds one entry per player; a second veiled
 craft silently orphans the first's spent token**
@@ -1227,7 +1317,7 @@ after the run — no tunable value moved.
 under `src/**` or root `Cargo.toml`/`Cargo.lock`. Bot: unchanged, not
 redeployed.
 
-## Deploy record � 2026-08-25, passive-tunables stage 2 drift batch (`fb921b3`)
+## Deploy record — 2026-08-25, passive-tunables stage 2 drift batch (`fb921b3`)
 
 Entered by the deploy session at merge of `feature/passive-tunables-stage2`
 (`9127fe0`) into master, base `879f586`.
@@ -1284,12 +1374,107 @@ in; task restarted, `LastTaskResult` `267009` (running � see the Divinity
 record's step-6 note), `/passives` and `/` both HTTP 200; flag CLEARED
 after the health check. Downtime � stop-to-start window only.
 
+## Deploy record — 2026-08-27, passive-tunables stage 3 (`7ddfd8d`) — BACKFILLED
+
+Backfilled 2026-08-28 by the deploy session: every release from
+2026-08-23 onward carries a record here, and this one was missing. Merge
+of `feature/passive-tunables-stage3` (`86fb5b0`/`ad3f026`/`e503f2e`) into
+master as `7ddfd8d`, base `234a487`; gitignore commit `23e2b32`; deploy
+docs `6fbf7c6` and `2fbdde2`. Pushed.
+
+**What shipped:** the rank-fed backlog closes — 25 nodes moved off
+`passive_node_rank`-only consumption onto declared per-rank tables read
+through `magnitude_at_rank` → `passive_override_for`, so overrides on
+them now actually reach the game. `PENDING_MIGRATION_NODES` 31 → 6;
+`INTEGER_COUNT_NODES` 28 → 40. Eight old declarations disagreed with the
+game and were corrected to the GAME's values, read off each call site one
+at a time (payback, secondwind, crush, vitalstrike, gloriousdeath,
+undying, doubletap, lastrites) — displayed numbers changed, fight
+behaviour did not. `lastrites` is the one node whose declared MEANING
+changed: its advertised 33/66/100% chance was never read, and its
+magnitude now carries the deterministic charge count it actually uses.
+Left behind with reasons on the list itself: `clarity`, `lastlaugh`,
+`neverending`, `sanctifiedtouch` (structure-only, own no rank-fed
+number); `reckless`, `deathwish` (need a second per-rank value slot —
+the schema change described in the Stage 3 record in
+`docs/passive_tunables_spec.md`). Full mechanics in that record.
+
+**Verification:** `cargo test --release --workspace --quiet --target-dir
+target-deploy-stage3` → 716 passed, 0 failed (exit 0). Clippy exit 0, no
+new warnings on touched lines (blame confirms the doc-indentation hits
+pre-date the branch).
+
+**Golden corpus:** REGENERATED at merge per house rule. 14 of 17 fixtures
+rewrote, but the only changed keys across all of them were `hitId` and
+`eventId` (20,008 + 17,118 occurrences), zero combat values — the
+process-global counters `approx_eq` skips by design. Committed fixtures
+restored; no semantic diff.
+
+**Bot redeploy determination: diff-clean.** Nothing under `src/**` or
+root `Cargo.toml`/`Cargo.lock`. Bot: unchanged, not redeployed.
+
+**4a swap:** maintenance flag set before the stop and cleared after the
+health check; old `game.exe` SHA-256
+`5361D4AD714742D3156C002996492026FB1EF404EAED19FF4DDD0EB5895C360F` →
+new `5F3B595A4EEBB8095289D2E45277F80528CA3DEE7A35A02859BA1C4C13D8741E`.
+Rollback at `backup-pre-passive-tunables-stage3/` (old binary plus the
+200-file pinned `adventure-fights-summary` snapshot) and
+`target/release/game.exe.pre-passive-tunables-stage3`. Downtime a few
+seconds.
+
+**INCIDENT — three stale overrides went live at the swap. See `#49`.**
+`chakraoflife`, `unyieldingspirit` and `shattering` had sat inert in
+`adventure-passive-overrides.toml` (all three were on the OLD pending
+list, so `/admin/passives` never offered them — generic seed values, not
+owner tuning) and activated the moment the binary swapped: Monk
+cheat-death immunity cut roughly 3x for 4 players, Monk Last Stand
+effectively always-on at rank 3 for 8 players, Elementalist icicle
+targets doubled for 2 players. Live approximately 20 minutes across ~20
+boss fights. Caught post-deploy by the `current ≠ default` columns on
+`/admin/passives`, not by the suite — every migration test pins DEFAULTS
+and the live store is not at defaults. All three reverted to declared
+defaults (bit-exact reproductions of the old call-site values) and
+confirmed back at pre-swap values. Store audit ordered as follow-up: the
+33 remaining keys intersected against the 25 migrated, intersection
+empty, so nothing else was activated by this deploy.
+
+**Step 8 of the deploy order** (confirm a stored override actually
+reaches combat) — VERIFIED, but proven by the incident above rather than
+by the ordered deliberate-value test, which the owner ruled on
+2026-08-27 must NOT be re-run. Three overrides changing observable
+combat for 14 players the moment the binary began reading them is
+conclusive.
+
+**FOUND at this deploy, fixed in the next one:** `/admin/passives` rows
+rendered no unit word and save validation was "known key + finite" with
+no range clamp — became `#46`, shipped in the 2026-08-27 identity+units
+release below.
+
 ## Deploy record — 2026-08-27, local identity + passive-override units (`0f7f754`)
 
 Merges `3ef0651` (`feature/local-identity`) and `7af21b2`
 (`fix/passive-override-units`). Numbers below are assigned by the deploy
 session at the owner's explicit instruction; the log-parser session owns
 the sequence and may renumber.
+
+**Commit citation, reconciled (2026-08-28).** This record cites
+`0f7f754`; the deploy report gave the pushed master head as `8d09913`.
+Both are correct about different things, and `0f7f754` is the one that
+corresponds to the shipped binary:
+
+| commit | what it is |
+| --- | --- |
+| `c855aa8` | HEAD when `cargo build --release --workspace` produced the binary that shipped |
+| `d65d2f6`, `0f7f754` | `WIKI_IMPACT.md` and `.gitignore` only — no compiled input; `0f7f754` was HEAD at the moment of the swap and is the SHA recorded in the maintenance-flag reason string |
+| `8d09913` | `docs/anomaly_ledger.md` only, committed AFTER the swap; the pushed master head |
+
+`git diff --name-only c855aa8..0f7f754` returns `.gitignore` and
+`WIKI_IMPACT.md`; `git diff --name-only 0f7f754..8d09913` returns
+`docs/anomaly_ledger.md`. No source file changed after the build, so the
+binary's source tree is identical across all four commits.
+**`0f7f754` is the deployed commit — the heading stays as it is.**
+`8d09913` is post-deploy documentation and ships no behaviour.
+
 
 **#46 — `/admin/passives` save validation: "accept any finite number" is
 SUPERSEDED by typed per-unit validation**
