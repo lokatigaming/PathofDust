@@ -139,10 +139,19 @@ threshold. Stored units DO match what combat consumes on the three
 spot-checked (payback fraction, doubletap count, relentlessassault
 seconds→ms).
 
-Step 8 of the deploy order (observe an override reaching combat in a live
-fight) NOT VERIFIED: all 200 summaries covering 3.5 hours are `kind=boss`
-with all 46 players in every fight, so the owner's "wait for the boss to
-resolve" precondition has no window, and the narrowest-blast-radius
-candidate (payback, a single player) has a saturated observable — that
-character already crits on 100% of hits. Skipped rather than improvised,
-per instruction.
+Step 8 of the deploy order (confirm a stored override actually reaches
+combat) — **VERIFIED**, but proven unintentionally by the incident above
+rather than by the ordered deliberate-value test. The three stale
+overrides activating at the swap produced observable combat changes for
+14 players across three nodes (chakraoflife 4 monks, unyieldingspirit
+8 monks, shattering 2 elementalists); that a value sitting in
+`adventure-passive-overrides.toml` changed live fight behaviour the
+moment the binary began reading it is conclusive evidence the override
+path reaches the engine.
+
+The ordered test itself was not run, and per owner ruling (2026-08-27)
+must NOT be re-run. For the record of why it was not runnable: all 200
+summaries covering 3.5 hours are `kind=boss` with all 46 players in every
+fight, so the "wait for the boss to resolve" precondition had no window,
+and the narrowest-blast-radius candidate (payback, a single player) has a
+saturated observable — that character already crits on 100% of hits.
