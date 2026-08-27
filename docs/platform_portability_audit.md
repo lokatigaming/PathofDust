@@ -19,6 +19,14 @@ Effort scale used throughout:
 
 ## 0. Headline verdict
 
+> **Scope ruling (settled 2026-08-27, see §16).** **Only the `game`
+> process migrates to Linux.** The `twitch-bot-rs` process stays on the
+> Windows machine, because OBS runs there and the bot's remaining role is
+> Twitch chat and OBS overlays. The bot's 21 path literals and its half of
+> the ops layer are **not migration work**. §10.5 and §12 below are stated
+> for the game alone; the bot inventories (§10.2) are retained as
+> reference, not as a work list.
+
 The **Rust code is close to portable already**. There is no `cfg(windows)`
 block, no Windows-only crate, no `Command::new("powershell")`, no drive
 letter, and no backslash path separator anywhere in either crate. The
@@ -38,6 +46,19 @@ Three things actually block the move, in descending order:
    plus one config value that is a literal Windows path. (§8, §11)
 
 Everything else is small or trivial.
+
+**Network (§14):** `adventure.lokati.net` is served by a `cloudflared`
+tunnel fronting port 4005 — established from the repository, not inferred.
+The tunnel's *ingress configuration* is not in the repository;
+`C:\Users\Administrator\.cloudflared\config.yml` is the file that answers
+it. Because `cloudflared` dials outbound, the VPS needs **no inbound ports
+open at all**.
+
+**Build (§15):** the game needs `build-essential pkg-config libssl-dev` on
+Ubuntu and nothing else. Dependency resolution for
+`x86_64-unknown-linux-gnu` succeeds and first-party code is entirely
+platform-neutral, but **no Linux build has ever been attempted** — only
+`x86_64-pc-windows-msvc` is installed here and there is no CI.
 
 ---
 
@@ -600,7 +621,11 @@ The deploy root is therefore, simultaneously: a git working tree, the data
 directory, the log directory, the build output directory, and a backup
 archive. Every one of those is a different lifecycle.
 
-### 10.5 What a three-directory split would cost
+### 10.5 What a three-directory split would cost — GAME ONLY
+
+**Restated for the settled scope (§16): only the `game` process moves.**
+The bot keeps its current Windows deploy root untouched, so none of §10.2
+is migration work. What follows costs out the game alone.
 
 Target shape — **not implemented; this is the estimate the order asked
 for**:
@@ -620,22 +645,21 @@ markers. **Effort: Trivial.** The mechanism is built, documented
 (`game/src/adventure/paths.rs`), and functionally verified — see that
 file's closing comment. It is simply not set in production today.
 
-**Step 2 — close the Group B gap. 4 files, ~8 lines.**
+**Step 2 — close the Group B gap. 2 files, ~4 lines.**
 
 | Change | File | Size |
 |---|---|---|
 | Route `adventure-sessions.json` through `data_path` | [game/src/main.rs:165](../game/src/main.rs#L165) | 1 line |
 | Route the wings-giveaway marker through `data_path` | [game/src/main.rs:145-152](../game/src/main.rs#L145-L152) | 2 lines |
 | Route `patch-notes.json` through `data_path` | [adventure_web.rs:1859](../game/src/adventure_web.rs#L1859) | 1 line |
-| Decide `bot-published-constants.json`'s home | [api.rs:394](../game/src/adventure_web/api.rs#L394) + [game/src/main.rs:114](../game/src/main.rs#L114) + the `wiki.rs` read | 2-3 lines **+ a decision** |
+| ~~Decide `bot-published-constants.json`'s home~~ | — | **SETTLED — no work (§16)** |
 
-The last one is the only one that is not mechanical: the file is written by
-the *game* (via the API seam) but is conceptually *bot* data, and
-[published_constants.rs:24](../game/src/adventure/published_constants.rs#L24)
-deliberately keeps it out of `data_path`. With the processes potentially in
-different working directories under systemd, "the bot's CWD" and "the
-game's CWD" stop being the same place, so this needs an explicit answer.
-**Effort: Small, gated on one decision.**
+`bot-published-constants.json` needs no cross-CWD home: it is part of the
+integration surface being deleted, and its only consumer already degrades
+gracefully — `wiki_placeholder_map` renders `"varies"` when the file is
+absent, and [game/src/main.rs:114-118](../game/src/main.rs#L114-L118)
+already logs a warning rather than failing. Leaving it CWD-relative and
+unwritten is a supported state today. **No code change.**
 
 **Step 3 — custom sprites. 1 constant + a decision.**
 [character.rs:792](../game/src/adventure/character.rs#L792) points at
@@ -648,50 +672,56 @@ the zero-code option. **Effort: Small** (symlink) or **Medium** (second
 `ServeDir` mount + the constant + the listing at
 [adventure_web.rs:5267](../game/src/adventure_web.rs#L5267)).
 
-**Step 4 — bot data. This is the real work.**
-The bot has **no `data_path` equivalent at all**. Twenty hardcoded
-`PathBuf::from("…")` literals in `src/main.rs` plus one in
-[playrandom.rs:274](../src/playrandom.rs#L274). Two options:
+**Step 4 — bot data. REMOVED FROM SCOPE (§16).**
+The bot has no `data_path` equivalent — 20 hardcoded `PathBuf::from("…")`
+literals in `src/main.rs` plus one in
+[playrandom.rs:274](../src/playrandom.rs#L274) — but it stays on Windows in
+its existing deploy root, where CWD-relative resolution keeps working
+exactly as it does today. **Zero lines. The inventory in §10.2 is retained
+as reference only.**
 
-- **(a) No code change; set the systemd unit's `WorkingDirectory` to
-  `/var/lib/pathofdust`.** Every bot data file lands there. But the bot
-  also `ServeDir`s `public/`, `public_song_overlay/` and
-  `public_chat_overlay/` from its CWD, so those three asset directories
-  would need symlinking into the data directory — or `/var/lib` would have
-  to contain code. **Effort: Trivial in code, slightly ugly in ops.**
-- **(b) Mirror `paths.rs` into the bot crate** and wrap all 21 literals.
-  Touches `src/main.rs` (20 sites), `src/playrandom.rs` (1 site), plus a
-  new `src/paths.rs`. The precedent is exact and already written — copy
-  `game/src/adventure/paths.rs`. **Effort: Medium** — mechanical, but 21
-  call sites and a new env var to document.
+**Step 5 — logs. 1 line, or zero.**
+[game/src/main.rs:69-70](../game/src/main.rs#L69-L70) hardcodes `"logs"`.
+Either change the literal to `/var/log/pathofdust` (1 line), or **drop the
+file appender entirely** and let the process log to stdout, which systemd
+captures into the journal automatically. The second is smaller, more
+idiomatic on Linux, and deletes the "logs/ grew to several GB" problem
+recorded at [src/main.rs:518](../src/main.rs#L518) — journald rotates by
+default. **Effort: Trivial either way.** The `_log_guard` lifetime dance in
+`game/src/main.rs` exists only for the file appender; dropping it
+simplifies that `main`. The bot's own `logs/`
+([src/main.rs:520-521](../src/main.rs#L520-L521)) is untouched — it stays
+on Windows.
 
-**(a) is the recommendation if the goal is to ship the migration; (b) if
-the goal is a clean layout.** They are not exclusive — (a) now, (b) later.
+**Step 6 — `.env`. See §11.** Note the game reads only five keys
+(`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `ADVENTURE_WEB_PORT`,
+`ADVENTURE_WEB_PUBLIC_URL`, `ADVENTURE_OVERLAY_SERVER_PORT`) plus
+`ADVENTURE_API_SECRET` and the optional `GAME_DATA_DIR` — it does **not**
+need the bot's ~35 other keys, so the VPS `EnvironmentFile` is a small
+subset, not a copy of the existing `.env`.
 
-**Step 5 — logs. 2 lines, or zero.**
-[src/main.rs:520-521](../src/main.rs#L520-L521) and
-[game/src/main.rs:69-70](../game/src/main.rs#L69-L70) both hardcode
-`"logs"`. Either change the literal to `/var/log/pathofdust` (2 lines, one
-per process), or **drop the file appender entirely** and let both processes
-log to stdout, which systemd captures into the journal automatically. The
-second is smaller, more idiomatic on Linux, and deletes the "logs/ grew to
-several GB" problem recorded at
-[src/main.rs:518](../src/main.rs#L518) — journald rotates by default.
-**Effort: Trivial either way.** Note the `_log_guard` lifetime dance in
-both files exists only for the file appender; dropping it simplifies both
-`main`s.
+#### Revised total — game only
 
-**Step 6 — `.env`. See §11.**
+| Step | Change | Lines | Files |
+|---|---|---|---|
+| 1 | Set `GAME_DATA_DIR=/var/lib/pathofdust` | **0** | — (env only) |
+| 2 | Route sessions + wings marker + patch-notes through `data_path` | **4** | `game/src/main.rs`, `game/src/adventure_web.rs` |
+| 3 | Custom sprites out of the source tree | **0** (symlink) or ~6 (second mount) | — or `game/src/adventure/character.rs` + `game/src/main.rs` + `game/src/adventure_web.rs` |
+| 4 | Bot data | **0** — out of scope | — |
+| 5 | Logs → `/var/log/pathofdust`, or stdout/journald | **1** or 0 | `game/src/main.rs` |
+| 6 | `.env` → `EnvironmentFile` | **0** | — (env only) |
 
-**Total: 4 code files touched for the game (~8 lines), 2 for logs, 0-22 for
-the bot depending on the option chosen, plus one symlink-or-mount decision
-for custom sprites.** The genuinely large part of the migration is §12, not
-this.
+**Total: ~5 lines across 2 files**, plus one symlink-or-mount decision for
+custom sprites. Recommendation: take the symlink for step 3 and stdout for
+step 5, which lands the whole data-layout change at **4 lines in 2 files**.
 
 **Files touched, complete list:** `game/src/main.rs`,
-`game/src/adventure_web.rs`, `game/src/adventure_web/api.rs`,
-`game/src/adventure/character.rs`, `src/main.rs`, `src/playrandom.rs`, and
-(option b only) a new `src/paths.rs`.
+`game/src/adventure_web.rs` — and `game/src/adventure/character.rs` only if
+step 3 takes the second-mount route rather than the symlink.
+
+Tracked separately, not part of the layout change: the §8 custom-sprite
+case fix (1 function in `game/src/adventure/character.rs`) and the optional
+§6 directory-fsync hardening (1 function in `game/src/state.rs`).
 
 ---
 
@@ -739,7 +769,8 @@ a dedicated service user.
 | `PUBLIC_SITE_DIR` | Currently a Windows profile path (§1). Needs a real Linux target or must be left unset — the two writes are `Option`-gated at [config.rs:254](../src/config.rs#L254) and no-op when absent ([commands.rs:216](../src/commands.rs#L216)). | **Trivial** |
 | `tokens.json` / `patreon-tokens.json` | Re-authing on a headless box needs an SSH tunnel to `127.0.0.1:3000`/`:3001` (§3), or copying the files across. | **Small** (procedure) |
 | File permissions | Windows ACLs → `chmod 600` + a dedicated non-root service user. Nothing in the code reads or sets permissions. | **Small** |
-| Localhost URLs | `ADVENTURE_API_BASE_URL` defaults to `http://127.0.0.1:4005` ([config.rs:279](../src/config.rs#L279)) — correct if both units stay on one host. `OBS_WEBSOCKET_URL` defaults to `ws://127.0.0.1:4455` ([config.rs:288](../src/config.rs#L288)) — **this will not resolve.** OBS runs on the streamer's Windows machine, not the VPS, so the bot's OBS integration (`src/obs_websocket.rs`) stops working unless the VPS can reach it. A *topology* consequence of the move, not a code defect. **Flagged as a scoping question for the owner, not a code fix.** | **Decision needed** |
+| `OBS_WEBSOCKET_URL` | **SETTLED — no change (§16).** Defaults to `ws://127.0.0.1:4455` ([config.rs:288](../src/config.rs#L288)) and stays correct: the bot does not migrate, so it remains co-located with OBS. | **None** |
+| `ADVENTURE_API_BASE_URL` | **Changes, and this is now the single largest configuration consequence of the move.** Defaults to `http://127.0.0.1:4005` ([config.rs:279](../src/config.rs#L279)). With the game on a VPS and the bot on Windows, the bot→game seam stops being a loopback call and becomes a **cross-internet** one: plain HTTP, authenticated only by the `x-adventure-api-secret` header ([adventure_client.rs:21](../src/adventure_client.rs#L21)), carrying every `!join`/`!character`/redemption call and an announcements stream. It must be pointed at an HTTPS endpoint (the existing tunnel hostname is the obvious candidate) — **sending that shared secret over plaintext WAN HTTP would be a real credential exposure.** See §14. | **Medium — ops + one env value; no code change** |
 | Port binding | All servers bind `0.0.0.0` on ports 4001-4005 ([alerts.rs:60](../src/alerts.rs#L60), [song_overlay_server.rs:49](../src/song_overlay_server.rs#L49), [chat_overlay_server.rs:97](../src/chat_overlay_server.rs#L97), [adventure_overlay_server.rs:52](../game/src/adventure_overlay_server.rs#L52), [adventure_web.rs:229](../game/src/adventure_web.rs#L229)). All are >1024, so **no privileged-port capability is needed**. On a public VPS these become internet-reachable — a firewall and/or reverse proxy is now required where the LAN previously provided isolation. | **Medium** (ops, not code) |
 
 ### The TOML config files and their reload semantics
@@ -807,15 +838,13 @@ fallback (`watchdog.ps1:201-209`), `Get-Process`,
 `Get-CimInstance Win32_Process`, `Get-ScheduledTaskInfo`,
 `Start-ScheduledTask`, `$PSScriptRoot`.
 
-**Linux equivalent: NO LONGER NEEDED.** `Restart=always` + `RestartSec=` in
-the unit file does this natively, and systemd restarts on *process exit*,
-which is strictly earlier and more reliable than polling a port every two
-minutes. The entire class of bug this script works around — Task
-Scheduler's `RestartOnFailure` not firing across `STATUS_STACK_OVERFLOW`
-(`watchdog.ps1:4-8`) — has no systemd analogue. Optionally add
-`WatchdogSec=` with `sd_notify` for liveness rather than mere aliveness,
-but that needs code and is not required.
-**Effort: Trivial (delete + 2 unit-file lines).**
+**Linux equivalent: NOT APPLICABLE — this one STAYS (§16).** The bot does
+not migrate, so `watchdog.ps1` and the `TwitchBotRS-Watchdog` task remain
+in service on Windows, unchanged. It is listed here only because the order
+asked for all four scripts, and because its detection design (port-based,
+not image-name-based) is the pattern the Linux side should not need to
+reinvent — systemd's `Restart=always` supersedes it for the game.
+**Effort: none. Do not touch.**
 
 #### `game-watchdog.ps1` — 498 lines
 
@@ -840,13 +869,23 @@ watchdogs honour, suppressing a restart during a binary swap. It exists
 30-minute lease, not a switch, so a forgotten flag cannot disable
 protection forever (`maintenance-flag.ps1:20-26`).
 
-**Linux equivalent: NO LONGER NEEDED.** `systemctl stop pathofdust-game`
+**Linux equivalent: HALF of it goes.** `systemctl stop pathofdust-game`
 stops the unit *and* suppresses restart, atomically, with no flag, no
-lease, and no elevation problem. The deploy becomes stop → replace binary →
-start. The whole two-flags-never-one design
-(`maintenance-flag.ps1:37-45`) disappears with it.
-**Effort: Trivial (delete). Note this also deletes REFACTOR_PLAN.md §13's
-entire step-4 sub-chain, steps 4.1-4.8.**
+lease, and no elevation problem — so the `-Target Game` half becomes dead
+code and REFACTOR_PLAN.md §13's entire step-4 sub-chain (steps 4.1-4.8)
+collapses to stop → replace binary → start.
+
+**But the script itself must NOT be deleted (§16):** `-Target Bot` still
+drives `bot-watchdog-maintenance.flag` for `watchdog.ps1`, which stays in
+service on Windows. The two-flags-never-one design
+(`maintenance-flag.ps1:37-45`) turns out to be exactly what makes this
+survivable — because the flags were never shared, removing the game's half
+cannot disturb the bot's.
+**Effort: Small — retire the `Game` target and its default
+(`[ValidateSet('Game','Bot')] $Target = 'Game'`, `maintenance-flag.ps1`
+param block), leaving `Bot` as the only value. Note the default flips, so
+every existing `-Target Bot` invocation keeps working and any bare
+invocation must be re-checked.**
 
 #### `backup-game-data.ps1` — 702 lines
 
@@ -879,23 +918,41 @@ retention policy are worth preserving verbatim in behaviour. **Do not skip
 this one:** its own header records that the August 2026 BOM incident was
 recovered only by luck (`backup-game-data.ps1:14-16`).
 
-### Ops layer summary
+### Ops layer summary — revised for game-only scope (§16)
 
-| Artefact | Lines | Linux disposition | Effort |
+| Artefact | Lines | Disposition | Effort |
 |---|---|---|---|
-| `TwitchBotRS` task | — | `pathofdust-bot.service` | Small |
-| `GameProcess` task | — | `pathofdust-game.service` | Small |
-| `TwitchBotRS-Watchdog` task + `watchdog.ps1` | 493 | **Deleted** — `Restart=always` | Trivial |
-| `GameProcess-Watchdog` task + `game-watchdog.ps1` | 498 | **Deleted** — `Restart=always` | Trivial |
-| `maintenance-flag.ps1` | 307 | **Deleted** — `systemctl stop` | Trivial |
-| `backup-game-data.ps1` + `GameDataBackup` task | 702 | **Rewritten** — `.timer` + `.service` | Medium |
-| `REFACTOR_PLAN.md` §13 deploy procedure | ~230 | **Rewritten** — the 8-step binary-swap chain collapses to stop/replace/start | Medium |
-| `docs/ops_backup_and_watchdog.md` | ~570 | **Rewritten** | Medium |
-| `crashdumps/` (gitignored) | — | Windows WER → `systemd-coredump` | Trivial |
+| `TwitchBotRS` task | — | **STAYS on Windows**, unchanged | none |
+| `TwitchBotRS-Watchdog` task + `watchdog.ps1` | 493 | **STAYS on Windows**, unchanged | none |
+| `GameProcess` task | — | → `pathofdust-game.service` (`Restart=always`, `TimeoutStartSec=90`, `WorkingDirectory=/opt/pathofdust`) | Small |
+| `GameProcess-Watchdog` task + `game-watchdog.ps1` | 498 | **Deleted** — `Restart=always` replaces it | Trivial |
+| `maintenance-flag.ps1` | 307 | **Kept, halved** — `-Target Game` retired, `-Target Bot` stays live | Small |
+| `backup-game-data.ps1` + `GameDataBackup` task | 702 | **Rewritten for Linux** — `.timer` + `.service`. Mandatory: the data it protects is exactly what moves | Medium |
+| `REFACTOR_PLAN.md` §13 deploy procedure | ~230 | **Rewritten** — step-4 sub-chain collapses to stop/replace/start; no rename-aside (§6) | Medium |
+| `docs/ops_backup_and_watchdog.md` | ~570 | **Split** — the game half rewritten for systemd, the bot half kept as-is | Medium |
+| `crashdumps/` (gitignored) | — | Windows WER → `systemd-coredump` (game only) | Trivial |
 
-**Net: ~1,300 of the ~1,940 PowerShell lines are deleted outright, not
-ported.** systemd does natively what three of the four scripts were built
-to work around.
+**Net for the game alone: 498 PowerShell lines deleted outright
+(`game-watchdog.ps1`), 702 rewritten (`backup-game-data.ps1`), ~150 of
+`maintenance-flag.ps1` retired.** The bot's 493 lines and its two tasks are
+untouched.
+
+**Consequence of the split that did not exist before:** the game's backup
+now runs on the VPS against `/var/lib/pathofdust`, while the bot's data
+keeps living on the Windows machine with no scheduled backup at all — the
+existing `GameDataBackup` definition covers only game files
+(`backup-game-data.ps1:102-182`). That is not a regression introduced by
+the move (the bot has never been backed up), but it becomes newly visible
+once the two data sets are on different hosts, and it is worth an explicit
+decision rather than an omission.
+
+**Also new: the deploy is now remote.** §13's procedure assumes a local
+filesystem copy into `target\release\`. Shipping to a VPS needs a transport
+(`scp`/`rsync` of a locally cross-built binary, or a build on the VPS
+itself) and the "confirm the resolved process path is NOT under
+`C:\PathofDust`" safety rule in CLAUDE.md needs a Linux restatement —
+`systemctl stop pathofdust-game` is inherently unit-scoped, so it satisfies
+the rule's *intent* (never match by image name) natively.
 
 ---
 
@@ -941,6 +998,303 @@ not fit a section above. **None was acted on.**
 
 ---
 
+## 14. Network and TLS
+
+### Is `adventure.lokati.net` served through a Cloudflare Tunnel?
+
+**Yes — and it is determinable from the repository, without inferring
+anything from a directory name.** The repository names `cloudflared`
+explicitly, in a file whose whole purpose is to identify the live
+deployment:
+
+- **`game-watchdog.ps1:108-116`** — the `-Port` parameter's own
+  documentation, the primary citation:
+
+  > *"The port that identifies THIS deployment. 4005 is adventure_web
+  > (game/src/main.rs, ADVENTURE_WEB_PORT default) — **the port the
+  > cloudflared tunnel fronts** and the one the bot's
+  > ADVENTURE_API_BASE_URL points at, i.e. the port whose absence actually
+  > means this world is down."*
+
+  This names the daemon (`cloudflared`, not merely "Cloudflare"), names the
+  port it fronts (4005), and was written as an operational fact to justify
+  a liveness check — not as an aspiration.
+
+- **[adventure_overlay_server.rs:157-160](../game/src/adventure_overlay_server.rs#L157-L160)**
+  — corroborates the hostname:
+
+  > *"…so the public dashboard (**port 4005, already tunneled to
+  > adventure.lokati.net**) can serve the SAME overlay page/feed without
+  > needing its own separate public port/DNS entry."*
+
+- **[adventure_web.rs:1877-1880](../game/src/adventure_web.rs#L1877-L1880)**
+  — *"serving the identical file from this ALREADY-public dashboard host
+  just works, with **zero new tunnel/DNS/infra changes**."*
+
+- **[config.rs:96-99](../src/config.rs#L96-L99)** — `adventure_web_public_url`
+  *"Defaults to localhost, which only the streamer's own PC can reach — set
+  this to a real public URL (**behind a tunnel**/reverse proxy/port-forward
+  you set up separately)."*
+
+Together these establish: **port 4005 on the game process is fronted by a
+`cloudflared` tunnel and published as `adventure.lokati.net`.** TLS is
+terminated by Cloudflare at the edge; the origin leg is the tunnel's own
+outbound QUIC/HTTPS connection, so the game process itself serves plain
+HTTP and holds no certificate — consistent with the code, which has no TLS
+listener anywhere (all five `TcpListener::bind` calls are plaintext axum).
+
+### Two pieces of the order's evidence do NOT support the conclusion
+
+Stated plainly, because building on a wrong premise is worse than
+correcting it:
+
+- **`cloudflare-paypal-relay/` is not tunnel evidence.** It is a Cloudflare
+  *Worker* that receives PayPal webhooks and is polled by the bot
+  ([paypal.rs:3-4](../src/paypal.rs#L3-L4), `README.md:25`). It exists
+  precisely *because* the bot has **no** public address — the opposite of a
+  tunnel. Unrelated product, unrelated purpose.
+- **`.env.example:10`'s "Cloudflare-deployed"** describes the **lokati.net
+  static site folder** that `commands-data.json` is written into, not the
+  game. Also unrelated.
+
+The conclusion rests entirely on the four citations in the previous
+subsection.
+
+### What is NOT determinable from the repository
+
+**The tunnel's configuration.** The repository contains no cloudflared
+artefact of any kind — `git ls-files` matching `cloudflar|config.ya?ml|ingress`
+returns only the three unrelated `cloudflare-paypal-relay/` files. So the
+repo proves *that* a tunnel fronts 4005, but not:
+
+- which hostnames map to which local ports (the ingress rules);
+- whether any port other than 4005 is published;
+- the tunnel UUID or account;
+- whether `cloudflared` runs as a Windows service or a console process;
+- `noTLSVerify` / origin-request settings.
+
+**The exact file that would answer all of this:**
+
+```
+C:\Users\Administrator\.cloudflared\config.yml
+```
+
+That is the ingress map and is the single authoritative answer. Supporting
+artefacts in the same directory, listed for completeness — **do not print
+the contents of the credentials file, it is a secret**:
+
+| File | What it answers |
+|---|---|
+| `C:\Users\Administrator\.cloudflared\config.yml` | **The ingress rules — hostname → local port. This is the file.** |
+| `C:\Users\Administrator\.cloudflared\<TUNNEL-UUID>.json` | Tunnel credentials. Its *filename* gives the UUID. **Secret — do not read or print.** |
+| `C:\Users\Administrator\.cloudflared\cert.pem` | Account cert; confirms which Cloudflare account owns the tunnel. **Secret.** |
+| `Get-Service cloudflared` / `HKLM:\SYSTEM\CurrentControlSet\Services\Cloudflared` | Whether it runs as a service, and with what arguments — a service may pass `--config` pointing somewhere else entirely, which would override the path above. |
+
+Non-file alternatives that answer it without touching secrets:
+`cloudflared tunnel list` and `cloudflared tunnel info <name>`, or the
+Zero Trust dashboard.
+
+**This audit did not read any of them** — they are outside the repository,
+and the order for this session was repository-scoped.
+
+### Every port bound by either process
+
+| Port | Bound by | Process | Bind address | Env var (default) | Exposure |
+|---|---|---|---|---|---|
+| **4001** | `start_alert_server` — [alerts.rs:60](../src/alerts.rs#L60) | bot | `0.0.0.0` | `ALERT_SERVER_PORT` (4001) | LAN-reachable. **No repo evidence of public mapping.** Unconditional; binds first. |
+| **4002** | `start_song_overlay_server` — [song_overlay_server.rs:49](../src/song_overlay_server.rs#L49) | bot | `0.0.0.0` | `SONG_REQUEST_SERVER_PORT` (4002) | LAN-reachable. **Conditional** — only binds when `YOUTUBE_API_KEYS` is non-empty ([src/main.rs:555](../src/main.rs#L555)). No repo evidence of public mapping. |
+| **4003** | `start_chat_overlay_server` — [chat_overlay_server.rs:97](../src/chat_overlay_server.rs#L97) | bot | `0.0.0.0` | `CHAT_OVERLAY_SERVER_PORT` (4003) | LAN-reachable. Binds last, after a Twitch emote fetch. No repo evidence of public mapping. |
+| **4004** | `start_adventure_overlay_server` — [adventure_overlay_server.rs:52](../game/src/adventure_overlay_server.rs#L52) | **game** | `0.0.0.0` | `ADVENTURE_OVERLAY_SERVER_PORT` (4004) | LAN-reachable. **Positive evidence it is NOT published:** [adventure_overlay_server.rs:157-160](../game/src/adventure_overlay_server.rs#L157-L160) says 4005 serves the same overlay *"without needing its own separate public port/DNS entry"*. |
+| **4005** | `start_adventure_web_server` — [adventure_web.rs:229](../game/src/adventure_web.rs#L229) | **game** | `0.0.0.0` | `ADVENTURE_WEB_PORT` (4005) | **PUBLIC** — fronted by `cloudflared` as `adventure.lokati.net`. Carries the dashboard, `/wiki`, `/overlay`, `/ws`, **and the `/api/*` seam** (nested onto the same router at [adventure_web.rs:156](../game/src/adventure_web.rs#L156) — *not* a separate port). |
+| **3000** | `auth` helper binary — [auth.rs:68](../src/bin/auth.rs#L68) | `auth` (manual, transient) | **`127.0.0.1`** | hardcoded `PORT` | **Localhost only, by bind.** OAuth callback; runs only during a manual re-auth. |
+| **3001** | `auth_patreon` helper binary — [auth_patreon.rs:56](../src/bin/auth_patreon.rs#L56) | `auth_patreon` (manual, transient) | **`127.0.0.1`** | hardcoded `PORT` | **Localhost only, by bind.** |
+
+**Outbound only — binds nothing:** the OBS WebSocket client
+(`OBS_WEBSOCKET_URL`, default `ws://127.0.0.1:4455`,
+[config.rs:288](../src/config.rs#L288)), Twitch IRC/EventSub, the
+YouTube/Last.fm/poe.ninja/StreamElements HTTP clients, the PayPal Worker
+poll, and the bot→game `/api/*` client
+([adventure_client.rs](../src/adventure_client.rs)).
+
+**The distinction that matters for the hosting decision:** binding
+`0.0.0.0` means *reachable on every interface the host has* — on the
+current Windows machine that is the LAN, and the only thing making 4005
+reachable from the internet is the tunnel. **On a VPS, `0.0.0.0` means
+directly internet-reachable**, so 4004 and 4005 would both be exposed the
+moment the process starts.
+
+Two consequences worth pricing into the hosting purchase:
+
+1. **`cloudflared` needs no inbound ports at all.** It dials out. If the
+   game keeps its tunnel, the VPS can run a default-deny inbound firewall
+   (`ufw default deny incoming`, SSH only) and 4004/4005 never need
+   opening. This is the cheapest and most secure shape and requires no code
+   change — the `0.0.0.0` binds are then only reachable from the VPS's own
+   loopback and the tunnel connector.
+2. **The `/api/*` seam is already on the public port.** It is nested onto
+   4005, guarded solely by the `x-adventure-api-secret` header
+   ([adventure_client.rs:21](../src/adventure_client.rs#L21)); `api::router`
+   returns `None` and the mount is skipped when `ADVENTURE_API_SECRET` is
+   unset. That is the status quo, not a regression — but after the move the
+   bot reaches it from a *different host*, so the secret starts travelling
+   over the WAN on every `!join`, redemption and activity-XP call. It must
+   go over the HTTPS tunnel hostname, never a bare `http://<vps-ip>:4005`.
+   See §11's revised `ADVENTURE_API_BASE_URL` row.
+
+---
+
+## 15. Build
+
+### What is required to produce a Linux binary
+
+| Requirement | Detail |
+|---|---|
+| **Toolchain** | Stable Rust, edition 2021. **No version is pinned** — there is no `rust-toolchain.toml` and no `.cargo/config.toml` anywhere in the tree. This worktree builds with `rustc 1.97.1 / cargo 1.97.1`. Pinning one before the migration would be cheap insurance, but nothing requires it today. |
+| **Command (whole workspace)** | `cargo build --release --workspace` — per CLAUDE.md, a plain `cargo build` misses `game.exe`. Produces four binaries: `twitch-bot-rs`, `auth`, `auth_patreon` (root package) and `game` (the `game` package). |
+| **Command (game only — the migrating unit)** | `cargo build --release -p game` produces the single `game` binary, no extension on Linux. |
+| **Target** | `x86_64-unknown-linux-gnu`. |
+| **Where to build** | **On the Ubuntu host, or in an Ubuntu container.** Cross-compiling from this Windows machine is possible in principle but needs a Linux linker *and* a Linux `libssl` for `openssl-sys` to link against — enough friction that `cross` (Docker) or a native VPS build is the better answer. |
+| **glibc** | Build on the same Ubuntu LTS release you deploy to. A binary built against a newer glibc will not start on an older one. |
+
+### Does the workspace build cleanly for Linux as configured today?
+
+**Not verified, and it cannot be verified from this machine.**
+`rustup target list --installed` returns exactly one target:
+`x86_64-pc-windows-msvc`. There is no CI configuration in the repository.
+**A Linux build of this workspace has, as far as the repository and this
+machine can show, never been attempted.** Saying otherwise would be a
+guess.
+
+What **was** verified here, and is a real signal:
+
+- **Full dependency resolution for `--target x86_64-unknown-linux-gnu`
+  succeeds** for both packages, with no unresolved crate and no
+  Windows-gated hole. `cargo tree -p game --target x86_64-unknown-linux-gnu`
+  produces a complete graph in which `schannel` is correctly swapped for
+  `openssl`/`openssl-sys`.
+- **First-party code has nothing to fail on:** zero `cfg(windows)`, zero
+  `winapi`/`windows-sys`, zero `std::os::windows`, zero Windows API calls,
+  zero drive letters, zero backslash separators (§1, §4, §7). Nothing in
+  `src/` or `game/src/` is platform-conditional.
+
+**Therefore the expected blockers are system libraries, not code** — the
+next subsection lists them exactly. The honest statement for a hosting
+decision: *the code is expected to compile unmodified once three apt
+packages are present, and that expectation should be confirmed by an actual
+build before money is committed to a plan that depends on it.*
+
+### Build-time dependencies satisfied on Windows, needing install on Ubuntu
+
+This is the whole delta. Resolved from `Cargo.lock` and confirmed with
+target-specific `cargo tree`.
+
+**For the `game` crate — the only thing migrating:**
+
+| Crate | Version | Why it is in the graph | Windows | Ubuntu requirement |
+|---|---|---|---|---|
+| `openssl-sys` | 0.9.117 | `reqwest 0.12` with default features → `default-tls` → `native-tls`. On Windows `native-tls` selects `schannel` (nothing to install); on Linux it selects `openssl`. | satisfied by the OS | **`libssl-dev`** + **`pkg-config`** + a **C compiler** (its build script uses `cc`) |
+| `openssl` | 0.10.81 | same | — | same as above |
+| `flate2` | 1.1.9 | overlay compression | pure Rust | **none** — resolves to `miniz_oxide`, not `libz-sys`. No zlib needed. |
+
+`openssl-src` is **absent** from `Cargo.lock`, which means the `vendored`
+feature is **off** — so `openssl-sys` links the *system* libssl and
+`libssl-dev` is genuinely required, not optional.
+
+**Complete Ubuntu prerequisite for the game:**
+
+```
+apt install build-essential pkg-config libssl-dev
+```
+
+That is the entire list. The game's graph contains **no `ring`, no
+`rustls`, no `zstd-sys`, no `libz-sys`** — nothing else needs a C toolchain
+or a system library.
+
+**For the bot — not migrating (§16), recorded for completeness.** Were it
+ever moved, it would additionally need a C toolchain for two more crates:
+
+| Crate | Version | Why | Note |
+|---|---|---|---|
+| `ring` | 0.17.14 | `twitch-irc` pinned to `refreshing-token-rustls-webpki-roots` | needs `cc`; no system library, no OpenSSL |
+| `zstd-sys` | 2.0.16+zstd.1.5.7 | root-only `zstd = "0.13"` | bundles its own C source; needs `cc`, no system library |
+
+Both are covered by the same `build-essential`.
+
+**One option, flagged not recommended** (it changes TLS behaviour, so it is
+a decision rather than an audit finding): switching the game's `reqwest` to
+`rustls-tls` — or enabling `openssl`'s `vendored` feature — would drop the
+`libssl-dev` and `pkg-config` requirements entirely, leaving only
+`build-essential`. It also removes the game's dependency on the host's CA
+store and OpenSSL patch cadence. Not proposed here; noted because it is the
+only lever that shortens the prerequisite list.
+
+### Two things to verify on the first Linux build
+
+Neither is expected to fail. Both are cheap to check and expensive to
+discover late.
+
+1. **Golden-corpus reproducibility across platforms.** The fixtures were
+   captured on Windows/MSVC. `golden_corpus.rs` compares **structurally**
+   (parsed JSON, with a documented 1-ULP tolerance on float *leaves* only —
+   every gameplay-facing number is `.round()`-ed to an integer before it
+   reaches a `CombatEvent`), so line endings are irrelevant and small float
+   drift is already absorbed. The genuine cross-platform risk would be a
+   libm difference, and the exposure is minimal: the entire `game` crate
+   contains exactly **two** transcendental float calls — one `.sqrt()`
+   ([manager.rs](../game/src/adventure/manager.rs), IEEE-754
+   exactly-rounded, therefore bit-identical on every platform) and one
+   `.ln()` ([pacing.rs:583](../game/src/adventure/pacing.rs#L583)), which
+   sits inside `update_dmg_pacing_mult` — a between-fights controller that
+   `simulate_battle` never calls. **The snapshot path touches no
+   libm-variable function, so the fixtures are expected to reproduce
+   bit-for-bit.** Per CLAUDE.md, if any fixture *does* mismatch it is
+   reported with an attributed cause and **never regenerated** outside a
+   merge.
+2. **Full-suite run:** `cargo test --release --workspace --quiet`. All test
+   scaffolding is already portable — `std::env::temp_dir()` (13 sites),
+   `set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))` (12
+   files), and `Child::kill()` in `killed_process_smoke.rs` (which becomes
+   `SIGKILL` instead of `TerminateProcess`, exercising the same
+   abrupt-death path the test exists to cover). Known flaky-under-parallel
+   tests per CLAUDE.md still apply and must be confirmed in isolation
+   before being reported as Linux regressions.
+
+---
+
+## 16. Decisions recorded — SETTLED
+
+Ruled by the owner on 2026-08-27, in response to the questions this audit
+raised. **These are settled, not open.** Earlier sections have been revised
+to match; where a section still shows the pre-ruling analysis it is marked
+as reference only.
+
+| # | Decision | Consequence for this document |
+|---|---|---|
+| **D1** | **Only the `game` process migrates to Linux.** The bot stays on the Windows machine, because OBS runs there and the bot's remaining role is Twitch chat and OBS overlays only. The bot's path literals and its share of the ops layer are **not migration work**. | §10.5 rewritten as game-only (step 4 removed, ~5 lines across 2 files). §12 rewritten: `watchdog.ps1` and `TwitchBotRS`/`TwitchBotRS-Watchdog` **stay untouched on Windows**; `maintenance-flag.ps1` is halved rather than deleted. §10.2's bot inventory is retained as **reference, not a work list**. |
+| **D2** | **`bot-published-constants.json` needs no cross-CWD home.** It is part of the integration surface being deleted, and its consumer already falls back gracefully to `"varies"`. | §10.5 step 2 drops from 4 changes to 3 (~4 lines). The file stays CWD-relative and unrouted; an absent file is a supported state — [game/src/main.rs:114-118](../game/src/main.rs#L114-L118) warns rather than fails, and `wiki_placeholder_map` renders `"varies"`. **No code change.** |
+| **D3** | **`OBS_WEBSOCKET_URL=ws://127.0.0.1:4455` remains correct and needs no change**, since the bot stays co-located with OBS. | §11's "Decision needed" row replaced with a settled "no change" row. |
+
+### One consequence of D1 that is new work, not removed work
+
+D1 removes the bot's data and ops from scope, but it **creates** a
+requirement that did not exist while both processes shared a host: the
+bot→game `/api/*` seam becomes a cross-internet link. It is plain HTTP
+authenticated by a single shared-secret header, and it carries every
+`!join`, `!character`, redemption and activity-XP call plus an
+announcements stream ([adventure_client.rs](../src/adventure_client.rs)).
+`ADVENTURE_API_BASE_URL` must therefore point at an HTTPS endpoint — the
+existing tunnel hostname is the obvious candidate, since 4005 already
+carries the seam (§14). This is recorded as a consequence of the ruling,
+not a reopening of it.
+
+Two further points follow from D1 and are flagged for a separate decision,
+not assumed here: the bot's own data has **no scheduled backup** and
+becomes the only un-backed-up state once the game's backup moves to the
+VPS (§12); and the deploy procedure becomes a *remote* one, needing a
+transport that `REFACTOR_PLAN.md` §13 does not currently describe (§12).
+
+---
+
 ## Appendix — how this audit was performed
 
 Every claim above is grounded in a mechanical sweep of the checked-in tree,
@@ -957,6 +1311,22 @@ written, or otherwise touched.
   byte-for-byte against the sprite directory.
 - `git ls-files --eol` for line-ending truth in index vs working tree;
   `git ls-files | tr A-Z a-z | uniq -d` for case-colliding tracked paths.
+- For §14: a repo-wide case-insensitive sweep for
+  `cloudflar|tunnel|lokati\.net|trycloudflare|ngrok` across `.rs`, `.md`,
+  `.toml`, `.ps1`, `.html`, `.js` and `.env.example`, then targeted reads of
+  every hit; `git ls-files` matched against `cloudflar|config.ya?ml|ingress`
+  to confirm no tunnel artefact is tracked. Every `TcpListener::bind` call
+  site read for its bind address. **No file outside the repository was
+  read** — in particular nothing under `C:\Users\Administrator\.cloudflared`.
+- For §15: `cargo tree -p <pkg> -e normal[,dev] --target
+  x86_64-unknown-linux-gnu` for both packages, to resolve the dependency
+  graph as Linux would see it rather than as Windows does;
+  `rustup target list --installed`; `rustc -V`/`cargo -V`; `Cargo.lock`
+  inspected for `openssl-src` (absent → system libssl required) and for the
+  `cc`/`pkg-config` build-script dependents. A repo-wide sweep for
+  transcendental float calls (`powf|exp|ln|log*|sqrt|sin|cos|tan|cbrt|hypot`)
+  to bound cross-platform float risk in the golden corpus. **No Linux
+  compilation was attempted** — the target is not installed on this machine.
 - Targeted range reads of `state.rs`, `paths.rs`, `render.rs`, `wiki.rs`,
   `fight_storage.rs`, `tunables.rs`, `balance.rs`, `passive_overrides.rs`,
   `config.rs`, both `main.rs` files, and the four PowerShell headers and
