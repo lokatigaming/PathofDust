@@ -36,8 +36,8 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
-    LiveTunables, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
+    AutoDisenchantTier, BossKind, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
@@ -221,6 +221,10 @@ pub async fn start_adventure_web_server(
         // `render_admin_passives_page` and `adventure::passive_overrides`.
         // Same `ADMIN_TUNABLES_LOGIN` gate as the page above, applied to
         // the read and both writes.
+        // The one web operator control (2026-08-28) - see
+        // `do_ops_next_encounter`. Same `ADMIN_TUNABLES_LOGIN` gate as
+        // the pages above; unlike them it reports every refusal.
+        .route("/admin/ops/next-encounter", post(do_ops_next_encounter))
         .route("/admin/passives", get(admin_passives_page))
         .route("/admin/passives/save", post(do_save_passive_override))
         .route("/admin/passives/revert", post(do_revert_passive_override))
@@ -2843,6 +2847,87 @@ async fn do_revert_passive_override(State(state): State<AppState>, headers: Head
     Redirect::to(&format!("/admin/passives?class={slug}&saved=1"))
 }
 
+// ---------------------------------------------------------------------
+// `/admin/ops/next-encounter` (2026-08-28) - the web equivalent of the
+// bot's mod-only `!nextencounter`, built for Stage 2 of the standalone
+// plan. The bot route (`api::next_encounter`) is untouched and keeps
+// working; this is an ADDITION beside it, not a replacement.
+//
+// Gated by the same mechanism as `/admin/tunables` (`current_session` +
+// a plain `ADMIN_TUNABLES_LOGIN` equality check) but deliberately NOT
+// with the same response: the existing admin POSTs silently redirect a
+// non-admin submission as though it worked, and a control that fires a
+// fight against a live party must never do that. Every outcome here -
+// refusal included - comes back as a visible page naming the exact
+// condition, with a status code that matches it.
+// ---------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct OpsNextEncounterForm {
+    /// The boss select's value: one of `BossKind::FORCED_CHOICES`' keys,
+    /// or empty for the "Random" option (the normal roll - exactly
+    /// `!nextencounter` with no argument). `#[serde(default)]` per the
+    /// house rule: a field an extractor REQUIRES but the page might not
+    /// render is a 422 waiting to happen.
+    #[serde(default)]
+    boss: String,
+}
+
+/// One operator-control outcome, rendered as a page rather than a
+/// redirect so the reason survives the round trip. `heading` is what
+/// happened, `detail` says why - both are asserted on by
+/// `admin_ops_next_encounter_http.rs`, so keep them distinct per outcome.
+fn ops_result(status: StatusCode, heading: &str, detail: &str) -> axum::response::Response {
+    let body = format!(
+        "<div class=\"card\"><h1>{heading}</h1><p>{detail}</p><p><a href=\"/admin/tunables\">&larr; Back to tunables</a></p></div>"
+    );
+    (status, Html(render_page(&body))).into_response()
+}
+
+async fn do_ops_next_encounter(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<OpsNextEncounterForm>) -> axum::response::Response {
+    let is_admin = matches!(current_session(&headers, &state).await, Some((login, _)) if login == ADMIN_TUNABLES_LOGIN);
+    if !is_admin {
+        return ops_result(
+            StatusCode::FORBIDDEN,
+            "Refused - not the operator",
+            "This control is operator-only and your session is not signed in as one. Nothing was triggered.",
+        );
+    }
+    // Blank = the "Random" option = no forced boss, same as
+    // `!nextencounter` with no argument.
+    let picked = form.boss.trim();
+    let forced = (!picked.is_empty()).then_some(picked);
+    match state.adventure.operator_trigger_encounter(forced).await {
+        OperatorTriggerOutcome::Triggered => {
+            let what = match forced {
+                Some(name) => format!("a forced {name} encounter"),
+                None => "the next encounter".to_string(),
+            };
+            ops_result(StatusCode::OK, "Encounter triggered", &format!("Ran {what} right now. The result is announced through the usual channels."))
+        }
+        OperatorTriggerOutcome::Busy => ops_result(
+            StatusCode::CONFLICT,
+            "Refused - operator action already running",
+            "Another operator trigger from this page is still running. Nothing was queued and no second fight will happen - wait for the first to finish and press it again if you still want one.",
+        ),
+        OperatorTriggerOutcome::FightInProgress => ops_result(
+            StatusCode::CONFLICT,
+            "Refused - a fight is in progress",
+            "A fight is already running (the scheduled loop, a rampage, or the bot). Triggering now would have queued a bonus fight to start once that one finished, so it was refused instead. Nothing was queued.",
+        ),
+        OperatorTriggerOutcome::NobodyJoined => ops_result(
+            StatusCode::CONFLICT,
+            "Refused - nobody is eligible to fight",
+            "No character is currently on the battlefield (everyone is downed, retreated, or nobody has joined). Nothing was triggered.",
+        ),
+        OperatorTriggerOutcome::UnknownBoss => ops_result(
+            StatusCode::BAD_REQUEST,
+            "Refused - unrecognized boss",
+            "That boss name is not one this game knows. The select on the tunables page only ever offers names that work, so this means the request did not come from it. Nothing was triggered.",
+        ),
+    }
+}
+
 async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminTunablesParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
@@ -3714,6 +3799,13 @@ mod render_fights_page_tests {
 /// pattern `IndexParams`'s fields already use elsewhere on this dashboard.
 fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, saved: bool) -> String {
     let nav = top_nav(viewer);
+    // Operator control (2026-08-28) - the select is generated from
+    // `BossKind::FORCED_CHOICES` rather than hand-written, so the page
+    // can never offer a name `parse_forced` would refuse. The blank
+    // first option is the normal random roll.
+    let boss_options = std::iter::once("<option value=\"\">Random (normal roll)</option>".to_string())
+        .chain(BossKind::FORCED_CHOICES.iter().map(|(value, label)| format!("<option value=\"{value}\">{label}</option>")))
+        .collect::<String>();
     // Saturation signals (owner ruling: a pinned controller must be
     // VISIBLE, not silent). A pinned flag means the party is performing
     // BELOW the stage baseline and the hand-authored floor is doing the
@@ -4113,10 +4205,23 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
           </form>\
         </div>\
         <div class=\"card\">\
+          <h2>Operator Controls</h2>\
+          <p class=\"muted\">The web equivalent of the mod-only <code>!nextencounter</code> — runs one encounter right now instead of waiting for the timer. Every refusal is reported back with its reason; a refused press never queues a fight to happen later.</p>\
+          <form method=\"post\" action=\"/admin/ops/next-encounter\">\
+            <div class=\"tunable-row\">\
+              <label for=\"ops_boss\">Boss</label>\
+              <select id=\"ops_boss\" name=\"boss\">{boss_options}</select>\
+              <p class=\"tunable-hint\">Random rolls the normal pick. Naming one forces exactly that boss regardless of stage or rotation — the same thing <code>!nextencounter &lt;name&gt;</code> does. Refused while any fight is already in flight, so this can't stack a bonus fight onto the end of one.</p>\
+            </div>\
+            <button class=\"btn\" type=\"submit\">Trigger Encounter Now</button>\
+          </form>\
+        </div>\
+        <div class=\"card\">\
           <h2>📌 Pinned Fights</h2>\
           <p class=\"muted\">Mod tool <code>!pinfight</code> copies the most recent coarse-tier and detail-tier fight files here, immune to the normal rolling-window pruning — bug-report evidence that survives past the 3-5 file window until someone deletes it by hand.</p>\
           {pinned_fights_html}\
         </div>",
+        boss_options = boss_options,
         loot_mult = t.loot_mult,
         sand_mult = t.sand_mult,
         wings_drop_chance = t.wings_drop_chance,
