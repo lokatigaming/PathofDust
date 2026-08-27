@@ -99,6 +99,10 @@ impl LocalApiFixture {
         self.post_reply("/api/commands/rampage", serde_json::json!({ "user": user, "is_mod_or_broadcaster": is_mod_or_broadcaster })).await
     }
 
+    async fn next_encounter(&self, forced: Option<&str>) -> anyhow::Result<Option<String>> {
+        self.post_reply("/api/commands/next_encounter", serde_json::json!({ "forced": forced })).await
+    }
+
     async fn gift_dust(&self, target: &str, amount: u64) -> anyhow::Result<Option<String>> {
         self.post_reply("/api/commands/gift_dust", serde_json::json!({ "target": target, "amount": amount })).await
     }
@@ -298,6 +302,31 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     // Fire-and-forget activity XP (§4c) - just needs to succeed at the
     // HTTP layer; no reply body to check by design (see api.rs's own doc).
     client.activity_xp(TEST_USER).await.expect("POST /api/activity_xp failed");
+
+    // --- L4 `next_encounter`, and the COMPATIBILITY GUARANTEE ----------
+    // (2026-08-28) Stage 2 added a web operator control,
+    // `/admin/ops/next-encounter`, which reaches the same manager action
+    // through a wrapper that REFUSES a second concurrent trigger. The bot
+    // route deliberately does not go through that wrapper, and this
+    // asserts its contract is byte-for-byte what it always was: all three
+    // documented outcomes, unchanged.
+    //
+    // The one-sidedness of the new gate - web refuses while the bot path
+    // runs fine - is asserted where it can be made deterministic, in
+    // `admin_ops_next_encounter_http.rs`: that test drives a fight through
+    // `trigger_encounter_now` (this same entry point) and shows the web
+    // control refusing against it while the bot-path fight completes.
+    let unknown = client.next_encounter(Some("not-a-boss")).await.expect("POST /api/commands/next_encounter failed").expect("an unrecognized boss must reply");
+    assert!(unknown.contains("Unrecognized boss"), "unexpected unknown-boss reply: {unknown}");
+
+    // TEST_USER was downed by the Force Boss fight above, so a fresh
+    // fighter is joined rather than assuming the old one is still
+    // eligible - "nobody joined" and "triggered" are different outcomes
+    // and this half is testing the triggered one.
+    const COMPAT_USER: &str = "compat-tester";
+    client.join(COMPAT_USER).await.expect("POST /api/commands/join failed");
+    let triggered = client.next_encounter(None).await.expect("POST /api/commands/next_encounter failed");
+    assert!(triggered.is_none(), "a triggered encounter has no reply by design (see api.rs) - got {triggered:?}");
 
     // Smoke matrix item 3 (owner-requested at Stage 4): "bot against a
     // killed game." Can't cleanly shut down the disposable server above
