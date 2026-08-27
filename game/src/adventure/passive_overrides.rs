@@ -221,38 +221,33 @@ pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()
 /// **Drift batch (2026-08-25):** shrank 47 → 31 when the audit's Group-B
 /// drift nodes migrated (16 entries deleted here; `sacrifice` was tracked
 /// in PARTIALLY_TUNABLE_NODES instead, its cost half already being wired).
+///
+/// **Stage 3 (2026-08-27):** shrank 31 → 6. Twenty-five nodes migrated
+/// onto declared values. The six left are NOT waiting on a batch, and
+/// each says which of the two reasons keeps it here:
+/// - **Structure-only** (`clarity`, `lastlaugh`, `neverending`,
+///   `sanctifiedtouch`): every rank read on these is an UNLOCK GATE - a
+///   `rank >= 2/3` that flips a flag or releases a flat base and a
+///   sibling node's own (already tunable) magnitude. They own no rank-fed
+///   number, so there is nothing an override could carry. Same ruling the
+///   2026-08-25 drift batch made for `ravage`/`endlessthirst`/
+///   `naturesblessing`, and unlock gating is deliberately unreachable
+///   from this store (see the module doc). Listed here rather than in
+///   `UNWIRED_NODES` because their mechanics DO run - only their declared
+///   magnitude is decorative.
+/// - **Needs a second value slot** (`reckless`, `deathwish`): each owns
+///   TWO independent rank-fed ladders (damage DEALT and damage TAKEN,
+///   which scale by different amounts per rank), and a node has exactly
+///   one magnitude table. Same blocker as `sacrifice`/`bloomingfield`/
+///   `reaperscall` in `PARTIALLY_TUNABLE_NODES` - see this module's
+///   Stage 3 note in `docs/passive_tunables_spec.md`.
 pub const PENDING_MIGRATION_NODES: &[&str] = &[
-    "assassinate", // rogue
-    "bloodrush", // berserker
-    "bloodscent", // berserker
-    "chakraoflife", // monk - stage-0: immunity duration is rank*1000ms at the call site
-    "clarity", // monk
-    "compassion", // cleric
-    "crush", // berserker
-    "deathwish", // berserker
-    "doubletap", // rogue
-    "finalblow", // ranger
-    "frenzy", // berserker
-    "gloriousdeath", // berserker
-    "guardianspirit", // cleric
-    "lastlaugh", // berserker
-    "lastrites", // slayer
-    "markedfordeath", // rogue
-    "neverending", // berserker
-    "payback", // warrior
-    "piercingshots", // ranger
-    "quickdraw", // rogue
-    "reckless", // berserker
-    "relentlessassault", // monk
-    "sanctifiedtouch", // cleric
-    "secondwind", // warrior
-    "shatter", // berserker
-    "shattering", // elementalist - stage-0: icicle target count reads rank; damage pct is LiveTunable
-    "surgicalstrike", // rogue
-    "undying", // slayer
-    "undyingwill", // warrior
-    "unyieldingspirit", // monk - stage-0: Last Stand HP threshold ladder is rank-keyed
-    "vitalstrike", // rogue
+    "clarity", // monk - structure-only: `rank >= 2` flips "Serenity also triggers on block", no number of its own
+    "deathwish", // berserker - needs a 2nd value slot: dealt (10/20/30%) AND taken (5/10/15%) ladders
+    "lastlaugh", // berserker - structure-only: `rank >= 2` / `rank >= 3` flip two flags, no number of its own
+    "neverending", // berserker - structure-only: invested-or-not gate, no number of its own
+    "reckless", // berserker - needs a 2nd value slot: dealt (15/25/35%) AND taken (8/13/18%) ladders
+    "sanctifiedtouch", // cleric - structure-only: rank 2/3 release a flat base plus holycrit/divineclarity's own tunable magnitudes
 ];
 
 /// Nodes whose magnitude is a COUNT (extra targets, extra hits, banked
@@ -313,6 +308,21 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
     "risingphoenix", // elementalist - per-combat revive limit (the old `.min(3)` is redundant: effective_rank caps growth at 3)
     "verdantburst", // druid - Verdant Burst save charges (threshold half stays a LiveTunable)
     "virulence", // warlock - Soul Stone bank size
+    // Stage 3 (2026-08-27): the batch's COUNT nodes, each confirmed a
+    // plain arithmetic count at its own call site before its
+    // `passive_node_rank` read was switched to `passive_node_count`.
+    "assassinate", // rogue - guaranteed-crit charges per fight (0/1/2)
+    "bloodrush", // berserker - Undying Fury charges (0/1/2)
+    "doubletap", // rogue - Twin Strikes repeat cap (3/6/9)
+    "frenzy", // berserker - extra strikes per proc (1/2/3)
+    "gloriousdeath", // berserker - Glorious Death charges (1/1/2)
+    "guardianspirit", // cleric - party-wide death saves per fight (0/1/2)
+    "lastrites", // slayer - party-wide death save charges (1/1/1)
+    "markedfordeath", // rogue - marked hits that count as crits (0/2/3)
+    "quickdraw", // rogue - free Fleetfoot stacks on entering combat (0/1/2)
+    "shattering", // elementalist - Water Golem icicle extra targets (1/2/3)
+    "undying", // slayer - FlickerStrike death-save charges (1/1/2)
+    "undyingwill", // warrior - Undying Will charges (0/1/2)
 ];
 
 /// Nodes that declare a real per-rank effect which **nothing in the
@@ -402,7 +412,13 @@ pub fn node_is_tunable(key: &str) -> bool {
 /// it can be.
 pub fn node_untunable_reason(key: &str) -> Option<&'static str> {
     if PENDING_MIGRATION_NODES.contains(&key) {
-        Some("Pending migration — this node's numbers are still hardcoded in combat.rs, so an override here would do nothing. Unlocked by its class's migration batch.")
+        // Reworded 2026-08-27 (Stage 3): every node still on this list is
+        // there because it owns no rank-fed value a single magnitude table
+        // could carry - an unlock gate (structure), or a second value with
+        // no slot to declare it in - not because a batch is coming for it.
+        // Promising one would be the same inert-input lie this list exists
+        // to kill. See `PENDING_MIGRATION_NODES`' own doc for which is which.
+        Some("Pending migration — this node owns no per-rank value an override could carry: its rank feeds an unlock gate (structure), or a second value this store has no slot for. An override here would do nothing.")
     } else if UNWIRED_NODES.contains(&key) {
         Some("Declared but unread — this node has real per-rank values, but no code consumes them yet, so there is nothing an override could change.")
     } else {
@@ -645,9 +661,9 @@ mod passive_override_tests {
         // number only moves again when a migration batch deletes its
         // entries or a NEW guard-verified drift is listed - both
         // deliberate, reviewed changes.
-        assert_eq!(PENDING_MIGRATION_NODES.len(), 31, "Stage 0 audit grew the list to 47; the 2026-08-25 drift batch took it to 31 - see docs/passive_tunables_spec.md");
+        assert_eq!(PENDING_MIGRATION_NODES.len(), 6, "Stage 0 grew the list to 47; the 2026-08-25 drift batch took it to 31; Stage 3 (2026-08-27) took it to 6 - see docs/passive_tunables_spec.md");
         let unique: std::collections::HashSet<&str> = PENDING_MIGRATION_NODES.iter().copied().collect();
-        assert_eq!(unique.len(), 31, "the pending list must not contain duplicates");
+        assert_eq!(unique.len(), 6, "the pending list must not contain duplicates");
     }
 
     #[test]
@@ -671,7 +687,7 @@ mod passive_override_tests {
 
     #[test]
     fn tunability_is_reported_correctly_for_both_kinds_of_node() {
-        assert!(!node_is_tunable("frenzy"), "frenzy hardcodes its numbers in combat.rs");
+        assert!(!node_is_tunable("clarity"), "clarity owns no rank-fed number - only an unlock gate");
         assert!(node_is_tunable("bulwark"), "bulwark reads its value through the accessor");
     }
 
@@ -746,9 +762,13 @@ mod passive_override_tests {
         // migrated declares `1.0 / 1.0`, so magnitude == rank exactly and
         // swapping a rank read for a magnitude read could not move a
         // number. `infiniteloop` is excluded - it was migrated later, by
-        // the Mage batch, and counts in threes.
+        // the Mage batch, and counts in threes. The Stage 3 (2026-08-27)
+        // additions are excluded for the same reason: their real ladders
+        // are 0/1/2, 1/1/2, 3/6/9 and the like, so magnitude deliberately
+        // does NOT equal rank - `stage3_declarations_reproduce_the_old_
+        // rank_fed_values_exactly` is their neutrality proof instead.
         let empty = PassiveOverrides::default();
-        for key in INTEGER_COUNT_NODES.iter().filter(|k| **k != "infiniteloop") {
+        for key in INTEGER_COUNT_NODES.iter().filter(|k| **k != "infiniteloop" && !STAGE_3_MIGRATED.iter().any(|(_, s3, _)| s3 == *k)) {
             let (_, n) = crate::adventure::ALL_ARCHETYPES
                 .iter()
                 .find_map(|&a| a.passive_nodes().iter().find(|n| n.key == *key).map(|n| (a, n)))
@@ -991,6 +1011,144 @@ mod passive_override_tests {
         let flames = node(Archetype::Elementalist, "healingflames");
         let o = overrides(&[("healingflames", &[0.04, 0.07, 0.12])]);
         assert_eq!(flames.magnitude_at_rank_with(3, &o), 0.12);
+    }
+
+    // ---- Stage 3 (2026-08-27): the rank-fed backlog lands ------------
+
+    /// Every node Stage 3 migrated, paired with the EXACT per-rank values
+    /// its `combat.rs` call site produced from the RAW RANK before the
+    /// batch - read off each call site one at a time, never inferred from
+    /// the node's old declaration, because several of those declarations
+    /// disagreed with the game (`payback` declared 0.30/0.45/0.60 while
+    /// combat.rs used 0/0.30/0.45; `crush`, `secondwind`, `vitalstrike`,
+    /// `gloriousdeath`, `undying` and `doubletap` were all off in the same
+    /// way). These are the GAME's numbers, which is what makes the batch
+    /// behavior-neutral at defaults.
+    ///
+    /// One table, two tests: the first pins the migration as neutral, the
+    /// second pins every entry as genuinely reachable by an override.
+    const STAGE_3_MIGRATED: &[(Archetype, &str, [f64; 3])] = &[
+        // Warrior
+        (Archetype::Warrior, "payback", [0.0, 0.30, 0.45]),
+        (Archetype::Warrior, "secondwind", [0.0, 0.50, 0.65]),
+        (Archetype::Warrior, "undyingwill", [0.0, 1.0, 2.0]),
+        // Berserker
+        (Archetype::Berserker, "frenzy", [1.0, 2.0, 3.0]),
+        (Archetype::Berserker, "bloodscent", [0.0, 0.50, 0.65]),
+        (Archetype::Berserker, "bloodrush", [0.0, 1.0, 2.0]),
+        (Archetype::Berserker, "shatter", [1.0, 1.0, 1.0]),
+        (Archetype::Berserker, "crush", [0.0, 0.50, 0.65]),
+        (Archetype::Berserker, "gloriousdeath", [1.0, 1.0, 2.0]),
+        // Rogue
+        (Archetype::Rogue, "assassinate", [0.0, 1.0, 2.0]),
+        (Archetype::Rogue, "markedfordeath", [0.0, 2.0, 3.0]),
+        (Archetype::Rogue, "vitalstrike", [0.50, 0.65, 0.80]),
+        (Archetype::Rogue, "surgicalstrike", [1.0, 1.0, 2.0]),
+        (Archetype::Rogue, "doubletap", [3.0, 6.0, 9.0]),
+        (Archetype::Rogue, "quickdraw", [0.0, 1.0, 2.0]),
+        // Monk
+        (Archetype::Monk, "relentlessassault", [0.0, 0.0, 2.0]),
+        (Archetype::Monk, "chakraoflife", [1.0, 2.0, 3.0]),
+        (Archetype::Monk, "unyieldingspirit", [0.35, 0.45, 0.55]),
+        // Ranger
+        (Archetype::Ranger, "piercingshots", [0.0, 0.0, 0.10]),
+        (Archetype::Ranger, "finalblow", [0.35, 0.40, 0.45]),
+        // Cleric
+        (Archetype::Cleric, "guardianspirit", [0.0, 1.0, 2.0]),
+        (Archetype::Cleric, "compassion", [0.0, 0.0, 0.05]),
+        // Slayer
+        (Archetype::Slayer, "undying", [1.0, 1.0, 2.0]),
+        (Archetype::Slayer, "lastrites", [1.0, 1.0, 1.0]),
+        // Elementalist
+        (Archetype::Elementalist, "shattering", [1.0, 2.0, 3.0]),
+    ];
+
+    #[test]
+    fn stage3_declarations_reproduce_the_old_rank_fed_values_exactly() {
+        // `==`, not an epsilon, for the same reason
+        // `final_judgment_migration_is_exactly_behavior_neutral` gives: an
+        // approximate check would hide exactly the drift worth catching.
+        // The two computed formulas the batch replaced are bit-exact on
+        // these literals - `0.25 + 0.10 * rank` for Last Stand's 0.35/
+        // 0.45/0.55, and `rank * 1000ms` for Chakra of Life's 1/2/3s -
+        // verified before relying on it, since float addition does not
+        // always oblige.
+        let empty = PassiveOverrides::default();
+        for (archetype, key, expected) in STAGE_3_MIGRATED {
+            for (i, want) in expected.iter().enumerate() {
+                let rank = i as u32 + 1;
+                assert_eq!(
+                    node(*archetype, key).magnitude_at_rank_with(rank, &empty),
+                    *want,
+                    "{key:?} rank {rank} must reproduce the value its call site used before Stage 3"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stage3_migrated_nodes_are_tunable_and_every_override_reaches_the_value() {
+        // The point of the batch. Each of these was consumed ONLY through
+        // `passive_node_rank`, so an override on it was inert - the drift
+        // defect class the anomaly ledger records as #48. Each must now be
+        // offered, and an override must genuinely move the magnitude the
+        // call site reads.
+        let empty = PassiveOverrides::default();
+        for (archetype, key, defaults) in STAGE_3_MIGRATED {
+            assert!(node_is_tunable(key), "{key:?} was migrated by Stage 3 and must no longer be listed as pending");
+            assert!(node_untunable_reason(key).is_none(), "{key:?} must have no untunable reason");
+            assert!(archetype.passive_nodes().iter().any(|n| n.key == *key), "{key:?} lookup must use the right archetype");
+            let n = node(*archetype, key);
+            // Deliberately out of band, so no tuned value can coincide
+            // with the default it is meant to displace.
+            let tuned: Vec<f64> = defaults.iter().map(|d| d + 7.0).collect();
+            let o = overrides(&[(key, tuned.as_slice())]);
+            for rank in 1..=3u32 {
+                let before = n.magnitude_at_rank_with(rank, &empty);
+                let after = n.magnitude_at_rank_with(rank, &o);
+                assert_ne!(after, before, "{key:?} rank {rank}: the override must not be swallowed");
+                assert_eq!(after, before + 7.0, "{key:?} rank {rank}: the override must reach the value the call site reads");
+            }
+        }
+    }
+
+    #[test]
+    fn stage3_count_nodes_are_declared_as_whole_numbers() {
+        // Every Stage 3 node whose magnitude is a COUNT is listed in
+        // INTEGER_COUNT_NODES (the admin page then refuses fractions on
+        // it), and its declared defaults really are whole numbers - the
+        // check that would have caught a rate being filed as a count.
+        for (archetype, key, defaults) in STAGE_3_MIGRATED {
+            if !INTEGER_COUNT_NODES.contains(key) {
+                continue;
+            }
+            for (i, d) in defaults.iter().enumerate() {
+                assert_eq!(d.fract(), 0.0, "{key:?} is listed as an integer count but declares {d} at rank {}", i + 1);
+            }
+            assert!(archetype.passive_nodes().iter().any(|n| n.key == *key));
+        }
+        // And the ones that are NOT counts are exactly the rates,
+        // fractions and durations - pinned by name so a later edit cannot
+        // quietly file one of them as a count and start rounding it.
+        for key in ["payback", "secondwind", "bloodscent", "shatter", "crush", "vitalstrike", "surgicalstrike", "relentlessassault", "chakraoflife", "unyieldingspirit", "piercingshots", "finalblow", "compassion"] {
+            assert!(!INTEGER_COUNT_NODES.contains(&key), "{key:?} is a fraction/duration, not a count - rounding it would break it");
+        }
+    }
+
+    #[test]
+    fn the_nodes_stage3_left_pending_own_no_rank_fed_value() {
+        // Stage 3 deliberately did NOT migrate these six, and the list's
+        // own doc says which of the two reasons applies to each. What is
+        // asserted here is the part a future session could break by
+        // accident: they stay OFF the page (an inert input is the lie
+        // this list exists to kill), and the reason shown is the pending
+        // one rather than the unwired one.
+        assert_eq!(PENDING_MIGRATION_NODES, &["clarity", "deathwish", "lastlaugh", "neverending", "reckless", "sanctifiedtouch"]);
+        for key in PENDING_MIGRATION_NODES {
+            assert!(!node_is_tunable(key), "{key:?} must not be offered");
+            let reason = node_untunable_reason(key).expect("a pending node must explain itself");
+            assert!(reason.contains("no per-rank value an override could carry"), "{key:?} must get the reworded pending reason, got: {reason}");
+        }
     }
 
     #[test]

@@ -6392,11 +6392,13 @@ mod admin_passives_tests {
     #[test]
     fn a_pending_migration_node_is_shown_but_not_editable() {
         // An input that silently does nothing is worse than no input.
-        // `payback` is a Warrior node whose numbers still live in
-        // combat.rs - see PENDING_MIGRATION_NODES.
-        assert!(!crate::adventure::node_is_tunable("payback"), "sanity: payback must still be pending");
-        let html = admin_page(Archetype::Warrior, false);
-        assert!(html.contains("payback"), "a pending node must still be listed, so its state is visible");
+        // `lastlaugh` is a Berserker node whose only rank reads are unlock
+        // gates, so it owns no value an override could carry - see
+        // PENDING_MIGRATION_NODES. (Was `payback` until 2026-08-27, when
+        // Stage 3 migrated it and every other Warrior node off the list.)
+        assert!(!crate::adventure::node_is_tunable("lastlaugh"), "sanity: lastlaugh must still be pending");
+        let html = admin_page(Archetype::Berserker, false);
+        assert!(html.contains("lastlaugh"), "a pending node must still be listed, so its state is visible");
         assert!(html.contains("Pending migration"), "and must say why it can't be edited");
     }
 
