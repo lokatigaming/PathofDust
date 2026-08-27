@@ -270,6 +270,129 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
         .expect("POST failed");
     assert_eq!(game::adventure::passive_conversion_cap_override("unbreakable"), None, "blank must clear the per-node cap");
 
+
+    // --- units and range validation (2026-08-27) ----------------------
+    // The page used to render three bare numbers per row with nothing
+    // saying what they meant, and accepted any finite value. Payback is
+    // the worked example: its threshold is compared against
+    // `hp / max_hp`, so `45` meaning "45 percent" is an always-true
+    // threshold - it used to persist silently.
+    let admin_body = client
+        .get(format!("{base}/admin/passives?class=warrior"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .send()
+        .await
+        .expect("GET failed")
+        .text()
+        .await
+        .expect("body");
+
+    // Every rendered row says what its numbers are, or says outright
+    // that it has none.
+    let mut rows = 0;
+    let mut editable_rows = 0;
+    // `passive-row-head` shares the prefix, so it is renamed out of the
+    // way before splitting - each piece is then exactly one row, ending
+    // where the next begins.
+    let row_scan = admin_body.replace("<div class=\"passive-row-head\"", "<div class=\"rowhead\"");
+    for row in row_scan.split("<div class=\"passive-row").skip(1) {
+        rows += 1;
+        let declares_no_value = row.contains("declares no value");
+        assert!(
+            row.contains("class=\"passive-unit\"") || declares_no_value,
+            "every rendered row must carry a unit chip (or say it declares no value at all): {row}"
+        );
+        if row.contains("name=\"r1\"") {
+            editable_rows += 1;
+            assert!(row.contains("class=\"passive-unit-note\""), "every editable row must print its unit and expected range beside the inputs: {row}");
+        }
+    }
+    assert!(rows > 30 && editable_rows > 30, "sanity: the Warrior page must have rendered real rows, got {rows} rows / {editable_rows} editable");
+    assert!(
+        admin_body.contains("fraction") && admin_body.contains("a fraction from 0 to 1"),
+        "the bounded-fraction rows must state their range in words"
+    );
+
+    // The 422 trap, the direction no superset-body test can see: the
+    // ordinary edit form must not render `confirm`, and the form struct
+    // must not require it.
+    let payback_fields = save_form_field_names(&admin_body, "payback");
+    assert!(!payback_fields.contains(&"confirm".to_string()), "the ordinary edit form must not render the confirm field, got {payback_fields:?}");
+    assert_eq!(payback_fields, vec!["class", "node_key", "r1", "r2", "r3"], "the scraped field set is what a real browser save posts");
+
+    // A value the consuming code cannot use is REFUSED, inline, naming
+    // the field and the range - and never written.
+    let rejected = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[("class", "warrior"), ("node_key", "payback"), ("r1", "0"), ("r2", "45"), ("r3", "0.45")])
+        .send()
+        .await
+        .expect("POST failed");
+    assert_eq!(rejected.status(), reqwest::StatusCode::OK, "a rejection re-renders the page rather than redirecting away from it");
+    let rejected_body = rejected.text().await.expect("body");
+    assert!(rejected_body.contains("Not saved"), "the rejection must be visible on the page: {}", &rejected_body[..rejected_body.len().min(400)]);
+    assert!(rejected_body.contains("Rank 2"), "and must name the field");
+    assert!(rejected_body.contains("payback"), "and the node");
+    assert!(rejected_body.contains("a fraction from 0 to 1"), "and the expected range");
+    let contents = std::fs::read_to_string(&overrides_file).expect("readable");
+    assert!(!contents.contains("payback"), "a rejected value must NOT be persisted, got:\n{contents}");
+    assert_eq!(game::adventure::passive_override_for("payback", 2), None, "and must not reach the live store either");
+
+    // The value they meant saves cleanly - a valid save is still a
+    // redirect, not a 422.
+    let accepted = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[("class", "warrior"), ("node_key", "payback"), ("r1", "0"), ("r2", "0.45"), ("r3", "0.6")])
+        .send()
+        .await
+        .expect("POST failed");
+    assert!(accepted.status().is_redirection(), "a valid save must still redirect, got {}", accepted.status());
+    assert_eq!(game::adventure::passive_override_for("payback", 2), Some(0.45));
+
+    // A borderline value - Juggernaut's max-HP fraction has no upper
+    // bound in the code that reads it, so 45 is a plausible slip rather
+    // than an impossible value. It WARNS and waits.
+    let warned = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[("class", "warrior"), ("node_key", "juggernaut"), ("r1", "45"), ("r2", "0.16"), ("r3", "0.24")])
+        .send()
+        .await
+        .expect("POST failed");
+    assert_eq!(warned.status(), reqwest::StatusCode::OK);
+    let warned_body = warned.text().await.expect("body");
+    assert!(warned_body.contains("Not saved yet"), "a borderline value must warn rather than reject");
+    assert!(warned_body.contains("Save anyway"), "and must offer an explicit confirm");
+    assert!(warned_body.contains("Rank 1") && warned_body.contains("juggernaut"), "naming the field and node");
+    assert_eq!(game::adventure::passive_override_for("juggernaut", 1), None, "nothing may be written before the operator confirms");
+
+    // Confirming persists it - the operator is never blocked from a
+    // value the code would genuinely accept.
+    let confirmed = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[("class", "warrior"), ("node_key", "juggernaut"), ("r1", "45"), ("r2", "0.16"), ("r3", "0.24"), ("confirm", "1")])
+        .send()
+        .await
+        .expect("POST failed");
+    assert!(confirmed.status().is_redirection(), "a confirmed save must redirect like any other");
+    assert_eq!(game::adventure::passive_override_for("juggernaut", 1), Some(45.0));
+
+    // A count is cast to u32 by its consumer, so a fraction is refused
+    // outright rather than silently rounded.
+    let fractional_count = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[("class", "warrior"), ("node_key", "undyingwill"), ("r1", "0"), ("r2", "1.5"), ("r3", "2")])
+        .send()
+        .await
+        .expect("POST failed");
+    assert_eq!(fractional_count.status(), reqwest::StatusCode::OK);
+    let fractional_body = fractional_count.text().await.expect("body");
+    assert!(fractional_body.contains("must be a whole number"), "a count must refuse a fraction");
+    assert_eq!(game::adventure::passive_override_for("undyingwill", 2), None, "and must not persist it");
     std::fs::remove_dir_all(&scratch).ok();
 }
 
