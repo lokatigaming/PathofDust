@@ -6129,7 +6129,9 @@ fn spawn_golem(summoner: &CombatSimUnit, summoner_id: &str, slot: u32, golem_typ
                 golem.attack_interval_ms = ((summoner.attack_interval_ms as f64) / (1.0 + heal_excess)).round().max(50.0) as u32;
                 golem.next_action_at_ms = golem.attack_interval_ms;
             }
-            golem.watergolem_shattering_extra_targets = c.passive_node_rank("shattering");
+            // Migrated 2026-08-27 (Stage 3): the target COUNT was the raw
+            // rank; the node already declared 1/2/3 and it is read here.
+            golem.watergolem_shattering_extra_targets = c.passive_node_count("shattering");
             golem.watergolem_singing_pct = c.passive_node_magnitude("singing");
             // Elementalist rework item 6 (2026-08-19) - Water Golem's
             // new base effect. `next_watergolem_regen_at_ms` stays at
@@ -11242,7 +11244,9 @@ pub(crate) fn simulate_battle(
                 // reuse the base `twin_strike_chance` (see
                 // `finiteloop_max_repeats`'s own doc).
                 finiteloop_max_repeats: c.passive_node_count("infiniteloop"),
-                doubletap_max_repeats: c.passive_node_rank("doubletap") * 3,
+                // Migrated 2026-08-27 (Stage 3): the cap was `rank * 3`;
+                // the node declares that 3/6/9 COUNT itself now.
+                doubletap_max_repeats: c.passive_node_count("doubletap"),
                 in_splash_resolution: false,
                 echo_repeat_in_progress: false,
                 // Druid's Pack Instinct / Symbiosis - see `apply_hit`'s
@@ -11334,11 +11338,20 @@ pub(crate) fn simulate_battle(
                 // 1/2 banked value established), the only real lever left
                 // is rank 3's doubling, applied here as a flat multiplier
                 // on the whole magnitude rather than splash-only.
-                exploit_weakness_crit_mult_pct: c.passive_node_magnitude("exploitweakness") * if c.passive_node_rank("surgicalstrike") >= 3 { 2.0 } else { 1.0 },
-                exploit_weakness_threshold: if c.passive_node_rank("vitalstrike") >= 3 {
-                    0.80
-                } else if c.passive_node_rank("vitalstrike") >= 2 {
-                    0.65
+                // Migrated 2026-08-27 (Stage 3): Surgical Strike's rank-3
+                // doubling is its own declared MULTIPLIER table (1/1/2)
+                // now. The rank read stays purely as the invested gate -
+                // without it, an un-invested Rogue would multiply by the
+                // node's rank-0 magnitude of 0 instead of by 1.
+                exploit_weakness_crit_mult_pct: c.passive_node_magnitude("exploitweakness")
+                    * if c.passive_node_rank("surgicalstrike") > 0 { c.passive_node_magnitude("surgicalstrike") } else { 1.0 },
+                // Migrated 2026-08-27 (Stage 3): Vital Strike's real
+                // 0.50 / 0.65 / 0.80 ladder is declared on the node. The
+                // 0.50 fallback is Exploit Weakness's OWN base threshold
+                // with Vital Strike un-invested - identical to rank 1's
+                // row, which is why the old ladder's `else` arm read it.
+                exploit_weakness_threshold: if c.passive_node_rank("vitalstrike") > 0 {
+                    c.passive_node_magnitude("vitalstrike")
                 } else {
                     0.50
                 },
@@ -11353,13 +11366,9 @@ pub(crate) fn simulate_battle(
                 backstab_pending_dmg_pct: 0.0,
                 smokescreen_evasion_pct: c.passive_node_magnitude("smokescreen"),
                 markedfordeath_hits_remaining: 0,
-                markedfordeath_hit_count: if c.passive_node_rank("markedfordeath") >= 3 {
-                    3
-                } else if c.passive_node_rank("markedfordeath") >= 2 {
-                    2
-                } else {
-                    0
-                },
+                // Migrated 2026-08-27 (Stage 3): the 0/2/3 ladder is the
+                // node's own declared COUNT of marked hits now.
+                markedfordeath_hit_count: c.passive_node_count("markedfordeath"),
                 finalcut_speed_pct: c.passive_node_magnitude("finalcut"),
                 empoweredbolt_invested: c.passive_node_rank("empoweredbolt") >= 2,
                 empoweredbolt_crit_mult_bonus: c.passive_node_magnitude("empoweredbolt"),
@@ -11375,16 +11384,15 @@ pub(crate) fn simulate_battle(
                 // Spirit/Undying Fury (0 below rank 2, 1 at rank 2, 2 at
                 // rank 3), per its own "unlocked at rank 2... rank 3
                 // grants a second use" text.
-                assassinate_charges: if c.passive_node_rank("assassinate") >= 3 {
-                    2
-                } else if c.passive_node_rank("assassinate") >= 2 {
-                    1
-                } else {
-                    0
-                },
+                // Migrated 2026-08-27 (Stage 3): the 0/1/2 ladder is the
+                // node's own declared charge COUNT now.
+                assassinate_charges: c.passive_node_count("assassinate"),
                 dark_communion_pct: c.passive_node_magnitude("darkcommunion") + c.passive_node_magnitude("sharedsuffering"),
                 compassion_prioritize_lowest: c.passive_node_rank("compassion") >= 2,
-                compassion_dr_pct: if c.passive_node_rank("compassion") >= 3 { 0.05 } else { 0.0 },
+                // Migrated 2026-08-27 (Stage 3): the rank-3 +5% DR is the
+                // node's own declared 0 / 0 / 0.05 table now (rank 0 reads
+                // 0.0 through the accessor, same as the old `else` arm).
+                compassion_dr_pct: c.passive_node_magnitude("compassion"),
                 // Migrated to the tunable value path (2026-08-20, Stage 3
                 // Warlock batch). The ladder encoded 0 / 0.5 / 1.0 -
                 // "unlocked at rank 2 at half value, full at rank 3" -
@@ -11410,21 +11418,19 @@ pub(crate) fn simulate_battle(
                 grudge_pct_per_hit: c.passive_node_magnitude("grudge"),
                 grudge_hit_counts: Vec::new(),
                 retaliation_crit_bonus: c.passive_node_magnitude("executionersmark"),
-                retaliation_payback_threshold: if c.passive_node_rank("payback") >= 3 {
-                    0.45
-                } else if c.passive_node_rank("payback") >= 2 {
-                    0.30
-                } else {
-                    0.0
-                },
+                // Migrated 2026-08-27 (Stage 3): the 0 / 0.30 / 0.45
+                // ladder is declared on the node.
+                retaliation_payback_threshold: c.passive_node_magnitude("payback"),
                 force_crit_next_hit: false,
                 retaliation_surge_pct: c.passive_node_magnitude("adrenalinesurge"),
                 hardened_stacks: 0,
                 hardened_pct_per_stack: c.passive_node_magnitude("hardened"),
-                retaliation_secondwind_threshold: if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("secondwind") >= 3 {
-                    0.65
-                } else if c.has_archetype(Archetype::Warrior) && c.passive_node_rank("secondwind") >= 2 {
-                    0.50
+                // Migrated 2026-08-27 (Stage 3): the 0 / 0.50 / 0.65
+                // ladder is declared on the node. The archetype check
+                // stays - "secondwind" is a Warrior key and the Slayer's
+                // own twin is "hemorrhagesecondwind".
+                retaliation_secondwind_threshold: if c.has_archetype(Archetype::Warrior) {
+                    c.passive_node_magnitude("secondwind")
                 } else {
                     0.0
                 },
@@ -11434,10 +11440,9 @@ pub(crate) fn simulate_battle(
                 reserves_heal_received_pct: c.passive_node_magnitude("reserves"),
                 unbroken_ignore_evasion_pct: c.combat_unbroken_ignore_evasion_pct(tunables),
                 unbroken_crippling_grip_dr_pct: c.combat_crippling_grip_dr_pct(tunables),
-                unyieldingspirit_threshold: {
-                    let rank = c.passive_node_rank("unyieldingspirit");
-                    if rank > 0 { 0.25 + 0.10 * rank as f64 } else { 0.0 }
-                },
+                // Migrated 2026-08-27 (Stage 3): `0.25 + 0.10 * rank` is
+                // now the node's own declared 0.35 / 0.45 / 0.55 table.
+                unyieldingspirit_threshold: c.passive_node_magnitude("unyieldingspirit"),
                 temp_evasion_debuff: 0.0,
                 temp_evasion_debuff_expires_at_ms: 0,
                 // Blizzard extends Frost Nova's own magnitude directly.
@@ -11452,7 +11457,9 @@ pub(crate) fn simulate_battle(
                 temp_attack_speed_debuff_expires_at_ms: 0,
                 infernalpact_heal_pct: c.passive_node_magnitude("infernalpact"),
                 stormcaller_extra_targets: c.passive_node_count("stormcaller"),
-                piercing_shots_crit_chance_bonus: if c.passive_node_rank("piercingshots") >= 3 { 0.10 } else { 0.0 },
+                // Migrated 2026-08-27 (Stage 3): the rank-3 +10% splash
+                // crit chance is the node's declared 0 / 0 / 0.10 table.
+                piercing_shots_crit_chance_bonus: c.passive_node_magnitude("piercingshots"),
                 windpierce_splash_crit_pct: c.passive_node_magnitude("windpierce"),
                 armorbreaker_dr_shred_pct: c.passive_node_magnitude("armorbreaker"),
                 scorchedearth_dmg_debuff_pct: c.passive_node_magnitude("scorchedearth"),
@@ -11617,12 +11624,13 @@ pub(crate) fn simulate_battle(
                 } else {
                     0.0
                 },
-                frenzy_extra_hits: c.passive_node_rank("frenzy"),
-                frenzy_bloodscent_threshold: match c.passive_node_rank("bloodscent") {
-                    0 | 1 => 0.0,
-                    2 => 0.50,
-                    _ => 0.65,
-                },
+                // Migrated 2026-08-27 (Stage 3): the extra-strike COUNT is
+                // declared on the node (1/2/3) rather than being the raw
+                // rank; the `rank > 0` gate above stays as structure.
+                frenzy_extra_hits: c.passive_node_count("frenzy"),
+                // Migrated 2026-08-27 (Stage 3): the 0 / 0.50 / 0.65
+                // target-HP ladder is declared on Blood Scent itself.
+                frenzy_bloodscent_threshold: c.passive_node_magnitude("bloodscent"),
                 frenzy_dr_shred_pct: c.passive_node_magnitude("cullingblow"),
                 frenzy_extra_dmg_pct: c.passive_node_magnitude("killingspree") + c.passive_node_magnitude("chainkiller"),
                 frenzy_culling_threshold: c.passive_node_magnitude("massacre"),
@@ -11638,22 +11646,18 @@ pub(crate) fn simulate_battle(
                 // convention here). Glorious Death's own gate starts a
                 // point earlier ("once at rank 1") than the other two's
                 // ("first charge at rank 2").
-                frenzy_undying_charges: match c.passive_node_rank("bloodrush").max(c.passive_node_rank("undyingwill")) {
-                    0 | 1 => 0,
-                    2 => 1,
-                    _ => 2,
-                }
-                .max(match c.passive_node_rank("gloriousdeath") {
-                    0 => 0,
-                    1 | 2 => 1,
-                    _ => 2,
-                })
-                // Slayer's Undying (Reaper's Momentum branch) - same gate.
-                .max(match c.passive_node_rank("undying") {
-                    0 => 0,
-                    1 | 2 => 1,
-                    _ => 2,
-                }),
+                // Migrated 2026-08-27 (Stage 3): every one of the four
+                // declares its real charge COUNT per rank now - 0/1/2 for
+                // the two "first charge at rank 2" nodes, 1/1/2 for
+                // Glorious Death and Undying - so the ladders are gone and
+                // each reads its own count. Still "take the better one,
+                // don't double-count".
+                frenzy_undying_charges: c
+                    .passive_node_count("bloodrush")
+                    .max(c.passive_node_count("undyingwill"))
+                    .max(c.passive_node_count("gloriousdeath"))
+                    // Slayer's Undying (Reaper's Momentum branch) - same gate.
+                    .max(c.passive_node_count("undying")),
                 frenzy_chain_chance: c.passive_node_magnitude("reaperscall"),
                 frenzy_chain_max_extra: c.passive_node_rank("reaperscall"),
                 // Cleric's Guardian Spirit - see `CombatSimUnit`'s doc.
@@ -11662,18 +11666,18 @@ pub(crate) fn simulate_battle(
                 // matching the node's own "unlocked at rank 2... rank 3
                 // grants a second use" text.
                 guardian_spirit_charges: if c.has_archetype(Archetype::Cleric) {
-                    match c.passive_node_rank("guardianspirit") {
-                        0 | 1 => 0,
-                        2 => 1,
-                        _ => 2,
-                    }
-                } else if c.has_archetype(Archetype::Slayer) && c.passive_node_rank("lastrites") > 0 {
+                    // Migrated 2026-08-27 (Stage 3): the 0/1/2 ladder is
+                    // the node's own declared save COUNT now.
+                    c.passive_node_count("guardianspirit")
+                } else if c.has_archetype(Archetype::Slayer) {
                     // Last Rites - a party-wide "prevent one death" charge,
-                    // same shared mechanic Guardian Spirit uses (its own
-                    // per-rank CHANCE collapses to "invested at all grants
-                    // one use" here, since the shared interception check
-                    // is a deterministic charge count, not a live roll).
-                    1
+                    // same shared mechanic Guardian Spirit uses. Its old
+                    // per-rank CHANCE was read by nothing, since the shared
+                    // interception check is a deterministic charge count,
+                    // not a live roll - so the node declares that COUNT
+                    // (1/1/1) as of 2026-08-27 (Stage 3) and it is read
+                    // here. Un-invested reads 0, as before.
+                    c.passive_node_count("lastrites")
                 } else {
                     0
                 },
@@ -11798,15 +11802,13 @@ pub(crate) fn simulate_battle(
                 stack_dmg_per_stack: c.passive_node_magnitude("bloodlust") + c.passive_node_magnitude("furyunleashed"),
                 stack_avalanche_dmg_per_stack: c.passive_node_magnitude("avalanche"),
                 stack_crit_per_stack: c.passive_node_magnitude("riptide"),
-                shatter_shred_pct: if c.passive_node_rank("shatter") > 0 { 1.0 } else { 0.0 },
+                // Migrated 2026-08-27 (Stage 3): the hardcoded 1.0 carry-
+                // over fraction is the node's declared 1/1/1 table now.
+                shatter_shred_pct: c.passive_node_magnitude("shatter"),
                 overwhelm_shred_linger_ms: (c.passive_node_magnitude("exposed") * 1000.0).round() as u32,
-                crush_dr_threshold: if c.passive_node_rank("crush") >= 3 {
-                    0.65
-                } else if c.passive_node_rank("crush") >= 2 {
-                    0.50
-                } else {
-                    0.0
-                },
+                // Migrated 2026-08-27 (Stage 3): the 0 / 0.50 / 0.65
+                // ladder is declared on the node.
+                crush_dr_threshold: c.passive_node_magnitude("crush"),
                 stack_splash_per_stack: c.passive_node_magnitude("hurricane") + c.passive_node_magnitude("huntersstride"),
                 windfury_chance: c.passive_node_magnitude("windfury"),
                 stack_shred_per_stack: c.passive_node_magnitude("overwhelm"),
@@ -11861,17 +11863,15 @@ pub(crate) fn simulate_battle(
                 stack_speed_current: if c.has_archetype(Archetype::Berserker) {
                     c.passive_node_magnitude("tempo").round() as u32
                 } else if c.has_archetype(Archetype::Rogue) {
-                    match c.passive_node_rank("quickdraw") {
-                        0 | 1 => 0,
-                        2 => 1,
-                        _ => 2,
-                    }
+                    // Migrated 2026-08-27 (Stage 3): the 0/1/2 ladder is
+                    // the node's own declared stack COUNT now.
+                    c.passive_node_count("quickdraw")
                 } else {
                     0
                 },
                 stack_speed_expires_at_ms: if c.has_archetype(Archetype::Berserker) && c.passive_node_rank("tempo") > 0 {
                     BLOODLUST_STACK_DURATION_MS + (c.passive_node_magnitude("unendingrage") * 1000.0).round() as u32
-                } else if c.has_archetype(Archetype::Rogue) && c.passive_node_rank("quickdraw") >= 2 {
+                } else if c.has_archetype(Archetype::Rogue) && c.passive_node_count("quickdraw") > 0 {
                     FLEETFOOT_STACK_DURATION_MS
                 } else {
                     0
@@ -11894,7 +11894,10 @@ pub(crate) fn simulate_battle(
                 // resets, in this event-driven sim's terms).
                 flowing_duration_ms: if c.has_archetype(Archetype::Monk) && c.passive_node_rank("flowingstrikes") > 0 {
                     FLOWING_STACK_DURATION_MS
-                        + if c.passive_node_rank("relentlessassault") >= 3 { 2_000 } else { 0 }
+                        // Migrated 2026-08-27 (Stage 3): the rank-3 "+2s"
+                        // is declared on the node in SECONDS (0/0/2), read
+                        // x1000 like unbrokenchain/unendingcycle below.
+                        + (c.passive_node_magnitude("relentlessassault") * 1000.0).round() as u32
                         + (c.passive_node_magnitude("unbrokenchain") * 1000.0).round() as u32
                         + (c.passive_node_magnitude("unendingcycle") * 1000.0).round() as u32
                 } else {
@@ -11980,7 +11983,10 @@ pub(crate) fn simulate_battle(
                 watergolem_regen_pct: 0.0,
                 next_watergolem_regen_at_ms: u32::MAX,
                 received_healing_bonus_pct: 0.0,
-                chakraoflife_duration_ms: c.passive_node_rank("chakraoflife") * 1_000,
+                // Migrated 2026-08-27 (Stage 3): the window was
+                // `rank * 1000ms`; the node's own 1/2/3 SECONDS table is
+                // that value, read x1000 here.
+                chakraoflife_duration_ms: (c.passive_node_magnitude("chakraoflife") * 1000.0).round() as u32,
                 chakraoflife_immune_until_ms: 0,
                 next_chakraoflife_expiry_at_ms: u32::MAX,
                 // Ranger's Hunter's Mark - Predator's Eye/Kill Zone/Pack
@@ -11997,15 +12003,9 @@ pub(crate) fn simulate_battle(
                 own_mark_ally_crit_mult: (c.passive_node_magnitude("predatorseye") + c.passive_node_magnitude("apexhunter"))
                     * c.passive_node_magnitude("huntersfocus"),
                 own_mark_spread_count: c.passive_node_count("widerpack"),
-                killzone_threshold: if c.passive_node_rank("finalblow") >= 3 {
-                    0.45
-                } else if c.passive_node_rank("finalblow") >= 2 {
-                    0.40
-                } else if c.passive_node_rank("finalblow") >= 1 {
-                    0.35
-                } else {
-                    0.0
-                },
+                // Migrated 2026-08-27 (Stage 3): the 0.35 / 0.40 / 0.45
+                // ladder is declared on the node.
+                killzone_threshold: c.passive_node_magnitude("finalblow"),
                 cleankill_remark_chance: c.passive_node_magnitude("cleankill"),
                 huntersreward_heal_pct: c.passive_node_magnitude("huntersreward"),
                 // Warlock's Curse of Weakness - Amplify Curse's bonus

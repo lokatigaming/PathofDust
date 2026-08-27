@@ -218,3 +218,7 @@ backup-pre-pacing-controller-loop/
 # fight-summary snapshot), same "backup before overwrite" discipline as
 # every backup-pre-* above.
 /backup-pre-passive-tunables-stage2
+
+# Stage 3 passive-tunables feature session's own --target-dir (house rule:
+# one per feature worktree, production binaries are file-locked).
+target-stage3/

@@ -236,3 +236,23 @@ ravage/endlessthirst/naturesblessing left the partial list as fully-wired
 (only structural unlock-gates still read rank), matching empoweredbolt's
 shipped shape; mercifultouch confirmed wired, never listed. Full record:
 docs/passive_tunables_spec.md "Drift-batch record".
+
+## Stage 3 (2026-08-27): the rank-fed backlog closes
+
+Branch `feature/passive-tunables-stage3`, off master 234a487.
+Behavior-neutral at defaults, golden corpus untouched. 25 nodes migrated
+off raw-rank reads onto their own declared per-rank tables:
+PENDING_MIGRATION_NODES 31 → 6, INTEGER_COUNT_NODES 28 → 40.
+
+Eight of those nodes' old declarations disagreed with what combat.rs
+actually used (payback, secondwind, crush, vitalstrike, gloriousdeath,
+undying, doubletap, lastrites) — the declared tables are now the game's
+real values, pinned bit-exactly by test.
+
+The six still listed are not waiting on a batch: four are structure-only
+(clarity, lastlaugh, neverending, sanctifiedtouch — every rank read is an
+unlock gate) and two need a second per-node value slot (reckless,
+deathwish — dealt AND taken ladders), the same blocker as
+sacrifice/bloomingfield/reaperscall. `node_untunable_reason` was reworded
+to stop promising them a migration. Full record + the schema change those
+five need: docs/passive_tunables_spec.md "Stage 3 record".

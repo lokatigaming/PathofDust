@@ -675,7 +675,12 @@ static WARRIOR_NODES: &[PassiveNode] = &[
     // Global key uniqueness is required now that Split Personality lets one
     // character hold allocations from two trees in the same flat lookup.
     modifier_with_effect("executionersmark", "vengeance", "Executioner's Mark", "Vengeance's counter-attacks gain +10% crit chance per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    modifier_with_effect("payback", "vengeance", "Payback", "Vengeance's counter always crits when the attacker is below 30% HP, unlocked at rank 2 - rank 3 raises the threshold to 45% HP.", Special { at_rank_1: 0.30, per_additional_rank: 0.15 }),
+    // Migrated 2026-08-27 (Stage 3): combat.rs hardcoded the 0 / 0.30 /
+    // 0.45 HP-fraction ladder off the raw rank, and the old linear
+    // Special declared 0.30/0.45/0.60 - one rank out of step with what
+    // the game actually used. The real ladder is declared here now and
+    // read straight off the magnitude. FRACTION of the attacker's max HP.
+    modifier_with_effect("payback", "vengeance", "Payback", "Vengeance's counter always crits when the attacker is below 30% HP, unlocked at rank 2 - rank 3 raises the threshold to 45% HP.", SpecialPerRank { values: &[0.0, 0.30, 0.45] }),
     // Key is "adrenalinesurge", not plain "surge" - Mage's own unrelated
     // "Elemental Surge" skill already uses that key. Global key uniqueness
     // is required now that Split Personality lets one character hold
@@ -685,9 +690,14 @@ static WARRIOR_NODES: &[PassiveNode] = &[
     // "secondwind" itself stays as-is here (Warrior keeps the plain key) -
     // Slayer's own unrelated "Second Wind" modifier is the one renamed to
     // "hemorrhagesecondwind" instead (see SLAYER_NODES below).
-    modifier_with_effect("secondwind", "bloodresolve", "Second Wind", "Retaliation's trigger chance doubles below 50% HP, unlocked at rank 2 - rank 3 raises the threshold to 65% HP.", Special { at_rank_1: 0.50, per_additional_rank: 0.15 }),
+    // Migrated 2026-08-27 (Stage 3): same shape as Payback above - the
+    // real 0 / 0.50 / 0.65 ladder lived in combat.rs while this linear
+    // Special declared 0.50/0.65/0.80. FRACTION of own max HP.
+    modifier_with_effect("secondwind", "bloodresolve", "Second Wind", "Retaliation's trigger chance doubles below 50% HP, unlocked at rank 2 - rank 3 raises the threshold to 65% HP.", SpecialPerRank { values: &[0.0, 0.50, 0.65] }),
     modifier_with_effect("defiance", "laststand", "Defiance", "While Last Stand is active, gain +10% damage reduction per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    modifier_with_effect("undyingwill", "laststand", "Undying Will", "Can't be reduced below 1 HP once per fight while under 25% HP, unlocked at rank 2 - rank 3 grants a second use.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of charges (0/1/2), the
+    // ladder combat.rs used to match off the raw rank.
+    modifier_with_effect("undyingwill", "laststand", "Undying Will", "Can't be reduced below 1 HP once per fight while under 25% HP, unlocked at rank 2 - rank 3 grants a second use.", SpecialPerRank { values: &[0.0, 1.0, 2.0] }),
     modifier_with_effect("berserkvigor", "laststand", "Berserk Vigor", "While Last Stand is active, also gain +10% increased damage per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect(
         "titansgrip",
@@ -743,7 +753,11 @@ static WARRIOR_NODES: &[PassiveNode] = &[
 // already has plenty of ways to crit.
 // ---------------------------------------------------------------------
 static BERSERKER_NODES: &[PassiveNode] = &[
-    skill("frenzy", "Frenzy", "Each attack has a 10% chance to strike the same target additional times - rank 1 strikes twice total, rank 2 strikes three times total, rank 3 strikes four times total. The 10% rate itself doesn't scale with rank; only the strike count does.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): the EXTRA-strike COUNT (1/2/3) was
+    // read off the raw rank in combat.rs while this declared 0/0/0. The
+    // 10% base trigger rate is a separate aspect and stays a named
+    // constant (FRENZY_BASE_STRIKE_CHANCE); Rising Fury tunes it.
+    skill("frenzy", "Frenzy", "Each attack has a 10% chance to strike the same target additional times - rank 1 strikes twice total, rank 2 strikes three times total, rank 3 strikes four times total. The 10% rate itself doesn't scale with rank; only the strike count does.", SpecialPerRank { values: &[1.0, 2.0, 3.0] }),
     skill("bloodlust", "Bloodlust", "Each hit you land grants a stacking +4% increased damage buff for 5s, max 5 stacks, at rank 1 - +2% per rank (+8% per stack at 3/3, up to 40% total at cap).", Special { at_rank_1: 0.04, per_additional_rank: 0.02 }),
     skill("reckless", "Reckless Swing", "Deal 15% more damage at rank 1 in exchange for taking 8% more damage - +10%/+5% per additional rank (35% more dealt / 18% more taken at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.10 }),
     spec("bloodfury", "frenzy", "Rising Fury", "Frenzy's trigger chance is increased by 5% per rank (up to +15% at 3/3, on top of the base 10%).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -756,26 +770,37 @@ static BERSERKER_NODES: &[PassiveNode] = &[
     spec("vigor", "reckless", "Vigor", "A kill while Reckless Swing is active heals you for 6% of max HP per rank (up to 18% at 3/3).", Special { at_rank_1: 0.06, per_additional_rank: 0.06 }),
     spec("gambit", "reckless", "Berserker's Gambit", "Gain +5% crit chance per rank for every 20% max HP missing (up to +15% per 20% missing at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("deathmark", "bloodfury", "Frenzied Assault", "Rising Fury's bonus is increased by another 5% per rank (up to +15% at 3/3, on top of Rising Fury's own +15%).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
-    modifier_with_effect("bloodscent", "bloodfury", "Blood Scent", "Frenzy's trigger chance doubles against enemies at or below 50% HP, unlocked at rank 2 - rank 3 raises this threshold to 65% HP.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): the 0 / 0.50 / 0.65 target-HP
+    // FRACTION ladder came off the raw rank in combat.rs.
+    modifier_with_effect("bloodscent", "bloodfury", "Blood Scent", "Frenzy's trigger chance doubles against enemies at or below 50% HP, unlocked at rank 2 - rank 3 raises this threshold to 65% HP.", SpecialPerRank { values: &[0.0, 0.50, 0.65] }),
     modifier_with_effect("cullingblow", "bloodfury", "Overkill", "Each Frenzy extra strike reduces the target's damage reduction by 10% per rank for that hit (up to -30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("chainkiller", "killingspree", "Overrun", "Berserking's damage bonus is increased by another 10% per rank (up to +30% at 3/3, on top of Berserking's own +30%).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("massacre", "killingspree", "Culling Strike", "Any Frenzy strike against an enemy at or below 2% HP per rank (up to 6% at 3/3) instead outright kills them.", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
     modifier_with_effect("reaperscall", "killingspree", "Chain Frenzy", "A Frenzy trigger has a 10% chance per rank (up to 30% at 3/3) to trigger Frenzy again on the same target - capped at 1 extra chain per point invested here (up to 3 extra chains at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("unbridled", "savagemomentum", "Vitality Surge", "Bloodletting's heal is increased by another 3% of damage dealt per rank (up to +9% at 3/3, on top of Bloodletting's own +9%).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("warpath", "savagemomentum", "Bloodshield", "A Bloodletting heal has a 15% chance per rank (up to 45% at 3/3) to also grant a shield worth 20% of the heal.", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
-    modifier_with_effect("bloodrush", "savagemomentum", "Undying Fury", "Can't be reduced below 1 HP once per fight, unlocked at rank 2 - rank 3 grants a second use.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of charges (0/1/2).
+    modifier_with_effect("bloodrush", "savagemomentum", "Undying Fury", "Can't be reduced below 1 HP once per fight, unlocked at rank 2 - rank 3 grants a second use.", SpecialPerRank { values: &[0.0, 1.0, 2.0] }),
     modifier_with_effect("furyunleashed", "unendingrage", "Fury Unleashed", "Bloodlust's per-stack damage bonus is increased by 1% per rank (up to +3% per stack at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
     modifier_with_effect("neverending", "unendingrage", "Neverending", "Bloodlust's stacks decay one at a time instead of all at once, per rank (fully gradual at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 0.0 }),
     modifier_with_effect("warlord", "unendingrage", "Warlord", "Reaching max Bloodlust stacks grants party members +3% increased damage per rank for 5s (up to +9% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
-    modifier_with_effect("shatter", "overwhelm", "Shatter", "Overwhelm's damage reduction shred also applies to block chance, by the same amount per rank.", Special { at_rank_1: 1.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): the block-chance shred was a
+    // hardcoded 1.0 behind an invested check; the declared 1/1/1 table IS
+    // that value - a FRACTION of Overwhelm's own shred that carries over.
+    modifier_with_effect("shatter", "overwhelm", "Shatter", "Overwhelm's damage reduction shred also applies to block chance, by the same amount per rank.", SpecialPerRank { values: &[1.0, 1.0, 1.0] }),
     modifier_with_effect("exposed", "overwhelm", "Exposed", "Overwhelm's effect lingers 1 additional second per rank after Bloodlust falls off (up to +3s at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
-    modifier_with_effect("crush", "overwhelm", "Crush", "Overwhelm's shred is doubled against enemies already below 50% damage reduction, unlocked at rank 2 - rank 3 lowers this threshold to 65%.", Special { at_rank_1: 0.50, per_additional_rank: 0.15 }),
+    // Migrated 2026-08-27 (Stage 3): real ladder 0 / 0.50 / 0.65 (a
+    // FRACTION of damage reduction) lived in combat.rs; the old linear
+    // Special declared 0.50/0.65/0.80, one rank out of step.
+    modifier_with_effect("crush", "overwhelm", "Crush", "Overwhelm's shred is doubled against enemies already below 50% damage reduction, unlocked at rank 2 - rank 3 lowers this threshold to 65%.", SpecialPerRank { values: &[0.0, 0.50, 0.65] }),
     modifier_with_effect("hurricane", "frenziedblows", "Hurricane", "Frenzied Blows' attack speed bonus also grants +3% splash per rank per stack (up to +9% per stack at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("tempo", "frenziedblows", "Tempo", "Frenzied Blows grants 1 free stack on entering combat per rank (up to 3 free stacks at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("windfury", "frenziedblows", "Windfury", "Frenzied Blows has a chance to grant 2 stacks instead of 1 on hit - 15% per rank (up to 45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("gloryhound", "deathwish", "Glory Hound", "Death Wish's damage bonus is increased by another 5% per rank (up to +15% at 3/3), on top of its base trade.", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("recklessabandon", "deathwish", "Reckless Abandon", "Death Wish's extra damage taken is reduced by 5% per rank (up to -15% at 3/3) without losing any of the damage bonus.", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
-    modifier_with_effect("gloriousdeath", "deathwish", "Glorious Death", "A hit that would kill you while Death Wish is active leaves you at 1 HP instead - once per fight at rank 1, twice at rank 3.", Special { at_rank_1: 1.0, per_additional_rank: 0.5 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of charges - the real ladder
+    // is 1/1/2, not the 1/1.5/2 the linear Special produced.
+    modifier_with_effect("gloriousdeath", "deathwish", "Glorious Death", "A hit that would kill you while Death Wish is active leaves you at 1 HP instead - once per fight at rank 1, twice at rank 3.", SpecialPerRank { values: &[1.0, 1.0, 2.0] }),
     modifier_with_effect("bloodpump", "vigor", "Blood Pump", "Vigor's heal is increased by 4% max HP per rank (up to +12% at 3/3).", Special { at_rank_1: 0.04, per_additional_rank: 0.04 }),
     modifier_with_effect("secondgale", "vigor", "Second Gale", "A kill while Reckless Swing is active grants immunity to its extra-damage-taken penalty - 2s per rank (up to 6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
     modifier_with_effect("vengefulblood", "vigor", "Vengeful Blood", "Vigor's heal also grants a shield worth 50% of the heal per rank (up to 150% at 3/3).", Special { at_rank_1: 0.50, per_additional_rank: 0.50 }),
@@ -833,7 +858,9 @@ static ROGUE_NODES: &[PassiveNode] = &[
     spec("vanish", "opportunist", "Vanish", "A crit grants +10% evasion per rank for 3s (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     spec("exploitweakness", "precision", "Exploit Weakness", "Crit multiplier bonus is increased by 10% per rank (up to +30% at 3/3) against enemies below 50% HP.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     spec("twinstrikes", "precision", "Twin Strikes", "A crit has a chance to immediately strike again at 50% damage - 15% at rank 1, +15% per rank (45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
-    spec("assassinate", "precision", "Assassinate", "Once per fight, your next hit is a guaranteed crit - unlocked at rank 2, rank 3 grants a second use.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of guaranteed-crit charges
+    // (0/1/2), matched off the raw rank in combat.rs before this.
+    spec("assassinate", "precision", "Assassinate", "Once per fight, your next hit is a guaranteed crit - unlocked at rank 2, rank 3 grants a second use.", SpecialPerRank { values: &[0.0, 1.0, 2.0] }),
     spec("fleetfoot", "shadowstep", "Fleetfoot", "Each successful evade grants a stacking +5% attack speed per rank for 3s, max 3 stacks (up to +15% per stack at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     spec("elusive", "shadowstep", "Elusive", "Evasion overflow past the 75% cap converts to crit chance at 25% efficiency per rank, capped at +10% crit chance per rank (up to +30% at 3/3). Counts your COMBINED gear + tree evasion, not tree investment alone - gear alone can easily push you past 75%.", OverflowConversion { input: Evasion, output: CritChance, at_rank_1: 0.25, per_additional_rank: 0.25 }),
     spec("nightstalker", "shadowstep", "Nightstalker", "Evasion is increased by 10% per rank (up to +30% at 3/3) specifically against boss attacks.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
@@ -856,15 +883,22 @@ static ROGUE_NODES: &[PassiveNode] = &[
     // (see the trigger site's own doc) rather than isolating "against
     // THIS specific target" - the guaranteed crits apply to this unit's
     // next hits regardless of target.
-    modifier_with_effect("markedfordeath", "cutthroat", "Marked for Death", "Cutthroat also marks the target, causing your next hits to count as crits against it - 2 hits at rank 2, 3 hits at rank 3.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of marked hits (0/2/3).
+    modifier_with_effect("markedfordeath", "cutthroat", "Marked for Death", "Cutthroat also marks the target, causing your next hits to count as crits against it - 2 hits at rank 2, 3 hits at rank 3.", SpecialPerRank { values: &[0.0, 2.0, 3.0] }),
     modifier_with_effect("bloodyknife", "cutthroat", "Bloody Knife", "Cutthroat's damage bonus is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("finalcut", "cutthroat", "Final Cut", "A Cutthroat crit that kills grants +5% attack speed per rank for 3s (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("smokescreen", "vanish", "Smokescreen", "Vanish also grants your lowest-HP ally +5% evasion per rank for its duration (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("fadeaway", "vanish", "Fadeaway", "Vanish's duration is increased by 1s per rank (up to +3s at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("backstab", "vanish", "Backstab", "While Vanish is active, your next hit deals +15% damage per rank (up to +45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
-    modifier_with_effect("vitalstrike", "exploitweakness", "Vital Strike", "Exploit Weakness's threshold is raised to include enemies below 65% HP per rank instead of 50% (up to 80% at 3/3).", Special { at_rank_1: 0.65, per_additional_rank: 0.15 }),
+    // Migrated 2026-08-27 (Stage 3): the real threshold ladder in
+    // combat.rs was 0.50 / 0.65 / 0.80 (a FRACTION of target max HP),
+    // while the linear Special declared 0.65/0.80/0.95.
+    modifier_with_effect("vitalstrike", "exploitweakness", "Vital Strike", "Exploit Weakness's threshold is raised to include enemies below 65% HP per rank instead of 50% (up to 80% at 3/3).", SpecialPerRank { values: &[0.50, 0.65, 0.80] }),
     modifier_with_effect("weakpoint", "exploitweakness", "Weak Point", "Exploit Weakness also grants +5% crit chance per rank (up to +15% at 3/3) against affected enemies.", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
-    modifier_with_effect("surgicalstrike", "exploitweakness", "Surgical Strike", "Exploit Weakness's bonus crit multiplier also applies to splash damage, unlocked at rank 2 - rank 3 doubles the splash portion specifically.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-27 (Stage 3): a MULTIPLIER on Exploit Weakness's
+    // whole magnitude - 1x until rank 3, 2x at rank 3 (the "doubles"
+    // read that was hardcoded at the call site).
+    modifier_with_effect("surgicalstrike", "exploitweakness", "Surgical Strike", "Exploit Weakness's bonus crit multiplier also applies to splash damage, unlocked at rank 2 - rank 3 doubles the splash portion specifically.", SpecialPerRank { values: &[1.0, 1.0, 2.0] }),
     modifier_with_effect("echo", "twinstrikes", "Echo", "Twin Strikes' second-hit damage is increased from 50% per rank (up to 95% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("flurry", "twinstrikes", "Flurry", "Twin Strikes' trigger chance is increased by 10% per rank (up to +30% at 3/3, 75% total at 3/3 combined with its base).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     // Double Tap - now a real bounded chain (2026-08-16, same treatment as
@@ -872,13 +906,18 @@ static ROGUE_NODES: &[PassiveNode] = &[
     // base Twin Strikes trigger chance for every repeat roll (no separate
     // chance layer) and caps at `doubletap_max_repeats` (3/6/9) - see
     // `combat.rs`'s construction-site doc.
-    modifier_with_effect("doubletap", "twinstrikes", "Double Tap", "Twin Strikes' second hit can itself crit and re-trigger Twin Strikes again, at the same chance as the first trigger - can repeat up to 3/6/9 times (rank 1/2/3) before the chain ends.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    // Migrated 2026-08-27 (Stage 3): the repeat CAP was `rank * 3` in
+    // combat.rs (3/6/9, exactly what the text promises) while this
+    // declared a stale 10%/20%/30% chance nothing read. Same shape as
+    // Mage's Finite Loop, which already declares 3/6/9 here.
+    modifier_with_effect("doubletap", "twinstrikes", "Double Tap", "Twin Strikes' second hit can itself crit and re-trigger Twin Strikes again, at the same chance as the first trigger - can repeat up to 3/6/9 times (rank 1/2/3) before the chain ends.", SpecialPerRank { values: &[3.0, 6.0, 9.0] }),
     modifier_with_effect("coupdegrace", "assassinate", "Coup de Grace", "Assassinate's guaranteed crit also deals +30% crit damage per rank (up to +90% at 3/3).", Special { at_rank_1: 0.30, per_additional_rank: 0.30 }),
     modifier_with_effect("premeditation", "assassinate", "Premeditation", "Assassinate refunds its use if the triggering hit doesn't kill, at a 20% chance per rank (up to 60% at 3/3).", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
     modifier_with_effect("silentblade", "assassinate", "Silent Blade", "Assassinate's guaranteed crit also grants +20% evasion per rank for 3s afterward (up to +60% at 3/3).", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
     modifier_with_effect("windrunner", "fleetfoot", "Windrunner", "Fleetfoot's max stacks are increased by 1 per rank (up to 6 stacks at 3/3, from the base 3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("silentsteps", "fleetfoot", "Silent Steps", "Fleetfoot's stacks also grant +3% evasion per rank per stack (up to +9% per stack at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
-    modifier_with_effect("quickdraw", "fleetfoot", "Quickdraw", "Fleetfoot grants free stacks on entering combat - 1 at rank 2, 2 at rank 3.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of free stacks (0/1/2).
+    modifier_with_effect("quickdraw", "fleetfoot", "Quickdraw", "Fleetfoot grants free stacks on entering combat - 1 at rank 2, 2 at rank 3.", SpecialPerRank { values: &[0.0, 1.0, 2.0] }),
     modifier_with_effect("phantom", "elusive", "Phantom", "A second, independent conversion channel off the same evasion overflow Elusive draws from - crit chance at 10% efficiency per rank, capped at +10% crit chance per rank (up to +30% at 3/3, stacking with Elusive's own cap for up to +60% total).", OverflowConversion { input: Evasion, output: CritChance, at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("duskveil", "elusive", "Duskveil", "Elusive also converts overflow into attack speed, at 25% efficiency per rank, capped at +10% attack speed per rank (up to +30% at 3/3).", OverflowConversion { input: Evasion, output: AttackSpeed, at_rank_1: 0.25, per_additional_rank: 0.25 }),
     modifier_with_effect("voidstep", "elusive", "Voidstep", "An evaded hit has a chance to trigger an immediate free attack against the attacker - 10% per rank (up to 30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
@@ -906,7 +945,11 @@ static MONK_NODES: &[PassiveNode] = &[
     // increase makes the fix reachable before the payoff it enables.
     spec("onehundredhands", "flowingstrikes", "Flow like Water", "A crit from Pressure Point refreshes Flowing Strikes and grants +1 bonus stack per rank (up to 3 at 3/3), even against a new target.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     spec("pressurepoint", "flowingstrikes", "Pressure Point", "Flowing Strikes' stacks also grant +2% crit chance per rank per stack (up to +6% per stack at 3/3).", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
-    spec("relentlessassault", "flowingstrikes", "Relentless Assault", "Landing a hit while at max Flowing Strikes stacks refreshes their duration, unlocked at rank 2 - rank 3 extends the base duration by 2s.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): the rank-3 "+2s" was a hardcoded
+    // 2_000ms at the call site. Declared in SECONDS here (x1000 at the
+    // read), same units convention as unbrokenchain/unendingcycle, which
+    // add to the very same window.
+    spec("relentlessassault", "flowingstrikes", "Relentless Assault", "Landing a hit while at max Flowing Strikes stacks refreshes their duration, unlocked at rank 2 - rank 3 extends the base duration by 2s.", SpecialPerRank { values: &[0.0, 0.0, 2.0] }),
     spec("meditation", "innerfocus", "Meditation", "Inner Focus's heal is increased by 1% max HP per rank for every 10% evasion you have (up to +3% per 10% at 3/3).", Special { at_rank_1: 0.01, per_additional_rank: 0.01 }),
     spec("chiburst", "innerfocus", "Chi Burst", "Inner Focus also heals your lowest-HP ally for 50% of the amount per rank (up to 150% at 3/3).", Special { at_rank_1: 0.50, per_additional_rank: 0.50 }),
     spec("serenity", "innerfocus", "Serenity", "Evading a hit also grants +5% damage reduction per rank for 3s (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -955,6 +998,9 @@ static MONK_NODES: &[PassiveNode] = &[
         "onehundredhands",
         "Chakra of Life",
         "A hit that would kill you instead makes you immune to all damage for 1s per rank (up to 3s at 3/3), during which you keep fighting - the instant it ends, you die.",
+        // Migrated 2026-08-27 (Stage 3): combat.rs built the window as
+        // `rank * 1000ms`; this already-correct table is those SECONDS,
+        // now read off the magnitude (x1000 at the call site).
         Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     modifier_with_effect("eternalflow", "relentlessassault", "Eternal Flow", "Relentless Assault's refresh also adds 1 additional stack per rank (up to 3 extra at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
@@ -1027,7 +1073,10 @@ static MONK_NODES: &[PassiveNode] = &[
         "unbroken",
         "Last Stand",
         "Below 25% HP, Unbroken's evasion-ignore is doubled (capped at 75% total) - per rank this activation threshold instead raises to 35%/45%/55% HP (55% at 3/3).",
-        Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
+        // Migrated 2026-08-27 (Stage 3): the threshold was computed as
+        // `0.25 + 0.10 * rank` at the call site. These are those exact
+        // values as a FRACTION of own max HP.
+        SpecialPerRank { values: &[0.35, 0.45, 0.55] },
     ),
     modifier_with_effect("sharedstrength", "templeguardian", "Shared Strength", "Temple Guardian protects 1 additional ally per rank (up to all 3 party members at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("ironwill", "templeguardian", "Iron Will", "Temple Guardian's bonus is increased by another 5% per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -1201,7 +1250,10 @@ static RANGER_NODES: &[PassiveNode] = &[
     skill("mark", "Hunter's Mark", "Marks your target, granting +10% crit chance against it at rank 1 - +8% per rank (26% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.08 }),
     skill("fleet", "Fleet Step", "Increases attack speed by 6% at rank 1 - +4% per rank (14% at 3/3).", FlatStat { stat: AttackSpeed, at_rank_1: 0.06, per_additional_rank: 0.04 }),
     spec("volley", "multishot", "Volley", "Deals 10% more damage per rank for every target this attack is capable of reaching (not how many it actually hits) - up to 30% per target at 3/3.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    spec("piercingshots", "multishot", "Piercing Shots", "Splash damage can crit independently using your full crit chance/multiplier, unlocked at rank 2 - rank 3 also grants splash +10% crit chance.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): the rank-3 splash crit-chance bonus
+    // was a hardcoded 0.10 at the call site. A FRACTION (0.10 = +10%
+    // crit chance), like every other crit-chance value in the tree.
+    spec("piercingshots", "multishot", "Piercing Shots", "Splash damage can crit independently using your full crit chance/multiplier, unlocked at rank 2 - rank 3 also grants splash +10% crit chance.", SpecialPerRank { values: &[0.0, 0.0, 0.10] }),
     spec("explosivetips", "multishot", "Explosive Tips", "Multishot's splash damage is increased by another 10% per rank (up to +30% at 3/3).", FlatStat { stat: Splash, at_rank_1: 0.10, per_additional_rank: 0.10 }),
     spec("predatorseye", "mark", "Predator's Eye", "Hunter's Mark also grants +15% crit damage per rank against the marked target (up to +45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     spec("packtactics", "mark", "Pack Tactics", "Hunter's Mark also grants your allies +5% crit chance per rank against the marked target (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -1251,7 +1303,10 @@ static RANGER_NODES: &[PassiveNode] = &[
     modifier_with_effect("coordinatedstrike", "packtactics", "Coordinated Strike", "Pack Tactics' bonus is increased by another 5% per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("alphaspredator", "packtactics", "Alpha's Predator", "Pack Tactics also grants allies +5% increased damage per rank against the marked target (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("widerpack", "packtactics", "Wider Pack", "Hunter's Mark can affect 1 additional target simultaneously per rank (up to 3 marks at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
-    modifier_with_effect("finalblow", "killzone", "Final Blow", "Kill Zone's threshold is raised to 35% HP per rank instead of 25% (up to 45% at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-27 (Stage 3): the 0.35 / 0.40 / 0.45 ladder was
+    // hardcoded off the raw rank. A FRACTION of target max HP - this is
+    // Kill Zone's whole threshold, not a delta on top of its base.
+    modifier_with_effect("finalblow", "killzone", "Final Blow", "Kill Zone's threshold is raised to 35% HP per rank instead of 25% (up to 45% at 3/3).", SpecialPerRank { values: &[0.35, 0.40, 0.45] }),
     modifier_with_effect("cleankill", "killzone", "Clean Kill", "A Kill Zone kill immediately re-applies Hunter's Mark to a new target for free, at a chance per rank - 25% per rank (up to 75% at 3/3).", Special { at_rank_1: 0.25, per_additional_rank: 0.25 }),
     modifier_with_effect("huntersreward", "killzone", "Hunter's Reward", "A Kill Zone kill heals you for 6% max HP per rank (up to 18% at 3/3).", Special { at_rank_1: 0.06, per_additional_rank: 0.06 }),
     modifier_with_effect("windsprint", "rapidfire", "Wind Sprint", "Rapid Fire's bonus is increased by another 5% per rank (up to +15% at 3/3).", FlatStat { stat: AttackSpeed, at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -1516,7 +1571,11 @@ static CLERIC_NODES: &[PassiveNode] = &[
     spec("mercifultouch", "prayer", "Merciful Touch", "Once invested, overrides Prayer of Mending's flat 50% bounce value with its own scaling: 50% at rank 1, +15% per rank (80% at 3/3).", Special { at_rank_1: 0.50, per_additional_rank: 0.15 }),
     spec("divinefavor", "prayer", "Divine Favor", "Each Prayer of Mending bounce also shields its target (5s, before Warding Light) for this fraction of the bounce heal's value: 20% at rank 1, +20% per rank (60% at 3/3).", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
     spec("sanctuary", "resilience", "Sanctuary", "Blessed Resilience also grants the whole party +3% damage reduction per rank (up to +9% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
-    spec("guardianspirit", "resilience", "Guardian Spirit", "Unlocked at rank 2: once per fight, prevent ANY party member from dying (yourself included) - heals them for 20% max HP instead of letting the killing blow land. Rank 3 grants a second use per fight. Rank 1 alone does nothing yet.", Special { at_rank_1: 0.0, per_additional_rank: 0.0 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of saves per fight (0/1/2),
+    // matched off the raw rank before. The 20% base heal is a flat base
+    // released by the rank-2 unlock (structure), not a rank-fed value -
+    // Second Chance is the tunable that adds to it.
+    spec("guardianspirit", "resilience", "Guardian Spirit", "Unlocked at rank 2: once per fight, prevent ANY party member from dying (yourself included) - heals them for 20% max HP instead of letting the killing blow land. Rank 3 grants a second use per fight. Rank 1 alone does nothing yet.", SpecialPerRank { values: &[0.0, 1.0, 2.0] }),
     spec("radiantaegis", "resilience", "Radiant Aegis", "Blessed Resilience also grants the whole party +4% evasion per rank (up to +12% at 3/3).", Special { at_rank_1: 0.04, per_additional_rank: 0.04 }),
     modifier_with_effect("luminous", "radiantlight", "Luminous", "Radiant Light's bonus is increased by another 16% per rank (up to +48% at 3/3) - same independent healing-power stack as Radiant Light itself.", FlatStat { stat: HealPowerPct, at_rank_1: 0.16, per_additional_rank: 0.16 }),
     modifier_with_effect("graciousspirit", "radiantlight", "Gracious Spirit", "+3% healing power per rank (up to +9% at 3/3), applied only to your PRIMARY heal share each turn - it always targets the lowest-HP hurt ally by construction, so this never reaches splash/bounce targets.", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
@@ -1544,7 +1603,11 @@ static CLERIC_NODES: &[PassiveNode] = &[
     modifier_with_effect("swiftmending", "chainoflight", "Swift Mending", "Prayer of Mending's bounce chance is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("unbrokenprayer", "chainoflight", "Unbroken Prayer", "Chain of Light's bounces can themselves bounce again, at a 15% chance per rank (up to 45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("gentletouch", "mercifultouch", "Gentle Touch", "Merciful Touch's bounce value is increased by another 5% per rank (up to +15% at 3/3), on top of whichever base is active.", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
-    modifier_with_effect("compassion", "mercifultouch", "Compassion", "Merciful Touch prioritizes the lowest-HP ally for its bounce - rank 2 guarantees this, rank 3 also grants that ally +5% damage reduction for 3s.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // Migrated 2026-08-27 (Stage 3): the rank-3 ally damage reduction was
+    // a hardcoded 0.05 at the call site. A FRACTION (0.05 = +5% DR). The
+    // rank-2 "guarantees the lowest-HP bounce" read is an unlock gate
+    // (structure) and stays on the rank.
+    modifier_with_effect("compassion", "mercifultouch", "Compassion", "Merciful Touch prioritizes the lowest-HP ally for its bounce - rank 2 guarantees this, rank 3 also grants that ally +5% damage reduction for 3s.", SpecialPerRank { values: &[0.0, 0.0, 0.05] }),
     modifier_with_effect("healingtouch", "mercifultouch", "Healing Touch", "Each bounced ally gets their own temporary +5% healing power per rank for 3s (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("aegisofmercy", "divinefavor", "Aegis of Mercy", "Divine Favor's shield value is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("wardinglight", "divinefavor", "Warding Light", "Divine Favor's shield lasts 2 additional seconds per rank (up to +6s at 3/3, from the base 5s).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
@@ -1891,7 +1954,9 @@ static SLAYER_NODES: &[PassiveNode] = &[
     modifier_with_effect("secondheartbeat", "endlessthirst", "Second Heartbeat", "A 20% chance per rank (up to 60% at 3/3) for a FlickerStrike hit to trigger an immediate bonus dash at one random additional enemy.", Special { at_rank_1: 0.20, per_additional_rank: 0.20 }),
     modifier_with_effect("chainreaper", "reapers", "Chain Reaper", "Each bonus target granted by Reaper's Momentum also heals you for 3% of max HP per rank (up to 9% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
     modifier_with_effect("deathspiral", "reapers", "Death Spiral", "A kill from one of Reaper's Momentum's bonus dash targets heals a flat 4% of max HP per rank (up to 12% at 3/3).", Special { at_rank_1: 0.04, per_additional_rank: 0.04 }),
-    modifier_with_effect("undying", "reapers", "Undying", "Can't drop below 1 HP during a FlickerStrike dash - once per fight at rank 1, twice at rank 3.", Special { at_rank_1: 1.0, per_additional_rank: 0.5 }),
+    // Migrated 2026-08-27 (Stage 3): a COUNT of charges - the real ladder
+    // is 1/1/2, not the 1/1.5/2 the linear Special produced.
+    modifier_with_effect("undying", "reapers", "Undying", "Can't drop below 1 HP during a FlickerStrike dash - once per fight at rank 1, twice at rank 3.", SpecialPerRank { values: &[1.0, 1.0, 2.0] }),
     modifier_with_effect("bloodforblood", "grimbargain", "Blood for Blood", "Grim Bargain's refund scales up by 2% of the target's max HP per rank (up to +6% at 3/3), on top of its base refund.", Special { at_rank_1: 0.02, per_additional_rank: 0.02 }),
     modifier_with_effect("debtcollector", "grimbargain", "Debt Collector", "A non-lethal Bloodpact hit still refunds 15% of the sacrificed HP per rank (up to 45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("cleanslate", "grimbargain", "Clean Slate", "A successful Grim Bargain refund has a 25% chance per rank (up to 75% at 3/3) to also fully reset Bloodpact's cooldown.", Special { at_rank_1: 0.25, per_additional_rank: 0.25 }),
@@ -1931,7 +1996,16 @@ static SLAYER_NODES: &[PassiveNode] = &[
     // its per-rank CHANCE collapses to "any investment grants one shared
     // party-wide save charge", since the underlying interception check is
     // a deterministic charge count, not a live roll.
-    modifier_with_effect("lastrites", "martyrdom", "Last Rites", "A 33% chance per rank (up to 100% at 3/3) to prevent a downed ally's death once per fight.", Special { at_rank_1: 0.33, per_additional_rank: 0.335 }),
+    // Migrated 2026-08-27 (Stage 3): this node's CONSUMED value is a
+    // COUNT of saves per fight, not the chance the old declaration
+    // carried - the shared interception check Guardian Spirit uses is a
+    // deterministic charge count, never a live roll, so combat.rs
+    // collapsed "invested at all" to one charge and the declared
+    // 33/66/100% was read by nothing. Declared as the real 1/1/1 charge
+    // count (same "the magnitude carries the primary numeric aspect"
+    // convention as shattering/virulence). The description still
+    // advertises a chance - flagged in WIKI_IMPACT.md for the owner.
+    modifier_with_effect("lastrites", "martyrdom", "Last Rites", "A 33% chance per rank (up to 100% at 3/3) to prevent a downed ally's death once per fight.", SpecialPerRank { values: &[1.0, 1.0, 1.0] }),
 ];
 
 // ---------------------------------------------------------------------
@@ -2239,11 +2313,11 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
         // convention - see `LiveTunables`'s own doc for the general
         // rule: a node's magnitude carries its primary numeric aspect,
         // additional aspects get named per-rank LiveTunables). A COUNT
-        // (1/2/3, added to splash's own target count), read via
-        // `passive_node_rank` directly at the real call site - not this
-        // magnitude table, which exists for display/tooltip consistency
-        // (an admin retuning this node's own magnitude has no effect on
-        // target count, by design - rank IS the count here). The
+        // (1/2/3, added to splash's own target count). Migrated
+        // 2026-08-27 (Stage 3): the spawn site read `passive_node_rank`
+        // directly until now, which made this declared table inert - it
+        // reads `passive_node_count` off THIS table instead, so an admin
+        // retuning the node genuinely moves the icicle target count. The
         // icicle's damage basis is a SEPARATE aspect, no longer read
         // from this node at all - see `LiveTunables::shattering_damage_pct_rank1`'s
         // own doc.
