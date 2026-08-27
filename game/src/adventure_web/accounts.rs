@@ -59,7 +59,17 @@ const PASSWORD_MIN_LEN: usize = 8;
 /// gates (`ADMIN_TUNABLES_LOGIN` and friends) compare a bare login
 /// string, so a registration matching one of those would hand out
 /// `/admin/tunables`; the rest just read as staff.
+///
+/// `lokati_gaming` is listed here PERMANENTLY and unconditionally, not
+/// because it is the operator login (it is only the default now that
+/// `OPERATOR_LOGIN` exists - see adventure_web.rs) but because it is the
+/// owner's public handle. Today it is also protected by the live-character
+/// and minted-session checks in `do_register`, but both of those only hold
+/// because World 1 data exists: World 2 starts with fresh characters and
+/// invalidated sessions, at which point nothing else would stop a player
+/// claiming it. Do not make this entry conditional on `OPERATOR_LOGIN`.
 const RESERVED_USERNAMES: &[&str] = &[
+    "lokati_gaming",
     "admin",
     "administrator",
     "moderator",
@@ -134,7 +144,7 @@ fn username_rejection(key: &str, accounts: &HashMap<String, Account>) -> Option<
         // and in a JS string literal.
         return Some("Usernames may only contain lowercase letters, numbers and underscores.");
     }
-    if RESERVED_USERNAMES.contains(&key) || [ADMIN_TUNABLES_LOGIN, FIGHTS_PAGE_LOGIN, BUNDLE_OPERATOR_LOGIN].iter().any(|r| r.eq_ignore_ascii_case(key)) {
+    if RESERVED_USERNAMES.contains(&key) || [ADMIN_TUNABLES_LOGIN.as_str(), FIGHTS_PAGE_LOGIN.as_str(), BUNDLE_OPERATOR_LOGIN.as_str()].iter().any(|r| r.eq_ignore_ascii_case(key)) {
         return Some("That username is reserved.");
     }
     if accounts.contains_key(key) {
