@@ -1865,3 +1865,59 @@ touched by Stage 3a.
 
 **Deletion candidates, not defects.** They are correct as they stand for
 World 1; they simply have nothing to do in World 2.
+
+### Phase B — 2026-08-28, Stage 3a cutover (`OPERATOR_LOGIN=lokati`)
+
+Configuration-only follow-up to the Stage 3a deploy above. The owner
+added `OPERATOR_LOGIN=lokati` to `C:\PathofDust\.env` (line 78) and the
+game was **restarted, not swapped** — `game.exe` SHA-256 was
+`5CE40C858647915803467DA712978238368B3FBE7ADFCE9CA2D66F4DDAF77AD1`
+before and after, and nothing was rebuilt. Restart ran under the
+maintenance flag gate (`scope :` line confirmed, cleared after the health
+check): port 4005 free after 2 polls, back up on the first,
+`LastTaskResult=267009`, `/passives` `200`.
+
+| # | check | result |
+| --- | --- | --- |
+| 17a | `lokati_gaming` → `/admin/tunables` | **PASS** — now returns the refusal page **byte-identical to the anonymous response** (71,714 B, down from 101,659 B as operator). Encounter control absent. |
+| 17b | `lokati_gaming` → `/admin/passives` | **PASS** — refusal page, byte-identical to anonymous (71,714 B, down from 114,947 B). |
+| 17c | `lokati_gaming` → unfiltered `/fights` | **NOT OBSERVABLE — see below.** |
+| 18 | `lokati` registration refused as reserved | **PASS** — `400`, "That username is reserved.", NOT "already taken", though `lokati` has both a live account and a live character. The reserved branch fires first, via the `OPERATOR_LOGIN`-resolved gate constants. |
+| 19 | `lokati_gaming` STILL refused as reserved | **PASS** — `400`, "That username is reserved.", NOT "already taken", even though it is no longer the operator login. This is the permanent `RESERVED_USERNAMES` entry, and it is the World 2 condition that matters: the name stays unclaimable after the fresh-world reset removes the live-character and minted-session protections. |
+
+`adventure-accounts.json` mtime unchanged across both registration
+attempts — nothing was written.
+
+**Why 17c is not observable, and why that is not a failure.**
+`lokati_gaming` is a participant in **every fight retained on disk** —
+all 200 summaries, and all 3 bundles. The two code paths in
+`fight_summaries_for_viewer` therefore return the same set for that
+account: the operator path is `recent_summary_fights(limit)`, the
+non-operator path is
+`recent_summary_fights(CAPACITY).filter(participant).take(limit)`, and
+with a 100% participation rate those are the same 200 fights at every
+limit. `/fights.json?limit=500` returned 200 either way. `is_streamer`
+only swaps an empty-state message, so it renders nothing distinguishing
+while fights exist. There is no probe that separates the two paths for
+this account, so 17c is recorded as unobservable rather than passed —
+counting 200 and calling it a filtered view would have been a
+coincidence, not evidence.
+
+What DOES cover it: all three gate constants — `ADMIN_TUNABLES_LOGIN`,
+`FIGHTS_PAGE_LOGIN` and `BUNDLE_OPERATOR_LOGIN` — are `LazyLock`s over
+the **same** `operator_login_from_env()` reading the **same single key**.
+Two of the three were observed flipping (17a, 17b). The third cannot read
+a different value than the two that moved, which is exactly the property
+the one-key-not-three design was chosen for. `operator_identity_http.rs`
+asserts all three move together.
+
+**Still owed by the owner before Stage 3b (Twitch removal) may ship.** He
+must log in as `lokati` himself and confirm `/admin/tunables`,
+`/admin/passives`, the operator encounter control, and the `/fights`
+view. This session held no credentials for that account and did not
+attempt it, by order. **The removal must not ship until that
+confirmation exists.**
+
+**Revert, if needed:** delete the `OPERATOR_LOGIN` line from `.env` and
+restart. `lokati_gaming` regains every gate immediately. Twitch OAuth
+worked throughout, so there was no window without a route in.
