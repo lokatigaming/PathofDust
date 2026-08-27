@@ -463,6 +463,22 @@
     border: 1px solid rgba(160,140,255,0.3); border-radius: 8px; padding: 6px 10px;
     font-size: 0.85rem; font-family: inherit; font-variant-numeric: tabular-nums;
   }
+  /* Units and range validation on /admin/passives (2026-08-27) - what a
+     row's three numbers MEAN, and what happened to a save the consuming
+     code can't (or probably shouldn't) take. See `adventure::node_unit`
+     and `adventure::check_node_value`. */
+  .passive-unit {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    background: rgba(160,140,255,0.14); color: #b9a9ff; padding: 2px 8px; border-radius: 999px;
+  }
+  .passive-unit-note strong { color: #b9a9ff; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.7rem; }
+  .passive-error, .passive-warn {
+    margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 0.8rem; line-height: 1.45;
+  }
+  .passive-error { background: rgba(255,92,92,0.12); border: 1px solid rgba(255,92,92,0.35); color: #ffb3b3; }
+  .passive-warn { background: rgba(255,215,106,0.10); border: 1px solid rgba(255,215,106,0.35); color: #ffd76a; }
+  .passive-warn p { margin: 0 0 8px; }
+  .passive-confirm { margin: 0; }
   /* The "this node has been retuned" line appended to a node's tooltip
      on /passives and (once the wiki session adopts it) /wiki/passives -
      see `passive_override_note`. */

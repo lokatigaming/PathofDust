@@ -155,3 +155,21 @@ summaries covering 3.5 hours are `kind=boss` with all 46 players in every
 fight, so the "wait for the boss to resolve" precondition had no window,
 and the narrowest-blast-radius candidate (payback, a single player) has a
 saturated observable — that character already crits on 100% of hits.
+
+## 2026-08-27 — PASSIVE-OVERRIDE-UNITS (fix/passive-override-units)
+
+Classified all 463 editable `/admin/passives` nodes by unit from their
+CONSUMING code and added per-field range validation on the save path.
+463 nodes: 385 fraction (42 of those bounded 0..1 by a probability roll
+or an HP-fraction comparison, 3 clamped 0..0.9), 50 count, 24 seconds,
+2 milliseconds (symbiosis, unrelenting — declared in ms, read with no
+scaling), 2 multiplier (flamegolem, surgicalstrike). 0 percent — nothing
+in the sources divides a passive magnitude by 100. 0 unit unconfirmed.
+
+FOUND: nothing currently in `C:/PathofDust/adventure-passive-overrides.toml`
+would be REJECTED by the new validation. Six stored keys hold values
+above 1 on an unbounded fraction (cutthroat, finalcut, volley, growing,
+echo, chainshot — all `1.0/2.0/3.0`-shaped ladders that are legitimately
+over 100%), so re-saving one of those rows now warns and asks for an
+explicit confirm rather than refusing it. vampiricfrenzy's rank-3 `0.9`
+sits exactly on the clamp ceiling its consumer applies, and is accepted.

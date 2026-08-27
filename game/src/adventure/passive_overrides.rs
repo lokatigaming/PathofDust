@@ -432,6 +432,376 @@ pub fn node_is_integer_count(key: &str) -> bool {
     INTEGER_COUNT_NODES.contains(&key)
 }
 
+// ---------------------------------------------------------------------
+// UNITS AND RANGES (2026-08-27) - what a row's three numbers actually
+// MEAN, and what the consuming code can actually do with them.
+//
+// `/admin/passives` used to render three bare numbers per node with no
+// unit anywhere on the page, and its save path checked only "known key,
+// finite value". Relentless Assault showed `0 / 0 / 2` with nothing
+// saying those were SECONDS; Payback showed `0 / 0.30 / 0.45` with
+// nothing saying that was a FRACTION of max HP, so typing `45` meaning
+// "45 percent" persisted a threshold that is always true, silently.
+// Percent-versus-fraction confusion off this page has already cost one
+// 90x live defect.
+//
+// Every classification below was read off the CONSUMING code, never off
+// the key's name:
+//   * SECONDS - the magnitude is multiplied by 1000 into an `_ms` field
+//     (`(M("openingmove") * 1000.0).round() as u32`), or bound as a
+//     `window_secs` that is scaled the same way.
+//   * MILLISECONDS - the magnitude IS the millisecond figure, read
+//     straight into an `_ms` field with no scaling.
+//   * COUNT - the magnitude is rounded into a `u32` at its call site,
+//     or read through `Character::passive_node_count` (which is
+//     `.round().max(0.0) as u32`, so a fraction is silently rounded and
+//     a negative silently floors to 0 - neither is a value the code can
+//     use as typed).
+//   * MULTIPLIER - the call site's own neutral value is `1.0`
+//     (`if rank > 0 { M(key) } else { 1.0 }`), so the number scales what
+//     it touches rather than adding to it.
+//   * FRACTION - everything else. The whole `FlatStat` /
+//     `OverflowConversion` half of the tree pools into `ArchetypeBonus`,
+//     whose twelve fields are every one of them fractions (`0.15` is
+//     15% splash; Deadly Precision's `+0.35` crit multiplier is added to
+//     the base `2.0`), and the remaining `Special` nodes all reach their
+//     call site inside a `1.0 + x`, `base + x` or `x * base` shape.
+//   * PERCENT - no node in the tree is one. Nothing divides a passive
+//     magnitude by 100 anywhere in the sources. The variant exists so
+//     the vocabulary is complete and a future node can say so.
+//
+// Bounds are split the same way, and only where the consumer settles
+// it. A bound that is merely PLAUSIBLE is a warning, never a rejection -
+// see `check_node_value`.
+// ---------------------------------------------------------------------
+
+/// What a passive node's per-rank numbers are expressed IN, established
+/// from the code that consumes them. See the block comment above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PassiveUnit {
+    /// Whole things - extra targets, extra hits, banked charges, revives.
+    Count,
+    /// `1.0` means 100%. The default across the tree.
+    Fraction,
+    /// `45.0` means 45%. No node in the tree is one today.
+    Percent,
+    /// The magnitude IS the millisecond figure.
+    Milliseconds,
+    /// The magnitude is seconds; the consumer scales it by 1000.
+    Seconds,
+    /// Scales rather than adds - `1.0` is neutral.
+    Multiplier,
+    /// The consuming code does not settle it. Labelled honestly rather
+    /// than guessed; see `UNIT_UNCONFIRMED_NODES`.
+    Unconfirmed,
+}
+
+impl PassiveUnit {
+    /// The word `/admin/passives` prints beside the row's inputs.
+    pub fn label(self) -> &'static str {
+        match self {
+            PassiveUnit::Count => "count",
+            PassiveUnit::Fraction => "fraction",
+            PassiveUnit::Percent => "percent",
+            PassiveUnit::Milliseconds => "milliseconds",
+            PassiveUnit::Seconds => "seconds",
+            PassiveUnit::Multiplier => "multiplier",
+            PassiveUnit::Unconfirmed => "unit unconfirmed",
+        }
+    }
+}
+
+/// Nodes whose magnitude is read as SECONDS - every one of them reaches
+/// its call site as `(magnitude * 1000.0).round() as u32` into an `_ms`
+/// field, or as a `window_secs` binding that is scaled the same way.
+pub const SECONDS_NODES: &[&str] = &[
+    "bastion",           // paladin - Aegis shield duration bonus
+    "chakraoflife",      // monk - Chakra of Life duration
+    "deathdefiant",      // druid - post-save grace window
+    "demonicspeed",      // warlock - early-fight speed window
+    "exposed",           // warrior - Overwhelm shred linger
+    "fadeaway",          // rogue - Fade Away duration bonus
+    "neverwinded",       // ranger - Relentless Pursuit stack duration
+    "openingmove",       // rogue - Opening Move cooldown
+    "permafrost",        // mage - Frost Nova debuff duration bonus
+    "rampage",           // warrior - Momentum stack duration bonus
+    "relentlessassault", // monk - Flowing Strikes duration bonus
+    "riftofmercy",       // cleric - Overflowing Grace shield duration
+    "secondgale",        // berserker - Second Gale duration
+    "sharedlight",       // paladin - Consecration shield duration
+    "steadfast",         // paladin - Bonded Devotion duration
+    "thundergolem",      // elementalist - Thunder Golem reform delay
+    "timewarp",          // mage - early-fight speed window
+    "unbrokenchain",     // monk - Flowing Strikes duration bonus
+    "unbrokenrhythm",    // monk - Flow State stack duration bonus
+    "unendingcycle",     // monk - Flowing Strikes duration bonus
+    "unendingrage",      // berserker - Bloodlust stack duration bonus
+    "unshakable",        // monk - Serenity DR duration bonus
+    "wardinglight",      // cleric - Divine Favor shield duration
+    "warpspeed",         // slayer - Fel Rush duration bonus
+];
+
+/// Nodes whose magnitude IS the millisecond figure - read into an `_ms`
+/// field with no scaling at all, and declared in milliseconds on the
+/// node itself (Werebear's `6000 / 5000 / 4000`, Unrelenting's
+/// `1333 / 2666 / 600_000`).
+pub const MILLISECOND_NODES: &[&str] = &[
+    "symbiosis",   // druid - Thick Hide cleanse cycle
+    "unrelenting", // slayer - FlickerStrike duration bonus
+];
+
+/// Nodes whose call site's own neutral value is `1.0` - the magnitude
+/// SCALES the thing it touches instead of adding to it.
+pub const MULTIPLIER_NODES: &[&str] = &[
+    "flamegolem",     // elementalist - 1.33/1.66/2.0x on every elemental increase
+    "surgicalstrike", // rogue - 1.0/1.0/2.0x on Exploit Weakness's crit multiplier
+];
+
+/// Count nodes whose call site rounds the MAGNITUDE into a `u32`
+/// directly rather than going through `Character::passive_node_count` -
+/// the same unit as `INTEGER_COUNT_NODES`, found the same way (at the
+/// call site), just reached by a different accessor.
+pub const MAGNITUDE_COUNT_NODES: &[&str] = &[
+    "contagiouscurse", // warlock - curse spread targets
+    "finaloffering",   // slayer - Bloodpact uses per fight
+    "hundredfists",    // monk - Flowing Strikes max stacks
+    "ironcircle",      // warrior - Aegis extra targets
+    "reapers",         // slayer - Reaper's Momentum stacks per kill
+    "rootednetwork",   // druid - Verdant Burst targets
+    "tempo",           // warrior - Momentum max stacks
+    "unyieldingroots", // druid - Entangle targets
+    "wideningcircle",  // cleric - Chain of Light targets
+];
+
+/// Fraction nodes the consuming code bounds to `0..=1` beyond argument -
+/// either the value is rolled as a probability
+/// (`rng.gen_bool(x.clamp(0.0, 1.0))`, so anything above 1 is silently
+/// clamped to "always"), or it is compared against a live HP/DR fraction
+/// that is itself `0..=1` by construction (`hp as f64 / max_hp as f64`),
+/// so anything above 1 is silently an always-true threshold. **This is
+/// the exact shape of the Payback defect** - typing `45` for "45%" makes
+/// its counter-crit fire against a full-HP attacker forever.
+pub const BOUNDED_FRACTION_NODES: &[&str] = &[
+    // Rolled as a probability.
+    "bloodfury",
+    "cleankill",
+    "cleansingflames",
+    "cleanslate",
+    "coldsteel",
+    "contagion",
+    "counterflow",
+    "deathmark",
+    "entangle",
+    "eternalvow",
+    "flurry",
+    "hemorrhagesecondwind",
+    "insatiable",
+    "lastjudgment",
+    "prayer",
+    "premeditation",
+    "reaperscall",
+    "rejuvenation",
+    "resonance",
+    "retaliation",
+    "retribution",
+    "secondheartbeat",
+    "seedoflife",
+    "spellecho",
+    "swiftmending",
+    "twinstrikes",
+    "unbrokenprayer",
+    "unyielding",
+    "voidstep",
+    "warpath",
+    "wildfury",
+    "windfury",
+    "wrathoftheheavens",
+    // Compared against a live HP or damage-reduction fraction.
+    "absolutezero",
+    "bloodscent",
+    "crush",
+    "finalblow",
+    "massacre",
+    "payback",
+    "unwavering",
+    "unyieldingfaith",
+    "unyieldingspirit",
+];
+
+/// Fraction nodes their consumer clamps to `0..=0.9` rather than
+/// `0..=1` - all three are cooldown-reduction channels, and a value
+/// above 0.9 is silently truncated rather than applied.
+pub const CLAMPED_90_FRACTION_NODES: &[&str] = &[
+    "graceperiod",    // paladin - Divine Shield cooldown reduction
+    "shield",         // paladin - Divine Shield cooldown reduction
+    "vampiricfrenzy", // slayer - FlickerStrike cooldown reduction
+];
+
+/// Nodes whose unit the consuming code genuinely does not settle. The
+/// admin page labels these "unit unconfirmed" rather than guessing, and
+/// their save path warns instead of rejecting.
+///
+/// **Empty as of the 2026-08-27 sweep** - every editable node's call
+/// site resolved to one of the units above. Kept as the honest landing
+/// place for the next node that doesn't.
+pub const UNIT_UNCONFIRMED_NODES: &[&str] = &[];
+
+/// The unit `key`'s per-rank numbers are expressed in.
+///
+/// Anything not named in one of the lists above is a `Fraction`: the
+/// entire `FlatStat`/`OverflowConversion` half of the tree pools into
+/// `ArchetypeBonus`, whose twelve fields are all fractions, and every
+/// remaining `Special` node reaches its call site inside a `1.0 + x`,
+/// `base + x` or `x * base` shape. The population guard
+/// `the_unit_sweep_covers_every_editable_node_in_the_tree` below fails
+/// if the tree grows, so a new node cannot quietly inherit that default
+/// without someone re-reading its call site.
+pub fn node_unit(key: &str) -> PassiveUnit {
+    if UNIT_UNCONFIRMED_NODES.contains(&key) {
+        PassiveUnit::Unconfirmed
+    } else if SECONDS_NODES.contains(&key) {
+        PassiveUnit::Seconds
+    } else if MILLISECOND_NODES.contains(&key) {
+        PassiveUnit::Milliseconds
+    } else if MULTIPLIER_NODES.contains(&key) {
+        PassiveUnit::Multiplier
+    } else if node_is_integer_count(key) || MAGNITUDE_COUNT_NODES.contains(&key) {
+        PassiveUnit::Count
+    } else {
+        PassiveUnit::Fraction
+    }
+}
+
+/// The bounds `key`'s CONSUMER establishes - `None` on either side means
+/// the code genuinely sets no bound there, and the save path must warn
+/// rather than reject. Never a guess; see `check_node_value`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PassiveValueBounds {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    /// The consumer rounds to a whole number, so a fraction is not a
+    /// value it can use as typed.
+    pub whole_numbers: bool,
+}
+
+/// The hard bounds for `key`, derived from its unit and its consumer.
+pub fn node_value_bounds(key: &str) -> PassiveValueBounds {
+    match node_unit(key) {
+        // `passive_node_count` is `.round().max(0.0) as u32`, and every
+        // `MAGNITUDE_COUNT_NODES` call site is the same cast.
+        PassiveUnit::Count => PassiveValueBounds { min: Some(0.0), max: None, whole_numbers: true },
+        // A duration reaches its field as `as u32`; a negative one is
+        // not a duration the sim can run. No upper bound is established.
+        PassiveUnit::Seconds | PassiveUnit::Milliseconds => PassiveValueBounds { min: Some(0.0), max: None, whole_numbers: false },
+        PassiveUnit::Fraction if CLAMPED_90_FRACTION_NODES.contains(&key) => PassiveValueBounds { min: Some(0.0), max: Some(0.9), whole_numbers: false },
+        PassiveUnit::Fraction if BOUNDED_FRACTION_NODES.contains(&key) => PassiveValueBounds { min: Some(0.0), max: Some(1.0), whole_numbers: false },
+        // An unbounded fraction is a bonus that legitimately exceeds
+        // 100% (`+150% increased damage` is 1.5) and can legitimately be
+        // negative. Nothing to reject; `check_node_value` warns instead.
+        _ => PassiveValueBounds { min: None, max: None, whole_numbers: false },
+    }
+}
+
+/// The expected range, in words - shown on every row and quoted back in
+/// the rejection, so the operator never has to leave the page to learn
+/// what the field wanted.
+pub fn node_range_text(key: &str) -> String {
+    let bounds = node_value_bounds(key);
+    match node_unit(key) {
+        PassiveUnit::Count => "a whole number, 0 or more".to_string(),
+        PassiveUnit::Seconds => "seconds, 0 or more".to_string(),
+        PassiveUnit::Milliseconds => "milliseconds, 0 or more".to_string(),
+        PassiveUnit::Multiplier => "a multiplier — 1 means no change".to_string(),
+        PassiveUnit::Percent => "a percentage — 100 means 100%".to_string(),
+        PassiveUnit::Unconfirmed => "unit unconfirmed — the code that reads it establishes no range".to_string(),
+        PassiveUnit::Fraction => match (bounds.min, bounds.max) {
+            (Some(min), Some(max)) => format!("a fraction from {} to {} — {} means {}%", trim_bound(min), trim_bound(max), trim_bound(max), trim_bound(max * 100.0)),
+            _ => "a fraction — 1 means 100%, and values above 1 are legal here".to_string(),
+        },
+    }
+}
+
+/// `f64` for a human, without a trailing `.0` - every bound here is a
+/// round number and `0.9` should not print as `0.9000000000000001`.
+fn trim_bound(v: f64) -> String {
+    let s = format!("{v}");
+    s.trim_end_matches(".0").to_string()
+}
+
+/// What the save path should do with one typed value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueCheck {
+    /// Persist it.
+    Ok,
+    /// Unusual, but the consuming code WOULD accept it - the operator
+    /// has to confirm, and nothing is written until they do.
+    Warn(String),
+    /// The consuming code cannot use it as typed. Never persisted.
+    Reject(String),
+}
+
+/// Validate one typed value for `key`, `field` naming the input
+/// ("Rank 2") so the message can point at it.
+///
+/// The split is the whole point: REJECT only where the consumer settles
+/// the bound (a probability that is clamped into `0..=1`, a count that
+/// is cast to `u32`, a duration that cannot be negative); WARN wherever
+/// the value is merely unusual - a fraction above 1 is the classic
+/// percent-typed-as-a-whole-number slip, but `+150% increased damage` is
+/// also a real thing an owner might want. Nothing is invented: a node
+/// whose consumer establishes no bound can only ever warn.
+pub fn check_node_value(key: &str, field: &str, value: f64) -> ValueCheck {
+    let unit = node_unit(key);
+    let bounds = node_value_bounds(key);
+    let range = node_range_text(key);
+    if !value.is_finite() {
+        return ValueCheck::Reject(format!("{field} on {key} must be a finite number — expected {range}."));
+    }
+    if bounds.whole_numbers && value.fract() != 0.0 {
+        return ValueCheck::Reject(format!("{field} on {key} is a {} and must be a whole number — got {value}, expected {range}.", unit.label()));
+    }
+    if let Some(min) = bounds.min {
+        if value < min {
+            return ValueCheck::Reject(format!("{field} on {key} is below what the code that reads it accepts — got {value}, expected {range}."));
+        }
+    }
+    if let Some(max) = bounds.max {
+        if value > max {
+            let meant = if value > 1.0 { format!(" If you meant {value}%, enter {}.", value / 100.0) } else { String::new() };
+            return ValueCheck::Reject(format!("{field} on {key} is above what the code that reads it accepts — got {value}, expected {range}.{meant}"));
+        }
+    }
+    match unit {
+        // The percent-versus-fraction slip, on the half of the tree
+        // where the code would genuinely accept the big number.
+        PassiveUnit::Fraction | PassiveUnit::Unconfirmed if value > 1.0 => {
+            ValueCheck::Warn(format!("{field} on {key} is {value} — as a {}, that is {}%. If you meant {value}%, enter {}.", unit.label(), value * 100.0, value / 100.0))
+        }
+        PassiveUnit::Fraction | PassiveUnit::Unconfirmed if value < 0.0 => ValueCheck::Warn(format!("{field} on {key} is negative ({value}) — it will subtract rather than add.")),
+        // 1000x out is the seconds/milliseconds slip, in either direction.
+        PassiveUnit::Seconds if value > 60.0 => ValueCheck::Warn(format!("{field} on {key} is {value} seconds. If you meant {value} milliseconds, enter {}.", value / 1000.0)),
+        PassiveUnit::Milliseconds if value > 0.0 && value < 50.0 => ValueCheck::Warn(format!("{field} on {key} is {value} milliseconds — under one combat tick. If you meant {value} seconds, enter {}.", value * 1000.0)),
+        PassiveUnit::Multiplier if value <= 0.0 => ValueCheck::Warn(format!("{field} on {key} is a multiplier and 1 means no change — {value} scales the effect away or inverts it.")),
+        _ => ValueCheck::Ok,
+    }
+}
+
+/// The per-node conversion-output cap, which is a fraction per invested
+/// rank exactly like the global `overflow_conversion_cap_per_rank` it
+/// overrides. Its consumer sets no hard bound, so this can only warn.
+pub fn check_conversion_cap(value: f64) -> ValueCheck {
+    if !value.is_finite() {
+        return ValueCheck::Reject("Cap / rank must be a finite number — expected a fraction, where 1 means 100%.".to_string());
+    }
+    if value < 0.0 {
+        return ValueCheck::Warn(format!("Cap / rank is negative ({value}) — it would cap this node's converted output at nothing."));
+    }
+    if value > 1.0 {
+        return ValueCheck::Warn(format!("Cap / rank is {value} — as a fraction that is {}%. If you meant {value}%, enter {}.", value * 100.0, value / 100.0));
+    }
+    ValueCheck::Ok
+}
+
 /// Stage 1 of the live-tunable passive values build
 /// (docs/passive_tunables_spec.md) - the override store and the hook.
 ///
@@ -1346,6 +1716,208 @@ mod passive_override_tests {
             assert!(!PENDING_MIGRATION_NODES.contains(key), "{key:?} cannot be both partially tunable and pending - pending hides its working input");
             assert!(!UNWIRED_NODES.contains(key), "{key:?} cannot be both partially tunable and unwired");
             assert!(!INTEGER_COUNT_NODES.contains(key), "{key:?} cannot be both partially tunable and an integer-count node");
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Units and ranges (2026-08-27). See the UNITS AND RANGES block
+    // comment above for where each classification came from.
+    // -----------------------------------------------------------------
+
+    /// The default in `node_unit` is `Fraction`, and it is only honest
+    /// because every editable node in the tree had its call site read on
+    /// 2026-08-27. If the tree grows, that sweep no longer covers it, so
+    /// this fails and asks for the new node's call site to be read
+    /// rather than letting it inherit the default in silence.
+    #[test]
+    fn the_unit_sweep_covers_every_editable_node_in_the_tree() {
+        const SWEPT_EDITABLE_NODES: usize = 463;
+        let editable = crate::adventure::ALL_ARCHETYPES
+            .iter()
+            .flat_map(|a| a.passive_nodes().iter())
+            .filter(|n| !matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented))
+            .filter(|n| node_is_tunable(n.key))
+            .count();
+        assert_eq!(
+            editable, SWEPT_EDITABLE_NODES,
+            "the passive tree's editable-node population changed - re-read the new/changed nodes' call sites and place them in the unit lists (or UNIT_UNCONFIRMED_NODES), then update this count"
+        );
+    }
+
+    /// Every node the admin page offers an input for resolves to a unit,
+    /// `Unconfirmed` included - that one is a real answer the page
+    /// prints, not an absence.
+    #[test]
+    fn every_editable_node_resolves_to_a_unit_and_a_range() {
+        for archetype in crate::adventure::ALL_ARCHETYPES.iter() {
+            for node in archetype.passive_nodes() {
+                if matches!(node.effect, crate::passive_tree::PassiveEffect::NotYetImplemented) || !node_is_tunable(node.key) {
+                    continue;
+                }
+                assert!(!node_unit(node.key).label().is_empty(), "{} has no unit label", node.key);
+                assert!(!node_range_text(node.key).is_empty(), "{} has no range text", node.key);
+            }
+        }
+    }
+
+    /// No key may sit in two unit lists at once - the first-match order
+    /// in `node_unit` would hide the conflict rather than report it.
+    #[test]
+    fn the_unit_lists_never_overlap() {
+        let lists: [(&str, &[&str]); 6] = [
+            ("SECONDS_NODES", SECONDS_NODES),
+            ("MILLISECOND_NODES", MILLISECOND_NODES),
+            ("MULTIPLIER_NODES", MULTIPLIER_NODES),
+            ("MAGNITUDE_COUNT_NODES", MAGNITUDE_COUNT_NODES),
+            ("INTEGER_COUNT_NODES", INTEGER_COUNT_NODES),
+            ("UNIT_UNCONFIRMED_NODES", UNIT_UNCONFIRMED_NODES),
+        ];
+        for (i, (name_a, a)) in lists.iter().enumerate() {
+            for (name_b, b) in lists.iter().skip(i + 1) {
+                for key in a.iter() {
+                    assert!(!b.contains(key), "{key:?} is in both {name_a} and {name_b} - a node has exactly one unit");
+                }
+            }
+        }
+        // A bounded fraction is still a fraction, so it must not also be
+        // classified as some other unit.
+        for key in BOUNDED_FRACTION_NODES.iter().chain(CLAMPED_90_FRACTION_NODES.iter()) {
+            assert_eq!(node_unit(key), PassiveUnit::Fraction, "{key:?} carries a fraction bound but is not classified as a fraction");
+        }
+    }
+
+    /// Every key named in a unit list is a real node - a typo would
+    /// silently classify nothing, the same failure mode the existing
+    /// list guards above exist to catch.
+    #[test]
+    fn every_unit_list_entry_is_a_real_node() {
+        let all: Vec<&str> = SECONDS_NODES
+            .iter()
+            .chain(MILLISECOND_NODES)
+            .chain(MULTIPLIER_NODES)
+            .chain(MAGNITUDE_COUNT_NODES)
+            .chain(BOUNDED_FRACTION_NODES)
+            .chain(CLAMPED_90_FRACTION_NODES)
+            .chain(UNIT_UNCONFIRMED_NODES)
+            .copied()
+            .collect();
+        for key in all {
+            let found = crate::adventure::ALL_ARCHETYPES.iter().any(|a| a.passive_nodes().iter().any(|n| n.key == key));
+            assert!(found, "{key:?} is in a unit list but is not a node in any archetype's tree");
+        }
+    }
+
+    /// The two nodes the order named, classified off their consuming
+    /// code rather than their names.
+    #[test]
+    fn the_named_defect_nodes_classify_from_their_consumers() {
+        // `(M("relentlessassault") * 1000.0).round() as u32` into
+        // `flowing_duration_ms` - so `0 / 0 / 2` is two SECONDS.
+        assert_eq!(node_unit("relentlessassault"), PassiveUnit::Seconds);
+        // `attacker_hp_pct < payback_threshold`, where `attacker_hp_pct`
+        // is `hp as f64 / max_hp as f64` - a fraction, bounded 0..=1.
+        assert_eq!(node_unit("payback"), PassiveUnit::Fraction);
+        assert_eq!(node_value_bounds("payback"), PassiveValueBounds { min: Some(0.0), max: Some(1.0), whole_numbers: false });
+    }
+
+    /// THE defect: `45` typed into Payback meaning "45 percent" is an
+    /// always-true threshold. It must be refused, and the refusal must
+    /// name the field and the range.
+    #[test]
+    fn a_percent_typed_as_a_whole_number_is_rejected_not_persisted() {
+        match check_node_value("payback", "Rank 2", 45.0) {
+            ValueCheck::Reject(message) => {
+                assert!(message.contains("Rank 2"), "the rejection must name the field: {message}");
+                assert!(message.contains("payback"), "the rejection must name the node: {message}");
+                assert!(message.contains("0 to 1"), "the rejection must state the expected range: {message}");
+                assert!(message.contains("0.45"), "the rejection should offer the value they meant: {message}");
+            }
+            other => panic!("payback = 45 must be rejected outright, got {other:?}"),
+        }
+        assert_eq!(check_node_value("payback", "Rank 2", 0.45), ValueCheck::Ok, "the value they meant must save cleanly");
+    }
+
+    /// A count is cast to `u32` by its consumer, so a fraction and a
+    /// negative are both values the code cannot use as typed.
+    #[test]
+    fn a_count_rejects_fractions_and_negatives() {
+        assert!(matches!(check_node_value("frenzy", "Rank 1", 2.5), ValueCheck::Reject(_)));
+        assert!(matches!(check_node_value("frenzy", "Rank 1", -1.0), ValueCheck::Reject(_)));
+        assert_eq!(check_node_value("frenzy", "Rank 1", 3.0), ValueCheck::Ok);
+        // A count has no established upper bound, so a big one is not a
+        // rejection - the page takes it.
+        assert_eq!(check_node_value("frenzy", "Rank 3", 40.0), ValueCheck::Ok);
+    }
+
+    /// A duration cannot be negative, but nothing in the code bounds it
+    /// from above - so a long one warns rather than being refused.
+    #[test]
+    fn a_duration_rejects_negatives_and_only_warns_when_it_is_long() {
+        assert!(matches!(check_node_value("relentlessassault", "Rank 3", -2.0), ValueCheck::Reject(_)));
+        assert_eq!(check_node_value("relentlessassault", "Rank 3", 2.0), ValueCheck::Ok);
+        match check_node_value("relentlessassault", "Rank 3", 2000.0) {
+            ValueCheck::Warn(message) => assert!(message.contains("Rank 3") && message.contains("milliseconds"), "{message}"),
+            other => panic!("2000 seconds is unusual but legal - it must warn, not reject: got {other:?}"),
+        }
+    }
+
+    /// An unbounded fraction over 1 is the percent slip AND a legitimate
+    /// `+150%` - exactly the case the order says must warn rather than
+    /// reject.
+    #[test]
+    fn an_unbounded_fraction_over_one_warns_rather_than_rejecting() {
+        assert_eq!(node_unit("juggernaut"), PassiveUnit::Fraction);
+        assert_eq!(node_value_bounds("juggernaut"), PassiveValueBounds { min: None, max: None, whole_numbers: false });
+        match check_node_value("juggernaut", "Rank 1", 45.0) {
+            ValueCheck::Warn(message) => {
+                assert!(message.contains("Rank 1") && message.contains("juggernaut"), "{message}");
+                assert!(message.contains("0.45"), "the warning should offer the value they probably meant: {message}");
+            }
+            other => panic!("an unbounded fraction over 1 must warn, not reject: got {other:?}"),
+        }
+        assert_eq!(check_node_value("juggernaut", "Rank 1", 0.24), ValueCheck::Ok);
+    }
+
+    /// The clamped cooldown-reduction channels stop at 0.9, not 1.0 -
+    /// their consumer truncates above it.
+    #[test]
+    fn a_clamped_fraction_uses_its_own_ceiling() {
+        assert_eq!(node_value_bounds("vampiricfrenzy").max, Some(0.9));
+        assert!(matches!(check_node_value("vampiricfrenzy", "Rank 3", 0.95), ValueCheck::Reject(_)));
+        assert_eq!(check_node_value("vampiricfrenzy", "Rank 3", 0.9), ValueCheck::Ok);
+    }
+
+    /// Non-finite input (typing `1e999`) stays refused, as it always
+    /// was - it would poison every downstream calculation.
+    #[test]
+    fn non_finite_input_is_still_refused() {
+        assert!(matches!(check_node_value("juggernaut", "Rank 1", f64::INFINITY), ValueCheck::Reject(_)));
+        assert!(matches!(check_node_value("juggernaut", "Rank 1", f64::NAN), ValueCheck::Reject(_)));
+        assert!(matches!(check_conversion_cap(f64::INFINITY), ValueCheck::Reject(_)));
+    }
+
+    /// The per-node conversion cap has no bound in its consumer, so it
+    /// can only ever warn.
+    #[test]
+    fn the_conversion_cap_warns_and_never_rejects_a_finite_value() {
+        assert_eq!(check_conversion_cap(0.35), ValueCheck::Ok);
+        assert!(matches!(check_conversion_cap(35.0), ValueCheck::Warn(_)));
+        assert!(matches!(check_conversion_cap(-1.0), ValueCheck::Warn(_)));
+    }
+
+    /// Every value currently sitting in the live override store must
+    /// still be accepted - this branch changes presentation and
+    /// validation only, and a rejection here would mean the live file
+    /// holds a value the game cannot use.
+    #[test]
+    fn nothing_in_a_stored_override_set_is_rejected_by_the_new_validation() {
+        let overrides = passive_overrides();
+        for (key, values) in overrides.nodes.iter() {
+            for (i, value) in values.iter().enumerate() {
+                if let ValueCheck::Reject(message) = check_node_value(key, &format!("Rank {}", i + 1), *value) {
+                    panic!("a stored override would now be rejected: {message}");
+                }
+            }
         }
     }
 }

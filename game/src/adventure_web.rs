@@ -2456,7 +2456,7 @@ async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, 
     let body = match session {
         Some((login, _)) if login == ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
-            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), state.adventure.live_tunables().overflow_conversion_cap_per_rank)
+            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), state.adventure.live_tunables().overflow_conversion_cap_per_rank, None)
         }
         // Same generic fallback as `/admin/tunables` - a restricted
         // page's existence isn't hinted at.
@@ -2465,7 +2465,23 @@ async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, 
     Html(render_page(&body))
 }
 
-fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool, global_conversion_cap: f64) -> String {
+/// One rejected or unconfirmed save, rendered back into the row it came
+/// from (2026-08-27). An `error` is a value the consuming code cannot
+/// use and was NOT persisted; a `warning` is a value it would accept but
+/// that looks like a slip, so the row grows a "save anyway" form
+/// carrying exactly what was typed - nothing is written until the
+/// operator presses it. See `adventure::check_node_value`.
+struct PassiveSaveFeedback {
+    node_key: String,
+    error: Option<String>,
+    warning: Option<String>,
+    /// What was typed, replayed on the confirm form so a warned save
+    /// needs no retyping. `conversion_cap` is `None` for every row that
+    /// doesn't render that input.
+    pending: Option<(f64, f64, f64, Option<String>)>,
+}
+
+fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool, global_conversion_cap: f64, feedback: Option<&PassiveSaveFeedback>) -> String {
     let nav = top_nav(viewer);
     let overrides = passive_overrides();
     let banner = if saved {
@@ -2507,6 +2523,14 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             // A node whose mechanic doesn't exist yet, or whose numbers
             // still live in combat.rs, is shown but NOT offered - an
             // input that silently does nothing is worse than no input.
+            // What the row's three numbers MEAN, read off the code that
+            // consumes them (2026-08-27) - the page used to print them
+            // bare, which is how "45" meaning 45% got typed into a
+            // fraction. `unit unconfirmed` is a real, rendered answer
+            // rather than a guess. See `adventure::node_unit`.
+            let unit = crate::adventure::node_unit(key);
+            let unit_chip = format!("<span class=\"passive-unit\">{}</span>", unit.label());
+
             if not_yet || pending {
                 let why = if not_yet {
                     "No mechanic yet — this node declares no value, so there is nothing to tune."
@@ -2516,9 +2540,14 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                     // if the two predicates ever drift apart.
                     crate::adventure::node_untunable_reason(key).unwrap_or("Not tunable yet.")
                 };
+                // A `NotYetImplemented` node declares no value at all, so
+                // naming a unit for it would be inventing one; every other
+                // disabled row does have declared numbers and says what
+                // they are.
+                let head_unit = if not_yet { String::new() } else { unit_chip.clone() };
                 return format!(
                     "<div class=\"passive-row disabled\">\
-                       <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span></div>\
+                       <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {head_unit}</div>\
                        <div class=\"passive-default\">Default: {default_text}</div>\
                        <p class=\"tunable-hint\">{why}</p>\
                      </div>"
@@ -2538,6 +2567,12 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                     )
                 })
                 .collect();
+            // The unit sits with the inputs, not just in the head, so the
+            // operator reads "seconds" in the same glance as the box they
+            // are typing into; the range is what the save path will
+            // enforce, quoted from the same `node_range_text`.
+            let range_text = escape_html(&crate::adventure::node_range_text(key));
+            let unit_note = format!("<span class=\"passive-unit-note\"><strong>{}</strong> — {range_text}</span>", unit.label());
 
             let marker = if overridden { "<span class=\"passive-tuned-badge\">differs from default</span>" } else { "" };
             // Half-tunable nodes (PARTIALLY_TUNABLE_NODES): the input below
@@ -2580,9 +2615,52 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                 String::new()
             };
 
+            // A rejected or unconfirmed save from THIS row, replayed
+            // inline (2026-08-27). The confirm form is deliberately
+            // rendered AFTER the edit form: `save_form_field_names` in
+            // `tests/admin_passives_http.rs` derives the POST body from
+            // the FIRST save form in the row, and that has to stay the
+            // ordinary one.
+            let slug = format!("{archetype:?}").to_lowercase();
+            let (row_error, row_warning) = match feedback.filter(|f| f.node_key == key) {
+                Some(f) => {
+                    let err = f.error.as_deref().map(|m| format!("<p class=\"passive-error\">⛔ Not saved — {}</p>", escape_html(m))).unwrap_or_default();
+                    let warn = match (f.warning.as_deref(), f.pending.as_ref()) {
+                        (Some(m), Some((r1, r2, r3, cap))) => {
+                            let cap_field = match cap {
+                                Some(text) => format!("<input type=\"hidden\" name=\"conversion_cap\" value=\"{}\">", escape_html(text)),
+                                None => String::new(),
+                            };
+                            format!(
+                                "<div class=\"passive-warn\">\
+                                   <p>⚠ Not saved yet — {msg}</p>\
+                                   <form method=\"post\" action=\"/admin/passives/save\" class=\"passive-confirm\">\
+                                     <input type=\"hidden\" name=\"class\" value=\"{slug}\">\
+                                     <input type=\"hidden\" name=\"node_key\" value=\"{key}\">\
+                                     <input type=\"hidden\" name=\"r1\" value=\"{v1}\">\
+                                     <input type=\"hidden\" name=\"r2\" value=\"{v2}\">\
+                                     <input type=\"hidden\" name=\"r3\" value=\"{v3}\">\
+                                     {cap_field}\
+                                     <input type=\"hidden\" name=\"confirm\" value=\"1\">\
+                                     <button class=\"btn-sm btn-danger\" type=\"submit\">Save anyway</button>\
+                                   </form>\
+                                 </div>",
+                                msg = escape_html(m),
+                                v1 = trim_float(*r1),
+                                v2 = trim_float(*r2),
+                                v3 = trim_float(*r3),
+                            )
+                        }
+                        _ => String::new(),
+                    };
+                    (err, warn)
+                }
+                None => (String::new(), String::new()),
+            };
+
             format!(
                 "<div class=\"passive-row\">\
-                   <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {marker}</div>\
+                   <div class=\"passive-row-head\"><strong>{name}</strong> <code>{key}</code> <span class=\"passive-tier\">{tier}</span> {unit_chip} {marker}</div>\
                    {partial}\
                    {conversion_hint}\
                    <div class=\"passive-default\">Default: {default_text}</div>\
@@ -2596,8 +2674,10 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                      </form>\
                      {revert}\
                    </div>\
+                   <p class=\"tunable-hint\">{unit_note}</p>\
+                   {row_error}\
+                   {row_warning}\
                  </div>",
-                slug = format!("{archetype:?}").to_lowercase(),
             )
         })
         .collect();
@@ -2632,6 +2712,12 @@ struct PassiveOverrideForm {
     /// global cap again; `Some(text)` parses as the node's own cap.
     #[serde(default)]
     conversion_cap: Option<String>,
+    /// `Some("1")` only on the "Save anyway" form a WARNED save grows
+    /// (2026-08-27). The ordinary edit form never renders it, so it is
+    /// `#[serde(default)]` per the house trap rule - a required field
+    /// with no rendered input 422s every real browser save.
+    #[serde(default)]
+    confirm: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2640,48 +2726,107 @@ struct PassiveRevertForm {
     node_key: String,
 }
 
-/// Deliberately NOT clamped to per-node bounds - an explicit owner
-/// ruling: this is a single-admin surface and 411 individual sane
-/// ranges would be 411 guesses, so the page takes any finite number and
-/// shows a "differs from default" marker instead. Non-finite input
-/// (NaN/inf, reachable by typing `1e999`) IS rejected, since it would
-/// poison every downstream calculation rather than merely being an odd
-/// balance choice.
-async fn do_save_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveOverrideForm>) -> impl IntoResponse {
+/// Per-field range validation, derived from the same consuming code the
+/// row's unit label is (2026-08-27). This SUPERSEDES the earlier ruling
+/// that the page should take any finite number: "known key and finite"
+/// let `45` - meaning 45 percent - persist into Payback's `0..=1` HP
+/// threshold as an always-true one, silently and with nothing on the
+/// page to say it had.
+///
+/// Three outcomes, and the middle one is the point:
+/// * **Reject** where the consumer settles the bound - a probability
+///   the sim clamps into `0..=1`, a count cast to `u32`, a duration
+///   that cannot be negative. Nothing is written; the row says which
+///   field and what range it wanted.
+/// * **Warn + confirm** where the value is merely unusual but the code
+///   WOULD accept it (a fraction above 1 - the percent slip, but also a
+///   real `+150%`). Still nothing written until "Save anyway".
+/// * **Save** otherwise, redirecting exactly as before.
+///
+/// See `adventure::check_node_value` for where each bound comes from.
+async fn do_save_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveOverrideForm>) -> axum::response::Response {
     let slug = format!("{:?}", form.class).to_lowercase();
-    if let Some((login, _)) = current_session(&headers, &state).await {
-        if login == ADMIN_TUNABLES_LOGIN {
-            // Reject a key that isn't in the class being edited - the
-            // page never generates one, so this only fires on a
-            // hand-crafted POST, and a bad key would otherwise sit in
-            // the file forever matching nothing.
-            let known = form.class.passive_nodes().iter().any(|n| n.key == form.node_key);
-            let finite = [form.r1, form.r2, form.r3].iter().all(|v| v.is_finite());
-            if known && finite {
-                let mut overrides = passive_overrides();
-                overrides.nodes.insert(form.node_key.clone(), vec![form.r1, form.r2, form.r3]);
-                // The per-node conversion cap (OverflowConversion rows
-                // render it beside the magnitude; other rows' POSTs carry
-                // no such field, which lands as None here). Blank clears
-                // any explicit cap - back to following the global.
-                match form.conversion_cap.as_deref().map(str::trim) {
-                    None | Some("") => {
-                        overrides.conversion_caps.remove(&form.node_key);
-                    }
-                    Some(text) => match text.parse::<f64>() {
-                        Ok(cap) if cap.is_finite() => {
-                            overrides.conversion_caps.insert(form.node_key.clone(), cap);
-                        }
-                        _ => tracing::warn!("admin/passives: ignoring non-numeric conversion cap {text:?} for {}", form.node_key),
-                    },
-                }
-                if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
-                    tracing::error!("failed to persist passive overrides: {err}");
-                }
+    let redirect = || Redirect::to(&format!("/admin/passives?class={slug}&saved=1")).into_response();
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return redirect();
+    };
+    if login != ADMIN_TUNABLES_LOGIN {
+        return redirect();
+    }
+    // Reject a key that isn't in the class being edited - the page never
+    // generates one, so this only fires on a hand-crafted POST, and a
+    // bad key would otherwise sit in the file forever matching nothing.
+    if !form.class.passive_nodes().iter().any(|n| n.key == form.node_key) {
+        return redirect();
+    }
+
+    // The per-node conversion cap (OverflowConversion rows render it
+    // beside the magnitude; other rows' POSTs carry no such field, which
+    // lands as None here). Blank clears any explicit cap - back to
+    // following the global.
+    let cap_text = form.conversion_cap.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    let mut checks: Vec<crate::adventure::ValueCheck> = [("Rank 1", form.r1), ("Rank 2", form.r2), ("Rank 3", form.r3)]
+        .into_iter()
+        .map(|(field, value)| crate::adventure::check_node_value(&form.node_key, field, value))
+        .collect();
+    let cap_value = match cap_text {
+        None => None,
+        Some(text) => match text.parse::<f64>() {
+            Ok(cap) => {
+                checks.push(crate::adventure::check_conversion_cap(cap));
+                Some(cap)
             }
+            // Was a silent `tracing::warn!` and a discarded edit - the
+            // same "accepted the save, changed nothing" shape this whole
+            // change exists to kill.
+            Err(_) => {
+                checks.push(crate::adventure::ValueCheck::Reject(format!("Cap / rank on {} is not a number — got {text:?}.", form.node_key)));
+                None
+            }
+        },
+    };
+
+    let feedback_page = |error: Option<String>, warning: Option<String>| async {
+        let viewer = state.adventure.character(&login).await;
+        let feedback = PassiveSaveFeedback {
+            node_key: form.node_key.clone(),
+            error,
+            warning,
+            pending: Some((form.r1, form.r2, form.r3, cap_text.map(str::to_string))),
+        };
+        let body = render_admin_passives_page(viewer.as_ref(), form.class, false, state.adventure.live_tunables().overflow_conversion_cap_per_rank, Some(&feedback));
+        Html(render_page(&body)).into_response()
+    };
+
+    if let Some(message) = checks.iter().find_map(|c| match c {
+        crate::adventure::ValueCheck::Reject(m) => Some(m.clone()),
+        _ => None,
+    }) {
+        return feedback_page(Some(message), None).await;
+    }
+    if form.confirm.as_deref() != Some("1") {
+        if let Some(message) = checks.iter().find_map(|c| match c {
+            crate::adventure::ValueCheck::Warn(m) => Some(m.clone()),
+            _ => None,
+        }) {
+            return feedback_page(None, Some(message)).await;
         }
     }
-    Redirect::to(&format!("/admin/passives?class={slug}&saved=1"))
+
+    let mut overrides = passive_overrides();
+    overrides.nodes.insert(form.node_key.clone(), vec![form.r1, form.r2, form.r3]);
+    match cap_value {
+        Some(cap) => {
+            overrides.conversion_caps.insert(form.node_key.clone(), cap);
+        }
+        None => {
+            overrides.conversion_caps.remove(&form.node_key);
+        }
+    }
+    if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
+        tracing::error!("failed to persist passive overrides: {err}");
+    }
+    redirect()
 }
 
 async fn do_revert_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveRevertForm>) -> impl IntoResponse {
@@ -6360,7 +6505,7 @@ mod admin_passives_tests {
     /// Every render test wants the compiled-in global cap as the
     /// fallback display - the LIVE global belongs to the handler.
     fn admin_page(archetype: Archetype, saved: bool) -> String {
-        render_admin_passives_page(None, archetype, saved, crate::adventure::LiveTunables::default().overflow_conversion_cap_per_rank)
+        render_admin_passives_page(None, archetype, saved, crate::adventure::LiveTunables::default().overflow_conversion_cap_per_rank, None)
     }
 
     fn node(archetype: Archetype, key: &str) -> &'static PassiveNode {
