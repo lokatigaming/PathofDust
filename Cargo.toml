@@ -15,10 +15,6 @@ path = "src/main.rs"
 name = "auth"
 path = "src/bin/auth.rs"
 
-[[bin]]
-name = "auth_patreon"
-path = "src/bin/auth_patreon.rs"
-
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }

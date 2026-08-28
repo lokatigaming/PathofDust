@@ -21,7 +21,6 @@ use crate::build_feed;
 use crate::bug_reports::{BugReportManager, SubmitOutcome};
 use crate::entrance_themes::EntranceThemeManager;
 use crate::obs_websocket::ObsClient;
-use crate::patreon::PatreonWatcher;
 use crate::personal_playlists::{AddOutcome, PersonalPlaylistManager, PlayOutcome, RemoveOutcome, SampleOutcome};
 use crate::playrandom::PlayRandomManager;
 use crate::poe_ninja;
@@ -61,12 +60,11 @@ impl From<&str> for Reply {
 
 /// Everything a command handler might need. Optional integrations are
 /// `Option` — same graceful "disabled if not configured" behavior as the
-/// Node bot (e.g. !checkpatreon replies "not enabled" if `patreon` is None
+/// Node bot (e.g. !alerttest replies "not running" if `alerts` is None
 /// instead of erroring).
 pub struct Services {
     pub helix: HelixClient,
     pub broadcaster_id: String,
-    pub patreon: Option<Arc<PatreonWatcher>>,
     pub alerts: Option<Arc<crate::alerts::AlertServer>>,
     pub streamelements: Option<Arc<StreamElementsWatcher>>,
     pub announcements: Arc<Announcements>,
@@ -134,7 +132,6 @@ fn hand_written_public_entries() -> Vec<PublicCommandEntry> {
         ("uptime", "Shows how long the stream has been live.", false),
         ("time", "Shows Lokati's local time (Singapore).", false),
         ("commands", "Links to this command list.", false),
-        ("checkpatreon", "Forces an immediate check for new Patreon supporters.", true),
         ("handsome", "Plays a special video on stream.", false),
         ("thatsagoodbuild", "Plays a special video on stream.", false),
         ("essenceprofit", "Live poe.ninja lookup: average Deafening Essence price and estimated chaos/divine profit per hour farming them (alias !ep).", false),
@@ -461,7 +458,7 @@ async fn handle_builtin(
     is_broadcaster: bool,
     services: &Services,
 ) -> Option<Reply> {
-    // `command`/`announcetest`/`checkpatreon`/`alerttest`/`replaytips`/
+    // `command`/`announcetest`/`alerttest`/`replaytips`/
     // `skip`/`clearqueue`/`forceplay` are mod tools — deliberately NOT put
     // behind the shared cooldown, same as the Node version (only user-facing commands
     // share that cooldown). Song requests are also excluded — the "no
@@ -471,7 +468,6 @@ async fn handle_builtin(
         name,
         "command"
             | "announcetest"
-            | "checkpatreon"
             | "alerttest"
             | "replaytips"
             | "skip"
@@ -687,20 +683,6 @@ async fn handle_builtin(
             Some(Reply::Many(
                 list.iter().enumerate().map(|(i, text)| format!("({}/{total}) {text}", i + 1)).collect(),
             ))
-        }
-
-        "checkpatreon" => {
-            if !is_mod_or_broadcaster {
-                return Some(Reply::None);
-            }
-            let Some(patreon) = &services.patreon else { return Some("Patreon integration is not enabled.".into()) };
-            match patreon.force_poll().await {
-                Ok(()) => Some("Checked Patreon for new supporters.".into()),
-                Err(err) => {
-                    tracing::error!("checkpatreon failed: {err}");
-                    Some("Something went wrong checking Patreon — check the logs.".into())
-                }
-            }
         }
 
         "alerttest" => {
@@ -1442,7 +1424,7 @@ async fn handle_command_management(args: &[String], services: &Services) -> Repl
     // no-op dispatch would be overkill; just check against the known list.
     const BUILTIN_NAMES: &[&str] = &[
         "hug", "uptime", "time", "commands", "handsome", "thatsagoodbuild", "command", "announcetest",
-        "checkpatreon", "alerttest", "replaytips", "songrequest", "sr", "queue", "nowplaying", "np", "song",
+        "alerttest", "replaytips", "songrequest", "sr", "queue", "nowplaying", "np", "song",
         "currentsong", "skip", "modskip", "clearqueue", "modclear", "voteskip", "vs", "votepause", "votestart", "votevolume", "vv",
         "forceplay", "modpause", "modstart", "modresume", "modvolume", "modvv", "songinsert", "si",
         "essenceprofit", "ep", "ritualprofit", "rp", "vesselprice", "vp", "price", "settheme", "resetgreeted", "theme", "themes", "playlist", "playrandom",
