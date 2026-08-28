@@ -1921,3 +1921,128 @@ confirmation exists.**
 **Revert, if needed:** delete the `OPERATOR_LOGIN` line from `.env` and
 restart. `lokati_gaming` regains every gate immediately. Twitch OAuth
 worked throughout, so there was no window without a route in.
+
+## Deploy record — 2026-08-29, World 2 Stage 3b: Patreon removal (`c603734`)
+
+Merged and deployed by the deploy session (DEPLOY-REMOVE-PATREON).
+Four merges, in this order:
+
+| Merge | SHA | What |
+|---|---|---|
+| `feature/remove-patreon` (`aef6ce8`) | `7ef31ac` | Deletes the Patreon integration entirely |
+| `docs/bot-decoupling-audit` (`f268dd5`) | `77f1243` | docs only — `docs/bot_decoupling_audit.md` |
+| `docs/twitch-removal-scope` (`bdf8c39`) | `6d01047` | docs only — `docs/external_integration_removal_scope.md` |
+| `docs/platform-portability-audit` (`3bc5e9f`) | `c603734` | docs only — `docs/platform_portability_audit.md` |
+
+Plus `a9e639a`, the gitignore commit for this deploy's backup dir. No
+conflicts in any of the four merges. The three docs branches were pushed
+but never merged, which had been forcing every feature session to read
+them with `git show` across branches; they add one new file each and
+touch no code.
+
+**Binaries.** Both swapped per §13 4a, game first, bot only after the
+game health-checked.
+
+| Binary | Old SHA-256 | New SHA-256 |
+|---|---|---|
+| `game.exe` | `5ce40c85…daf77ad1` | `11cc1783…4606ab0d` |
+| `twitch-bot-rs.exe` | `3ded1c68…7041a435` | `cbc8a67e…52a204c9` |
+
+**The game delta is a comment only.** `game/src/state.rs:3` — a doc
+comment listing example state files swapped `patreon-seen.json` for
+`personal-playlists.json`. That is the entire game-side diff. The game
+binary changes hash but not behaviour; it was deployed anyway to keep
+the live binaries identical to master, which is an invariant worth
+preserving.
+
+**Verification.** Backup taken first and confirmed (`verdict: clean`,
+253 files, 0 failed, `pod-backup-20260828-234110`). Golden corpus
+regenerated before the merge: all 17 fixtures recaptured, and the ONLY
+keys that moved across all of them were `eventId` and `hitId` — 3385
+lines each direction, symmetric, no combat value moved. The committed
+fixtures were then restored and re-verified passing clean, so the pure
+ID churn was not committed. `cargo test --release --workspace --quiet
+--target-dir target-deploy-remove-patreon`: **742 passed, 28 suites.**
+Test count unchanged from 742; the suite count is down from 29 because
+the deleted `auth_patreon` binary took its own zero-test target with it,
+not because a test was lost. Clippy: zero warnings in any touched file.
+
+**Retired data files — MOVED, not deleted.** `patreon-tokens.json` and
+`patreon-seen.json` are now read and written by nothing, and were never
+in the backup allow-list, so deleting them outright would have been
+unrecoverable. Both were moved into
+`C:\PathofDust\backup-pre-remove-patreon\`. Confirmed first that the new
+bot had run 5+ minutes without touching either (last write to
+`patreon-seen.json` was 23:59:44, the OLD bot's final write before the
+stop).
+
+**Post-deploy checks.** Bot watched 140s past startup — same PID
+throughout, no restart. Zero Patreon mentions and zero ERROR/WARN lines
+in the bot log after startup, including no missing-file error for either
+retired file. Alert server (4001), song overlay (4002, so
+`YOUTUBE_API_KEYS` is configured), chat overlay (4003) and adventure
+overlay (4004) all listening; game on 4005. The game-to-chat tee was
+confirmed end to end by a live announcement at 16:05:08Z on the new
+binary: `chat send: Sikwiq Last 5 fights: 5W-0L · stage 6270 → 6275 |
+Top DPS: WrightTheWrong (874.9T)…`.
+
+**Stage-label collision, flagged deliberately.** The Stage 3a Phase B
+record closes with "still owed by the owner before Stage 3b (Twitch
+removal) may ship" — the owner logging in as `lokati` and confirming the
+three admin surfaces. This release is ALSO labelled Stage 3b in its own
+commit message, but it removes **Patreon**, not Twitch. That gate exists
+because removing Twitch OAuth removes the way in; Patreon removal
+touches no login route, no auth gate and no session path, so the gate is
+not tripped by this deploy. **The owner confirmation is still owed
+before the Twitch OAuth removal ships.** The two stages should not share
+a label — a future session reading only the commit message could
+reasonably conclude the gate had been cleared.
+
+Rollback: `C:\PathofDust\backup-pre-remove-patreon\` holds both previous
+binaries plus this deploy's pinned 200-file `adventure-fights-summary`
+snapshot. The renamed originals also sit in `target\release\` as
+`game.exe.pre-remove-patreon` and `twitch-bot-rs.exe.pre-remove-patreon`.
+Both maintenance flags were set before their swaps and **cleared** after
+their health checks.
+
+**#54 — AUDIT RELIABILITY: `docs/external_integration_removal_scope.md`
+is a map, not an inventory (standing rule for every later removal
+stage).**
+
+The removal-scope audit was thorough but **not exhaustive**. On the
+Patreon slice alone — the smallest of the integrations it scopes — it
+missed five targets and got three figures wrong:
+
+| Defect | Detail |
+|---|---|
+| Missed target | `src/main.rs:1056` — `patreon: patreon_watcher,`, a field initializer in the `Services` struct literal. **Build-breaking** if the field is removed and this line is not. VERIFIED by this session against `aef6ce8^`. |
+| Missed targets | four further Patreon references absent from the audit target list (per the feature session; not independently re-derived here) |
+| Wrong figure | D41 range is `Cargo.toml:18-20`, not `19-20` — and this one is **also build-breaking**: 18 is the `[[bin]]` header itself, so deleting only 19-20 leaves a dangling `[[bin]]` and an invalid manifest. VERIFIED against `aef6ce8^`. |
+| Wrong figure | D48 is **7** lines, not 4 |
+| Wrong figure | D58 says "all five `PATREON_*`" — there are **three** keys: `PATREON_CLIENT_ID`, `PATREON_CLIENT_SECRET`, `PATREON_POLL_INTERVAL_MS`. VERIFIED against `aef6ce8^`. |
+
+Two of the defects would have broken the build outright — the missed `main.rs:1056` initializer and the truncated D41 range — and neither is the kind of thing a reader spots by eye. That is the whole
+point: an audit's target list is a starting map, and deleting straight
+down it produces a broken tree and a silently incomplete removal.
+
+**The standing rule.** Later removal stages — **the `/api/*` seam and the
+Twitch OAuth removal in particular** — must **independently verify the
+audit's target lists against the code** rather than deleting from them
+directly. Grep the codebase for the symbol being removed and reconcile
+that result against the audit; treat any audit line count, line range or
+key count as unverified until checked. The audit is a map, not an
+inventory. The Twitch slice is far larger than the Patreon slice, so
+the absolute number of misses there should be expected to be higher,
+not lower.
+
+**#55 — `wiki/commands.md:142` still documents `!checkpatreon` (owner-owned
+content, awaiting the owner).**
+
+The command no longer exists — it is gone from the registry and from the
+generated `commands-data.json` / public `/commands.html` list — but the
+wiki page still lists it. The feature session **correctly did not touch
+it**: `wiki/*.md` files are live content the owner edits directly, per
+CLAUDE.md §7 ("sessions request changes via WIKI_IMPACT.md, never edit
+them unasked"), and it filed the WIKI_IMPACT line instead. Recorded here
+so the stale row is not mistaken later for a missed removal target. **No
+session should delete this row; it is the owner's to remove.**
