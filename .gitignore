@@ -237,3 +237,9 @@ target-stage3/
 # plus that deploy's pinned fight-summary snapshot.
 /backup-pre-operator-identity
 target-remove-patreon/
+
+# Rollback copies of the pre-Patreon-removal game.exe and
+# twitch-bot-rs.exe, that deploy's pinned fight-summary snapshot, and
+# the two retired Patreon data files moved out of the deployment root.
+/backup-pre-remove-patreon
+target-deploy-remove-patreon/
