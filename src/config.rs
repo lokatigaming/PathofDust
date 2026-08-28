@@ -1,18 +1,11 @@
 // Central config, loaded from a .env file (same file/values as the Node
 // version can be reused directly — this just adds a few new keys for the
 // song request and chat overlay servers). Optional integrations
-// (Patreon, StreamElements, song requests) are `Option` — leaving their
+// (StreamElements, song requests) are `Option` — leaving their
 // keys unset disables that feature gracefully instead of erroring, same
 // behavior as the Node bot.
 
 use std::path::PathBuf;
-
-#[derive(Debug, Clone)]
-pub struct PatreonConfig {
-    pub client_id: String,
-    pub client_secret: String,
-    pub poll_interval_ms: u64,
-}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -24,8 +17,6 @@ pub struct Config {
     /// written there for the public /commands.html page. None disables
     /// that regeneration step (still works fine locally without it).
     pub public_site_dir: Option<PathBuf>,
-
-    pub patreon: Option<PatreonConfig>,
 
     pub announcement_interval_ms: u64,
     pub announcement_min_messages: u32,
@@ -238,21 +229,11 @@ impl Config {
         let adventure_api_secret = env_var("ADVENTURE_API_SECRET")
             .ok_or_else(|| anyhow::anyhow!("Missing ADVENTURE_API_SECRET in .env - required now that the bot talks to the game process over HTTP instead of in-process (see REFACTOR_PLAN.md §4d)"))?;
 
-        let patreon = match (env_var("PATREON_CLIENT_ID"), env_var("PATREON_CLIENT_SECRET")) {
-            (Some(client_id), Some(client_secret)) => Some(PatreonConfig {
-                client_id,
-                client_secret,
-                poll_interval_ms: env_u64_or("PATREON_POLL_INTERVAL_MS", 60_000),
-            }),
-            _ => None,
-        };
-
         Ok(Self {
             twitch_client_id,
             twitch_client_secret,
             twitch_channel,
             public_site_dir: env_var("PUBLIC_SITE_DIR").map(PathBuf::from),
-            patreon,
             announcement_interval_ms: env_u64_or("ANNOUNCEMENT_INTERVAL_MS", 20 * 60 * 1000),
             announcement_min_messages: env_u32_or("ANNOUNCEMENT_MIN_MESSAGES", 10),
             alert_server_port: env_u16_or("ALERT_SERVER_PORT", 4001),

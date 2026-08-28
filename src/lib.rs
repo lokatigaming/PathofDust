@@ -26,7 +26,6 @@ pub mod emotes;
 pub mod entrance_themes;
 pub mod essence_pricing;
 pub mod obs_websocket;
-pub mod patreon;
 pub mod paypal;
 pub mod personal_playlists;
 pub mod playrandom;

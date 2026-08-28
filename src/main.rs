@@ -17,7 +17,6 @@ use twitch_bot_rs::emotes;
 use twitch_bot_rs::entrance_themes::EntranceThemeManager;
 use twitch_bot_rs::essence_pricing;
 use twitch_bot_rs::obs_websocket::ObsClient;
-use twitch_bot_rs::patreon::{self, NewPatron};
 use twitch_bot_rs::paypal;
 use twitch_bot_rs::personal_playlists::PersonalPlaylistManager;
 use twitch_bot_rs::playrandom::PlayRandomManager;
@@ -592,43 +591,6 @@ async fn async_main() -> anyhow::Result<()> {
     )
     .await?;
 
-    let patreon_watcher = if let Some(patreon_config) = &config.patreon {
-        match patreon::start_patreon_watcher(
-            patreon_config.client_id.clone(),
-            patreon_config.client_secret.clone(),
-            PathBuf::from("patreon-tokens.json"),
-            PathBuf::from("patreon-seen.json"),
-            patreon_config.poll_interval_ms,
-            {
-                let chat_client = chat_client.clone();
-                move |member: NewPatron| {
-                    let chat_client = chat_client.clone();
-                    tokio::spawn(async move {
-                        chat_client
-                            .say(format!(
-                                "New Patreon supporter: {} (Tier: {})! Support here: {}",
-                                member.name, member.tier, member.campaign_url
-                            ))
-                            .await;
-                    });
-                }
-            },
-        )
-        .await
-        {
-            Ok(watcher) => {
-                tracing::info!("Patreon watcher started — polling for new patrons.");
-                Some(watcher)
-            }
-            Err(err) => {
-                tracing::error!("Failed to start Patreon watcher: {err}");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     let streamelements_watcher = if let Some(jwt) = &config.streamelements_jwt {
         match streamelements::start_streamelements_watcher(jwt.clone(), PathBuf::from("tips-history.json"), {
             let chat_client = chat_client.clone();
@@ -1053,7 +1015,6 @@ async fn async_main() -> anyhow::Result<()> {
     let services = Arc::new(Services {
         helix,
         broadcaster_id,
-        patreon: patreon_watcher,
         alerts: Some(alerts.clone()),
         streamelements: streamelements_watcher,
         announcements: announcements.clone(),

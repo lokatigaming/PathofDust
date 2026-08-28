@@ -34,7 +34,7 @@ of the game. This is the spine of the whole project; the original
   imports AdventureManager directly, owns the OBS overlay's own /ws),
   src/passive_tree.rs. ~24,700 lines at Stage 0 time (now larger — see
   §12 for what's landed since). The rest of the bot (~40k total repo, 25
-  other files — song requests, Patreon, PayPal, alerts, overlays, Twitch
+  other files — song requests, PayPal, alerts, overlays, Twitch
   plumbing) is confirmed clean of adventure coupling and explicitly OUT
   of scope for internals — but the seam BETWEEN bot and game (main.rs,
   commands.rs, config.rs) is IN scope, per the addendum.
@@ -84,7 +84,7 @@ the Twitch bot not running at all. The bot becomes a client.
 - `game/` — everything adventure: domain, persistence, web, ws, the
   wiki module (moved intact), its own `main()` producing its own binary.
   Zero Twitch dependencies.
-- `bot/` — Twitch chat/IRC, EventSub, songs, themes, alerts, Patreon/
+- `bot/` — Twitch chat/IRC, EventSub, songs, themes, alerts,
   StreamElements: its own binary, a thin client of the game. Internals
   otherwise untouched.
 - Seam: a real API on the game's existing Axum server (internal

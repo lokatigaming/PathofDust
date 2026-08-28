@@ -1,6 +1,6 @@
 // Small generic JSON file load/save helpers — the Node bot persists several
 // independent bits of state this way (tokens.json, commands.json,
-// tips-history.json, patreon-seen.json), and this ports that same pattern
+// tips-history.json, personal-playlists.json), and this ports that same pattern
 // rather than introducing a database for what's fundamentally a handful of
 // small local files.
 

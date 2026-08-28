@@ -236,3 +236,4 @@ target-stage3/
 # Rollback copy of the pre-World-2-Stage-3a game.exe (operator identity),
 # plus that deploy's pinned fight-summary snapshot.
 /backup-pre-operator-identity
+target-remove-patreon/

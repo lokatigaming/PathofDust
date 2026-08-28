@@ -1,6 +1,6 @@
 # twitch-bot-rs
 
-A Rust Twitch chat bot for [Lokati_Gaming](https://twitch.tv/Lokati_Gaming), built around one big centerpiece feature — a full chat-driven idle RPG — plus the usual bot utilities (alerts, song requests, chat overlay, Patreon/tip integrations).
+A Rust Twitch chat bot for [Lokati_Gaming](https://twitch.tv/Lokati_Gaming), built around one big centerpiece feature — a full chat-driven idle RPG — plus the usual bot utilities (alerts, song requests, chat overlay, tip integrations).
 
 This was vibe-coded live on stream at **https://twitch.tv/Lokati_Gaming**.
 
@@ -22,7 +22,7 @@ A persistent, chat-driven idle RPG (`src/adventure/`, `src/adventure_web.rs`, `s
 - EventSub alerts (follows, subs, gift subs, cheers, raids) posted to chat and pushed to a self-hosted OBS alert-box overlay.
 - Built-in YouTube song requests (`!songrequest`/`!sr`, `!queue`, `!nowplaying`, `!skip`, `!voteskip`, ...) with an OBS browser source that plays the actual video.
 - A transparent, draggable Twitch chat overlay for OBS with Twitch/BTTV/FFZ emote rendering.
-- Optional Patreon new-patron alerts, StreamElements tip alerts, and PayPal tip alerts (via a small Cloudflare Worker relay in `cloudflare-paypal-relay/`, since PayPal can't reach a bot with no public address directly).
+- Optional StreamElements tip alerts and PayPal tip alerts (via a small Cloudflare Worker relay in `cloudflare-paypal-relay/`, since PayPal can't reach a bot with no public address directly).
 - Channel points integrations (boss fights, reforging gear, repairs, entrance themes, and more).
 
 ## Prerequisites
@@ -36,11 +36,9 @@ A persistent, chat-driven idle RPG (`src/adventure/`, `src/adventure_web.rs`, `s
 
 2. Get a Twitch token: run `cargo run --bin auth`, which opens your browser for the Twitch login flow and saves `tokens.json`.
 
-3. (Optional) Enable Patreon alerts: set `PATREON_CLIENT_ID`/`PATREON_CLIENT_SECRET` in `.env`, then run `cargo run --bin auth_patreon`.
+3. (Optional) Enable other integrations by setting their `.env` keys — see `.env.example` for `STREAMELEMENTS_JWT` (tip alerts), `YOUTUBE_API_KEYS` (song requests), `PAYPAL_RELAY_URL`/`PAYPAL_RELAY_TOKEN` (PayPal tips, see `cloudflare-paypal-relay/` for the Worker side), and `LASTFM_API_KEY` (`!playrandom`). Leaving a key unset disables that feature gracefully; nothing else breaks.
 
-4. (Optional) Enable other integrations by setting their `.env` keys — see `.env.example` for `STREAMELEMENTS_JWT` (tip alerts), `YOUTUBE_API_KEYS` (song requests), `PAYPAL_RELAY_URL`/`PAYPAL_RELAY_TOKEN` (PayPal tips, see `cloudflare-paypal-relay/` for the Worker side), and `LASTFM_API_KEY` (`!playrandom`). Leaving a key unset disables that feature gracefully; nothing else breaks.
-
-5. Run the bot:
+4. Run the bot:
 
    ```
    cargo run
@@ -66,12 +64,12 @@ Each overlay is a plain HTTP server the bot starts on its own port — add a Bro
 - `src/adventure/` — the RPG's combat sim, characters, items, crafting, and the manager tying it all together; `src/adventure_web.rs` — its web dashboard; `src/passive_tree.rs` — every class's passive tree definitions.
 - `src/commands.rs` — command dispatch: hand-written commands plus the `commands.json`-backed system.
 - `src/alerts.rs` — SSE-based alert box server.
-- `src/patreon.rs`, `src/streamelements.rs` — optional integrations.
+- `src/streamelements.rs` — optional integrations.
 - `src/announcements.rs` — periodic chat announcements.
 - `src/song_requests.rs`, `src/song_overlay_server.rs`, `public_song_overlay/` — YouTube song requests and their OBS browser source.
 - `src/emotes.rs`, `src/chat_overlay_server.rs`, `public_chat_overlay/` — the chat overlay OBS browser source.
 - `cloudflare-paypal-relay/` — the Cloudflare Worker that relays PayPal webhook tips to the bot (PayPal can't reach a bot with no public address directly).
-- `src/bin/auth.rs`, `src/bin/auth_patreon.rs` — one-time OAuth setup binaries.
+- `src/bin/auth.rs` — one-time OAuth setup binary.
 
 ## Note on this repo
 

@@ -1,6 +1,6 @@
 // Small generic JSON file load/save helpers - the bot persists several
 // independent bits of state this way (tokens.json, commands.json,
-// tips-history.json, patreon-seen.json, personal-playlists.json,
+// tips-history.json, personal-playlists.json,
 // bugreports.json, playrandom-state.json, ...), porting the same pattern
 // rather than introducing a database for what's fundamentally a handful
 // of small local files.
