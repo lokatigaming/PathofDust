@@ -40,12 +40,19 @@ pub fn set_data_dir(dir: PathBuf) -> bool {
 }
 
 /// Joins `filename` onto the configured data directory. Never explicitly
-/// set (every caller today - `set_data_dir` isn't wired into main.rs
-/// yet, deliberately: this stage adds the mechanism, not a behavior
-/// change) falls back to an EMPTY base path, so `data_path("x")` is
-/// byte-for-byte identical to the bare literal `"x"` it replaces -
+/// set (the production default - `main.rs` calls `set_data_dir` only when
+/// `GAME_DATA_DIR` is present in the environment, and it is not set in
+/// production today) falls back to an EMPTY base path, so `data_path("x")`
+/// is byte-for-byte identical to the bare literal `"x"` it replaces -
 /// today's exact CWD-relative resolution, unchanged.
-pub(crate) fn data_path(filename: &str) -> PathBuf {
+///
+/// `pub` rather than `pub(crate)` as of 2026-08-29 (Linux-readiness): the
+/// `game` binary is its own crate and has two paths of its own to resolve
+/// through here (`logs/` and the wings-giveaway marker). Purely additive.
+/// An absolute `filename` still wins outright - `Path::join` replaces
+/// rather than appends - which is what keeps every test that passes its
+/// own scratch path working regardless of what `DATA_DIR` holds.
+pub fn data_path(filename: &str) -> PathBuf {
     DATA_DIR.get_or_init(PathBuf::new).join(filename)
 }
 

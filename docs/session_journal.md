@@ -257,3 +257,40 @@ same later point (`No tokens.json found`) in an isolated temp CWD. It
 does NOT prove a full live start, which needs real Twitch tokens and
 would mean a second bot joining production chat. That belongs to the
 deploy session.
+
+## 2026-08-29 — LINUX-READINESS (branch `feature/linux-readiness`)
+
+Four ordered fixes from `docs/platform_portability_audit.md`: the missing
+`#[cfg(unix)]` directory fsync after `write_atomic`'s rename; the
+Windows-only rename-retry loop made conditional; `is_valid_custom_sprite`'s
+case asymmetry; and five of the six Group-B game files routed through
+`GAME_DATA_DIR` (the sixth, the custom-sprite directory, was left
+CWD-relative by the owner's explicit ruling). Full detail in the commit
+message rather than repeated here.
+
+FOUND — `public_adventure_overlay/sprites/custom/` holds mutable user data
+inside a checked-in source directory: 14 files in the live deployment
+against 9 in the repository, the difference being player uploads that exist
+only on the production box. Harmless while the deployment root IS the
+checkout; on a Linux /opt-vs-/var-lib split the naive layout puts it on the
+code side, where every deploy destroys the uploads and the service user
+cannot write to it. NOT recorded here beyond this line and NOT written into
+`docs/platform_portability_audit.md` — the owner assigned that record to the
+session standing in the production checkout, which is corroborating the file
+counts directly; this session must not write the same fact twice.
+
+FOUND — `Sitch89_2.gif` is present in the live drop-in sprite directory but
+is unselectable by anyone: `custom_sprite_name_matches` accepts a prefix
+followed by digits only, and `"sitch89_2"` leaves `"_2"`. Not touched.
+
+FOUND — a test that spawns the game binary and panics before reaping it
+leaks the child, which then holds the harness's inherited handles and hangs
+the whole `cargo test` invocation long after the tests report. Fixed in
+`game_data_dir_paths.rs` with a `Drop` guard; `killed_process_smoke.rs` has
+the same shape and the same exposure.
+
+COORDINATION — one line inside the wiki module was changed:
+`adventure_web/wiki.rs`'s `PUBLISHED_CONSTANTS_PATH` read became
+`published_constants_path()`. Not a content or route change; it had to move
+with the writer or the wiki would have rendered "varies" forever once
+`GAME_DATA_DIR` is set. Flagged for the wiki session.

@@ -391,7 +391,7 @@ async fn activity_xp(State(state): State<ApiState>, Json(body): Json<ActivityXpB
 /// about this route) leaves wiki.rs rendering its placeholders as
 /// "varies", exactly as it always has.
 async fn publish_constants(Json(published): Json<PublishedConstants>) -> StatusCode {
-    match crate::state::save_json(PUBLISHED_CONSTANTS_PATH, &published) {
+    match crate::state::save_json(crate::adventure::published_constants_path(), &published) {
         Ok(()) => StatusCode::NO_CONTENT,
         Err(err) => {
             tracing::error!("failed to persist posted published-constants payload to {PUBLISHED_CONSTANTS_PATH}: {err}");

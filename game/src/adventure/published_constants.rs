@@ -21,20 +21,37 @@
 // is genuinely live/request-driven and belongs on the real HTTP seam
 // once that's built.
 //
-// Deliberately NOT routed through `paths::data_path` - this is bot-
-// owned data being published TO the game, not part of the game's own
-// persisted state, same "shared, not game-exclusive" reasoning
-// `state.rs` itself already documents. A bare CWD-relative filename is
-// correct for as long as bot and game share one process/one working
-// directory (true through Stage 2 - "dual-mode transitional state") -
-// once Stage 4 actually separates them into two processes, this specific
-// file-based mechanism may need revisiting (a real API publish becomes
-// more honest once bot/game genuinely don't share a filesystem view by
-// default) - flagging that now rather than assuming this file survives
-// unexamined that far.
+// Originally NOT routed through `paths::data_path`, on the reasoning that
+// this is bot-owned data published TO the game rather than the game's own
+// persisted state, and that a bare CWD-relative filename is correct for as
+// long as bot and game share one process/one working directory (true
+// through Stage 2, the "dual-mode transitional state").
+//
+// That reasoning expired (2026-08-29, Linux-readiness). The bot no longer
+// touches this file at all: since the Stage 3 seam it POSTs to
+// `/api/published-constants` (src/adventure_client.rs) and the GAME writes
+// the file (`adventure_web/api.rs`) and the GAME reads it back
+// (`main.rs`, `adventure_web/wiki.rs`). Every hand on it is now the game's,
+// so it resolves through `data_path` like the rest of the game's state -
+// see `published_constants_path`. Bot and game genuinely stop sharing a
+// filesystem view on Linux, which is exactly the revisit this comment
+// flagged in advance.
 use serde::{Deserialize, Serialize};
 
 pub const PUBLISHED_CONSTANTS_PATH: &str = "bot-published-constants.json";
+
+/// [`PUBLISHED_CONSTANTS_PATH`] resolved against the configured data
+/// directory. Use this at every read and write; the bare const stays for
+/// the log/warning messages that name the file to a human.
+///
+/// Both call sites MUST agree, which is why this is a function rather
+/// than each site calling `data_path` for itself - the writer
+/// (`adventure_web::api`) and the two readers (`main.rs`, the wiki's
+/// placeholder map) landing in different directories would present as the
+/// wiki quietly rendering "varies" forever.
+pub fn published_constants_path() -> std::path::PathBuf {
+    super::data_path(PUBLISHED_CONSTANTS_PATH)
+}
 
 /// The bot's own cooldown/volume-bound constants, as they exist at the
 /// moment `main.rs` writes this file (see that call site) - a snapshot,

@@ -100,7 +100,21 @@ fn display_absolute(path: &Path) -> String {
 /// worker (see `AdventureManager::persist_characters`' callers), so the
 /// worst case a contended write can park that worker for is
 /// `ATOMIC_RENAME_ATTEMPTS - 1` times `ATOMIC_RENAME_RETRY`, i.e. 80ms.
+///
+/// Windows-only, deliberately (2026-08-29, Linux-readiness): every reason
+/// the paragraph above gives for retrying is a Windows sharing-mode
+/// reason. `rename(2)` on unix does not consult open handles at all - a
+/// reader holding the destination open cannot make it fail - so the only
+/// failures left there are ones no retry can fix (ENOSPC, EROFS, a
+/// cross-device temp). Retrying those four extra times would delay a
+/// genuine "failed to persist" report by 80ms and change nothing else,
+/// so unix takes the single attempt and reports immediately. The loop
+/// itself is untouched and platform-independent; only how many times it
+/// goes round differs.
+#[cfg(windows)]
 const ATOMIC_RENAME_ATTEMPTS: u32 = 5;
+#[cfg(unix)]
+const ATOMIC_RENAME_ATTEMPTS: u32 = 1;
 const ATOMIC_RENAME_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
 /// Monotonic suffix for [`write_atomic`]'s temp files, so two concurrent
@@ -120,7 +134,7 @@ static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// backup. That fix made a corrupt file refuse to start; this one stops it
 /// being written in the first place.
 ///
-/// Three steps, in order, and each is load-bearing:
+/// Four steps, in order, and each is load-bearing:
 ///
 /// 1. write into a temp file **in the same directory** as `path`. `rename`
 ///    is only atomic within a single filesystem, so putting the temp in the
@@ -131,13 +145,15 @@ static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 ///    precisely the crash-truncation this exists to prevent, just moved;
 /// 3. `rename` over the target. Both `MoveFileEx`-with-replace (Windows)
 ///    and `rename(2)` (unix) replace the destination atomically, so no
-///    reader ever observes the path as missing.
-///
-/// Not done: fsync of the containing DIRECTORY. On unix that is what makes
-/// the rename itself durable across a power loss (the file's data would
-/// survive, the directory entry might not); this codebase ships on Windows,
-/// where NTFS journals the rename's metadata and there is no directory
-/// handle to sync anyway. Worth knowing before anyone ports it.
+///    reader ever observes the path as missing;
+/// 4. on unix only, `sync_all` the containing DIRECTORY (see
+///    [`sync_parent_dir`]). Step 2 makes the file's DATA durable; on
+///    ext4/xfs the directory ENTRY created by step 3 can still be lost to
+///    a power loss until the directory itself is synced, which would take
+///    the whole file with it. Windows needs nothing here - NTFS journals
+///    the rename's metadata and there is no directory handle to sync
+///    anyway - so this step compiles to an empty function there and
+///    Windows behaviour is bit-for-bit what it was.
 ///
 /// Temp files are named `<file-name>.<pid>.<n>.tmp`. The `.tmp` extension
 /// specifically keeps them out of `fight_storage::list_fight_files`, which
@@ -171,7 +187,10 @@ fn write_atomic(path: &Path, contents: &str) -> anyhow::Result<()> {
     let mut last_err = None;
     for attempt in 0..ATOMIC_RENAME_ATTEMPTS {
         match std::fs::rename(&temp, path) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                sync_parent_dir(&dir);
+                return Ok(());
+            }
             Err(err) => {
                 last_err = Some(err);
                 if attempt + 1 < ATOMIC_RENAME_ATTEMPTS {
@@ -186,6 +205,26 @@ fn write_atomic(path: &Path, contents: &str) -> anyhow::Result<()> {
     Err(anyhow::Error::new(last_err.expect("the loop runs at least once, so a failure path always set this"))
         .context(format!("renaming {} over {}", temp.display(), path.display())))
 }
+
+/// fsyncs `dir` so the directory entry a just-completed `rename` created
+/// is itself on the physical device - see [`write_atomic`]'s step 4.
+///
+/// Never fails the save. By the time this runs the rename has already
+/// succeeded and the new contents ARE the file; a failed directory sync
+/// means the write is durable-but-not-yet-guaranteed-across-a-power-loss,
+/// which is exactly the state every write was in before this existed. A
+/// warning is the honest report; an `Err` here would tell the caller the
+/// save failed when it did not.
+#[cfg(unix)]
+fn sync_parent_dir(dir: &Path) {
+    if let Err(err) = std::fs::File::open(dir).and_then(|handle| handle.sync_all()) {
+        tracing::warn!("wrote and renamed into {} but could not fsync that directory: {err}", display_absolute(dir));
+    }
+}
+
+/// No-op on Windows - see [`write_atomic`]'s step 4.
+#[cfg(not(unix))]
+fn sync_parent_dir(_dir: &Path) {}
 
 pub fn save_json<T: Serialize>(path: impl AsRef<Path>, value: &T) -> anyhow::Result<()> {
     let contents = serde_json::to_string_pretty(value)?;

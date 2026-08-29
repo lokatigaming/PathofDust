@@ -143,6 +143,14 @@ pub async fn start_adventure_web_server(
     // production default today.
     api_secret: Option<String>,
 ) -> anyhow::Result<std::net::SocketAddr> {
+    // Resolved through `data_path` here, at the library entry point, rather
+    // than by the caller (2026-08-29, Linux-readiness) - the exact shape
+    // `AdventureManager::new` already uses for the three paths IT is handed.
+    // Unset `GAME_DATA_DIR` makes this the identity, and an absolute path
+    // (every test passes one, pointed at its own scratch dir) wins over any
+    // base regardless, so no caller's behaviour moves. `accounts_path` is
+    // derived from this below, so `adventure-accounts.json` follows for free.
+    let sessions_path = crate::adventure::data_path(sessions_path.to_string_lossy().as_ref());
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
     let accounts_path = accounts::accounts_path(&sessions_path);
     let accounts: HashMap<String, accounts::Account> = crate::state::load_json(&accounts_path).unwrap_or_default();
@@ -1873,7 +1881,7 @@ struct PatchNoteEntry {
 /// entries, negligible cost) rather than caching, so editing the file
 /// takes effect immediately without a bot restart.
 async fn patch_notes(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let entries: Vec<PatchNoteEntry> = crate::state::load_json("patch-notes.json").unwrap_or_default();
+    let entries: Vec<PatchNoteEntry> = crate::state::load_json(crate::adventure::data_path("patch-notes.json")).unwrap_or_default();
     let character = match current_session(&headers, &state).await {
         Some((login, _)) => state.adventure.character(&login).await,
         None => None,
