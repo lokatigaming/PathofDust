@@ -265,9 +265,19 @@ Four ordered fixes from `docs/platform_portability_audit.md`: the missing
 Windows-only rename-retry loop made conditional; `is_valid_custom_sprite`'s
 case asymmetry; and five of the six Group-B game files routed through
 `GAME_DATA_DIR` (the sixth, the custom-sprite directory, was left
-CWD-relative by the owner's explicit ruling — see addendum A1 in the audit,
-which records the provisioning trap that decision creates). Full detail in
-the audit addendum rather than repeated here.
+CWD-relative by the owner's explicit ruling). Full detail in the commit
+message rather than repeated here.
+
+FOUND — `public_adventure_overlay/sprites/custom/` holds mutable user data
+inside a checked-in source directory: 14 files in the live deployment
+against 9 in the repository, the difference being player uploads that exist
+only on the production box. Harmless while the deployment root IS the
+checkout; on a Linux /opt-vs-/var-lib split the naive layout puts it on the
+code side, where every deploy destroys the uploads and the service user
+cannot write to it. NOT recorded here beyond this line and NOT written into
+`docs/platform_portability_audit.md` — the owner assigned that record to the
+session standing in the production checkout, which is corroborating the file
+counts directly; this session must not write the same fact twice.
 
 FOUND — `Sitch89_2.gif` is present in the live drop-in sprite directory but
 is unselectable by anyone: `custom_sprite_name_matches` accepts a prefix
