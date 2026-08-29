@@ -1333,3 +1333,118 @@ written, or otherwise touched.
   parameter blocks. Per CLAUDE.md, `combat.rs`, `manager.rs`,
   `character.rs`, `item.rs` and `adventure_web.rs` were never read whole —
   only grepped and read in narrow ranges around hits.
+
+---
+
+# Addendum — 2026-08-29, branch `feature/linux-readiness`
+
+Written by the implementation session, not the audit session. Everything
+above is the audit as produced on 2026-08-27; this section records what
+was actually built, what the audit got wrong, and one item that is
+**provisioning work, not code work** and must not be lost.
+
+## A1. Stage 7 provisioning decision — the custom-sprite directory
+
+**This is the most important line in this addendum. It cannot be fixed
+in code on this branch, and losing it loses player data.**
+
+`public_adventure_overlay/sprites/custom/` holds **mutable user data
+inside a checked-in source directory.** The divergence is already real
+and measurable, not hypothetical:
+
+| Location | Files |
+|---|---|
+| Repository (`public_adventure_overlay/sprites/custom/`) | 9, all lowercase |
+| Production (`C:\PathofDust\public_adventure_overlay\sprites\custom\`) | **14** |
+
+The five extra files are player-supplied sprites that exist **only on the
+production box.** They are dropped in by the operator, served by the
+existing `ServeDir` mount, and tracked by nothing.
+
+Today this is harmless: the deployment root IS the checkout, so the
+drop-in folder and the source folder are the same folder. **On Linux they
+stop being the same folder.** With code in `/opt` and data in
+`/var/lib`, the naive layout puts this directory on the **code** side,
+where two things happen:
+
+1. every deploy replaces it, silently destroying every custom sprite
+   uploaded since the previous deploy; and
+2. the unprivileged service user cannot write into a root-owned
+   directory, so operator drop-ins fail outright.
+
+**The Linux layout must therefore do one of:**
+
+- place `public_adventure_overlay/` **entirely** under the data
+  directory; or
+- serve custom sprites **from the data directory**, with a fallthrough to
+  the source tree for the curated sprites.
+
+**Deciding which is provisioning work and belongs to whoever builds the
+box.** It was deliberately NOT done on this branch (owner's ruling): the
+alternative would have decided the Linux serving layout before the VPS
+exists, and would have required a second `ServeDir` mount — a path
+abstraction that branch was scoped to avoid. `CUSTOM_SPRITE_DIR` remains
+CWD-relative on purpose. **Before the first Linux deploy, copy the live
+directory's contents across by hand and confirm the chosen layout keeps
+them writable.**
+
+## A2. Corrections to §8 — case sensitivity
+
+- **"All 9 files currently in `public_adventure_overlay/sprites/custom/`
+  are lowercase, so the *directory* is clean" is false in production.**
+  The audit inspected the repository copy. The live directory contains
+  `Sitch89.gif` and `Sitch89_2.gif`.
+- **"Only a hand-crafted POST to `/change-model` reaches the mixed-case
+  state" is therefore also false.** `render_model_picker`
+  (`adventure_web.rs`) emits `file_stem()` verbatim from that same
+  directory and gates it with the lowercasing ownership check, so an
+  operator who drops in `Sitch89.gif` gets a picker entry that stores
+  `custom/Sitch89` through the completely normal UI.
+- **Consequently the audit's own preferred fix — "lowercase `name` once
+  at the top of `is_valid_custom_sprite`" — was the wrong one.** On Linux
+  it would have probed `sitch89.gif`, which does not exist, and stripped a
+  sprite that works today. The audit's *second* suggestion (resolve
+  against a directory listing, as the picker already does) is what
+  shipped: `custom/Sitch89` now validates on both platforms and the
+  served URL keeps matching a real file.
+- **Live data grep, as ordered.** Six characters hold a `custom/` model.
+  Exactly one is not all-lowercase: character key **`sitch89`**, model
+  **`custom/Sitch89`**. It is correct as stored and was deliberately NOT
+  normalised — mutating live character data to accommodate a validator is
+  the wrong direction.
+
+## A3. Correction to §10.1 — Group B was 6 items, not 7
+
+`adventure-accounts.json` ([`accounts.rs`](../game/src/adventure_web/accounts.rs),
+`accounts_path`) is missing from the Group B table. It is derived from
+the sessions path with `with_file_name`, so it followed
+`adventure-sessions.json` through `data_path` for free.
+
+## A4. What shipped
+
+| §  | Item | Status |
+|---|---|---|
+| 6 | Directory fsync after rename, `#[cfg(unix)]` | Done — `state.rs`, `sync_parent_dir`. No-op on Windows. |
+| 6 | Rename-retry loop | Now `#[cfg(windows)] = 5` / `#[cfg(unix)] = 1`. Loop body untouched. |
+| 8 | `is_valid_custom_sprite` case asymmetry | Done — directory-listing resolution. |
+| 10 | Group B routed through `GAME_DATA_DIR` | 5 of 6 + accounts. `logs/`, the wings marker, `patch-notes.json`, `bot-published-constants.json`, `adventure-sessions.json` (+ `adventure-accounts.json`). |
+| 10 | `public_adventure_overlay/sprites/custom/` | **Deliberately not routed — see A1.** |
+
+The bot crate was not touched; §10.2 is entirely untouched work.
+
+## A5. Two things the move now depends on
+
+- **`bot-published-constants.json` is no longer bot-owned.** §6/§10 still
+  describe it as bot data deliberately kept out of `data_path`. Since the
+  Stage 3 seam the bot only POSTs to `/api/published-constants`; the game
+  writes the file and the game reads it back in two places. It is routed
+  through `data_path` now, and its writer and both readers share one
+  resolver (`published_constants_path`) so they cannot land in different
+  directories.
+- **Startup order changed in `game/src/main.rs`.** `dotenvy::dotenv()` and
+  the `GAME_DATA_DIR` read now run *before* logging is initialised,
+  because `logs/` resolves through `data_path` and `set_data_dir` must
+  win the `OnceLock`. One consequence: `RUST_LOG` is now settable from
+  `.env`, where it previously was not. Inert today — neither the
+  production `.env` nor `.env.example` defines it, and process-env values
+  still win because `dotenvy` does not override what is already set.

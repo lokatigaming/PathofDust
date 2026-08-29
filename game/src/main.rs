@@ -56,6 +56,28 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn async_main() -> anyhow::Result<()> {
+    // Moved ABOVE the file-logging block below (2026-08-29,
+    // Linux-readiness) - `logs/` now resolves through `data_path` like
+    // every other written path, and `set_data_dir` has to have run before
+    // the first `data_path` call or the OnceLock locks in the default.
+    // Nothing between here and the old position logs, panics with a
+    // message the log is expected to carry, or reads an env var: the
+    // three statements are `create_dir_all`, the rolling appender, and
+    // the subscriber build. The one env read in that stretch is the
+    // subscriber's own `RUST_LOG`, which is now `.env`-settable where it
+    // previously was not - inert today (neither the production `.env` nor
+    // `.env.example` defines it) and process-env values still win, since
+    // `dotenvy::dotenv` does not override what is already set.
+    let _ = dotenvy::dotenv();
+
+    // Optional - see this file's own top-of-file doc. Absent (the normal
+    // case for a real standalone run) leaves data_path at its default,
+    // i.e. every persisted file resolves exactly where the in-process
+    // bot's own copy already reads/writes it - the same live game.
+    if let Some(dir) = env_var("GAME_DATA_DIR") {
+        game::adventure::set_data_dir(PathBuf::from(dir));
+    }
+
     // File logging (Stage 5, 2026-08-19) - matches the bot's own
     // src/main.rs identically, and for the same reason: a plain stdout
     // logger writes nowhere a human can ever read once this runs headless
@@ -66,8 +88,9 @@ async fn async_main() -> anyhow::Result<()> {
     // 1-4's own manual smoke tests, where stdout was enough - a real bake
     // period (or any unattended run) needs this the same way the bot
     // needed it.
-    std::fs::create_dir_all("logs")?;
-    let file_appender = tracing_appender::rolling::daily("logs", "game.log");
+    let logs_dir = game::adventure::data_path("logs");
+    std::fs::create_dir_all(&logs_dir)?;
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "game.log");
     let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::registry()
@@ -80,16 +103,11 @@ async fn async_main() -> anyhow::Result<()> {
         tracing::error!("PANIC: {panic_info}");
     }));
 
-    let _ = dotenvy::dotenv();
-
-    // Optional - see this file's own top-of-file doc. Absent (the normal
-    // case for a real standalone run) leaves data_path at its default,
-    // i.e. every persisted file resolves exactly where the in-process
-    // bot's own copy already reads/writes it - the same live game.
-    if let Some(dir) = env_var("GAME_DATA_DIR") {
-        if game::adventure::set_data_dir(PathBuf::from(dir)) {
-            tracing::info!("GAME_DATA_DIR set - persistence redirected away from the default location.");
-        }
+    // Reported here rather than where `set_data_dir` is actually called -
+    // that now runs before the subscriber exists, so a line emitted there
+    // would go nowhere.
+    if env_var("GAME_DATA_DIR").is_some() {
+        tracing::info!("GAME_DATA_DIR set - persistence redirected away from the default location.");
     }
 
     let twitch_client_id =
@@ -111,7 +129,7 @@ async fn async_main() -> anyhow::Result<()> {
     // own "varies" fallback). Deliberately NOT written here - this
     // binary doesn't own that data, the bot does.
     if crate::env_var("GAME_SUPPRESS_MISSING_PUBLISHED_CONSTANTS_WARNING").is_none()
-        && game::state::load_json::<PublishedConstants>(PUBLISHED_CONSTANTS_PATH).is_none()
+        && game::state::load_json::<PublishedConstants>(game::adventure::published_constants_path()).is_none()
     {
         tracing::warn!(
             "{PUBLISHED_CONSTANTS_PATH} not found - the wiki's chat-cooldown/vote-volume placeholders will render \"varies\" until the bot has started at least once."
@@ -143,11 +161,17 @@ async fn async_main() -> anyhow::Result<()> {
     // this having finished.
     {
         const WINGS_GIVEAWAY_MARKER_PATH: &str = "adventure-wings-giveaway-marker.json";
-        if game::state::load_json::<bool>(WINGS_GIVEAWAY_MARKER_PATH).is_none() {
+        // Through `data_path` like every other marker (2026-08-29,
+        // Linux-readiness) - this one was written straight from `main`
+        // and so was the last game-state marker `GAME_DATA_DIR` did not
+        // move. Resolved once, out here, so the load and the save can
+        // never disagree.
+        let wings_marker_path = game::adventure::data_path(WINGS_GIVEAWAY_MARKER_PATH);
+        if game::state::load_json::<bool>(&wings_marker_path).is_none() {
             let adventure = adventure.clone();
             tokio::spawn(async move {
                 adventure.grant_random_wings().await;
-                if let Err(err) = game::state::save_json(WINGS_GIVEAWAY_MARKER_PATH, &true) {
+                if let Err(err) = game::state::save_json(&wings_marker_path, &true) {
                     tracing::error!("Failed to persist wings giveaway marker to {WINGS_GIVEAWAY_MARKER_PATH}: {err}");
                 }
             });

@@ -257,3 +257,30 @@ same later point (`No tokens.json found`) in an isolated temp CWD. It
 does NOT prove a full live start, which needs real Twitch tokens and
 would mean a second bot joining production chat. That belongs to the
 deploy session.
+
+## 2026-08-29 — LINUX-READINESS (branch `feature/linux-readiness`)
+
+Four ordered fixes from `docs/platform_portability_audit.md`: the missing
+`#[cfg(unix)]` directory fsync after `write_atomic`'s rename; the
+Windows-only rename-retry loop made conditional; `is_valid_custom_sprite`'s
+case asymmetry; and five of the six Group-B game files routed through
+`GAME_DATA_DIR` (the sixth, the custom-sprite directory, was left
+CWD-relative by the owner's explicit ruling — see addendum A1 in the audit,
+which records the provisioning trap that decision creates). Full detail in
+the audit addendum rather than repeated here.
+
+FOUND — `Sitch89_2.gif` is present in the live drop-in sprite directory but
+is unselectable by anyone: `custom_sprite_name_matches` accepts a prefix
+followed by digits only, and `"sitch89_2"` leaves `"_2"`. Not touched.
+
+FOUND — a test that spawns the game binary and panics before reaping it
+leaks the child, which then holds the harness's inherited handles and hangs
+the whole `cargo test` invocation long after the tests report. Fixed in
+`game_data_dir_paths.rs` with a `Drop` guard; `killed_process_smoke.rs` has
+the same shape and the same exposure.
+
+COORDINATION — one line inside the wiki module was changed:
+`adventure_web/wiki.rs`'s `PUBLISHED_CONSTANTS_PATH` read became
+`published_constants_path()`. Not a content or route change; it had to move
+with the writer or the wiki would have rendered "varies" forever once
+`GAME_DATA_DIR` is set. Flagged for the wiki session.

@@ -83,6 +83,6 @@ pub(crate) use migrations::*;
 pub(crate) use pacing::*;
 pub use passive_overrides::*;
 pub use paths::set_data_dir;
-pub(crate) use paths::data_path;
-pub use published_constants::{PublishedConstants, PUBLISHED_CONSTANTS_PATH};
+pub use paths::data_path;
+pub use published_constants::{published_constants_path, PublishedConstants, PUBLISHED_CONSTANTS_PATH};
 pub use tunables::*;

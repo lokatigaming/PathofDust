@@ -837,7 +837,11 @@ pub fn custom_sprite_is_owned_by(owner_id: &str, name: &str) -> bool {
 /// (not just hidden from the picker's own listing - see
 /// `render_model_picker`) so a hand-crafted POST to `/change-model`
 /// can't bypass the picker UI and equip someone else's named sprite.
-pub(crate) fn is_valid_custom_sprite(owner_id: &str, model: &str) -> bool {
+///
+/// `pub` rather than `pub(crate)` as of 2026-08-29 (Linux-readiness) so
+/// `game/tests/custom_sprite_case.rs` can assert the accept/reject
+/// symmetry from outside the crate. Purely additive.
+pub fn is_valid_custom_sprite(owner_id: &str, model: &str) -> bool {
     let Some(name) = model.strip_prefix("custom/") else { return false };
     if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
         return false;
@@ -845,8 +849,43 @@ pub(crate) fn is_valid_custom_sprite(owner_id: &str, model: &str) -> bool {
     if !custom_sprite_is_owned_by(owner_id, name) {
         return false;
     }
-    let dir = std::path::Path::new(CUSTOM_SPRITE_DIR);
-    dir.join(format!("{name}.png")).exists() || dir.join(format!("{name}.gif")).exists()
+    custom_sprite_file_exists(name)
+}
+
+/// Whether a `.png` or `.gif` for `name` exists in `CUSTOM_SPRITE_DIR`,
+/// compared WITHOUT case (both the stem and the extension).
+///
+/// Resolved by listing the directory rather than by probing
+/// `dir.join("{name}.png").exists()`, which is what this replaced
+/// (2026-08-29, Linux-readiness). The probe silently inherited the host
+/// filesystem's case rules: `is_valid_custom_sprite`'s ownership gate
+/// lowercases (`custom_sprite_is_owned_by`) but the probe did not, so on
+/// case-insensitive NTFS a stored `custom/Sitch89` validated against the
+/// on-disk `Sitch89.gif` and on case-sensitive ext4 the SAME stored value
+/// would have to match byte-for-byte or the character silently fell back
+/// to its hash-default sprite. Listing makes the answer identical on both.
+///
+/// Mixed-case names are NOT a hand-crafted-POST-only state, whatever a
+/// reading of `is_valid_custom_sprite`'s doc suggests: `render_model_picker`
+/// (adventure_web.rs) emits `file_stem()` verbatim from this same
+/// directory, so an operator who drops in `Sitch89.gif` gets a picker
+/// entry that stores `custom/Sitch89` through the completely normal UI.
+/// Lowercasing the name here instead would therefore have REJECTED a
+/// sprite that works today - the opposite of the intended fix.
+///
+/// Costs one `read_dir` per call where the old probe cost one or two
+/// `stat`s, but only models actually prefixed `custom/` ever reach it
+/// (`effective_sprite` matches `ALL_SPRITES` first) and the picker
+/// already lists this same directory once per page render.
+fn custom_sprite_file_exists(name: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(CUSTOM_SPRITE_DIR) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        let matches_ext = path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("gif"));
+        matches_ext && path.file_stem().and_then(|stem| stem.to_str()).is_some_and(|stem| stem.eq_ignore_ascii_case(name))
+    })
 }
 
 /// Shared by the three stats capped at 75% (damage reduction, block

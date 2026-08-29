@@ -219,7 +219,7 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
     // order the two processes come up in) renders "varies" rather than a
     // real number - a stale-but-plausible cooldown would be worse than
     // an honest "we don't know right now."
-    let published = crate::state::load_json::<crate::adventure::PublishedConstants>(crate::adventure::PUBLISHED_CONSTANTS_PATH);
+    let published = crate::state::load_json::<crate::adventure::PublishedConstants>(crate::adventure::published_constants_path());
     let varies = || "varies".to_string();
 
     HashMap::from([
