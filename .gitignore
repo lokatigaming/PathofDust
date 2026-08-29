@@ -244,4 +244,5 @@ target-remove-patreon/
 /backup-pre-remove-patreon
 target-deploy-remove-patreon/
 /backup-pre-bot-standalone
+/backup-pre-linux-readiness
 target-deploy-bot-standalone/
