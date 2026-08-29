@@ -205,3 +205,55 @@ candidates at that point: `rampage_remaining`, `rampage_notify`,
 the countdown branch of `spawn_rampage_loop`, and
 `announce_rampage_complete`. `permanent_rampage` becomes the only
 rampage state, and `rampage_active()` collapses to reading it.
+
+## 2026-08-29 — BOT-STANDALONE (feature/bot-standalone)
+
+Made the bot's game integration optional so the seam can be turned off
+without killing the bot. `ADVENTURE_API_SECRET` was hard-required
+(`config.rs`, the only game key that was), and unsetting it is exactly
+how the game un-mounts `/api/*` — so before this, the audit's Stage 1
+would have taken the OBS overlays and song requests down with the game
+integration. Now `Option<String>`, same contract as `streamelements_jwt`.
+
+Three files, no deletions, no game-crate change. `Services.adventure` is
+`Option<Arc<AdventureApiClient>>`, so every one of the 15 call sites had
+to handle absence at compile time. The ten command arms return `None`
+from `handle_builtin` — documented there as "not a built-in at all" —
+which falls through to the static-command lookup and then to
+`Reply::None`, i.e. the command is genuinely unregistered and the bot is
+silent. Owner's call: these commands are being retired permanently, so
+silence beats an error string.
+
+FOUND (reported, guarded): the three adventure channel-point rewards were
+created UNCONDITIONALLY — "the adventure game is always on". The
+removal-scope audit's framing missed this; it treats the redemptions as
+three routes, not as three purchasable objects with a creation path.
+Creation is now gated. Note this only stops NEW creation: the three
+rewards already live in the channel persist on Twitch's side and must be
+disabled by hand at cutover — Reforge Gear
+`bfe77bde-b911-42de-9cf3-911ca6ac097e`, Repair All Gear
+`778acf7b-1182-4128-a68e-f4e134ae1064`, Force Boss Fight
+`c652ea13-1166-4c2a-beb5-2fa81da1b7f7`.
+
+FOUND (for the ledger, deliberately NOT fixed here): the bot's log sink
+is `tracing_appender::rolling::daily` with no retention policy and no
+pruning anywhere — `main.rs`'s own comment records logs/ having reached
+several GB once already, fixed by a one-time manual cleanup. This is a
+standing disk risk independent of this change; it resolves at the Linux
+move where journald owns rotation. It is also why the announcements
+relay task is not spawned at all when the integration is off rather than
+left to fail politely: against an un-mounted `/api/*` the loop would warn
+once per 5s, roughly 17,300 lines a day, into that unpruned sink.
+
+FOUND: `hand_written_public_entries()` and `BUILTIN_NAMES` still list the
+adventure commands when the integration is off — left alone by ruling
+(delete nothing; the list becoming briefly inaccurate is a documentation
+problem with a documentation fix, and reversibility is worth more than
+freeing nine reserved names).
+
+Honest test gap: the startup smoke proves `Config::load()` no longer
+gates on the secret — with and without it the binary now fails at the
+same later point (`No tokens.json found`) in an isolated temp CWD. It
+does NOT prove a full live start, which needs real Twitch tokens and
+would mean a second bot joining production chat. That belongs to the
+deploy session.

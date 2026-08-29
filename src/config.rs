@@ -1,9 +1,9 @@
 // Central config, loaded from a .env file (same file/values as the Node
 // version can be reused directly — this just adds a few new keys for the
 // song request and chat overlay servers). Optional integrations
-// (StreamElements, song requests) are `Option` — leaving their
-// keys unset disables that feature gracefully instead of erroring, same
-// behavior as the Node bot.
+// (StreamElements, song requests, the adventure game seam) are `Option`
+// — leaving their keys unset disables that feature gracefully instead
+// of erroring, same behavior as the Node bot.
 
 use std::path::PathBuf;
 
@@ -99,14 +99,24 @@ pub struct Config {
     /// text), so the default here matches that port's own default.
     pub adventure_api_base_url: String,
     /// Shared secret presented on every `/api/*` call above (see
-    /// game/src/adventure_web/api.rs's `require_shared_secret`) -
-    /// REQUIRED, unlike most other secrets in this file: the adventure
-    /// game is always-on (no config gate, same as it always has been),
-    /// so without this the bot has no way to reach it at all. Must
+    /// game/src/adventure_web/api.rs's `require_shared_secret`) - must
     /// match the `game` process's own ADVENTURE_API_SECRET exactly (see
     /// REFACTOR_PLAN.md §4d for the full credential-handling story -
     /// where it lives, why it's safe, what happens on mismatch).
-    pub adventure_api_secret: String,
+    ///
+    /// OPTIONAL as of 2026-08-29 (World 2 Stage 3b, "bot standalone").
+    /// It used to be hard-required, which meant the bot refused to start
+    /// without it - and unsetting it is exactly how the game un-mounts
+    /// its whole `/api/*` router (api.rs:61-62), so turning the seam off
+    /// would have taken the bot's Twitch/OBS duties (song requests,
+    /// alerts, chat overlay, entrance themes) down with it. `None` now
+    /// means the game integration is simply not active: no
+    /// AdventureApiClient, no adventure chat commands registered, no
+    /// adventure channel-point rewards created, no announcements relay.
+    /// Everything else runs exactly as before. Same "leave the key unset
+    /// to disable the feature" contract as `streamelements_jwt` and
+    /// `playlist_sync_secret` below.
+    pub adventure_api_secret: Option<String>,
 
     /// Shared secret for pushing personal-playlist data to the Apps
     /// Script backend (see personal_playlists.rs) — must match the
@@ -223,12 +233,6 @@ impl Config {
             .ok_or_else(|| anyhow::anyhow!("Missing TWITCH_CLIENT_SECRET in .env"))?;
         let twitch_channel = env_var("TWITCH_CHANNEL")
             .ok_or_else(|| anyhow::anyhow!("Missing TWITCH_CHANNEL in .env"))?;
-        // Stage 4 cutover (REFACTOR_PLAN.md §4) - required, not optional,
-        // since the bot has no other way to reach the always-on adventure
-        // game anymore. See this field's own doc for the credential story.
-        let adventure_api_secret = env_var("ADVENTURE_API_SECRET")
-            .ok_or_else(|| anyhow::anyhow!("Missing ADVENTURE_API_SECRET in .env - required now that the bot talks to the game process over HTTP instead of in-process (see REFACTOR_PLAN.md §4d)"))?;
-
         Ok(Self {
             twitch_client_id,
             twitch_client_secret,
@@ -258,7 +262,10 @@ impl Config {
             adventure_web_port: env_u16_or("ADVENTURE_WEB_PORT", 4005),
             adventure_web_public_url: env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005"),
             adventure_api_base_url: env_var_or("ADVENTURE_API_BASE_URL", "http://127.0.0.1:4005"),
-            adventure_api_secret,
+            // Optional (2026-08-29, "bot standalone") - absent means the
+            // game integration is off, not a startup failure. See the
+            // field's own doc.
+            adventure_api_secret: env_var("ADVENTURE_API_SECRET"),
             playlist_sync_secret: env_var("PLAYLIST_SYNC_SECRET"),
             channel_points_theme_reward_cost: env_u32_or("CHANNEL_POINTS_THEME_REWARD_COST", 5000),
             channel_points_interrupt_reward_cost: env_u32_or("CHANNEL_POINTS_INTERRUPT_REWARD_COST", 5000),
