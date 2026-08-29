@@ -112,14 +112,46 @@ All three player-facing chat commands already have web equivalents. Every remain
 
 **At cutover, invalidate every existing session.** Deliberately. See section 6.
 
-**Split into 3a and 3b.** The operator-lockout gate below is too important to sit inside a large removal branch, so it ships first, on its own:
+#### Stage 3a — operator identity ✅ **SHIPPED AND VERIFIED 2026-08-28** (`6b5fa51`, binary `5CE40C85…`)
 
-- **Stage 3a — operator identity.** Make the three operator logins configurable rather than hardcoded constants, defaulting to today's value so nothing changes on deploy. Owner registers a local account. Point the config at it. Verify `/admin/tunables` loads under that account *while Twitch still works*. Additive, independently shippable, reversible.
-- **Stage 3b — the removal.** 58 deletion targets. Cannot start until 3a is verified live.
+Three operator logins became `LazyLock<String>` over a single `OPERATOR_LOGIN` env key, defaulting to `lokati_gaming` so deploying changed nothing. Owner registered `lokati`, pointed the key at it, restarted, and confirmed all four admin surfaces live. `lokati_gaming` is now **permanently reserved** from registration regardless of what `OPERATOR_LOGIN` holds — which matters because World 2's fresh characters remove the live-character guard protecting it today.
 
-Making the logins configuration rather than constants also means the operator account can change later without a rebuild and a swap window.
+One key rather than three, deliberately: three keys would be three chances to typo one and half-lock-out the operator, which is the exact failure the stage exists to prevent.
 
-#### HARD GATE — operator lockout
+Revert if ever needed: delete the `OPERATOR_LOGIN` line from `.env` and restart.
+
+#### Stage 3b — the removal
+
+The removal-scope audit (`docs/external_integration_removal_scope.md`, Part 4) defines seven stages. Reconciled against what has actually shipped:
+
+| Audit stage | Status |
+|---|---|
+| 1 — turn the seam off, no deletion | **Needs correction — see below** |
+| 2 — delete Patreon | ✅ **Shipped 2026-08-28** (`7ef31ac`, game `11CC1783…`, bot `CBC8A67E…`). Two files deleted, net −105/+16. No dependencies freed. `patreon-tokens.json` and `patreon-seen.json` moved to `backup-pre-remove-patreon/`, not deleted |
+| 3 — announcement feed before deleting SSE | ✅ Shipped 2026-08-28 |
+| 4 — delete the `/api/*` seam | After 1 |
+| 5 — operator controls | ✅ Shipped, scoped to `next_encounter`; Force Boss deferred by ruling |
+| 6 — replace the identity minter | Largely done — local login shipped, operator constants repointed. **Remaining:** delete Twitch OAuth (D9–D22, D37, D38) and, at cutover, `adventure-sessions.json` + `adventure-characters.json` |
+| 7 — ops and documentation cleanup | Last |
+
+##### The audit is a map, not an inventory
+
+On the Patreon slice alone — the smallest and cleanest item on the list — the removal-scope audit missed **five** targets, one of them build-breaking (`src/main.rs:1056`), and three of its figures were wrong. Later stages, particularly the `/api/*` seam and the Twitch OAuth removal, must **independently verify every target list against the code** rather than deleting from it. Recorded as ledger `#54`.
+
+##### Correction to the audit's Stage 1
+
+The audit says to stop the bot **permanently**, because it hard-fails without `ADVENTURE_API_SECRET` (`src/config.rs:238-239`) and that secret must be pulled to un-mount `/api/*`.
+
+**That conflicts with the settled decision that the bot survives** on the Windows box doing Twitch and OBS work. The hard-fail must be removed first. Corrected order:
+
+1. **Bot standalone** — remove the `ADVENTURE_API_SECRET` hard-fail and retire the game-calling paths. The bot keeps song requests, alerts, chat overlay, entrance themes, PoE utilities and OBS control.
+2. **Seam off** — unset `ADVENTURE_API_SECRET`, restart the game. `api.rs:61-62` un-mounts the whole `/api/*` router with no code change. Fully reversible.
+
+##### This is the player-facing cutover moment
+
+Turning the seam off is when players lose the 10 chat commands, the 3 redemptions and chat activity XP. Narration already has a web home and web join already works, so nothing goes dark — but it is a deliberate, announced change, not a quiet flip. Patreon deletion has no player-facing effect and ships before it.
+
+#### HARD GATE — operator lockout ✅ **CLEARED 2026-08-28**
 
 `ADMIN_TUNABLES_LOGIN`, `FIGHTS_PAGE_LOGIN` and `BUNDLE_OPERATOR_LOGIN` still hold `lokati_gaming`. Stage 1's collision guard **reserves that name**, so it cannot be registered through local login.
 
