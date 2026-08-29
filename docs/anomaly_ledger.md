@@ -1911,12 +1911,22 @@ a different value than the two that moved, which is exactly the property
 the one-key-not-three design was chosen for. `operator_identity_http.rs`
 asserts all three move together.
 
-**Still owed by the owner before Stage 3b (Twitch removal) may ship.** He
-must log in as `lokati` himself and confirm `/admin/tunables`,
-`/admin/passives`, the operator encounter control, and the `/fights`
-view. This session held no credentials for that account and did not
-attempt it, by order. **The removal must not ship until that
-confirmation exists.**
+**GATE CLEARED — 2026-08-28, owner-performed.** This entry previously
+read "still owed by the owner before Stage 3b (Twitch removal) may
+ship": the owner had to log in as `lokati` himself and confirm
+`/admin/tunables`, `/admin/passives`, the operator encounter control and
+the `/fights` view. **He did so on 2026-08-28, after the Phase B
+cutover, in a private browser session, and reported all four surfaces
+working.** That is the evidence, and the gate is closed.
+
+This was an **owner-performed check, not a session-performed one**, and
+necessarily so — it required his credentials for the `lokati` account,
+which no session held. The absence of a session-run verification here is
+therefore expected and is not a gap.
+
+**The Twitch OAuth removal is no longer gated on this.** Recorded
+explicitly so a later session does not re-litigate a cleared gate: the
+confirmation exists, it is dated, and nothing further is owed on it.
 
 **Revert, if needed:** delete the `OPERATOR_LOGIN` line from `.env` and
 restart. `lokati_gaming` regains every gate immediately. Twitch OAuth
@@ -1987,16 +1997,22 @@ binary: `chat send: Sikwiq Last 5 fights: 5W-0L · stage 6270 → 6275 |
 Top DPS: WrightTheWrong (874.9T)…`.
 
 **Stage-label collision, flagged deliberately.** The Stage 3a Phase B
-record closes with "still owed by the owner before Stage 3b (Twitch
-removal) may ship" — the owner logging in as `lokati` and confirming the
-three admin surfaces. This release is ALSO labelled Stage 3b in its own
-commit message, but it removes **Patreon**, not Twitch. That gate exists
-because removing Twitch OAuth removes the way in; Patreon removal
-touches no login route, no auth gate and no session path, so the gate is
-not tripped by this deploy. **The owner confirmation is still owed
-before the Twitch OAuth removal ships.** The two stages should not share
-a label — a future session reading only the commit message could
-reasonably conclude the gate had been cleared.
+record carried a gate — the owner logging in as `lokati` and confirming
+four surfaces — worded as owed "before Stage 3b (Twitch removal) may
+ship". This release is ALSO labelled Stage 3b in its own commit message,
+but it removes **Patreon**, not Twitch. That gate existed because
+removing Twitch OAuth removes the way in; Patreon removal touches no
+login route, no auth gate and no session path, so it was never tripped
+by this deploy.
+
+**Superseded 2026-08-29: that gate is CLEARED.** The owner performed the
+confirmation on 2026-08-28 and reported all four surfaces working; the
+Stage 3a Phase B record above has been amended to say so. **The Twitch
+OAuth removal is no longer gated on it.** Nothing is owed here.
+
+The label collision itself still stands as a warning: two different
+removals both called "Stage 3b" is a real trap for a future session
+reading only a commit message, and the stages should not share a label.
 
 Rollback: `C:\PathofDust\backup-pre-remove-patreon\` holds both previous
 binaries plus this deploy's pinned 200-file `adventure-fights-summary`
