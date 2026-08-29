@@ -2240,3 +2240,73 @@ restart promptly, or use the page.
 
 No tunable value and no code was changed by this session in the course of
 this diagnosis, per the order.
+
+**#60 — `public_adventure_overlay/sprites/custom/` is mutable user data
+inside a checked-in source directory: a Stage 7 PROVISIONING TRAP. (The
+backup half of this concern was investigated and REFUTED — see below.)**
+
+Raised by the owner off the platform-portability session's fit report,
+recorded here rather than as an addendum to
+`docs/platform_portability_audit.md` by explicit ruling: a branch that
+may never merge is the wrong home for it. **No session should move this
+entry into that audit.** The counts below were corroborated independently
+from the deployment root by the deploy session.
+
+**The divergence.** Live holds **14** files; git tracks **9**. The five
+production-only files are `Sitch89.gif`, `Sitch89_2.gif`,
+`lokati_gaming4.gif`, `lokati_gaming5.gif`, `lokati_gaming6.gif` —
+player uploads that exist nowhere but the production box. The directory
+is written at runtime (`character.rs:792 CUSTOM_SPRITE_DIR`) but lives
+inside the source tree.
+
+**Why it is harmless today.** The deployment root IS the checkout, so
+"code directory" and "data directory" are the same directory. That
+coincidence is the only thing holding it together.
+
+**Why it fails on Linux — twice.** With code in `/opt` and data in
+`/var/lib`, a naive layout puts this directory on the code side:
+
+1. **Silent data loss.** The code directory is replaced on every deploy,
+   so every sprite uploaded since the previous deploy disappears, with no
+   error and no log line.
+2. **Outright write failure.** An unprivileged service user cannot write
+   into a root-owned tree, so uploads fail from the first one.
+
+**Stage 7 provisioning decision (not this branch's work, and not the
+deploy session's).** The Linux layout must either place
+`public_adventure_overlay/` **entirely under the data directory**, or
+**serve custom sprites from the data directory with a fallthrough** to
+the source directory. Deciding which is provisioning work. Losing the
+requirement is what this entry exists to prevent.
+
+**REFUTED: these files ARE backed up on Windows, today.** The concern as
+raised was that the directory violates the #48 standing rule (any new
+persisted state must be in the backup allow-list) by predating it. It
+does not. `backup-game-data.ps1:171` lists
+`public_adventure_overlay\sprites\custom` in **`$SmallDirs`** — "small
+directories that are always included" — annotated with the very
+`character.rs:792 CUSTOM_SPRITE_DIR` reference above and "Nothing else on
+disk holds these." Verified against this deploy's own snapshot:
+`pod-backups\PathofDust\pod-backup-20260829-122106\public_adventure_overlay\sprites\custom`
+contains **all 14 files**, the five production-only ones included.
+
+Two things made this look uncovered and are worth naming so the read is
+not repeated:
+
+- `backup-game-data.ps1:70` says "The summary tier and custom sprites are
+  **NOT in here**" — but "here" is the `-IncludeFightArchives` opt-in
+  block it sits in. It means *always included*, not *excluded*. The
+  sentence reads the opposite way out of context.
+- Untracked-by-git looks like unprotected, and for most things it is.
+  Here the backup manifest, not git, is the protection — which is the
+  correct arrangement for mutable user data.
+
+**The anticipated "manifest enumerates FILES, a directory of uploads
+needs directory-level handling" problem is already solved.** `$SmallDirs`
+IS that handling, and it is directory-level by construction: it copies
+whatever is in the directory rather than a named list, which is why the
+five untracked uploads were captured without anyone adding them. No
+feature branch is owed for this. **Do not open one.**
+
+Net: risk 1 (Linux provisioning) is real and open. Risk 2 (Windows
+backup) is closed — it was never true.
