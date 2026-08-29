@@ -2062,3 +2062,181 @@ CLAUDE.md §7 ("sessions request changes via WIKI_IMPACT.md, never edit
 them unasked"), and it filed the WIKI_IMPACT line instead. Recorded here
 so the stale row is not mistaken later for a missed removal target. **No
 session should delete this row; it is the owner's to remove.**
+
+## Deploy record — 2026-08-29, World 2 Stage 3b: bot standalone (`94af298`)
+
+Merged and deployed by the deploy session (DEPLOY-BOT-STANDALONE). One
+merge: `feature/bot-standalone` (`7a1e177`) → `94af298`, no conflicts.
+Plus `3bf8249`, the gitignore commit for this deploy's backup dir and
+target-dir. Pushed as `4692fc6..3bf8249`.
+
+| item | value |
+| --- | --- |
+| merge | `94af298` |
+| source state the binary was built from | `94af298` |
+| old `twitch-bot-rs.exe` SHA-256 | `CBC8A67ECD22ECE8BAA3B298F8147C13CE31D924CBEAAECE58C974E552A204C9` |
+| new `twitch-bot-rs.exe` SHA-256 | `FA9BB5138CA24D524CA746E5AD29DBA6589550BE0C3C44ECDCC1A0F86F829EF0` |
+| game | **restarted, not swapped** (diff-clean; see below) |
+| live `game.exe` SHA-256 (unchanged) | `11CC1783B19AE31BC7DA47FAF5EA2948EBC2725BC125B9236525F5A04606AB0D` |
+| rollback | `backup-pre-bot-standalone/twitch-bot-rs.exe` + `target/release/twitch-bot-rs.exe.pre-bot-standalone` |
+| patch notes | "August 29, 2026" → `Internal: Bot Runs Without The Game` |
+
+**What shipped.** The bot's game integration becomes optional:
+`adventure_api_secret` is now `Option<String>`, the startup hard-fail is
+removed, and eight call paths plus ten command arms are guarded. Nothing
+is deleted. **THIS DEPLOY DID NOT TURN THE SEAM OFF** —
+`ADVENTURE_API_SECRET` is unchanged and present, so behaviour is
+identical to before. The cutover is a separate, announced event.
+
+**Backup.** `backup-game-data.ps1` run before anything else:
+`pod-backup-20260829-122106`, 253 files, 11.83 MB, `verdict=clean`, 33
+snapshots verified. The 200-file `adventure-fights-summary` corpus was
+pinned into `backup-pre-bot-standalone/` inside the stop window, along
+with `adventure-world.json` and `adventure-live-tunables.toml` (the
+latter two deliberately, because this deploy doubled as the pacing
+diagnosis below and those two files ARE the evidence).
+
+**Bot determination.** `git diff --name-only 4692fc6..94af298` touches
+`src/commands.rs`, `src/config.rs`, `src/main.rs`, `WIKI_IMPACT.md` and
+`docs/session_journal.md` — three paths under `src/**`, and **zero under
+`game/**`**. So the bot deploys and the game does not. Per the section 13
+conditional-redeploy rule the DIFF is authoritative, not the hash: the
+freshly built `game.exe` hashed
+`71FB205E942E803BC4EA7A7D8E2CDD4E42078FD4FFB8F330ED3C0558AF5319FF`
+against the live `11CC1783...`, a difference recorded here and correctly
+ignored, because Rust release builds are not byte-reproducible. The live
+`game.exe` was never touched. The game was still **stopped and restarted**
+inside the same window — not for the code change, but for the pacing
+diagnosis ordered below. Per the section 13 housekeeping note that any
+restart outside a documented deploy step gets a stated reason: **the game
+restart in this window exists solely to reload
+`adventure-live-tunables.toml`.**
+
+**Verification.** Golden corpus regenerated pre-merge (delete + rerun):
+7 of 17 fixtures moved, 6,770 changed lines, of which **3,608 were
+`hitId` and 3,162 `eventId` and nothing else** — zero combat values
+moved, as expected for a release with no game-crate diff at all. The
+committed fixtures were restored and re-verified clean, so the pure ID
+churn was not committed. `cargo test --release --workspace --quiet
+--target-dir target-deploy-bot-standalone`: **744 passed, 28 suites, 0
+failed**, exit 0. The delta from 742 is exactly **+2**, and both are the
+branch's own reward-gate tests, confirmed by name:
+`no_adventure_rewards_are_created_when_the_secret_is_absent` and
+`the_adventure_rewards_are_still_created_when_the_secret_is_present` —
+both directions of the gate. Clippy exit 0 with zero warnings in any of
+the three touched files.
+
+**Both maintenance flags set and confirmed in scope** (`scope : this IS
+the flag '<name>' reads`) before the stop, and **both cleared** after the
+health checks passed. Game started and verified healthy before the bot,
+per section 13. `LastTaskResult=267009` on both tasks — the healthy
+running state, not a failure.
+
+**Post-deploy checks.** Bot watched 120s past startup — same PID 61300
+throughout, no restart. Ports 4001/4002/4003 (bot) and 4005 (game) all
+listening. `/`, `/passives`, `/fights`, `/characters`, `/admin/tunables`
+and `/admin/passives` all HTTP 200. Bot log clean since restart; the two
+ERROR lines in today's log (a Twitch PONG timeout and a PayPal relay
+poll) both predate the restart. `published_constants: published bot-side
+cooldown/volume constants to the game attempt=1` appears after startup,
+which is the bot-to-game seam working with the secret present.
+
+**#56 — DEPLOY-REMOVE-PATREON check 9 is CLOSED.**
+
+The one outstanding post-deploy check from the Patreon-removal release —
+one real Twitch chat command end to end — has been performed by the
+owner: `!char` was run in the live channel and the bot answered
+correctly, exercising the full bot-to-game seam. Nothing further is owed
+from that release.
+
+**#57 — Three channel-point rewards must be DISABLED BY HAND at cutover.**
+
+No code change removes them. When `ADVENTURE_API_SECRET` is unset, the
+bot stops *creating* and stops *handling* these rewards, but rewards that
+already exist on the channel stay visible and redeemable in Twitch's UI —
+so **viewers would spend channel points and receive nothing**. The owner
+must disable these three in the Twitch dashboard as part of the cutover:
+
+| reward | id |
+| --- | --- |
+| Reforge Gear | `bfe77bde-b911-42de-9cf3-911ca6ac097e` |
+| Repair All Gear | `778acf7b-1182-4128-a68e-f4e134ae1064` |
+| Force Boss Fight | `c652ea13-1166-4c2a-beb5-2fa81da1b7f7` |
+
+This is an owner-performed dashboard action, not a session task. Recorded
+here so the cutover does not ship without it.
+
+**#58 — OPEN: the bot's log sink has no retention and no pruning.**
+
+The sink is `tracing_appender::rolling::daily`, which rolls a new file
+per day and **never deletes an old one**. `logs/` has already reached
+several GB once and was cleared by hand. It stands at 0.30 GB / 25 files
+as of this deploy, so it is not urgent today, but it grows without bound
+and nothing watches it. Out of scope for the change that found it — the
+bot-standalone branch touched none of this. **It resolves on its own at
+the Linux move, where journald owns rotation and retention**, so the
+recommended disposition is to leave it and let the platform move close
+it, rather than build a pruner that is then thrown away.
+
+**#59 — Hand-edits to `adventure-live-tunables.toml` are INERT until a
+restart. Confirmed live, and it is not a defect.**
+
+On 2026-08-28 the owner hand-edited `adventure-live-tunables.toml`,
+raising `hp_multiplier_ceiling` 100 → 400 and `dmg_multiplier_ceiling`
+8 → 20, in response to a 40-plus fight win streak with both pacing
+controllers pinned at their previous ceilings. Over the following ~3
+hours roughly 160 fights ran at a **19:1 win ratio against a 2:1
+target**, and both controllers stayed welded to the OLD ceilings with
+headroom sitting unused. The hypothesis under test was that the pacing
+controller reads its ceilings from a startup snapshot rather than per
+fight.
+
+*Measured, across the restart in this deploy's window:*
+
+| reading | `hp_pacing_mult` | `boss_power_mult` | stage | last-20 |
+| --- | --- | --- | --- | --- |
+| before restart | **100.0** (== old ceiling) | **8.0** (== old ceiling) | 6953 | 19W/1L |
+| after restart, +16 fights | **168.22** | **16.65** | 6975 | 17W/3L |
+
+Both moved off the old ceilings **on the first fight after the restart**
+(121.55 / 9.69 measured at t0) and kept climbing. Losses reappeared and
+the win ratio began walking back toward target. So the raised ceilings
+were real, and were inert purely because the process had not restarted.
+
+*The cause, from the code rather than the behaviour.* **The pacing
+controller does NOT hold a startup snapshot** — the ceilings are read
+through the live `RwLock` on every single fight: `manager.rs:4927` takes
+a fresh `self.live_tunables()` at the top of every `run_encounter_inner`;
+`manager.rs:5332` builds `pacing::PacingParams::from_tunables(&tunables)`
+from it; and `pacing.rs:209` / `pacing.rs:215` read
+`hp_multiplier_ceiling` and `dmg_multiplier_ceiling` there.
+`live_tunables()` (`manager.rs:2211`) is a genuine `RwLock` read, per
+fight. An admin-page save therefore takes effect on the very next
+encounter with no restart, exactly as its doc comment claims.
+
+**What is loaded once is the FILE.** `load_live_tunables()`
+(`tunables.rs:593`) has exactly one call site in the entire crate —
+`manager.rs:2202`, inside the constructor. There is no file watcher and
+no reload path. After boot the TOML is a **write-only persistence sink**,
+written by `save_live_tunables_file` (`tunables.rs:608`) and never read
+again. A hand edit to the file consequently cannot reach the RwLock the
+controllers read.
+
+So: **not a pacing defect, and not a stale expectation about the
+controller either — it is a correct expectation aimed at the wrong
+layer.** The controller is live; the file is not. The supported way to
+change a tunable without a restart is the /admin/tunables page, which
+writes both the file and the in-memory copy; the supported way to apply a
+hand edit is a restart.
+
+**Corollary hazard, worth knowing before it bites.**
+`save_live_tunables_file` serializes the WHOLE `LiveTunables` struct. So
+a hand edit that has not yet been loaded is **silently destroyed by the
+next admin-page save of any unrelated field** — the page writes the
+in-memory values back over the file. In this instance, had anyone saved
+anything on /admin/tunables during those three hours, the 400/20 edit
+would have reverted to 100/8 on disk with no warning. Hand-edit then
+restart promptly, or use the page.
+
+No tunable value and no code was changed by this session in the course of
+this diagnosis, per the order.
