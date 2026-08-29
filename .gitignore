@@ -243,3 +243,5 @@ target-remove-patreon/
 # the two retired Patreon data files moved out of the deployment root.
 /backup-pre-remove-patreon
 target-deploy-remove-patreon/
+/backup-pre-bot-standalone
+target-deploy-bot-standalone/
