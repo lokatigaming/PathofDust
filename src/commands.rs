@@ -86,7 +86,15 @@ pub struct Services {
     /// runs the adventure game in-process at all; every command below
     /// talks to the standalone `game` process over the `/api/*` seam
     /// instead of calling an in-process `AdventureManager` directly.
-    pub adventure: Arc<AdventureApiClient>,
+    ///
+    /// `None` when ADVENTURE_API_SECRET is unset (2026-08-29, "bot
+    /// standalone"): the game integration is off, and every adventure arm
+    /// in `handle_builtin` returns `None` — i.e. the command is not a
+    /// built-in at all, falls through to the static-command lookup, and
+    /// the bot stays silent rather than erroring. These commands are being
+    /// retired permanently, so silence is the intended behaviour, not a
+    /// degraded one.
+    pub adventure: Option<Arc<AdventureApiClient>>,
     pub bug_reports: Arc<BugReportManager>,
 }
 
@@ -434,6 +442,10 @@ fn essence_price_reply() -> Reply {
 /// that into the `Reply` every command handler already returns,
 /// applying the one ratified policy uniformly instead of re-deriving it
 /// at each of the ~10 call sites.
+///
+/// Not reached at all when the game integration is off
+/// (ADVENTURE_API_SECRET unset, 2026-08-29): each arm returns `None`
+/// before making a call, so there is nothing to fall back FROM.
 const ADVENTURE_DOWN_REPLY: &str = "The adventure is restarting — try again in a moment!";
 
 fn adventure_reply(result: anyhow::Result<Option<String>>) -> Reply {
@@ -1049,13 +1061,23 @@ async fn handle_builtin(
             Some(format!("{upcoming} — {recent_str}").into())
         }
 
-        "join" => Some(adventure_reply(services.adventure.join(user).await)),
+        "join" => {
+            let Some(adventure) = &services.adventure else { return None };
+            Some(adventure_reply(adventure.join(user).await))
+        }
 
-        "character" | "char" | "me" => Some(adventure_reply(services.adventure.character(user).await)),
+        "character" | "char" | "me" => {
+            let Some(adventure) = &services.adventure else { return None };
+            Some(adventure_reply(adventure.character(user).await))
+        }
 
-        "party" | "adventure" => Some(adventure_reply(services.adventure.party().await)),
+        "party" | "adventure" => {
+            let Some(adventure) = &services.adventure else { return None };
+            Some(adventure_reply(adventure.party().await))
+        }
 
         "nextencounter" => {
+            let Some(adventure) = &services.adventure else { return None };
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
@@ -1067,17 +1089,19 @@ async fn handle_builtin(
             // separately over the SSE announcements relay (see main.rs),
             // so a `None` reply here (Triggered) is expected, not a bug.
             let forced = args.first().map(|s| s.as_str());
-            Some(adventure_reply(services.adventure.next_encounter(forced).await))
+            Some(adventure_reply(adventure.next_encounter(forced).await))
         }
 
         "event" => {
+            let Some(adventure) = &services.adventure else { return None };
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            Some(handle_event_command(args, services).await)
+            Some(handle_event_command(args, adventure).await)
         }
 
         "rampage" => {
+            let Some(adventure) = &services.adventure else { return None };
             // !rampage vote (2026-08-17, a live request: "if 3 or more
             // players use !rampage it will start a rampage without a mod
             // activating the command, similar to a vote") - anyone else's
@@ -1085,24 +1109,27 @@ async fn handle_builtin(
             // Which of the two this is depends on `is_mod_or_broadcaster`,
             // so it's passed straight through rather than branched here -
             // the game-side handler owns that decision now (see api.rs).
-            Some(adventure_reply(services.adventure.rampage(user, is_mod_or_broadcaster).await))
+            Some(adventure_reply(adventure.rampage(user, is_mod_or_broadcaster).await))
         }
 
         "clearbattlefield" | "resetbattlefield" => {
+            let Some(adventure) = &services.adventure else { return None };
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            Some(adventure_reply(services.adventure.clear_battlefield().await))
+            Some(adventure_reply(adventure.clear_battlefield().await))
         }
 
         "giveloot" | "gearall" => {
+            let Some(adventure) = &services.adventure else { return None };
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            Some(adventure_reply(services.adventure.give_loot().await))
+            Some(adventure_reply(adventure.give_loot().await))
         }
 
         "giftdust" => {
+            let Some(adventure) = &services.adventure else { return None };
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
@@ -1118,7 +1145,7 @@ async fn handle_builtin(
             if amount == 0 {
                 return Some("Amount has to be more than 0.".into());
             }
-            Some(adventure_reply(services.adventure.gift_dust(target, amount).await))
+            Some(adventure_reply(adventure.gift_dust(target, amount).await))
         }
 
         "nowplaying" | "np" => {
@@ -1381,10 +1408,11 @@ async fn handle_builtin(
         }
 
         "pinfight" => {
+            let Some(adventure) = &services.adventure else { return None };
             if !is_mod_or_broadcaster {
                 return Some(Reply::None);
             }
-            Some(adventure_reply(services.adventure.pin_fight().await))
+            Some(adventure_reply(adventure.pin_fight().await))
         }
 
         _ => None,
@@ -1403,8 +1431,8 @@ async fn handle_builtin(
 /// handler) since it's the same "already-formatted reply string" this
 /// whole seam is built around - this wrapper just exists so `!event`'s
 /// OWN sub-verb dispatch (only "intro" recognized so far) stays bot-side.
-async fn handle_event_command(args: &[String], services: &Services) -> Reply {
-    adventure_reply(services.adventure.event_intro(args).await)
+async fn handle_event_command(args: &[String], adventure: &AdventureApiClient) -> Reply {
+    adventure_reply(adventure.event_intro(args).await)
 }
 
 async fn handle_command_management(args: &[String], services: &Services) -> Reply {
