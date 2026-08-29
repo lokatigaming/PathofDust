@@ -2310,3 +2310,205 @@ feature branch is owed for this. **Do not open one.**
 
 Net: risk 1 (Linux provisioning) is real and open. Risk 2 (Windows
 backup) is closed — it was never true.
+
+---
+
+## Deploy record — 2026-08-29, Linux readiness (`31165ad`)
+
+Merged and deployed by the deploy session (DEPLOY-LINUX-READINESS). One
+merge: `feature/linux-readiness` (`38677a2`) → `31165ad`, no conflicts.
+Plus `8ee51a8`, the gitignore commit for this deploy's backup dir. Pushed
+as `5bfaecc..8ee51a8`.
+
+| item | value |
+| --- | --- |
+| merge | `31165ad` |
+| source state the binary was built from | `31165ad` |
+| old `game.exe` SHA-256 | `11CC1783B19AE31BC7DA47FAF5EA2948EBC2725BC125B9236525F5A04606AB0D` |
+| new `game.exe` SHA-256 | `9EB658FF828C2CCB6AEFAE000CD83BC32FC4098B5188969F6FB4AF9E91C3AC94` |
+| bot | **unchanged, not redeployed (diff-clean)** |
+| rollback | `backup-pre-linux-readiness/game.exe` + `target/release/game.exe.pre-linux-readiness` |
+| patch notes | "August 29, 2026" → `Internal: Linux Readiness` |
+| maintenance flag | set `22:10:01`, `scope :` line confirmed, **cleared** after the health check |
+
+**What shipped.** Four Linux-correctness fixes, none of which changes
+Windows behaviour: a parent-directory `fsync` after `rename` in the
+atomic save path under `cfg(unix)`; the rename retry count split to
+`cfg(windows) = 5` / `cfg(unix) = 1`; the custom-sprite validator
+resolving case-insensitively against a `read_dir` listing instead of a
+raw `.exists()` probe; and six data files plus `adventure-accounts.json`
+routed through `GAME_DATA_DIR`.
+
+**`GAME_DATA_DIR` was NOT set by this deploy and remains unset** — absent
+from `C:\PathofDust\.env`, from the process environment, and from both
+the Machine and User environment scopes, all four confirmed before the
+merge. The property this release had to prove is that **nothing moved**,
+and `data_path` makes that true by construction:
+`DATA_DIR.get_or_init(PathBuf::new).join(filename)` is `filename`
+exactly when the `OnceLock` was never set.
+
+**Backup.** `backup-game-data.ps1` run before anything else:
+`pod-backup-20260829-214741`, 253 files, 11.62 MB, `verdict=clean`, 35
+snapshots kept and verified. The 200-file `adventure-fights-summary`
+corpus was pinned into `backup-pre-linux-readiness/` inside the stop
+window.
+
+**Golden corpus.** Regenerated on master before the merge (all 17
+fixtures deleted and recaptured). 18,563 lines changed across 14
+fixtures; **every single changed line was a `hitId` or an `eventId`**. A
+filter for changed lines that are neither returned nothing at all. No
+combat value moved, so the ID-only churn was reverted rather than
+committed — `approx_eq` ignores exactly those two keys, which is why
+committing the churn would be pure noise.
+
+**Verification.** `cargo test --release --workspace --quiet
+--target-dir target-elementalist`: **750 passed, 0 failed, 0 ignored**,
+up from 744. The delta is exactly the two new test files —
+`game/tests/custom_sprite_case.rs` (4 tests) and
+`game/tests/game_data_dir_paths.rs` (2 tests). Clippy exit 0 with zero
+diagnostics on any touched line (`character.rs`'s changed ranges are
+840-888; the nearest clippy warning is line 1224 and pre-existing).
+
+**Post-deploy proof that nothing moved.** Mtimes recorded immediately
+before the stop and again after three post-swap fights (`15850` 22:11:40,
+`15851` 22:12:41, `15852` 22:13:42; the new PID 45936 started 22:10:37):
+
+| file | before | after |
+| --- | --- | --- |
+| `adventure-characters.json` | 22:10:08.370 | 22:14:43 |
+| `adventure-world.json` | 22:09:46.843 | 22:14:43 |
+| `logs/game.log.2026-08-29` | 12:40:51 (701 B) | 22:10:38 (1862 B) |
+| `adventure-sessions.json` | 2026-08-28 16:19:18 | unchanged |
+| `adventure-accounts.json` | 2026-08-28 02:53:21 | unchanged |
+| `bot-published-constants.json` | 12:41:08 | unchanged |
+| `patch-notes.json` | 21:55:58 | unchanged |
+
+The three that did not move are the three nothing wrote: no login
+occurred (sessions/accounts), the bot was never restarted
+(published-constants), and `patch-notes.json` is read-only at runtime.
+Every file that WAS written advanced **in place, in the deployment
+root**. A recursive scan of everything under `C:\PathofDust` modified
+since the swap returns six paths and all six are in the root:
+`adventure-characters.json`, `adventure-world.json`,
+`adventure-reforge-cooldown.json`, `daily-greeted.json`,
+`song-queue.json`, `game-watchdog.log`. **Zero writes anywhere else.**
+
+**No stray directory.** A pre/post diff of every directory under
+`C:\PathofDust` to depth 2 returns exactly two additions, both created by
+this deploy on purpose: `backup-pre-linux-readiness/` and its
+`adventure-fights-summary/` copy. A search for stray copies of the six
+data filenames anywhere outside the root found only pre-existing deploy
+backups dated 2026-08-19, 08-20 and 08-29 12:39 — nothing dated to this
+deploy.
+
+**`adventure-accounts.json` resolves beside `adventure-sessions.json` by
+construction**, not by coincidence:
+`accounts::accounts_path(sessions_path)` is
+`sessions_path.with_file_name("adventure-accounts.json")`, which replaces
+only the filename. The two are siblings for any value of
+`GAME_DATA_DIR`, including unset.
+
+**Sprite check — the one Windows-visible behaviour change, and it
+passed.** Character key `sitch89` stores `custom/Sitch89`, mixed case,
+created through the UI picker. `effective_sprite` was read live off the
+overlay broadcast (`ws://127.0.0.1:4005/ws`, which carries
+`model: c.effective_sprite(id)` and needs no session) immediately before
+and immediately after the swap. Both reads return
+`sitch89 model=custom/Sitch89`. Had the new validator rejected it,
+`effective_sprite` would have fallen through to the hash default
+`sprite-NN` — it did not. All six characters holding a `custom/` model
+resolved identically across the swap (`kibukah`, `kmartbikes1`,
+`lokati_gaming`, `qugetus_`, `sitch89`, `xborntokillx`), 67 characters
+both times. This is the record the old `.exists()` probe accepted by
+accident on case-insensitive NTFS and the new `read_dir` comparison
+accepts on purpose.
+
+**Sprite picker unchanged: 14 files.** The custom-sprite directory holds
+the same 14 `.png`/`.gif` files before and after, and all 14 serve `200`
+over `/sprites/custom/`. `custom_sprite_names` — the picker's own
+enumerator — is untouched by this diff and reads the same
+`CUSTOM_SPRITE_DIR`. Honest limit: the picker PAGE itself is session-
+gated per owner and could not be fetched from the deploy session, so the
+count is evidenced by the directory listing, the HTTP serve check and the
+live `effective_sprite` reads rather than by a click-through.
+
+**Health.** Every page byte-identical in size across the swap: `/`
+72025, `/passives` 72025, `/fights` 72025, `/wiki` 75525, `/overlay`
+125516, overlay server `4004/` 119426, `/admin/tunables` and
+`/admin/passives` 71722. The two admin pages render the "Not Found" card
+to an unauthenticated request both before and after — that is
+`admin_tunables_page`'s session gate against `ADMIN_TUNABLES_LOGIN`, not
+a regression. `LastTaskResult = 267009` (`SCHED_S_TASK_RUNNING`), the
+healthy steady state. There is no `/feed` route; the live feed is the
+overlay WebSocket broadcast, which was connected twice and returned a
+full snapshot with the world stage advancing per fight.
+
+**Note for the wiki session.** This merge changed one line in
+`game/src/adventure_web/wiki.rs` — `PUBLISHED_CONSTANTS_PATH` (a `&str`
+constant) to `published_constants_path()` (a function), a mechanical
+call-site update forced by routing that file through `GAME_DATA_DIR`. It
+touches no wiki content, markup or route. Flagged here because the wiki
+module is off-limits by house rule and the change arrived on a feature
+branch rather than being sequenced with the wiki session.
+
+**#61 — moving `dotenvy::dotenv()` above the logger init makes `RUST_LOG`
+settable from `.env`, where it previously was not. Deliberate and
+understood; NOT a defect.**
+
+`main.rs`'s `async_main` now calls `dotenvy::dotenv()` before the
+`tracing_subscriber` is built, because `logs/` resolves through
+`data_path` and `set_data_dir` must run before the first `data_path` call
+or the `OnceLock` locks in the default. The subscriber's own `RUST_LOG`
+read therefore now happens after `.env` has been loaded.
+
+**Inert today, on two independent counts.** Neither the production
+`.env` nor `.env.example` defines `RUST_LOG`, so there is nothing for the
+new ordering to pick up. And `dotenvy::dotenv` does not override a
+variable already present in the process environment, so anything set by
+the scheduled task or the shell still wins. Recorded so that a future
+session which adds `RUST_LOG` to `.env` knows it will take effect, and
+does not read that as a surprise.
+
+**#62 — `public_adventure_overlay/sprites/custom/Sitch89_2.gif` is
+unselectable by any player. Dead file. Not fixed here.**
+
+`custom_sprite_name_matches` is
+`name_lower.strip_prefix(prefix).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))`.
+For `sitch89_2` against the owner prefix `sitch89` the remainder is
+`_2`, and `_` is not an ASCII digit, so the ownership gate rejects it.
+It does not match the `public` pool either. No player can pick it
+through the picker (`custom_sprite_names` shares the same gate) and no
+hand-crafted POST can equip it (`is_valid_custom_sprite` shares it too).
+
+Worth contrasting with `qugetus_2.gif`, which IS selectable: that
+character's id is `qugetus_` with a trailing underscore, so the
+remainder is the bare digit `2`. The rule is working as designed; the
+file is simply named in a form the rule cannot admit. Renaming it to
+`Sitch892.gif` would make it selectable. Left alone — no order covers it.
+
+**#63 — a spawned-binary test that panics before reaping its child leaks
+that child and HANGS the whole `cargo test` invocation with no output.
+`game/tests/killed_process_smoke.rs` has the identical exposure and was
+NOT fixed. Follow-up branch owed.**
+
+**Why this is dangerous rather than merely annoying: the failure mode is
+a silent hang, not a red test.** The leaked child keeps the test
+harness's inherited stdio pipe open, so `cargo test` never returns and
+never prints. There is no failing test name to search for, no assertion
+message, and no exit code — just a run that appears to stop. A session
+hitting it will most likely blame the machine or the build before it
+suspects a test.
+
+`feature/linux-readiness` hit this in its own new spawned-binary test and
+fixed its own case with a `Drop` guard, so the child is reaped on the
+unwind path as well as the happy path. **It did not fix the pre-existing
+one.** `game/tests/killed_process_smoke.rs` spawns at line 51 and reaps
+at lines 85-86 (and 113-114 for the second child), with a `panic!` at
+line 62 and asserts at lines 82, 99 and 111 sitting between the two. Any
+of those four firing leaks the child. There is no `Drop` guard in the
+file.
+
+Scope for the follow-up: wrap both children in the same guard shape the
+Linux-readiness branch used. One file, no behaviour change, no fixture
+impact. Not urgent while the asserts pass — which is exactly why it will
+sit there until something makes one of them fail.
