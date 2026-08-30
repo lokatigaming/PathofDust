@@ -2535,3 +2535,248 @@ The multi-session coordination rules in CLAUDE.md (do not edit the wiki
 module or the /wiki route registrations while a wiki session is in
 flight) are a separate concern from section 7 and still apply: flag the
 change, as the Linux-readiness deploy did.
+
+**#65 — MEASURED: `defensive_stat_hard_cap` essentially never binds in
+live play. The "overcapped player defences" premise that drove the
+boss-defence-shred design is FALSE — refuted by measurement, not by
+argument. The real constraint on every time- or stack-based mechanic in
+the game is that a live fight lasts UNDER SIX SIMULATED SECONDS against a
+30–45s target. 2026-08-30, `feature/boss-defense-shred` fit report.**
+
+Recorded because these numbers were produced by a throwaway harness over
+live data and would otherwise exist only in one chat message. The harness
+was deleted; the numbers are the durable artefact.
+
+**Method.** A temporary integration test loaded the live, gitignored
+`C:/PathofDust/adventure-characters.json` (67 characters, 55 at level
+≥ 50) and called the real production stat functions —
+`Character::combat_damage_reduction` / `combat_block_chance` /
+`combat_evasion` and the `*_breakdown` variants — under
+`LiveTunables::default()`, whose defensive values are byte-identical to
+the live `adventure-live-tunables.toml` (`defensive_stat_hard_cap = 0.95`,
+`dr_overflow_cap` / `block_overflow_cap` / `evasion_overflow_cap = 0.75`).
+Cross-checked against the three retained live detail logs, stages
+7362/7363/7364. Read-only throughout; nothing under `C:/PathofDust` was
+modified.
+
+**1. Player mitigation as `CombatSimUnit` actually receives it.**
+`combat.rs:11080` sets `damage_reduction: c.combat_damage_reduction(t) +
+c.passive_node_magnitude("demonicresilience")`, so the distribution below
+is the simulation's own input, not a character-sheet approximation.
+
+| stat | min | p25 | med | p75 | p90 | max |
+|---|---|---|---|---|---|---|
+| damage reduction | −0.3300 | 0.0000 | 0.7500 | 0.7500 | 0.7875 | 0.9375 |
+| block chance | 0.0000 | 0.0000 | 0.7500 | 0.7500 | 0.8000 | 0.8000 |
+| evasion | 0.0000 | 0.0000 | 0.7500 | 0.7850 | 0.8300 | 0.8825 |
+
+Combined mitigation entering `.min(defensive_stat_hard_cap)` in
+`resolve_hit`:
+
+| case | med | p90 | max |
+|---|---|---|---|
+| unblocked (DR alone) | 0.7500 | 0.7875 | 0.9375 |
+| blocked (DR + 0.50 block reduction) | 0.8750 | 0.8938 | 0.9688 |
+
+**2. The cap does not bind.** The single largest combined value anywhere
+on the roster is 0.9688, and only on a blocked hit. Against a cap of
+0.95 that is an overcap of **0.0188 — 1.9 percentage points, on one
+character, on the ~24% of hits that block.** Every other row sits below
+the cap outright. The live logs agree: across three stage-7362/7363/7364
+boss fights the *only* mitigation sources ever recorded against a player
+are `Damage reduction` (max 0.75), `Block reduction (Second Skin)`
+(0.5), and one to four `Gelatinous Cube shred` events per fight. No
+`Hardened`, no `Nature's Ward`, no `Defiance`, nothing else. Nothing
+observed reaches 0.95.
+
+**3. The real ceiling on any shred is the per-source clamp, not the hard
+cap.** `character.rs:928`:
+
+```rust
+1.0 - sources.iter().map(|s| 1.0 - s.clamp(-0.75, 1.0)).product::<f64>()
+```
+
+`clamp(-0.75, …)` is applied **per source**, so ONE shred source can
+never contribute more than a ×1.75 multiplier on damage taken, however
+many stacks stand behind it. Indefinite stacking is decorative past 7.5
+stacks at the Cube's 10%/stack — and `CUBE_SHRED_MAX_STACKS` already
+reaches 5. Worked arithmetic for the measured top tank (blocked hit,
+sources `[0.50, 0.75]`):
+
+| state | combine | after `.min(0.95)` | damage taken |
+|---|---|---|---|
+| today | 0.8750 | 0.8750 | 0.1250 |
+| + one shred at the clamp | 0.7813 | 0.7813 | 0.2188 (×1.75) |
+| + a second shred at the clamp | 0.6172 | 0.6172 | 0.3828 (×3.06) |
+
+Reaching the 25-percentage-point floor requires ∏(1+Sᵢ) = 6.0, i.e. **four
+independent maximal shred sources.** The hard cap is not reached in any
+row.
+
+**4. The overflow above `dr_overflow_cap` is NOT an invisible buffer.**
+Raw gear+archetype DR affix sums are enormous — median 17.2, p90 88.3,
+max 194.5 — against a per-source cap of 0.75. But
+`capped_stat_with_overflow` (`character.rs:903`) clips each source at
+0.75 and the excess is diverted into `combat_increased_damage`, not
+discarded and not retained as mitigation. A shred therefore subtracts
+from the already-clipped 0.75; it does not have to chew through 194
+first. The intuition that players hold a deep hidden mitigation reserve
+is wrong: the reserve exists, but it was converted to offence long ago.
+
+**5. THE FINDING THAT MATTERS MOST — fights last under six simulated
+seconds.** All three sampled live logs have a maximum `atMs` of exactly
+`6000`. That is `MIN_DISPLAY_MS` (`combat.rs:14758`), the *stretch floor*
+of `compress_events` — a fight shorter than 6s is scaled UP to 6s of
+screen time. The logged timeline is therefore display time, and the true
+simulated duration was **shorter still**, against a
+`target_duration_min_s` / `_max_s` window of 30–45s.
+
+Every time-based mechanic in the game is starved by this. `boss_defense_ignore`
+grows at `BOSS_DEFENSE_IGNORE_PER_SEC = 0.02`/s and so reaches only ~0.12
+before the boss dies; observed live `Boss Pressure` magnitudes are
+**−0.004 to −0.044**, i.e. 0.2–2.2 seconds of boss life. The Cube's
+`CUBE_SHRED_DURATION_MS = 3000` window barely opens. This — not
+overcapped defences — is why both pacing controllers are pinned, and it
+is the thing to investigate before any further difficulty mechanic is
+designed.
+
+**Disposition.** The boss-defence-shred feature was NOT built. Owner
+ruling 2026-08-30: refutation accepted in full, the shred would have put
+a number on the admin page that never lands in a real fight.
+`CUBE_SHRED_MAX_STACKS` stays. No code, tunable or live value was changed
+by that branch.
+
+**#66 — `Dreadful Death` OVERWRITES Guardian Spirit's buff field with a
+negative value rather than combining with it. Pre-existing, not
+introduced by any current work, NOT fixed.**
+
+`combat.rs:13249` writes:
+
+```rust
+units[target_idx].temp_damage_reduction_bonus = -dreadfuldeath_pct;
+```
+
+`temp_damage_reduction_bonus` is Divine Intervention / Guardian Spirit's
+own positive DR buff slot, read back in `resolve_hit` as the
+`"Guardian Spirit (Divine Intervention)"` mitigation source. A plain `=`
+means a Dreadful Death proc lands on a target and silently destroys any
+Guardian Spirit buff currently riding that field, and conversely a later
+Guardian Spirit application wipes the Dreadful Death shred. The two
+mechanics share one slot with last-writer-wins semantics and no
+combination.
+
+Found while enumerating DR-touching mechanics for the boss-defence-shred
+fit report. Not in that order's scope, not fixed, no test written. Left
+here for whoever gets an order that covers it — the fix is presumably a
+separate field or a `+=`-with-sign-awareness, but which one is a design
+question, not a mechanical one.
+
+**#67 — ROOT CAUSE of the pacing saturation: `ENEMY_HP_POOL_HARD_CAP`
+(1e15) binds on the AGGREGATE generated boss pool every single fight and
+discards ~92% of Controller A's output. A is NOT saturated — it is an
+OPEN LOOP. Measured 2026-08-30 against live world state and detail logs.
+Diagnosis only; nothing changed.**
+
+**Verdict on the standing hypothesis: CONFIRMED, with one correction to
+the mechanism.** The cap is real and binding, but it is not a per-boss
+cap and no individual boss is anywhere near it — each live boss carries
+~2.9e13, about 2.9% of 1e15. `capped_hp_mult_for_pool`
+(`pacing.rs:335`) is called once at `manager.rs:4985` with `base_pool =
+organic.iter().map(|s| s.hp).sum()`, the SUM across all generated
+bosses, and returns `hp_mult.min(ENEMY_HP_POOL_HARD_CAP / base_pool)`.
+The clamp is on the multiplier and is applied BEFORE scaling, so the
+delivered aggregate is exactly the cap.
+
+**The smoking gun.** Summing `maxHp` over generated bosses only
+(excluding the Lich's `Skeleton` Raise-Dead summons, which are
+`isBoss:true` but spawn in-fight and are not part of the generated
+vector), across three consecutive live fights:
+
+| fight | generated bosses | total generated HP |
+|---|---|---|
+| 17345 | 36 | **1.000000e15** |
+| 17344 | 36 | **1.000000e15** |
+| 17343 | 35 | **1.000000e15** |
+
+Different stages, different boss counts, identical total to six
+significant figures. That is a pinned cap, not a coincidence.
+
+**Arithmetic, live state (`adventure-world.json`, stage 7373).**
+`hp_pacing_mult = 172.5993`, `boss_power_mult = 100.0`,
+`boss_losses_since_win = 0`, `recent_win_dps` = 20 samples, mean
+**3.7149e14**. Organic pool from `boss_stats_for`
+(`74.0 * boss_health(6000) * party_size(44) * level_mult(1+653*0.15) *
+stage_mult(1+7373*0.15)`) = 2.1398e12 per boss, 35 bosses:
+
+| quantity | value |
+|---|---|
+| organic `base_pool` | 7.4894e13 |
+| cap-derived multiplier `1e15 / base_pool` | **13.35** |
+| stored `hp_pacing_mult` | **172.60** |
+| `hp_effective` actually applied | 13.35 — **A's output cut 12.9x** |
+| delivered pool | 1.000e15 |
+| delivered duration `pool / mean_dps` | **2.69 s** |
+| A's own request `mean_dps * 37.5 / base_pool` | **186.0** |
+| pool needed for the 37.5s midpoint | **1.393e16 = 13.9x the cap** |
+
+Cross-check: 2.1398e12 x 13.35 = 2.86e13 per boss, and observed live
+per-boss `maxHp` runs 2.5e13–3.1e13 under the +/-10% `jitter`. The model
+reproduces the live numbers.
+
+**Why A looks stuck at ~175-195 with a ceiling of 400.** It is not stuck
+and the ceiling is irrelevant. A is regulating correctly and converging
+on its own honest request of ~186 at `hp_max_step_per_fight = 0.05`; the
+ceiling (400) and `DYNAMIC_MULT_HARD_CEILING` (1e6) are both far above
+it. Nothing tells A its output was discarded, so it cannot respond. It
+will settle near 186 and stay there forever while every fight continues
+to last 2.7s.
+
+Worse, A drifts DOWNWARD as the party climbs. The delivered pool is
+pinned at 1e15 regardless of A, so `mean_dps` is pinned near
+`1e15 / duration` by construction, while `base_pool` grows with
+`stage_mult`. `required = mean_dps * 37.5 / base_pool` therefore FALLS as
+the stage climbs. That is the observed 195 -> 172.6 drift, and it is the
+opposite of the runaway an operator would expect.
+
+**Controller B is genuinely saturated, unlike A.** `boss_power_mult =
+100.0` against a live `dmg_multiplier_ceiling = 100.0`. B keeps raising
+boss damage because the party keeps winning, and the party keeps winning
+because a 2.7s fight does not deliver enough swings to kill anyone
+regardless of per-hit damage. B is chasing an outcome that duration, not
+damage, controls. Raising B's ceiling three times (8, 20, 100) each held
+about a day, which is exactly what a mis-targeted controller looks like.
+
+**Nothing else materially clamps (checked).** `sanitize_mult` bounds
+[0.05, 1e6] — not binding at 186. `hp_multiplier_ceiling = 400` — not
+binding. `relax_hp_pacing_mult` requires a losing streak;
+`boss_losses_since_win = 0`. On the DPS side,
+`dealt_to_enemies.min(enemy_pool)` (`manager.rs:5016`) could in principle
+understate throughput via overkill, but measured overkill is only
+**1.01x** against a `enemy_pool` that includes the summons, so the `min`
+does not bind and the DPS sample is honest.
+
+**Controller A samples the REAL duration, not the display value — that
+suspected defect DOES NOT EXIST.** `manager.rs:5001` computes
+`real_duration_ms` from `events` BEFORE `compress_events` runs at
+`manager.rs:5020`, and the sample at `manager.rs:5016` divides by it. The
+comment there already says "over the REAL clock duration - pre-
+compression, never the display window." A is blind to the cap, not to
+the clock. Separately, this confirms the #65 duration finding: real
+simulated duration is ~2.7s, and `compress_events` stretches it up to
+`MIN_DISPLAY_MS = 6000`, which is why every sampled log pins at exactly
+6000.
+
+**Smallest change that would unpin both controllers.** Raise
+`ENEMY_HP_POOL_HARD_CAP` to at least ~1.4e16 (about 14x) so A's honest
+request survives to the fight; ~2e16 leaves headroom. Per-unit safety is
+unaffected — the cap bounds an AGGREGATE, and per-boss HP at that
+aggregate is ~4e14, three orders below f64's 2^53 exact-integer bound and
+five below `u64::MAX`. The const's doc justifies 1e15 by "live stage-3222
+pools are ~1e7-1e8", which is stale by seven orders of magnitude at stage
+7373. The durable fix is to make it a `LiveTunable` (or derive it from
+observed party DPS) so it cannot silently go stale again; a raw constant
+that bounds a quantity growing exponentially with stage will bind again.
+Recommend fixing A first and NOT touching B — B should fall on its own
+once fights last long enough for boss damage to matter.
+
+No code, tunable or live value was changed by this investigation.
