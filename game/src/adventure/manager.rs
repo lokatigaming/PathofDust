@@ -4982,7 +4982,7 @@ impl AdventureManager {
         let organic: Vec<BossStats> = (0..boss_kinds.len()).map(|_| boss_stats_for(stage, fighting.len(), avg_level, &tunables)).collect();
         let base_pool: f64 = organic.iter().map(|s| s.hp as f64).sum();
         let eff = pacing::effective_multipliers(hp_controller, dmg_controller, stage, &tunables);
-        let hp_effective = pacing::capped_hp_mult_for_pool(base_pool, eff.hp_mult);
+        let hp_effective = pacing::capped_hp_mult_for_pool(base_pool, eff.hp_mult, tunables.enemy_hp_pool_hard_cap);
         let bosses: Vec<(BossStats, Option<BossKind>, f64)> = organic
             .iter()
             .zip(boss_kinds.iter())
@@ -5607,7 +5607,7 @@ impl AdventureManager {
         let group_stats_organic = basic_enemy_stats_for(stage, num_enemies, avg_level, &tunables);
         let base_pool_basic: f64 = group_stats_organic.hp as f64;
         let eff_basic = pacing::effective_multipliers(hp_controller, dmg_controller, stage, &tunables);
-        let hp_effective_basic = pacing::capped_hp_mult_for_pool(base_pool_basic, eff_basic.hp_mult);
+        let hp_effective_basic = pacing::capped_hp_mult_for_pool(base_pool_basic, eff_basic.hp_mult, tunables.enemy_hp_pool_hard_cap);
         let group_stats = apply_dynamic_scaling(group_stats_organic, hp_effective_basic, eff_basic.dmg_mult);
         let enemy_stats = split_into_enemies(group_stats, num_enemies);
         let enemy_name = BASIC_ENEMY_NAMES[rand::thread_rng().gen_range(0..BASIC_ENEMY_NAMES.len())].to_string();

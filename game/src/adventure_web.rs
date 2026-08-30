@@ -2975,6 +2975,14 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
     Html(render_page(&body))
 }
 
+/// Serde default for `TunablesForm::enemy_hp_pool_hard_cap` - the shipped
+/// constant, so a POST that omits the field (an older client, or an
+/// integration test posting a pre-existing field set) preserves live
+/// behaviour instead of collapsing to 0.0.
+fn default_enemy_hp_pool_hard_cap() -> f64 {
+    crate::adventure::pacing::ENEMY_HP_POOL_HARD_CAP
+}
+
 #[derive(Deserialize)]
 struct TunablesForm {
     loot_mult: f64,
@@ -3037,6 +3045,13 @@ struct TunablesForm {
     shattering_damage_pct_rank3: f64,
     /// See `LiveTunables::defensive_stat_hard_cap`'s doc.
     defensive_stat_hard_cap: f64,
+    /// See `LiveTunables::enemy_hp_pool_hard_cap`'s doc. `#[serde(default)]`
+    /// resolves to the SHIPPED CONSTANT, not `f64::default()` - a 0.0 here
+    /// would be clamped up to the floor rather than preserving live
+    /// behaviour, and this field is consumed by the handler below (see
+    /// CLAUDE.md on the both-directions form-field trap).
+    #[serde(default = "default_enemy_hp_pool_hard_cap")]
+    enemy_hp_pool_hard_cap: f64,
     /// See `LiveTunables::splash_extra_targets`'s doc.
     splash_extra_targets: u32,
     /// See `LiveTunables::splash_support_floor_targets`'s doc.
@@ -3197,6 +3212,11 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
                 shattering_damage_pct_rank2: form.shattering_damage_pct_rank2.clamp(0.0, 1.0),
                 shattering_damage_pct_rank3: form.shattering_damage_pct_rank3.clamp(0.0, 1.0),
                 defensive_stat_hard_cap: form.defensive_stat_hard_cap.clamp(0.0, 1.0),
+                // Defence-in-depth behind the form's own min/max (which is
+                // what actually reports an out-of-range value to the
+                // operator); a hand-crafted POST that bypasses the browser
+                // is clamped rather than allowed to reach generation.
+                enemy_hp_pool_hard_cap: crate::adventure::pacing::sanitize_pool_cap(form.enemy_hp_pool_hard_cap),
                 splash_extra_targets: form.splash_extra_targets,
                 splash_support_floor_targets: form.splash_support_floor_targets,
                 splash_overcap_bonus_targets: form.splash_overcap_bonus_targets,
@@ -3964,6 +3984,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <p class=\"tunable-hint\">Ceiling on A's multiplier (hard-capped at 1,000,000 no matter what).</p>\
             </div>\
             <div class=\"tunable-row\">\
+              <label for=\"enemy_hp_pool_hard_cap\">Enemy HP Pool Cap (hit points, summed over all enemies)</label>\
+              <input type=\"number\" step=\"any\" min=\"{enemy_hp_pool_cap_min}\" max=\"{enemy_hp_pool_cap_max}\" required id=\"enemy_hp_pool_hard_cap\" name=\"enemy_hp_pool_hard_cap\" value=\"{enemy_hp_pool_hard_cap}\">\
+              <p class=\"tunable-hint\"><strong>Unit: hit points.</strong> Range 1e15 &ndash; 5e16. Out-of-range is rejected by the form; a POST that bypasses the browser is clamped instead. Ceiling on the TOTAL scaled HP of every enemy in one encounter, applied to Controller A's multiplier before scaling &mdash; <strong>this is what decides whether A's output reaches the fight at all.</strong> Measured 2026-08-30 (anomaly ledger #67): at the 1e15 default it binds on every boss fight, cutting A's honest request of ~186 down to 13.35 and delivering 2.69s fights against the 30&ndash;45s target above. Reaching that window needs roughly 1.4e16. <strong>Raise in small watched steps, never one jump</strong> &mdash; boss HP rises with it AND every time-based boss mechanic the ~2.7s runway has been starving (boss defence ignore at 2%/s, pierce, the Gelatinous Cube's 3s shred window) starts running to completion. Both sides of the fight get harder at once.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
               <label for=\"hp_relax_after_losses\">HP Relax After (consecutive losses)</label>\
               <input type=\"number\" step=\"1\" min=\"0\" id=\"hp_relax_after_losses\" name=\"hp_relax_after_losses\" value=\"{hp_relax_after_losses}\">\
               <p class=\"tunable-hint\">Consecutive LOST boss fights before Controller A starts decaying back toward neutral. A samples wins only — correct, but it means a wipe teaches A nothing, so an overshoot has no way back without this. 0 = unset (uses the shipped default); to switch relaxation off set the step below to 0.</p>\
@@ -4311,6 +4336,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
         shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
         defensive_stat_hard_cap = t.defensive_stat_hard_cap,
+        enemy_hp_pool_hard_cap = t.enemy_hp_pool_hard_cap,
+        enemy_hp_pool_cap_min = crate::adventure::pacing::ENEMY_HP_POOL_CAP_MIN,
+        enemy_hp_pool_cap_max = crate::adventure::pacing::ENEMY_HP_POOL_CAP_MAX,
         splash_extra_targets = t.splash_extra_targets,
         splash_support_floor_targets = t.splash_support_floor_targets,
         splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
