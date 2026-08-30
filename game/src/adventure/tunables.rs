@@ -365,6 +365,30 @@ pub struct LiveTunables {
     /// 0.95 matches that constant's own shipped value exactly - zero
     /// behavior change at defaults.
     pub defensive_stat_hard_cap: f64,
+    /// Cap on the SCALED enemy HP pool, SUMMED across every generated
+    /// enemy in an encounter (2026-08-30 - was the bare compile-time
+    /// `pacing::ENEMY_HP_POOL_HARD_CAP`, see that constant's own doc and
+    /// anomaly ledger #67). Applied once by
+    /// `pacing::capped_hp_mult_for_pool` at generation time, BEFORE any
+    /// cast, to Controller A's composed multiplier rather than to the
+    /// pool itself.
+    ///
+    /// This is the dial that decides whether Controller A's output
+    /// actually reaches the fight. At stage 7373 the measured organic
+    /// pool is ~7.5e13 and A's honest request is ~186, but this cap cut
+    /// the applied multiplier to 13.35 - roughly 92% of the controller
+    /// discarded, delivering 2.69 s fights against a 30-45 s target.
+    ///
+    /// **Default 1e15 is exactly the constant's shipped value, so
+    /// converting it changed nothing about live play.** Raising it is not
+    /// a gentle change and is meant to be done in watched steps from the
+    /// dashboard: boss pools rise with it AND every time-based boss
+    /// mechanic that the ~2.7 s runway has been starving (boss defence
+    /// ignore at 2%/s, pierce, the Gelatinous Cube's 3 s shred window)
+    /// starts running to completion. Both sides of the fight move at
+    /// once. Bounded to [`pacing::ENEMY_HP_POOL_CAP_MIN`,
+    /// `pacing::ENEMY_HP_POOL_CAP_MAX`].
+    pub enemy_hp_pool_hard_cap: f64,
     /// Splash redesign (2026-08-20, owner ruling - splash % becomes the
     /// CHANCE a splash-keyed effect happens at all, capped at 100%, per
     /// action - see `roll_splash`, `combat.rs`). This is how many extra
@@ -552,6 +576,11 @@ impl Default for LiveTunables {
             shattering_damage_pct_rank2: 0.01,
             shattering_damage_pct_rank3: 0.01,
             defensive_stat_hard_cap: 0.95,
+            // Exactly `pacing::ENEMY_HP_POOL_HARD_CAP` - the conversion
+            // is a no-op at defaults by construction, and the test
+            // `default_pool_cap_matches_the_shipped_constant` fails if
+            // these two ever drift apart.
+            enemy_hp_pool_hard_cap: crate::adventure::pacing::ENEMY_HP_POOL_HARD_CAP,
             splash_extra_targets: 2,
             splash_support_floor_targets: 1,
             splash_overcap_bonus_targets: 1,

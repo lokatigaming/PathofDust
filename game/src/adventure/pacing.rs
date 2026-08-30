@@ -85,9 +85,78 @@
 
 use super::*;
 
-/// Hard absolute cap on any SCALED enemy HP pool (organic stat x
-/// controller/baseline multiplier), regardless of tunable settings.
+/// SHIPPED DEFAULT for the cap on the SCALED enemy HP pool (organic stat
+/// x controller/baseline multiplier), summed across every generated
+/// enemy in the encounter. **Since 2026-08-30 this is the default of the
+/// `enemy_hp_pool_hard_cap` LiveTunable, not an absolute structural
+/// limit** - `capped_hp_mult_for_pool` takes the live value and falls
+/// back to this constant only for a non-finite reading.
+///
+/// **This value is the measured root cause of the 2026-08 pacing
+/// saturation (anomaly ledger #67) and is expected to be raised from the
+/// dashboard.** Its previous doc justified 1e15 with "live stage-3222
+/// pools are ~1e7-1e8", which was stale by seven orders of magnitude:
+/// at stage 7373 the organic pool is ~7.5e13 across 35 bosses and the
+/// cap binds on EVERY fight, cutting Controller A's honest request of
+/// ~186 down to 13.35 and delivering 2.69 s fights against a 30-45 s
+/// target. A is not saturated by this - it is an open loop, because
+/// nothing reports the discarded output back to it.
+///
+/// The default is deliberately left at 1e15 so that shipping the tunable
+/// changes nothing about live play; raising it is a separate, watched
+/// operation (both sides of the fight move at once - see the tunable's
+/// own hint on /admin/tunables).
 pub(crate) const ENEMY_HP_POOL_HARD_CAP: f64 = 1.0e15;
+
+/// Lower bound on the `enemy_hp_pool_hard_cap` tunable: **the shipped
+/// default itself**, so the dial can only ever be raised.
+///
+/// Deliberately not a smaller number. Below today's value the cap binds
+/// HARDER than it already does, and it already delivers 2.69 s fights
+/// against a 30-45 s target - there is no legitimate operating reason to
+/// make fights shorter than that. Worse, a low setting does not nerf
+/// gently: `sanitize_mult`'s `MULT_HARD_FLOOR` (0.05) catches the
+/// resulting tiny multiplier, so a typo two orders too small produces
+/// degenerate instant-win fights rather than a visible mistake. The
+/// owner can still walk a raise back down to exactly today's behaviour.
+pub(crate) const ENEMY_HP_POOL_CAP_MIN: f64 = 1.0e15;
+
+/// Upper bound on the `enemy_hp_pool_hard_cap` tunable.
+///
+/// Chosen from the measurement rather than from a round number. Reaching
+/// the 37.5 s midpoint of the current duration window at the party's
+/// measured 3.71e14 DPS needs a pool of ~1.39e16, so any ceiling at or
+/// below f64's exact-integer bound (2^53 ~ 9.007e15) would make the
+/// target window structurally unreachable and the tunable pointless.
+/// 5e16 clears that requirement with ~3.5x of headroom for party growth.
+///
+/// **Precision, stated explicitly:** 5e16 is above 2^53, so the SUMMED
+/// pool is no longer exactly representable - f64 spacing there is 8, i.e.
+/// the aggregate is exact to within 8 HP out of 5e16 (~1.6e-16 relative),
+/// which cannot matter to a cap comparison. What DOES matter is per-unit
+/// precision, and that is unaffected: an individual boss at this ceiling
+/// carries ~1.4e15 across a live 35-boss encounter, comfortably inside
+/// 2^53, so every `sat_round_stat` u64 stat stays exact.
+///
+/// This ceiling cannot manufacture HP on its own either - the delivered
+/// pool is still `base_pool x min(hp_multiplier_ceiling,
+/// DYNAMIC_MULT_HARD_CEILING)`, so the cap only ever removes a limit,
+/// never adds one.
+pub(crate) const ENEMY_HP_POOL_CAP_MAX: f64 = 5.0e16;
+
+/// Resolves a live `enemy_hp_pool_hard_cap` reading into the usable
+/// range: non-finite -> the shipped default (same discipline as
+/// `finite_or`/`sanitize_mult`, so a NaN tunable can never reach the
+/// division in `capped_hp_mult_for_pool`), otherwise clamped into
+/// [`ENEMY_HP_POOL_CAP_MIN`, `ENEMY_HP_POOL_CAP_MAX`]. The clamp is
+/// defence-in-depth behind the form's own `min`/`max` validation, not the
+/// primary bound - see `do_save_tunables`.
+pub(crate) fn sanitize_pool_cap(value: f64) -> f64 {
+    if !value.is_finite() {
+        return ENEMY_HP_POOL_HARD_CAP;
+    }
+    value.clamp(ENEMY_HP_POOL_CAP_MIN, ENEMY_HP_POOL_CAP_MAX)
+}
 
 /// Hard absolute ceiling on either controller's multiplier, regardless of
 /// tunable settings.
@@ -329,10 +398,15 @@ pub(crate) fn effective_multipliers(hp_controller: f64, dmg_controller: f64, sta
     }
 }
 
-/// Caps a composed HP multiplier so the SCALED pool cannot exceed
-/// `ENEMY_HP_POOL_HARD_CAP` regardless of how large the organic pool or
-/// the multipliers got. Applied at generation time, before any cast.
-pub(crate) fn capped_hp_mult_for_pool(base_pool: f64, hp_mult: f64) -> f64 {
+/// Caps a composed HP multiplier so the SCALED pool cannot exceed the
+/// live `enemy_hp_pool_hard_cap` regardless of how large the organic pool
+/// or the multipliers got. Applied at generation time, before any cast.
+///
+/// `pool_cap` is the raw tunable reading; it is sanitized here rather
+/// than at the call sites so every caller is safe by construction. At the
+/// shipped default this is byte-identical to the pre-2026-08-30 behaviour
+/// that read the constant directly.
+pub(crate) fn capped_hp_mult_for_pool(base_pool: f64, hp_mult: f64, pool_cap: f64) -> f64 {
     // A non-finite pool means the cap is uncomputable - there is no
     // multiplier we can honestly trust against it, so generation falls
     // back to neutral rather than scaling an already-broken number.
@@ -343,7 +417,7 @@ pub(crate) fn capped_hp_mult_for_pool(base_pool: f64, hp_mult: f64) -> f64 {
     if base_pool <= 0.0 {
         return sanitize_mult(hp_mult);
     }
-    let pool_cap_mult = ENEMY_HP_POOL_HARD_CAP / base_pool;
+    let pool_cap_mult = sanitize_pool_cap(pool_cap) / base_pool;
     sanitize_mult(hp_mult.min(pool_cap_mult))
 }
 
@@ -949,14 +1023,118 @@ mod tests {
 
     #[test]
     fn the_hp_pool_hard_cap_holds_for_any_input() {
-        let m = capped_hp_mult_for_pool(1.0e14, 1.0e6);
+        // Unchanged assertions, now passing the cap explicitly at its
+        // shipped default - this IS the byte-identical-at-default proof
+        // for this function: every expectation below is the pre-tunable
+        // one, untouched.
+        let cap = ENEMY_HP_POOL_HARD_CAP;
+        let m = capped_hp_mult_for_pool(1.0e14, 1.0e6, cap);
         assert!((m - 10.0).abs() < 1e-6, "{m} caps pool at 1e15");
-        let m = capped_hp_mult_for_pool(1.0e15, 1.0e6);
+        let m = capped_hp_mult_for_pool(1.0e15, 1.0e6, cap);
         assert!((m - 1.0).abs() < 1e-9);
-        assert_eq!(capped_hp_mult_for_pool(f64::INFINITY, 2.0), 1.0, "non-finite pool -> sanitized mult");
+        assert_eq!(capped_hp_mult_for_pool(f64::INFINITY, 2.0, cap), 1.0, "non-finite pool -> sanitized mult");
         let base = 9.0e14;
-        let m = capped_hp_mult_for_pool(base, 50.0);
+        let m = capped_hp_mult_for_pool(base, 50.0, cap);
         assert!(base * m <= ENEMY_HP_POOL_HARD_CAP + 1.0);
+    }
+
+    /// THE SAFETY PROPERTY (2026-08-30 tunable conversion). The default
+    /// must BE the old compile-time constant, or shipping the tunable
+    /// silently changes every fight.
+    #[test]
+    fn default_pool_cap_matches_the_shipped_constant() {
+        let t = LiveTunables::default();
+        assert_eq!(
+            t.enemy_hp_pool_hard_cap, ENEMY_HP_POOL_HARD_CAP,
+            "the tunable default must be bit-identical to the constant it replaced - anything else is a live behaviour change"
+        );
+        assert_eq!(ENEMY_HP_POOL_HARD_CAP, 1.0e15, "and that constant is still the value production has been running");
+    }
+
+    /// The generation path is byte-identical at the default: for a swept
+    /// range of pools and multipliers, passing the tunable default must
+    /// produce EXACTLY the bits the old constant-reading code produced.
+    #[test]
+    fn generation_is_bit_identical_at_the_default_cap() {
+        let default_cap = LiveTunables::default().enemy_hp_pool_hard_cap;
+        for &base_pool in &[0.0, -1.0, 1.0, 1.0e6, 7.4894e13, 1.0e14, 1.0e15, 9.0e15, f64::INFINITY, f64::NAN] {
+            for &hp_mult in &[0.01, 1.0, 13.35, 172.6, 400.0, 1.0e6, 1.0e9] {
+                // The pre-tunable body, reproduced exactly.
+                let expected = if !base_pool.is_finite() {
+                    1.0
+                } else if base_pool <= 0.0 {
+                    sanitize_mult(hp_mult)
+                } else {
+                    sanitize_mult(hp_mult.min(ENEMY_HP_POOL_HARD_CAP / base_pool))
+                };
+                let actual = capped_hp_mult_for_pool(base_pool, hp_mult, default_cap);
+                assert_eq!(
+                    actual.to_bits(),
+                    expected.to_bits(),
+                    "pool {base_pool} x mult {hp_mult}: tunable default produced {actual}, constant produced {expected}"
+                );
+            }
+        }
+    }
+
+    /// Raising the tunable actually delivers a bigger pool, and past the
+    /// point where the organic pool x the requested multiplier fits, the
+    /// cap stops binding entirely (the multiplier passes through
+    /// untouched). Uses the real measured live numbers from ledger #67.
+    #[test]
+    fn raising_the_pool_cap_scales_the_delivered_pool_and_then_stops_binding() {
+        let base_pool = 7.4894e13_f64; // measured live organic pool, stage 7373
+        let requested = 186.0_f64; // Controller A's measured honest request
+
+        // At the shipped default the cap binds hard, reproducing the live
+        // 13.35 and the 2.69s fight against a 3.7149e14 DPS party.
+        let m_default = capped_hp_mult_for_pool(base_pool, requested, ENEMY_HP_POOL_HARD_CAP);
+        assert!((m_default - 13.35).abs() < 0.01, "default cap must reproduce the measured 13.35, got {m_default}");
+        assert!((base_pool * m_default - 1.0e15).abs() < 1.0e9, "delivered pool must be the cap");
+        let duration_s = base_pool * m_default / 3.7149e14;
+        assert!((duration_s - 2.69).abs() < 0.05, "measured live duration is ~2.69s, got {duration_s}");
+
+        // Delivered pool scales linearly with the tunable while it binds.
+        for &cap in &[2.0e15, 5.0e15, 1.0e16] {
+            let m = capped_hp_mult_for_pool(base_pool, requested, cap);
+            assert!((base_pool * m - cap).abs() < cap * 1e-9, "cap {cap} must be delivered exactly while it binds");
+            assert!(m < requested, "cap {cap} should still bind against a request of {requested}");
+        }
+
+        // At 1.4e16 the target window becomes reachable...
+        let m = capped_hp_mult_for_pool(base_pool, requested, 1.4e16);
+        let duration_s = base_pool * m / 3.7149e14;
+        assert!(duration_s >= 30.0 && duration_s <= 45.0, "1.4e16 should land inside the 30-45s window, got {duration_s}s");
+
+        // ...and once the cap exceeds base_pool * requested it stops
+        // binding altogether: A's request passes through untouched.
+        let m = capped_hp_mult_for_pool(base_pool, requested, ENEMY_HP_POOL_CAP_MAX);
+        assert_eq!(m.to_bits(), requested.to_bits(), "at the ceiling the cap must not bind at all, got {m}");
+    }
+
+    /// Out-of-range readings never reach the division. The FORM reports
+    /// them (min/max on the rendered input - see the tunables page); this
+    /// is the defence-in-depth behind a hand-crafted POST.
+    #[test]
+    fn pool_cap_bounds_reject_out_of_range_and_non_finite_readings() {
+        assert_eq!(sanitize_pool_cap(ENEMY_HP_POOL_HARD_CAP), ENEMY_HP_POOL_HARD_CAP, "the default is inside the range");
+        assert_eq!(sanitize_pool_cap(0.0), ENEMY_HP_POOL_CAP_MIN, "zero must not produce instant fights");
+        assert_eq!(sanitize_pool_cap(-1.0e20), ENEMY_HP_POOL_CAP_MIN);
+        assert_eq!(sanitize_pool_cap(1.0e9), ENEMY_HP_POOL_CAP_MIN, "below the floor clamps up to today's behaviour");
+        assert_eq!(sanitize_pool_cap(1.0e30), ENEMY_HP_POOL_CAP_MAX);
+        assert_eq!(sanitize_pool_cap(f64::NAN), ENEMY_HP_POOL_HARD_CAP, "NaN must never reach the division");
+        assert_eq!(sanitize_pool_cap(f64::INFINITY), ENEMY_HP_POOL_HARD_CAP);
+        assert_eq!(sanitize_pool_cap(f64::NEG_INFINITY), ENEMY_HP_POOL_HARD_CAP);
+
+        // The floor IS the default, deliberately - the dial only goes up.
+        assert_eq!(ENEMY_HP_POOL_CAP_MIN, ENEMY_HP_POOL_HARD_CAP, "the floor is today's shipped value; a lower cap only shortens already-2.69s fights");
+        // The ceiling must clear the ~1.39e16 the 37.5s midpoint needs,
+        // or the tunable cannot do the job it exists for.
+        assert!(ENEMY_HP_POOL_CAP_MAX > 1.4e16, "ceiling must make the duration window reachable");
+        // Per-unit precision holds at the ceiling: one boss out of a live
+        // 35-boss encounter stays well inside f64's 2^53 exact-integer
+        // bound, so no u64 stat loses precision.
+        assert!(ENEMY_HP_POOL_CAP_MAX / 35.0 < 9.007e15, "per-boss HP at the ceiling must stay exactly representable");
     }
 
     #[test]
