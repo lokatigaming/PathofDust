@@ -294,3 +294,9 @@ COORDINATION — one line inside the wiki module was changed:
 `published_constants_path()`. Not a content or route change; it had to move
 with the writer or the wiki would have rendered "varies" forever once
 `GAME_DATA_DIR` is set. Flagged for the wiki session.
+
+FOUND (DEPLOY-POOL-CAP-TUNABLE) — three clippy warnings land on the new
+branch code, all inside `mod tests` in `pacing.rs` (`manual
+RangeInclusive::contains` at :1107; `this assertion has a constant value` at
+:1133 and :1137). Test-only, clippy exits 0, shipped code is clean. Left
+unfixed during the deploy window; recorded in anomaly ledger #68.

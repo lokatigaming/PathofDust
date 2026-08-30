@@ -2780,3 +2780,143 @@ Recommend fixing A first and NOT touching B — B should fall on its own
 once fights last long enough for boss damage to matter.
 
 No code, tunable or live value was changed by this investigation.
+
+---
+
+**#68 — DEPLOY RECORD: the `enemy_hp_pool_hard_cap` LiveTunable ships,
+DEFAULT UNCHANGED at 1e15. Nothing about live play changed. THE BRANCH
+NAME DOES NOT DESCRIBE WHAT SHIPPED.**
+
+Merged and deployed by the deploy session (DEPLOY-POOL-CAP-TUNABLE). One
+merge: `feature/boss-defense-shred` (`7e7bfe0`) -> `fd31a18`, no
+conflicts. Plus `c1a7a8f`, the gitignore commit for this deploy's backup
+dir. Pushed as `9101730..c1a7a8f`.
+
+**READ THIS BEFORE ASSUMING FROM THE GIT LOG.** The branch is named
+`feature/boss-defense-shred` and **no defence shred ships in it.** That
+design was investigated and ABANDONED — measurement refuted its premise.
+The entire content of this release is the pool-cap tunable conversion
+described below. Anyone reading the log later will otherwise assume a
+shred landed; it did not.
+
+| item | value |
+| --- | --- |
+| merge | `fd31a18` |
+| source state the binary was built from | `fd31a18` |
+| old `game.exe` SHA-256 | `9EB658FF828C2CCB6AEFAE000CD83BC32FC4098B5188969F6FB4AF9E91C3AC94` |
+| new `game.exe` SHA-256 | `6957791CD4A0D06A5CB8AAB98F962B262ADE6E7CC6203F420062E3091F68E3F9` |
+| bot | **unchanged, not redeployed (diff-clean)** — no path in `31165ad..c1a7a8f` falls under `src/**` or root `Cargo.toml`/`Cargo.lock`; every code path is `game/**`. Freshly built `twitch-bot-rs.exe` hashed `723893E9...` vs live `FA9BB513...`; per §13 the diff is authoritative, not the hash, so the mismatch is noted and skipped. |
+| rollback | `backup-pre-pool-cap/game.exe` + `target/release/game.exe.pre-pool-cap` |
+| patch notes | "August 30, 2026" -> `Internal: Enemy HP Pool Cap Is Now A Dial` |
+| maintenance flag | set `18:22:09`, `scope :` line confirmed, **cleared** after the health check |
+| pre-deploy backup | `backup-game-data.ps1` -> `pod-backups\PathofDust\pod-backup-20260830-180323`, manifest `verdict: clean`, 253 files, 0 failed. Plus the 200-file `adventure-fights-summary/` snapshot pinned into `backup-pre-pool-cap/` inside the stop window. |
+
+**What shipped.** `pacing::ENEMY_HP_POOL_HARD_CAP` — the compile-time
+constant that #67 measured as the root cause of the pacing saturation —
+becomes the `enemy_hp_pool_hard_cap` LiveTunable, bounded to
+[`ENEMY_HP_POOL_CAP_MIN` = 1e15, `ENEMY_HP_POOL_CAP_MAX` = 5e16], with a
+unit-stating control on `/admin/tunables`. `capped_hp_mult_for_pool`
+gains a `pool_cap` parameter and sanitizes it internally; the two call
+sites at `manager.rs:4985` and `manager.rs:5610` pass
+`tunables.enemy_hp_pool_hard_cap`. **The default is bit-identical to the
+constant it replaced**, guarded by
+`default_pool_cap_matches_the_shipped_constant` and
+`generation_is_bit_identical_at_the_default_cap`.
+
+**The property verified was "nothing changed", and it held.**
+
+| gate | result |
+| --- | --- |
+| golden corpus, all 17 fixtures deleted and regenerated | **no combat value moved.** Every changed line across all 17 files is a `hitId` or `eventId`; a filter for changed lines that are neither returns **0**. Fixtures restored to their committed aggregate hash `49c367ea...` and left untouched — nothing regenerated into the tree. |
+| full suite | **755 passed, 0 failed, 0 ignored** — `cargo test --release --workspace --quiet --target-dir C:\PathofDust\target-pool-cap`. Up from 750; the delta is exactly the 5 new pool-cap tests (4 in `pacing::tests`, 1 in `game/tests/admin_tunables_pool_cap_http.rs`), 0 tests removed. |
+| ledger #49 — key absent from the live TOML before the swap | **absent**, so no silent activation at the swap. |
+| key still absent after the swap | **absent**; file mtime still `08/29 15:03`, untouched by the restart. The shipped default was what ran. |
+| 6 post-restart fights (`17446`, `17447`, `17448`, `17453`, `17454`, `17455`) | generated boss pool **exactly `1.000000e+15` in every one**, duration **2.0-2.2 s** — identical to the pre-swap fights `17444`/`17445`. Unchanged, as intended. |
+| `/admin/tunables` renders the field | yes — label `Enemy HP Pool Cap (hit points, summed over all enemies)`, hint opens `Unit: hit points.`, input carries `min="1000000000000000"` `max="50000000000000000"` `required`, value `1000000000000000`. |
+| site health | `/`, `/overlay`, `/admin/tunables`, `/admin/passives`, `/fights`, `/passives`, `/patch-notes`, `/characters`, `/inventory` all HTTP 200. (`/feed` returns 404 — **there is no `/feed` route registered**; not a regression.) `LastTaskResult` `267009` = `SCHED_S_TASK_RUNNING`. Bot untouched, still listening on 4001. |
+
+**The cap is left at the shipped default `1e15`.** It was not raised.
+Confirmed on disk and on the rendered page after the bounds tests below.
+
+**Clippy, stated plainly.** `cargo clippy --release --workspace
+--all-targets` exits 0. Three NEW warnings land on this branch's own
+lines, all inside the new `mod tests` block in `pacing.rs` and none in
+shipped code: `manual RangeInclusive::contains` at `pacing.rs:1107`, and
+`this assertion has a constant value` at `pacing.rs:1133` and `:1137`
+(both are deliberate compile-time-shaped guards on
+`ENEMY_HP_POOL_CAP_MAX`). Not fixed during the deploy window — recorded
+here instead, since a test-only lint is not worth a rebuild of a release
+whose whole property is that nothing moved.
+
+---
+
+**#69 — the out-of-range guard on `enemy_hp_pool_hard_cap` CLAMPS
+SILENTLY and reports `saved=1`; it does not reject with a visible error.
+The safety property holds, the operator feedback does not. Found while
+running DEPLOY-POOL-CAP-TUNABLE checks 10 and 11.**
+
+The deploy order asked for out-of-range POSTs to be "rejected with a
+visible error — not silently clamped, not accepted." Measured against the
+live handler:
+
+| POST | value sent | response | value stored |
+| --- | --- | --- | --- |
+| below floor | `1e14` | **HTTP 303 -> `/admin/tunables?saved=1`** | `1000000000000000.0` (= 1e15 floor) |
+| above ceiling | `5e17` | **HTTP 303 -> `/admin/tunables?saved=1`** | `50000000000000000.0` (= 5e16 ceiling) |
+
+Both were **accepted and silently clamped**, not rejected. Bodies were
+derived from the rendered form per the house rule (67 fields scraped out
+of the `/admin/tunables/save` form, checkboxes included only where
+`checked`), so this is the real browser field set, not a hand-maintained
+superset.
+
+**The guard against instant-win fights still holds** — `sanitize_pool_cap`
+made a below-floor value unreachable, and the stored result was exactly
+the floor. What is missing is the *report*: the page says "saved" while
+having changed the operator's number underneath them. The rejection the
+order expected exists only in the browser, as HTML5 `min`/`max`/`required`
+constraint validation on the input; anything that reaches the handler is
+clamped. This is what `do_save_tunables` and the field's own hint already
+say they do ("Out-of-range is rejected by the form; a POST that bypasses
+the browser is clamped instead"), so it is a deliberate design, not a
+bug — but it does not satisfy the order as written, and the mismatch is
+recorded rather than fixed. **Owner ruling owed:** should an out-of-range
+value re-render the form with an error instead of clamping?
+
+**One live fight was perturbed by the check-11 test and it is worth
+knowing why.** Between the `5e17` POST and the restore, fight `17458`
+(stage 7482, `18:35:47`) generated at the clamped ceiling and produced a
+pool of **`1.787231e+16` over 8.2 s** rather than the usual `1.000000e+15`
+over ~2 s. Note it landed at 1.79e16, not 5e16: with the cap that high it
+stopped binding at all and Controller A's full honest request came through
+untouched — precisely the documented behaviour. The cap was restored to
+`1e15` immediately and fight `17459` (`18:36:48`) was back to
+`1.000000e+15` over 2.6 s. One 8.2 s sample now sits in A's 20-fight DPS
+window; it will wash out on its own. No other fight was affected.
+
+---
+
+**#70 — raising this cap, when the owner does it, is a LARGE TWO-SIDED
+CHANGE, not a routine tweak. Recorded now so the eventual dialling is not
+mistaken for one.**
+
+The tunable shipped inert (#68) and the owner will raise it deliberately,
+in watched steps. Both sides of the fight move at once:
+
+1. **Boss HP pools rise proportionally.** While the cap binds, the
+   delivered aggregate IS the cap — so the number entered is very nearly
+   the pool that shows up, until it exceeds `base_pool x` Controller A's
+   request, past which A passes through untouched and further raises do
+   nothing (observed live at 1.79e16 during #69).
+2. **Every time-based boss mechanic currently starved by the 2.7-second
+   fight starts running to completion.** This is the half that is easy to
+   miss. `boss_defense_ignore` at 2%/s reaches roughly **0.12** in
+   today's fight and would reach roughly **0.70** over a 35-second one.
+   Pierce ramps further. The Gelatinous Cube's 3-second shred window
+   **actually opens** — today the fight is over before it does.
+
+So the party does not merely fight a bigger health bar for longer; it
+fights bosses whose ramping mechanics have had time to mature. Raise in
+small steps and watch both, per the field's own hint on
+`/admin/tunables`. #67 has the arithmetic; ~1.4e16 is where the 30-45 s
+target window becomes reachable at the party's measured 3.71e14 DPS.
