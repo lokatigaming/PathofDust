@@ -246,3 +246,4 @@ target-deploy-remove-patreon/
 /backup-pre-bot-standalone
 /backup-pre-linux-readiness
 target-deploy-bot-standalone/
+backup-pre-pool-cap/
