@@ -2512,3 +2512,26 @@ Scope for the follow-up: wrap both children in the same guard shape the
 Linux-readiness branch used. One file, no behaviour change, no fixture
 impact. Not urgent while the asserts pass — which is exactly why it will
 sit there until something makes one of them fail.
+
+**#64 — CLAUDE.md section 7 protects wiki CONTENT, not the wiki
+RENDERER. `game/src/adventure_web/wiki.rs` is code and is editable when a
+change is mechanically necessary. Owner ruling, 2026-08-30.**
+
+Section 7 ("wiki/*.md files are live content — the owner edits them
+directly; sessions request changes via WIKI_IMPACT.md, never edit them
+unasked") covers the owner-authored `wiki/*.md` text. It does NOT cover
+`game/src/adventure_web/wiki.rs`, the Rust module that renders that text.
+Ruled in response to the Linux-readiness deploy (`31165ad`), which
+changed one line there — `PUBLISHED_CONSTANTS_PATH` (a `&str` constant)
+to `published_constants_path()` (a function) — as a mechanical call-site
+update: **APPROVED, no action.** Leaving the reader behind while the
+writer moved through `GAME_DATA_DIR` would have made the wiki render
+"varies" permanently the moment `GAME_DATA_DIR` was set.
+
+Recorded so the boundary cuts both ways. A future session should neither
+hesitate over a necessary renderer change, nor read this as licence to
+edit the wiki text — that still goes through WIKI_IMPACT.md, unchanged.
+The multi-session coordination rules in CLAUDE.md (do not edit the wiki
+module or the /wiki route registrations while a wiki session is in
+flight) are a separate concern from section 7 and still apply: flag the
+change, as the Linux-readiness deploy did.
