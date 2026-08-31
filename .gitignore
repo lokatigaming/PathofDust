@@ -250,3 +250,7 @@ backup-pre-pool-cap/
 
 # Staging server address - session-local, never committed (LINUX-STAGING).
 .server-ip
+
+# Pre-deploy binary + data backup for the admin-gates release (2026-08-31);
+# same "backup before overwrite" discipline as backup-pre-bake above.
+/backup-pre-admin-gates
