@@ -143,10 +143,75 @@ dashboard's real title.
 
 - **Restarting the game does not need a tunnel restart.** cloudflared retries the origin; a
   `systemctl restart pathofdust` shows up as a short window of 502s and recovers on its own.
-- **`--no-autoupdate` is in the generated unit.** cloudflared will not upgrade itself; a version
-  bump is a deliberate `dpkg -i` of a newer `.deb` followed by `systemctl restart cloudflared`.
+- **Auto-update is off, but `--no-autoupdate` is not what turned it off.** See below — this was
+  wrong when first written and the correction matters.
 - **Retiring this** is `systemctl disable --now cloudflared`, `cloudflared service uninstall`,
   `cloudflared tunnel delete pod-staging` (which revokes the credentials JSON), and removing the
   `staging` CNAME from the zone. Deleting the tunnel does **not** remove the DNS record.
 - Production's tunnel, its config under `C:\Users\Administrator\.cloudflared\`, and
   `adventure.lokati.net` were not read or written by this work.
+
+## Auto-update: what `--no-autoupdate` covers, and what it does not
+
+**Correction (2026-08-31, LINUX-BACKUPS session).** An earlier version of this document said
+"`--no-autoupdate` is in the generated unit, cloudflared will not upgrade itself." That was
+wrong, and it was wrong in the direction that matters: the flag was present and cloudflared
+*was* still going to upgrade itself on a schedule.
+
+`cloudflared service install` does not create one unit. It creates **three**, all written
+directly into `/etc/systemd/system` and none of them owned by dpkg (`dpkg -S` finds no package
+for any of them):
+
+| Unit | What it does |
+|---|---|
+| `cloudflared.service` | the tunnel daemon, `ExecStart=… --no-autoupdate … tunnel run` |
+| `cloudflared-update.service` | `cloudflared update`, and `systemctl restart cloudflared` if the update returns exit code 11 |
+| `cloudflared-update.timer` | `OnCalendar=daily`, triggering the above |
+
+`--no-autoupdate` stops the **running daemon** from replacing its own binary in-process. It says
+nothing about the separate timer, which is a different unit running a different command. Both
+can be — and here both were — active at once: the timer was `disabled` (so it would not survive
+a reboot) but `active` (so it would have fired that same night, upgraded cloudflared and
+restarted the tunnel, unattended). `systemctl is-enabled` alone would have been reassuring and
+wrong; `systemctl list-timers` is what showed it.
+
+**Ruling: cloudflared version changes are deliberate, by hand, with the tunnel restart observed.**
+Both update units are now disabled and masked, with an upgrade-proof backstop:
+
+```sh
+systemctl disable --now cloudflared-update.timer
+# `systemctl mask` normally wins by shadowing /lib from /etc - but these units ARE in /etc,
+# so the real files have to move out of the way before the mask symlinks can be created.
+mkdir -p /root/cloudflared-update-units.pkg-disabled
+mv /etc/systemd/system/cloudflared-update.timer \
+   /etc/systemd/system/cloudflared-update.service \
+   /root/cloudflared-update-units.pkg-disabled/
+systemctl daemon-reload
+systemctl mask cloudflared-update.timer cloudflared-update.service
+
+# Backstop: if a future `cloudflared service install` or package upgrade ever replaces the
+# masked unit file, a drop-in still neuters it. An empty OnCalendar= clears every trigger the
+# unit declares, and drop-in directories are not touched by unit-file replacement.
+mkdir -p /etc/systemd/system/cloudflared-update.timer.d
+printf '[Timer]\nOnCalendar=\n' > /etc/systemd/system/cloudflared-update.timer.d/99-never.conf
+systemctl daemon-reload
+```
+
+Verified after: `is-enabled` → `masked` for both, `is-active` → `inactive`,
+`systemctl list-timers --all | grep -c cloudflared-update` → `0`, tunnel still `active` and
+`https://staging.lokati.net` still **200**.
+
+### Upgrading cloudflared on purpose
+
+```sh
+curl -fsSL --output cloudflared-linux-amd64.deb \
+  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+dpkg -i cloudflared-linux-amd64.deb        # replaces the binary; does NOT touch the units
+cloudflared --version                       # confirm the version actually moved
+systemctl restart cloudflared
+journalctl -u cloudflared --since -2min | grep "Registered tunnel connection"
+curl -sI https://staging.lokati.net | head -1
+```
+
+Do not re-run `cloudflared service install` to pick up a new version — it rewrites the unit
+files and would re-create the update timer, undoing the mask above.
