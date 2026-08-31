@@ -99,8 +99,8 @@ async fn operator_bootstrap_releases_only_the_current_operator_login() {
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

@@ -115,8 +115,8 @@ async fn operator_login_moves_all_three_gates_and_lokati_gaming_stays_reserved()
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

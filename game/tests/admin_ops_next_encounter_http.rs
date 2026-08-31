@@ -55,8 +55,8 @@ async fn admin_ops_next_encounter_gates_reports_and_refuses_a_double_press() {
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

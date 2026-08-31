@@ -58,8 +58,8 @@ async fn unique_shard_apply_and_choose_veil_both_work_over_real_http() {
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

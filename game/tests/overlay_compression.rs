@@ -40,8 +40,8 @@ async fn a_connection_without_wire_deflate_gets_text_only_even_while_a_compresse
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

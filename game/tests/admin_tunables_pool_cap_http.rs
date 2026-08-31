@@ -53,8 +53,8 @@ async fn the_enemy_hp_pool_cap_renders_with_bounds_and_round_trips_through_a_rea
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

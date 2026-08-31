@@ -43,8 +43,8 @@ async fn memories_routes_drive_a_disposable_game_instance_end_to_end() {
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0, // ephemeral - the OS picks a free port, so this can never collide with the live game
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

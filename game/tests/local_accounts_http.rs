@@ -86,8 +86,8 @@ async fn local_accounts_mint_sessions_and_refuse_to_collide_with_existing_identi
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path.clone(),
         None,

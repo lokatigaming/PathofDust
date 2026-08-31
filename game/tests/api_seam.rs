@@ -189,8 +189,8 @@ async fn api_seam_end_to_end_against_a_disposable_game_instance() {
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0, // ephemeral
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         scratch.join("adventure-sessions.json"),
         Some(TEST_SECRET.to_string()),
