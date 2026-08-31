@@ -2960,14 +2960,44 @@ malformed `baseline_stage_anchors` (`0, abc, 1000`) → 400 with a worked
 example, and the three anchor lists confirmed intact **in the file**, not
 just in the response. This is the behaviour #69 said was missing.
 
-**FOUND, pre-existing, NOT caused by this release and NOT touched by it:
-`enemy_hp_pool_hard_cap` is live at `50000000000000000.0` (5e16), the
-ceiling — not the `1e15` default that #68 shipped and that #69 says was
-"restored immediately".** It reads 5e16 in the snapshot taken before this
-deploy touched anything, so the restore #69 describes did not land in the
-file (or the value was raised afterwards). Per #70 this is a large
-two-sided change, so it is recorded and left exactly as found — the
-owner's call, not a deploy session's.
+**Live pacing values observed at deploy time, and why they are NOT drift.
+CORRECTION, entered after the initial write-up of this entry got the
+conclusion wrong.** Two pacing values on this box sit away from their
+shipped defaults, and BOTH are the owner's deliberate operating point:
+
+| tunable | shipped default | OPERATING VALUE (owner ruling) |
+| --- | --- | --- |
+| `enemy_hp_pool_hard_cap` | `1e15` | **`5e16`** |
+| `hp_multiplier_ceiling` | `400` | **`1000`** |
+
+**Do not "restore" either one.** The sequence, so no future session
+mistakes the gap for a regression: #68 shipped
+`enemy_hp_pool_hard_cap` as a tunable with its default deliberately
+UNCHANGED at `1e15`, inert. #69's "restored to 1e15" refers ONLY to that
+deploy session's own brief test perturbation during out-of-range
+verification, and was correct at that moment. **Afterwards, by owner
+ruling, the cap was set to `5e16` and `hp_multiplier_ceiling` was raised
+from `400` to `1000`.** That ruling is what unpinned both pacing
+controllers.
+
+What it bought, and what reverting it would cost:
+
+| | before the ruling | after |
+| --- | --- | --- |
+| Controller A | requested `172.6`, delivered `13.35` — ~92% of its output discarded by the cap | passes through |
+| Controller B | pinned at its ceiling of `100` | fell to under `2` |
+| fight length | `2.69 s` against a 30-45 s target | ~30 s |
+| losses | none in a 40-plus fight win streak | reappeared |
+
+So `1e15` is the SHIPPED DEFAULT and `5e16` is the OPERATING VALUE.
+Reverting the cap to its default would **re-pin both controllers and
+return fights to roughly two seconds** — this entry exists so that is
+never done by a session tidying config back toward defaults. **#67 holds
+the root-cause analysis**; #70 describes why the dialling was a large
+two-sided change rather than a routine tweak.
+
+This deploy neither caused nor touched either value: the no-op-save check
+above returned the file byte-identical, `5e16` and `1000` included.
 
 ---
 
