@@ -261,10 +261,21 @@ Alongside them: the four `adventure-fights-*-seq.json` counters,
 `adventure-characters.json`, `adventure-accounts.json`, `adventure-sessions.json`, the
 one-time migration/backfill markers the first run wrote, and `logs/game.log.2026-08-31`.
 
-**Season-1 baseline.** ~57 KB per fight for a two-character party at stage 1 is trivially
-small — at the 180 s basic-encounter cadence that is on the order of 1 GB/year of fight
-storage with a party this size, on a box with 297 G free. The number will grow with party
-size and stage; this is the floor to compare future measurements against.
+After six fights the tiers hold different counts, which is tiered retention working rather
+than a fault — the cheap tiers keep everything and the expensive ones do not:
+
+| Tier | Total | Files retained (of 6 fights) |
+|---|---|---|
+| summary | 3,242 B | 6 |
+| coarse | 30,470 B | 5 |
+| detail | 69,247 B | 3 |
+| bundle | 73,086 B | 3 |
+
+**Season-1 baseline.** ~57 KB for a freshly written fight across all four tiers, with a
+two-character party at stage 1, is trivially small — and retention makes steady-state growth
+slower still. Total game state went 216 K → 380 K across those six fights, on a box with
+297 G free. Both numbers grow with party size and stage; this is the floor to compare future
+measurements against.
 
 Footprint of `/var/lib/pathofdust`:
 
