@@ -1,1 +1,10 @@
 *.rs text eol=lf
+
+# Anything that runs on, or is parsed by, the Linux box must stay LF.
+# core.autocrlf is true here, so without these a fresh Windows checkout
+# hands you a backup script whose shebang ends "\r" and a Linux box that
+# answers "bad interpreter: /bin/bash^M".
+*.sh text eol=lf
+*.service text eol=lf
+*.timer text eol=lf
+backup-pull-shell text eol=lf

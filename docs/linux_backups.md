@@ -24,6 +24,22 @@ repo.
 
 One archive measured **2.7 MB / 122 files** on 2026-08-31.
 
+### Installing the script from the repo
+
+```sh
+install -o root -g root -m 0755 <src>/backup-game-data.sh /opt/pathofdust/bin/
+install -o root -g root -m 0755 <src>/backup-pull-shell   /opt/pathofdust/bin/
+install -o root -g root -m 0644 <src>/pathofdust-backup.service /etc/systemd/system/
+install -o root -g root -m 0644 <src>/pathofdust-backup.timer   /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now pathofdust-backup.timer
+```
+
+`.gitattributes` pins `*.sh`, `*.service`, `*.timer` and `backup-pull-shell` to `eol=lf`. It has
+to: this repo has `core.autocrlf=true`, and without those rules a fresh Windows checkout hands
+you a script whose shebang ends `\r` and a Linux box that answers `bad interpreter:
+/bin/bash^M`. If you ever copy one of these out of a Windows working copy by some other route,
+pipe it through `tr -d '\r'` first.
+
 ## What is backed up
 
 An **allow-list derived from the code**, not a glob, carried over from the PowerShell original
