@@ -91,8 +91,14 @@ async fn the_permanent_rampage_checkbox_round_trips_through_a_real_form_post() {
     }
     assert!(rendered.contains(&"permanent_rampage"), "the checkbox must be inside the save form, not merely on the page");
 
+    // Every field takes "1" except the Enemy HP Pool Cap, whose accepted
+    // range starts at 1e15 - since 2026-08-31 an out-of-range value is
+    // REJECTED rather than silently clamped (ledger #69), so a filler that
+    // is out of range would now fail this test for the wrong reason.
+    let filler = |name: &str| if name == "enemy_hp_pool_hard_cap" { "1000000000000000" } else { "1" };
+
     // --- checked: the box is present in the body ------------------------
-    let with_box: Vec<(&str, &str)> = rendered.iter().map(|name| (*name, "1")).collect();
+    let with_box: Vec<(&str, &str)> = rendered.iter().map(|name| (*name, filler(name))).collect();
     let saved = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&with_box).send().await.expect("POST failed");
     assert!(saved.status().is_redirection(), "posting exactly the {} fields the page renders must extract cleanly - got {}", rendered.len(), saved.status());
     assert!(manager.live_tunables().permanent_rampage, "a save carrying permanent_rampage must turn it ON in the live tunables the game reads");
@@ -111,7 +117,7 @@ async fn the_permanent_rampage_checkbox_round_trips_through_a_real_form_post() {
     // HTML checkbox sends no key at all, so `Option<String>` + `is_some()`
     // is the only thing standing between "turn rampage off" and "422, and
     // nothing changed".
-    let without_box: Vec<(&str, &str)> = rendered.iter().filter(|name| **name != "permanent_rampage").map(|name| (*name, "1")).collect();
+    let without_box: Vec<(&str, &str)> = rendered.iter().filter(|name| **name != "permanent_rampage").map(|name| (*name, filler(name))).collect();
     assert_eq!(without_box.len(), rendered.len() - 1, "sanity: exactly the checkbox was dropped from the body");
     let saved = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&without_box).send().await.expect("POST failed");
     assert!(saved.status().is_redirection(), "a body omitting the unchecked box must still extract - got {}. A 422 here means permanent_rampage is required rather than optional", saved.status());

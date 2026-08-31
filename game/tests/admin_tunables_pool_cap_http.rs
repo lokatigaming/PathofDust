@@ -138,21 +138,40 @@ async fn the_enemy_hp_pool_cap_renders_with_bounds_and_round_trips_through_a_rea
     assert!(on_disk.contains("enemy_hp_pool_hard_cap = 14000000000000000"), "the cap must survive a restart - got: {on_disk}");
 
     // --- out of range cannot get through by bypassing the browser -------
-    // The form's min/max is what an operator sees. A hand-crafted POST
-    // has no such gate, so the handler clamps rather than letting a value
-    // that would produce instant fights (or lose per-unit precision)
-    // reach generation.
-    for (attempt, expected) in [("1000", CAP_MIN), ("0", CAP_MIN), ("-5", CAP_MIN), ("999999999999999999999", CAP_MAX)] {
+    // The form's min/max is what an operator sees. A hand-crafted POST has
+    // no such gate. Until 2026-08-31 the handler CLAMPED such a POST and
+    // answered `303 ?saved=1` - the guard held, but the page reported a
+    // success while changing the operator's number (ledger #69). It now
+    // REJECTS: 400, the field and its range named, and - the part that
+    // matters most - the live value is left exactly where it was.
+    let before = manager.live_tunables().enemy_hp_pool_hard_cap;
+    assert_eq!(before, 1.4e16, "sanity: the raise above is what must survive every rejected POST below");
+    for attempt in ["1000", "0", "-5", "999999999999999999999"] {
         let body: Vec<(&str, &str)> =
             rendered.iter().map(|name| if *name == "enemy_hp_pool_hard_cap" { (*name, attempt) } else { (*name, "1") }).collect();
         let saved = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&body).send().await.expect("POST failed");
-        assert!(saved.status().is_redirection(), "the hostile POST {attempt} must still extract - got {}", saved.status());
+        assert_eq!(saved.status(), reqwest::StatusCode::BAD_REQUEST, "the out-of-range POST {attempt} must be REJECTED, not clamped and reported as saved");
+        let body = saved.text().await.expect("body");
+        assert!(body.contains("NOT SAVED"), "the refusal must say plainly that nothing was written: {attempt}");
+        assert!(body.contains("enemy_hp_pool_hard_cap"), "the refusal must name the offending field: {attempt}");
+        assert!(
+            body.contains(&format!("{}", CAP_MIN)) || body.contains("1000000000000000"),
+            "the refusal must name the accepted range so the operator knows what to type: {attempt}"
+        );
         assert_eq!(
             manager.live_tunables().enemy_hp_pool_hard_cap,
-            expected,
-            "an out-of-range {attempt} must be clamped to {expected}, never stored as posted - a pool cap below the floor produces degenerate instant-win fights"
+            before,
+            "a rejected POST must leave the live value untouched - {attempt} must neither be stored nor clamped into place"
         );
     }
+
+    // The clamp itself is NOT deleted, and is not dead code either:
+    // `pacing::sanitize_pool_cap` is called on every generation read of the
+    // cap (`capped_hp_mult_for_pool`), and is covered directly by
+    // `pacing::tests::sanitize_pool_cap_*`. What changed here is only that
+    // an operator is now TOLD when a bound fires, not that the bound went
+    // away.
+    assert!(CAP_MAX > CAP_MIN, "sanity: the range this test asserts against is the real one");
 
     // --- a body that omits the field entirely preserves live behaviour --
     // The both-directions form-field trap (see CLAUDE.md): an older

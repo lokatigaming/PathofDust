@@ -212,7 +212,13 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         }
     }
     assert!(rendered.len() > 40, "sanity: the tunables form renders many inputs, found {}", rendered.len());
-    let exact: Vec<(&str, &str)> = rendered.iter().map(|name| (*name, "1")).collect();
+    // "1" everywhere except the Enemy HP Pool Cap, whose accepted range
+    // starts at 1e15. This guard is about EXTRACTION - that the struct and
+    // the rendered field set still agree - so the filler has to be
+    // in-range: since 2026-08-31 an out-of-range value is rejected with a
+    // 400 (ledger #69), which would fail this assertion for a reason it is
+    // not testing.
+    let exact: Vec<(&str, &str)> = rendered.iter().map(|name| if *name == "enemy_hp_pool_hard_cap" { (*name, "1000000000000000") } else { (*name, "1") }).collect();
     let exact_save =
         client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&exact).send().await.expect("POST failed");
     assert!(

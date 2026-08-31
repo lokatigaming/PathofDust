@@ -3038,7 +3038,7 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
         Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
             let current_pacing = state.adventure.current_pacing_status().await;
-            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some())
+            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some(), None)
         }
         _ => return admin_not_found(),
     };
@@ -3051,6 +3051,44 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
 /// behaviour instead of collapsing to 0.0.
 fn default_enemy_hp_pool_hard_cap() -> f64 {
     crate::adventure::pacing::ENEMY_HP_POOL_HARD_CAP
+}
+
+// Serde defaults for the nine dynamic-pacing fields whose accepted range
+// does NOT include zero (2026-08-31). `#[serde(default)]` on an `f64`
+// resolves to 0.0, which is BELOW every one of these floors - so a body
+// that omits them (an older client, or an integration test posting a
+// pre-existing field set) used to have 0.0 silently clamped up to the
+// floor, quietly overwriting live pacing config, and would now be
+// rejected outright. Resolving to the SHIPPED CONSTANT instead is the
+// same fix `default_enemy_hp_pool_hard_cap` above already applies, for
+// the same reason: an omitted field must preserve sane behaviour, never
+// 4xx and never collapse to a value nobody asked for.
+fn default_pacing_window_fights() -> u32 {
+    crate::adventure::pacing::defaults::PACING_WINDOW_FIGHTS
+}
+fn default_target_duration_min_s() -> f64 {
+    crate::adventure::pacing::defaults::TARGET_DURATION_MIN_S
+}
+fn default_target_duration_max_s() -> f64 {
+    crate::adventure::pacing::defaults::TARGET_DURATION_MAX_S
+}
+fn default_hp_multiplier_floor() -> f64 {
+    crate::adventure::pacing::defaults::HP_MULTIPLIER_FLOOR
+}
+fn default_hp_multiplier_ceiling() -> f64 {
+    crate::adventure::pacing::defaults::HP_MULTIPLIER_CEILING
+}
+fn default_target_win_loss_ratio() -> f64 {
+    crate::adventure::pacing::defaults::TARGET_WIN_LOSS_RATIO
+}
+fn default_dmg_multiplier_floor() -> f64 {
+    crate::adventure::pacing::defaults::DMG_MULTIPLIER_FLOOR
+}
+fn default_dmg_multiplier_ceiling() -> f64 {
+    crate::adventure::pacing::defaults::DMG_MULTIPLIER_CEILING
+}
+fn default_top_layer_half_stage() -> f64 {
+    crate::adventure::pacing::defaults::TOP_LAYER_HALF_STAGE
 }
 
 #[derive(Deserialize)]
@@ -3159,17 +3197,17 @@ struct TunablesForm {
     #[serde(default)]
     dynamic_pacing_enabled: Option<String>,
     /// See `LiveTunables::pacing_window_fights`'s doc.
-    #[serde(default)]
+    #[serde(default = "default_pacing_window_fights")]
     pacing_window_fights: u32,
-    #[serde(default)]
+    #[serde(default = "default_target_duration_min_s")]
     target_duration_min_s: f64,
-    #[serde(default)]
+    #[serde(default = "default_target_duration_max_s")]
     target_duration_max_s: f64,
     #[serde(default)]
     hp_max_step_per_fight: f64,
-    #[serde(default)]
+    #[serde(default = "default_hp_multiplier_floor")]
     hp_multiplier_floor: f64,
-    #[serde(default)]
+    #[serde(default = "default_hp_multiplier_ceiling")]
     hp_multiplier_ceiling: f64,
     /// See `LiveTunables::hp_relax_after_losses`'s doc.
     #[serde(default)]
@@ -3177,13 +3215,13 @@ struct TunablesForm {
     /// See `LiveTunables::hp_relax_step_per_fight`'s doc.
     #[serde(default)]
     hp_relax_step_per_fight: f64,
-    #[serde(default)]
+    #[serde(default = "default_target_win_loss_ratio")]
     target_win_loss_ratio: f64,
     #[serde(default)]
     dmg_max_step_per_fight: f64,
-    #[serde(default)]
+    #[serde(default = "default_dmg_multiplier_floor")]
     dmg_multiplier_floor: f64,
-    #[serde(default)]
+    #[serde(default = "default_dmg_multiplier_ceiling")]
     dmg_multiplier_ceiling: f64,
     /// Hand-authored baseline anchors, one CSV text input per axis
     /// (e.g. "0, 500, 1000" / "1.0, 0.92, 0.82"). Parsed by hand in
@@ -3201,7 +3239,7 @@ struct TunablesForm {
     top_layer_enabled: Option<String>,
     #[serde(default)]
     top_layer_cap_pct: f64,
-    #[serde(default)]
+    #[serde(default = "default_top_layer_half_stage")]
     top_layer_half_stage: f64,
     /// Manual override for Controller A's HP multiplier (see
     /// `AdventureManager::set_hp_pacing_mult`) - same blank-means-leave-
@@ -3222,25 +3260,271 @@ struct TunablesForm {
     boss_power_mult_override: String,
 }
 
-/// Same admin gate as the GET page above - a direct POST from someone
-/// other than `ADMIN_TUNABLES_LOGIN` is silently ignored (no error, no
-/// hint), same "don't reveal a restricted action exists" reasoning.
-/// Values are clamped to sane ranges (never negative, drop chances kept
-/// within 0-1) before being written - this is a trusted single-admin tool,
-/// not a public form, so the clamping is a sanity backstop against a typo
-/// rather than a security boundary.
-/// Parses one comma-separated admin-page anchor list ("0, 500, 1000").
-/// Whitespace-tolerant; ANY malformed entry invalidates the WHOLE list ->
-/// empty Vec -> the runtime validator reads neutral (baseline 1.0), so a
-/// typo can loosen the floor but never corrupt difficulty.
-fn parse_csv_u32_list(raw: &str) -> Vec<u32> {
-    raw.split(',').map(|piece| piece.trim().parse::<u32>()).collect::<Result<Vec<_>, _>>().unwrap_or_default()
+/// Every out-of-range value in one submitted `/admin/tunables` form
+/// (2026-08-31, ledger `#69`).
+///
+/// Before this, EVERY numeric field on the page was clamped SILENTLY and
+/// the page then reported `?saved=1` - the operator was told the save
+/// succeeded while the number they typed was changed underneath them.
+/// Rejection existed only as the browser's own `min`/`max`, which 7 of the
+/// 48 clamped fields did not even carry: `loot_mult`, `sand_mult`,
+/// `boss_health` and `boss_power` render no `min` at all against a server
+/// floor of 0, and `hp_max_step_per_fight`, `hp_relax_step_per_fight` and
+/// `dmg_max_step_per_fight` render no `max` against a server ceiling of
+/// 100. A POST from anything that is not the page - curl, an older client
+/// - bypassed all of it.
+///
+/// This is ONE pass over the whole form, not 48 separate checks. Each
+/// bound is still declared exactly once, where its clamp already lived,
+/// and now reports the change it would otherwise have made in silence.
+/// The whole form is walked before anything is rejected, so the operator
+/// learns about every typo in one round trip instead of one save per typo.
+///
+/// `clamping` is what keeps the clamp as defence-in-depth rather than the
+/// primary bound. The pass runs TWICE: first collecting, returning values
+/// exactly as typed so a rejected page can echo them back into the inputs;
+/// then - only once nothing has been rejected - clamping, which is
+/// provably a no-op at that point but keeps the backstop in place against
+/// non-finite input and against any bound added later without a violation
+/// path.
+#[derive(Default)]
+struct TunableViolations {
+    items: Vec<String>,
+    clamping: bool,
 }
 
-fn parse_csv_f64_list(raw: &str) -> Vec<f64> {
-    raw.split(',').map(|piece| piece.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().unwrap_or_default()
+impl TunableViolations {
+    /// A two-sided bound, e.g. a 0-1 chance.
+    fn clamp(&mut self, field: &str, value: f64, min: f64, max: f64) -> f64 {
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping && !value.is_finite() {
+            min
+        } else if self.clamping {
+            value.clamp(min, max)
+        } else {
+            value
+        }
+    }
+
+    /// A one-sided floor, e.g. a multiplier that may not go negative.
+    fn at_least(&mut self, field: &str, value: f64, min: f64) -> f64 {
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number, {} or more.", trim_float(min)));
+        } else if value < min {
+            self.items.push(format!("{field} must be {} or more — got {}.", trim_float(min), trim_float(value)));
+        }
+        if self.clamping && !value.is_finite() {
+            min
+        } else if self.clamping {
+            value.max(min)
+        } else {
+            value
+        }
+    }
+
+    fn at_least_u32(&mut self, field: &str, value: u32, min: u32) -> u32 {
+        if value < min {
+            self.items.push(format!("{field} must be {min} or more — got {value}."));
+        }
+        if self.clamping {
+            value.max(min)
+        } else {
+            value
+        }
+    }
+
+    fn at_least_u64(&mut self, field: &str, value: u64, min: u64) -> u64 {
+        if value < min {
+            self.items.push(format!("{field} must be {min} or more — got {value}."));
+        }
+        if self.clamping {
+            value.max(min)
+        } else {
+            value
+        }
+    }
+
+    /// The Enemy HP Pool Cap, which sanitises rather than plain-clamps -
+    /// non-finite resolves to the SHIPPED DEFAULT so a NaN can never reach
+    /// the division in `capped_hp_mult_for_pool`. `sanitize_pool_cap` is
+    /// NOT dead once this rejects: `pacing.rs` calls it on every
+    /// generation read of the cap, which is where it actually earns its
+    /// keep.
+    fn pool_cap(&mut self, field: &str, value: f64) -> f64 {
+        let (min, max) = (crate::adventure::pacing::ENEMY_HP_POOL_CAP_MIN, crate::adventure::pacing::ENEMY_HP_POOL_CAP_MAX);
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::pacing::sanitize_pool_cap(value)
+        } else {
+            value
+        }
+    }
+
+    /// One comma-separated admin-page anchor list ("0, 500, 1000").
+    /// Whitespace-tolerant. A malformed entry is now a REJECTION: it used
+    /// to invalidate the whole list into an empty Vec, which the runtime
+    /// validator reads as neutral - so one mistyped character silently
+    /// deleted the entire hand-authored baseline floor and the page still
+    /// said "Saved". That is data destruction on the pacing baseline, not
+    /// a clamp. Blank stays a legitimate "no anchors".
+    fn u32_list(&mut self, field: &str, raw: &str) -> Vec<u32> {
+        if raw.trim().is_empty() {
+            return Vec::new();
+        }
+        match raw.split(',').map(|piece| piece.trim().parse::<u32>()).collect::<Result<Vec<_>, _>>() {
+            Ok(list) => list,
+            Err(_) => {
+                self.items
+                    .push(format!("{field} must be a comma-separated list of whole numbers (e.g. \"0, 500, 1000\") — got \"{}\". Leave it blank to clear the list.", raw.trim()));
+                Vec::new()
+            }
+        }
+    }
+
+    /// As `u32_list`, for the two decimal anchor axes.
+    fn f64_list(&mut self, field: &str, raw: &str) -> Vec<f64> {
+        if raw.trim().is_empty() {
+            return Vec::new();
+        }
+        match raw.split(',').map(|piece| piece.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>() {
+            Ok(list) if list.iter().all(|v| v.is_finite()) => list,
+            _ => {
+                self.items
+                    .push(format!("{field} must be a comma-separated list of numbers (e.g. \"1.0, 0.92, 0.82\") — got \"{}\". Leave it blank to clear the list.", raw.trim()));
+                Vec::new()
+            }
+        }
+    }
 }
 
+/// A refused `/admin/tunables` save, replayed onto the page it came from
+/// (2026-08-31). Same "re-render with the values still in the boxes"
+/// shape `/admin/passives` uses for a rejected node value - a 66-field
+/// form that discards every other edit over one bad number is the exact
+/// complaint that scoped the passives page per class in the first place.
+struct TunablesRejection {
+    /// Every violation in the submitted form, page order, all at once.
+    violations: Vec<String>,
+    /// The three CSV inputs exactly as typed. These cannot round-trip
+    /// through `LiveTunables`' parsed `Vec`s, and a malformed list is
+    /// precisely the case that has to come back for editing.
+    stage_anchors: String,
+    hp_anchors: String,
+    atk_anchors: String,
+}
+
+/// Builds the `LiveTunables` a submitted form describes, recording every
+/// out-of-range value into `v` as it goes. See `TunableViolations` for why
+/// this runs twice.
+fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut TunableViolations) -> LiveTunables {
+    {
+        {
+            // The retired `dynamic_scaling_mult` field is no longer on the
+            // form - preserve whatever value is already live/on file so a
+            // save never rewrites it to anything else.
+            LiveTunables {
+                loot_mult: v.at_least("loot_mult", form.loot_mult, 0.0),
+                sand_mult: v.at_least("sand_mult", form.sand_mult, 0.0),
+                wings_drop_chance: v.clamp("wings_drop_chance", form.wings_drop_chance, 0.0, 1.0),
+                celestial_shard_drop_chance: v.clamp("celestial_shard_drop_chance", form.celestial_shard_drop_chance, 0.0, 1.0),
+                boss_health: v.at_least("boss_health", form.boss_health, 0.0),
+                boss_power: v.at_least("boss_power", form.boss_power, 0.0),
+                dynamic_scaling_mult: previous.dynamic_scaling_mult,
+                boss_count_tier_stages: v.at_least_u32("boss_count_tier_stages", form.boss_count_tier_stages, 1),
+                boss_count_cap_mult: v.at_least("boss_count_cap_mult", form.boss_count_cap_mult, 0.0),
+                late_content_stage: form.late_content_stage,
+                permanent_rampage: form.permanent_rampage.is_some(),
+                shattering_enabled: form.shattering_enabled.is_some(),
+                pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
+                pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
+                fight_summary_batch_size: v.at_least_u32("fight_summary_batch_size", form.fight_summary_batch_size, 1),
+                thunder_redistribution_pct: v.clamp("thunder_redistribution_pct", form.thunder_redistribution_pct, 0.0, 1.0),
+                thunder_redistribution_window_secs: v.at_least("thunder_redistribution_window_secs", form.thunder_redistribution_window_secs, 0.0),
+                reactive_proc_cap_ms: form.reactive_proc_cap_ms,
+                divine_dust_drop_chance: v.clamp("divine_dust_drop_chance", form.divine_dust_drop_chance, 0.0, 1.0),
+                divine_dust_disenchant_chance: v.clamp("divine_dust_disenchant_chance", form.divine_dust_disenchant_chance, 0.0, 1.0),
+                divine_dust_craft_dust_cost: form.divine_dust_craft_dust_cost,
+                divine_dust_craft_sand_cost: form.divine_dust_craft_sand_cost,
+                divine_dust_craft_output: v.at_least_u64("divine_dust_craft_output", form.divine_dust_craft_output, 1),
+                rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
+                rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
+                rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
+                haloedsteps_per_instance_pct_rank1: v.clamp("haloedsteps_per_instance_pct_rank1", form.haloedsteps_per_instance_pct_rank1, 0.0, 1.0),
+                haloedsteps_per_instance_pct_rank2: v.clamp("haloedsteps_per_instance_pct_rank2", form.haloedsteps_per_instance_pct_rank2, 0.0, 1.0),
+                haloedsteps_per_instance_pct_rank3: v.clamp("haloedsteps_per_instance_pct_rank3", form.haloedsteps_per_instance_pct_rank3, 0.0, 1.0),
+                shattering_damage_pct_rank1: v.clamp("shattering_damage_pct_rank1", form.shattering_damage_pct_rank1, 0.0, 1.0),
+                shattering_damage_pct_rank2: v.clamp("shattering_damage_pct_rank2", form.shattering_damage_pct_rank2, 0.0, 1.0),
+                shattering_damage_pct_rank3: v.clamp("shattering_damage_pct_rank3", form.shattering_damage_pct_rank3, 0.0, 1.0),
+                defensive_stat_hard_cap: v.clamp("defensive_stat_hard_cap", form.defensive_stat_hard_cap, 0.0, 1.0),
+                // Defence-in-depth behind the form's own min/max (which is
+                // what actually reports an out-of-range value to the
+                // operator); a hand-crafted POST that bypasses the browser
+                // is clamped rather than allowed to reach generation.
+                enemy_hp_pool_hard_cap: v.pool_cap("enemy_hp_pool_hard_cap", form.enemy_hp_pool_hard_cap),
+                splash_extra_targets: form.splash_extra_targets,
+                splash_support_floor_targets: form.splash_support_floor_targets,
+                splash_overcap_bonus_targets: form.splash_overcap_bonus_targets,
+                splash_ladder_step_pct: form.splash_ladder_step_pct,
+                splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
+                splash_damage_pct: v.at_least("splash_damage_pct", form.splash_damage_pct, 0.0),
+                verdantburst_echo_threshold_pct: v.at_least("verdantburst_echo_threshold_pct", form.verdantburst_echo_threshold_pct, 0.0),
+                buffsnapshot_dedupe_window_ms: v.at_least_u32("buffsnapshot_dedupe_window_ms", form.buffsnapshot_dedupe_window_ms, 1),
+                overflow_conversion_cap_per_rank: v.clamp("overflow_conversion_cap_per_rank", form.overflow_conversion_cap_per_rank, 0.0, 1.0),
+                evasion_overflow_cap: v.clamp("evasion_overflow_cap", form.evasion_overflow_cap, 0.0, 1.0),
+                block_overflow_cap: v.clamp("block_overflow_cap", form.block_overflow_cap, 0.0, 1.0),
+                dr_overflow_cap: v.clamp("dr_overflow_cap", form.dr_overflow_cap, 0.0, 1.0),
+                intervene_overflow_cap: v.clamp("intervene_overflow_cap", form.intervene_overflow_cap, 0.0, 1.0),
+                dynamic_pacing_enabled: form.dynamic_pacing_enabled.is_some(),
+                pacing_window_fights: v.at_least_u32("pacing_window_fights", form.pacing_window_fights, 1),
+                target_duration_min_s: v.at_least("target_duration_min_s", form.target_duration_min_s, 0.001),
+                target_duration_max_s: v.at_least("target_duration_max_s", form.target_duration_max_s, 0.001),
+                hp_max_step_per_fight: v.clamp("hp_max_step_per_fight", form.hp_max_step_per_fight, 0.0, 100.0),
+                hp_multiplier_floor: v.at_least("hp_multiplier_floor", form.hp_multiplier_floor, 0.001),
+                hp_multiplier_ceiling: v.at_least("hp_multiplier_ceiling", form.hp_multiplier_ceiling, 0.001),
+                // 0 is meaningful on BOTH of these and must survive the
+                // save: on the loss count it reads as UNSET (pacing
+                // substitutes the shipped default), and on the step it is
+                // the deliberate off switch for relaxation. So neither is
+                // floored here - only the typo backstops apply.
+                hp_relax_after_losses: form.hp_relax_after_losses,
+                hp_relax_step_per_fight: v.clamp("hp_relax_step_per_fight", form.hp_relax_step_per_fight, 0.0, 100.0),
+                target_win_loss_ratio: v.at_least("target_win_loss_ratio", form.target_win_loss_ratio, 0.001),
+                dmg_max_step_per_fight: v.clamp("dmg_max_step_per_fight", form.dmg_max_step_per_fight, 0.0, 100.0),
+                dmg_multiplier_floor: v.at_least("dmg_multiplier_floor", form.dmg_multiplier_floor, 0.001),
+                dmg_multiplier_ceiling: v.at_least("dmg_multiplier_ceiling", form.dmg_multiplier_ceiling, 0.001),
+                baseline_stage_anchors: v.u32_list("baseline_stage_anchors", &form.baseline_stage_anchors),
+                baseline_hp_anchors: v.f64_list("baseline_hp_anchors", &form.baseline_hp_anchors),
+                baseline_atk_anchors: v.f64_list("baseline_atk_anchors", &form.baseline_atk_anchors),
+                top_layer_enabled: form.top_layer_enabled.is_some(),
+                // The hard 0.95 ceiling lives in pacing::top_layer_for_stage
+                // at read time; this is just the typo backstop.
+                top_layer_cap_pct: v.clamp("top_layer_cap_pct", form.top_layer_cap_pct, 0.0, 1.0),
+                top_layer_half_stage: v.at_least("top_layer_half_stage", form.top_layer_half_stage, 1.0),
+            }
+        }
+    }
+}
+
+/// Same admin gate as the GET page above - a POST from someone other than
+/// `ADMIN_TUNABLES_LOGIN` gets the generic 404 (ledger `#51`).
+///
+/// An out-of-range value is REJECTED and reported, not clamped in silence
+/// (2026-08-31, ledger `#69`). The whole form is validated in one pass, so
+/// every offending field is named at once with the range it accepts, and
+/// the page comes back with everything the operator typed still in the
+/// boxes - the same shape `/admin/passives` uses for a rejected node
+/// value. NOTHING is written when anything is rejected: this is all or
+/// nothing, so a partial save can never leave the tunables in a state the
+/// operator did not ask for. The clamp survives underneath as
+/// defence-in-depth - see `TunableViolations`.
 async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TunablesForm>) -> axum::response::Response {
     // Ledger `#51` - see `do_save_passive_override`. A non-operator used
     // to get the same `?saved=1` redirect a real save gets.
@@ -3250,105 +3534,42 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
     if login != *ADMIN_TUNABLES_LOGIN {
         return admin_not_found();
     }
-    {
-        {
-            // The retired `dynamic_scaling_mult` field is no longer on the
-            // form - preserve whatever value is already live/on file so a
-            // save never rewrites it to anything else.
-            let previous = state.adventure.live_tunables();
-            let tunables = LiveTunables {
-                loot_mult: form.loot_mult.max(0.0),
-                sand_mult: form.sand_mult.max(0.0),
-                wings_drop_chance: form.wings_drop_chance.clamp(0.0, 1.0),
-                celestial_shard_drop_chance: form.celestial_shard_drop_chance.clamp(0.0, 1.0),
-                boss_health: form.boss_health.max(0.0),
-                boss_power: form.boss_power.max(0.0),
-                dynamic_scaling_mult: previous.dynamic_scaling_mult,
-                boss_count_tier_stages: form.boss_count_tier_stages.max(1),
-                boss_count_cap_mult: form.boss_count_cap_mult.max(0.0),
-                late_content_stage: form.late_content_stage,
-                permanent_rampage: form.permanent_rampage.is_some(),
-                shattering_enabled: form.shattering_enabled.is_some(),
-                pierce_cap: form.pierce_cap.clamp(0.0, 1.0),
-                pierce_h: form.pierce_h.max(1.0),
-                fight_summary_batch_size: form.fight_summary_batch_size.max(1),
-                thunder_redistribution_pct: form.thunder_redistribution_pct.clamp(0.0, 1.0),
-                thunder_redistribution_window_secs: form.thunder_redistribution_window_secs.max(0.0),
-                reactive_proc_cap_ms: form.reactive_proc_cap_ms,
-                divine_dust_drop_chance: form.divine_dust_drop_chance.clamp(0.0, 1.0),
-                divine_dust_disenchant_chance: form.divine_dust_disenchant_chance.clamp(0.0, 1.0),
-                divine_dust_craft_dust_cost: form.divine_dust_craft_dust_cost,
-                divine_dust_craft_sand_cost: form.divine_dust_craft_sand_cost,
-                divine_dust_craft_output: form.divine_dust_craft_output.max(1),
-                rf_self_damage_pct_rank1: form.rf_self_damage_pct_rank1.clamp(0.0, 1.0),
-                rf_self_damage_pct_rank2: form.rf_self_damage_pct_rank2.clamp(0.0, 1.0),
-                rf_self_damage_pct_rank3: form.rf_self_damage_pct_rank3.clamp(0.0, 1.0),
-                haloedsteps_per_instance_pct_rank1: form.haloedsteps_per_instance_pct_rank1.clamp(0.0, 1.0),
-                haloedsteps_per_instance_pct_rank2: form.haloedsteps_per_instance_pct_rank2.clamp(0.0, 1.0),
-                haloedsteps_per_instance_pct_rank3: form.haloedsteps_per_instance_pct_rank3.clamp(0.0, 1.0),
-                shattering_damage_pct_rank1: form.shattering_damage_pct_rank1.clamp(0.0, 1.0),
-                shattering_damage_pct_rank2: form.shattering_damage_pct_rank2.clamp(0.0, 1.0),
-                shattering_damage_pct_rank3: form.shattering_damage_pct_rank3.clamp(0.0, 1.0),
-                defensive_stat_hard_cap: form.defensive_stat_hard_cap.clamp(0.0, 1.0),
-                // Defence-in-depth behind the form's own min/max (which is
-                // what actually reports an out-of-range value to the
-                // operator); a hand-crafted POST that bypasses the browser
-                // is clamped rather than allowed to reach generation.
-                enemy_hp_pool_hard_cap: crate::adventure::pacing::sanitize_pool_cap(form.enemy_hp_pool_hard_cap),
-                splash_extra_targets: form.splash_extra_targets,
-                splash_support_floor_targets: form.splash_support_floor_targets,
-                splash_overcap_bonus_targets: form.splash_overcap_bonus_targets,
-                splash_ladder_step_pct: form.splash_ladder_step_pct,
-                splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
-                splash_damage_pct: form.splash_damage_pct.max(0.0),
-                verdantburst_echo_threshold_pct: form.verdantburst_echo_threshold_pct.max(0.0),
-                buffsnapshot_dedupe_window_ms: form.buffsnapshot_dedupe_window_ms.max(1),
-                overflow_conversion_cap_per_rank: form.overflow_conversion_cap_per_rank.clamp(0.0, 1.0),
-                evasion_overflow_cap: form.evasion_overflow_cap.clamp(0.0, 1.0),
-                block_overflow_cap: form.block_overflow_cap.clamp(0.0, 1.0),
-                dr_overflow_cap: form.dr_overflow_cap.clamp(0.0, 1.0),
-                intervene_overflow_cap: form.intervene_overflow_cap.clamp(0.0, 1.0),
-                dynamic_pacing_enabled: form.dynamic_pacing_enabled.is_some(),
-                pacing_window_fights: form.pacing_window_fights.max(1),
-                target_duration_min_s: form.target_duration_min_s.max(0.001),
-                target_duration_max_s: form.target_duration_max_s.max(0.001),
-                hp_max_step_per_fight: form.hp_max_step_per_fight.clamp(0.0, 100.0),
-                hp_multiplier_floor: form.hp_multiplier_floor.max(0.001),
-                hp_multiplier_ceiling: form.hp_multiplier_ceiling.max(0.001),
-                // 0 is meaningful on BOTH of these and must survive the
-                // save: on the loss count it reads as UNSET (pacing
-                // substitutes the shipped default), and on the step it is
-                // the deliberate off switch for relaxation. So neither is
-                // floored here - only the typo backstops apply.
-                hp_relax_after_losses: form.hp_relax_after_losses,
-                hp_relax_step_per_fight: form.hp_relax_step_per_fight.clamp(0.0, 100.0),
-                target_win_loss_ratio: form.target_win_loss_ratio.max(0.001),
-                dmg_max_step_per_fight: form.dmg_max_step_per_fight.clamp(0.0, 100.0),
-                dmg_multiplier_floor: form.dmg_multiplier_floor.max(0.001),
-                dmg_multiplier_ceiling: form.dmg_multiplier_ceiling.max(0.001),
-                baseline_stage_anchors: parse_csv_u32_list(&form.baseline_stage_anchors),
-                baseline_hp_anchors: parse_csv_f64_list(&form.baseline_hp_anchors),
-                baseline_atk_anchors: parse_csv_f64_list(&form.baseline_atk_anchors),
-                top_layer_enabled: form.top_layer_enabled.is_some(),
-                // The hard 0.95 ceiling lives in pacing::top_layer_for_stage
-                // at read time; this is just the typo backstop.
-                top_layer_cap_pct: form.top_layer_cap_pct.clamp(0.0, 1.0),
-                top_layer_half_stage: form.top_layer_half_stage.max(1.0),
-            };
-            if let Err(err) = state.adventure.save_live_tunables(tunables) {
-                tracing::error!("Failed to persist live tunables: {err}");
-            }
-            // Separate from the LiveTunables save above - these edit live
-            // WORLD state (the two controllers' multipliers), not
-            // tunables fields. Blank input (the normal case) leaves each
-            // untouched.
-            if let Ok(value) = form.boss_power_mult_override.trim().parse::<f64>() {
-                state.adventure.set_boss_power_mult(value).await;
-            }
-            if let Ok(value) = form.hp_pacing_mult_override.trim().parse::<f64>() {
-                state.adventure.set_hp_pacing_mult(value).await;
-            }
-        }
+
+    let previous = state.adventure.live_tunables();
+    // Pass one: collect. Values come back exactly as typed, so a rejected
+    // page can echo them into the inputs rather than showing the operator
+    // a number they never entered.
+    let mut collected = TunableViolations::default();
+    let candidate = tunables_from_form(&form, &previous, &mut collected);
+    if !collected.items.is_empty() {
+        let rejection = TunablesRejection {
+            violations: collected.items,
+            stage_anchors: form.baseline_stage_anchors.clone(),
+            hp_anchors: form.baseline_hp_anchors.clone(),
+            atk_anchors: form.baseline_atk_anchors.clone(),
+        };
+        let viewer = state.adventure.character(&login).await;
+        let current_pacing = state.adventure.current_pacing_status().await;
+        let body = render_tunables_page(viewer.as_ref(), &candidate, current_pacing, false, Some(&rejection));
+        return (StatusCode::BAD_REQUEST, Html(render_page(&body))).into_response();
+    }
+
+    // Pass two: the same build with the clamps live. Provably a no-op here
+    // - nothing was out of range - but it keeps the backstop in the code
+    // path rather than deleting it.
+    let mut clamping = TunableViolations { items: Vec::new(), clamping: true };
+    let tunables = tunables_from_form(&form, &previous, &mut clamping);
+    if let Err(err) = state.adventure.save_live_tunables(tunables) {
+        tracing::error!("Failed to persist live tunables: {err}");
+    }
+    // Separate from the LiveTunables save above - these edit live WORLD
+    // state (the two controllers' multipliers), not tunables fields. Blank
+    // input (the normal case) leaves each untouched.
+    if let Ok(value) = form.boss_power_mult_override.trim().parse::<f64>() {
+        state.adventure.set_boss_power_mult(value).await;
+    }
+    if let Ok(value) = form.hp_pacing_mult_override.trim().parse::<f64>() {
+        state.adventure.set_hp_pacing_mult(value).await;
     }
     Redirect::to("/admin/tunables?saved=1").into_response()
 }
@@ -3935,7 +4156,11 @@ mod render_fights_page_tests {
 /// A save POSTs everything at once (not per-field) and redirects back here
 /// with `?saved=1` for the confirmation banner - same query-param-flash
 /// pattern `IndexParams`'s fields already use elsewhere on this dashboard.
-fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, saved: bool) -> String {
+/// `rejected` replays a refused save back onto the page it came from
+/// (2026-08-31) - `t` then carries what the operator TYPED rather than
+/// what is live, so no other edit on this 66-field form is lost to one bad
+/// number. `None` is the ordinary render.
+fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, saved: bool, rejected: Option<&TunablesRejection>) -> String {
     let nav = top_nav(viewer);
     // Operator control (2026-08-28) - the select is generated from
     // `BossKind::FORCED_CHOICES` rather than hand-written, so the page
@@ -3974,13 +4199,35 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         pacing.dmg_effective,
         pinned_note(pacing.dmg_pinned())
     );
-    let baseline_stage_anchors_csv = t.baseline_stage_anchors.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ");
-    let baseline_hp_anchors_csv = t.baseline_hp_anchors.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
-    let baseline_atk_anchors_csv = t.baseline_atk_anchors.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
-    let banner = if saved {
-        "<p class=\"muted\">✅ Saved — takes effect on the very next encounter, no restart needed.</p>"
-    } else {
-        ""
+    // A rejected save echoes the three CSV inputs exactly as typed - they
+    // cannot round-trip through the parsed `Vec`s, and a malformed list is
+    // precisely the one that has to come back for editing.
+    let baseline_stage_anchors_csv = match rejected {
+        Some(r) => escape_html(&r.stage_anchors),
+        None => t.baseline_stage_anchors.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", "),
+    };
+    let baseline_hp_anchors_csv = match rejected {
+        Some(r) => escape_html(&r.hp_anchors),
+        None => t.baseline_hp_anchors.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "),
+    };
+    let baseline_atk_anchors_csv = match rejected {
+        Some(r) => escape_html(&r.atk_anchors),
+        None => t.baseline_atk_anchors.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", "),
+    };
+    let banner = match rejected {
+        // Every offending field at once, each with the range it accepts,
+        // and an unambiguous statement that NOTHING was written - the
+        // whole point of ledger #69 is that the page used to claim a
+        // success it had not performed.
+        Some(r) => {
+            let list = r.violations.iter().map(|msg| format!("<li>{}</li>", escape_html(msg))).collect::<String>();
+            format!(
+                "<p class=\"tunable-hint\" style=\"color:#e6b34d\">⚠ NOT SAVED — {} rejected, and nothing on this page was written. Your other edits are still in the boxes below; fix these and save again.</p><ul style=\"color:#e6b34d\">{list}</ul>",
+                if r.violations.len() == 1 { "1 value was".to_string() } else { format!("{} values were", r.violations.len()) }
+            )
+        }
+        None if saved => "<p class=\"muted\">✅ Saved — takes effect on the very next encounter, no restart needed.</p>".to_string(),
+        None => String::new(),
     };
     // !pinfight (2026-08-18) - dashboard-visible confirmation that a pin
     // actually landed, so a mod doesn't have to spelunk the filesystem to
