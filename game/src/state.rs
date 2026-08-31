@@ -251,6 +251,21 @@ pub fn save_json_compact<T: Serialize>(path: impl AsRef<Path>, value: &T) -> any
     write_atomic(path.as_ref(), &contents)
 }
 
+/// [`write_atomic`] for callers that have already serialized, which is
+/// the TOML stores: `toml::to_string_pretty` happens at the call site
+/// because only the caller knows the type, and what arrives here is a
+/// finished `String`.
+///
+/// Writes `contents` byte-for-byte, exactly as the `std::fs::write` this
+/// replaces did - the atomicity is the only difference. The two admin
+/// TOMLs (`adventure-live-tunables.toml`,
+/// `adventure-passive-overrides.toml`) were the last persisted state on
+/// the truncate-then-write path, which meant an admin save could be read
+/// mid-flight as an empty or half-written file.
+pub fn save_text(path: impl AsRef<Path>, contents: &str) -> anyhow::Result<()> {
+    write_atomic(path.as_ref(), contents)
+}
+
 #[cfg(test)]
 mod atomic_save_tests {
     use super::*;

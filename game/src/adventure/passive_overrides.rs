@@ -190,7 +190,7 @@ pub fn passive_overrides() -> PassiveOverrides {
 /// `AdventureManager::save_live_tunables`.
 pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()> {
     let contents = toml::to_string_pretty(&overrides).map_err(std::io::Error::other)?;
-    std::fs::write(data_path(PASSIVE_OVERRIDES_PATH), contents)?;
+    crate::state::save_text(data_path(PASSIVE_OVERRIDES_PATH), &contents).map_err(std::io::Error::other)?;
     *PASSIVE_OVERRIDES.write().expect("passive overrides lock poisoned") = overrides;
     Ok(())
 }

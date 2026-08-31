@@ -636,7 +636,7 @@ pub(crate) fn load_live_tunables() -> LiveTunables {
 #[cfg(not(test))]
 pub(crate) fn save_live_tunables_file(tunables: &LiveTunables) -> std::io::Result<()> {
     let contents = toml::to_string_pretty(tunables).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
-    std::fs::write(data_path(TUNABLES_PATH), contents)
+    crate::state::save_text(data_path(TUNABLES_PATH), &contents).map_err(std::io::Error::other)
 }
 
 /// Unit-test twins of the two functions above - see `load_live_tunables`'s
