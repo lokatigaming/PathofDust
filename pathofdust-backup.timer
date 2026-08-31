@@ -1,0 +1,20 @@
+[Unit]
+Description=Path of Dust - daily game state backup
+Documentation=file:///opt/pathofdust/bin/backup-game-data.sh
+
+[Timer]
+# One snapshot per day. 03:15 rather than a round hour: the box already
+# runs apt-daily, logrotate and dpkg-db-backup on round-hour-ish
+# schedules, and there is no reason to contend with them.
+OnCalendar=*-*-* 03:15:00
+# A box that was off at 03:15 backs up on the next boot instead of
+# skipping the day entirely.
+Persistent=true
+# Nothing else on this box is on this schedule, but the jitter costs
+# nothing and keeps the run from lining up exactly with anything added
+# later.
+RandomizedDelaySec=300
+Unit=pathofdust-backup.service
+
+[Install]
+WantedBy=timers.target

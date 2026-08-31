@@ -189,8 +189,8 @@ This stage is a gate. Nothing downstream proceeds until a Linux binary exists an
 - Purchase the box, monthly billing
 - Ubuntu LTS, distribution only
 - One systemd unit for the game
-- `cloudflared` installed and pointed at the new origin
-- `backup-game-data.ps1` rewritten as a shell script plus a systemd timer, retention logic carried over unchanged, writing off-box
+- `cloudflared` installed and pointed at the new origin — ✅ **Done 2026-08-31** (`docs/linux_ingress.md`). Locally-managed tunnel `pod-staging`, `staging.lokati.net` → `http://localhost:4005`, live and serving. Note the config the unit actually reads is `/etc/cloudflared/config.yml`, the copy `service install` makes — **not** `/root/.cloudflared/config.yml`, which is inert after install
+- `backup-game-data.ps1` rewritten as a shell script plus a systemd timer, retention logic carried over unchanged, writing off-box — ⚠️ **Local half done 2026-08-31** (`docs/linux_backups.md`). `backup-game-data.sh` + `pathofdust-backup.{service,timer}` run daily and are restore-verified; retention is **90 daily**, not the Windows 30 (that number was disk-driven and the constraint does not exist here — the Linux set is 2.7 MB). Off-box is **not yet running**: the Linux pull endpoint (`podbackup` + forced-command shell) is built and proven, the Windows Scheduled Task that fetches from it is written up ready-to-run but not installed
 - **Deleted, not ported:** `game-watchdog.ps1`, `watchdog.ps1`, `maintenance-flag.ps1`. systemd provides restart-on-failure, backoff, ordering and journald natively. Roughly 1,300 of ~1,940 PowerShell lines disappear. The maintenance-flag lease system exists solely to work around non-elevated sessions being unable to disable Windows scheduled tasks; on Linux the deploy runs `systemctl stop`.
 - REFACTOR_PLAN §13 rewritten — shorter, since the maintenance-flag dance is gone
 

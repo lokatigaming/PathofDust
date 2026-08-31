@@ -338,3 +338,23 @@ passives page is left for a separate order and was NOT done here.
 
 NOTE — `docs/linux_staging.md`, cited in the order, is not on master. It
 lives on `chore/linux-staging` (`6cc5456`, `70f601b`). Non-blocking.
+
+## 2026-08-31 — LINUX-BACKUPS
+
+FOUND — `tunables.rs:638` builds its error with
+`std::io::Error::new(std::io::ErrorKind::Other, err)`, which clippy flags
+as `clippy::io_other_error`; `passive_overrides.rs:192` already uses the
+`std::io::Error::other` form. Pre-existing, one word, adjacent to this
+session's edit but not part of it. Not touched.
+
+FOUND — `cloudflared service install` writes THREE units into
+`/etc/systemd/system` (daemon, update service, update timer), none owned
+by dpkg. `--no-autoupdate` on the daemon does not cover the timer, which
+was `disabled` but `active` and would have upgraded cloudflared and
+restarted the tunnel unattended. Masked under the owner's ruling; see
+`docs/linux_ingress.md`.
+
+FOUND — a `cargo test --release --workspace --quiet` run backgrounded
+through the harness reported exit 0 with only 6 of 34 `test result:` lines
+captured (14 tests, not 758). The foreground re-run is the number of
+record. Do not trust a backgrounded suite's captured output as a count.

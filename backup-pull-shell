@@ -1,0 +1,53 @@
+#!/bin/bash
+# Forced command for the `podbackup` SSH key - the off-box pull.
+#
+# The Windows box PULLS: it holds the private key and reaches in. This
+# box holds no credential to Windows, so compromising the (now
+# internet-facing) staging origin gives no path into C:\PathofDust.
+#
+# Installed as the `command="..."` of podbackup's authorized_keys entry,
+# alongside `restrict`. SSH_ORIGINAL_COMMAND is therefore the ONLY input:
+# whatever the client asked to run is ignored and this runs instead. The
+# key cannot get a shell, cannot write anything, and cannot read outside
+# $DIR.
+#
+# Vocabulary is deliberately two words. Anything else is refused.
+#   list          -> one archive/checksum filename per line
+#   cat <name>    -> that file's bytes on stdout
+
+set -euo pipefail
+
+# Never inherit a working directory. podbackup cannot read most of the
+# filesystem, and a cwd it cannot stat makes `find` complain on stderr
+# even when the command succeeds.
+cd /
+
+DIR=/var/backups/pathofdust
+cmd="${SSH_ORIGINAL_COMMAND:-}"
+
+case "$cmd" in
+  list)
+    # Archives and their sidecars only - never the staging directory or
+    # the verifier the backup script drops next to them.
+    find "$DIR" -maxdepth 1 -type f \( -name 'pod-backup-*.tar.gz' -o -name 'pod-backup-*.tar.gz.sha256' \) -printf '%f\n' | sort
+    ;;
+  "cat "*)
+    name="${cmd#cat }"
+    # No path separators, no traversal, no leading dot. The name must be
+    # a bare filename in $DIR and nothing else - checked before any
+    # filesystem call, so a crafted name never reaches `cat`.
+    case "$name" in
+      ''|*/*|*..*|.*) echo "refused: bare filenames only" >&2; exit 2 ;;
+    esac
+    case "$name" in
+      pod-backup-*.tar.gz|pod-backup-*.tar.gz.sha256) ;;
+      *) echo "refused: not a backup artifact" >&2; exit 2 ;;
+    esac
+    [ -f "$DIR/$name" ] || { echo "no such file: $name" >&2; exit 3; }
+    exec cat -- "$DIR/$name"
+    ;;
+  *)
+    echo "refused. vocabulary: list | cat <name>" >&2
+    exit 1
+    ;;
+esac
