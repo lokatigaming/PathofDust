@@ -300,3 +300,41 @@ branch code, all inside `mod tests` in `pacing.rs` (`manual
 RangeInclusive::contains` at :1107; `this assertion has a constant value` at
 :1133 and :1137). Test-only, clippy exits 0, shipped code is clean. Left
 unfixed during the deploy window; recorded in anomaly ledger #68.
+
+## ADMIN-GATES-AND-BOOTSTRAP (2026-08-31, branch fix/admin-gates-and-bootstrap)
+
+Four ordered fixes plus ledger #51, all in the admin/identity/startup area.
+Fit report approved with five rulings; built as five commits.
+
+SELF-CORRECTION — the fit report said that once the handler rejects,
+`sanitize_pool_cap` "becomes unreachable over HTTP and survives only for
+the TOML load path". That was too narrow: `pacing.rs:420`
+(`capped_hp_mult_for_pool`) calls it on every generation read of the cap,
+and `pacing::tests` at :1120-1127 already covers it directly. The ordered
+"give it a direct unit test so it stays covered" item was therefore
+already satisfied; no duplicate test was added. Stated in the report.
+
+FOUND — `do_save_passive_override`'s BAD-KEY arm still answers with the
+`?saved=1` redirect (a hand-crafted POST naming a node outside the class
+being edited). Same "reported a success it did not perform" shape as
+ledger #51, but a different arm and not in this order. One line, not
+touched.
+
+FOUND — the "no such character" cards at `adventure_web.rs:2254`/`:2277`
+also return HTTP 200 with a body reading "Not Found". Same fake-404 shape
+as the admin gates, on the public character pages. Out of this order's
+scope; not touched.
+
+FOUND — nine dynamic-pacing fields on `TunablesForm` carried
+`#[serde(default)]` resolving to 0.0, below their own accepted floors. A
+body omitting them had 0.0 silently clamped up, quietly overwriting live
+pacing config. Fixed in the same commit as the validation pass (they would
+otherwise have started 400ing), resolving to the shipped constants the way
+`default_enemy_hp_pool_hard_cap` already did.
+
+NOTE — `/admin/passives` returns 200 on a rejected save. The owner ruled
+that is itself wrong and that `/admin/tunables` must use 400; aligning the
+passives page is left for a separate order and was NOT done here.
+
+NOTE — `docs/linux_staging.md`, cited in the order, is not on master. It
+lives on `chore/linux-staging` (`6cc5456`, `70f601b`). Non-blocking.

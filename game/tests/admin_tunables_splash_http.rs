@@ -49,8 +49,8 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,
@@ -125,7 +125,10 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
 
     // --- a non-admin write must not take effect -----------------------
     let sneaky = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=other-token").form(&form_refs).send().await.expect("POST failed");
-    assert!(sneaky.status().is_redirection(), "the handler redirects regardless, to avoid confirming the page exists");
+    // Ledger #51, fixed 2026-08-31: this used to answer with the same
+    // `?saved=1` redirect a real save gets - a refusal reported as a
+    // success. It is now the same generic 404 the GET page returns.
+    assert_eq!(sneaky.status(), reqwest::StatusCode::NOT_FOUND, "a non-admin write must be refused with a 404, never a redirect claiming it saved");
     assert_eq!(manager.live_tunables().splash_extra_targets, 2, "a non-admin POST must not change any value");
 
     // --- the admin write ------------------------------------------------
@@ -209,7 +212,13 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         }
     }
     assert!(rendered.len() > 40, "sanity: the tunables form renders many inputs, found {}", rendered.len());
-    let exact: Vec<(&str, &str)> = rendered.iter().map(|name| (*name, "1")).collect();
+    // "1" everywhere except the Enemy HP Pool Cap, whose accepted range
+    // starts at 1e15. This guard is about EXTRACTION - that the struct and
+    // the rendered field set still agree - so the filler has to be
+    // in-range: since 2026-08-31 an out-of-range value is rejected with a
+    // 400 (ledger #69), which would fail this assertion for a reason it is
+    // not testing.
+    let exact: Vec<(&str, &str)> = rendered.iter().map(|name| if *name == "enemy_hp_pool_hard_cap" { (*name, "1000000000000000") } else { (*name, "1") }).collect();
     let exact_save =
         client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&exact).send().await.expect("POST failed");
     assert!(

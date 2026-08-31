@@ -73,8 +73,8 @@ async fn a_player_holding_a_shard_can_see_and_run_divinity() {
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         None,

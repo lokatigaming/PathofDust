@@ -110,9 +110,17 @@ async fn async_main() -> anyhow::Result<()> {
         tracing::info!("GAME_DATA_DIR set - persistence redirected away from the default location.");
     }
 
-    let twitch_client_id =
-        env_var("TWITCH_CLIENT_ID").ok_or_else(|| anyhow::anyhow!("Missing TWITCH_CLIENT_ID in .env - needed for the web dashboard's own Twitch login"))?;
-    let twitch_client_secret = env_var("TWITCH_CLIENT_SECRET").ok_or_else(|| anyhow::anyhow!("Missing TWITCH_CLIENT_SECRET in .env"))?;
+    // OPTIONAL (2026-08-31). These used to abort startup, which meant a
+    // standalone game would not run without a Twitch app - the Linux
+    // staging instance had to be given placeholder values just to boot.
+    // Absent now means the dashboard's Twitch login path is simply not
+    // registered (see `start_adventure_web_server`); everything else,
+    // local accounts included, runs normally. Same
+    // `None`-disables-the-mount shape as `ADVENTURE_API_SECRET` below.
+    // Nothing is removed here - that is Stage 3b's job - and with the
+    // credentials present behaviour is unchanged.
+    let twitch_client_id = env_var("TWITCH_CLIENT_ID");
+    let twitch_client_secret = env_var("TWITCH_CLIENT_SECRET");
     let adventure_web_port = env_u16_or("ADVENTURE_WEB_PORT", 4005);
     let adventure_web_public_url = env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005");
     let adventure_overlay_server_port = env_u16_or("ADVENTURE_OVERLAY_SERVER_PORT", 4004);

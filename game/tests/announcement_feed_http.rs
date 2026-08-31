@@ -124,8 +124,8 @@ async fn announcements_reach_the_web_feed_without_changing_what_the_sse_stream_r
     let bound = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
         Some(TEST_SECRET.to_string()),

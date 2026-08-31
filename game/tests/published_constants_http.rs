@@ -31,8 +31,8 @@ async fn posted_published_constants_are_persisted_where_the_wiki_reads_them() {
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0,
         "http://localhost".to_string(),
-        "test-client-id".to_string(),
-        "test-client-secret".to_string(),
+        Some("test-client-id".to_string()),
+        Some("test-client-secret".to_string()),
         manager.clone(),
         scratch.join("adventure-sessions.json"),
         Some(TEST_SECRET.to_string()),
