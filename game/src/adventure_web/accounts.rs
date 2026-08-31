@@ -133,6 +133,32 @@ fn verify_password(password: &str, stored: &str) -> bool {
 /// The collision arms are the security-critical ones: characters are
 /// keyed by lowercased login, so registering a name that matches an
 /// existing character key would hand that character to a stranger.
+/// The opt-in that lets a FRESH deployment's operator register their own
+/// account (2026-08-31). `OPERATOR_LOGIN` is reserved by
+/// `username_rejection` below, which on a brand-new deployment means the
+/// operator cannot create the account the gates point at - standing up
+/// the Linux staging instance needed a temporary source patch to get past
+/// it, and World 2 launch day would hit the same wall.
+///
+/// The variable carries the LOGIN, not a boolean: `OPERATOR_BOOTSTRAP`
+/// must equal the current `OPERATOR_LOGIN` exactly. So it permits exactly
+/// one name, its own value says which, and a variable left set after
+/// `OPERATOR_LOGIN` moves permits nothing at all. Set it, register,
+/// remove it, restart.
+///
+/// Deliberately NOT "allow it while the account store is empty": on a
+/// public launch that leaves a window in which any player could claim the
+/// operator name first, which is the exact grief vector the reservation
+/// exists to prevent. This window is never open unattended.
+///
+/// Read fresh on every attempt rather than through a `LazyLock` (the
+/// shape `operator_login_from_env` uses) so removing the variable takes
+/// effect without depending on whether some earlier request already
+/// forced the cell.
+fn operator_bootstrap_login() -> Option<String> {
+    std::env::var("OPERATOR_BOOTSTRAP").ok().map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty())
+}
+
 fn username_rejection(key: &str, accounts: &HashMap<String, Account>) -> Option<&'static str> {
     if key.len() < USERNAME_MIN_LEN || key.len() > USERNAME_MAX_LEN {
         return Some("Usernames must be 3-25 characters long.");
@@ -144,8 +170,29 @@ fn username_rejection(key: &str, accounts: &HashMap<String, Account>) -> Option<
         // and in a JS string literal.
         return Some("Usernames may only contain lowercase letters, numbers and underscores.");
     }
-    if RESERVED_USERNAMES.contains(&key) || [ADMIN_TUNABLES_LOGIN.as_str(), FIGHTS_PAGE_LOGIN.as_str(), BUNDLE_OPERATOR_LOGIN.as_str()].iter().any(|r| r.eq_ignore_ascii_case(key)) {
+    let bootstrapping = operator_bootstrap_login().is_some_and(|b| b == key);
+    // The PERMANENT list. `OPERATOR_BOOTSTRAP` does NOT pierce this - see
+    // `RESERVED_USERNAMES`' own doc for why `lokati_gaming` in particular
+    // is unconditional. An operator who set the variable to one of these
+    // is told exactly that, rather than getting the bare refusal and
+    // having to read the source to find out why bootstrap did nothing.
+    if RESERVED_USERNAMES.contains(&key) {
+        return Some(if bootstrapping {
+            "That username is permanently reserved and OPERATOR_BOOTSTRAP cannot release it. Point OPERATOR_LOGIN at the operator's own account name, set OPERATOR_BOOTSTRAP to that same name, and register that instead."
+        } else {
+            "That username is reserved."
+        });
+    }
+    // The three operator gates. Normally a hard refusal - they compare a
+    // bare login string, so a registration matching one would hand out
+    // `/admin/tunables`. `OPERATOR_BOOTSTRAP` is the operator's own
+    // deliberate opt-in to let exactly this login through once; every
+    // other check below and in `do_register` still runs.
+    if !bootstrapping && [ADMIN_TUNABLES_LOGIN.as_str(), FIGHTS_PAGE_LOGIN.as_str(), BUNDLE_OPERATOR_LOGIN.as_str()].iter().any(|r| r.eq_ignore_ascii_case(key)) {
         return Some("That username is reserved.");
+    }
+    if bootstrapping {
+        tracing::warn!("OPERATOR_BOOTSTRAP is set to {key:?} - the operator reservation on that login is being bypassed for this registration. Remove the variable and restart once the account exists.");
     }
     if accounts.contains_key(key) {
         return Some("That username is already taken.");
