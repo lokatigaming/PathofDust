@@ -2465,6 +2465,20 @@ async fn fights_json(State(state): State<AppState>, headers: HeaderMap, Query(pa
 /// accidentally coupled to a future change made for that unrelated page.
 static ADMIN_TUNABLES_LOGIN: LazyLock<String> = LazyLock::new(operator_login_from_env);
 
+/// The refusal both admin GET pages answer a non-operator with, and the
+/// one all three admin POSTs answer since 2026-08-31 (ledger `#51`).
+///
+/// The BODY is deliberately a generic "Not Found" card rather than a
+/// named 403 - a restricted page's existence isn't hinted at, and that
+/// intent is correct. The STATUS was the bug: until 2026-08-31 this went
+/// out as HTTP 200, so a status-code assertion on the refusal passed for
+/// EVERYONE, and several deploy verifications asserted exactly that. The
+/// body is byte-identical to what it always was; only the status is now
+/// honest. Same shape `ops_result` has used since 2026-08-28.
+fn admin_not_found() -> axum::response::Response {
+    (StatusCode::NOT_FOUND, Html(render_page("<div class=\"card\"><h1>Not Found</h1></div>"))).into_response()
+}
+
 #[derive(Deserialize)]
 struct AdminTunablesParams {
     saved: Option<String>,
@@ -2489,7 +2503,7 @@ struct AdminPassivesParams {
     saved: Option<String>,
 }
 
-async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminPassivesParams>) -> Html<String> {
+async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminPassivesParams>) -> axum::response::Response {
     let session = current_session(&headers, &state).await;
     let body = match session {
         Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
@@ -2497,10 +2511,10 @@ async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, 
             render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), state.adventure.live_tunables().overflow_conversion_cap_per_rank, None)
         }
         // Same generic fallback as `/admin/tunables` - a restricted
-        // page's existence isn't hinted at.
-        _ => "<div class=\"card\"><h1>Not Found</h1></div>".to_string(),
+        // page's existence isn't hinted at. A real 404 since 2026-08-31.
+        _ => return admin_not_found(),
     };
-    Html(render_page(&body))
+    Html(render_page(&body)).into_response()
 }
 
 /// One rejected or unconfirmed save, rendered back into the row it came
@@ -2785,11 +2799,15 @@ struct PassiveRevertForm {
 async fn do_save_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveOverrideForm>) -> axum::response::Response {
     let slug = format!("{:?}", form.class).to_lowercase();
     let redirect = || Redirect::to(&format!("/admin/passives?class={slug}&saved=1")).into_response();
+    // Ledger `#51`, fixed 2026-08-31: a non-operator used to get the same
+    // `?saved=1` redirect a real save gets, so the refusal was reported as
+    // a success. Same generic 404 the GET pages answer with - it still
+    // doesn't confirm the route exists, it just stops claiming it saved.
     let Some((login, _)) = current_session(&headers, &state).await else {
-        return redirect();
+        return admin_not_found();
     };
     if login != *ADMIN_TUNABLES_LOGIN {
-        return redirect();
+        return admin_not_found();
     }
     // Reject a key that isn't in the class being edited - the page never
     // generates one, so this only fires on a hand-crafted POST, and a
@@ -2867,18 +2885,21 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
     redirect()
 }
 
-async fn do_revert_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveRevertForm>) -> impl IntoResponse {
+async fn do_revert_passive_override(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveRevertForm>) -> axum::response::Response {
     let slug = format!("{:?}", form.class).to_lowercase();
-    if let Some((login, _)) = current_session(&headers, &state).await {
-        if login == *ADMIN_TUNABLES_LOGIN {
-            let mut overrides = passive_overrides();
-            overrides.revert(&form.node_key);
-            if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
-                tracing::error!("failed to persist passive overrides: {err}");
-            }
-        }
+    // Ledger `#51` - see `do_save_passive_override`.
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return admin_not_found();
+    };
+    if login != *ADMIN_TUNABLES_LOGIN {
+        return admin_not_found();
     }
-    Redirect::to(&format!("/admin/passives?class={slug}&saved=1"))
+    let mut overrides = passive_overrides();
+    overrides.revert(&form.node_key);
+    if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
+        tracing::error!("failed to persist passive overrides: {err}");
+    }
+    Redirect::to(&format!("/admin/passives?class={slug}&saved=1")).into_response()
 }
 
 // ---------------------------------------------------------------------
@@ -2962,7 +2983,7 @@ async fn do_ops_next_encounter(State(state): State<AppState>, headers: HeaderMap
     }
 }
 
-async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminTunablesParams>) -> Html<String> {
+async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminTunablesParams>) -> axum::response::Response {
     let session = current_session(&headers, &state).await;
     let body = match session {
         Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
@@ -2970,9 +2991,9 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
             let current_pacing = state.adventure.current_pacing_status().await;
             render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some())
         }
-        _ => "<div class=\"card\"><h1>Not Found</h1></div>".to_string(),
+        _ => return admin_not_found(),
     };
-    Html(render_page(&body))
+    Html(render_page(&body)).into_response()
 }
 
 /// Serde default for `TunablesForm::enemy_hp_pool_hard_cap` - the shipped
@@ -3171,9 +3192,17 @@ fn parse_csv_f64_list(raw: &str) -> Vec<f64> {
     raw.split(',').map(|piece| piece.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().unwrap_or_default()
 }
 
-async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TunablesForm>) -> impl IntoResponse {
-    if let Some((login, _)) = current_session(&headers, &state).await {
-        if login == *ADMIN_TUNABLES_LOGIN {
+async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TunablesForm>) -> axum::response::Response {
+    // Ledger `#51` - see `do_save_passive_override`. A non-operator used
+    // to get the same `?saved=1` redirect a real save gets.
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return admin_not_found();
+    };
+    if login != *ADMIN_TUNABLES_LOGIN {
+        return admin_not_found();
+    }
+    {
+        {
             // The retired `dynamic_scaling_mult` field is no longer on the
             // form - preserve whatever value is already live/on file so a
             // save never rewrites it to anything else.
@@ -3272,7 +3301,7 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
             }
         }
     }
-    Redirect::to("/admin/tunables?saved=1")
+    Redirect::to("/admin/tunables?saved=1").into_response()
 }
 
 // ---- Rendering ----

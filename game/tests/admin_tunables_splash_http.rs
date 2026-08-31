@@ -125,7 +125,10 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
 
     // --- a non-admin write must not take effect -----------------------
     let sneaky = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=other-token").form(&form_refs).send().await.expect("POST failed");
-    assert!(sneaky.status().is_redirection(), "the handler redirects regardless, to avoid confirming the page exists");
+    // Ledger #51, fixed 2026-08-31: this used to answer with the same
+    // `?saved=1` redirect a real save gets - a refusal reported as a
+    // success. It is now the same generic 404 the GET page returns.
+    assert_eq!(sneaky.status(), reqwest::StatusCode::NOT_FOUND, "a non-admin write must be refused with a 404, never a redirect claiming it saved");
     assert_eq!(manager.live_tunables().splash_extra_targets, 2, "a non-admin POST must not change any value");
 
     // --- the admin write ------------------------------------------------

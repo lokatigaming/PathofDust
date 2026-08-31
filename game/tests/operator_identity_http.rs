@@ -134,13 +134,19 @@ async fn operator_login_moves_all_three_gates_and_lokati_gaming_stays_reserved()
     };
 
     // --- ADMIN_TUNABLES_LOGIN ----------------------------------------
-    // The gate's refusal is a generic "Not Found" card, never a status
-    // code, so the body is what has to be asserted.
+    // The gate's refusal is a generic "Not Found" card - the body hides
+    // that a restricted page lives here. Since 2026-08-31 it also carries
+    // a real 404, so both halves are asserted: before then the status was
+    // 200 for everyone and only the body discriminated.
     for path in ["/admin/tunables", "/admin/passives"] {
-        let configured = get_as(path, "op-token").await.text().await.expect("body");
+        let configured = get_as(path, "op-token").await;
+        assert_eq!(configured.status(), reqwest::StatusCode::OK, "{path} must admit the configured operator with a 200");
+        let configured = configured.text().await.expect("body");
         assert!(!configured.contains("<h1>Not Found</h1>"), "{path} must admit the configured operator");
 
-        let old = get_as(path, "old-token").await.text().await.expect("body");
+        let old = get_as(path, "old-token").await;
+        assert_eq!(old.status(), reqwest::StatusCode::NOT_FOUND, "{path} must refuse {OLD_OPERATOR} with a real 404 once OPERATOR_LOGIN points elsewhere");
+        let old = old.text().await.expect("body");
         assert!(old.contains("<h1>Not Found</h1>"), "{path} must refuse {OLD_OPERATOR} once OPERATOR_LOGIN points elsewhere");
     }
 

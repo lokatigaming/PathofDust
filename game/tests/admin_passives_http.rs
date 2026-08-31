@@ -82,18 +82,25 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
     assert!(baseline > 0.0, "sanity: an allocated node must have a non-zero magnitude, got {baseline}");
 
     // --- the gate ----------------------------------------------------
+    // The refusal is a generic "Not Found" card - the BODY hides that a
+    // restricted page exists here at all, and that is deliberate. The
+    // STATUS must nonetheless be a real 404 (2026-08-31): it used to be
+    // 200, so this very assertion passed for the admin too and proved
+    // nothing.
     let anon = client.get(format!("{base}/admin/passives")).send().await.expect("GET failed");
-    assert_eq!(anon.status(), reqwest::StatusCode::OK);
+    assert_eq!(anon.status(), reqwest::StatusCode::NOT_FOUND, "a logged-out visitor must be refused with a real 404, not a 200 that says Not Found");
     let anon_body = anon.text().await.expect("body");
     assert!(anon_body.contains("Not Found"), "a logged-out visitor must get the generic fallback");
     assert!(!anon_body.contains("Passive Values"), "and must not see the page itself");
 
     let other = client.get(format!("{base}/admin/passives")).header(reqwest::header::COOKIE, "adv_session=other-token").send().await.expect("GET failed");
+    assert_eq!(other.status(), reqwest::StatusCode::NOT_FOUND, "a logged-in NON-admin must be refused with a real 404 too");
     let other_body = other.text().await.expect("body");
     assert!(other_body.contains("Not Found"), "a logged-in NON-admin must get the generic fallback too");
     assert!(!other_body.contains("Passive Values"));
 
     let admin = client.get(format!("{base}/admin/passives")).header(reqwest::header::COOKIE, "adv_session=admin-token").send().await.expect("GET failed");
+    assert_eq!(admin.status(), reqwest::StatusCode::OK, "the admin must get a 200 - this is what makes the 404s above discriminate");
     let admin_body = admin.text().await.expect("body");
     assert!(admin_body.contains("Passive Values"), "the admin must see the page");
     assert!(admin_body.contains("bulwark"), "and its nodes");
@@ -107,7 +114,10 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
         .send()
         .await
         .expect("POST failed");
-    assert!(sneaky.status().is_redirection(), "the handler redirects regardless, to avoid confirming the page exists");
+    // Ledger #51, fixed 2026-08-31: this used to answer with the same
+    // `?saved=1` redirect a real save gets - a refusal reported as a
+    // success. It is now the same generic 404 the GET page returns.
+    assert_eq!(sneaky.status(), reqwest::StatusCode::NOT_FOUND, "a non-admin write must be refused with a 404, never a redirect claiming it saved");
     assert_eq!(
         manager.character(ADMIN_LOGIN).await.unwrap().passive_node_magnitude("bulwark"),
         baseline,
