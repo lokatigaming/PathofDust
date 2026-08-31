@@ -2920,3 +2920,126 @@ fights bosses whose ramping mechanics have had time to mature. Raise in
 small steps and watch both, per the field's own hint on
 `/admin/tunables`. #67 has the arithmetic; ~1.4e16 is where the 30-45 s
 target window becomes reachable at the party's measured 3.71e14 DPS.
+
+---
+
+**#71 — DEPLOY-ADMIN-GATES record: the admin refusal becomes a real 404,
+and `/admin/tunables` stops clamping out-of-range values in silence. The
+critical no-op-save check passed byte-identically.**
+
+Merged to master and deployed 2026-08-31.
+
+| item | value |
+| --- | --- |
+| `fix/admin-gates-and-bootstrap` merge | `a2fc69d` (branch head `7bf8f90`) |
+| `chore/linux-build-gate` merge | `4cfa217` (branch head `e90ec8a`) |
+| `chore/linux-staging` merge | `555edf9` (branch head `70f601b`) |
+| final master | `a1a9056` |
+| old `game.exe` SHA-256 | `6957791cd4a0d06a5cb8aab98f962b262ade6e7cc6203f420062e3091f68e3f9` |
+| new `game.exe` SHA-256 | `695e8c6825a749bd8d587dca69342bda1092cbde1acf37a3cd33511c2b5affb3` |
+| suite | 758 passed / 0 failed (`cargo test --release --workspace --quiet`) |
+| bot | unchanged, not redeployed (diff-clean) |
+| rollback | `backup-pre-admin-gates/` + `target/release/game.exe.pre-admin-gates` |
+
+**The check that mattered.** This release changes how the tunables page
+writes, so the live `adventure-live-tunables.toml` was checksummed BEFORE
+anything else (`60590a61…9598c0`), then the page was loaded as the
+operator, changed in no way, and saved — the POST body scraped out of the
+rendered form, 67 fields, per the house rule. The file came back
+**byte-identical**: same SHA-256, zero differing lines. All nine
+dynamic-pacing fields and all three baseline anchor lists survived
+untouched. A round trip on one real value (`target_duration_max_s`
+45 → 46 → 45) also returned the file to the identical hash.
+
+**The rejection path, verified live.** One bad field → HTTP 400, banner
+`⚠ NOT SAVED — 1 value was rejected, and nothing on this page was
+written.` plus `wings_drop_chance must be between 0 and 1 — got 5.`, file
+unchanged. Two bad fields → one response naming BOTH (`wings_drop_chance`
+and `pacing_window_fights must be 1 or more — got 0.`), file unchanged. A
+malformed `baseline_stage_anchors` (`0, abc, 1000`) → 400 with a worked
+example, and the three anchor lists confirmed intact **in the file**, not
+just in the response. This is the behaviour #69 said was missing.
+
+**FOUND, pre-existing, NOT caused by this release and NOT touched by it:
+`enemy_hp_pool_hard_cap` is live at `50000000000000000.0` (5e16), the
+ceiling — not the `1e15` default that #68 shipped and that #69 says was
+"restored immediately".** It reads 5e16 in the snapshot taken before this
+deploy touched anything, so the restore #69 describes did not land in the
+file (or the value was raised afterwards). Per #70 this is a large
+two-sided change, so it is recorded and left exactly as found — the
+owner's call, not a deploy session's.
+
+---
+
+**#72 — #51 is CLOSED by this release.**
+
+The non-operator refusal on `/admin/tunables` and `/admin/passives` went
+out as HTTP **200** with a "Not Found" body, so a status assertion on the
+refusal passed for everyone and several past deploy verifications
+asserted exactly that. It is now a real 404 — verified live, logged-in
+non-operator and anonymous, on both GET pages: status `404`, body
+`65532` bytes, SHA `91efb813f0f73200`, identical across all four probes,
+and the diff confirms the body string and `render_page` call are
+unchanged, so only the status moved.
+
+The three admin POSTs are closed with it. `/admin/tunables/save`,
+`/admin/passives/save` and `/admin/passives/revert` each answered a
+non-operator with the same `?saved=1` redirect a real save gets. All
+three now return the same 404 — verified live, non-operator and
+anonymous, six probes, all `404`, same body hash. Operator GET on both
+pages still `200` and still renders.
+
+---
+
+**#73 — SECOND occurrence of the same defect: a `#[serde(default)]` that
+does not match the shipped default. Treat this as a standing check on
+every form field that is added.**
+
+Nine dynamic-pacing fields on `TunablesForm` carried a bare
+`#[serde(default)]`, which for `f64`/`u32` resolves to **`0.0` / `0`** —
+below each field's own floor. Any POST omitting them was therefore
+clamped back up on the way in, silently. They now resolve to the shipped
+constants (`default_pacing_window_fights`, `default_target_duration_min_s`,
+`default_target_duration_max_s`, `default_hp_multiplier_floor`,
+`default_hp_multiplier_ceiling`, `default_target_win_loss_ratio`,
+`default_dmg_multiplier_floor`, `default_dmg_multiplier_ceiling`,
+`default_top_layer_half_stage`). Without this the new validation pass
+would have returned 400 on any body that omitted them.
+
+**The pool-cap field was the first occurrence.** That makes this a
+pattern, not an incident. The existing house trap rule says a new form
+field an HTTP handler consumes needs `#[serde(default)]` or it 422s every
+older POST — that rule is necessary and not sufficient. The second half:
+**`#[serde(default)]` must name a function returning the value the game
+actually ships with, whenever the type's `Default` is outside the field's
+own valid range.** `0.0` is a legal `f64` and an illegal
+`hp_multiplier_floor`, and nothing fails when they disagree — the value
+is simply clamped on the way in and no test sees it. Check both halves
+whenever a form field is added.
+
+---
+
+**#74 — three refusals left AS FOUND by this release, deliberately not
+fixed. All three verified live on the deployed binary.**
+
+1. **`do_save_passive_override`'s bad-key arm still fake-redirects.**
+   `POST /admin/passives/save` as the OPERATOR with an unknown
+   `node_key` returns `303 -> /admin/passives?class=warrior&saved=1`. The
+   save is rejected and reported as a success — the same shape #51 just
+   fixed on the auth arm of the very same handler.
+2. **The public "no such character" cards are the same fake 404**
+   (`adventure_web.rs:2303` and `:2326`; they were reported at `:2254`
+   and `:2277` before the merge shifted them). `GET
+   /characters/zzz_nobody_here` returns **HTTP 200** with a "Not Found"
+   card.
+3. **`/admin/passives` and `/admin/tunables` now disagree on rejection.**
+   A rejected tunables save is `400`; a rejected passive-override save is
+   `303 ?saved=1`. The two admin pages behaved identically before this
+   release and no longer do.
+
+Also noted from check 17: registering the operator login is refused
+(HTTP 400, accounts file unchanged), but the message is the bare
+`That username is reserved.` The self-explaining variant that names
+`OPERATOR_BOOTSTRAP` fires only for the permanently-reserved list, not
+for the operator-gate arm — so on this box the refusal refuses without
+explaining itself.
