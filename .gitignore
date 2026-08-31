@@ -247,3 +247,6 @@ target-deploy-remove-patreon/
 /backup-pre-linux-readiness
 target-deploy-bot-standalone/
 backup-pre-pool-cap/
+
+# Staging server address - session-local, never committed (LINUX-STAGING).
+.server-ip
