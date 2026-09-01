@@ -28,6 +28,23 @@ World 1 retires. World 2 is not a second world — it is **the** world, rebuilt 
 
 The bot does not migrate. It stays on the Windows machine with OBS, keeps its Twitch and overlay duties, and stops talking to the game entirely.
 
+### The game is CYCLICAL — worlds reset periodically *(owner ruling, 2026-08-30)*
+
+World 2 is not "the permanent world." It is **season 1 of a game that resets on a cycle.** World 1 was season 0, and it ran unbounded for over a year.
+
+This is load-bearing context for every design decision, because **most of what went wrong in World 1 is a symptom of unbounded accumulation, not of any individual mechanic:**
+
+- Both pacing controllers saturating at their ceilings
+- Player power outgrowing enemy scaling until a 100× boss-damage multiplier could not kill anyone
+- Fight replays reaching ~950 MB, because event count is a product of boss count × action rate × splash targets × duration, and all four inflated together over 7,400 stages
+- 3×10¹⁴ party DPS, 15,000% divine damage, 100,000% crit multipliers
+
+A periodic reset bounds every one of those by construction. They are not permanent properties of the design; they are what a year without a reset looks like.
+
+**The number that sets the design point: what stage does a season reach before it resets?** That single figure determines the growth-curve shapes, boss-count scaling, event volume and whether storage is ever a concern. A season topping out around 1,000–2,000 makes the entire World 1 failure class moot. **Not yet decided.**
+
+**Consequence for scope:** do not build defences against problems the reset cadence already eliminates. The fight-storage migration was scoped and then **cancelled on this basis** — see the SQLite entry in section 5.
+
 ---
 
 ## 2. Settled decisions
@@ -42,7 +59,7 @@ These are rulings, not open questions. Do not relitigate them inside a work sess
 | The bot | Stays on Windows. Keeps OBS and Twitch. No link to the game. |
 | Host | netcup VPS Lite 3 G12s — 8 vCPU, 16 GB, 320 GB, €11.67/mo. |
 | Billing | **Monthly, not annual.** Convert only after a month of proven operation. |
-| OS | Ubuntu LTS, distribution only. No control panel image. |
+| OS | **Debian 13 (trixie)**, distribution only. No control panel image. *(Ubuntu was planned; the provisioned image is Debian 13 and was kept — leaner base, identical package names for our needs, same systemd, cloudflared ships .deb.)* |
 | Ingress | Cloudflare Tunnel, as today. TLS terminates at Cloudflare's edge. |
 | Inbound ports | **None.** `cloudflared` dials outbound. |
 | What migrates | The game only. |
@@ -159,7 +176,7 @@ If Twitch OAuth is removed before those constants are re-pointed, the operator l
 
 **Stage 3 may not ship until:** the three constants point at an operator account that exists and has been logged into successfully. Verify by logging in as that account and loading `/admin/tunables` *before* the OAuth removal is swapped, not after.
 
-### Stage 4 — Durability and correctness fixes
+### Stage 4 — Durability and correctness fixes ✅ **SHIPPED 2026-08-29** (`31165ad`, binary `9EB658FF…`)
 
 Two code fixes required before Linux, neither optional:
 
@@ -168,7 +185,12 @@ Two code fixes required before Linux, neither optional:
 
 Also drop the 5×20 ms rename retry loop — a Windows-only workaround with no purpose on Linux.
 
-### Stage 5 — Split code from data
+### Stage 5 — Split code from data ✅ **SHIPPED 2026-08-29** (same release as Stage 4)
+
+Six data files plus `adventure-accounts.json` now route through `GAME_DATA_DIR`. Verified live: with the variable unset, every write landed **in place** in the deployment root across three post-swap fights, and no new directory appeared anywhere. The unset-is-identical test was proven non-vacuous by mutation — reverting the routing failed the set scenario while the unset scenario stayed green.
+
+`CUSTOM_SPRITE_DIR` deliberately left CWD-relative; see the provisioning trap in ledger `#60`.
+
 
 Today the deployment root holds source, game data, backups and build output in one directory, by construction, in both processes.
 
@@ -176,7 +198,32 @@ Now that only the game migrates, the split costs **~5 lines across two files** (
 
 Target layout: binary in `/opt/pathofdust`, mutable data in `/var/lib/pathofdust`, logs in `/var/log/pathofdust`, backups off-box.
 
-### Stage 6 — First Linux build *(go/no-go gate)*
+### Stage 6 — First Linux build ✅ **GATE PASSED 2026-08-31** (`e90ec8a`, `docs/linux_build_gate.md`)
+
+**Builds and passes on Debian 13 with zero code changes.** The audit missed no portability defect.
+
+- Build succeeded first attempt: 2m23s wall, 700% CPU, peak RSS 1.29 GiB. Binaries: `game` 19 MB, `twitch-bot-rs` 23 MB.
+- **755 passed, 0 failed — identical to the Windows baseline.** Verified as the whole suite, not a subset masking a swap of Windows-only for Linux-only tests.
+- **Golden corpus: Windows-generated fixtures pass on Linux**, across two rustc versions and two LLVM backends. Float results and ordering are reproducible cross-platform, so a future fixture mismatch is a behavioural change, not platform drift.
+- The `cfg(unix)` parent-directory fsync and the case-insensitive sprite resolver both ran on their target platform for the first time and behave.
+
+**The entire build dependency surface:**
+
+```
+apt-get install -y build-essential pkg-config libssl-dev
+```
+
+`gcc 14.2.0`, `ld 2.44`, `OpenSSL 3.5.7`. Nothing else needed, no second pass. Rust via rustup, stable.
+
+**Two findings to carry forward:**
+
+- **No toolchain pin.** Linux is on rustc 1.98.0, Windows on 1.97.1, and no `rust-toolchain.toml` exists. Benign today — identical test results — but two machines building the production binary on different compilers is a reproducibility gap. A one-line file closes it.
+- **Correction to the portability audit:** its "no ring/rustls/zstd in the graph" claim holds for the `game` crate but *not* the workspace — root `twitch-bot-rs` pulls ring, two rustls, zstd-sys and flate2. They vendor their C so the package list is unchanged, but the audit's reasoning was wrong at workspace scope.
+- Box notes: no swap configured; `git` is not installed (only `curl`).
+
+*(Original gate description retained below for context.)*
+
+#### Original gate definition
 
 **No Linux build of this workspace has ever been attempted.** Only `x86_64-pc-windows-msvc` is installed and there is no CI. Dependency resolution succeeding is not the same as compiling.
 
@@ -184,10 +231,52 @@ Predicted requirements: `build-essential`, `pkg-config`, `libssl-dev`. `openssl-
 
 This stage is a gate. Nothing downstream proceeds until a Linux binary exists and runs.
 
-### Stage 7 — Provision and ops
+### Stage 7 — Provision and ops 🟡 **STAGING INSTANCE LIVE 2026-08-31** (`6cc5456`, `70f601b`, `docs/linux_staging.md`)
+
+**Path of Dust runs on Linux.** Empty data, no public ingress, Windows production untouched.
+
+| Path | Owner | Contents |
+|---|---|---|
+| `/opt/pathofdust/bin/` | `root:root 0755` | binary + `deploy.sh` |
+| `/var/lib/pathofdust/` | `pathofdust:pathofdust 0750` | all mutable state — the systemd `WorkingDirectory` |
+| logs | — | journald |
+
+Service runs as a `nologin` system user under `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `ReadWritePaths=/var/lib/pathofdust`. `Restart=always`, `RestartSec=5s` — this **replaces `game-watchdog.ps1`**, which is not being ported. Verified: `kill -9` → back in 9s; reboot → auto-start with state intact.
+
+**`ADVENTURE_API_SECRET` is deliberately absent**, so `api.rs:61-62` un-mounts `/api/*` entirely. Verified 404 on four routes, still 404 with an `Authorization` header. The staging instance is Twitch-free by construction, with no code deleted — which is why provisioning and removal stopped being sequential.
+
+**Ledger `#60` closed by demonstration.** Asset refresh is `cp -r` only — never `rsync --delete`, never `rm -rf`. An untracked `zz-staging-upload-proof.png` survived a redeploy in the same run that reverted a tampered tracked template.
+
+#### The season-1 storage baseline — this settles the SQLite question
+
+**57 KB per fight** (summary 540 B, coarse 6.6 K, detail 24 K, bundle 25.6 K) against World 1's **~1.9 GB**. A factor of roughly **30,000**. Total footprint after six fights: 39 MB, of which 38 MB is checked-in sprite art; game state is 380 KB.
+
+Confirms the cyclical-reset ruling in section 1: the gigabyte replays were an artifact of unbounded accumulation, not of the storage design.
+
+#### Findings from standing it up — all resolved ✅ *(shipped 2026-08-31, `a2fc69d`, binary `695E8C68…`, ledger `#71`–`#74`)*
+
+1. ~~Operator gate returns HTTP 200 with a "Not Found" body~~ → **real 404**, body byte-identical. Ledger `#51` closed in the same release: the three admin POSTs no longer answer a non-operator with a fake `?saved=1` redirect.
+2. ~~Operator bootstrap chicken-and-egg~~ → **`OPERATOR_BOOTSTRAP`**, carrying the login *value* rather than a boolean, so a stale variable permits nothing after `OPERATOR_LOGIN` moves. Unset by default. `lokati_gaming` stays permanently reserved regardless.
+3. ~~Twitch credentials mandatory at boot~~ → **optional**. Absent means the Twitch login route and link are simply not registered. Nothing deleted; removal is still Stage 3b's job.
+4. `bind("0.0.0.0")` with no bind-address config — **unfixed**, mitigated at nftables on the staging box (4004/4005 loopback-only). Revisit when ingress is configured.
+5. ~~`StartLimit*` in `[Service]` silently ignored~~ → moved to `[Unit]`.
+
+**Also shipped, unordered but necessary:** nine dynamic-pacing fields had `serde(default)` resolving to `0.0`, below their own floors — previously masked by silent clamping, and would have made every omitting POST 400 once validation went live. **This is the second `serde(default)` mismatch found** (the pool-cap field was the first); check it whenever a form field is added.
+
+**And the silent clamp is gone page-wide:** one validation pass over all 67 fields reports *every* offending field at once with its accepted range, HTTP 400, nothing written. Malformed anchor lists now reject instead of silently emptying the pacing baseline floor. Verified live by a no-op save returning the file byte-identical, same SHA-256.
+
+**Still open:** `/admin/passives` returns 200 on a rejected save while `/admin/tunables` now returns 400 — needs its own alignment order. The bad-key arm of `do_save_passive_override` still fake-redirects, and the public "no such character" cards at `adventure_web.rs:2254`/`:2277` are the same fake 404.
+
+#### Remaining in Stage 7
+
+- cloudflared and public ingress *(deliberately not done — `adventure.lokati.net` still points at Windows)*
+- `backup-game-data.ps1` → shell script plus systemd timer, retention logic carried over, writing off-box
+- REFACTOR_PLAN §13 rewritten for Linux
+
+#### Original stage definition
 
 - Purchase the box, monthly billing
-- Ubuntu LTS, distribution only
+- Debian 13 (trixie), distribution only — **purchased and provisioned 2026-08-31.** VPS Lite 3 G12s: 8 vCPU, 15 GiB RAM, 314 GB disk. Root SSH by ed25519 key from the Windows box; no password auth used.
 - One systemd unit for the game
 - `cloudflared` installed and pointed at the new origin
 - `backup-game-data.ps1` rewritten as a shell script plus a systemd timer, retention logic carried over unchanged, writing off-box
@@ -257,4 +346,16 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
 
 - **Environmental-tagged damage and attribution** — *corrected 2026-08-27: this was previously cited here as "ledger #46". No such entry exists; that citation was carried forward from a stale summary and was wrong.* What the ledger does record is that Holy Fire carries `sourceKind: "environmental"`, which by construction excludes it from Doom accumulation — logged as an evidentiary gap shared with `#29` (Shattering). Whether environmental-tagged damage is also invisible to player attribution and therefore skews the damage leaderboard is **an open question, not an established finding**. Verify against the code before acting on it or citing it.
 - **JSON → SQLite** — considered 2026-08-27, **deferred deliberately.** Real wins: partial writes (today one character save rewrites all 4.1 MB), WAL transactions replacing the hand-rolled atomic save, single-file backup, and queryable leaderboards. If done, the cheap shape is **SQLite with JSON blob columns** — one row per character, serde structs unchanged — not a relational schema. Not during World 2: no stage requires it, and changing persistence during a platform migration makes any data loss impossible to attribute. "Fresh characters makes it free" is misleading — that removes the migration, not the call-site refactor. **Trigger to revisit:** measure how often the full-file rewrite fires; if it is per-fight, that is ~5.8 GB/day of writes today and scales linearly with player count. Also revisit when a leaderboard query is wanted that cannot afford to load everything (see `#46`).
+
+  **TRIGGER FIRED — 2026-08-30.** Measured on the live box after the pool-cap raise lengthened fights from ~2s to ~30s: `adventure-fights-detail` and `adventure-fights-bundle` are writing **~950 MB and ~965 MB per fight**, one fight every ~2.6 minutes — roughly **730 MB/minute sustained**, each through the atomic temp-write → fsync → rename path. The game became visibly sluggish. Summary files are unaffected at ~15 KB.
+
+  **But the storage format is the second problem, not the first.** Event capture has no cap: a single fight produces on the order of five million events, and a 1 GB replay bundle is unusable *as a replay* — nothing will parse it. Cap or sample event capture first; that shrinks the problem by an order of magnitude before any storage technology changes. SQLite then removes the remaining stall (incremental row append instead of one 1 GB fsync), cuts on-disk size perhaps 3–5×, and makes fight data queryable per player or per time window.
+
+  **Decision: design World 2's persistence around SQLite from the start; do not convert World 1 mid-flight.** The refactor touches every read and write site, on a world being retired, competing with the Linux move.
+
+  **SUPERSEDED — 2026-08-30, cyclical reset ruling.** A scoping session was prepared and then **cancelled**. Event volume is a product of boss count × action rate × splash targets × duration, and a periodic world reset bounds all four. The 950 MB replay is what a year without a reset produces, not a property of the storage design. JSON is adequate at season-scale volumes.
+
+  **Binding constraint if this is ever reopened:** players read fight events LIVE through an external desktop app and use them to decide how to build their characters. Fight event data is a player-facing feature. **Capping, truncating, sampling or thinning events is not an available option** — only representing the same information more cheaply.
+
+  **Worth knowing regardless, never answered:** two artifacts of near-identical size are written per fight — `adventure-fights-detail` (~950 MB) and `adventure-fights-bundle` (~965 MB), seconds apart, 3 retained each. The bundle format is newer (`replay-bundle.v1.json`). If one is legacy and nothing reads it, that is half the write volume for nothing, and season 1 should not inherit it. Cheap to check whenever someone is in that code.
 - **Golden fixture `hitId`/`eventId` churn** — regeneration rewrites most fixtures with no semantic change, so every deploy produces diff noise that will eventually stop being read. Owner to be briefed; no action scheduled.
