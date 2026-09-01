@@ -358,3 +358,27 @@ FOUND — a `cargo test --release --workspace --quiet` run backgrounded
 through the harness reported exit 0 with only 6 of 34 `test result:` lines
 captured (14 tests, not 758). The foreground re-run is the number of
 record. Do not trust a backgrounded suite's captured output as a count.
+
+FOUND — production's `adventure-item-balance.toml` names a retired affix.
+Every start logs `adventure-item-balance.toml: 'lingeringEffect' is a
+retired affix with no live base value to override, ignoring`. Harmless
+(it is ignored) but it is live data that no longer matches the code.
+
+FOUND — `/characters` emits BOTH a `.png` and a `.gif` URL for every
+custom sprite and lets the browser fall back, so each custom sprite
+produces exactly one guaranteed 404 per page render. By design, not a
+migration fault; noted because it looks alarming in an access log.
+
+FOUND — the operator account is unregisterable on a box holding
+production characters. `do_register` (`accounts.rs:273`) refuses any
+username a live character owns, `lokati` is both `OPERATOR_LOGIN` and one
+of the 67 characters, and `OPERATOR_BOOTSTRAP` does not pierce that
+check. A rebuild-from-empty therefore has no UI path to an operator
+account. Needs an owner decision before cutover — see divergence #10 in
+`docs/linux_deploy.md`.
+
+FOUND — off-box scp DOWNLOAD throughput collapsed from 3.35 MB/s to
+~10-70 KB/s for roughly ten minutes mid-session, then recovered to
+5.14 MB/s. Uploads were unaffected throughout. The nightly
+`PodPullLinuxBackups` and any restore-from-off-box run in the affected
+direction. Not diagnosed.

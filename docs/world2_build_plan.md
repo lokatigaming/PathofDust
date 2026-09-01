@@ -359,3 +359,20 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
 
   **Worth knowing regardless, never answered:** two artifacts of near-identical size are written per fight — `adventure-fights-detail` (~950 MB) and `adventure-fights-bundle` (~965 MB), seconds apart, 3 retained each. The bundle format is newer (`replay-bundle.v1.json`). If one is legacy and nothing reads it, that is half the write volume for nothing, and season 1 should not inherit it. Cheap to check whenever someone is in that code.
 - **Golden fixture `hitId`/`eventId` churn** — regeneration rewrites most fixtures with no semantic change, so every deploy produces diff noise that will eventually stop being read. Owner to be briefed; no action scheduled.
+- **`/admin/passives` pins every saved row, including rows saved at their compiled defaults** — recorded 2026-09-01, **not decided.** `do_save_passive_override` (`adventure_web.rs:2922`) runs `overrides.nodes.insert(form.node_key, vec![form.r1, form.r2, form.r3])` unconditionally on save. There is no comparison against the compiled-in node values, so saving a row you did not change — opening a node, glancing at it, hitting save — writes an explicit override into `adventure-passive-overrides.toml` that is byte-identical to the default. From that moment the node is **pinned**: `passive_override_for` returns the stored value and any future change to the compiled default silently does not reach it.
+
+  Live risk for World 2 rebalancing specifically: a rebalance pass that edits compiled defaults will appear to do nothing on exactly those nodes an operator happened to save at some point, and nothing in the UI distinguishes a pinned-at-default node from an unpinned one.
+
+  **Narrowing finding:** a clear-override control *already exists* — `do_revert_passive_override` (`adventure_web.rs:2937`, route `/admin/passives/revert`, backed by `PassiveOverrides::revert`). So this is not "there is no way out", it is "the save path creates pins nobody asked for, and the operator has to know to go press revert on each one." That materially shrinks option 2 below.
+
+  Options on the table, **none chosen**:
+  1. Leave as-is — saving is explicit, and revert already exists.
+  2. Surface the existing revert control better (e.g. mark pinned rows in the form), rather than adding a new mechanism.
+  3. Skip the write when the submitted values equal the compiled defaults, so a no-op save leaves no pin.
+
+  Owner to rule. Do not implement any of the three without that ruling.
+- **Custom sprites live in two sources and only one of them is git** — recorded 2026-09-01 during the Linux data-migration rehearsal. `public_adventure_overlay/sprites/custom/` held **14** files on Windows production; git tracks **9**. The other 5 are player uploads that exist only on the live box and in `backup-game-data.ps1`/`backup-game-data.sh` snapshots (both scripts include that directory for exactly this reason). One of the untracked five, `lokati_gaming6.gif`, is the *actively referenced* model for character `lokati_gaming`.
+
+  Consequence: a deploy that reinstalls the checked-in assets restores 9 sprites and a restore-from-backup restores 14, so "the assets are in git" is true of the directory and false of its contents. Any cutover, rebuild, or fresh instance must take this directory from a **backup**, not from a checkout, or characters silently fall back to their hash-default sprite with no error anywhere. Proven on staging: see `docs/linux_deploy.md`.
+
+  Not acted on here — player uploads were deliberately **not** added to git in that session.
