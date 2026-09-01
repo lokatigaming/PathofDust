@@ -71,8 +71,29 @@ touched. The `pathofdust` unit was not restarted at any point — ingress is ent
 
 `ADVENTURE_API_SECRET` remains absent from the unit, so `adventure_web/api.rs`'s `router()`
 returns `None` and `/api/*` is never mounted. Publishing the dashboard did **not** publish the
-API: `https://staging.lokati.net/api/status` returns **404**, not 401. Verified after the tunnel
-was live. Do not add that key.
+API. Do not add that key.
+
+**Correction (2026-09-01, CUTOVER-RUNBOOK session).** An earlier version of this document proved
+that with `GET https://staging.lokati.net/api/status` → **404, not 401**. That check is invalid
+and the conclusion it supported was reached by luck. **`/api/status` is not a route** — it never
+was. The mounted routes are `/api/commands/*` (10), `/api/redemptions/*` (3), `/api/activity_xp`,
+`/api/published-constants` and `/api/announcements/stream` (router table,
+[`api.rs:61-84`](../game/src/adventure_web/api.rs#L61-L84)). An unmatched path inside the nested
+router falls through to the outer fallback without ever reaching the shared-secret middleware, so
+`/api/status` returns 404 **whether or not the seam is mounted**.
+
+The valid probe is an unauthenticated request to a **real** route:
+
+```
+POST https://staging.lokati.net/api/commands/join      (no x-adventure-api-secret header)
+
+  401  ->  /api/* IS mounted      (the shared-secret middleware rejected the request)
+  404  ->  /api/* is NOT mounted  (router() returned None; the path does not exist)
+```
+
+It is safe to run against a live instance — the middleware rejects before the handler, so the
+request has no side effect. Run against live Windows production on 2026-09-01 it returns **401**,
+which is what a mounted seam looks like; staging must return **404**.
 
 `ADVENTURE_WEB_PUBLIC_URL` is deliberately left at `http://127.0.0.1:4005`. It feeds exactly one
 thing — the Twitch OAuth `redirect_uri` in `adventure_web.rs` (`redirect_uri()`, ~line 123) — and
@@ -132,7 +153,7 @@ Checked from the Windows box after the service was up, not inferred from config:
 | tunnel connections | 4 registered, QUIC, `vie02` / `vie05` / `vie06` / `vie07` |
 | `systemctl is-enabled` / `is-active cloudflared` | `enabled` / `active` |
 | `GET https://staging.lokati.net` | **200**, 72025 bytes, `<title>Adventure Character Dashboard</title>` |
-| `GET https://staging.lokati.net/api/status` | **404** (API not mounted, as intended) |
+| ~~`GET https://staging.lokati.net/api/status`~~ | ~~**404** (API not mounted, as intended)~~ — **invalid check, see the correction above.** `/api/status` is not a route and returns 404 either way. Re-verify with `POST /api/commands/join`, no secret header: 401 = mounted, 404 = not mounted. |
 | `GET https://adventure.lokati.net` | **200** — production ingress unaffected |
 
 The 200 is the game's own page served through the tunnel, not a Cloudflare interstitial:
