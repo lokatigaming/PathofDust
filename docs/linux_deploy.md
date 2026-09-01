@@ -292,9 +292,28 @@ binary    : e5f21e43499626da65c04efca8481ecc17e7dce4269177d5fa2f01ac68ed5930
 /passives            HTTP 200   72,402 B
 /admin/tunables      HTTP 200  103,052 B   (operator session)
 /admin/tunables      HTTP 200  (anonymous) body contains <h1>Not Found</h1>
-/api/status          HTTP 404   (not 401 — router never mounted)
+/api/status          HTTP 404   -- INVALID PROBE, see the correction below
 /sprites/custom/Sitch89.gif  HTTP 200  687,999 B
 ```
+
+**Correction — the `/api/status` line above proves nothing.** `/api/status` is **not a route**;
+it appears nowhere in the `/api/*` route table (`game/src/adventure_web/api.rs:65-80`). An
+unmatched path inside the nested router falls through to the outer fallback without ever
+reaching the shared-secret middleware, so it returns **404 whether or not `/api/*` is mounted**.
+The rehearsal's 404 was therefore consistent with both outcomes and the conclusion it supported
+was reached by luck. The **valid** probe is an unauthenticated request to a route that really
+exists, sent with no `x-adventure-api-secret` header:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' -X POST <base>/api/commands/join
+
+  401  ->  /api/* IS mounted   (the route exists; the shared-secret middleware rejected it)
+  404  ->  /api/* is NOT mounted (router() returned None; the path does not exist)
+```
+
+Expected **404** on staging while `ADVENTURE_API_SECRET` is absent; live Windows production
+returns **401**. This probe was not run during the rehearsal — the 404 recorded above is from
+the invalid check and must not be read as a mounting result.
 
 **The maintenance-gate claim, proven rather than argued.** `Restart=always` fires on process
 *exit*; `systemctl stop` is not an exit it acts on. If that were wrong, `NRestarts` would have
@@ -382,7 +401,12 @@ Per the owner's ruling:
    proven to parse and authenticate. A scrubbed file would not have proven that.
 4. The scrub and its verification, and only then the tunnel, are recorded below.
 
-`ADVENTURE_API_SECRET` remained absent throughout; `/api/status` returned 404, never 401.
+`ADVENTURE_API_SECRET` remained absent throughout. The rehearsal recorded this as
+"`/api/status` returned 404, never 401" — that check is **invalid** (`/api/status` is not a
+route and returns 404 either way; see the correction under the smoke-test block above). The
+valid probe is unauthenticated `POST /api/commands/join` with no `x-adventure-api-secret`
+header: **401 = `/api/*` mounted, 404 = not mounted**. It expects 404 on staging, and was not
+run during the rehearsal.
 
 ### The scrub, and its verification
 
@@ -427,11 +451,20 @@ internet immediately after:
 
 ```
 https://staging.lokati.net/            -> HTTP 200, 72,025 bytes, <title>Adventure Character Dashboard</title>
-https://staging.lokati.net/api/status  -> HTTP 404
+https://staging.lokati.net/api/status  -> HTTP 404   -- INVALID PROBE, proves nothing
 ```
 
 Staging is publicly reachable again, serving the anonymous landing page, holding real
 character data but **no production credential of any kind**.
+
+The `/api/status` line is **not** evidence that `/api/*` is unmounted — that path is not a route
+and answers 404 in both cases (see the correction under the smoke-test block above). To prove
+the seam's state from the internet, use a route that exists, with no secret header:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://staging.lokati.net/api/commands/join
+  401 = /api/* mounted,  404 = /api/* not mounted    (expect 404 on staging)
+```
 
 ### What is left on the box
 

@@ -1505,7 +1505,7 @@ Not "confirm it works". Seven checks, all of which the rehearsal ran:
 | 4 | `sha256sum /opt/pathofdust/bin/game` | equals the candidate hash from 13B.1 |
 | 5 | authenticated `/characters` **and** `/passives` | 200 **with plausible byte counts** (94 KB / 72 KB today). `/` alone is not a health check: logged out it returns a constant 72,025-byte landing page that renders identically whether or not any data loaded |
 | 6 | anonymous `/admin/tunables` | HTTP **200** whose *body* contains `<h1>Not Found</h1>`. The operator gate is content, not status — a status-code assertion passes for everyone and proves nothing (`adventure_web.rs:2965`) |
-| 7 | `/api/status` | **404**, not 401 — `ADVENTURE_API_SECRET` absent means the router was never mounted. On staging this must stay 404 forever |
+| 7 | unauthenticated `curl -s -o /dev/null -w '%{http_code}' -X POST <base>/api/commands/join` — a **real** `/api/*` route (`adventure_web/api.rs:66`), sent with **no** `x-adventure-api-secret` header | **404** on staging — `ADVENTURE_API_SECRET` absent means `router()` returned `None` and `/api/*` was never nested, so the path does not exist. **401** would mean the seam *is* mounted and the shared-secret middleware rejected the missing header. On staging this must stay 404 forever; live Windows production returns 401. **Never probe `/api/status` — it is not a route** (see the route table at `adventure_web/api.rs:65-80`) and returns 404 whether or not `/api/*` is mounted, so it proves nothing in either direction |
 
 Plus, before calling a deploy done: **watch one fight resolve.** The web
 server answering proves the web server; only a fight in the journal and a
