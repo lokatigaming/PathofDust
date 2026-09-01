@@ -1,0 +1,39 @@
+[Unit]
+Description=Path of Dust - back up persisted game state
+Documentation=file:///opt/pathofdust/bin/backup-game-data.sh
+# The game is NOT stopped, ordered against, or referenced here. Backups
+# run against a live process by design (see backup-game-data.sh's header)
+# and must never become a reason the game is down.
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pathofdust/bin/backup-game-data.sh /var/lib/pathofdust /var/backups/pathofdust
+
+# Runs as root because /var/lib/pathofdust is 0750 pathofdust:pathofdust
+# and the archives land outside it. The script only ever reads the source.
+User=root
+Group=root
+
+# journald is the log of record, same as the game unit. A failed run is
+# loud: the script exits non-zero, systemd marks the unit failed, and
+# `systemctl list-units --failed` shows it.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pathofdust-backup
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+# The source is mounted read-only: the script has no business writing
+# into the game's data directory and this makes that structural rather
+# than a promise in a comment.
+ReadOnlyPaths=/var/lib/pathofdust
+ReadWritePaths=/var/backups/pathofdust

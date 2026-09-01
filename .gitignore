@@ -183,6 +183,7 @@ target-duplicate-unique-effects/
 target-echo/
 target-restore-live-buff-events/
 target-cline/
+target-linux-backups/
 
 # --- Orchestrator coordination files (not project artifacts) ---
 ORDERS/
