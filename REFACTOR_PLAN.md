@@ -1068,7 +1068,17 @@ Baselines and fixtures captured for Stage 0 execution are captured
 against `54f7c67` (or later) specifically so they record this corrected
 world, per the owner's explicit ordering.
 
-## 13. Production deploy procedure (current, authoritative)
+## 13. Production deploy procedure
+
+**Two platforms, two procedures — and only one of them is production
+today.** Windows (`C:\PathofDust`, `adventure.lokati.net`) is the live
+game and deploys by **13A**, which stays authoritative and untouched
+until cutover is complete. The Debian 13 box deploys by **13B**, which
+is what production will use *after* cutover and is what staging uses
+now. Do not delete 13A when 13B lands; delete it when the Windows box
+stops serving players, and not before.
+
+### 13A. Windows deploy — authoritative for production until cutover
 
 Documented here (rather than left in a single session's own memory) so
 it survives into every future session, per the owner's explicit
@@ -1330,3 +1340,228 @@ fresh worktree from master rather than reviving the old one. Any
 restart outside a documented deploy step (§13 step 4, or an explicit
 one-off live-data fix) gets one line in that deploy's report stating
 why — intent should never have to be inferred from timestamps alone.
+
+### 13B. Linux deploy — Debian 13, systemd
+
+Written and **rehearsed end to end on staging 2026-09-01** (branch
+`chore/linux-deploy-proc`), against a full copy of real production data —
+67 characters, world stage 7389, the real accounts/sessions files and all
+14 custom sprites. Evidence, divergence log and timings:
+`docs/linux_deploy.md`. A procedure that has never been executed is a
+draft; this one has been executed, rolled back deliberately, and rolled
+forward again.
+
+Paths, fixed by `docs/linux_staging.md`:
+
+| | |
+|---|---|
+| binary | `/opt/pathofdust/bin/game` (root:root 0755) |
+| deploy script | `/opt/pathofdust/bin/deploy-linux.sh` |
+| rollback script | `/opt/pathofdust/bin/rollback-linux.sh` |
+| data / `WorkingDirectory` | `/var/lib/pathofdust` (pathofdust:pathofdust 0750) |
+| backups | `/var/backups/pathofdust/`, per-deploy `deploy-pre-<name>/` |
+| logs | journald — `journalctl -u pathofdust` |
+
+**Steps 1, 2 and 5 of 13A are unchanged and still apply on Linux:** write
+the patch-notes entry FIRST, `git merge --no-ff` for a feature-branch
+merge, and `git push origin master`. Everything below replaces 13A steps
+3, 4 and 4a. There is no bot on this box, so 13A's conditional bot
+redeploy does not apply; `.clinerules` (13A step 6) is a Windows
+deployment-root artifact and does not apply either.
+
+#### 1. Build, test, hash
+
+Build **on the box**, from a `git archive` of the exact commit — not from
+a working tree, so nothing uncommitted can reach production:
+
+```sh
+# on the dev machine
+git archive --format=tar <commit> | gzip > src-deploy.tar.gz
+scp src-deploy.tar.gz root@<box>:/root/
+
+# on the box
+rm -rf /root/deploy-src && mkdir -p /root/deploy-src
+tar xzf /root/src-deploy.tar.gz -C /root/deploy-src
+cd /root/deploy-src
+cargo build --release --workspace > /root/build-deploy.log 2>&1; echo "build exit: $?"
+cargo test  --release --workspace --quiet > /root/test-deploy.log 2>&1; echo "test exit: $?"
+```
+
+`--workspace` on both, per CLAUDE.md — a plain build misses the game
+binary and a crate-internal test run misses the root-level `tests/*.rs`.
+**Capture the exit code separately as shown**; 13A's rule about never
+reading a piped command's exit code applies identically here.
+
+Run these under `systemd-run --unit=...` rather than in the SSH session,
+so a dropped connection does not kill a three-minute build.
+
+Measured on this box (8 vCPU, 16 GB): build **2 m 36 s**, full suite
+**758 passed / 0 failed / 0 ignored**, both while the live service was
+serving and resolving real fights. **The suite saturates all 8 cores**
+and the game's fight cadence visibly stretches while it runs — expected,
+not a fault, but do not read fight timings taken during a test run.
+
+Hash both binaries and confirm they differ before going near the swap:
+
+```sh
+sha256sum /opt/pathofdust/bin/game             # currently live
+sha256sum /root/deploy-src/target/release/game # the candidate
+```
+
+`deploy-linux.sh` re-checks this and **aborts if the hashes match** — an
+identical hash means there is nothing to deploy, and the most likely
+explanation is that you built the wrong tree.
+
+#### 2. The maintenance gate — and why there is no flag file
+
+**On Linux the maintenance gate is `systemctl stop pathofdust`. Nothing
+else is needed, and `maintenance-flag.ps1` is deliberately NOT ported.**
+
+13A needs a flag file because `GameProcess-Watchdog` is a *separate
+scheduled task* that polls, cannot be disabled without an elevated token,
+and will happily restart the game off a half-written binary during the
+swap window. Every one of those conditions is absent here:
+
+- `Restart=always` is a property of **the unit itself**, evaluated by the
+  service manager that is doing the stopping. It fires when the process
+  **exits on its own**. `systemctl stop` is not such an exit — systemd
+  moves the unit to `inactive (dead)` and the restart logic is never
+  consulted. There is no window in which a restarter races the swap,
+  because the restarter and the stopper are the same program.
+- No elevation problem: the deploy runs as root and `systemctl stop`
+  always works.
+- No lease to expire, therefore no forgotten flag that silently leaves
+  protection off, therefore no `-Clear` step to forget.
+
+**Proven, not argued.** Across the rehearsal's three swaps (deploy,
+rollback, roll-forward) `systemctl show pathofdust -p NRestarts` read `0`
+before and `0` after every one. A stop that had been mistaken for a crash
+would have incremented it. **Check `NRestarts` after any swap — a
+non-zero value means the process died rather than being stopped, and the
+deploy needs looking at, not celebrating.**
+
+The burst limit (`StartLimitBurst=5` in 5 minutes) is the backstop that
+replaces the flag's expiry: a binary that crashes on startup gives up
+after five tries and stays down, visible in `systemctl status`, rather
+than spinning forever.
+
+#### 3. Backup before swap
+
+`deploy-linux.sh` does all three, in this order, **before it stops
+anything**:
+
+1. `systemctl start pathofdust-backup.service` — the proven allow-list
+   archive (`docs/linux_backups.md`): 13 core state files, the markers,
+   the seq counters, the summary tier and `sprites/custom`, each verified
+   and the archive hashed, into `/var/backups/pathofdust/`.
+2. `cp -a /opt/pathofdust/bin/game` → `deploy-pre-<name>/game.pre-<name>`
+   — **the rollback slot**, plus a `SHA256SUMS` beside it.
+3. `cp -a adventure-fights-summary` → `deploy-pre-<name>/` — the pinned
+   pre-deploy fight corpus, exactly as 13A step 4 does and for the same
+   reason: the live tier is capped at `SUMMARY_FIGHTS_CAPACITY = 200`, so
+   pre-deploy fights age out within hours and before/after comparison
+   becomes impossible.
+
+**No `rsync --delete` and no `rm -rf` against `/var/lib/pathofdust`
+appears anywhere in either script.** The asset refresh is
+`cp -r "$SRC/$d/." "$DATA/$d/"`, which can only create or overwrite — the
+Ledger #60 guarantee that a refresh cannot eat player-uploaded sprites.
+
+#### 4. The swap
+
+```sh
+/opt/pathofdust/bin/deploy-linux.sh /root/deploy-src <release-name>
+```
+
+which is, in order: hash both → abort if equal → backup (above) →
+`systemctl stop pathofdust` → `install` the new binary as `game.new` and
+`mv -f` it over `game` → `cp -r` refresh of `templates/`, `wiki/` and
+`public_adventure_overlay/` → `chown -R pathofdust:pathofdust` →
+`systemctl start pathofdust` → re-hash the live binary and confirm it is
+the new one.
+
+Two Windows problems that do not exist here: there is no file lock, so a
+running binary can simply be replaced (`mv` over the inode), and there is
+no "poll until the port is free" step, because `systemctl stop` does not
+return until the unit is actually dead.
+
+**`chown -R` is not optional.** A tarball built on Windows carries
+meaningless numeric ownership — during the rehearsal an extracted archive
+landed as uid `197108`, which is nobody on this box — and the service
+user then cannot write its own data directory.
+
+Measured downtime across the three rehearsal swaps: **0.47 s, 0.62 s,
+0.17 s.**
+
+#### 5. Health verification — check these, specifically
+
+Not "confirm it works". Seven checks, all of which the rehearsal ran:
+
+| # | Check | Expected |
+|---|---|---|
+| 1 | `systemctl is-active pathofdust` | `active` |
+| 2 | `systemctl show pathofdust -p NRestarts --value` | **unchanged** (`0`) — see 13B.2 |
+| 3 | `journalctl -u pathofdust --since -2min` → the `loaded N characters` line | the **right N** — 67 today. A binary that starts and loads *zero* characters also answers 200 |
+| 4 | `sha256sum /opt/pathofdust/bin/game` | equals the candidate hash from 13B.1 |
+| 5 | authenticated `/characters` **and** `/passives` | 200 **with plausible byte counts** (94 KB / 72 KB today). `/` alone is not a health check: logged out it returns a constant 72,025-byte landing page that renders identically whether or not any data loaded |
+| 6 | anonymous `/admin/tunables` | HTTP **200** whose *body* contains `<h1>Not Found</h1>`. The operator gate is content, not status — a status-code assertion passes for everyone and proves nothing (`adventure_web.rs:2965`) |
+| 7 | `/api/status` | **404**, not 401 — `ADVENTURE_API_SECRET` absent means the router was never mounted. On staging this must stay 404 forever |
+
+Plus, before calling a deploy done: **watch one fight resolve.** The web
+server answering proves the web server; only a fight in the journal and a
+new file in `adventure-fights-summary/` proves the game loop.
+
+**A page that hangs is not automatically a failed deploy — but do not
+wave it away either.** During the rehearsal the first authenticated
+request after loading real production data timed out at **120 s**, and
+the next took 17.1 s; everything after was under 10 ms. It did **not**
+reproduce: not across two controlled restarts (1.6 ms each), not across
+three swaps, and not during an 11-minute probe that polled authenticated
+pages every 2 s straight through a complete fight write. The obvious
+explanation — that a ~1 GB fight write stalls the runtime — is therefore
+**not** supported; it is recorded as an unexplained one-off, on exactly
+the operation a cutover performs. If a health check hangs, capture
+`journalctl -u pathofdust`, `ls -t /var/lib/pathofdust/adventure-fights-detail/`
+and the request timing before restarting anything — a second sighting is
+worth more than a fast recovery.
+
+Two related facts that are solid: after `systemctl start` the server
+refuses connections for a few hundred milliseconds before it listens, so
+the health gate must **poll**, not fire once; and anonymous `/` is a
+constant 72,025-byte landing page, which is why check 5 above insists on
+an authenticated page with a plausible byte count.
+
+#### 6. Rollback
+
+```sh
+/opt/pathofdust/bin/rollback-linux.sh <release-name>
+```
+
+Verifies the slot against its `SHA256SUMS`, `systemctl stop`, installs
+the saved binary back over `/opt/pathofdust/bin/game`, `systemctl start`,
+then polls the dashboard until it answers 200 and prints the wall-clock.
+
+**Measured: 0.62 s**, dashboard 200, 67 characters reloaded, world state
+intact. Call it **under 5 seconds** in planning; it is bounded by process
+start, not by copying — the binary is 19 MB on local disk, and nothing
+crosses the network.
+
+**Rollback restores the BINARY ONLY, and that is deliberate.** The game
+writes continuously, so by the time you roll back, the character and
+world files have moved on and hold state players actually earned.
+Rolling those back would delete real progress to fix a code problem. If a
+release corrupts *data* rather than behaviour, that is a restore, not a
+rollback — follow the restore procedure in `docs/linux_backups.md`, which
+extracts to scratch and verifies against the manifest before touching the
+live directory.
+
+Two preconditions worth stating: the slot is per-release-name, so a
+rollback needs the same `<release-name>` the deploy used; and a rollback
+across a release that *changed the data format* needs the restore
+procedure too, not this script.
+
+#### 7. Report
+
+Same as 13A step 8: what shipped, the patch-notes entry added, the
+merge/final commit hash, old and new binary SHA-256, measured downtime,
+the seven health-check results, and the rollback slot path.
