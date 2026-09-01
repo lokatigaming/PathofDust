@@ -358,3 +358,39 @@ FOUND — a `cargo test --release --workspace --quiet` run backgrounded
 through the harness reported exit 0 with only 6 of 34 `test result:` lines
 captured (14 tests, not 758). The foreground re-run is the number of
 record. Do not trust a backgrounded suite's captured output as a count.
+
+## 2026-09-01 — CUTOVER-RUNBOOK
+
+Wrote `docs/cutover_runbook.md` (executable procedure; nothing cut over,
+no DNS touched, no tunnel config edited, nothing on Windows stopped).
+Production was read and measured only.
+
+FOUND — `/api/status` is not a route. Every check of the form "/api/status
+returned 404, so /api/* is not mounted" is invalid: an unmatched path in
+the nested router falls through to the outer fallback without reaching the
+shared-secret middleware, so it returns 404 whether the seam is mounted or
+not. `docs/linux_ingress.md` corrected here. `docs/linux_deploy.md` on
+`chore/linux-deploy-proc` carries the same defect in three places (lines
+295, 385, 430 as of `d913da9`) and must be corrected when it merges. Valid
+probe: unauthenticated `POST /api/commands/join` — 401 = mounted, 404 =
+not. Live Windows production returns 401.
+
+FOUND — `adventure-fights-pinned/` does not exist on production. The
+directory is created lazily by `pin_most_recent_fight`, so `!pinfight` has
+never landed. Nothing to transfer at cutover; kept as a pre-flight
+measurement in case a mod pins something first.
+
+FOUND — the churning fight tiers are larger than the 2026-08-23 figure of
+record: coarse 1,188 MB / detail 3,735 MB / bundle 3,775 MB = 8,698 MB,
+which is 5 m 45 s at the measured 25.23 MB/s, not the ~4.6 min previously
+extrapolated. Not carried, per ruling.
+
+FOUND — `ADVENTURE_API_BASE_URL` is absent from `C:\PathofDust\.env`, so
+the bot runs on its default `http://127.0.0.1:4005`. All 16 bot↔game links
+break the moment the game leaves Windows. Not a fix for this session;
+it is a numbered step in the runbook.
+
+FOUND — the Linux unit's placeholder `TWITCH_CLIENT_ID`/`_SECRET` and its
+loopback `ADVENTURE_WEB_PUBLIC_URL` would break Twitch login and its OAuth
+redirect for any new login after cutover. Also a runbook step, with a
+per-value verification.
