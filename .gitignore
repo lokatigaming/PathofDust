@@ -255,3 +255,7 @@ backup-pre-pool-cap/
 # Pre-deploy binary + data backup for the admin-gates release (2026-08-31);
 # same "backup before overwrite" discipline as backup-pre-bake above.
 /backup-pre-admin-gates
+
+# Pre-deploy binary + data backup for the atomic-TOML-writes release
+# (2026-09-01); same "backup before overwrite" discipline as above.
+/backup-pre-atomic-toml
