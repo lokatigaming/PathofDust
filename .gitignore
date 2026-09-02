@@ -122,6 +122,17 @@ adventure-rampage-state.json
 # the Stage 5 cutover's first real bot startup surfaced this gap.
 bot-published-constants.json
 adventure-reforge-cooldown.json
+# The account store: usernames and argon2 password hashes for every
+# registered player. It shipped with operator identity (Stage 3a,
+# 2026-08-28) and its ignore entry was MISSED while its sibling
+# adventure-sessions.json, added in the same change, was remembered - so
+# it sat untracked-but-committable in the deployment root for six days.
+# One `git add -A` and it is on a public remote, in history, forever.
+# Note the shape of the trap: this list names runtime files ONE BY ONE,
+# so every new state file needs a new line here and nothing fails when
+# one is forgotten. Adding a data file? Add its line in the same commit.
+adventure-accounts.json
+adventure-accounts.json.*
 adventure-sessions.json
 adventure-sprite-count.json
 adventure-item-balance.toml
@@ -191,6 +202,10 @@ REPORTS/
 
 # --- Local agent-tooling copies (never committed) ---
 # .clinerules is a local copy of CLAUDE.md for the Cline agent.
+# Same class as .clinerules below - local agent configuration, not shared.
+.continue/
+# The owner's own working notes. Personal, and not the repo's business.
+Quick Notes.md
 .clinerules
 
 # Pre-fail-loud-deploy rollback backup (refuse-to-start guard for corrupt
@@ -259,3 +274,9 @@ backup-pre-pool-cap/
 # Pre-deploy binary + data backup for the atomic-TOML-writes release
 # (2026-09-01); same "backup before overwrite" discipline as above.
 /backup-pre-atomic-toml
+
+# Pre-deploy binary backup for the bot-decoupling release (2026-09-02);
+# same "backup before overwrite" discipline as above. Created by that
+# deploy and left untracked until now, which is why it showed up as a
+# dirty entry in the C:\PathofDust checkout.
+/backup-pre-bot-decoupling
