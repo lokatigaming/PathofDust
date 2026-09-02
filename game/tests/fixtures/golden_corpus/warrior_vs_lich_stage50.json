@@ -93,7 +93,7 @@
       "attacker": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 309,
+      "unmitigatedDamage": 219,
       "targetHpAfter": 8000,
       "isCrit": false,
       "evaded": true,
@@ -118,9 +118,9 @@
       "atMs": 1100,
       "attacker": "__enemy_0__",
       "target": "warrior_vs_lich_stage50",
-      "damage": 86,
+      "damage": 109,
       "unmitigatedDamage": 138,
-      "targetHpAfter": 124,
+      "targetHpAfter": 101,
       "isCrit": false,
       "evaded": false,
       "hitId": 9,
@@ -131,9 +131,9 @@
       "atMs": 1259,
       "attacker": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "damage": 378,
-      "unmitigatedDamage": 385,
-      "targetHpAfter": 7622,
+      "damage": 268,
+      "unmitigatedDamage": 273,
+      "targetHpAfter": 7732,
       "isCrit": false,
       "evaded": false,
       "hitId": 16,
@@ -150,9 +150,9 @@
       "atMs": 2000,
       "attacker": "__enemy_0__-add-0",
       "target": "warrior_vs_lich_stage50",
-      "damage": 19,
+      "damage": 23,
       "unmitigatedDamage": 30,
-      "targetHpAfter": 105,
+      "targetHpAfter": 78,
       "isCrit": false,
       "evaded": false,
       "hitId": 28,
@@ -163,25 +163,12 @@
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "warrior_vs_lich_stage50",
-      "damage": 98,
+      "damage": 123,
       "unmitigatedDamage": 141,
-      "targetHpAfter": 7,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 33,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 2200,
-      "attacker": "__enemy_0__-add-1",
-      "target": "warrior_vs_lich_stage50",
-      "damage": 20,
-      "unmitigatedDamage": 29,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 40,
+      "hitId": 33,
       "sourceKind": "direct"
     },
     {
@@ -220,7 +207,7 @@
       "source": "Increased damage (gear/tree)",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.7189700937981409
+      "magnitude": 0.21677763969227826
     },
     {
       "eventId": 5,
@@ -240,7 +227,7 @@
       "source": "Echo",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.0012511426112470536,
+      "probability": 0.00037723369097563336,
       "succeeded": false,
       "magnitude": 0.0
     },
@@ -284,7 +271,7 @@
       "source": "Damage reduction",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.4887523415138728
+      "magnitude": 0.35691097228204893
     },
     {
       "eventId": 14,
@@ -357,7 +344,7 @@
       "source": "Increased damage (gear/tree)",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.7189700937981409
+      "magnitude": 0.21677763969227826
     },
     {
       "eventId": 22,
@@ -377,7 +364,7 @@
       "source": "Cold proc",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.022440948732804143,
+      "probability": 0.006766200626028437,
       "succeeded": false
     },
     {
@@ -388,7 +375,7 @@
       "source": "Chaos proc",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.02186996895731675,
+      "probability": 0.006594043746194525,
       "succeeded": false
     },
     {
@@ -399,7 +386,7 @@
       "source": "Divine proc",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.027586091689693188,
+      "probability": 0.008317519597004863,
       "succeeded": false
     },
     {
@@ -410,7 +397,7 @@
       "source": "Echo",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.0012511426112470536,
+      "probability": 0.00037723369097563336,
       "succeeded": false,
       "magnitude": 0.0
     },
@@ -444,7 +431,7 @@
       "source": "Damage reduction",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__-add-0",
-      "magnitude": 0.4887523415138728
+      "magnitude": 0.35691097228204893
     },
     {
       "eventId": 32,
@@ -496,7 +483,7 @@
       "source": "Damage reduction",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.4887523415138728
+      "magnitude": 0.35691097228204893
     },
     {
       "eventId": 38,
@@ -517,68 +504,6 @@
       "actor": "__enemy_0__",
       "target": "warrior_vs_lich_stage50",
       "magnitude": 0.04393791377526021
-    },
-    {
-      "eventId": 41,
-      "hitId": 40,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "warrior_vs_lich_stage50",
-      "target": "__enemy_0__-add-1",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 42,
-      "hitId": 40,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "warrior_vs_lich_stage50",
-      "target": "__enemy_0__-add-1",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 43,
-      "hitId": 40,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "warrior_vs_lich_stage50",
-      "target": "__enemy_0__-add-1",
-      "magnitude": -0.004
-    },
-    {
-      "eventId": 44,
-      "hitId": 40,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "warrior_vs_lich_stage50",
-      "target": "__enemy_0__-add-1",
-      "magnitude": 0.4887523415138728
-    },
-    {
-      "eventId": 45,
-      "hitId": 40,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "warrior_vs_lich_stage50",
-      "target": "__enemy_0__-add-1",
-      "magnitude": -0.004
-    },
-    {
-      "eventId": 46,
-      "hitId": 40,
-      "atMs": 2200,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__-add-1",
-      "target": "warrior_vs_lich_stage50",
-      "magnitude": 0.009212637376803947
     }
   ]
 }
