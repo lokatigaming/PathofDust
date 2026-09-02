@@ -69,27 +69,6 @@ pub struct Config {
 
     pub chat_overlay_server_port: u16,
 
-    /// The adventure game overlay (public_adventure_overlay/overlay.html)
-    /// — see adventure.rs/adventure_overlay_server.rs.
-    pub adventure_overlay_server_port: u16,
-
-    /// The viewer-facing adventure character web dashboard — see
-    /// adventure_web.rs. Separate from the OBS-only overlay above; this
-    /// one's meant to be reachable by chat, not just the streamer's PC.
-    pub adventure_web_port: u16,
-    /// Base URL this dashboard is actually reachable at (scheme + host,
-    /// no trailing slash) — used to build the exact Twitch OAuth
-    /// redirect_uri (`{this}/auth/callback`), which must be registered
-    /// verbatim under this app's Redirect URIs at
-    /// https://dev.twitch.tv/console/apps (the existing app,
-    /// TWITCH_CLIENT_ID, is reused — Twitch apps support multiple
-    /// registered redirect URIs, so this doesn't disturb the bot's own
-    /// http://localhost:3000/callback setup URI). Defaults to localhost,
-    /// which only the streamer's own PC can reach — set this to a real
-    /// public URL (behind a tunnel/reverse proxy/port-forward you set up
-    /// separately) before expecting viewers to actually be able to log in.
-    pub adventure_web_public_url: String,
-
     /// Shared secret for pushing personal-playlist data to the Apps
     /// Script backend (see personal_playlists.rs) — must match the
     /// PLAYLIST_SYNC_SECRET script property on that project. None
@@ -199,9 +178,6 @@ impl Config {
             song_request_votevolume_threshold: env_u32_or("SONG_REQUEST_VOTEVOLUME_THRESHOLD", 3),
             poe_ninja_league: env_var_or("POE_NINJA_LEAGUE", "Allflame"),
             chat_overlay_server_port: env_u16_or("CHAT_OVERLAY_SERVER_PORT", 4003),
-            adventure_overlay_server_port: env_u16_or("ADVENTURE_OVERLAY_SERVER_PORT", 4004),
-            adventure_web_port: env_u16_or("ADVENTURE_WEB_PORT", 4005),
-            adventure_web_public_url: env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005"),
             playlist_sync_secret: env_var("PLAYLIST_SYNC_SECRET"),
             channel_points_theme_reward_cost: env_u32_or("CHANNEL_POINTS_THEME_REWARD_COST", 5000),
             channel_points_interrupt_reward_cost: env_u32_or("CHANNEL_POINTS_INTERRUPT_REWARD_COST", 5000),

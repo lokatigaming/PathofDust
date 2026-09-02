@@ -1255,3 +1255,38 @@ already said the secret was absent and needed nothing.
 
 NOT DEPLOYED, by instruction. The deploy analysis is in the session
 report.
+
+**Three owner rulings applied after the first commit (`c70222e`), before
+the merge.**
+
+1. **The three vestigial adventure config fields are gone after all** -
+   `adventure_overlay_server_port`, `adventure_web_port` and
+   `adventure_web_public_url`, with their docs and their env reads. The
+   first commit left them deliberately, on "add nothing that was not
+   asked for" grounds. Overruled, and correctly: a config field with zero
+   consumers is the same defect class as a comment that says a credential
+   is required when it is not - it tells the next reader something false.
+   That two of the three env vars are still live on the GAME side is
+   irrelevant to the bot, which is a different binary on a different box.
+   `grep -rni adventure src/` now returns two hits, both inside this
+   change's own explanatory header in `lib.rs`.
+2. **`README.md:11`** no longer tells readers viewers play by typing
+   `!join`. It now says they join from the web dashboard, and records
+   when the chat command went and why.
+3. **REFACTOR_PLAN.md 13A's bot start-ordering clause is amended**, with
+   the date and the reason inline. It required the operator to "start
+   `TwitchBotRS` only after `GameProcess` is confirmed healthy". There
+   has been no `GameProcess` task on the Windows box since production
+   moved to Debian, and after this change the bot never contacts the game
+   at all, so the ordering had nothing left to order. It now reads: the
+   bot's start is unordered with respect to the game; verify port 4001
+   only.
+
+**Patch notes: deliberately none, on the owner's explicit instruction**
+("No patch note - this changes nothing a player sees"). This is a
+knowing deviation from 13A step 1, which asks internal-only releases for
+a one-line `Internal:` entry so the record stays unbroken. Recording it
+here so the gap in `patch-notes.json` is explained rather than looking
+like an omission. The one arguably player-visible effect is that
+lokati.net/commands.html stops listing nine adventure commands that have
+answered nothing since cutover.

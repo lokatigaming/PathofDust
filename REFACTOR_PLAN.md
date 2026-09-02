@@ -1297,12 +1297,22 @@ separately, not to an automatic cleanup.
      stop `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
      `twitch-bot-rs.exe` → back up the old one into the *same*
      `backup-pre-<name>/` dir used for the game binary → copy in the
-     new one → start `TwitchBotRS` only after `GameProcess` is confirmed
-     healthy → verify healthy (curl its ports) →
+     new one → start `TwitchBotRS` → verify healthy (curl its ports) →
      `C:\PathofDust\maintenance-flag.ps1 -Target Bot -Clear`, and say in
-     the report that you cleared it. Game always comes up and is verified
-     healthy before the bot starts — never the other order, whether or
-     not the bot is moving this release. **Do not set the Bot flag on a
+     the report that you cleared it. **Amended 2026-09-02
+     (`chore/bot-decoupling`):** this step used to read "start
+     `TwitchBotRS` only after `GameProcess` is confirmed healthy", and
+     "Game always comes up and is verified healthy before the bot starts
+     — never the other order." That ordering existed because both
+     binaries ran on this box and the bot called the game's `/api/*` seam
+     at startup. Neither is true any more: production moved to the Debian
+     box (13B), so there is no `GameProcess` task on Windows to health-
+     check, and the bot holds no adventure code at all — it never
+     contacts the game. **The bot's start is unordered with respect to
+     the game.** Verify port 4001 only. A deploy step that waits on a
+     service which does not exist either blocks the operator or teaches
+     them to skip steps, which is why this is corrected rather than left
+     to be reasoned around mid-deploy. **Do not set the Bot flag on a
      game-only release** — see the two-flags note above. The 4a recipe
      applies unchanged, substituting `-Target Bot`, task `TwitchBotRS`,
      port `4001`, and `twitch-bot-rs.exe.pre-<name>`.
