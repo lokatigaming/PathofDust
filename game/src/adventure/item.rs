@@ -439,9 +439,12 @@ impl Item {
     /// Bumps this (already-Krangled) item's tier up to `level` if it's
     /// currently behind, rescaling `power` (via `compute_power`, the same
     /// formula a fresh item or a reforge uses) and every existing affix
-    /// value (proportional to the tier ratio - exact, since
-    /// `affix_base_value` is purely linear in tier with no constant
-    /// term) to match. No-op, including no rescale, if the item's
+    /// value (proportional to `affix_tier_growth_ratio` - the CURVE ratio
+    /// `f(new)/f(old)`, since 2026-09-02; this doc used to say "exact,
+    /// since `affix_base_value` is purely linear in tier with no constant
+    /// term", which was true until the affix tier curve landed and is the
+    /// exact assumption that made this line load-bearing) to match. No-op,
+    /// including no rescale, if the item's
     /// already at or above `level` - this only ever pulls a lagging item
     /// UP, never down. Used by `grow_krangled_items` (every level-up)
     /// and by Krangle's own lock step (see `Character::apply_craft_affix`) -
@@ -467,7 +470,12 @@ impl Item {
         if self.perfect {
             self.power *= PERFECT_QUALITY_MULT;
         }
-        let ratio = self.tier as f64 / old_tier as f64;
+        // `f(new)/f(old)`, NOT `new/old` (2026-09-02, affix curve). This
+        // ratio was exact while `affix_base_value` was linear in tier;
+        // under the curve a linear ratio would grow this item straight off
+        // the curve, undoing the rescale migration a few tiers later. See
+        // `affix_tier_growth_ratio`.
+        let ratio = affix_tier_growth_ratio(old_tier, self.tier);
         for (_, value) in self.affixes.iter_mut() {
             *value *= ratio;
         }
@@ -1177,33 +1185,54 @@ mod golden_item_baseline {
         // fallout of the widen, not a regression (see the two dilution
         // notes in docs/, this file's own git history for the previous
         // values, and the pool composition this seed now walks).
+        // AFFIX VALUES REBASED 2026-09-02 for the affix tier curve
+        // (docs/affix_curve_spec.md §1-§6). This is a rebase against a
+        // ratified balance change, NOT a regression being papered over,
+        // and the evidence is in the shape of the diff:
+        //
+        //   * every `tier`, `slot`, `power` and expected AFFIX IDENTITY in
+        //     this table is UNCHANGED. Only the fifth column moved.
+        //   * every T=1 row is byte-identical, because `f(1) = 1` exactly.
+        //   * every moved value is the old one divided by EXACTLY
+        //     `sqrt(tier)` - 2.2360680 at T=5, 3.1622777 at T=10,
+        //     4.4721360 at T=20 - which is `T / f(T)` below the knee and
+        //     nothing else.
+        //   * `power` is untouched at every row because `compute_power`
+        //     stays LINEAR by ruling (spec §8.5 / D11); the curve applies
+        //     to affix values only.
+        //
+        // That the affix IDENTITIES are unchanged is the part worth
+        // reading twice: it proves the rng stream did not shift (spec
+        // §5.3). Had the curve perturbed a single draw, this seed would
+        // walk a different pool and these rows would name different
+        // affixes, not merely different numbers.
         let cases: &[(u32, EquipSlot, f64, Affix, f64)] = &[
             (1, EquipSlot::Weapon, 12.0, Affix::Evasion, 0.016620838),
             (1, EquipSlot::Helm, 4.0, Affix::ColdDamage, 0.024857448),
             (1, EquipSlot::Body, 12.0, Affix::ColdDamage, 0.024857448),
             (1, EquipSlot::Gloves, 0.009, Affix::ColdDamage, 0.024857448),
             (1, EquipSlot::Boots, 13.0, Affix::ColdDamage, 0.024857448),
-            (5, EquipSlot::Weapon, 60.0, Affix::Evasion, 0.083104192),
-            (5, EquipSlot::Helm, 20.0, Affix::ColdDamage, 0.124287242),
-            (5, EquipSlot::Body, 60.0, Affix::ColdDamage, 0.124287242),
-            (5, EquipSlot::Gloves, 0.045, Affix::ColdDamage, 0.124287242),
-            (5, EquipSlot::Boots, 65.0, Affix::ColdDamage, 0.124287242),
-            (10, EquipSlot::Weapon, 120.0, Affix::Evasion, 0.166208384),
-            (10, EquipSlot::Helm, 40.0, Affix::ColdDamage, 0.248574483),
-            (10, EquipSlot::Body, 120.0, Affix::ColdDamage, 0.248574483),
-            (10, EquipSlot::Gloves, 0.09, Affix::ColdDamage, 0.248574483),
-            (10, EquipSlot::Boots, 130.0, Affix::ColdDamage, 0.248574483),
-            (20, EquipSlot::Weapon, 240.0, Affix::Evasion, 0.332416767),
-            (20, EquipSlot::Helm, 80.0, Affix::ColdDamage, 0.497148967),
-            (20, EquipSlot::Body, 240.0, Affix::ColdDamage, 0.497148967),
+            (5, EquipSlot::Weapon, 60.0, Affix::Evasion, 0.037165325),
+            (5, EquipSlot::Helm, 20.0, Affix::ColdDamage, 0.055582944),
+            (5, EquipSlot::Body, 60.0, Affix::ColdDamage, 0.055582944),
+            (5, EquipSlot::Gloves, 0.045, Affix::ColdDamage, 0.055582944),
+            (5, EquipSlot::Boots, 65.0, Affix::ColdDamage, 0.055582944),
+            (10, EquipSlot::Weapon, 120.0, Affix::Evasion, 0.052559706),
+            (10, EquipSlot::Helm, 40.0, Affix::ColdDamage, 0.078606153),
+            (10, EquipSlot::Body, 120.0, Affix::ColdDamage, 0.078606153),
+            (10, EquipSlot::Gloves, 0.09, Affix::ColdDamage, 0.078606153),
+            (10, EquipSlot::Boots, 130.0, Affix::ColdDamage, 0.078606153),
+            (20, EquipSlot::Weapon, 240.0, Affix::Evasion, 0.074330649),
+            (20, EquipSlot::Helm, 80.0, Affix::ColdDamage, 0.111165889),
+            (20, EquipSlot::Body, 240.0, Affix::ColdDamage, 0.111165889),
             // Gloves' power is uncapped as of the 2026-08-16 speed-scaling
             // fix, AND the base coefficient was cut 5x (0.045 -> 0.009)
             // the same day after the uncapped version tested too strong
             // in practice (0.009 * 20 * 1.0 = 0.18, no longer clamped to
             // 0.55 and no longer using the original 0.045 coefficient
             // either) - this case exercises both changes together.
-            (20, EquipSlot::Gloves, 0.18, Affix::ColdDamage, 0.497148967),
-            (20, EquipSlot::Boots, 260.0, Affix::ColdDamage, 0.497148967),
+            (20, EquipSlot::Gloves, 0.18, Affix::ColdDamage, 0.111165889),
+            (20, EquipSlot::Boots, 260.0, Affix::ColdDamage, 0.111165889),
         ];
 
         for &(tier, slot, expected_power, expected_affix, expected_value) in cases {
@@ -1373,7 +1402,19 @@ mod sacred_item_tests {
 
         let (affix_after, value_after) = item.sacred_affix.expect("sacred_affix must survive a tier sync");
         assert_eq!(affix_after, affix, "sync_tier_to must never change WHICH affix is sacred, only its value");
-        assert!((value_after - value_at_5 * 2.0).abs() < 1e-9, "sacred_affix value must scale proportionally with tier, same as normal affixes: expected {}, got {value_after}", value_at_5 * 2.0);
+        // Was `value_at_5 * 2.0` until 2026-09-02: doubling the tier used
+        // to double the value, because `affix_base_value` was linear in
+        // tier. Under the affix tier curve the growth is
+        // `f(10)/f(5)` = `sqrt(2)` = 1.414, NOT 2.0 - the sacred implicit
+        // is rolled through `affix_base_value` like any other affix and
+        // must travel on the same curve, or a Sacred item would drift
+        // above the curve every time it was Krangled up a tier.
+        let expected = value_at_5 * crate::adventure::affix::affix_tier_growth_ratio(5, 10);
+        assert!(
+            (value_after - expected).abs() < 1e-9,
+            "sacred_affix must scale by the CURVE ratio f(new)/f(old), same as every normal affix: expected {expected}, got {value_after}"
+        );
+        assert!((value_after - value_at_5 * 2.0_f64.sqrt()).abs() < 1e-9, "and that ratio is exactly sqrt(2) for a 5 -> 10 sync, both tiers being below the T=100 knee");
     }
 
     #[test]

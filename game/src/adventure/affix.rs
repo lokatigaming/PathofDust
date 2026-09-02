@@ -222,7 +222,24 @@ pub(crate) fn affix_def(affix: Affix) -> AffixDef {
         CritChance => AffixDef { name: "crit chance", label: "crit chance", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.01, default_weight: 1.0 },
         // A bonus ADDED to Character::combat_crit_multiplier's 2.0
         // baseline, not the multiplier itself.
-        CritMultiplier => AffixDef { name: "crit damage dealt", label: "crit dmg dealt", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.05, default_weight: 1.0 },
+        // `default_per_tier` HALVED 0.05 -> 0.025 (2026-09-02,
+        // docs/affix_curve_spec.md §7 / R4, owner-ratified). The single
+        // explicit exception to the spec's Decision 3 that per-affix
+        // coefficients are not part of the curve change: CritMultiplier is
+        // both the highest coefficient in this table AND the only affix
+        // opening an uncapped MORE layer (`combat_crit_multiplier` is
+        // floored at 1.0 and capped nowhere), while its natural partner
+        // CritChance is already braked by `overcrit_curve`'s 2.5 asymptote.
+        // The existing brake was on the wrong half of the product.
+        //
+        // Deliberately in CODE rather than as an
+        // `[affixes.critMultiplier]` block in adventure-item-balance.toml
+        // (R4): a TOML override that permanently contradicts the code
+        // default makes the code default a lie, and the only thing telling
+        // a future reader otherwise would be a data file that is not in
+        // the repository. This compounds with the tier curve - at T=100 the
+        // two together take this affix from +500% to +25%.
+        CritMultiplier => AffixDef { name: "crit damage dealt", label: "crit dmg dealt", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.025, default_weight: 1.0 },
         Splash => AffixDef { name: "splash", label: "splash", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.03, default_weight: 1.0 },
         // Retired (see the variant's own doc) - never rolled (absent from
         // `ALL_AFFIXES`), this arm exists only so `affix_def` stays
@@ -383,7 +400,114 @@ pub(crate) fn affix_balance(affix: Affix) -> (f64, f64) {
 /// moment the bot restarts. This is cosmetic only: actual combat math
 /// reads an item's stored `value` directly and is unaffected.
 pub(crate) fn affix_base_value(affix: Affix, tier: u32) -> f64 {
-    affix_balance(affix).0 * tier as f64
+    affix_balance(affix).0 * affix_tier_curve(tier)
+}
+
+/// The affix tier curve `f(T)` (2026-09-02, `docs/affix_curve_spec.md`
+/// §1-§3, owner-ratified):
+///
+/// ```text
+/// f(T) = sqrt(T)                  for T <= 100
+/// f(T) = 10 * (T / 100)^0.289     for T > 100
+/// ```
+///
+/// It replaces the bare `per_tier * tier` that `affix_base_value` used
+/// until this change. **Per-affix `per_tier` coefficients are unchanged**
+/// (the single exception, `CritMultiplier` 0.05 -> 0.025, is a separate
+/// ratified change in `affix_def` and is not part of this function), so
+/// every affix keeps its exact relative weight against every other affix
+/// at every tier.
+///
+/// # The three anchors, and why each is where it is
+///
+/// - `f(1) = 1` exactly: a new character's first drop reads exactly as it
+///   always has. Nothing about the opening experience moves.
+/// - `f(100) = 10` exactly: tier 100 now lands on what tier 10 used to
+///   deliver. This is the compression point the whole curve is built
+///   around.
+/// - `11^0.289 = 1.99969`: the first 1,000-tier step past the compression
+///   point is (near enough) a doubling.
+///
+/// The two halves are continuous in VALUE at T=100 - `sqrt(100)` and
+/// `10 * 1^0.289` are both exactly 10 - but deliberately NOT in first
+/// derivative (slope 0.05 from the left, 0.0289 to the right). Nothing in
+/// the game reads the derivative of this function, so the kink is
+/// harmless.
+///
+/// # Why the literal `0.289`
+///
+/// The exponent giving an exactly-exact doubling is
+/// `ln(2)/ln(11) = 0.2890648263`. The ratified constant is the rounded
+/// `0.289`, short of a true doubling by 0.0155%. The divergence between
+/// the two peaks at 0.045% at T=100,000 and is never material; the
+/// readable literal is reproducible by hand by anyone checking this
+/// function against the spec. Spec §1 is explicit: "Use `0.289`."
+///
+/// # Why this is NOT a `LiveTunable`, against the standing doctrine
+///
+/// CLAUDE.md's TUNABLES DOCTRINE makes a LiveTunable the default for any
+/// numeric aspect of a mechanic, with an exception for what is genuinely
+/// structural. **This is that exception, and the reason is specific
+/// rather than stylistic: affix magnitudes are STORED, not computed.**
+/// `roll_affixes` evaluates this function once and persists the product;
+/// combat reads the stored `f64` and never calls back here. So a live
+/// edit to the exponent would apply to newly-rolled affixes and to future
+/// tier growth while every already-stored value kept the shape it was
+/// rolled under - a permanent, silent, un-fixable split in the item
+/// population, with no migration behind it to close the gap. The curve
+/// can only be changed safely by a code change shipped alongside a
+/// rescale migration, which is exactly how it arrived. Making the
+/// exponent hot would be handing an operator a dial that quietly
+/// corrupts the item population.
+///
+/// `tier.max(1)` guards T=0: `generate_item` floors tier at 1, but
+/// `sync_tier_to` and the migrations accept whatever is on disk.
+pub(crate) fn affix_tier_curve(tier: u32) -> f64 {
+    let t = tier.max(1) as f64;
+    if t <= AFFIX_CURVE_KNEE {
+        t.sqrt()
+    } else {
+        AFFIX_CURVE_KNEE.sqrt() * (t / AFFIX_CURVE_KNEE).powf(AFFIX_CURVE_EXPONENT)
+    }
+}
+
+/// The tier at which `affix_tier_curve` switches from `sqrt` to the
+/// power law, and at which it equals exactly 10 - see that function.
+/// `sqrt(100) = 10` is what makes the two halves meet with no seam, so
+/// this constant appears in both branches rather than being written as a
+/// bare `10.0` in the second.
+pub(crate) const AFFIX_CURVE_KNEE: f64 = 100.0;
+/// The power-law exponent above the knee. See `affix_tier_curve` for why
+/// the readable `0.289` is used rather than `ln(2)/ln(11)`.
+pub(crate) const AFFIX_CURVE_EXPONENT: f64 = 0.289;
+
+/// The factor by which a stored affix value must be multiplied to move it
+/// from `old_tier` to `new_tier` **on the curve**.
+///
+/// This is the load-bearing half of the change, and the half that is easy
+/// to miss (`docs/affix_curve_spec.md` §4.1). Affix magnitudes are stored,
+/// and three separate sites grow a stored value when an item's tier rises:
+/// `Item::sync_tier_to`, `Character::roll_recombine`, and
+/// `AdventureManager::reforge_item`. Every one of them used a plain
+/// `new_tier / old_tier` ratio, which was exact while `affix_base_value`
+/// was linear in tier and is WRONG the moment it is not.
+///
+/// Left alone, those three sites would take an item that the rescale
+/// migration had just placed on the curve and grow it back along the old
+/// linear line from wherever it landed - so the curve would read as a
+/// one-time cut that immediately began undoing itself, and a heavily
+/// crafted item would sit above the curve again within a few tiers. Using
+/// `f(new)/f(old)` instead keeps an item on the curve for the whole of its
+/// life, however it got to its tier.
+///
+/// Note the spec named only two of the three sites; `reforge_item`'s
+/// `tier_ratio` has the identical shape and was found by sweeping for it.
+pub(crate) fn affix_tier_growth_ratio(old_tier: u32, new_tier: u32) -> f64 {
+    let old = affix_tier_curve(old_tier);
+    if old <= 0.0 {
+        return 1.0;
+    }
+    affix_tier_curve(new_tier) / old
 }
 
 /// The (min, max) `Character::roll_craft_affix_value` could have landed
