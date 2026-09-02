@@ -131,6 +131,52 @@ fn verify_password(password: &str, stored: &str) -> bool {
     Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok()
 }
 
+// ---------------------------------------------------------------------
+// Argon2 runs on the BLOCKING pool, never on an async worker (2026-09-02)
+// ---------------------------------------------------------------------
+//
+// `Argon2::default()` is the RFC 9106 second-recommended parameter set:
+// m = 19 MiB, t = 2, p = 1. That is deliberate and correct for a password
+// hash - it is supposed to be expensive - but it means every call is tens
+// to hundreds of milliseconds of straight-line CPU plus a 19 MiB
+// allocation, and `verify_password` is reachable by anyone who can POST
+// `/account/login`, before any authentication whatsoever.
+//
+// Called directly from an `async fn`, that work runs ON a Tokio worker
+// thread and never yields. This is the same defect class as `5f17202`
+// (2026-09-02), where `simulate_battle` on the async runtime left
+// production 71% unresponsive - `accept()` itself stopped, so even static
+// sprite requests hung. The production box is an emulated QEMU vCPU with
+// no host passthrough at ~3992 BogoMIPS, so these costs land at the top of
+// their range, and unlike the fight loop this one has an unauthenticated
+// trigger and no natural concurrency limit.
+//
+// `spawn_blocking` moves it to the blocking pool, which is sized and
+// separate: a burst of login attempts queues there instead of starving the
+// reactor, and the request handlers stay responsive. The throttle below
+// bounds how much work an attacker can queue; this wrapper bounds where
+// that work lands. They are independent fixes and either is worth having
+// without the other.
+//
+// The password crosses a thread boundary as an owned `String`, which is
+// why these take `String` rather than `&str`.
+async fn hash_password_blocking(password: String) -> anyhow::Result<String> {
+    tokio::task::spawn_blocking(move || hash_password(&password)).await.map_err(|err| anyhow::anyhow!("password hashing task failed: {err}"))?
+}
+
+/// Always returns a bool - a join error is reported as "did not verify",
+/// which fails closed. There is no path here that lets a panicking or
+/// cancelled task be read as a successful login.
+async fn verify_password_blocking(password: String, stored: String) -> bool {
+    match tokio::task::spawn_blocking(move || verify_password(&password, &stored)).await {
+        Ok(verified) => verified,
+        Err(err) => {
+            tracing::error!("password verification task failed, treating as a failed login: {err}");
+            false
+        }
+    }
+}
+
 /// Every reason a username can be refused, in the order they are checked.
 /// The collision arms are the security-critical ones: characters are
 /// keyed by lowercased login, so registering a name that matches an
@@ -267,7 +313,7 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
         return reject_register("Passwords must be at least 8 characters long.");
     }
 
-    let mut accounts = state.accounts.lock().await;
+    let accounts = state.accounts.lock().await;
     if let Some(reason) = username_rejection(&key, &accounts) {
         return reject_register(reason);
     }
@@ -284,13 +330,28 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
         }
     }
 
-    let password_hash = match hash_password(&form.password) {
+    // Hashing happens off the async runtime - see `hash_password_blocking`.
+    // The accounts lock is deliberately NOT held across this await: it is
+    // dropped here and re-taken below, because holding a mutex across ~19
+    // MiB and hundreds of milliseconds of argon2 would serialise every
+    // other account operation behind one registration.
+    drop(accounts);
+    let password_hash = match hash_password_blocking(form.password.clone()).await {
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!("Local account registration failed: {err}");
             return reject_register("Something went wrong creating that account. Try again.");
         }
     };
+    // Re-check under the re-taken lock. Between the drop above and here,
+    // another registration could have claimed this key - the collision
+    // checks above are no longer guaranteed to hold, and a bare `insert`
+    // would silently overwrite the winner's account with this one's hash,
+    // handing their character to whoever registered second.
+    let mut accounts = state.accounts.lock().await;
+    if accounts.contains_key(&key) {
+        return reject_register("That username is already taken.");
+    }
     accounts.insert(key.clone(), Account { username: typed.clone(), password_hash, created_at: now_secs() });
     if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
         tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
@@ -305,9 +366,24 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
 pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<CredentialsForm>) -> axum::response::Response {
     let key = form.username.trim().to_lowercase();
     let account = state.accounts.lock().await.get(&key).cloned();
+    // Verification happens off the async runtime - see
+    // `verify_password_blocking`. The accounts lock is already released
+    // above (the `.cloned()` ends its temporary), so nothing is held
+    // across the await.
+    //
     // One message for both "no such account" and "wrong password" -
     // nothing here should confirm which names exist.
-    let Some(account) = account.filter(|a| verify_password(&form.password, &a.password_hash)) else {
+    let verified = match &account {
+        Some(a) => verify_password_blocking(form.password.clone(), a.password_hash.clone()).await,
+        // No account: nothing to verify, and deliberately no compensating
+        // dummy hash. The response body and status are already identical
+        // for both arms, so the only difference is timing - and paying a
+        // full argon2 pass to hide it would hand an attacker exactly the
+        // CPU burn this commit exists to deny them, on the cheaper of the
+        // two paths. Enumeration by timing is the lesser problem.
+        None => false,
+    };
+    let Some(account) = account.filter(|_| verified) else {
         tracing::warn!("Adventure dashboard: failed local login for {key:?}.");
         return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("Incorrect username or password."))))).into_response();
     };
