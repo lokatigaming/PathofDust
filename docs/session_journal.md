@@ -478,3 +478,51 @@ FOUND — one fight resolved on Linux (`fight-0000018855`) between the load and
 the stop, moving the staged world 7369 -> 7367. DNS never pointed there, so
 no player saw it and Windows at 7369 remained authoritative. Ruled by the
 owner as a fork to discard, not to reconcile; attempt 2's fresh copy wipes it.
+
+## 2026-09-02 — CUTOVER-EXECUTE (attempt 2: production is on Linux)
+
+**Production moved to Debian at 05:16:51 UTC.** All six binding gates passed,
+the flip was clean, and no rollback was needed.
+
+Downtime **~1 m 13 s** (Windows origin released 05:15:40 → record flipped
+05:16:51). Ten consecutive post-flip probes returned 200 with **no 502 at
+all** — the Linux origin was already up and verified before the record moved,
+so the usual "one or two 502s" in §4 did not materialise.
+
+Gates, as measured: 67 characters loaded · loaded stage **7380** equal to the
+§8.2a reference read from the frozen Windows state · all four state-file
+SHA-256s identical between frozen source and the payload read back out of the
+shipped tarball · operator `/admin/tunables` **200 at 103,052 B** via a carried
+`adv_session` cookie, anonymous **404 at 71,722 B** · `Sitch89.gif` 200 at
+687,999 B with the lowercase variant 404 · templates/wiki/overlay carried and
+served (2 / 14 / 4 entries, sprites 14).
+
+The §8.2a reference mattered: the stage at the stop was **7380**, not the 7379
+seen at attempt 1's pre-flight nor the 7369 that aborted it. A fixed number
+would have failed a third time. The equality check passed first try.
+
+First fight on Linux: **fight-0000018875**, a boss fight, won, **30,400 ms** —
+normal pacing, not the ~2 s that §11 flags as a controller fault.
+
+Bot repointed by adding `ADVENTURE_API_BASE_URL` to `.env` and restarting under
+its own maintenance flag; `published_constants` posted to the game on
+**attempt=1**, and the `/api/announcements/stream` reconnect loop that had been
+failing against loopback every 7 s stopped at the restart. Sessions survived:
+a pre-cutover player session authenticated (94,014 B vs 72,025 B anonymous).
+
+FOUND — **`/patch-notes` is 193,519 B and PowerShell hangs capturing it.**
+`curl.exe -s <url>` into a PowerShell variable blocked past a 120 s timeout on
+that page while `curl --max-time 10` from Git Bash returned it in **1.23 s**.
+The server is fine; the buffering is PowerShell's. Do not diagnose a live
+site as hung on the strength of a PowerShell capture — re-probe from Git Bash
+with `--max-time` before believing it.
+
+Windows end state per §12.1: game **stopped**, `GameProcess`,
+`GameProcess-Watchdog` and `GameDataBackup` all disabled; `TwitchBotRS` and its
+watchdog running and untouched; `PodPullLinuxBackups` still enabled — it is now
+the only off-box copy of anything. `staging.lokati.net` retired at both layers:
+ingress rule removed here, DNS record deleted by the owner (NXDOMAIN).
+
+Rollback assets retained: `/var/lib/pod-precutover-20260902-071616`,
+`/root/pod-cutover-state.tar.gz`, `/root/patch-notes-precutover.json`,
+`C:\dust-work\.env.pre-cutover-backup`, and the frozen `C:\PathofDust` itself.
