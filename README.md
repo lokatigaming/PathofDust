@@ -8,7 +8,7 @@ This was vibe-coded live on stream at **https://twitch.tv/Lokati_Gaming**.
 
 ### The Adventure game
 
-A persistent, chat-driven idle RPG (`src/adventure/`, `src/adventure_web.rs`, `src/passive_tree.rs`) viewers play by typing `!join` and then just... watching. Characters auto-battle bosses on a timer, gain XP/levels, and drop gear.
+A persistent, chat-driven idle RPG (`src/adventure/`, `src/adventure_web.rs`, `src/passive_tree.rs`) viewers join from the web dashboard and then just... watching. (It used to be a Twitch chat command, `!join`; Twitch was removed from the game in 2026-09, and the bot's side of that seam went with it on 2026-09-02.) Characters auto-battle bosses on a timer, gain XP/levels, and drop gear.
 
 - 11 classes (Warrior, Berserker, Rogue, Slayer, Ranger, Mage, Monk, Cleric, Druid, Paladin, Warlock), each with its own event-driven combat simulation covering crits, blocks, evasion, damage-over-time, elemental procs, and dozens of class-specific mechanics.
 - A large Path of Exile-style passive tree per class, allocated and previewed through a full web dashboard.

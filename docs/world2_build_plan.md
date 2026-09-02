@@ -161,8 +161,8 @@ The audit says to stop the bot **permanently**, because it hard-fails without `A
 
 **That conflicts with the settled decision that the bot survives** on the Windows box doing Twitch and OBS work. The hard-fail must be removed first. Corrected order:
 
-1. **Bot standalone** — remove the `ADVENTURE_API_SECRET` hard-fail and retire the game-calling paths. The bot keeps song requests, alerts, chat overlay, entrance themes, PoE utilities and OBS control.
-2. **Seam off** — unset `ADVENTURE_API_SECRET`, restart the game. `api.rs:61-62` un-mounts the whole `/api/*` router with no code change. Fully reversible.
+1. **Bot standalone** — remove the `ADVENTURE_API_SECRET` hard-fail and retire the game-calling paths. The bot keeps song requests, alerts, chat overlay, entrance themes, PoE utilities and OBS control. **DONE** - the hard-fail was removed 2026-08-29 (Stage 3b); the game-calling paths themselves were deleted 2026-09-02 (`chore/bot-decoupling`), together with all five env keys. The bot now holds no adventure code at all.
+2. **Seam off** — unset `ADVENTURE_API_SECRET`, restart the game. `api.rs:61-62` un-mounts the whole `/api/*` router with no code change. Fully reversible. **SUPERSEDED** - overtaken by outright deletion: `game/src/adventure_web/api.rs` and its nest are gone from the source, so there is no router left to mount and nothing to reverse.
 
 ##### This is the player-facing cutover moment
 

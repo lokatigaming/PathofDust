@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use tracing_subscriber::prelude::*;
 
-use twitch_bot_rs::adventure_client::{AdventureApiClient, RedemptionResponse};
 use twitch_bot_rs::alerts;
 use twitch_bot_rs::announcements::Announcements;
 use twitch_bot_rs::bug_reports;
@@ -308,131 +307,8 @@ async fn handle_interrupt_redemption(
     }
 }
 
-/// Someone redeemed "Reforge Gear" — no text input needed, unlike the two
-/// above. Own 1-hour-per-redeemer cooldown (see adventure.rs's
-/// REFORGE_COOLDOWN), claimed atomically FIRST (before touching the
-/// roster) so two redemptions arriving milliseconds apart can't both slip
-/// through — the second one always sees the first's freshly-claimed slot.
-/// Given back if it turns out there was nothing to reforge, so a refunded
-/// attempt never costs them the hour.
-/// Unlike Theme/Interrupt/Force Boss, this one is deliberately ALWAYS
-/// chat-announced (live or replayed from `reconcile_missed_redemptions`
-/// alike, no `announce` gate) - a real request to keep it that way, it
-/// doubles as a fun public "look what I just got" moment that Twitch's
-/// own redemption UI alone doesn't convey.
-/// What a redemption handler actually does once it has an answer -
-/// separated from `handle_reforge_redemption` itself (Stage 5,
-/// REFACTOR_PLAN.md §4c/§5, 2026-08-19) so the game-down DECISION is
-/// unit-testable without a real `HelixClient`/`ChatClient` (neither has
-/// a test-friendly constructor - see Stage 4's own "honest gap" note).
-struct RedemptionAction {
-    status: &'static str,
-    chat_message: Option<String>,
-}
-
-/// Game down (§4c) - REFUND silently, matching Repair's own
-/// already-silent tone (the ratified policy table lumps these two
-/// together under one "REFUND silently" row) - this is a DIFFERENT
-/// refund reason than the cooldown/no-gear refunds the game itself
-/// already handles (see api.rs's own `redeem_reforge`), which still
-/// chat-announce normally when the game is actually reachable.
-fn reforge_redemption_action(result: anyhow::Result<RedemptionResponse>, user_name: &str) -> RedemptionAction {
-    match result {
-        Ok(resp) => RedemptionAction { status: if resp.fulfilled { "FULFILLED" } else { "CANCELED" }, chat_message: resp.chat_message },
-        Err(err) => {
-            tracing::warn!("reforge redemption for {user_name} failed (game down?): {err}");
-            RedemptionAction { status: "CANCELED", chat_message: None }
-        }
-    }
-}
-
-async fn handle_reforge_redemption(
-    redemption_id: String,
-    reward_id: String,
-    user_name: String,
-    helix: &HelixClient,
-    broadcaster_id: &str,
-    chat_client: &chat::ChatClient,
-    adventure: &AdventureApiClient,
-) {
-    let action = reforge_redemption_action(adventure.redeem_reforge(&user_name).await, &user_name);
-    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, action.status).await;
-    if let Some(msg) = action.chat_message {
-        chat_client.say(msg).await;
-    }
-}
-
-/// Someone redeemed "Repair All Gear" — no text input, no cooldown
-/// (unlike Reforge Gear). Fully repairs every equipped AND bagged item
-/// for free and, since a repaired character is no longer worn out,
-/// automatically clears retreat status too — no separate !join needed
-/// (see adventure.rs's `repair_all_gear_free`). Silent in chat either
-/// way now (per request) - the redemption's own FULFILLED/CANCELED
-/// status on Twitch's side is confirmation enough.
-/// Game down (§4c) - REFUND, same as today's up-and-running behavior:
-/// this redemption is already silent in chat either way (see this fn's
-/// own doc), so there's no separate "down" tone to apply - the fixed
-/// `chat_message: None` here is just making that explicit.
-fn repair_redemption_action(result: anyhow::Result<RedemptionResponse>, user_name: &str) -> RedemptionAction {
-    match result {
-        Ok(resp) => RedemptionAction { status: if resp.fulfilled { "FULFILLED" } else { "CANCELED" }, chat_message: resp.chat_message },
-        Err(err) => {
-            tracing::warn!("repair redemption for {user_name} failed (game down?): {err}");
-            RedemptionAction { status: "CANCELED", chat_message: None }
-        }
-    }
-}
-
-async fn handle_repair_redemption(redemption_id: String, reward_id: String, user_name: String, helix: &HelixClient, broadcaster_id: &str, adventure: &AdventureApiClient) {
-    let action = repair_redemption_action(adventure.redeem_repair(&user_name).await, &user_name);
-    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, action.status).await;
-}
-
-/// Someone redeemed "Force Boss Fight" — no text input, no per-user
-/// cooldown, but a shared cycle-wide budget (see adventure.rs's
-/// FORCE_BOSS_MAX_PER_CYCLE/try_force_encounter) that resets every time
-/// the natural 10-minute timer fires, not per-redeemer. Chat-announced
-/// either way (unlike Reforge/Repair's silent redemption-status-only
-/// confirmation) since this affects the WHOLE party, not just the
-/// redeemer's own gear - everyone should see why a boss fight just
-/// started early.
-async fn handle_force_boss_redemption(
-    redemption_id: String,
-    reward_id: String,
-    user_name: String,
-    helix: &HelixClient,
-    broadcaster_id: &str,
-    chat_client: &chat::ChatClient,
-    adventure: &AdventureApiClient,
-    // See `handle_theme_redemption`'s matching parameter's doc - `false`
-    // for a live redemption (Twitch's own UI is confirmation enough),
-    // `true` only when `reconcile_missed_redemptions` is replaying a
-    // backlog from while the bot was down.
-    announce: bool,
-) {
-    let action = force_boss_redemption_action(adventure.redeem_force_boss(&user_name, announce).await, &user_name, announce);
-    let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, action.status).await;
-    if let Some(msg) = action.chat_message {
-        chat_client.say(msg).await;
-    }
-}
-
-/// Game down (§4c) - REFUND + a chat line explaining why, same as this
-/// redemption's already-always-chat-announced tone - still gated on
-/// `announce` so a replayed backlog stays quiet.
-fn force_boss_redemption_action(result: anyhow::Result<RedemptionResponse>, user_name: &str, announce: bool) -> RedemptionAction {
-    match result {
-        Ok(resp) => RedemptionAction { status: if resp.fulfilled { "FULFILLED" } else { "CANCELED" }, chat_message: resp.chat_message },
-        Err(err) => {
-            tracing::warn!("force-boss redemption for {user_name} failed (game down?): {err}");
-            let chat_message = announce.then(|| format!("{user_name}, Force Boss Fight couldn't be processed right now — refunded. Try again in a moment!"));
-            RedemptionAction { status: "CANCELED", chat_message }
-        }
-    }
-}
-
 /// Startup-only backlog catch-up (see its call site's doc) - for each of
-/// the 5 channel points rewards that actually got created, asks Twitch
+/// the 2 channel points rewards that actually got created, asks Twitch
 /// for whatever it's still holding UNFULFILLED and runs every one
 /// through the SAME handler a live EventSub event would use, so a
 /// redemption made during downtime gets exactly the same real
@@ -440,42 +316,6 @@ fn force_boss_redemption_action(result: anyhow::Result<RedemptionResponse>, user
 /// logged and treated as "nothing to catch up on" for that reward
 /// (rather than failing startup entirely) - the live listener starting
 /// right after this is still the primary path either way.
-/// "Bot standalone" (2026-08-29, World 2 Stage 3b) - the one decision
-/// that turns the whole game integration on or off. `Some` only when
-/// ADVENTURE_API_SECRET is set, which is also the exact condition under
-/// which the game mounts its `/api/*` router at all
-/// (game/src/adventure_web/api.rs:61-62), so the two processes agree on
-/// a single .env key with no second switch to keep in sync.
-///
-/// Extracted from `async_main` for the same reason the
-/// `*_redemption_action` fns below were: the startup path itself needs a
-/// live HelixClient/ChatClient and cannot be exercised in a test, but
-/// this decision can - and everything downstream (the three adventure
-/// channel-point reward creations, the redemption dispatch, the
-/// announcements relay, activity XP, the ten chat commands) is gated on
-/// nothing but whether this returns `Some`.
-fn adventure_integration(secret: Option<String>, base_url: &str) -> Option<Arc<AdventureApiClient>> {
-    secret.map(|secret| Arc::new(AdventureApiClient::new(base_url.to_string(), secret)))
-}
-
-/// Whether to create the three channel-point rewards whose redemption
-/// handler needs the game process - "Reforge Gear", "Repair All Gear" and
-/// "Force Boss Fight" (channel_points.rs's REFORGE/REPAIR/FORCE_BOSS
-/// _REWARD_TITLE). The other two rewards this bot owns ("Set Entrance
-/// Theme Song", "Interrupt the Music") are pure Twitch/OBS work and are
-/// unaffected.
-///
-/// A predicate rather than an inline `is_some()` so the "with the secret
-/// absent, nothing is created" half is an assertion in the test module
-/// below instead of a claim in a comment. NOTE that this governs only
-/// CREATION: rewards already created in the live channel persist on
-/// Twitch's side and must be disabled by hand in the Twitch dashboard at
-/// cutover, or viewers keep spending points on three rewards that can
-/// never be fulfilled.
-fn adventure_rewards_enabled(adventure: Option<&Arc<AdventureApiClient>>) -> bool {
-    adventure.is_some()
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn reconcile_missed_redemptions(
     helix: &HelixClient,
@@ -483,15 +323,8 @@ async fn reconcile_missed_redemptions(
     chat_client: &Arc<chat::ChatClient>,
     entrance_themes: &Arc<EntranceThemeManager>,
     song_requests: &Option<Arc<SongRequestManager>>,
-    // `None` when the game integration is off - the three adventure
-    // reward ids below are `None` too in that case, so their loops are
-    // already empty, but the guard is explicit rather than implied.
-    adventure: &Option<Arc<AdventureApiClient>>,
     theme_reward_id: Option<&str>,
     interrupt_reward_id: Option<&str>,
-    reforge_reward_id: Option<&str>,
-    repair_reward_id: Option<&str>,
-    force_boss_reward_id: Option<&str>,
 ) {
     async fn fetch(helix: &HelixClient, broadcaster_id: &str, reward_id: Option<&str>, label: &str) -> Vec<twitch_bot_rs::twitch::helix::PendingRedemption> {
         let Some(reward_id) = reward_id else { return Vec::new() };
@@ -514,17 +347,6 @@ async fn reconcile_missed_redemptions(
     }
     for r in fetch(helix, broadcaster_id, interrupt_reward_id, "Interrupt the Music").await {
         handle_interrupt_redemption(r.id, interrupt_reward_id.unwrap().to_string(), r.user_name, r.user_input, helix, broadcaster_id, chat_client, song_requests, true).await;
-    }
-    if let Some(adventure) = adventure {
-        for r in fetch(helix, broadcaster_id, reforge_reward_id, "Reforge Gear").await {
-            handle_reforge_redemption(r.id, reforge_reward_id.unwrap().to_string(), r.user_name, helix, broadcaster_id, chat_client, adventure).await;
-        }
-        for r in fetch(helix, broadcaster_id, repair_reward_id, "Repair All Gear").await {
-            handle_repair_redemption(r.id, repair_reward_id.unwrap().to_string(), r.user_name, helix, broadcaster_id, adventure).await;
-        }
-        for r in fetch(helix, broadcaster_id, force_boss_reward_id, "Force Boss Fight").await {
-            handle_force_boss_redemption(r.id, force_boss_reward_id.unwrap().to_string(), r.user_name, helix, broadcaster_id, chat_client, adventure, true).await;
-        }
     }
 }
 
@@ -735,43 +557,6 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
-    // Chat adventure game prototype — see adventure.rs. Always on (no
-    // config gate — unlike song requests it needs no external API key).
-    // Stage 4 cutover (REFACTOR_PLAN.md, 2026-08-19) - the bot no longer
-    // runs the adventure game in-process (no `AdventureManager::new`, no
-    // spawn_*_loop, no adventure_web/adventure_overlay servers started
-    // here) - it's a thin HTTP client of the standalone `game` process
-    // now. The one-time "Wings of Flight" giveaway that used to live
-    // right here moved to game/src/main.rs's own startup for the same
-    // reason the Celestial-Shard/launch-giveaway logic moved into
-    // manager.rs at Stage 3: it's real game-state mutation, and this
-    // process no longer has the state to mutate.
-    //
-    // "Bot standalone" (2026-08-29, World 2 Stage 3b): this is now
-    // OPTIONAL. `None` when ADVENTURE_API_SECRET is unset, which is the
-    // one .env edit that also un-mounts the game's whole `/api/*` router
-    // (game/src/adventure_web/api.rs:61-62). Absent, the bot skips the
-    // integration entirely - no client, no constants publish, no
-    // adventure channel-point rewards created, no adventure commands
-    // registered, no announcements relay - and runs its Twitch/OBS
-    // duties (song requests, alerts, chat overlay, entrance themes,
-    // static commands, PoE utilities, OBS control) exactly as before.
-    // Same optional-integration contract as song requests above.
-    let adventure = adventure_integration(config.adventure_api_secret.clone(), &config.adventure_api_base_url);
-    if adventure.is_none() {
-        tracing::info!("ADVENTURE_API_SECRET is unset - the adventure game integration is off (no adventure commands, redemptions, activity XP or announcements relay). Everything else runs normally.");
-    }
-
-    // Bot->game published constants (2026-08-22, build-time decoupling -
-    // see src/published_constants.rs). Used to be a direct file write at
-    // the very top of startup, before Config even loaded; it needs the
-    // API client now, so it moved down here with it. Bounded retry, and a
-    // down/old game never blocks or fails startup - the wiki just keeps
-    // rendering "varies" until a successful publish lands.
-    if let Some(adventure) = &adventure {
-        twitch_bot_rs::published_constants::publish_to_game(adventure).await;
-    }
-
     // Self-service theme redemptions need entrance_themes and
     // song_requests, both already available here — created (once ever;
     // subsequent runs just reuse the persisted id) before the EventSub
@@ -807,42 +592,11 @@ async fn async_main() -> anyhow::Result<()> {
         None
     };
 
-    // Same idea again, for "Reforge Gear", "Repair All Gear" and "Force
-    // Boss Fight" (see channel_points.rs's ensure_*_reward and the
-    // handle_*_redemption fns below). These three used to be created
-    // unconditionally — "the adventure game is always on" — but they are
-    // the ONLY three rewards whose redemption handler needs the game
-    // process, so they follow `adventure` the same way the two above
-    // follow `song_requests` (2026-08-29, "bot standalone"). With the
-    // integration off, creating them would put three purchasable rewards
-    // in the channel that nothing can ever fulfil.
-    //
-    // NOTE: this only stops NEW creation. Rewards already created in the
-    // live channel persist on Twitch's side and no code change here
-    // removes them — they have to be disabled by hand in the Twitch
-    // dashboard as an explicit cutover step, or viewers will keep
-    // spending points on them for nothing.
-    let (reforge_reward_id, repair_reward_id, force_boss_reward_id) = if adventure_rewards_enabled(adventure.as_ref()) {
-        (
-            channel_points::ensure_reforge_reward(&helix, &broadcaster_id, config.channel_points_reforge_reward_cost, PathBuf::from("channel-points-reforge-reward.json")).await,
-            channel_points::ensure_repair_reward(&helix, &broadcaster_id, config.channel_points_repair_reward_cost, PathBuf::from("channel-points-repair-reward.json")).await,
-            channel_points::ensure_force_boss_reward(
-                &helix,
-                &broadcaster_id,
-                config.channel_points_force_boss_reward_cost,
-                PathBuf::from("channel-points-force-boss-reward.json"),
-            )
-            .await,
-        )
-    } else {
-        (None, None, None)
-    };
-
     // Startup reconciliation: Twitch keeps every redemption on its own
     // servers regardless of whether this bot was connected when it
     // happened - a redemption made while the bot was down/restarting
     // doesn't vanish, it just sits UNFULFILLED until something processes
-    // it. Catches up on any backlog for all 5 rewards BEFORE the live
+    // it. Catches up on any backlog for both rewards BEFORE the live
     // EventSub listener starts below, feeding each one through the exact
     // same handler a live event would use - so a viewer's spent points
     // never just go unprocessed because of bad timing around a deploy.
@@ -852,12 +606,8 @@ async fn async_main() -> anyhow::Result<()> {
         &chat_client,
         &entrance_themes,
         &song_requests,
-        &adventure,
         theme_reward_id.as_deref(),
         interrupt_reward_id.as_deref(),
-        reforge_reward_id.as_deref(),
-        repair_reward_id.as_deref(),
-        force_boss_reward_id.as_deref(),
     )
     .await;
 
@@ -866,9 +616,6 @@ async fn async_main() -> anyhow::Result<()> {
         broadcaster_id.clone(),
         theme_reward_id.clone(),
         interrupt_reward_id.clone(),
-        reforge_reward_id.clone(),
-        repair_reward_id.clone(),
-        force_boss_reward_id.clone(),
         {
         let chat_client = chat_client.clone();
         let alerts = alerts.clone();
@@ -876,7 +623,6 @@ async fn async_main() -> anyhow::Result<()> {
         let broadcaster_id = broadcaster_id.clone();
         let entrance_themes = entrance_themes.clone();
         let song_requests = song_requests.clone();
-        let adventure = adventure.clone();
         move |event: TwitchEvent| {
             let chat_client = chat_client.clone();
             let alerts = alerts.clone();
@@ -886,10 +632,6 @@ async fn async_main() -> anyhow::Result<()> {
             let song_requests = song_requests.clone();
             let theme_reward_id = theme_reward_id.clone();
             let interrupt_reward_id = interrupt_reward_id.clone();
-            let reforge_reward_id = reforge_reward_id.clone();
-            let repair_reward_id = repair_reward_id.clone();
-            let force_boss_reward_id = force_boss_reward_id.clone();
-            let adventure = adventure.clone();
             tokio::spawn(async move {
                 if let TwitchEvent::ChannelPointsRedemption { redemption_id, reward_id, user_name, user_input } = event {
                     // Release 2 observability - the raw redemption itself
@@ -901,12 +643,6 @@ async fn async_main() -> anyhow::Result<()> {
                         channel_points::INTERRUPT_REWARD_TITLE
                     } else if theme_reward_id.as_deref() == Some(reward_id.as_str()) {
                         channel_points::THEME_REWARD_TITLE
-                    } else if reforge_reward_id.as_deref() == Some(reward_id.as_str()) {
-                        channel_points::REFORGE_REWARD_TITLE
-                    } else if repair_reward_id.as_deref() == Some(reward_id.as_str()) {
-                        channel_points::REPAIR_REWARD_TITLE
-                    } else if force_boss_reward_id.as_deref() == Some(reward_id.as_str()) {
-                        channel_points::FORCE_BOSS_REWARD_TITLE
                     } else {
                         "unrecognized"
                     };
@@ -940,29 +676,6 @@ async fn async_main() -> anyhow::Result<()> {
                             false,
                         )
                         .await;
-                        return;
-                    }
-                    // The three adventure reward ids are `None` when the
-                    // game integration is off (their rewards are never
-                    // created), so these arms cannot match then - the
-                    // inner guard is what makes that a compile-time fact
-                    // rather than a reasoned one.
-                    if reforge_reward_id.as_deref() == Some(reward_id.as_str()) {
-                        if let Some(adventure) = &adventure {
-                            handle_reforge_redemption(redemption_id, reward_id, user_name, &helix, &broadcaster_id, &chat_client, adventure).await;
-                        }
-                        return;
-                    }
-                    if repair_reward_id.as_deref() == Some(reward_id.as_str()) {
-                        if let Some(adventure) = &adventure {
-                            handle_repair_redemption(redemption_id, reward_id, user_name, &helix, &broadcaster_id, adventure).await;
-                        }
-                        return;
-                    }
-                    if force_boss_reward_id.as_deref() == Some(reward_id.as_str()) {
-                        if let Some(adventure) = &adventure {
-                            handle_force_boss_redemption(redemption_id, reward_id, user_name, &helix, &broadcaster_id, &chat_client, adventure, false).await;
-                        }
                         return;
                     }
                     tracing::warn!("ChannelPointsRedemption for an unrecognized reward_id {reward_id} — ignoring.");
@@ -1051,52 +764,6 @@ async fn async_main() -> anyhow::Result<()> {
         (obs, source_name.clone())
     });
 
-    // Stage 4 cutover (REFACTOR_PLAN.md §4b, 2026-08-19) - the standalone
-    // `game` process now owns starting itself (its own binary spawns the
-    // encounter/basic-encounter/rampage loops and the adventure_web/
-    // adventure_overlay servers - see game/src/main.rs), and every
-    // formerly-in-process broadcast subscriber below (encounter-result,
-    // gear-crit, rampage-complete, unique-shard-win) collapses into ONE
-    // relay loop reading `GET /api/announcements/stream` and passing each
-    // already-formatted string straight to `chat_client.say()` - no
-    // re-formatting here, per the seam's own "game owns all player-facing
-    // text" design principle. Reconnects with backoff on any stream error
-    // (including "game process restarted" or "game was never up yet at
-    // boot") - announcements simply pause during the gap and resume once
-    // reconnected, matching §4b's "drop gracefully" policy for the
-    // reverse direction (bot down) with a symmetric, self-healing
-    // treatment for THIS direction instead of ending the loop for good.
-    //
-    // The task is NOT SPAWNED AT ALL when the game integration is off
-    // (2026-08-29, "bot standalone"), rather than being left to fail
-    // politely. Turning the seam off un-mounts `/api/*` game-side, so
-    // this endpoint 404s - and `announcements()` calls
-    // `error_for_status()`, so every attempt would be an `Err` and every
-    // pass through the loop a `tracing::warn!`. At one warn per 5s that
-    // is roughly 17,300 lines a day into a `rolling::daily` sink that
-    // is never pruned (logs/ has already reached several GB once - see the
-    // tracing setup at the top of this file). A task that never spawns
-    // cannot flood anything.
-    if let Some(adventure) = adventure.clone() {
-        let chat_client = chat_client.clone();
-        tokio::spawn(async move {
-            loop {
-                match adventure.announcements().await {
-                    Ok(mut stream) => {
-                        use futures_util::StreamExt;
-                        while let Some(msg) = stream.next().await {
-                            chat_client.say(msg).await;
-                        }
-                        tracing::warn!("Adventure announcements stream ended (game restarting?) - reconnecting in 5s.");
-                    }
-                    Err(err) => {
-                        tracing::warn!("Failed to open the adventure announcements stream (game down?): {err} - retrying in 5s.");
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-        });
-    }
     let services = Arc::new(Services {
         helix,
         broadcaster_id,
@@ -1117,9 +784,6 @@ async fn async_main() -> anyhow::Result<()> {
         personal_playlists,
         play_random,
         obs_song_volume,
-        // `None` when the game integration is off - see Services'
-        // own field doc in commands.rs.
-        adventure,
         bug_reports,
     });
 
@@ -1143,24 +807,6 @@ async fn async_main() -> anyhow::Result<()> {
                 // starts (see the theme_started_rx task above), since a
                 // queued theme might not start right away.
                 services.entrance_themes.maybe_play_entrance_theme(&msg.sender, &services.song_requests).await;
-
-                // Same "every message counts" reasoning as the entrance
-                // theme check above — passive XP shouldn't care whether
-                // this particular message happened to be a command.
-                // Fire-and-forget (§4c) - spawned rather than awaited so
-                // a slow/down game process can never stall this loop for
-                // every other chat message. The level-up announcement
-                // itself now comes from the game side over the SSE relay
-                // above (see `AdventureManager::grant_activity_xp`'s own
-                // doc) - nothing to format or say here anymore.
-                if let Some(adventure) = services.adventure.clone() {
-                    let sender = msg.sender.clone();
-                    tokio::spawn(async move {
-                        if let Err(err) = adventure.activity_xp(&sender).await {
-                            tracing::debug!("activity_xp call failed for {sender} (game down?): {err}");
-                        }
-                    });
-                }
 
                 let Some(rest) = msg.text.strip_prefix('!') else { continue };
                 let mut parts = rest.trim().split_whitespace();
@@ -1242,114 +888,4 @@ async fn async_main() -> anyhow::Result<()> {
     tracing::info!("Shutting down...");
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Stage 5 (REFACTOR_PLAN.md §4c/§5, 2026-08-19) - every row of the
-    /// redemption half of §4c's failure-isolation table, unit-tested
-    /// directly against the pure decision functions rather than the
-    /// handlers themselves (which need a real `HelixClient`/`ChatClient` -
-    /// see Stage 4's own "honest gap" note on why those can't be
-    /// constructed in a test without live Twitch).
-    #[test]
-    fn reforge_up_and_fulfilled_passes_the_status_and_message_through() {
-        let action = reforge_redemption_action(Ok(RedemptionResponse { fulfilled: true, chat_message: Some("reforged!".to_string()) }), "viewer1");
-        assert_eq!(action.status, "FULFILLED");
-        assert_eq!(action.chat_message, Some("reforged!".to_string()));
-    }
-
-    #[test]
-    fn reforge_up_but_declined_still_passes_the_game_side_message_through() {
-        // e.g. on cooldown / no gear equipped - the game already formatted
-        // a real refund message for this, unrelated to game-down at all.
-        let action = reforge_redemption_action(Ok(RedemptionResponse { fulfilled: false, chat_message: Some("on cooldown".to_string()) }), "viewer1");
-        assert_eq!(action.status, "CANCELED");
-        assert_eq!(action.chat_message, Some("on cooldown".to_string()));
-    }
-
-    #[test]
-    fn reforge_down_refunds_silently() {
-        let action = reforge_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1");
-        assert_eq!(action.status, "CANCELED");
-        assert_eq!(action.chat_message, None, "§4c: Reforge/Repair on game-down must refund SILENTLY");
-    }
-
-    #[test]
-    fn repair_up_and_fulfilled_is_silent_either_way() {
-        let action = repair_redemption_action(Ok(RedemptionResponse { fulfilled: true, chat_message: None }), "viewer1");
-        assert_eq!(action.status, "FULFILLED");
-        assert_eq!(action.chat_message, None);
-    }
-
-    #[test]
-    fn repair_down_refunds_silently() {
-        let action = repair_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1");
-        assert_eq!(action.status, "CANCELED");
-        assert_eq!(action.chat_message, None, "§4c: Reforge/Repair on game-down must refund SILENTLY");
-    }
-
-    #[test]
-    fn force_boss_up_and_fulfilled_passes_the_announcement_through() {
-        let action = force_boss_redemption_action(Ok(RedemptionResponse { fulfilled: true, chat_message: Some("boss summoned!".to_string()) }), "viewer1", true);
-        assert_eq!(action.status, "FULFILLED");
-        assert_eq!(action.chat_message, Some("boss summoned!".to_string()));
-    }
-
-    #[test]
-    fn force_boss_down_refunds_and_announces_when_live() {
-        let action = force_boss_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1", true);
-        assert_eq!(action.status, "CANCELED", "§4c: Force Boss Fight on game-down must still refund");
-        assert!(
-            action.chat_message.as_deref().is_some_and(|m| m.contains("viewer1") && m.contains("refunded")),
-            "§4c: Force Boss Fight on game-down must chat-announce why when live, got {:?}",
-            action.chat_message
-        );
-    }
-
-    #[test]
-    fn force_boss_down_stays_quiet_when_replaying_a_backlog() {
-        // `announce: false` - reconcile_missed_redemptions replaying while
-        // the bot was down; matches every other redemption's "don't spam
-        // chat for a backlog nobody's watching live" convention.
-        let action = force_boss_redemption_action(Err(anyhow::anyhow!("connection refused")), "viewer1", false);
-        assert_eq!(action.status, "CANCELED");
-        assert_eq!(action.chat_message, None);
-    }
-
-    /// "Bot standalone" (2026-08-29, World 2 Stage 3b). With
-    /// ADVENTURE_API_SECRET absent there is no AdventureApiClient, and
-    /// the three adventure channel-point rewards must therefore not be
-    /// created - otherwise the channel would carry three purchasable
-    /// rewards ("Reforge Gear", "Repair All Gear", "Force Boss Fight")
-    /// that nothing can ever fulfil, and every redemption would silently
-    /// refund forever.
-    ///
-    /// This chains the two real production functions the startup path
-    /// uses, in the same order it uses them. What it does NOT cover: the
-    /// `ensure_*_reward` HTTP calls themselves, which need a live
-    /// HelixClient - same honest gap the *_redemption_action tests above
-    /// carry, and the reason both are decision functions in the first
-    /// place.
-    #[test]
-    fn no_adventure_rewards_are_created_when_the_secret_is_absent() {
-        let adventure = adventure_integration(None, "http://127.0.0.1:4005");
-        assert!(adventure.is_none(), "an absent ADVENTURE_API_SECRET must yield no adventure client");
-        assert!(
-            !adventure_rewards_enabled(adventure.as_ref()),
-            "with the integration off, Reforge Gear / Repair All Gear / Force Boss Fight must not be created"
-        );
-    }
-
-    /// The other direction, so the gate can never be "always false" and
-    /// pass the test above by accident: with the secret present the
-    /// behaviour is exactly what it was before this change.
-    #[test]
-    fn the_adventure_rewards_are_still_created_when_the_secret_is_present() {
-        let adventure = adventure_integration(Some("s3cret".to_string()), "http://127.0.0.1:4005");
-        assert!(adventure.is_some(), "a present ADVENTURE_API_SECRET must yield a client");
-        assert!(adventure_rewards_enabled(adventure.as_ref()));
-    }
 }

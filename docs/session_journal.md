@@ -1288,3 +1288,157 @@ FOLLOW-UPS on the board, not for this release: panel Reforge is still a
 flat 30 x tier dust (~5x a Scour at tier 10, widening with tier), and
 Recombine's veiled price is still the unscaled 500 + 500 per combined
 modifier. Both are now out of step with everything around them.
+
+---
+
+## 2026-09-02 — BOT-DECOUPLING (branch `chore/bot-decoupling`)
+
+The bot no longer speaks to the game. Scope was the root crate only
+(`src/**`); `game/**` was not touched.
+
+**Deleted.** `src/adventure_client.rs` (`AdventureApiClient` and all its
+methods) and `src/published_constants.rs`, both modules whole. From
+`main.rs`: `handle_reforge_redemption`, `handle_repair_redemption`,
+`handle_force_boss_redemption` and their three `*_redemption_action`
+decision fns plus the `RedemptionAction` struct, `adventure_integration`,
+`adventure_rewards_enabled`, the three adventure reward creations, the
+three dispatch arms, the SSE announcements relay loop, the
+fire-and-forget `activity_xp` spawn, and the whole `mod tests` (all ten
+of its tests were adventure-only). From `commands.rs`: ten match arms
+covering sixteen trigger words, the nine public help rows, the adventure
+entries in `BUILTIN_NAMES`, `adventure_reply`, `ADVENTURE_DOWN_REPLY`,
+`handle_event_command`, the `Services.adventure` field, and its `mod
+tests` (three tests, all `adventure_reply`). From `channel_points.rs`:
+three of the five `ensure_*_reward` fns with their titles and prompts.
+From `eventsub.rs`: three subscription blocks, three parameters through
+three function signatures, three log branches. From `config.rs`:
+`adventure_api_base_url`, `adventure_api_secret` and the three
+`channel_points_*_reward_cost` fields for reforge/repair/force-boss,
+with their env reads.
+
+**Three of the order's premises were wrong, and all three were checked
+against the code before anything was deleted.**
+
+1. `reconcile_missed_redemptions` was to be deleted. It reconciles FIVE
+   rewards and two of them survive - "Set Entrance Theme Song" and
+   "Interrupt the Music", both pure Twitch/OBS work backed by
+   `EntranceThemeManager`/`SongRequestManager`, neither touching the
+   adventure client on any path. Deleting it would have silently ended
+   backlog reconciliation for two live rewards, so a redemption made
+   while the bot was down would sit UNFULFILLED forever. REDUCED from
+   five reward ids to two instead.
+2. `src/bug_reports.rs` was believed dead because the game "has its own
+   port" and because `!bugreport` was believed to be one of the
+   adventure arms. Neither holds. `grep -rn "BugReport" game/src
+   game/tests` returns nothing on master - that port is Piece 3 on an
+   unmerged branch. And `!bugreport`/`!bugreports` call
+   `services.bug_reports`, a bot-local file-backed manager writing
+   `bugreports.json`; no adventure client is involved. KEPT whole.
+3. "Eleven adventure command arms" is ten. Ten arms guard on
+   `services.adventure`; they cover sixteen trigger words, which is
+   probably where eleven came from.
+
+**The removal-scope audit was wrong for the sixth time today**, again in
+the direction of misstating what the code actually holds - this time an
+overcount of arms on top of the two false-death claims above. It is not
+a usable target list. Every deletion here was verified against the code
+first, and the closing grep below is the proof rather than a claim.
+
+**Survivor grep** (`adventure`, `redemption`, `channel_point`,
+`api_secret`, `activity_xp` over `src/`): `api_secret` and `activity_xp`
+return ZERO. `adventure` returns twelve, all legitimate - nine are the
+three vestigial config fields (`adventure_overlay_server_port`,
+`adventure_web_port`, `adventure_web_public_url`) plus their docs, and
+three are this change's own explanatory header in `lib.rs`. `redemption`
+and `channel_point` survive only in the two rewards that stay, the Helix
+API that serves them, and the `channel:manage:redemptions` OAuth scope in
+`bin/auth.rs`. No survivor is a miss.
+
+**A variable read that no longer exists anywhere:**
+`ADVENTURE_WEB_PUBLIC_URL`. `config.rs` still reads it into
+`adventure_web_public_url`, which nothing in the bot consumes, and
+`game/src/main.rs:11` records that as of 2026-09-02 the game reads it
+nowhere either. `ADVENTURE_OVERLAY_SERVER_PORT` and `ADVENTURE_WEB_PORT`
+are the same shape bot-side - read, never used - but both are still live
+game-side. These three are the prior audit's L24 "vestigial config"; they
+were NOT in the order's deletion list and were deliberately left rather
+than folded in, since they predate the seam and removing them is a
+separate call.
+
+FOUND - when the player-facing batch merges, the game gains its own web
+bug report while the bot keeps its chat one, giving the project two
+independent bug inboxes writing two files. Worse than one. Flagged for a
+ruling at that merge; deliberately not resolved here.
+
+FOUND - `README.md:11` still tells readers viewers play by typing
+`!join`. That went stale when Twitch was removed from the game, not here.
+Not touched: it is the game's README and other sessions are in flight.
+
+**Tests.** `CARGO_TARGET_DIR=C:/dust-work/target-botdecouple cargo test
+--release --workspace --quiet` - baseline on `a2d75fa` was 768 passed / 0
+failed / 0 ignored across 33 suites; after, 755 / 0 / 0 across 33.
+768 - 13 = 755, and the 13 are exactly the two deleted test modules (ten
+in `main.rs`, three in `commands.rs`). No suite disappeared. Clippy on
+the same target dir is unchanged on touched code: the bot binary's only
+two warnings (`too_many_arguments` on `handle_interrupt_redemption`,
+`trim_split_whitespace` at the chat-command split) both sit on lines
+byte-identical to `origin/master`, neither of which this branch edited.
+
+**The bot's environment after this** needs exactly `TWITCH_CLIENT_ID`,
+`TWITCH_CLIENT_SECRET` and `TWITCH_CHANNEL` as hard requirements, plus
+whichever optional keys are wanted. `ADVENTURE_API_SECRET`,
+`ADVENTURE_API_BASE_URL`, `CHANNEL_POINTS_REFORGE_REWARD_COST`,
+`CHANNEL_POINTS_REPAIR_REWARD_COST` and
+`CHANNEL_POINTS_FORCE_BOSS_REWARD_COST` are now read by nothing and
+should come out of `C:\PathofDust\.env`. `.env.example` never carried any
+of the five, so it needed no edit.
+
+**Docs.** Dated, append-only records were left alone rather than
+rewritten (this journal, the anomaly ledger, WIKI_IMPACT.md, the
+removal-scope doc). Four documents that described the seam as live got a
+dated SUPERSEDED IN PART banner instead of an inline rewrite -
+`docs/bot_decoupling_audit.md`, `docs/platform_portability_audit.md`,
+`docs/cutover_runbook.md` and REFACTOR_PLAN.md section 4 - because each
+is a long dated report whose body is still an accurate record of its own
+moment. `docs/world2_build_plan.md` had its two-step correction marked
+DONE and SUPERSEDED in place. `game-watchdog.ps1`'s port comment no
+longer claims 4005 is what the bot points at. The `docs/linux_*.md` files
+already said the secret was absent and needed nothing.
+
+NOT DEPLOYED, by instruction. The deploy analysis is in the session
+report.
+
+**Three owner rulings applied after the first commit (`c70222e`), before
+the merge.**
+
+1. **The three vestigial adventure config fields are gone after all** -
+   `adventure_overlay_server_port`, `adventure_web_port` and
+   `adventure_web_public_url`, with their docs and their env reads. The
+   first commit left them deliberately, on "add nothing that was not
+   asked for" grounds. Overruled, and correctly: a config field with zero
+   consumers is the same defect class as a comment that says a credential
+   is required when it is not - it tells the next reader something false.
+   That two of the three env vars are still live on the GAME side is
+   irrelevant to the bot, which is a different binary on a different box.
+   `grep -rni adventure src/` now returns two hits, both inside this
+   change's own explanatory header in `lib.rs`.
+2. **`README.md:11`** no longer tells readers viewers play by typing
+   `!join`. It now says they join from the web dashboard, and records
+   when the chat command went and why.
+3. **REFACTOR_PLAN.md 13A's bot start-ordering clause is amended**, with
+   the date and the reason inline. It required the operator to "start
+   `TwitchBotRS` only after `GameProcess` is confirmed healthy". There
+   has been no `GameProcess` task on the Windows box since production
+   moved to Debian, and after this change the bot never contacts the game
+   at all, so the ordering had nothing left to order. It now reads: the
+   bot's start is unordered with respect to the game; verify port 4001
+   only.
+
+**Patch notes: deliberately none, on the owner's explicit instruction**
+("No patch note - this changes nothing a player sees"). This is a
+knowing deviation from 13A step 1, which asks internal-only releases for
+a one-line `Internal:` entry so the record stays unbroken. Recording it
+here so the gap in `patch-notes.json` is explained rather than looking
+like an omission. The one arguably player-visible effect is that
+lokati.net/commands.html stops listing nine adventure commands that have
+answered nothing since cutover.

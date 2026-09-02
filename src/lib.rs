@@ -1,19 +1,20 @@
-// Bot/game build-time decoupling (2026-08-22, finishing REFACTOR_PLAN.md's
-// S3-S5): this crate no longer depends on the `game` crate at all, so a
-// change touching only game/** builds and deploys without rebuilding or
-// redeploying the bot. The runtime half shipped first - the bot holds no
-// game data and speaks HTTP to the standalone game process through
-// `adventure_client` with a shared secret, relaying fight announcements
-// over that same seam's SSE stream. The build-time half closes here:
-// the twelve seam/game integration tests now live in `game/tests` (S3),
-// the last bot->game file write became POST /api/published-constants
-// (S4, see `published_constants`), and the five `pub use game::...`
-// re-exports below were deleted along with the path dependency itself
-// (S5). The bot's own generic JSON helpers live in `state` - local
-// copies of the two-function pair game/src/state.rs carries, since each
-// side owns its own files and a shared crate would have re-coupled the
-// builds for no benefit.
-pub mod adventure_client;
+// Bot/game decoupling, finished 2026-09-02 (`chore/bot-decoupling`).
+// This crate is a Twitch bot and nothing else. The build-time half went
+// first (2026-08-22, REFACTOR_PLAN.md S3-S5): the path dependency on the
+// `game` crate, the five `pub use game::...` re-exports and the twelve
+// seam integration tests all left, so a change touching only game/**
+// never rebuilds the bot. The runtime half is gone now too - the game's
+// `/api/*` seam was deleted with Twitch itself, so `adventure_client`
+// (the HTTP client), `published_constants` (its one remaining POST), the
+// adventure chat commands, the three adventure channel-point redemptions,
+// chat activity XP and the SSE announcements relay were all removed here.
+// Nothing in this crate speaks to the game process any more; the two
+// share no port, no file and no secret.
+//
+// The bot's own generic JSON helpers live in `state` - local copies of
+// the two-function pair game/src/state.rs carries, since each side owns
+// its own files and a shared crate would have re-coupled the builds for
+// no benefit.
 pub mod alerts;
 pub mod announcements;
 pub mod build_feed;
@@ -30,7 +31,6 @@ pub mod paypal;
 pub mod personal_playlists;
 pub mod playrandom;
 pub mod poe_ninja;
-pub mod published_constants;
 pub mod song_overlay_server;
 pub mod song_requests;
 pub mod state;

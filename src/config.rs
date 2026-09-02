@@ -1,9 +1,9 @@
 // Central config, loaded from a .env file (same file/values as the Node
 // version can be reused directly — this just adds a few new keys for the
 // song request and chat overlay servers). Optional integrations
-// (StreamElements, song requests, the adventure game seam) are `Option`
-// — leaving their keys unset disables that feature gracefully instead
-// of erroring, same behavior as the Node bot.
+// (StreamElements, song requests) are `Option` — leaving their keys
+// unset disables that feature gracefully instead of erroring, same
+// behavior as the Node bot.
 
 use std::path::PathBuf;
 
@@ -69,55 +69,6 @@ pub struct Config {
 
     pub chat_overlay_server_port: u16,
 
-    /// The adventure game overlay (public_adventure_overlay/overlay.html)
-    /// — see adventure.rs/adventure_overlay_server.rs.
-    pub adventure_overlay_server_port: u16,
-
-    /// The viewer-facing adventure character web dashboard — see
-    /// adventure_web.rs. Separate from the OBS-only overlay above; this
-    /// one's meant to be reachable by chat, not just the streamer's PC.
-    pub adventure_web_port: u16,
-    /// Base URL this dashboard is actually reachable at (scheme + host,
-    /// no trailing slash) — used to build the exact Twitch OAuth
-    /// redirect_uri (`{this}/auth/callback`), which must be registered
-    /// verbatim under this app's Redirect URIs at
-    /// https://dev.twitch.tv/console/apps (the existing app,
-    /// TWITCH_CLIENT_ID, is reused — Twitch apps support multiple
-    /// registered redirect URIs, so this doesn't disturb the bot's own
-    /// http://localhost:3000/callback setup URI). Defaults to localhost,
-    /// which only the streamer's own PC can reach — set this to a real
-    /// public URL (behind a tunnel/reverse proxy/port-forward you set up
-    /// separately) before expecting viewers to actually be able to log in.
-    pub adventure_web_public_url: String,
-
-    /// Base URL of the standalone `game` process's `/api/*` seam
-    /// (architecture refactor Stage 4, see REFACTOR_PLAN.md §4) - the bot
-    /// no longer runs the adventure game in-process at all, this is
-    /// where it reaches it instead. Same host/port `game`'s own
-    /// ADVENTURE_WEB_PORT binds by default (the seam is nested onto that
-    /// same Axum server, not a separate port - see §3's own ratified
-    /// text), so the default here matches that port's own default.
-    pub adventure_api_base_url: String,
-    /// Shared secret presented on every `/api/*` call above (see
-    /// game/src/adventure_web/api.rs's `require_shared_secret`) - must
-    /// match the `game` process's own ADVENTURE_API_SECRET exactly (see
-    /// REFACTOR_PLAN.md §4d for the full credential-handling story -
-    /// where it lives, why it's safe, what happens on mismatch).
-    ///
-    /// OPTIONAL as of 2026-08-29 (World 2 Stage 3b, "bot standalone").
-    /// It used to be hard-required, which meant the bot refused to start
-    /// without it - and unsetting it is exactly how the game un-mounts
-    /// its whole `/api/*` router (api.rs:61-62), so turning the seam off
-    /// would have taken the bot's Twitch/OBS duties (song requests,
-    /// alerts, chat overlay, entrance themes) down with it. `None` now
-    /// means the game integration is simply not active: no
-    /// AdventureApiClient, no adventure chat commands registered, no
-    /// adventure channel-point rewards created, no announcements relay.
-    /// Everything else runs exactly as before. Same "leave the key unset
-    /// to disable the feature" contract as `streamelements_jwt` and
-    /// `playlist_sync_secret` below.
-    pub adventure_api_secret: Option<String>,
-
     /// Shared secret for pushing personal-playlist data to the Apps
     /// Script backend (see personal_playlists.rs) — must match the
     /// PLAYLIST_SYNC_SECRET script property on that project. None
@@ -143,37 +94,6 @@ pub struct Config {
     /// channel-points-interrupt-reward.json (and the reward itself, in the
     /// Twitch dashboard) to force it to be recreated with the new cost.
     pub channel_points_interrupt_reward_cost: u32,
-
-    /// Cost of the self-service "Reforge Gear" channel points reward —
-    /// reforges one random equipped adventure item into a fresh,
-    /// higher-tier version (once per redeemer per hour — see
-    /// adventure.rs's REFORGE_COOLDOWN). Only takes effect the first time
-    /// the reward is created (see channel_points.rs) — changing this
-    /// later doesn't retroactively update an already-created reward's
-    /// cost; delete channel-points-reforge-reward.json (and the reward
-    /// itself, in the Twitch dashboard) to force it to be recreated with
-    /// the new cost.
-    pub channel_points_reforge_reward_cost: u32,
-
-    /// Cost of the self-service "Repair All Gear" channel points reward —
-    /// fully repairs every equipped AND bagged adventure item and
-    /// automatically clears retreat status if they were sitting out with
-    /// worn-out gear (see adventure.rs's `repair_all_gear_free`). Only
-    /// takes effect the first time the reward is created (see
-    /// channel_points.rs) — changing this later doesn't retroactively
-    /// update an already-created reward's cost; delete
-    /// channel-points-repair-reward.json (and the reward itself, in the
-    /// Twitch dashboard) to force it to be recreated with the new cost.
-    pub channel_points_repair_reward_cost: u32,
-
-    /// Cost of the self-service "Force Boss Fight" channel points reward
-    /// — triggers the next boss encounter immediately instead of waiting
-    /// for the 10-minute timer, up to `FORCE_BOSS_MAX_PER_CYCLE` (2)
-    /// uses per cycle (see adventure.rs's `try_force_encounter`). Same
-    /// "only takes effect on first creation" caveat as the other
-    /// rewards above — delete channel-points-force-boss-reward.json (and
-    /// the reward itself, in the Twitch dashboard) to force a recreate.
-    pub channel_points_force_boss_reward_cost: u32,
 
     /// Free API key from https://www.last.fm/api/account/create — powers
     /// !playrandom's genre matching (see playrandom.rs). None disables
@@ -258,20 +178,9 @@ impl Config {
             song_request_votevolume_threshold: env_u32_or("SONG_REQUEST_VOTEVOLUME_THRESHOLD", 3),
             poe_ninja_league: env_var_or("POE_NINJA_LEAGUE", "Allflame"),
             chat_overlay_server_port: env_u16_or("CHAT_OVERLAY_SERVER_PORT", 4003),
-            adventure_overlay_server_port: env_u16_or("ADVENTURE_OVERLAY_SERVER_PORT", 4004),
-            adventure_web_port: env_u16_or("ADVENTURE_WEB_PORT", 4005),
-            adventure_web_public_url: env_var_or("ADVENTURE_WEB_PUBLIC_URL", "http://localhost:4005"),
-            adventure_api_base_url: env_var_or("ADVENTURE_API_BASE_URL", "http://127.0.0.1:4005"),
-            // Optional (2026-08-29, "bot standalone") - absent means the
-            // game integration is off, not a startup failure. See the
-            // field's own doc.
-            adventure_api_secret: env_var("ADVENTURE_API_SECRET"),
             playlist_sync_secret: env_var("PLAYLIST_SYNC_SECRET"),
             channel_points_theme_reward_cost: env_u32_or("CHANNEL_POINTS_THEME_REWARD_COST", 5000),
             channel_points_interrupt_reward_cost: env_u32_or("CHANNEL_POINTS_INTERRUPT_REWARD_COST", 5000),
-            channel_points_reforge_reward_cost: env_u32_or("CHANNEL_POINTS_REFORGE_REWARD_COST", 1000),
-            channel_points_repair_reward_cost: env_u32_or("CHANNEL_POINTS_REPAIR_REWARD_COST", 100),
-            channel_points_force_boss_reward_cost: env_u32_or("CHANNEL_POINTS_FORCE_BOSS_REWARD_COST", 5000),
             lastfm_api_key: env_var("LASTFM_API_KEY"),
             obs_websocket_url: env_var_or("OBS_WEBSOCKET_URL", "ws://127.0.0.1:4455"),
             obs_websocket_password: env_var("OBS_WEBSOCKET_PASSWORD"),

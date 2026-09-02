@@ -108,10 +108,11 @@
 param(
     # The port that identifies THIS deployment. 4005 is adventure_web
     # (game/src/main.rs, ADVENTURE_WEB_PORT default) - the port the
-    # cloudflared tunnel fronts and the one the bot's
-    # ADVENTURE_API_BASE_URL points at, i.e. the port whose absence
-    # actually means this world is down. A second deployment passes its
-    # own (e.g. -Port 4015).
+    # cloudflared tunnel fronts, i.e. the port whose absence actually
+    # means this world is down. (It was also the port the bot's
+    # ADVENTURE_API_BASE_URL pointed at; that seam was deleted from both
+    # binaries on 2026-09-02 and the bot no longer speaks to the game at
+    # all.) A second deployment passes its own (e.g. -Port 4015).
     [int] $Port = 4005,
 
     [string] $TaskName = 'GameProcess',

@@ -112,6 +112,21 @@ decomposition. See §10.
 
 ---
 
+> **SUPERSEDED IN PART — 2026-09-02 (`chore/bot-decoupling`).** The bot no
+> longer has an adventure integration of any kind. `AdventureApiClient`,
+> `src/published_constants.rs`, the ten adventure chat commands, the three
+> adventure channel-point redemptions, chat activity XP and the SSE
+> announcements relay are all deleted from `src/**`, and
+> `ADVENTURE_API_SECRET`, `ADVENTURE_API_BASE_URL`,
+> `CHANNEL_POINTS_REFORGE_REWARD_COST`, `CHANNEL_POINTS_REPAIR_REWARD_COST`
+> and `CHANNEL_POINTS_FORCE_BOSS_REWARD_COST` no longer exist in
+> `src/config.rs`. The game side went first: `game/src/adventure_web/api.rs`
+> and the whole `/api/*` router are gone. Every statement below that
+> describes the seam, those env keys or those commands as live describes
+> history, not the current tree. The bot itself is unaffected and still
+> runs: Twitch chat, song requests, alerts, entrance themes, the two
+> surviving channel-point rewards, PoE utilities and OBS control.
+
 ## 4. Full seam map (every bot↔game touchpoint, classified)
 
 Gathered by direct reads of main.rs's redemption handlers, the
@@ -1282,12 +1297,22 @@ separately, not to an automatic cleanup.
      stop `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
      `twitch-bot-rs.exe` → back up the old one into the *same*
      `backup-pre-<name>/` dir used for the game binary → copy in the
-     new one → start `TwitchBotRS` only after `GameProcess` is confirmed
-     healthy → verify healthy (curl its ports) →
+     new one → start `TwitchBotRS` → verify healthy (curl its ports) →
      `C:\PathofDust\maintenance-flag.ps1 -Target Bot -Clear`, and say in
-     the report that you cleared it. Game always comes up and is verified
-     healthy before the bot starts — never the other order, whether or
-     not the bot is moving this release. **Do not set the Bot flag on a
+     the report that you cleared it. **Amended 2026-09-02
+     (`chore/bot-decoupling`):** this step used to read "start
+     `TwitchBotRS` only after `GameProcess` is confirmed healthy", and
+     "Game always comes up and is verified healthy before the bot starts
+     — never the other order." That ordering existed because both
+     binaries ran on this box and the bot called the game's `/api/*` seam
+     at startup. Neither is true any more: production moved to the Debian
+     box (13B), so there is no `GameProcess` task on Windows to health-
+     check, and the bot holds no adventure code at all — it never
+     contacts the game. **The bot's start is unordered with respect to
+     the game.** Verify port 4001 only. A deploy step that waits on a
+     service which does not exist either blocks the operator or teaches
+     them to skip steps, which is why this is corrected rather than left
+     to be reasoned around mid-deploy. **Do not set the Bot flag on a
      game-only release** — see the two-flags note above. The 4a recipe
      applies unchanged, substituting `-Target Bot`, task `TwitchBotRS`,
      port `4001`, and `twitch-bot-rs.exe.pre-<name>`.
