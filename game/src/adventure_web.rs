@@ -6310,8 +6310,21 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
         // scoured/krangle"). Every other action either only adds
         // something or (Polishing/Reforge) has its own separate risk
         // profile the request didn't ask to gate the same way.
+        //
+        // UniqueShard joined them 2026-09-02. It is the one action here
+        // whose price cannot be re-earned by grinding dust: the shard is
+        // consumed outright, binds a unique affix to the item it lands
+        // on, and that item can never take a second. Every other button
+        // on this row spends a currency the player can go and farm more
+        // of, which is why this one was worth gating and Transmute is
+        // not. The message stays the shared item-naming default rather
+        // than a `data-confirm-msg` override - the whole point of the
+        // 2026-08-15 request was that the dialog SAY WHICH ITEM, and a
+        // static override would drop exactly that (see Divinity, which
+        // overrides only because it is whole-bag and has no item to
+        // name).
         let confirm_attr =
-            if matches!(action, CraftAction::Krangle | CraftAction::Scour | CraftAction::Annulment | CraftAction::Chancing) { " data-confirm=\"1\"" } else { "" };
+            if matches!(action, CraftAction::Krangle | CraftAction::Scour | CraftAction::Annulment | CraftAction::Chancing | CraftAction::UniqueShard) { " data-confirm=\"1\"" } else { "" };
         let tokens = c.craft_token_count(action);
         if tokens > 0 {
             return format!(

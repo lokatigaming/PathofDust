@@ -41,10 +41,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use game::adventure::{AdventureManager, Character, CraftAction};
 
-/// Every action whose button must carry `data-confirm`. A new
+/// Every action whose button must carry `data-confirm`. Unique Shard
+/// joined on 2026-09-02 (its shard cannot be re-earned with dust). A new
 /// irreversible action is registered here or this test fails - which is
 /// the only way the coverage half stays honest as the card grows.
-const CONFIRMED_ACTIONS: &[&str] = &["krangle", "scour", "annulment orb", "chancing", "hideout warrior", "divinity"];
+const CONFIRMED_ACTIONS: &[&str] = &["krangle", "scour", "annulment orb", "chancing", "hideout warrior", "divinity", "unique shard"];
 
 /// Pulls the confirm block out of `templates/base.html` by its own code
 /// rather than by line number, so ordinary edits above it cannot silently
