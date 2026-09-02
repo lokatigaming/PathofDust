@@ -835,3 +835,64 @@ PATCH NOTE for the deploy session, ship verbatim:
 FOUND — `manager.rs` still carries the pre-existing `unused_mut` on `let
 mut broken: Vec<BrokenItem>` noted in the cutover entry above. Still
 pre-existing, still not touched.
+
+### 2026-09-02, follow-up — the win-XP arithmetic tests
+
+Filling the gap the first pass reported: the grant had no test of its own,
+only the constants assertion inside the HTTP test. On a live-world
+progression change that was the wrong place to stop.
+
+**One structural change to make it testable, and it removes a real bug
+class rather than only exposing it.** The grant was five lines inline in
+`run_encounter_inner`, which is reachable only through a whole simulated
+encounter. It is now `Character::win_xp_for_win(level, catchup, &t)` —
+pure, so the arithmetic is assertable directly — plus
+`Character::award_win_xp(&mut self, catchup, &t)`, which reads the level
+and calls `add_xp`. That second method exists for exactly one reason: the
+price must come from the level that EARNED the win, and `add_xp` moves
+`self.level` in the same breath. Spelling those two steps out at the call
+site is how that becomes an off-by-one where a threshold-crossing win is
+billed at the new, more expensive level — silently, and worth more the
+bigger the grant. Inside one method the read provably precedes the
+mutation.
+
+**11 new tests**, 7 in `character::win_xp_tests` and 4 in
+`manager::win_xp_cooldown_tests`:
+- shipped-default grants at levels 1/10/25/50 (13, 18, 33, 80), each
+  checked against `xp_to_next_level` so a level-curve change fails here
+  too; plus the headline claim that three level-1 wins clear level 2.
+- the off-by-one, forced visible by turning `win_xp_mult` to 100 so one
+  win crosses ten levels — at the shipped 1/48 the adjacent levels round
+  to the same grant (L1 and L2 are both 13), so the shipped dials cannot
+  see this bug and the test has to leave them.
+- order of operations, with values picked so all three readings differ:
+  correct 32, rounding the sum early 33, multipliers on the level term
+  alone 11.
+- `win_xp_mult = 0` grants a clean zero, and NaN/negative floor to 0
+  rather than wrapping into a huge `u64` or hanging `add_xp`'s
+  subtract-and-loop.
+- catch-up at 1.0/2.0/3.0, plus a guard asserting the real
+  `catchup_multiplier` stays inside the 1.0–3.0 band the grant is
+  documented against.
+- the cooldown: two wins inside the window pay once, a win after it
+  elapses pays again, the window is per-character (a newcomer is not
+  locked out by someone else's recent win), 0 means no throttle, and 450 s
+  sits strictly between `RAMPAGE_MIN_INTERVAL` and `ENCOUNTER_INTERVAL`
+  with at least 120 s of slack.
+
+**Mutation-checked, because a test that cannot fail proves nothing.**
+Three deliberate defects were introduced and reverted: pricing after
+`add_xp` (caught by the off-by-one test), rounding the sum before
+multiplying (caught by 3 tests), and applying the multipliers to the
+level-scaled term alone (caught by 3 tests). All three were caught.
+
+Deliberately NOT asserted: that catch-up and `win_xp_mult` can be
+swapped. Multiplication commutes, so their relative order cannot produce
+a different number — the test says so explicitly instead, so nobody later
+"fixes" a non-problem. What is order-sensitive is where the multipliers
+sit relative to the SUM and where the single `round()` sits, and that is
+what is covered.
+
+The timing test uses a 10 ms cooldown against a 250 ms wait — a 25x
+margin, deliberately wide so it does not join the known
+flaky-under-parallel set.

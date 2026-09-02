@@ -5218,14 +5218,12 @@ impl AdventureManager {
                     // XP except steps 2 and 3.
                     if xp_paid.contains(id) {
                         let xp_catchup = if tunables.win_xp_catchup_enabled { catchup.get(id).copied().unwrap_or(1.0) } else { 1.0 };
-                        let shape = tunables.win_xp_flat + tunables.win_xp_level_pct * Character::xp_to_next_level(character.level) as f64;
-                        let granted = (shape * xp_catchup * tunables.win_xp_mult).round();
-                        // A non-finite product can only come from a
-                        // tunable the handler already rejects; clamping
-                        // here rather than trusting that keeps a NaN out
-                        // of `add_xp`'s subtract-and-loop, which would
-                        // never terminate.
-                        character.add_xp(if granted.is_finite() { granted.max(0.0) as u64 } else { 0 });
+                        // The whole grant lives in `award_win_xp` rather
+                        // than being spelled out here, so that reading the
+                        // level and moving it cannot drift apart - see
+                        // that method for why that specific split is the
+                        // bug worth designing out.
+                        character.award_win_xp(xp_catchup, &tunables);
                     }
                     // Every boss kill also grants dust to everyone who
                     // fought - 1-3 per stage completed, rolled per player,
@@ -8952,5 +8950,111 @@ mod operator_boss_select_tests {
             assert!(sprite.is_some(), "{value} exists as its own choice only because it pins the look");
         }
         assert!(BossKind::parse_forced("dragon").expect("a rendered choice must parse").1.is_none(), "plain dragon must leave the look to the coin flip");
+    }
+}
+
+/// The win-XP cooldown - the rampage guard (2026-09-02).
+///
+/// The arithmetic half of the grant is asserted in
+/// `character::win_xp_tests`; this is the throttle that decides how often
+/// that arithmetic gets to run. It is the whole reason a rampage does not
+/// become an XP farm, so "two wins inside the window pay once, two wins
+/// outside it pay twice" is asserted directly rather than inferred from
+/// the cadence numbers in the design.
+#[cfg(test)]
+mod win_xp_cooldown_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("win_xp_cooldown_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    fn ids(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn two_wins_inside_the_window_pay_once_and_two_wins_outside_it_pay_twice() {
+        let (manager, scratch) = disposable("window");
+        let party = ids(&["alpha", "beta"]);
+
+        // Inside the window: the shipped 450 s guard. Back-to-back wins -
+        // which is exactly what a 60 s rampage cadence produces - must pay
+        // exactly once.
+        let cooldown = Duration::from_secs(WIN_XP_COOLDOWN_SECS);
+        let first = manager.claim_win_xp(party.iter(), cooldown).await;
+        assert_eq!(first.len(), 2, "the first win must pay everyone who fought");
+        let second = manager.claim_win_xp(party.iter(), cooldown).await;
+        assert!(second.is_empty(), "a second win inside the cooldown must pay nobody - this is the whole rampage guard");
+        let third = manager.claim_win_xp(party.iter(), cooldown).await;
+        assert!(third.is_empty(), "and it must keep holding, not just skip one");
+
+        // Outside the window: a cooldown short enough to actually elapse
+        // inside a test. 10 ms against a 250 ms wait is a 25x margin, so
+        // this does not join the known flaky-under-parallel set.
+        let (manager, scratch2) = disposable("elapsed");
+        let brief = Duration::from_millis(10);
+        assert_eq!(manager.claim_win_xp(party.iter(), brief).await.len(), 2, "first win pays");
+        assert!(manager.claim_win_xp(party.iter(), brief).await.is_empty(), "immediate second win is still inside 10 ms");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert_eq!(manager.claim_win_xp(party.iter(), brief).await.len(), 2, "a win after the cooldown has elapsed must pay again");
+
+        let _ = std::fs::remove_dir_all(&scratch);
+        let _ = std::fs::remove_dir_all(&scratch2);
+    }
+
+    #[tokio::test]
+    async fn the_cooldown_is_per_character_not_global() {
+        // A player who joins mid-rampage must not be locked out by
+        // somebody else's recent win.
+        let (manager, scratch) = disposable("per_character");
+        let cooldown = Duration::from_secs(WIN_XP_COOLDOWN_SECS);
+
+        let early = ids(&["alpha"]);
+        assert_eq!(manager.claim_win_xp(early.iter(), cooldown).await.len(), 1);
+
+        let both = ids(&["alpha", "beta"]);
+        let paid = manager.claim_win_xp(both.iter(), cooldown).await;
+        assert_eq!(paid.len(), 1, "only the newcomer may be paid here");
+        assert!(paid.contains("beta"), "the newcomer must be the one paid, not the character still on cooldown");
+        assert!(!paid.contains("alpha"), "alpha is inside their own window and must be held");
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[tokio::test]
+    async fn a_zero_cooldown_pays_every_win() {
+        // 0 is the documented "no throttle" setting. It must not be a
+        // special case in the code, and it must not accidentally hold.
+        let (manager, scratch) = disposable("zero");
+        let party = ids(&["alpha"]);
+        for attempt in 0..5 {
+            assert_eq!(manager.claim_win_xp(party.iter(), Duration::ZERO).await.len(), 1, "win {attempt} must pay when the throttle is switched off");
+        }
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[tokio::test]
+    async fn the_scheduled_cadence_never_binds_but_a_rampage_cadence_does() {
+        // The calibration argument, asserted rather than left in a
+        // comment: 450 s must sit strictly between the rampage floor and
+        // the scheduled interval, or the guard either throttles normal
+        // play or fails to throttle a rampage.
+        let guard = Duration::from_secs(WIN_XP_COOLDOWN_SECS);
+        assert!(guard > RAMPAGE_MIN_INTERVAL, "the guard must exceed the rampage floor ({:?}), or a rampage is unthrottled", RAMPAGE_MIN_INTERVAL);
+        assert!(guard < ENCOUNTER_INTERVAL, "the guard must sit under the scheduled boss interval ({ENCOUNTER_INTERVAL:?}), or it throttles ordinary play");
+
+        // And the margin is the part that matters: a scheduled grant is
+        // 600 s after the last one plus or minus the difference in two
+        // fights' resolution times, so the slack is what decides whether
+        // a slow fight followed by a fast one can drop a grant.
+        let slack = ENCOUNTER_INTERVAL.saturating_sub(guard);
+        assert!(slack >= Duration::from_secs(120), "the guard needs at least a 120 s margin under the scheduled interval; got {slack:?}");
     }
 }
