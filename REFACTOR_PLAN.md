@@ -1423,10 +1423,17 @@ so a dropped connection does not kill a three-minute build.
 > tells you only that the unit started**, never whether the build passed.
 
 Measured on this box (8 vCPU, 16 GB): build **2 m 36 s**, full suite
-**758 passed / 0 failed / 0 ignored**, both while the live service was
+**755 passed / 0 failed / 0 ignored**, both while the live service was
 serving and resolving real fights. **The suite saturates all 8 cores**
 and the game's fight cadence visibly stretches while it runs — expected,
 not a fault, but do not read fight timings taken during a test run.
+
+> **Baseline moved 758 → 755 on 2026-09-02** (Twitch removal, commit
+> `e3ebd19`). The arithmetic: the removal deleted three test binaries,
+> each containing exactly one `#[tokio::test]` — `api_seam.rs`,
+> `published_constants_http.rs` and `twitch_optional_http.rs`. 758 − 3 =
+> 755. Nothing else changed count. Recorded here because a stale baseline
+> makes the next deploy read a failure into a correct result.
 
 Hash both binaries and confirm they differ before going near the swap:
 
