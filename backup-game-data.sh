@@ -91,6 +91,16 @@ MARKER_FILES=(
   adventure-celestial-shard-into-unique-shard-marker.json
   adventure-duplicate-unique-effects-cleanup-marker.json
   adventure-lingering-effect-to-echo-marker.json
+  # 2026-09-03, affix tier curve. This one matters more than most: its
+  # migration (`migrate_affix_tier_curve`) is deliberately NOT idempotent
+  # - it multiplies every stored affix value by f(tier)/tier - so a
+  # restore that brought back the characters file WITHOUT this marker
+  # would let the rescale run a second time and apply the cut twice.
+  # NOTE FOR WHOEVER ADDS THE NEXT ONE: this array is a hand-maintained
+  # literal list, NOT a glob over adventure-*-marker.json. The drift
+  # check near the bottom of this script will TELL you when a marker on
+  # disk is missing from here, but it will not back the file up for you.
+  adventure-affix-tier-curve-marker.json
 )
 
 # Fight-tier sequence counters. THESE ARE COPIED LAST, AFTER the fight

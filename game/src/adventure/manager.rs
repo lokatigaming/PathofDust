@@ -4656,14 +4656,23 @@ impl AdventureManager {
         // the same roll guarantees power can only go up alongside it.
         let power_roll = existing.power_roll;
         let new_tier = old_tier + reforge_tier_jump(old_tier, &mut rng);
-        // Every carried-over affix scales up by the same tier ratio power
-        // does - exact, since affix_base_value is purely linear in tier
-        // with no constant term (see Item::sync_tier_to, which uses the
-        // identical ratio for Krangle's tier growth). A live report
+        // Every carried-over affix scales up by the CURVE ratio
+        // `f(new)/f(old)` (see Item::sync_tier_to, which uses the identical
+        // ratio for Krangle's tier growth). This used to read "exact, since
+        // affix_base_value is purely linear in tier with no constant term" -
+        // true until the 2026-09-02 affix tier curve, and recorded here
+        // because that assumption is what made this line something the
+        // curve had to change. A live report
         // caught this NOT happening - a reforged item's tier (and power)
         // went up but its existing modifiers stayed frozen at their old,
         // lower-tier values, same bug class Krangle had.
-        let tier_ratio = new_tier as f64 / old_tier.max(1) as f64;
+        // Curve ratio, not linear - see `affix_tier_growth_ratio`. NOTE:
+        // docs/affix_curve_spec.md §4.1 named only `sync_tier_to` and
+        // `roll_recombine` as the sites needing this; THIS one has the
+        // identical shape and was found by sweeping for it rather than by
+        // following the spec. Reforge is also the site most likely to
+        // expose a miss, since it jumps several tiers at once.
+        let tier_ratio = affix_tier_growth_ratio(old_tier, new_tier);
         let carried_affixes: Vec<(Affix, f64)> = existing.affixes.iter().map(|&(affix, value)| (affix, value * tier_ratio)).collect();
         let mut item = generate_item_at_tier_with_roll(slot, new_tier, power_roll, &mut rng);
         item.affixes = carried_affixes;
