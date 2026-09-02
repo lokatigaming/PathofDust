@@ -62,6 +62,75 @@ pub(crate) fn migrate_item_accuracy(item: &mut Item) {
     }
 }
 
+/// Affix tier curve retrofit (2026-09-02, `docs/affix_curve_spec.md`
+/// §4.1, owner-ruled retroactive).
+///
+/// Moves every stored affix value from the old linear tier term onto the
+/// curve, and applies the §7 `CritMultiplier` halving to already-rolled
+/// crit-damage affixes in the same pass.
+///
+/// # Why a pure RATIO, and not the shape §4.1 actually specifies
+///
+/// **Deliberate, owner-approved deviation. Do not "restore" the spec's
+/// version — it would quietly take polish away from players.**
+///
+/// §4.1 says to rewrite each value as `per_tier * f(T) * preserved_jitter`.
+/// That requires recovering `preserved_jitter` from the stored value, and
+/// the obvious way to recover it (`affix_quality_percent`, `affix.rs`)
+/// **clamps jitter to 0.85..1.15**. Rolled jitter does live in that band —
+/// but `Character::polish` drives an affix's effective jitter as high as
+/// `POWER_ROLL_RANGE.end` = **1.20**, above the roll ceiling. Reconstructing
+/// through a clamp would therefore silently confiscate the polish from
+/// every polished affix in the game. The owner's own live tier-7 item
+/// carries a divine roll sitting at exactly 1.20 for that reason.
+///
+/// `value * f(T)/T` is the same arithmetic — `(per_tier * T * j) * f(T)/T`
+/// is `per_tier * f(T) * j` — with nothing to reconstruct and therefore
+/// nothing to lose. Jitter is preserved bit-for-bit at any magnitude,
+/// polish included, and it makes §4.4's quality%-drift problem a no-op:
+/// `affix_quality_percent` divides the stored value by
+/// `affix_base_value(tier)`, and this scales numerator and denominator by
+/// the identical factor, so every displayed quality% stays exactly where
+/// it was.
+///
+/// # Idempotency — this migration is NOT idempotent
+///
+/// Unlike the `.max()`-gated accuracy passes above, running this twice
+/// would apply the cut twice. It is marker-guarded like every other
+/// one-off grant in `AdventureManager::new`, and that guard is the only
+/// thing standing between a correct rescale and a second one. Same
+/// reasoning as `migrate_crit_value_nerf`, which halves rather than
+/// recomputing for the same jitter-preserving reason.
+///
+/// Covers `sacred_affix` as well as `affixes` — it is a second stored
+/// value on the same footing, rolled through `affix_base_value` by
+/// `make_item_sacred` and rescaled by `sync_tier_to` alongside the rest.
+///
+/// `PERFECT_QUALITY_MULT` needs no special handling here, unlike
+/// `migrate_gloves_speed_rebalance`: that one RECOMPUTES from scratch and
+/// so has to reapply the 20% by hand, while this one only ever multiplies
+/// what is already stored, so an already-boosted value stays
+/// proportionally boosted.
+pub(crate) fn migrate_affix_tier_curve(item: &mut Item) {
+    let scale = affix_tier_curve(item.tier) / item.tier.max(1) as f64;
+    for (affix, value) in item.affixes.iter_mut() {
+        *value *= scale;
+        // The §7 halving, applied to already-rolled values. New rolls get
+        // it from `affix_def`'s changed default; stored ones need it here,
+        // or an existing crit-damage affix keeps twice the coefficient it
+        // is now defined to have and reads as a permanent 100% roll.
+        if matches!(affix, Affix::CritMultiplier) {
+            *value *= 0.5;
+        }
+    }
+    if let Some((affix, value)) = item.sacred_affix.as_mut() {
+        *value *= scale;
+        if matches!(affix, Affix::CritMultiplier) {
+            *value *= 0.5;
+        }
+    }
+}
+
 /// Crit nerf retrofit - halves the stored value of any already-rolled
 /// CritChance/CritMultiplier affix, exactly preserving each item's
 /// original jitter (see the original block's doc for why halving the
@@ -217,6 +286,17 @@ pub(crate) const ITEM_MIGRATIONS: &[(&str, fn(&mut Item))] = &[
     ("adventure-gloves-speed-rebalance-marker.json", migrate_gloves_speed_rebalance),
     ("adventure-crit-lineage-backfill-marker.json", migrate_crit_lineage_backfill),
     ("adventure-crit-flag-to-affix-tracking-marker.json", migrate_crit_flag_to_affix_tracking),
+    // LAST on purpose. It scales every stored affix value by
+    // `f(tier)/tier`, so it must run AFTER every migration above that
+    // reads or rewrites an affix value against the OLD linear
+    // `affix_base_value` - `migrate_item_accuracy` and
+    // `migrate_krangle_accuracy` both floor stored values at
+    // `affix_base_value(affix, tier)`, which now returns the CURVED value.
+    // On an already-migrated data dir their markers are long since set so
+    // they never run again; ordering it last is what keeps a fresh
+    // install or a restored backup correct too, where every marker is
+    // absent and the whole array runs in sequence.
+    ("adventure-affix-tier-curve-marker.json", migrate_affix_tier_curve),
 ];
 
 /// Runs each pending entry of `ITEM_MIGRATIONS` in array order, over
@@ -1065,3 +1145,303 @@ mod duplicate_unique_effects_cleanup_tests {
     }
 }
 
+
+/// The affix tier curve (2026-09-02, `docs/affix_curve_spec.md` §1-§7).
+///
+/// The curve is arithmetic, so most of it is checked directly against the
+/// spec's own ratified anchors and tables rather than against behaviour.
+/// The exceptions are the three tier-GROWTH sites, which are the
+/// load-bearing half of the change (§4.1) and are tested through real
+/// items: a curve that is correct at roll time and leaks at growth time
+/// looks completely right in every static table and is wrong within a few
+/// crafts.
+#[cfg(test)]
+mod affix_curve_tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::{RngCore, SeedableRng};
+
+    /// Every anchor §1 ratifies, checked as an anchor rather than as a
+    /// sampled value. If one of these moves the curve is a different
+    /// curve and the spec no longer describes the game.
+    #[test]
+    fn the_curve_hits_every_ratified_anchor() {
+        assert_eq!(affix_tier_curve(1), 1.0, "f(1) = 1 EXACTLY - a new character's first drop must read exactly as it always has");
+        assert_eq!(affix_tier_curve(100), 10.0, "f(100) = 10 EXACTLY - tier 100 lands on what tier 10 used to deliver; this is the compression point the curve exists for");
+
+        // Continuity in VALUE at the knee. The two halves meet with no
+        // seam: sqrt(100) and 10 * 1^0.289 are both exactly 10.
+        let left = (100.0_f64).sqrt();
+        let right = AFFIX_CURVE_KNEE.sqrt() * (100.0_f64 / AFFIX_CURVE_KNEE).powf(AFFIX_CURVE_EXPONENT);
+        assert!((left - right).abs() < 1e-12, "the two halves must be continuous in value at T=100: {left} vs {right}");
+
+        // The exponent's own anchor: the first 1,000-tier step past the
+        // knee is a doubling. `0.289` is the ratified rounding of
+        // ln(2)/ln(11) and lands 0.0155% short of exact - that shortfall
+        // is asserted rather than tolerated, so nobody "fixes" the
+        // constant into ln2/ln11 without noticing the spec chose the
+        // literal deliberately (§1, "Use 0.289").
+        let doubling = affix_tier_curve(1100) / affix_tier_curve(100);
+        assert!((doubling - 1.99968913).abs() < 1e-6, "11^0.289 must be 1.99968913 - got {doubling}");
+        assert!(doubling < 2.0, "the ratified 0.289 lands just SHORT of a true doubling; if this passes 2.0 someone has swapped in ln2/ln11");
+    }
+
+    /// §2: `f(T) < T` for all T > 1, and `f(T)/T` strictly decreasing.
+    /// The spec calls this a structural property rather than a property
+    /// of the sampled range - the curve can never cross back over the old
+    /// linear line at any tier, ever.
+    #[test]
+    fn the_curve_is_sublinear_everywhere_and_never_crosses_back() {
+        assert_eq!(affix_tier_curve(1), 1.0, "T=1 is the one tier where the curve equals the old linear term");
+        let mut previous_ratio = 1.0;
+        for tier in [2u32, 10, 50, 100, 101, 500, 1_000, 10_000, 100_000, 1_000_000] {
+            let f = affix_tier_curve(tier);
+            assert!(f < tier as f64, "f({tier}) = {f} must be strictly below the old linear term {tier}");
+            let ratio = f / tier as f64;
+            assert!(ratio < previous_ratio, "f(T)/T must be MONOTONICALLY decreasing - it rose at T={tier} ({ratio} vs {previous_ratio}), which would mean the curve can cross back");
+            previous_ratio = ratio;
+        }
+    }
+
+    /// §6's computed table, spot-checked at the tiers the owner asked for.
+    /// These are the numbers a player will actually see, so they are
+    /// asserted as values rather than as properties.
+    #[test]
+    fn the_computed_affix_table_matches_the_spec() {
+        // Elementals (0.0225): cold, fire, lightning, divine, chaos.
+        for (tier, expected) in [(1u32, 0.0225), (7, 0.059529), (20, 0.100623), (50, 0.159099), (100, 0.225)] {
+            let got = affix_base_value(Affix::ColdDamage, tier);
+            assert!((got - expected).abs() < 1e-6, "ColdDamage at T={tier}: expected {expected}, got {got}");
+        }
+        // IncreasedLife (0.03) - the owner's "max hp" column.
+        for (tier, expected) in [(1u32, 0.03), (7, 0.079373), (20, 0.134164), (50, 0.212132), (100, 0.30)] {
+            let got = affix_base_value(Affix::IncreasedLife, tier);
+            assert!((got - expected).abs() < 1e-6, "IncreasedLife at T={tier}: expected {expected}, got {got}");
+        }
+        // Spec §6's own T=1000 / T=10000 rows, which sit past the knee and
+        // so exercise the power-law half.
+        assert!((affix_base_value(Affix::IncreasedDamage, 1_000) - 0.583608).abs() < 1e-5);
+        assert!((affix_base_value(Affix::IncreasedDamage, 10_000) - 1.135329).abs() < 1e-5);
+    }
+
+    /// §7 / R4: the halving and the curve COMPOSE. Both cuts are applied,
+    /// and the table here is the one the owner ratified.
+    #[test]
+    fn crit_multiplier_carries_both_cuts_not_one() {
+        assert_eq!(affix_balance(Affix::CritMultiplier).0, 0.025, "the affix_def default must be the halved coefficient - if this is 0.05 the halving was reverted");
+
+        // today (0.05 * T) -> both cuts (0.025 * f(T)).
+        for (tier, today, both) in [(7u32, 0.35, 0.066144), (20, 1.00, 0.111803), (50, 2.50, 0.176777), (100, 5.00, 0.25)] {
+            let got = affix_base_value(Affix::CritMultiplier, tier);
+            assert!((got - both).abs() < 1e-6, "CritMultiplier at T={tier}: expected {both} (was {today} before this change), got {got}");
+        }
+
+        // The relative-weight invariant §1 promises: every OTHER affix
+        // keeps its exact ratio against every other affix at every tier.
+        // CritMultiplier is the sole ratified exception, so its ratio to
+        // DivineDamage is the one that moves - from 2.22 to 1.11.
+        let ratio = affix_base_value(Affix::CritMultiplier, 500) / affix_base_value(Affix::DivineDamage, 500);
+        assert!((ratio - 1.1111).abs() < 1e-3, "post-halving CritMultiplier:DivineDamage must be 1.11 at every tier, got {ratio}");
+        let elsewhere = affix_base_value(Affix::IncreasedDamage, 37) / affix_base_value(Affix::Evasion, 37);
+        let at_another_tier = affix_base_value(Affix::IncreasedDamage, 4_000) / affix_base_value(Affix::Evasion, 4_000);
+        assert!((elsewhere - at_another_tier).abs() < 1e-12, "every non-crit affix pair must hold its ratio at EVERY tier - the curve is a pure tier term");
+    }
+
+    /// §5.3, the trap that would waste a day if missed: the curve must
+    /// change only the VALUE computed from the draws, never how many
+    /// draws happen, their order, or their ranges. If the draw count
+    /// moves, every golden fixture diverges for a second, unrelated
+    /// reason and the 17 diffs stop being readable.
+    ///
+    /// Asserted by counting draws off a counting Rng rather than by
+    /// reading the source, so it keeps holding as the function changes.
+    #[test]
+    fn the_curve_does_not_change_the_rng_draw_count_in_roll_affixes() {
+        /// Wraps a real seeded Rng and counts every call that reaches it.
+        struct Counting<R: Rng> {
+            inner: R,
+            draws: std::cell::Cell<u32>,
+        }
+        impl<R: Rng> RngCore for Counting<R> {
+            fn next_u32(&mut self) -> u32 {
+                self.draws.set(self.draws.get() + 1);
+                self.inner.next_u32()
+            }
+            fn next_u64(&mut self) -> u64 {
+                self.draws.set(self.draws.get() + 1);
+                self.inner.next_u64()
+            }
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                self.draws.set(self.draws.get() + 1);
+                self.inner.fill_bytes(dest)
+            }
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+                self.draws.set(self.draws.get() + 1);
+                self.inner.try_fill_bytes(dest)
+            }
+        }
+
+        // The count is a function of the seed (it decides how many affixes
+        // roll), not of the tier - which is the whole point. Same seed at
+        // wildly different tiers must draw identically.
+        for seed in [1u64, 7, 99, 12345] {
+            let mut counts = Vec::new();
+            for tier in [1u32, 7, 100, 1_000, 50_000] {
+                let mut rng = Counting { inner: StdRng::seed_from_u64(seed), draws: std::cell::Cell::new(0) };
+                let rolled = roll_affixes(EquipSlot::Weapon, tier, &mut rng);
+                counts.push((tier, rng.draws.get(), rolled.len()));
+            }
+            let (_, first_draws, first_len) = counts[0];
+            for &(tier, draws, len) in &counts {
+                assert_eq!(draws, first_draws, "seed {seed}: roll_affixes drew {draws} times at T={tier} but {first_draws} at T=1 - the curve must not touch the rng stream (spec 5.3)");
+                assert_eq!(len, first_len, "seed {seed}: affix COUNT changed with tier at T={tier}");
+            }
+        }
+    }
+
+    /// §4.1's rescale, as arithmetic: the migration must preserve each
+    /// affix's jitter EXACTLY, including a polished roll sitting above the
+    /// 0.85..1.15 roll ceiling. This is the property the ratio was chosen
+    /// for over the spec's stated `per_tier * f(T) * preserved_jitter`
+    /// shape, which would clamp and silently strip the polish.
+    #[test]
+    fn the_rescale_preserves_jitter_exactly_including_polish_above_the_roll_ceiling() {
+        let tier = 7u32;
+        // Jitters spanning the rolled band plus 1.20, which only polish
+        // can produce (`Character::polish` drives toward
+        // POWER_ROLL_RANGE.end, above roll_affixes' own 1.15).
+        for jitter in [0.85_f64, 0.94730, 1.0, 1.149206, 1.20] {
+            let stored = affix_balance(Affix::ColdDamage).0 * tier as f64 * jitter;
+            let mut item = test_item_with_affix(tier, Affix::ColdDamage, stored);
+            migrate_affix_tier_curve(&mut item);
+            let migrated = item.affixes[0].1;
+            let recovered = migrated / affix_base_value(Affix::ColdDamage, tier);
+            assert!(
+                (recovered - jitter).abs() < 1e-5,
+                "jitter {jitter} must survive the rescale to five decimals - recovered {recovered}. A clamped reconstruction would pin anything above 1.15 back to 1.15 and take the player's polish."
+            );
+        }
+    }
+
+    /// The other half of §4.4, asserted rather than argued: because the
+    /// rescale scales the stored value and `affix_base_value` by the same
+    /// factor, every displayed quality% is unchanged. No player sees their
+    /// items' quality readings jump.
+    #[test]
+    fn the_rescale_leaves_displayed_quality_percent_untouched() {
+        for tier in [1u32, 7, 20, 50, 100, 1_000] {
+            for jitter in [0.85_f64, 1.0, 1.15] {
+                let stored = affix_balance(Affix::Evasion).0 * tier as f64 * jitter;
+                // Quality as it read BEFORE the curve: stored over the old
+                // linear base.
+                let before = {
+                    let base = affix_balance(Affix::Evasion).0 * tier as f64;
+                    let j = (stored / base).clamp(0.85, 1.15);
+                    ((j - 0.85) / 0.30 * 100.0).clamp(0.0, 100.0)
+                };
+                let mut item = test_item_with_affix(tier, Affix::Evasion, stored);
+                migrate_affix_tier_curve(&mut item);
+                let after = affix_quality_percent(Affix::Evasion, item.affixes[0].1, tier, false);
+                assert!((before - after).abs() < 1e-6, "T={tier} jitter={jitter}: quality% moved {before} -> {after}; the ratio rescale is supposed to make this a no-op");
+            }
+        }
+    }
+
+    /// The §7 halving reaches ALREADY-STORED crit-damage affixes, not just
+    /// new rolls, and reaches nothing else.
+    #[test]
+    fn the_rescale_halves_stored_crit_multiplier_and_only_that() {
+        let tier = 20u32;
+        let mut item = test_item_with_affix(tier, Affix::CritMultiplier, 0.05 * tier as f64);
+        item.affixes.push((Affix::CritChance, 0.01 * tier as f64));
+        migrate_affix_tier_curve(&mut item);
+        let expected_crit_mult = 0.05 * affix_tier_curve(tier) * 0.5;
+        assert!((item.affixes[0].1 - expected_crit_mult).abs() < 1e-9, "CritMultiplier must take BOTH cuts: curve and halving");
+        let expected_crit_chance = 0.01 * affix_tier_curve(tier);
+        assert!((item.affixes[1].1 - expected_crit_chance).abs() < 1e-9, "CritChance takes the curve ONLY - the 2026-08-16 nerf already halved it once and must not be applied twice");
+    }
+
+    /// THE LOAD-BEARING TEST (§4.1 second half, owner: "test it directly").
+    ///
+    /// An item crafted up several tiers AFTER the migration must land ON
+    /// the curve, not above it. With the old linear ratio at the three
+    /// growth sites, a migrated item resumes growing linearly from where
+    /// the rescale left it and is back above the curve within a few
+    /// tiers - the change would read as a one-time cut that silently
+    /// undoes itself.
+    #[test]
+    fn an_item_grown_after_the_rescale_lands_on_the_curve_not_above_it() {
+        // A tier-7 item as it exists on live today: linear value, ordinary
+        // jitter. Rescaled by the migration, then grown the way Krangle
+        // and reforge grow items.
+        let jitter = 1.0473_f64;
+        let stored = affix_balance(Affix::IncreasedLife).0 * 7.0 * jitter;
+        let mut item = test_item_with_affix(7, Affix::IncreasedLife, stored);
+        migrate_affix_tier_curve(&mut item);
+
+        for grown_to in [8u32, 15, 40, 120, 900] {
+            let mut carried = item.clone();
+            carried.sync_tier_to(grown_to);
+            let on_curve = affix_base_value(Affix::IncreasedLife, grown_to) * jitter;
+            let got = carried.affixes[0].1;
+            assert!(
+                (got - on_curve).abs() < 1e-6,
+                "grown 7 -> {grown_to}: value {got} must equal the on-curve value {on_curve}. If this is high, a tier-growth site is still using a LINEAR new/old ratio and the curve leaks."
+            );
+            // And state the failure the old code would have produced, so a
+            // regression reads as what it is rather than as a rounding
+            // problem.
+            let what_linear_would_give = stored * (affix_tier_curve(7) / 7.0) * (grown_to as f64 / 7.0);
+            if grown_to > 7 {
+                assert!(what_linear_would_give > got * 1.05, "sanity: at T={grown_to} the old linear ratio would have given {what_linear_would_give}, meaningfully above the on-curve {got} - this is the leak the test exists to catch");
+            }
+        }
+    }
+
+    /// Growth is path-independent: an item that reaches T=200 in one jump
+    /// and one that gets there in five must hold the same value. This is
+    /// what `f(new)/f(old)` buys and what a per-step approximation would
+    /// quietly lose.
+    #[test]
+    fn tier_growth_is_path_independent() {
+        let stored = affix_balance(Affix::Splash).0 * affix_tier_curve(3);
+        let mut direct = test_item_with_affix(3, Affix::Splash, stored);
+        direct.sync_tier_to(200);
+
+        let mut stepped = test_item_with_affix(3, Affix::Splash, stored);
+        for step in [11u32, 40, 99, 101, 200] {
+            stepped.sync_tier_to(step);
+        }
+        assert!(
+            (direct.affixes[0].1 - stepped.affixes[0].1).abs() < 1e-9,
+            "one jump {} vs five steps {} - growth must be path-independent, including across the T=100 knee",
+            direct.affixes[0].1,
+            stepped.affixes[0].1
+        );
+    }
+
+    /// The migration is NOT idempotent and must not be made to look like
+    /// it is - it is marker-guarded, and this records the consequence of
+    /// that guard failing so nobody removes it believing the pass is safe
+    /// to repeat.
+    #[test]
+    fn the_rescale_is_deliberately_not_idempotent() {
+        let mut item = test_item_with_affix(50, Affix::ColdDamage, affix_balance(Affix::ColdDamage).0 * 50.0);
+        migrate_affix_tier_curve(&mut item);
+        let once = item.affixes[0].1;
+        migrate_affix_tier_curve(&mut item);
+        assert!(item.affixes[0].1 < once, "running it twice applies the cut twice - that is expected, and the marker guard in run_item_migrations is what prevents it");
+    }
+
+    /// A bare item carrying exactly one affix, for the arithmetic tests
+    /// above. Built through `generate_item_at_tier_with_roll` so it is a
+    /// real `Item` rather than a hand-assembled one.
+    fn test_item_with_affix(tier: u32, affix: Affix, value: f64) -> Item {
+        let mut rng = StdRng::seed_from_u64(4242);
+        let mut item = generate_item_at_tier_with_roll(EquipSlot::Body, tier, 1.0, &mut rng);
+        item.affixes = vec![(affix, value)];
+        item.sacred_affix = None;
+        item.perfect = false;
+        item
+    }
+}

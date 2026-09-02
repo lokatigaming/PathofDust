@@ -1634,8 +1634,12 @@ impl Character {
         // lower-tier values even though new_tier is typically higher
         // than at least one source (same bug class a live report caught
         // in Krangle's tier growth and in reforge).
-        let a_ratio = new_tier as f64 / item_a.tier.max(1) as f64;
-        let b_ratio = new_tier as f64 / item_b.tier.max(1) as f64;
+        // Curve ratios, not linear ones - see `affix_tier_growth_ratio`.
+        // Recombine is one of the three sites that grow a STORED affix
+        // value when tier rises; all three had to move together or the
+        // curve leaks.
+        let a_ratio = affix_tier_growth_ratio(item_a.tier, new_tier);
+        let b_ratio = affix_tier_growth_ratio(item_b.tier, new_tier);
         // An affix TYPE present on BOTH sources is guaranteed to carry
         // over regardless of veil/coin-flip (per the request), keeping
         // whichever scaled value is higher - same "certainty keeps the
