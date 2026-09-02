@@ -31,14 +31,127 @@ pub const RECOMBINE_DUST_COST: u64 = 500;
 /// actions and doesn't run away on the expensive ones) than the base
 /// action - rolls 3 candidate outcomes and lets the player pick instead of
 /// auto-applying one.
+///
+/// Scaled by `craft_base_cost_mult` at the point of charge (2026-09-02,
+/// an owner ruling) rather than getting its own dial - at 500 flat
+/// against a 28-dust tier-1 Transmute the surcharge would BE the price.
+/// The one exception is `recombine_gear`, whose veiled cost is this plus
+/// 500 per combined modifier and was explicitly left out of the crafting
+/// cost cut - see WIKI_IMPACT.md.
 pub const VEIL_EXTRA_COST: u64 = 500;
 
 /// A nominal per-tier surcharge on EVERY craft action (2026-08-15, per a
-/// live request) - 3 dust x the item's CURRENT tier, added on top of the
-/// action's own `base_cost()` (and the veil surcharge above, if veiled).
+/// live request) - 3 dust x the item's CURRENT tier RAISED TO
+/// `craft_tier_exponent` (2026-09-02; it was a flat x tier until then -
+/// see `tier_surcharge`, which is the only place this constant is read as
+/// a price), added on top of the action's own `base_cost()` scaled by
+/// `craft_base_cost_mult` (and the veil surcharge above, likewise scaled,
+/// if veiled).
 /// Waived by a craft token same as everything else (see `craft_item`) -
 /// a token craft stays entirely free, not just base-cost-free.
 pub const TIER_CRAFT_DUST_COST: u64 = 3;
+
+/// Shipped default for `LiveTunables::craft_base_cost_mult` (2026-09-02,
+/// an owner ruling: "cut all base crafting costs by a factor of 10").
+/// Every dust-priced action's flat `base_cost()` is multiplied by this
+/// before it is charged, and so is the `VEIL_EXTRA_COST` surcharge that
+/// rides on top of it - a surcharge that survived the cut would become
+/// the entire price of a cheap craft, inverting its own meaning.
+/// Deliberately NOT folded into `base_cost()` itself: that is a plain
+/// `fn` with no access to the live tunables (they live behind
+/// `AdventureManager`'s `RwLock`), and `adventure_web/wiki.rs` reads it
+/// statically. See `scaled_base_cost`, the one place the multiply happens.
+pub const CRAFT_BASE_COST_MULT: f64 = 0.1;
+
+/// Lower bound on `craft_base_cost_mult`. **Zero is deliberately legal**
+/// (an owner ruling): it zeroes the flat fee only, and the per-tier
+/// surcharge below survives it, so even at 0.0 a craft on a tier-1 item
+/// still costs `TIER_CRAFT_DUST_COST` dust. Crafting cannot be made free
+/// with this dial - it is a "free-crafting weekend" lever with a floor
+/// built in.
+pub const CRAFT_BASE_COST_MULT_MIN: f64 = 0.0;
+
+/// Upper bound on `craft_base_cost_mult`. The multiplier applies to the
+/// UNCHANGED shipped base costs (Transmute is still the constant 250), so
+/// **1.0 is the value that restores the pre-2026-09-02 prices exactly** -
+/// "you can always put it back" lives inside the range, not at its edge.
+/// 10.0 is a full order of magnitude ABOVE those old prices: enough
+/// headroom to make crafting a real dust sink again if the economy ever
+/// needs one, and far enough from any sane setting that a fat-fingered
+/// extra digit is refused rather than charged.
+pub const CRAFT_BASE_COST_MULT_MAX: f64 = 10.0;
+
+/// Shipped default for `LiveTunables::craft_tier_exponent` (2026-09-02,
+/// the same ruling): the per-tier surcharge is
+/// `TIER_CRAFT_DUST_COST x tier^exponent`, not `x tier`. Polynomial, not
+/// exponential - cost accelerates with tier, slowly, and never runs away
+/// over the tier range the game reaches (tier is `1 + stage/5`, so stage
+/// 1000 is tier 201). See `tier_surcharge`.
+pub const CRAFT_TIER_EXPONENT: f64 = 1.1;
+
+/// Lower bound on `craft_tier_exponent`. 1.0 is exactly the old linear
+/// `3 x tier` curve, so the floor is "put it back". Sub-1 is REFUSED (an
+/// owner ruling): a decelerating curve makes high-tier crafting
+/// relatively cheaper as players progress, inverting the sink, and
+/// `craft_base_cost_mult` already covers every "make it cheaper" case.
+pub const CRAFT_TIER_EXPONENT_MIN: f64 = 1.0;
+
+/// Upper bound on `craft_tier_exponent`. At 1.5 a tier-201 craft pays
+/// 8,551 dust in surcharge and a tier-500 one pays 33,541; past that the
+/// curve outruns the tier range the game actually reaches.
+pub const CRAFT_TIER_EXPONENT_MAX: f64 = 1.5;
+
+/// Resolves a live `craft_base_cost_mult` reading into the usable range -
+/// non-finite falls back to the shipped default, otherwise clamped. Same
+/// discipline as `pacing::sanitize_pool_cap`: the form's own min/max is
+/// what reports an out-of-range value to the operator, this is the
+/// defence-in-depth behind a hand-crafted POST.
+pub fn sanitize_craft_base_cost_mult(value: f64) -> f64 {
+    if !value.is_finite() {
+        return CRAFT_BASE_COST_MULT;
+    }
+    value.clamp(CRAFT_BASE_COST_MULT_MIN, CRAFT_BASE_COST_MULT_MAX)
+}
+
+/// `sanitize_craft_base_cost_mult`'s twin for the exponent.
+pub fn sanitize_craft_tier_exponent(value: f64) -> f64 {
+    if !value.is_finite() {
+        return CRAFT_TIER_EXPONENT;
+    }
+    value.clamp(CRAFT_TIER_EXPONENT_MIN, CRAFT_TIER_EXPONENT_MAX)
+}
+
+/// One action's flat fee after `craft_base_cost_mult` - the ONLY place
+/// the base multiply happens, so the crafting panel's button preview and
+/// the charge in `craft_item_ex` can never disagree about it.
+///
+/// **`ceil`, never `round`** - a nonzero base cost must never round down
+/// to nothing. At the floor of the dial's range 250 x 0.004 is still 1
+/// dust; the only way to reach 0 here is an operator deliberately setting
+/// the multiplier to exactly 0.0.
+///
+/// `u64::MAX` passes through untouched: that is the "never affordable in
+/// dust" sentinel `CelestialShard`/`UniqueShard` carry (see
+/// `craft_action_def`), not a real price, and multiplying it would turn
+/// an unaffordable action into an affordable one.
+pub fn scaled_base_cost(base: u64, mult: f64) -> u64 {
+    if base == u64::MAX {
+        return u64::MAX;
+    }
+    (base as f64 * sanitize_craft_base_cost_mult(mult)).ceil() as u64
+}
+
+/// The per-tier surcharge: `TIER_CRAFT_DUST_COST x tier^exponent`,
+/// `ceil`'d as its own term (NOT folded into the base term - the two are
+/// rounded independently, then summed).
+///
+/// Order of operations matters and is load-bearing: at tier 10 this is
+/// `ceil(3 x 10^1.1)` = 38, while `ceil((3 x 10)^1.1)` would be 43 and
+/// `3 x ceil(10^1.1)` would be 39. See
+/// `tier_surcharge_is_the_exponent_of_the_tier_not_of_the_product`.
+pub fn tier_surcharge(tier: u32, exponent: f64) -> u64 {
+    (TIER_CRAFT_DUST_COST as f64 * (tier as f64).powf(sanitize_craft_tier_exponent(exponent))).ceil() as u64
+}
 
 /// The fixed 5-step chain Hideout Warrior runs, in order - the only
 /// sequence of existing `CraftAction::required_affix_count` preconditions
@@ -626,3 +739,128 @@ pub struct PendingVeil {
     pub chancing_committed: Vec<(Affix, Affix, f64)>,
 }
 
+
+#[cfg(test)]
+mod cost_curve_tests {
+    use super::*;
+
+    /// The shipped curve, at the tiers that matter. Tier is `1 + stage/5`
+    /// (see `generate_item`), so stage 1000 is tier 201 - the numbers
+    /// below are the ones in the 2026-09-02 cost table the owner approved,
+    /// and this test is what stops them drifting silently.
+    #[test]
+    fn tier_surcharge_matches_the_approved_cost_table() {
+        for (tier, expected) in [(1u32, 3u64), (5, 18), (10, 38), (20, 81), (50, 222), (100, 476), (150, 743), (201, 1025)] {
+            assert_eq!(tier_surcharge(tier, CRAFT_TIER_EXPONENT), expected, "tier {tier} surcharge");
+        }
+    }
+
+    /// The base half of the same table - Transmute 250 -> 25, Krangle
+    /// 2500 -> 250, and a full craft's total price at three tiers.
+    #[test]
+    fn a_whole_transmute_costs_what_the_approved_table_says() {
+        let m = CRAFT_BASE_COST_MULT;
+        assert_eq!(scaled_base_cost(250, m), 25);
+        assert_eq!(scaled_base_cost(2500, m), 250);
+        for (tier, expected) in [(1u32, 28u64), (10, 63), (100, 501), (201, 1050)] {
+            assert_eq!(scaled_base_cost(250, m) + tier_surcharge(tier, CRAFT_TIER_EXPONENT), expected, "Transmute at tier {tier}");
+        }
+    }
+
+    /// Exponent 1.0 is exactly the pre-2026-09-02 linear curve, and
+    /// multiplier 10.0 is exactly the pre-cut base price. Both bounds are
+    /// "put it back" bounds, and this is what makes that literally true.
+    #[test]
+    fn the_bounds_restore_the_old_curve_exactly() {
+        for tier in [1u32, 7, 50, 201, 999] {
+            assert_eq!(tier_surcharge(tier, CRAFT_TIER_EXPONENT_MIN), tier as u64 * TIER_CRAFT_DUST_COST, "tier {tier} at exponent 1.0");
+        }
+        // 1.0, NOT the ceiling: the multiplier scales the UNCHANGED shipped
+        // constants, so the pre-cut price is the multiplier-of-1 price and
+        // `CRAFT_BASE_COST_MULT_MAX` is ten times it.
+        for base in [250u64, 500, 750, 800, 1000, 1250, 2500, VEIL_EXTRA_COST] {
+            assert_eq!(scaled_base_cost(base, 1.0), base, "base {base} at multiplier 1 must be the pre-cut price");
+            assert_eq!(scaled_base_cost(base, CRAFT_BASE_COST_MULT_MAX), base * 10, "base {base} at the ceiling is 10x the pre-cut price");
+        }
+    }
+
+    /// The order of operations is load-bearing: the exponent applies to
+    /// the TIER, not to the product, and the ceil comes last. Two
+    /// plausible mis-writings of the same formula produce different
+    /// numbers, and this pins which one is the price.
+    #[test]
+    fn tier_surcharge_is_the_exponent_of_the_tier_not_of_the_product() {
+        let (mult, exp) = (TIER_CRAFT_DUST_COST as f64, CRAFT_TIER_EXPONENT);
+        let tier = 10.0_f64;
+        let correct = tier_surcharge(10, CRAFT_TIER_EXPONENT);
+        let exponent_on_the_product = (mult * tier).powf(exp).ceil() as u64;
+        let ceil_before_the_multiply = mult as u64 * tier.powf(exp).ceil() as u64;
+        assert_eq!(correct, 38);
+        assert_eq!(exponent_on_the_product, 43, "(3 x 10)^1.1 - a wrong reading that overcharges");
+        assert_eq!(ceil_before_the_multiply, 39, "3 x ceil(10^1.1) - a wrong reading that rounds too early");
+        assert_ne!(correct, exponent_on_the_product);
+        assert_ne!(correct, ceil_before_the_multiply);
+    }
+
+    /// A nonzero base fee can never round away to nothing - the rounding
+    /// is `ceil`, not `round`, at every step. The ONLY zero is the one an
+    /// operator asks for explicitly, and even then the per-tier surcharge
+    /// keeps a real craft costing dust.
+    #[test]
+    fn a_nonzero_base_cost_can_never_round_down_to_free() {
+        for mult in [0.004, 0.001, 0.000_1, f64::MIN_POSITIVE] {
+            assert_eq!(scaled_base_cost(250, mult), 1, "a base of 250 at multiplier {mult} must still cost 1 dust");
+        }
+        assert_eq!(scaled_base_cost(250, 0.0), 0, "exactly zero is the operator's deliberate choice and IS honoured");
+        // ...but the craft still is not free, because the tier term stands.
+        assert_eq!(tier_surcharge(1, CRAFT_TIER_EXPONENT), TIER_CRAFT_DUST_COST);
+        for exp in [CRAFT_TIER_EXPONENT_MIN, CRAFT_TIER_EXPONENT, CRAFT_TIER_EXPONENT_MAX] {
+            assert!(tier_surcharge(1, exp) >= TIER_CRAFT_DUST_COST, "a tier-1 craft must never be free at exponent {exp}");
+        }
+    }
+
+    /// The `u64::MAX` "never affordable in dust" sentinel that
+    /// `CelestialShard`/`UniqueShard` carry is NOT a price and must never
+    /// enter the arithmetic - multiplying it would silently turn an
+    /// unaffordable action into an affordable one (0.1 x u64::MAX is
+    /// ~1.8e18 dust, which is a number a long-lived character could
+    /// conceivably reach) and exponentiating it would overflow.
+    #[test]
+    fn the_shard_sentinel_is_untouched_by_either_dial_at_every_extreme() {
+        for action in [CraftAction::CelestialShard, CraftAction::UniqueShard] {
+            assert_eq!(action.base_cost(), u64::MAX, "{action:?} must still carry the sentinel");
+            for mult in [CRAFT_BASE_COST_MULT_MIN, CRAFT_BASE_COST_MULT, CRAFT_BASE_COST_MULT_MAX, f64::NAN, f64::INFINITY, -1.0, 1.0e9] {
+                assert_eq!(scaled_base_cost(action.base_cost(), mult), u64::MAX, "{action:?} at multiplier {mult}");
+            }
+        }
+    }
+
+    /// Out-of-range and non-finite readings never reach the formula. The
+    /// FORM reports them (min/max on the rendered input - see
+    /// `/admin/tunables`); this is the defence-in-depth behind a
+    /// hand-crafted POST, same discipline as `pacing::sanitize_pool_cap`.
+    #[test]
+    fn out_of_range_dials_are_sanitised_before_they_can_price_anything() {
+        assert_eq!(sanitize_craft_base_cost_mult(f64::NAN), CRAFT_BASE_COST_MULT);
+        assert_eq!(sanitize_craft_base_cost_mult(f64::INFINITY), CRAFT_BASE_COST_MULT);
+        assert_eq!(sanitize_craft_base_cost_mult(-5.0), CRAFT_BASE_COST_MULT_MIN);
+        assert_eq!(sanitize_craft_base_cost_mult(1.0e9), CRAFT_BASE_COST_MULT_MAX);
+        assert_eq!(sanitize_craft_tier_exponent(f64::NAN), CRAFT_TIER_EXPONENT);
+        assert_eq!(sanitize_craft_tier_exponent(0.0), CRAFT_TIER_EXPONENT_MIN, "sub-1 clamps up to linear, never below");
+        assert_eq!(sanitize_craft_tier_exponent(0.5), CRAFT_TIER_EXPONENT_MIN);
+        assert_eq!(sanitize_craft_tier_exponent(9.0), CRAFT_TIER_EXPONENT_MAX);
+        // A NaN dial must price like the default, not like free.
+        assert_eq!(tier_surcharge(10, f64::NAN), tier_surcharge(10, CRAFT_TIER_EXPONENT));
+        assert_eq!(scaled_base_cost(250, f64::NAN), scaled_base_cost(250, CRAFT_BASE_COST_MULT));
+    }
+
+    /// The `LiveTunables` defaults are the shipped constants, so a fresh
+    /// install and a `Default::default()` price identically. Twin of
+    /// `pacing`'s `default_pool_cap_matches_the_shipped_constant`.
+    #[test]
+    fn default_craft_dials_match_the_shipped_constants() {
+        let t = LiveTunables::default();
+        assert_eq!(t.craft_base_cost_mult, CRAFT_BASE_COST_MULT);
+        assert_eq!(t.craft_tier_exponent, CRAFT_TIER_EXPONENT);
+    }
+}

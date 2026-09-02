@@ -320,6 +320,28 @@ pub struct LiveTunables {
     /// Same recipe - Divine Dust granted per craft (before the x1/x10/x50
     /// multiplier, which just repeats the whole recipe that many times).
     pub divine_dust_craft_output: u64,
+    /// Was the hardcoded flat `CraftAction::base_cost()` prices
+    /// (2026-09-02, an owner ruling: "cut all base crafting costs by a
+    /// factor of 10"). Multiplies every dust-priced craft action's flat
+    /// fee AND the `VEIL_EXTRA_COST` surcharge - see
+    /// `craft::scaled_base_cost`, which is the only place it is applied.
+    /// Default `craft::CRAFT_BASE_COST_MULT` (0.1); bounded to
+    /// [`craft::CRAFT_BASE_COST_MULT_MIN`, `craft::CRAFT_BASE_COST_MULT_MAX`],
+    /// where 0.0 is legal (the per-tier surcharge still applies, so this
+    /// dial alone cannot make crafting free), 1.0 restores the pre-cut
+    /// prices exactly (the base constants themselves are unchanged), and
+    /// 10.0 is a full order of magnitude above them.
+    pub craft_base_cost_mult: f64,
+    /// Was the flat `TIER_CRAFT_DUST_COST x tier` per-tier craft
+    /// surcharge (2026-09-02, the same ruling): the surcharge is now
+    /// `TIER_CRAFT_DUST_COST x tier^this`. Default
+    /// `craft::CRAFT_TIER_EXPONENT` (1.1) - polynomial, not exponential;
+    /// cost accelerates with tier, slowly. Bounded to
+    /// [`craft::CRAFT_TIER_EXPONENT_MIN`, `craft::CRAFT_TIER_EXPONENT_MAX`],
+    /// where 1.0 is exactly the old linear curve and sub-1 is refused
+    /// (it would make high-tier crafting relatively cheaper as players
+    /// progress, inverting the sink).
+    pub craft_tier_exponent: f64,
     /// Righteous Fire self-damage rework (2026-08-19) - the self-burn
     /// percentage (max HP taken per second while active) is now its own
     /// tunable, decoupled from the `righteousfire` node's own magnitude
@@ -602,6 +624,11 @@ impl Default for LiveTunables {
             divine_dust_craft_dust_cost: 1000,
             divine_dust_craft_sand_cost: 10,
             divine_dust_craft_output: 1,
+            // Exactly the shipped `craft.rs` constants - the tests
+            // `default_craft_base_cost_mult_matches_the_shipped_constant`
+            // and its exponent twin fail if these ever drift apart.
+            craft_base_cost_mult: crate::adventure::CRAFT_BASE_COST_MULT,
+            craft_tier_exponent: crate::adventure::CRAFT_TIER_EXPONENT,
             rf_self_damage_pct_rank1: 0.10,
             rf_self_damage_pct_rank2: 0.20,
             rf_self_damage_pct_rank3: 0.30,

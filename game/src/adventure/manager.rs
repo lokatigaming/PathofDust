@@ -4018,11 +4018,33 @@ impl AdventureManager {
         let veiled = action.is_veilable() && (has_token || veiled);
         let use_token = has_token;
         // A nominal per-tier surcharge on top of the action's own base
-        // cost - 3 dust per tier, on EVERY craft action including Scour
-        // (per a live request), waived by a token same as the base cost
-        // is (a token craft stays "entirely free either way").
-        let tier_cost = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?.tier as u64 * TIER_CRAFT_DUST_COST;
-        let cost = if use_token { 0 } else { action.base_cost() + tier_cost + if veiled { VEIL_EXTRA_COST } else { 0 } };
+        // cost - `TIER_CRAFT_DUST_COST x tier^craft_tier_exponent` (it
+        // was a flat 3 x tier until 2026-09-02), on EVERY craft action
+        // including Scour (per a live request), waived by a token same as
+        // the base cost is (a token craft stays "entirely free either
+        // way"). The base fee and the veil surcharge are both scaled by
+        // `craft_base_cost_mult`.
+        //
+        // Each term is CEIL'd on its own and the terms are then summed -
+        // never `round()`, and never one ceil over the whole sum: ceiling
+        // per term is what makes "a nonzero base cost can never round
+        // down to nothing" true. The only way to reach a 0 base term is an
+        // operator setting the multiplier to exactly 0.0, and even then
+        // the tier term keeps a craft on a tier-1 item costing 3 dust.
+        let t = self.live_tunables();
+        let tier_cost = tier_surcharge(character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?.tier, t.craft_tier_exponent);
+        let cost = if use_token {
+            0
+        } else {
+            // `saturating_add`: `base_cost()` is `u64::MAX` for the
+            // token-only shard actions (a "never affordable in dust"
+            // sentinel, not a price - `scaled_base_cost` passes it through
+            // untouched by design), and this line is reachable for
+            // CelestialShard when no token is held.
+            scaled_base_cost(action.base_cost(), t.craft_base_cost_mult)
+                .saturating_add(tier_cost)
+                .saturating_add(if veiled { scaled_base_cost(VEIL_EXTRA_COST, t.craft_base_cost_mult) } else { 0 })
+        };
         if character.dust < cost {
             return Err(CraftError::InsufficientDust(cost));
         }
