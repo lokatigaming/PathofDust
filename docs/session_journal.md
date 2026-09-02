@@ -1288,3 +1288,117 @@ FOLLOW-UPS on the board, not for this release: panel Reforge is still a
 flat 30 x tier dust (~5x a Scour at tier 10, widening with tier), and
 Recombine's veiled price is still the unscaled 500 + 500 per combined
 modifier. Both are now out of step with everything around them.
+## Stage-gated drops + craft tokens retired (feature/stage-gated-drops, 2026-09-02)
+
+Rebased onto `3835699` (the Twitch-removal merge) on 2026-09-02. The only
+textual conflicts were the two append-only docs, resolved keep-both; the
+real work was `start_adventure_web_server` losing four arguments, which
+this branch's two new HTTP call sites had to follow. NOT yet rebased onto
+`feature/win-based-xp` - that branch was still unmerged at the time of
+writing, so its five `LiveTunables` fields have not yet collided with this
+branch's four. That rebase is still owed.
+
+Four drops gated on world stage, all four thresholds live-tunable; the
+Divine Dust recipe locked behind a one-way stage latch; free craft-token
+drops removed entirely.
+
+**Why new tunable fields rather than repurposing `late_content_stage`.**
+Perfect items already had a gate on that field at 100, and the order wanted
+150. Changing its compiled default would have been INERT on the live
+server: `adventure-live-tunables.toml` is a full-struct serialisation and
+already carries `late_content_stage = 100` (verified at
+`C:\PathofDust\adventure-live-tunables.toml:47`), so a saved value beats a
+changed default every time. Four brand-new fields are absent from that file
+and therefore take their shipped defaults on the first boot, which is what
+"active immediately" actually requires. `late_content_stage` was then
+removed outright rather than left as a dial that does nothing.
+
+**Current stage for drops, high-water mark for the recipe.** Per the owner's
+ruling the four drop gates read the live `WorldState::stage`, so a boss-loss
+regression really does pause them. The recipe latch reads a new
+`highest_stage` field instead, `#[serde(default)]` with a `max(stage)`
+backfill at load — without that backfill an already-past-300 server would
+have loaded `highest_stage: 0` and re-locked a recipe its players had
+earned. The backfill is not marker-guarded because, unlike the one-time
+character grants, it is idempotent.
+
+**The disenchant route is deliberately porous** (owner ruling: fight grants
+only). Below stage 100 a player still earns sand by disenchanting gear:
+`roll_disenchant_sand` hits with probability `quality_percent/100` for 1-3
+sand. `power_roll` is uniform over `POWER_ROLL_RANGE` (0.85..1.2), so mean
+quality is 50% and the route yields ~1 sand per item disenchanted against
+4.5 per boss win and 2 per filler win. Real, but roughly a quarter-rate and
+only for a player actively breaking gear down. Auto-disenchant is off by
+default, so it is opt-in on top of that.
+
+**Why the boundary tests run at lowered thresholds.** Boss difficulty is
+driven by the same `stage` the gates read, and every gate only fires on a
+WIN. At stage 300 a test character cannot reliably win — `BOSS_DEFENSE_CAP`
+evasion/block/DR plus the 90s fight cap — and a lost fight would have
+satisfied every "below the gate" assertion for entirely the wrong reason: a
+false pass. `stage_gate_tests` therefore pins the four gates to 8/11/14/17
+(deliberately distinct, so a copy-paste bug pointing two gates at one field
+fails) and tests `T-1`/`T`/`T+1` there, while the shipped 100/150/300/300
+are pinned directly by `the_shipped_gate_defaults_are_the_ordered_numbers`
+and end-to-end by `tests/admin_tunables_stage_gates_http.rs`.
+
+FOUND — a fight's post-fight revival bookkeeping is spawned, so under a
+loaded test runner it can land after a test has cleared `downed_until` and
+leave the character ineligible for the very next tick (`NobodyJoined`).
+Reproduced only under the full parallel suite, never in isolation. Worked
+around in this module's own helpers by retrying the encounter; not
+investigated further and not touched in production code.
+
+FOUND — `BOSS_CRAFT_PITY_GAIN`/`BASIC_CRAFT_PITY_GAIN` are now read by
+nothing but `adventure_web/wiki.rs:342-343`, which renders them into the
+wiki's pity table. The game no longer has a craft-token pity payout at all,
+so that table documents a mechanic that no longer exists. Flagged in
+WIKI_IMPACT.md; not fixed here (wiki module is another session's).
+
+These two are now in EXACTLY the position the Twitch removal left
+`ACTIVITY_XP_COOLDOWN`, `ACTIVITY_XP_AMOUNT` and `RAMPAGE_VOTE_THRESHOLD`
+in (see the "RETAINED WITHOUT A CALLER" doc comments and this journal's
+Twitch-removal entry): alive only because `wiki.rs` reads them, each
+rendering a real number for a mechanic that no longer runs. **All five
+should die together, in the same change that removes the wiki sections
+they feed.** Deleting any of them before the wiki stops rendering it just
+breaks a file neither session may edit alone.
+
+### Patch-notes entry, drafted and NOT yet applied
+
+Deploy step 1 (REFACTOR_PLAN §13) is the deploy session's, and this session
+stops before deploy. Paste this as the newest entry at the TOP of
+`patch-notes.json`:
+
+```json
+{
+  "date": "September 2, 2026",
+  "sections": [
+    {
+      "heading": "Drops Now Start At A World Stage",
+      "items": [
+        "Polishing sand now starts dropping from fights at world stage 100. Below that, winning a fight grants none — but disenchanting gear still gives sand at any stage, so early players are not cut off entirely.",
+        "Perfect items now start dropping at world stage 150. This is a nerf: they used to start at 100.",
+        "Divine Dust now starts dropping from fights at world stage 300. As with sand, disenchanting a Sacred item can still grant it at any stage.",
+        "Sacred items still start at world stage 300 — unchanged, just no longer hardcoded.",
+        "All four follow the CURRENT stage. If the group loses bosses and the world slips back below a threshold, those drops pause until you climb back above it."
+      ]
+    },
+    {
+      "heading": "The Divine Dust Recipe Has To Be Unlocked",
+      "items": [
+        "The Craft Divine Dust recipe on /craft is locked until the group reaches world stage 300. Until then the row shows what it needs instead of a Craft button.",
+        "Once the group has reached stage 300 the recipe stays unlocked permanently. A bad boss streak that pushes the world back down cannot take it away."
+      ]
+    },
+    {
+      "heading": "Free Crafting Tokens No Longer Drop",
+      "items": [
+        "Crafting tokens no longer drop from fights, and the token pity counter is gone with them. This is a nerf.",
+        "The only crafting tokens in the game are now the starter set every new character receives — one each of Transmute, Scour, Augment, Regal, Exalt, Krangle, Annulment and Chancing. That grant is unchanged, and tokens you already hold are untouched.",
+        "Unique Shards are NOT affected. They are a separate currency with their own drop, they still drop at the same rate, and Divinity and the Unique Affix picker are unchanged."
+      ]
+    }
+  ]
+}
+```

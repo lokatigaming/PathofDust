@@ -52,6 +52,15 @@ async fn inventory_page_renders_the_divine_dust_recipe_and_apply_button() {
     std::fs::write(scratch.join("adventure-characters.json"), serde_json::to_string(&characters).expect("must serialize"))
         .expect("failed to seed the scratch characters file");
 
+    // Unlocked world. The recipe is gated behind a one-way stage latch
+    // since 2026-09-02, so a fresh stage-0 world would render the LOCKED
+    // row and every assertion below about the recipe's costs and buttons
+    // would fail for a reason that has nothing to do with this test.
+    // `highest_stage` is deliberately absent from this JSON, exactly as it
+    // is from the real production world file, so the `max(stage)` backfill
+    // in `AdventureManager::new` is what unlocks it here.
+    std::fs::write(scratch.join("adventure-world.json"), r#"{"stage":300,"last_boss_kind":null}"#).expect("failed to seed the scratch world file");
+
     let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
     let bound_addr = game::adventure_web::start_adventure_web_server(
@@ -91,6 +100,46 @@ async fn inventory_page_renders_the_divine_dust_recipe_and_apply_button() {
     // Every item option now carries data-sacred (used by the client-side
     // script to switch the apply button's label to a reroll).
     assert!(body.contains("data-sacred=\""), "item options must carry data-sacred for the client-side apply/reroll label switch");
+
+    // --- THE LOCKED HALF (2026-09-02) -----------------------------------
+    // A second instance in the same data dir - different world/character
+    // file NAMES, so `set_data_dir`'s process-wide `OnceLock` is untouched
+    // (see this file's header) - standing at a stage the group has never
+    // pushed past. What a below-threshold player actually sees has to be
+    // checked in a real response, not inferred from the handler: the row
+    // must be SHOWN (players want to know what they are working toward)
+    // but must offer no way to submit.
+    std::fs::write(scratch.join("locked-world.json"), r#"{"stage":1,"last_boss_kind":null}"#).expect("failed to seed the locked world file");
+    std::fs::write(scratch.join("locked-characters.json"), serde_json::to_string(&characters).expect("must serialize")).expect("failed to seed the locked characters file");
+    let locked_sessions = scratch.join("locked-sessions.json");
+    std::fs::write(&locked_sessions, format!(r#"{{"test-token":{{"login":"{TEST_LOGIN}","display_name":"DustUiTester","created_at":{now_secs}}}}}"#))
+        .expect("failed to seed the locked sessions file");
+
+    let locked_manager = AdventureManager::new(PathBuf::from("locked-characters.json"), PathBuf::from("locked-world.json"), PathBuf::from("locked-reforge-cooldown.json"));
+    let locked_addr = game::adventure_web::start_adventure_web_server(
+        0,
+        locked_manager,
+        locked_sessions,
+    )
+    .await
+    .expect("disposable locked adventure_web instance must start");
+
+    let locked_body = client
+        .get(format!("http://127.0.0.1:{}/inventory", locked_addr.port()))
+        .header(reqwest::header::COOKIE, "adv_session=test-token")
+        .send()
+        .await
+        .expect("GET /inventory on the locked instance failed")
+        .text()
+        .await
+        .expect("failed to read the locked /inventory body");
+
+    assert!(locked_body.contains("unlocks at stage 300"), "a locked recipe must still SHOW itself and name the stage it unlocks at:\n{locked_body}");
+    assert!(
+        !locked_body.contains("value=\"divine dust craft\""),
+        "a locked recipe must render no submittable form - the server refuses it anyway, but offering a button that always fails is worse than showing the requirement"
+    );
+    assert!(locked_body.contains("Craft Divine Dust"), "the row's own label must survive the lock, so the player can see what it is");
 
     std::fs::remove_dir_all(&scratch).ok();
 }

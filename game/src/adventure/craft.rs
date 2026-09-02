@@ -602,6 +602,15 @@ pub enum DivineDustCraftError {
     InsufficientDust(u64),
     /// Not enough sand — carries the cost that was needed.
     InsufficientSand(u64),
+    /// The recipe is not unlocked yet (2026-09-02) — carries the world
+    /// stage the group has to reach. A ONE-WAY LATCH on
+    /// `WorldState::highest_stage`, not on the current stage: once the
+    /// group has ever reached the threshold the recipe stays unlocked
+    /// through any later boss-loss regression (owner ruling — "losing a
+    /// recipe to a bad boss streak would be miserable"). Deliberately
+    /// unlike the four stage-gated DROPS, which all read the live stage and
+    /// really do pause on a regression.
+    Locked(u32),
 }
 
 /// Result of a successful currency craft - see `Character::craft`. One

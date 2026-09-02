@@ -76,7 +76,13 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         ("dynamic_scaling_mult", baseline.dynamic_scaling_mult.to_string()),
         ("boss_count_tier_stages", baseline.boss_count_tier_stages.to_string()),
         ("boss_count_cap_mult", baseline.boss_count_cap_mult.to_string()),
-        ("late_content_stage", baseline.late_content_stage.to_string()),
+        // `late_content_stage` was removed on 2026-09-02 and replaced by
+        // the four explicit drop-stage gates. Those four carry
+        // `#[serde(default = "...")]` resolving to their shipped constants,
+        // so they are deliberately ABSENT from this required-field list -
+        // the derived-from-the-page POST further down is what proves they
+        // round-trip, and `admin_tunables_stage_gates_http.rs` is what
+        // proves an omitted one falls back to its constant rather than 0.
         ("pierce_cap", baseline.pierce_cap.to_string()),
         ("pierce_h", baseline.pierce_h.to_string()),
         ("fight_summary_batch_size", baseline.fight_summary_batch_size.to_string()),

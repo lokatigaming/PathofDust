@@ -96,6 +96,16 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
         std::fs::write(scratch.join(marker), "true").expect("failed to seed a backfill marker");
     }
 
+    // The Divine Dust recipe is gated behind a one-way stage unlock since
+    // 2026-09-02 (`AdventureManager::divine_dust_recipe_unlocked`), and a
+    // locked recipe deliberately renders NO submittable form. This test
+    // asserts that the recipe's form stays out of `craftButtons`, so it
+    // needs the form to exist - hence an unlocked world. `highest_stage` is
+    // absent from this JSON, exactly as it is from the real production
+    // world file, so the `max(stage)` backfill in `AdventureManager::new`
+    // is what unlocks it.
+    std::fs::write(scratch.join("adventure-world.json"), r#"{"stage":300,"last_boss_kind":null}"#).expect("failed to seed the scratch world file");
+
     let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
     let bound = game::adventure_web::start_adventure_web_server(0, manager.clone(), sessions_path).await.expect("disposable adventure_web server must start");

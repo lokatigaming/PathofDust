@@ -385,6 +385,12 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
             let character = state.adventure.character(&login).await;
             let pending_veil = state.adventure.pending_veil(&login).await;
             let tunables = state.adventure.live_tunables();
+            // World state, not character state - the Divine Dust recipe's
+            // unlock is a group-wide one-way latch (see
+            // `AdventureManager::divine_dust_recipe_unlocked`), so it has to
+            // be resolved here where the manager is reachable and threaded
+            // down into the crafting card.
+            let divine_dust_unlocked = state.adventure.divine_dust_recipe_unlocked().await;
             let popup = if params.crafted.is_some() {
                 render_craft_popup(&params)
             } else if params.craft_failed.is_some() {
@@ -398,7 +404,7 @@ async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query
             } else {
                 String::new()
             };
-            format!("{popup}{}", render_inventory_page(&display_name, character.as_ref(), pending_veil.as_ref(), &tunables))
+            format!("{popup}{}", render_inventory_page(&display_name, character.as_ref(), pending_veil.as_ref(), &tunables, divine_dust_unlocked))
         }
     };
     Html(render_page(&body))
@@ -1383,6 +1389,9 @@ fn divine_dust_craft_error_text(err: DivineDustCraftError) -> String {
         DivineDustCraftError::NotJoined => "You haven't joined the adventure yet.".to_string(),
         DivineDustCraftError::InsufficientDust(cost) => format!("Not enough dust — this needs {cost}."),
         DivineDustCraftError::InsufficientSand(cost) => format!("Not enough sand — this needs {cost}."),
+        DivineDustCraftError::Locked(stage) => {
+            format!("The Divine Dust recipe unlocks when the group reaches stage {stage}. Once it does, it stays unlocked — a later stage loss can't take it away.")
+        }
     }
 }
 
@@ -2822,6 +2831,25 @@ fn default_win_xp_cooldown_secs() -> u64 {
     crate::adventure::WIN_XP_COOLDOWN_SECS
 }
 
+// Serde defaults for the four world-stage drop gates (2026-09-02). Same
+// rule, and the same reason, as `default_enemy_hp_pool_hard_cap` above:
+// `#[serde(default)]` on a `u32` resolves to 0, and 0 means "this gate is
+// wide open at every stage" - the exact silent failure that would undo the
+// whole feature while the page still reported a successful save. Each of
+// these MUST resolve to the shipped constant.
+fn default_sand_drop_stage() -> u32 {
+    crate::adventure::SAND_STAGE_THRESHOLD
+}
+fn default_perfect_item_stage() -> u32 {
+    crate::adventure::PERFECT_STAGE_THRESHOLD
+}
+fn default_divine_dust_drop_stage() -> u32 {
+    crate::adventure::DIVINE_DUST_STAGE_THRESHOLD
+}
+fn default_sacred_item_stage() -> u32 {
+    crate::adventure::SACRED_STAGE_THRESHOLD
+}
+
 // Serde defaults for the nine dynamic-pacing fields whose accepted range
 // does NOT include zero (2026-08-31). `#[serde(default)]` on an `f64`
 // resolves to 0.0, which is BELOW every one of these floors - so a body
@@ -2870,7 +2898,21 @@ struct TunablesForm {
     boss_power: f64,
     boss_count_tier_stages: u32,
     boss_count_cap_mult: f64,
-    late_content_stage: u32,
+    /// The four world-stage drop gates (2026-09-02). Each carries an
+    /// explicit `#[serde(default = "...")]` resolving to its SHIPPED
+    /// constant - see those fns' shared doc, and note that plain
+    /// `#[serde(default)]` here would be a live-behaviour bug, not a
+    /// stylistic choice. (`late_content_stage` was removed in the same
+    /// change; the Perfect gate was its only remaining consumer and a dial
+    /// that does nothing is worse than no dial at all.)
+    #[serde(default = "default_sand_drop_stage")]
+    sand_drop_stage: u32,
+    #[serde(default = "default_perfect_item_stage")]
+    perfect_item_stage: u32,
+    #[serde(default = "default_divine_dust_drop_stage")]
+    divine_dust_drop_stage: u32,
+    #[serde(default = "default_sacred_item_stage")]
+    sacred_item_stage: u32,
     /// See `LiveTunables::pierce_cap`'s doc.
     pierce_cap: f64,
     /// See `LiveTunables::pierce_h`'s doc.
@@ -3143,6 +3185,21 @@ impl TunableViolations {
         }
     }
 
+    /// A two-sided whole-number bound, e.g. a world-stage drop gate. The
+    /// `u32` counterpart of `clamp` - `at_least_u32` above covers the
+    /// one-sided case only, and a gate needs a ceiling too: a fat-fingered
+    /// stage would otherwise disable a drop forever with no complaint.
+    fn range_u32(&mut self, field: &str, value: u32, min: u32, max: u32) -> u32 {
+        if value < min || value > max {
+            self.items.push(format!("{field} must be between {min} and {max} — got {value}."));
+        }
+        if self.clamping {
+            value.clamp(min, max)
+        } else {
+            value
+        }
+    }
+
     fn at_least_u64(&mut self, field: &str, value: u64, min: u64) -> u64 {
         if value < min {
             self.items.push(format!("{field} must be {min} or more — got {value}."));
@@ -3296,7 +3353,14 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 dynamic_scaling_mult: previous.dynamic_scaling_mult,
                 boss_count_tier_stages: v.at_least_u32("boss_count_tier_stages", form.boss_count_tier_stages, 1),
                 boss_count_cap_mult: v.at_least("boss_count_cap_mult", form.boss_count_cap_mult, 0.0),
-                late_content_stage: form.late_content_stage,
+                // Defence in depth behind the form's own min/max, which is
+                // what actually reports an out-of-range stage to the
+                // operator in the browser; a hand-crafted POST has no such
+                // gate. See `TunableViolations::range_u32`.
+                sand_drop_stage: v.range_u32("sand_drop_stage", form.sand_drop_stage, crate::adventure::DROP_STAGE_MIN, crate::adventure::DROP_STAGE_MAX),
+                perfect_item_stage: v.range_u32("perfect_item_stage", form.perfect_item_stage, crate::adventure::DROP_STAGE_MIN, crate::adventure::DROP_STAGE_MAX),
+                divine_dust_drop_stage: v.range_u32("divine_dust_drop_stage", form.divine_dust_drop_stage, crate::adventure::DROP_STAGE_MIN, crate::adventure::DROP_STAGE_MAX),
+                sacred_item_stage: v.range_u32("sacred_item_stage", form.sacred_item_stage, crate::adventure::DROP_STAGE_MIN, crate::adventure::DROP_STAGE_MAX),
                 permanent_rampage: form.permanent_rampage.is_some(),
                 // Defence-in-depth behind the form's own min/max, same as
                 // the pool cap below: the browser is what REPORTS an
@@ -4267,10 +4331,27 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <input type=\"number\" step=\"0.1\" min=\"0\" id=\"boss_count_cap_mult\" name=\"boss_count_cap_mult\" value=\"{boss_count_cap_mult}\">\
               <p class=\"tunable-hint\">Hard ceiling on total bosses: floor(tiers × this). E.g. stage 400 (4 tiers) × 1.5 caps at 6 bosses even though the jitter alone could roll up to 8 — the jitter is what makes any two fights at the same stage different, this is what keeps it from spiraling. Only 5 named boss kinds exist, so past 5 the extra slots duplicate (preferring variety first — see BossKind::random_excluding_multiple).</p>\
             </div>\
+            <h2>Drop Stage Gates</h2>\
+            <p class=\"tunable-hint\">The world stage at which each of these four starts dropping. All four read the CURRENT stage, so a boss-loss regression below a threshold temporarily stops those drops until the group climbs back — that is intended. Polishing sand and Divine Dust are gated on FIGHT grants only: disenchanting gear still yields both at any stage.</p>\
             <div class=\"tunable-row\">\
-              <label for=\"late_content_stage\">Late-Content Stage Threshold</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"late_content_stage\" name=\"late_content_stage\" value=\"{late_content_stage}\">\
-              <p class=\"tunable-hint\">Gates the guaranteed-Perfect-item milestones (per-character and per-kill) — unrelated to Boss Health/Power above.</p>\
+              <label for=\"sand_drop_stage\">Polishing Sand Drop Stage (world stage)</label>\
+              <input type=\"number\" step=\"1\" min=\"{drop_stage_min}\" max=\"{drop_stage_max}\" required id=\"sand_drop_stage\" name=\"sand_drop_stage\" value=\"{sand_drop_stage}\">\
+              <p class=\"tunable-hint\">World stage from which a fight win grants polishing sand (boss and filler alike). 0 = always. Disenchanting is unaffected at any stage.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"perfect_item_stage\">Perfect Item Drop Stage (world stage)</label>\
+              <input type=\"number\" step=\"1\" min=\"{drop_stage_min}\" max=\"{drop_stage_max}\" required id=\"perfect_item_stage\" name=\"perfect_item_stage\" value=\"{perfect_item_stage}\">\
+              <p class=\"tunable-hint\">World stage from which Perfect Quality items drop — gates the per-character first-Perfect milestone and the one-guaranteed-per-boss-kill rule. Replaces the old Late-Content Stage Threshold.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_drop_stage\">Divine Dust Drop Stage (world stage)</label>\
+              <input type=\"number\" step=\"1\" min=\"{drop_stage_min}\" max=\"{drop_stage_max}\" required id=\"divine_dust_drop_stage\" name=\"divine_dust_drop_stage\" value=\"{divine_dust_drop_stage}\">\
+              <p class=\"tunable-hint\">World stage from which a fight win can drop Divine Dust. ALSO the stage that unlocks the /craft Divine Dust recipe — but that unlock is a one-way latch on the HIGHEST stage ever reached, so lowering this dial cannot re-lock a recipe the group already earned.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"sacred_item_stage\">Sacred Item Drop Stage (world stage)</label>\
+              <input type=\"number\" step=\"1\" min=\"{drop_stage_min}\" max=\"{drop_stage_max}\" required id=\"sacred_item_stage\" name=\"sacred_item_stage\" value=\"{sacred_item_stage}\">\
+              <p class=\"tunable-hint\">World stage from which Sacred items drop. Also the point where Perfect's own per-kill guarantee drops to half frequency, since that rule exists to make room for Sacred. The wiki still renders the compiled default (300) for this one, not the live value.</p>\
             </div>\
             <div class=\"tunable-row\">\
               <label for=\"pierce_cap\">Boss Pierce Cap</label>\
@@ -4548,7 +4629,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         top_layer_half_stage = t.top_layer_half_stage,
         boss_count_tier_stages = t.boss_count_tier_stages,
         boss_count_cap_mult = t.boss_count_cap_mult,
-        late_content_stage = t.late_content_stage,
+        sand_drop_stage = t.sand_drop_stage,
+        perfect_item_stage = t.perfect_item_stage,
+        divine_dust_drop_stage = t.divine_dust_drop_stage,
+        sacred_item_stage = t.sacred_item_stage,
+        drop_stage_min = crate::adventure::DROP_STAGE_MIN,
+        drop_stage_max = crate::adventure::DROP_STAGE_MAX,
         pierce_cap = t.pierce_cap,
         pierce_h = t.pierce_h,
         fight_summary_batch_size = t.fight_summary_batch_size,
@@ -4830,7 +4916,7 @@ fn render_dashboard(
 /// prompt if `character` is `None`, same as the dashboard does, since
 /// this page is reachable straight from `top_nav`'s links regardless of
 /// join state.
-fn render_inventory_page(display_name: &str, character: Option<&Character>, pending_veil: Option<&PendingVeil>, tunables: &LiveTunables) -> String {
+fn render_inventory_page(display_name: &str, character: Option<&Character>, pending_veil: Option<&PendingVeil>, tunables: &LiveTunables, divine_dust_unlocked: bool) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
     let Some(c) = character else {
@@ -4902,7 +4988,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
     let nickname_prompt_html = render_nickname_prompt(c);
     let crafting_card_html = match pending_veil {
         Some(pending) => render_veil_choice_card(pending),
-        None => render_crafting_card(c, tunables),
+        None => render_crafting_card(c, tunables, divine_dust_unlocked),
     };
 
     // Combat Stats (2026-08-17, a live request) - same shared card the
@@ -6152,10 +6238,28 @@ const DIVINITY_TIP: &str = "Costs one Unique Shard and runs the whole Hideout Wa
 /// dust+sand into Divine Dust and never touches an item, so unlike every
 /// other action on this card it has nothing to be empty-inventory-gated
 /// on (2026-08-19, explicit requirement - always visible).
-fn render_divine_dust_recipe_row(c: &Character, tunables: &LiveTunables) -> String {
+fn render_divine_dust_recipe_row(c: &Character, tunables: &LiveTunables, unlocked: bool) -> String {
     let dust_cost = tunables.divine_dust_craft_dust_cost;
     let sand_cost = tunables.divine_dust_craft_sand_cost;
     let output = tunables.divine_dust_craft_output;
+    // Locked (2026-09-02) - shown, not hidden. A recipe the group has yet
+    // to unlock is information players want ("what am I working toward"),
+    // and hiding it would make the row's own always-visible requirement
+    // above read as a bug the first time someone below the threshold looked
+    // for it. `craft_divine_dust` enforces this server-side regardless of
+    // what this renders - a stale page cannot craft past the latch.
+    if !unlocked {
+        let stage = tunables.divine_dust_drop_stage;
+        let locked_tip = format!(
+            "Unlocks when the group reaches stage {stage}. Once unlocked it stays unlocked \u{2014} a later stage loss can't take it away."
+        );
+        return format!(
+            "<div class=\"craft-actions\">\
+              <span class=\"muted\" data-tip=\"{tip}\">\u{1F512} Craft Divine Dust \u{2014} unlocks at stage {stage}</span>\
+            </div>",
+            tip = escape_html(&locked_tip),
+        );
+    }
     let cost_tip = "Costs dust + sand, not Divine Dust itself \u{2014} a currency conversion, not an apply/reroll. x1/x10/x50 repeats the whole recipe that many times, stopping early (keeping whatever already landed) if you run out of either currency partway through.";
     format!(
         "<form method=\"post\" action=\"/craft\">\
@@ -6172,9 +6276,9 @@ fn render_divine_dust_recipe_row(c: &Character, tunables: &LiveTunables) -> Stri
     )
 }
 
-fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
+fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlocked: bool) -> String {
     let items = all_items(c);
-    let divine_dust_recipe_html = render_divine_dust_recipe_row(c, tunables);
+    let divine_dust_recipe_html = render_divine_dust_recipe_row(c, tunables, divine_dust_unlocked);
     if items.is_empty() {
         return format!(
             "<div class=\"card\" id=\"crafting-card\">\

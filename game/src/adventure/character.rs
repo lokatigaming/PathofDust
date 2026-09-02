@@ -471,12 +471,27 @@ pub struct Character {
     /// streak, not a second currency - see `advance_pity`.
     #[serde(default)]
     pub item_pity: f64,
-    /// Same idea as `item_pity`, tracked separately for craft-currency
-    /// tokens (see `Character::craft_tokens`) - `BOSS_CRAFT_PITY_GAIN`/
-    /// `BASIC_CRAFT_PITY_GAIN` per fight without winning one. Basic
-    /// fights never roll for a token at all currently (only a real boss
-    /// fight does - see `run_encounter`), so a basic-only player simply
-    /// accrues this every single basic fight until pity itself pays out.
+    /// **DEAD FIELD, DELIBERATELY RETAINED (2026-09-02). It no longer pays
+    /// out anything, and restoring a payout here would reverse an explicit
+    /// owner order.**
+    ///
+    /// It was `item_pity`'s twin for craft-currency tokens: it accrued
+    /// `BOSS_CRAFT_PITY_GAIN`/`BASIC_CRAFT_PITY_GAIN` per fight that
+    /// didn't award one, and on crossing `PITY_THRESHOLD` granted a random
+    /// `DROPPABLE_CRAFT_ACTIONS` token. Craft tokens stopped dropping
+    /// entirely by owner order - the only ones in the game now are the
+    /// starter set `Character::new` grants - so the drop it compensated for
+    /// no longer exists and both `advance_pity` calls that fed this counter
+    /// were removed with it (`run_encounter`/`run_basic_encounter`).
+    ///
+    /// The field itself stays, `#[serde(default)]`, so that every character
+    /// file on disk keeps loading without a migration; it now simply holds
+    /// whatever value it last reached and never moves again. `item_pity` is
+    /// a SEPARATE counter and is completely unaffected - it still accrues
+    /// and still pays out items exactly as before.
+    ///
+    /// If you are here because this looks broken: it is not. Do not
+    /// "repair" it by restoring a payout.
     #[serde(default)]
     pub craft_pity: f64,
     /// Owns the "Wings of Flight" cosmetic - purchasable for
