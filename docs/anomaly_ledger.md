@@ -9,6 +9,45 @@ in-session and had never been exported. Items whose only source is a
 prior order's own summary text are marked **carried-forward, not
 independently re-verified** rather than presented as freshly checked.
 
+## Numbering collision, 2026-09-02 — read this before chasing a citation to `#46`-`#56`
+
+Between 2026-08-23 and 2026-09-02 **two different sets of findings both
+held the numbers `#46`-`#56`.** This file's set is canonical and is
+unchanged. The other set — eleven entries from the zolaries damage
+forensics — was written on 2026-08-23 on the branch
+`ledger/zolaries-damage-forensics`, which was never merged, so this file
+never saw those numbers taken and reused them for unrelated findings.
+
+The forensics set was recovered onto master on 2026-09-02 and
+**renumbered to `#75`-`#85`** by owner ruling: this file's numbering is
+canonical because it is the live record and has been cited elsewhere.
+Every recovered entry carries a line naming its original number. The
+recovered section sits at the end of this file.
+
+| Filed 2026-08-23 as | Now | Entry |
+|---|---|---|
+| `#46` | `#75` | Environmental damage is credited to nobody |
+| `#47` | `#76` | A Water Golem dealing 3.3e12 per hit (closed, config not code) |
+| `#48` | `#77` | Three live passive overrides are inert |
+| `#49` | `#78` | Crippling Grip and Unbroken skip the mitigation path |
+| `#50` | `#79` | DR shred lands in the wrong layer |
+| `#51` | `#80` | The lightning debuff's top 62% is discarded |
+| `#52` | `#81` | `temp_damage_reduction_bonus` has ten writers and one label |
+| `#53` | `#82` | `temp_party_increased_damage_bonus` is firing right now |
+| `#54` | `#83` | Specialisation rank-4 cap mismatch |
+| `#55` | `#84` | The zolaries damage gap itself (closed, not a defect) |
+| `#56` | `#85` | The icicle-damage admin control contradicts its own units |
+
+**A citation to `#46`-`#56` written before 2026-09-02 is ambiguous by
+construction.** Resolve it by context: if it concerns damage forensics,
+golem damage, units on the tunables page or passive-override inertness,
+it means the recovered entry in the right-hand column. If it concerns
+admin save validation, the backup allow-list, audit reliability or the
+Patreon removal, it means this file's own entry.
+
+One such citation was already resolved the wrong way. See §7 of
+`docs/world2_build_plan.md`.
+
 ## Closed
 
 **#30 — `celestial_shard_drop_chance = 0.0007`**
@@ -3073,3 +3112,571 @@ Also noted from check 17: registering the operator login is refused
 `OPERATOR_BOOTSTRAP` fires only for the permanently-reserved list, not
 for the operator-gate arm — so on this box the refusal refuses without
 explaining itself.
+
+---
+
+# RECOVERED — Zolaries damage forensics, 2026-08-23
+
+**Provenance.** Written 2026-08-23 by Lokati on the branch
+`ledger/zolaries-damage-forensics` (commits `c4c9ae2`, `3a35580`,
+`48254d0`), which was never merged into master. Recovered here
+2026-09-02. **The text below is the original, verbatim.** The only
+changes are (a) entry numbers `#46`-`#56` rewritten to `#75`-`#85`,
+including every cross-reference between these entries, per the collision
+ruling at the top of this file, and (b) a provenance line inserted above
+each entry naming its original number. Nothing was summarised, condensed
+or modernised, and no claim was rewritten.
+
+**Staleness warning, 2026-09-02.** These entries were verified in code
+against master `93a136d` on 2026-08-23. Master has moved substantially
+since — the Twitch removal, the Linux cutover and the World 2 reset all
+landed after this was written. Line numbers cited inline (`manager.rs:1087`,
+`adventure_web.rs:3726-3728`, `combat.rs:7301`, and the rest) are as of
+`93a136d` and **will not resolve against current master**. The findings
+have **not** been re-verified against current code; treat every status
+below as "true on 2026-08-23, unconfirmed since." Anyone acting on one
+of these entries re-verifies it first and appends a new dated entry with
+the result — per the append-only rule in `CLAUDE.md`, corrections are new
+entries, never overwrites of the text below.
+
+Cross-references in this section to `#24`, `#29`, `#31`, `#33`, `#35`,
+`#36`, `#39`-`#45` are unchanged and resolve correctly: those entries
+predate the branch split and mean the same thing in both files.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#55`; **renumbered to `#84` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#55` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#84 — The zolaries damage gap itself**
+CLOSED 2026-08-23 with **no action** — the originating question of the
+damage-forensics investigation that opened `#75`-`#83`, resolved as **not
+a defect**.
+
+The premise under investigation was that zolaries out-damages the field
+by 4-7x. He does not. He is **1.83x over second place**; the 4-7x figure
+is real but is measured against **ranks 4-11**, not against the player
+directly behind him. Comparing a leader to the middle of a leaderboard
+and reporting the ratio as his lead overstates it by roughly 3x.
+
+His actual lead is **Echo**, which is linear, correct, working as
+designed, and available to every archetype. Nothing about it is
+exclusive to him or to his build.
+
+Recorded rather than dropped so no future session re-opens "why is
+zolaries so far ahead" from the same starting assumption. Two conditions
+attach to this closure:
+
+1. It was re-checked against `#75`, and survives it — the comparison is
+   between credited player totals, and `#75`'s uncredited Environmental
+   damage does not accrue to zolaries in a way that would change the
+   1.83x. **It is the only pre-`#75` damage comparison in this file that
+   has been re-checked.** Every other one remains suspect until `#75`
+   lands.
+2. The investigation this question triggered produced nine real defects.
+   The question was not a waste; the answer to it was simply "no."
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#47`; **renumbered to `#76` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#47` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#76 — A Water Golem dealing 3.3e12 per hit**
+CLOSED 2026-08-23 — **not a code defect.** Opened the same day from the
+zolaries damage forensics; investigated in code against `93a136d` plus
+live coarse-tier fight data.
+
+**The damage path is correct and bypasses nothing it should not.**
+Shattering icicles resolve through `apply_flat_source_damage`
+(combat.rs:7301), which applies the target's combined damage reduction,
+the `defensive_stat_hard_cap` (0.95), and the stage-tied top layer
+(`apply_top_layer_to` — *the same function* `apply_hit` calls, not a
+copy). Measured live: **70.19% mitigation actually applied** on the
+golem's 146 icicles in one stage-3470 fight. It skips evasion, block,
+shield, crit, the attacker's damage-multiplier stack, Doom accumulation
+and splash — every one of those deliberate and documented. There is no
+per-hit cap anywhere in the codebase, so none is bypassed.
+
+The two incidents this path's design exists to prevent are **genuinely
+prevented**: the 110,000x compounding excursion (an earlier version
+routed icicles through `apply_hit`, letting a golem's full multiplier
+stack compound on a "% of max HP" base) and the 196x Doom inflation
+(`curse_damage_taken_total` only accumulates inside `apply_hit`). Both
+hold.
+
+**Premise correction for the record:** `GOLEM_STAT_SCALE` is not in this
+path at all. The investigation was framed as tracing summoner stats
+through the 0.33 golem scale; no golem stat, no summoner `atk`, no crit
+and no increased-damage touch the number. The whole formula is
+`icicle = dead_enemy_max_hp × shattering_damage_pct_rank{N}`, then target
+DR and top layer. The summoner's `splash` and `shattering` rank affect
+**target count** only (rank additionally selects which tunable row is
+read).
+
+**Cause: CONFIGURATION.** `shattering_damage_pct_rank1/2/3` were live at
+**0.3 / 0.6 / 0.9** against a code default of **0.01** — a
+percent-vs-fraction units error, **owner-confirmed**. Verified
+numerically rather than assumed: 4 of the 5 distinct icicle amounts in
+the pinned fight are exactly `0.9 × ` a unit's max HP, to the integer
+(e.g. `52313673100500 = 0.9 × 58126303445000`). At stage 3470 enemy max
+HP is 6.25e12-6.36e13, so 90% of it per icicle is the entire story.
+
+Scale at the time of closure: `__golem_wrightthewrong_2` dealt **5.74e14**
+against the top player's (`zolaries`) **9.477e13** — **6.1x the
+highest-damage character in the game**, from a support-role golem,
+invisible only because of `#75`. Note this is *higher* than the 3.7x the
+opening entry carried forward; the effect had grown with stage.
+
+Roster scan, 62 characters: **exactly one** player can fire icicles —
+`wrightthewrong` (water slot + shattering rank 3). `colonyna` has rank 3
+but no water golem; `kazesosa` has a water golem but rank 0. So this was
+one build — but one input away from not being, which is why it was
+treated as a mechanic.
+
+**RESOLVED 2026-08-23 by live tunable, no deploy** — set to **0.003 /
+0.006 / 0.009**, preserving the intended 1x/2x/3x rank ramp. Takes effect
+on the next fight; no binary moved.
+
+**NOT YET VERIFIED — this closure is on arithmetic, not on live
+observation.** Expected result is roughly **8% of a top DPS** (the same
+fight recomputed at the old default 0.01 gave 7.185e12 against
+`zolaries`'s 9.477e13, i.e. 0.076x; the new 0.009 sits just under that).
+That prediction needs confirming over the next fights and **has not been
+confirmed as of this entry**. Whoever next sweeps: pull the golem's
+Environmental total from a coarse-tier fight at a comparable stage and
+check it lands near 8% of the top player, not near 600%. If it does not,
+reopen — the arithmetic was right about the cause but wrong about the
+correction. Note the coarse tier holds only 5 fights and rotated *during*
+the original investigation, so pin a fight before analysing it.
+
+Spawned `#85` (the admin control whose contradictory units caused this)
+and two amendments to `#75`.
+### Zolaries damage forensics — 2026-08-23 (`#75`–`#83`, `#85`)
+
+Nine entries opened from one investigation. All nine were handed to this
+session as another session's findings; **every one was independently
+re-verified in code against `93a136d` before being written here** —
+file:line evidence is inline in each entry. What was NOT done today is
+live fight-log confirmation of the runtime magnitudes (the `5.065e14`,
+the `3.3e12`, the `0.847`, the `80-90%`); those are
+**carried-forward from the originating investigation**, and each entry
+says so where it relies on one. The structural claims are this session's
+own.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#46`; **renumbered to `#75` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#46` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#75 — Environmental damage is credited to nobody**
+`full_player_fight_stats` (manager.rs:1087) matches
+`AttackSourceKind::Environmental => {}` — an empty arm, on a comment
+(manager.rs:1081-1086) claiming the arm "never actually runs in
+practice - kept only for match exhaustiveness." **The comment is stale
+and this ledger already contains the proof.** It was written for Thunder
+Golem redistribution, whose sentinel attacker id genuinely never
+resolves; but `Environmental` is also the tag Holy Fire and Shattering
+deliver under, and this file's own 2026-08-21 Holy Fire verification
+sampled **329 Environmental hits** with real casters. Every one of those
+was uncredited.
+
+Carried-forward magnitudes from the originating fight
+(`__golem_wrightthewrong_2`, validated there, not re-sampled here):
+5.065e14 across 87 Environmental hits — **3.7x the top credited player's
+entire fight total**, credited to nobody. Understatement per player:
+WrightTheWrong **85.6x**, kuokkiz 4.1x, Xcercs 3.7x, Tarekis 1.6x.
+
+**SEVERITY — this is the highest-consequence entry in this file.** Every
+balance judgement derived from the leaderboard or from
+`full_player_fight_stats` is unsound until this is fixed, and that
+includes judgements already made. Parser-relevant consequence: any prior
+ledger entry that reasoned from relative player damage totals is
+suspect, and `#84` below is the only one so far re-checked against it.
+**Owner has ruled it gets fixed.**
+
+**AMENDMENT 1 (2026-08-23, from the `#76` investigation) — a
+prerequisite, not a nice-to-have.** `handle_shattering_on_enemy_death`
+(combat.rs:7402-7406) selects the **first alive Water Golem by unit
+order**, and its own doc justifies ignoring rank on the explicit
+assumption that every Water Golem belongs to one Elementalist, so the
+pick "can only ever affect event attribution, never the damage dealt."
+
+**That assumption is already false.** The icicle tunable is
+rank-dependent (`shattering_damage_pct_rank1/2/3`), so two summoners at
+different ranks deal *different* damage, and which one fires is decided
+by arbitrary unit ordering. Today that only misattributes an event; the
+moment `#75` credits Environmental damage, **the credit for the entire
+fight's icicle total lands arbitrarily too** — and that total was
+measured at 5.74e14 in a single fight.
+
+Latent only because exactly one player currently qualifies (see `#76`).
+It goes live the instant a second one does, and `#76`'s roster scan found
+two players one input away. **Fix the selection to highest-rank-wins,
+matching `select_primary_watergolem`'s existing pattern, before or with
+`#75`** — otherwise `#75` ships a correct-looking leaderboard whose
+largest single row is assigned by array order.
+
+**AMENDMENT 2 (2026-08-23) — `#75` erases its own evidence, which
+constrains how it can ever be verified.** The 200-fight summary tier is
+built from `full_player_fight_stats` — the very function that drops
+Environmental — so there is **zero Environmental data and zero golem rows
+across all 200 summary files** (confirmed by direct scan, not inferred).
+Event-level Environmental data survives only in the coarse tier, which
+holds **5 fights**, and the bundle tier, which holds 3.
+
+Two consequences worth stating before someone plans work around them:
+
+1. **Long-window analysis of this damage class is impossible until `#75`
+   is fixed.** Any question of the form "how much Environmental damage
+   has X dealt over the last N fights" has no answerable form for N
+   beyond about 5. `#76` hit this directly and could only characterise 5
+   fights.
+2. **The fix cannot be validated retroactively.** There is no historical
+   baseline to compare a corrected leaderboard against, because the
+   uncorrected leaderboard is all that was ever retained. Verification of
+   `#75` has to be set up *before* the fix ships — pin coarse-tier fights
+   deliberately, or the before-and-after comparison will not exist. This
+   is the same trap §13 step 4's pinned `adventure-fights-summary/`
+   snapshot was added to solve, and the summary tier is exactly the tier
+   that cannot help here.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#47`; **renumbered to `#76` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#47` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#76 — A Water Golem dealing 3.3e12 per hit — CLOSED 2026-08-23, NOT A
+CODE DEFECT.** Cause was configuration: a percent-vs-fraction units error
+in the live icicle tunable, owner-confirmed, resolved same day by live
+tunable with no deploy. Full write-up in the **Closed** section. It
+spawned `#85` (the admin control that caused it) and an amendment to
+`#75` (golem-selection prerequisite). **Live confirmation of the new
+values is still outstanding** — see the closed entry.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#48`; **renumbered to `#77` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#48` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#77 — Three live passive overrides are inert (TUNABLES DOCTRINE
+violation)**
+`chakraoflife`, `unyieldingspirit` and `shattering` are all set in the
+live `adventure-passive-overrides.toml`, and all three call sites read
+`passive_node_rank` (structure) instead of `passive_node_magnitude`
+(value), so the stored values reach nothing. Verified live and in code:
+
+| Node | Live override | Call site | Reads |
+|---|---|---|---|
+| `chakraoflife` | `[0.33, 0.66, 1.0]` | combat.rs:11997 `chakraoflife_duration_ms: rank * 1_000` | rank |
+| `unyieldingspirit` | `[0.33, 0.66, 1.0]` | combat.rs:11452 `let rank = ...` | rank |
+| `shattering` | `[2.0, 4.0, 6.0]` | combat.rs:6139 `watergolem_shattering_extra_targets = rank` | rank |
+
+`chakraoflife` runs at **3x** its tuned value at rank 3 (the code gives
+3000 ms; the tuned rank-3 value is 1.0). `shattering` runs at **half**
+(rank 3 gives 3 extra targets against a tuned 6.0).
+
+The doctrine violation is not that the values are wrong — it is that
+`magnitude_at_rank` (passive_tree.rs:505) is documented as the single
+funnel every numeric read of every node passes through, and these three
+bypass it. The admin page therefore **shows and saves values that do
+nothing, silently, in both directions**: an operator tuning `shattering`
+down sees the save succeed and observes no change, with no error and no
+log line. Same failure shape as the `dynamic_scaling_mult` 422 recorded
+in CLAUDE.md — a control surface that accepts input and discards it.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#49`; **renumbered to `#78` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#49` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#78 — Crippling Grip and Unbroken skip
+`OVERFLOW_CONVERSION_CAP_PER_RANK`**
+Both hand-rolled `Special` getters end in a bare `overflow * efficiency`
+with no cap: `combat_unbroken_ignore_evasion_pct` (character.rs:2929) and
+`combat_crippling_grip_dr_pct` (character.rs:2944). Every generic
+`OverflowConversion` node obeys
+`raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank)` at character.rs:2640
+(`OVERFLOW_CONVERSION_CAP_PER_RANK = 0.10`, combat.rs:342). These two
+reused the *input* and not the *cap* — the getter's own doc says it
+reuses `combined_stat_overflow` "for the same ... input every other
+overflow node already draws from," which is precisely the half that was
+copied.
+
+Carried-forward magnitudes: Crippling Grip returns **0.847** against node
+text promising 0.15; `qugetus_` returns **3.841**. Shared by **11 of 14
+Monks**, so this is not an outlier build.
+
+Why nobody noticed: the excess is bounded downstream by the `-0.75`
+per-source clamp in `combine_reduction_sources` (see `#79`), so a 0.847
+shred and a 0.20 shred can produce the same observable result. The
+overflow is invisible rather than absent. **`#78` and `#79` must be fixed
+together, or the fix to either will look like it did nothing.**
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#50`; **renumbered to `#79` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#50` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#79 — DR shred lands in the wrong layer (OWNER RULING RECORDED)**
+`combine_reduction_sources` (character.rs:889) is
+`1.0 - Π(1 - s.clamp(-0.75, 1.0))`. It multiplies complements and applies
+**no floor to the combined result**. A negative source therefore makes
+its own factor `> 1`, and the product grows without bound: every DR
+shred in the game is currently an **uncapped MORE damage multiplier**,
+not a reduction of the target's DR.
+
+The consequence that makes this a design bug rather than a tuning one: a
+shred works **identically against a 72%-DR boss and a bare target**. It
+never interacts with the DR it is described as shredding.
+
+Affects Crippling Grip, Vital Points, Curse of Weakness, Predator, and
+the lightning damage-taken stack (combat.rs:4770-4772 — pushed as a
+negative source into this same vec).
+
+**OWNER RULING: shreds subtract from the target's DR, floored at zero DR.
+The code is wrong, not the node text.** Recorded here so no future
+session re-opens the "which is authoritative" question — it is settled.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#51`; **renumbered to `#80` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#51` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#80 — The lightning debuff's top 62% is discarded**
+`ELEMENTAL_LIGHTNING_MAX_STACKS = 200` at 1% per stack (combat.rs:343-346,
+with the design text quoted in its own doc: "lightning damage debuff can
+stack up to 200% increased damage taken"), so the intended ceiling is
+**x3.0**. It is delivered as a negative source into
+`combine_reduction_sources`, where `.clamp(-0.75, 1.0)` truncates it at
+**x1.75** — binding at exactly **75 stacks** and discarding everything
+above. Stacks 76-200 are accumulated, displayed, and worth nothing.
+
+Same wrong-layer family as `#79` and the same clamp as `#78`; listed
+separately because it has its own explicit design number to restore, and
+will need its own re-verification once `#79`'s layer change lands.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#52`; **renumbered to `#81` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#52` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#81 — `temp_damage_reduction_bonus` has ten writers and one label**
+**Premise correction, stated because this ledger is a reference:** the
+routing order described this as an upgrade from "the existing
+logging-only entry." **There is no such entry in this file** — `grep`
+for the field name across `docs/anomaly_ledger.md` returns nothing. The
+prior finding lived only in auto-memory, flagged there as "a candidate
+new anomaly-ledger entry if it ever comes up," and was never numbered.
+This is that candidate's **first** ledger entry, not an upgrade of one.
+That memory also recorded "at least 8 nodes"; the true count is ten, so
+the count moved with this investigation.
+
+Verified in code: twelve assignments to the field in combat.rs, of which
+one is a reset (`golem... = 0.0`, 6275) and one is a test fixture
+(16792), leaving **ten real writers** across unrelated mechanics — 7554,
+7791 (Harmonize), 7798 (Serenity), 9227, 9703 (Unbreakable Bond), 10386
+(Armorbreaker, **negative**), 10567 (Wild Instinct), 10828 (Compassion),
+13263 (Dreadful Death, **negative**), 14072 (Bonded Devotion). All plain
+assignment. **Last writer wins across ten unrelated mechanics**, so any
+of them can silently erase any other.
+
+**This session found the failure to be worse than reported.** There is
+exactly **one** read site — combat.rs:4777 — and it is guarded
+`if def.temp_damage_reduction_bonus > 0.0` and hardcoded to the label
+`"Guardian Spirit (Divine Intervention)"`. The two negative writers are
+therefore filtered out at the only place the field is consumed:
+Armorbreaker and Dreadful Death deliver **no debuff at all** through this
+path, while still overwriting whatever defensive value a teammate's node
+had just written. They are pure erasers. That is not a mislabel — it is
+silent cross-mechanic overwriting in which two of the ten mechanics are
+net-negative-value.
+
+*Code-traced only; NOT yet live-log confirmed.* Needs a fight where an
+Armorbreaker or Dreadful Death application provably lands in the same
+window as a Compassion/Harmonize/Serenity grant. Same class as `#39`
+(Symbiosis stale label) — read the two together.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#53`; **renumbered to `#82` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#53` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#82 — `temp_party_increased_damage_bonus` is firing right now**
+Four real writers (combat.rs:7822 Rising Storm, 8732 and 14211 — two
+separate Warlord's Resolve implementations, 9850 Dark Ritual), plus one
+reset at 6290. All plain assignment, all party-wide, one shared field.
+
+`spicymufin` (berserker/slayer) rebroadcasts **0.03** party-wide in
+**80-90% of hits** (magnitude carried forward, not re-sampled here),
+overwriting any other grant within a fraction of a second.
+
+The damage impact is **latent, not zero**: nobody currently allocates
+`risingstorm`, so no live fight is losing damage to it today. The real
+consequence is a testing one, and it is why this is open rather than
+watch-listed — **`risingstorm` cannot be tested or tuned at all while a
+Berserker or Slayer is in the party.** Any future attempt to measure that
+node will silently measure spicymufin's 0.03 instead. Flag this entry to
+whoever next touches Rising Storm *before* they build a scenario.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#54`; **renumbered to `#83` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#54` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#83 — Specialisation rank-4 cap mismatch**
+`accumulate_overflow_conversion_bonus` (character.rs:2639-2640) takes the
+magnitude from `node.magnitude_at_rank(rank)`, which routes through
+`effective_rank` (passive_tree.rs:531) and returns `rank.min(3)` for a
+`Specialization`-tier node — but the cap on the very next line uses the
+**raw** `rank`: `raw.min(OVERFLOW_CONVERSION_CAP_PER_RANK * rank as f64)`.
+A 4/4 specialisation therefore gets a **0.40** cap against node text
+saying 0.30, while its magnitude was computed at rank 3.
+
+*Precision note on the routing order's wording:* `effective_rank` is
+`rank.min(3)` — a **ceiling** at 3, not a floor. Recorded correctly here
+because a future reader will act on this line.
+
+Correctness note, not a balance one — the mismatch only bites where the
+raw magnitude would otherwise exceed 0.30, which `#78`'s uncapped
+siblings show is reachable.
+
+*(Recovered 2026-09-02 onto master from the unmerged branch `ledger/zolaries-damage-forensics`. Filed 2026-08-23 as `#56`; **renumbered to `#85` on merge** because master had independently reused `#46`-`#56` for unrelated findings while this branch sat unmerged. A citation to `#56` dated before 2026-09-02, in this investigation's context, means this entry.)*
+
+**#85 — The icicle-damage admin control contradicts its own units**
+Opened 2026-08-23. **This is what caused `#76`**, and it is still live —
+`#76` was resolved by correcting the stored values, which does nothing
+about the control that invited the error.
+
+One widget, two different units:
+
+| Where | Text |
+|---|---|
+| adventure_web.rs:3677 | label: `Icicle Damage **%** (Rank 1)` |
+| adventure_web.rs:3679 | hint: `0 to 1 — **fraction** of the dead enemy's max HP` |
+| adventure_web.rs:3678 | input: `min="0" max="1"` |
+
+An operator reading the label and entering `0.3 / 0.6 / 0.9` reasonably
+believes they have set 0.3% / 0.6% / 0.9% — a gentle per-rank ramp just
+under the documented 1%. They have in fact set **30% / 60% / 90%**, 30-90x
+the intended value. That is exactly what happened.
+
+**`max="1"` reads as a safety rail and provides none.** It blocks >100%
+while permitting 90%, so the one value that mattered sailed through. A
+bound that only rejects the physically impossible is not a guard against
+a units error — the plausible-but-wrong value is always inside it.
+
+Same family as `#77`: **a control surface whose stated units do not match
+what it stores.** `#77` is a control that saves values nothing reads;
+this is a control that reads values but not in the units it claims. Both
+fail silently and in both directions, and neither produces an error, a
+warning, or a log line. Worth reading the two together when the admin
+page is next touched.
+
+Corroborating evidence that this is a units trap and not a one-off slip:
+the entered values `0.3 / 0.6 / 0.9` form a clean 1x/2x/3x ramp, which is
+what someone typing percentages produces — the code default is a flat
+`0.01` at every rank, so the live config was not a scaled version of the
+default curve, it was a differently-shaped curve that only parses as
+percents. The correction (`0.003 / 0.006 / 0.009`) preserves that ramp,
+which means **the operator's intent was always expressible** — only the
+units were wrong.
+
+**SWEEP DONE — 2026-08-23, same day.** The paragraph that used to close
+this entry said the page had not been swept. It has been. The sweep
+covered every one of the **59 controls** rendered on `/admin/tunables`
+(55 numeric/text + 4 checkboxes), each checked for label/hint unit
+agreement, clamp coherence against the stated units, live-vs-default
+divergence on fraction dials, and label-implies-a-unit-storage-does-not-
+use. **This entry is no longer about one control: it is eleven defects
+across four families sharing one root.**
+
+*Method note.* Audited against source at `93a136d`, which is legitimate
+because the tunables form is **byte-identical** between `b2e0bb0` (the
+commit immediately preceding the live `game.exe` build at 14:57) and
+`93a136d` — so this is the live page, not a near-live approximation. Two
+fields added on master `0110be6` (`hp_relax_after_losses`,
+`hp_relax_step_per_fight`) are **not deployed** and were out of scope.
+The page could not be scraped: `admin_tunables_page`
+(adventure_web.rs:2548) gates on a hardcoded login and returns HTTP 200
+carrying a "Not Found" body, which reads as unauthenticated success if
+you only check the status code. It is gated.
+
+### The root
+
+**Eight controls label a fraction-typed field as `%`.** Seven of them
+carry `max="1"`, which **reads as a guard and is not one**: under the
+label's own units `max="1"` would mean "at most 1%", which is
+nonsensical as a bound. What it actually does is **silently clamp the
+wrong reading instead of rejecting it** — an operator entering `50` for
+"50%" gets `1.0` stored, no error, no warning, no log line. The
+plausible-but-wrong value is always inside the bound, so the bound never
+catches the error it looks like it exists to catch. That is the `#76`
+shape, and it is systemic rather than local to Shattering.
+
+### The eleven
+
+Defects 1-8 are the root above. Defects 9-11 are live values ≥10x their
+shipped default on a fraction dial.
+
+| # | Field | file:line | Label vs storage | Clamp |
+|---|---|---|---|---|
+| 1 | `splash_damage_pct` | adventure_web.rs:3726-3728 | "Splash Damage **%**" / fraction | **NONE** |
+| 2 | `shattering_damage_pct_rank1` | 3677-3679 | "Icicle Damage **%**" / fraction | `max=1` + server clamp |
+| 3 | `shattering_damage_pct_rank2` | 3682-3684 | same | same |
+| 4 | `shattering_damage_pct_rank3` | 3687-3689 | same | same |
+| 5 | `thunder_redistribution_pct` | 3596-3598 | "…Redistribution **%**" / fraction | `max=1` + server clamp |
+| 6 | `rf_self_damage_pct_rank1` | 3607-3609 | "Self-Damage **%**" / fraction | `max=1` + server clamp |
+| 7 | `rf_self_damage_pct_rank2` | 3612-3614 | same | same |
+| 8 | `rf_self_damage_pct_rank3` | 3617-3619 | same | same |
+| 9 | `divine_dust_drop_chance` | 3645-3647 | consistent; live 1.0 = 10x default | `max=1` + server clamp |
+| 10 | `divine_dust_disenchant_chance` | 3650-3652 | consistent; live 1.0 = 10x default | `max=1` + server clamp |
+| 11 | `wings_drop_chance` | 3451-3453 | consistent; live 0.001 = 10x default | `max=1` + server clamp |
+
+Defects 9 and 10 were flagged for a reason worth keeping even though the
+owner has since ruled them intentional (below): both sit **exactly at the
+clamp ceiling**, and because `.clamp(0.0, 1.0)` emits nothing, a stored
+`1.0` is **indistinguishable from an operator having typed `10` or `100`
+and been silently clamped**. The value cannot be self-certified as
+deliberate from the data alone. That property is the defect; the specific
+values were fine.
+
+### HIGHEST SEVERITY — `splash_damage_pct`, worse than `#76`'s own field
+
+`splash_damage_pct` (adventure_web.rs:3726-3728) carries the identical
+label-says-`%` / hint-says-`Fraction` contradiction **and has no `max`
+attribute and no server clamp**. The save is
+`form.splash_damage_pct.max(0.0)` (adventure_web.rs:2765) — a floor with
+no ceiling.
+
+An operator entering `100` for "100%" stores `100.0`, giving **every
+splash target 100x the primary hit's damage, across every attack and
+every enemy in the pack**, with nothing downstream to stop it. `#76`'s
+field at least bottomed out at 90% of one dead enemy's HP; this one is
+unbounded and applies to every hit in every fight.
+
+**Live value is 1.0 — correct.** This is a trap, not a live fault. It is
+recorded at the top of this entry because the only thing currently
+standing between the page and a 100x global splash multiplier is that
+nobody has yet typed the label's own units into the box.
+
+### Owner rulings — RESOLVED, do not re-investigate
+
+- **`divine_dust_drop_chance` and `divine_dust_disenchant_chance` at 1.0
+  are DELIBERATE.** 100% is intended on both. **Not defects.** Closed.
+- **`rf_self_damage_pct_rank1/2/3` at 2x defaults** (0.2/0.4/0.6 against
+  0.1/0.2/0.3) is a **deliberate uniform doubling, not a units slip.**
+  Closed as a value question; the label defect (#6-8 above) stands
+  separately.
+- **`wings_drop_chance` at 10x** (0.001 against 0.0001) is a **coherent
+  drop-rate buff, not a slip.** Closed.
+- **`splash_damage_pct` is to be RETIRED, not relabelled.** Splash damage
+  is a fixed 1.0 by design; skills that raise splash damage go through
+  `splash_target_dmg_bonus` (combat.rs:14307), **not** the global. Keep
+  the field declared with `serde` default so existing TOML still
+  deserializes, drop the control, hardcode 1.0.
+- **The remaining label corrections are the owner's own follow-up.** Not
+  parser's, not open work for anyone else.
+
+**Pre-answered for the retirement's implementation pass** (the ruling
+asked that no other caller be confirmed to read the global directly —
+this session checked, so the implementer does not have to):
+
+- The owner's citation is **correct**: `splash_target_dmg_bonus` is at
+  combat.rs:14307, as stated.
+- **Exactly ONE production reader** of the global exists:
+  combat.rs:10225, `let damage_pct = tunables.splash_damage_pct;`.
+  Everything else matching the name is a doc comment (character.rs:3178,
+  combat.rs:10219, 10269, 10637).
+- **Two tests will need deliberate handling, not silent deletion:**
+  combat.rs:19524 asserts `pct == tunables.splash_damage_pct`, and
+  combat.rs:19636-19640 sets the tunable to 0.25 and asserts it "flows
+  straight through". That second test exists specifically to pin
+  live-retunability, so retiring the global **invalidates its premise** —
+  it must not be quietly rewritten to pass against a hardcoded 1.0, which
+  would leave a test that looks like it still guards something.
+
+### Two adjacent findings, neither a defect
+
+- **`splash_ladder_step_pct` (adventure_web.rs:3716-3718) is the only
+  `_pct_` field on the page that genuinely stores percent-points** —
+  1000 means 1000% splash, verified at combat.rs:10256 where it is
+  compared directly against `splash_pct`. Its label, hint and storage all
+  agree, so it passes every criterion. The risk is **cross-field**: an
+  operator who has learned from the other fifteen `_pct_` fields that
+  "these are 0-to-1 fractions" could enter `10` here meaning 1000%. It is
+  also unclamped and has no `max`. Not a defect; a trap of a different
+  shape.
+- **`dynamic_scaling_mult` is an orphaned key.** Retired from the form,
+  but still a `LiveTunables` field, still written to
+  `adventure-live-tunables.toml` (live 1.0), and carried forward from
+  `previous` at adventure_web.rs:2733 — with **no control and no reader**
+  anywhere in game logic. Not a defect under any criterion (no control
+  exists, so no control can mislead). Recorded only so nobody mistakes
+  the TOML key for an active dial.
