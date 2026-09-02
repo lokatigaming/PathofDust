@@ -1046,3 +1046,95 @@ bonus entirely rather than scaling the curve, which is a different
 mechanic with a different purpose (it predates this work and was ruled to
 ship ON), and it would slow the newest players most — the opposite of
 what catch-up is for.
+
+### 2026-09-02 — CRAFT CONFIRMATION FIX deploy record (template-only)
+
+Merged `9d11733` from `feature/player-facing-batch` into master by HASH,
+not by branch name, per the order. Verified first that its sole parent is
+`3835699` and that nothing else rides along.
+
+**The order's premise about the branch was already stale, in the harmless
+direction:** `9d11733` IS the branch tip — there are no commits after it.
+Merging the hash and merging the tip were the same operation today.
+Merging by hash anyway was still correct: it pins the content against
+someone pushing to that branch mid-deploy.
+
+| | |
+|---|---|
+| master before / after | `1b6595b` → `30beba2` (merge) → `642504d` (docs) |
+| merge conflicts | one, `WIKI_IMPACT.md`, keep-both chronological |
+| suite (local / box) | **768 passed, 0 failed, 33 suites**, identical both sides |
+| arithmetic | 767 (post-XP master) + 1 = 768. The commit's own "756" was 755 + 1 against the pre-XP master |
+| build on box | 2 m 26 s, exit 0 |
+
+**THE BINARY DID NOT CHANGE, AND THAT IS CORRECT.** Candidate hash came
+out bit-identical to live: `154f13e6…` both sides. `git diff` over
+`game/src`, `src`, `Cargo.toml` and `Cargo.lock` between the deployed
+commit and this one is EMPTY — the fix is entirely `templates/base.html`
+plus two test files and docs. The commit says so itself: "No Rust broke."
+
+This matters procedurally, because **`deploy-linux.sh` aborts when the
+two hashes match** ("nothing to deploy, you most likely built the wrong
+tree"). That guard is right for the case it was written for and wrong for
+this one. §13A step 4 already names the category — it makes the binary
+swap conditional on the deploy "changing the game binary's behavior (not a
+source/docs-only or **template-hot-reload-only** change)" — but §13B has
+no written procedure for that category, so a session reaching for the
+script gets an abort and no guidance.
+
+What was actually done, which is the swap step minus the binary:
+`cp -r --preserve=mode,timestamps` of `templates/`, `wiki/` and
+`public_adventure_overlay/` into `/var/lib/pathofdust/`, then
+`chown -R pathofdust:pathofdust`. Took **0.10 s**, and there is **no
+downtime at all** — no `systemctl stop`, no restart, `NRestarts` still 0.
+Templates hot-reload: `adventure_web/render.rs` holds one process-wide
+minijinja `AutoReloader` watching `TEMPLATE_DIR`, and `acquire_env()`
+re-checks mtime on every render, so the next page render picks up the new
+file. That is the property `live_reload_tests::
+editing_a_template_takes_effect_without_a_rebuild` exists to guarantee.
+
+Backups taken before touching anything: `pathofdust-backup.service` ran
+green and its archive `pod-backup-20260902-160501.tar.gz` verifies against
+its own `.sha256` and contains `adventure-characters.json`,
+`adventure-world.json` and `adventure-accounts.json`. A template rollback
+slot was added at
+`/var/backups/pathofdust/deploy-pre-craft-confirm/` (the whole previous
+`templates/`, the previous `patch-notes.json`, and the pre-change
+`base.html` sha `f1f23222…`).
+
+VERIFIED BY EFFECT. On the live `/inventory` page fetched as a logged-in
+player (the craft card lives there — `/craft` is POST-only and answers
+405), **five of the six buttons render `data-confirm`**: Krangle,
+Annulment Orb, Chancing, Scour, Hideout Warrior. On the box,
+`templates/base.html` has exactly one `document.addEventListener('submit'
+…)` and, once `//` comments are stripped, **zero** occurrences of the old
+`querySelector('.craft-actions')?.closest('form')` binding — the one raw
+match is line 960, the comment that quotes the old binding verbatim so it
+is never reintroduced. Same on the HTML the server actually served. No
+listener is bound to anything but `document` for submit.
+
+**Divinity could NOT be verified on a live page, and this is stated rather
+than glossed.** Its row is gated on holding a Unique Shard token
+(`adventure_web.rs:6231`, `craft_token_count(CraftAction::UniqueShard) >
+0`) and **no character in World 2 currently holds one** — checked all
+nine. So the button cannot render anywhere on live today. Its coverage
+rests on `craft_confirm_ui_http.rs`, which renders it on a synthetic
+character and asserts the attribute, plus the structural argument that the
+delegated listener keys off the SUBMITTER's own `data-confirm`, so it
+cannot miss a button it never had to find. That is genuinely weaker
+evidence than the other five have, and it is the one action that has never
+confirmed once in its life. Re-check the moment any player earns a Unique
+Shard.
+
+Health after: active, NRestarts 0, binary unchanged as intended,
+`/characters` 200/76,291 B, `/passives` 200/90,170 B, `/inventory`
+200/100,412 B, anon `/admin/tunables` 404, anon `POST
+/api/commands/join` 404, zero panics, zero template errors, stage 2, two
+fights resolved since the refresh. Check 3 in its new equality form: 9
+logged at boot, 9 entries in the file, equal.
+
+FOUND — §13B has no procedure for a template-only or asset-only deploy,
+even though §13A step 4 names the category. Anyone who follows §13B
+literally for such a change gets an abort from `deploy-linux.sh` and no
+documented next step. Not fixed here; it is a procedure change and belongs
+to whoever owns §13B, not to a deploy session improvising mid-release.
