@@ -1446,6 +1446,11 @@ sha256sum /root/deploy-src/target/release/game # the candidate
 identical hash means there is nothing to deploy, and the most likely
 explanation is that you built the wrong tree.
 
+> **Unless you expected them to match.** A release that changes only
+> templates or assets produces a bit-identical binary, and that abort is
+> then the correct signal to switch to **§13B.8**, not a fault to force
+> past. §13B.8.1 gives the diff that tells the two cases apart.
+
 #### 2. The maintenance gate — and why there is no flag file
 
 **On Linux the maintenance gate is `systemctl stop pathofdust`. Nothing
@@ -1627,3 +1632,229 @@ procedure too, not this script.
 Same as 13A step 8: what shipped, the patch-notes entry added, the
 merge/final commit hash, old and new binary SHA-256, measured downtime,
 the seven health-check results, and the rollback slot path.
+
+#### 8. Template-only and asset-only releases — when the binary does not change
+
+**§13A step 4 already names this category** ("not a source/docs-only or
+template-hot-reload-only change") but §13B had no procedure for it until
+2026-09-02, when a release hit it live and had to be worked out during the
+deploy. This section is that release, written down. Everything below was
+executed, not designed.
+
+##### 8.1 How to know you are in this case
+
+**The test is a diff, not an impression.** "It looks like a template
+change" is not a test — a one-line Rust edit hides perfectly well inside a
+commit that also touches six templates. Run this between the commit that
+is currently live and the candidate:
+
+```sh
+git diff --stat <deployed-commit>..<candidate> -- game/src src Cargo.toml Cargo.lock
+```
+
+**Empty output means nothing that compiles into `game` changed**, and this
+section applies. Anything at all in that output — including a dependency
+bump in `Cargo.lock` — and you are on the normal path, §13B.1 through
+§13B.6, no exceptions.
+
+`game/tests/` is deliberately NOT in that path list. Test files compile
+into their own test binaries, never into `game`, so a release that adds a
+whole test file and edits one template is still a template-only release.
+The 2026-09-02 worked example did exactly that.
+
+##### 8.2 `deploy-linux.sh` WILL abort. That is correct.
+
+`deploy-linux.sh` compares the two binary hashes and exits:
+
+```
+FATAL: new binary is identical to the live one - nothing to deploy
+```
+
+**This is the guard working, not a failure, and not something to force
+past.** The guard exists because for a normal release an identical hash
+almost always means you built the wrong tree, and shipping that silently
+is worse than stopping. It has no way to tell that case apart from this
+one — so it stops, correctly, and *you* make the distinction using §8.1's
+diff.
+
+Do not edit the script, do not add a `--force`, and do not touch the
+binary. The abort is the signal to switch paths. Once §8.1's diff is
+confirmed empty, the abort has told you everything it can and you proceed
+with §8.3.
+
+##### 8.3 The steps
+
+Build and test on the box exactly as §13B.1 says — you still need the
+candidate tree present and the suite green, and the build is what proves
+the templates you are about to ship come from a tree that compiles.
+
+Then **back up first, and verify the archive rather than trusting that it
+ran:**
+
+```sh
+systemctl start pathofdust-backup.service
+systemctl show pathofdust-backup.service -p Result --value        # success
+cd /var/backups/pathofdust
+sha256sum -c pod-backup-<stamp>.tar.gz.sha256                     # OK
+tar tzf pod-backup-<stamp>.tar.gz | grep -E 'adventure-(characters|world|accounts)\.json'
+```
+
+A green unit result is not a verified backup. The checksum check and the
+content check are what make it one.
+
+**Take a template rollback slot** — `deploy-linux.sh` normally creates the
+rollback slot for you, and on this path nothing does:
+
+```sh
+mkdir -p /var/backups/pathofdust/deploy-pre-<release-name>
+cp -a /var/lib/pathofdust/templates      /var/backups/pathofdust/deploy-pre-<release-name>/templates
+cp -a /var/lib/pathofdust/patch-notes.json /var/backups/pathofdust/deploy-pre-<release-name>/patch-notes.json
+sha256sum /var/lib/pathofdust/templates/<changed-file> > /var/backups/pathofdust/deploy-pre-<release-name>/BASE_HTML_SHA256
+```
+
+Patch notes go in before the refresh, per §13A step 1, same as any other
+release.
+
+**Then the refresh — this is §13B.4's swap with the binary step removed,
+and nothing else changed:**
+
+```sh
+for d in templates wiki public_adventure_overlay; do
+  cp -r --preserve=mode,timestamps "/root/deploy-src/$d/." "/var/lib/pathofdust/$d/"
+done
+chown -R pathofdust:pathofdust /var/lib/pathofdust
+```
+
+**No `systemctl stop`. No `systemctl start`. No binary touched.**
+`NRestarts` must still read `0` afterwards; if it moved, something
+restarted the service and this was not the deploy you thought it was.
+
+`chown -R` is not optional here either, for the reason §13B.4 gives: a
+tarball built on Windows carries meaningless numeric ownership, and the
+service user then cannot read what you just copied.
+
+##### 8.4 Why no restart is needed
+
+`adventure_web/render.rs` builds **one process-wide minijinja
+`AutoReloader`** that watches `TEMPLATE_DIR`, and `render_template` calls
+`acquire_env()` on **every** render, which re-checks mtime and
+transparently rebuilds the environment when a file has changed. The next
+page render after the `cp -r` therefore serves the new template. There is
+no cache to invalidate and no signal to send.
+
+**The test that guarantees this is
+`adventure_web::render::live_reload_tests::
+editing_a_template_takes_effect_without_a_rebuild`**
+(`game/src/adventure_web/render.rs`). It writes a throwaway template,
+renders it, edits the file on disk, renders again in the same process, and
+asserts the output changed. It is named here so that anyone who deletes it
+as a slow or flaky test learns what it was load-bearing for: **it is the
+only thing standing between this deploy path and a release that silently
+serves stale HTML until the next unrelated restart.** If that test goes,
+this section goes with it and template releases go back to needing a
+restart.
+
+(It is on the known flaky-under-parallel list in CLAUDE.md — confirm it in
+isolation before believing a failure, and never "fix" it by deleting it.)
+
+##### 8.5 Verification by effect
+
+The seven checks in §13B.5 still apply, with check 4 inverted — see §8.6.
+Add these two, which are the only ones that actually prove a template
+release shipped:
+
+```sh
+# 1. the file on the box is now the candidate's file, byte for byte
+sha256sum /var/lib/pathofdust/templates/<changed-file>
+sha256sum /root/deploy-src/templates/<changed-file>        # must match
+
+# 2. the page the server SERVES carries the change
+curl -s -H "Cookie: adv_session=<operator-session>" https://adventure.lokati.net/<affected-page> \
+  | grep -c '<something the change introduced>'
+```
+
+Hash the changed template **before and after** the refresh, not just
+after: matching the candidate proves the copy landed, and differing from
+the pre-refresh hash proves it was not already there and you are not
+reading a no-op as a success.
+
+Check 2 is the one that cannot be faked by a correct file on disk. Grep
+the served HTML for something the change *introduces*, and — if the change
+removed something — grep for the absence of what it removed, stripping
+`//` comments first if the removed thing is also quoted in a code comment.
+The 2026-09-02 release hit exactly that: the new handler's own comment
+quotes the old binding verbatim, so a naive grep for the old code found a
+match on a file that no longer contains it as executable code.
+
+Session access for the authenticated fetch: reuse an existing
+`adventure-sessions.json` entry whose login equals `OPERATOR_LOGIN`, per
+the cutover runbook §7.3 method. Read-only — do not write to that file.
+
+##### 8.6 The binary hash NOT changing is the expected outcome
+
+Say this out loud in the report, because every other deploy record in this
+document treats a changed binary hash as proof that the deploy happened,
+and here **an unchanged hash is the proof that it happened correctly.**
+
+§13B.5 check 4 ("`sha256sum /opt/pathofdust/bin/game` equals the candidate
+hash") is still satisfied — the candidate hash and the live hash are the
+same hash. But a reader skimming a report and seeing "binary before and
+after: identical" will reach for the rollback script unless the report
+says why. State the §8.1 diff result next to the hash, every time.
+
+##### 8.7 Rollback
+
+There is **no binary to roll back**, so `rollback-linux.sh` does not apply
+and should not be run. It would restore a binary identical to the one
+already live — achieving nothing — while doing a real `systemctl stop` and
+`start` around it, so the only thing it would actually deliver is downtime
+this path otherwise has none of. Restore the templates from the slot §8.3
+took:
+
+```sh
+cp -r --preserve=mode,timestamps /var/backups/pathofdust/deploy-pre-<release-name>/templates/. /var/lib/pathofdust/templates/
+chown -R pathofdust:pathofdust /var/lib/pathofdust/templates
+sha256sum /var/lib/pathofdust/templates/<changed-file>   # must equal the slot's BASE_HTML_SHA256
+```
+
+No stop and no restart on the way back either, for the same
+`AutoReloader` reason — the next render serves the restored file. Restore
+`patch-notes.json` from the slot too if the release added an entry.
+
+The §13B.6 warning applies unchanged: this restores TEMPLATES only.
+Character and world files have moved on and hold progress players actually
+earned. A data problem is a restore (`docs/linux_backups.md`), never this.
+
+##### 8.8 Worked example — the craft-confirmation release, 2026-09-02
+
+The release this section was written from. Fix commit `9d11733` (six craft
+confirmation dialogs dead since 2026-08-19), merged as `30beba2`, master
+at `f04ea49` after the deploy record.
+
+| | |
+|---|---|
+| §8.1 diff over `game/src src Cargo.toml Cargo.lock` | **empty** |
+| what actually changed | `templates/base.html`, two test files, docs |
+| binary before / after | `154f13e6…` / `154f13e6…` — **identical, as expected** |
+| `base.html` before / after | `f1f23222…` → `7d23298c…` (= candidate) |
+| suite, dev machine and box | 768 passed / 0 failed / 33 suites, both |
+| build on box | 2 m 26 s, exit 0 |
+| backup | `pod-backup-20260902-160501.tar.gz`, verified against its own `.sha256` and confirmed to contain the character/world/accounts files |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-craft-confirm/` |
+| **refresh time** | **0.10 s** |
+| **downtime** | **none — no stop, no restart, `NRestarts` still 0** |
+
+Verified by effect on the live `/inventory` page (the craft card lives
+there; `/craft` is POST-only and answers 405): five of the six confirm
+buttons rendered `data-confirm`, and `base.html` on the box carried
+exactly one `document.addEventListener('submit', …)` with zero executable
+occurrences of the old first-match binding once `//` comments were
+stripped.
+
+The sixth, Divinity, **could not be verified live** — its row is gated on
+holding a Unique Shard token (`adventure_web.rs:6231`) and no World 2
+character held one. Recorded here because it is the honest shape of this
+kind of verification: a template release can only be proven on pages that
+actually render, and a conditionally-rendered element needs either a
+qualifying account or an explicit statement that it was not covered.
+Never manufacture eligibility by editing player data to make a check pass.
