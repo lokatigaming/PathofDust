@@ -10,7 +10,7 @@
       "thunderNetAbsorbed": 0,
       "archetype": "rogue",
       "role": "melee",
-      "maxHp": 276,
+      "maxHp": 234,
       "thunderIncarnations": []
     },
     {
@@ -33,11 +33,11 @@
       "attacker": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 311,
+      "unmitigatedDamage": 216,
       "targetHpAfter": 8000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1228,
+      "hitId": 40,
       "sourceKind": "direct"
     },
     {
@@ -47,10 +47,10 @@
       "target": "rogue_vs_generic_stage50",
       "damage": 0,
       "unmitigatedDamage": 156,
-      "targetHpAfter": 276,
+      "targetHpAfter": 234,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1245,
+      "hitId": 44,
       "sourceKind": "direct"
     },
     {
@@ -60,10 +60,10 @@
       "target": "rogue_vs_generic_stage50",
       "damage": 159,
       "unmitigatedDamage": 159,
-      "targetHpAfter": 117,
+      "targetHpAfter": 75,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1254,
+      "hitId": 46,
       "sourceKind": "direct"
     },
     {
@@ -71,12 +71,12 @@
       "atMs": 1282,
       "attacker": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "damage": 273,
-      "unmitigatedDamage": 278,
-      "targetHpAfter": 7727,
+      "damage": 189,
+      "unmitigatedDamage": 193,
+      "targetHpAfter": 7811,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1260,
+      "hitId": 52,
       "sourceKind": "direct"
     },
     {
@@ -89,7 +89,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1304,
+      "hitId": 61,
       "sourceKind": "direct"
     },
     {
@@ -100,8 +100,8 @@
   ],
   "rolls": [
     {
-      "eventId": 1231,
-      "hitId": 1228,
+      "eventId": 41,
+      "hitId": 40,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -111,8 +111,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1232,
-      "hitId": 1228,
+      "eventId": 42,
+      "hitId": 40,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -121,39 +121,39 @@
       "magnitude": 0.16999999999999998
     },
     {
-      "eventId": 1233,
-      "hitId": 1228,
+      "eventId": 43,
+      "hitId": 40,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.7712514015805096
+      "magnitude": 0.23254104709802403
     },
     {
-      "eventId": 1246,
-      "hitId": 1245,
+      "eventId": 45,
+      "hitId": 44,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.15686376051462747
+      "magnitude": 0.047296203348289656
     },
     {
-      "eventId": 1255,
-      "hitId": 1254,
+      "eventId": 47,
+      "hitId": 46,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.15686376051462747,
+      "probability": 0.047296203348289656,
       "succeeded": false
     },
     {
-      "eventId": 1256,
-      "hitId": 1254,
+      "eventId": 48,
+      "hitId": 46,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -163,18 +163,18 @@
       "succeeded": false
     },
     {
-      "eventId": 1257,
-      "hitId": 1254,
+      "eventId": 49,
+      "hitId": 46,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.15686376051462747
+      "magnitude": 0.047296203348289656
     },
     {
-      "eventId": 1258,
-      "hitId": 1254,
+      "eventId": 50,
+      "hitId": 46,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -183,8 +183,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1259,
-      "hitId": 1254,
+      "eventId": 51,
+      "hitId": 46,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -193,8 +193,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1261,
-      "hitId": 1260,
+      "eventId": 53,
+      "hitId": 52,
       "atMs": 1282,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -204,8 +204,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1262,
-      "hitId": 1260,
+      "eventId": 54,
+      "hitId": 52,
       "atMs": 1282,
       "category": "evasion",
       "source": "Evasion",
@@ -215,8 +215,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1263,
-      "hitId": 1260,
+      "eventId": 55,
+      "hitId": 52,
       "atMs": 1282,
       "category": "block",
       "source": "Block chance",
@@ -226,8 +226,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1264,
-      "hitId": 1260,
+      "eventId": 56,
+      "hitId": 52,
       "atMs": 1282,
       "category": "crit",
       "source": "Crit chance",
@@ -236,62 +236,62 @@
       "magnitude": 0.16999999999999998
     },
     {
-      "eventId": 1265,
-      "hitId": 1260,
+      "eventId": 57,
+      "hitId": 52,
       "atMs": 1282,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.7712514015805096
+      "magnitude": 0.23254104709802403
     },
     {
-      "eventId": 1266,
-      "hitId": 1260,
+      "eventId": 58,
+      "hitId": 52,
       "atMs": 1282,
       "category": "elementalProc",
       "source": "Fire proc",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.024482560272089515,
+      "probability": 0.007381769666343847,
       "succeeded": false
     },
     {
-      "eventId": 1267,
-      "hitId": 1260,
+      "eventId": 59,
+      "hitId": 52,
       "atMs": 1282,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.027415235977278535,
+      "probability": 0.00826600466142593,
       "succeeded": false
     },
     {
-      "eventId": 1268,
-      "hitId": 1260,
+      "eventId": 60,
+      "hitId": 52,
       "atMs": 1282,
       "category": "elementalProc",
       "source": "Divine proc",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.025227343908682903,
+      "probability": 0.007606330382032636,
       "succeeded": false
     },
     {
-      "eventId": 1305,
-      "hitId": 1304,
+      "eventId": 62,
+      "hitId": 61,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.15686376051462747,
+      "probability": 0.047296203348289656,
       "succeeded": false
     },
     {
-      "eventId": 1307,
-      "hitId": 1304,
+      "eventId": 63,
+      "hitId": 61,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -301,18 +301,18 @@
       "succeeded": false
     },
     {
-      "eventId": 1309,
-      "hitId": 1304,
+      "eventId": 64,
+      "hitId": 61,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.15686376051462747
+      "magnitude": 0.047296203348289656
     },
     {
-      "eventId": 1312,
-      "hitId": 1304,
+      "eventId": 65,
+      "hitId": 61,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -321,8 +321,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1314,
-      "hitId": 1304,
+      "eventId": 66,
+      "hitId": 61,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
