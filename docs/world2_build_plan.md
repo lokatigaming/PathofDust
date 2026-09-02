@@ -299,6 +299,7 @@ Deferred deliberately. None of it blocks the world existing.
 - Ledger `#75` — environmental damage credited to nobody *(renumbered from `#46` on 2026-09-02; see §7)*
 - Passive rebalance
 - Golden fixture `hitId`/`eventId` churn, which makes every regeneration produce noise
+- **`wiki-update-pass-7` — one unique player-facing paragraph, for the deferred wiki session.** The branch `origin/wiki-update-pass-7` (`68d2c6d`, 2026-08-21) holds a paragraph in `wiki/items.md` on the **effective-HP tradeoff of the elemental-affix widen** — that Body/Gloves/Boots went from 12 to 17 eligible affixes, diluting every other affix there by roughly 31%, Increased Life included, so same-tier gear on those three slots now yields noticeably less effective HP; intended as a gearing tradeoff, not a bug. **Verified 2026-09-02: that text exists nowhere on master.** Left for the wiki session, which owns `wiki/` — no other session edits those files. The branch is otherwise a stale fork (it predates the crate restructure and the Twitch removal), so recover the paragraph, not the branch.
 
 ### The item rebalance — recovered 2026-09-02, and what it actually contains
 
