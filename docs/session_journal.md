@@ -772,3 +772,12 @@ not deploy):
   crossover tier this is a PRICE RISE, not a cut. Do not describe the
   release as purely cheaper if the live world is past those tiers — see
   the crossover table in this session's report.
+
+FOUND (second instance in one day) — `C:\PathofDust\adventure-world.json`
+is the FROZEN pre-cutover Windows install and is NOT production. It is
+mtime-fresh (written 2026-09-02 13:15) and reads stage 7380 and
+permanent_rampage=true against live World 2's stage 1-2 and
+permanent_rampage=false. It has now misled two sessions on the same day;
+it is recorded as historical-only in docs/world2_build_plan.md. Rule:
+read the live world ONLY from /var/lib/pathofdust on the Debian box. A
+local file being recently modified is not evidence that it is live.
