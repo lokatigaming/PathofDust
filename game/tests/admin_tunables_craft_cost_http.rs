@@ -254,6 +254,53 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
         "sanity: the preview is the shipped formula"
     );
 
+
+    // --- the attributes exist in exactly ONE form -------------------------
+    // Raised by the player-facing session before this merge: the
+    // confirmation regression came from first-match lookups
+    // (`document.querySelector('.craft-actions button[data-polish]')`)
+    // that are unique only by luck, and the Divine Dust recipe renders its
+    // own standalone form ABOVE the craft form - which also posts to
+    // `/craft`, so it really is the same shape that stole one of those
+    // lookups.
+    //
+    // Two independent reasons it cannot bite the per-tier parameters, both
+    // asserted below: the preview reads `data-tier-mult`/`data-tier-exp`
+    // off EACH button inside a `querySelectorAll` loop (`tierCostOf(btn)`),
+    // never via a document-level first match; and the attributes are
+    // emitted from one place only (`action_btn`), which runs only inside
+    // the item-bearing craft form.
+    //
+    // The needle is `data-tier-mult="` with the equals-quote: the bare
+    // string also appears twice in the inline preview script (a comment and
+    // a `getAttribute`), and counting those as markup is how this assertion
+    // would quietly stop meaning anything.
+    const TIER_ATTR: &str = "data-tier-mult=\"";
+    let craft_form = {
+        let anchor = panel.find("<select name=\"item_a\"").expect("the item-bearing craft form must be on the page");
+        let open = panel[..anchor].rfind("<form").expect("its form tag must open");
+        let end = anchor + panel[anchor..].find("</form>").expect("its form must be closed");
+        &panel[open..end]
+    };
+    assert_eq!(
+        panel.matches(TIER_ATTR).count(),
+        craft_form.matches(TIER_ATTR).count(),
+        "every button carrying the per-tier parameters must live inside the ONE item-bearing craft form - a second form rendering them is how a preview starts pricing off the wrong button"
+    );
+    assert_eq!(craft_form.matches(TIER_ATTR).count(), 8, "all eight currency buttons must carry the parameters, not just the first");
+    // The Divine Dust recipe's own form sits ABOVE the craft form and posts
+    // to the same URL. It must stay out of `craftButtons` entirely - it has
+    // no item and no per-tier price, so a `data-base` on it would put it in
+    // the preview's loop and have its label rewritten with a craft price.
+    let dd_form = {
+        let start = panel.find("value=\"divine dust craft\"").expect("the Divine Dust recipe form must be on the page");
+        let open = panel[..start].rfind("<form").expect("its form tag must open");
+        let end = start + panel[start..].find("</form>").expect("its form must be closed");
+        &panel[open..end]
+    };
+    assert!(open_is_before(&panel, dd_form, craft_form), "sanity: the Divine Dust form really does render above the craft form");
+    assert!(!dd_form.contains("data-base=\""), "the Divine Dust form must not carry data-base, or its button joins the craft preview's loop: {dd_form}");
+    assert!(!dd_form.contains(TIER_ATTR), "the Divine Dust form must not carry the per-tier parameters: {dd_form}");
     let dust_before = dust_of(&scratch);
     let crafted = client
         .post(format!("{base}/craft"))
@@ -340,4 +387,11 @@ fn dust_of(scratch: &std::path::Path) -> u64 {
     let raw = std::fs::read_to_string(scratch.join("adventure-characters.json")).expect("the characters file must exist");
     let characters: HashMap<String, Character> = serde_json::from_str(&raw).expect("the characters file must deserialize");
     characters.get(PLAYER_LOGIN).expect("the seeded character must still be there").dust
+}
+
+/// Whether `first` really is rendered before `second` on the page - both
+/// are slices of `panel`, so their addresses order them.
+fn open_is_before(panel: &str, first: &str, second: &str) -> bool {
+    let at = |s: &str| s.as_ptr() as usize - panel.as_ptr() as usize;
+    at(first) < at(second)
 }

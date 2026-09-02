@@ -1535,11 +1535,39 @@ Not "confirm it works". Seven checks, all of which the rehearsal ran:
 |---|---|---|
 | 1 | `systemctl is-active pathofdust` | `active` |
 | 2 | `systemctl show pathofdust -p NRestarts --value` | **unchanged** (`0`) — see 13B.2 |
-| 3 | `journalctl -u pathofdust --since -2min` → the `loaded N characters` line | the **right N** — 67 today. A binary that starts and loads *zero* characters also answers 200 |
+| 3 | `journalctl -u pathofdust --since -2min` → the `loaded N characters` line, compared against `python3 -c 'import json;d=json.load(open("/var/lib/pathofdust/adventure-characters.json"));print(len(d))'` | **the two numbers are EQUAL.** Not a literal — see below. A binary that starts and loads *zero* characters also answers 200, which is what this check exists to catch |
 | 4 | `sha256sum /opt/pathofdust/bin/game` | equals the candidate hash from 13B.1 |
 | 5 | authenticated `/characters` **and** `/passives` | 200 **with plausible byte counts** (94 KB / 72 KB today). `/` alone is not a health check: logged out it returns a constant 72,025-byte landing page that renders identically whether or not any data loaded |
 | 6 | anonymous `/admin/tunables` | HTTP **404**, body ~71,722 B. **Corrected 2026-09-02:** this row previously said HTTP **200** with a `<h1>Not Found</h1>` body, and that "the operator gate is content, not status — a status-code assertion proves nothing". That was true when written; commit `6e8cf44` (ledger #51) made the refusal a **real 404** on both GET pages and all three POSTs, so the status code now discriminates. Measured on live production 2026-09-02. Note this proves only that the gate *gates* — it passes on a box with no accounts file at all, so it is not a substitute for an authenticated load |
 | 7 | unauthenticated `curl -s -o /dev/null -w '%{http_code}' -X POST <base>/api/commands/join` | **404**, permanently and unconditionally. **Rewritten 2026-09-02:** this row used to read 404-means-unmounted / 401-means-mounted, because `ADVENTURE_API_SECRET` was a runtime switch over a router that still existed in the binary. The entire `/api/*` seam — `adventure_web/api.rs`, the nest, the `api_secret` parameter and the env var — is now DELETED from the source. There is no code path that can return 401 any more, on any box, with any environment. A 401 here would mean an old binary is running, which makes this row a useful deploy check rather than a redundant one. |
+
+**Why check 3 is an equality and never a literal number.** This row used
+to read "the right N — 67 today". That is a hardcoded expectation pinned
+against live, mutating state, and it is guaranteed to go wrong on a day
+when nothing is actually broken: the roster changes every time somebody
+joins, and World 2's reset took it from 67 to 9. A deploy session reading
+"expect 67" on a nine-character world has to decide, under time pressure
+and mid-deploy, whether it is looking at a data-loss incident or a stale
+document. Either answer it reaches is a coin flip, and both are bad —
+aborting a healthy deploy, or waving through a real one.
+
+**This is the second time this exact mistake has cost us.** The first was
+the stage-7379 gate in the cutover runbook, which aborted cutover attempt
+1 on a number that had simply moved on since it was written. Same defect
+class, same cause: a literal snapshot of live state, frozen into a
+procedure, and then trusted as an invariant.
+
+The fix in both cases is the same shape. **A health check must compare
+two things the system produces, never one thing the system produces
+against one thing a human typed weeks ago.** Here the game logs how many
+characters it loaded and the file says how many there are; if those agree,
+loading worked, and the check is correct on a 9-character world, a
+67-character world, and every world after. Nothing needs re-editing when
+the roster moves, which is precisely the property a literal cannot have.
+
+Apply the same test to any check added below: if it contains a number
+copied out of production rather than read from it at run time, it is not a
+check — it is a timer counting down to a false alarm.
 
 Plus, before calling a deploy done: **watch one fight resolve.** The web
 server answering proves the web server; only a fight in the journal and a

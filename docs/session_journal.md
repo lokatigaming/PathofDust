@@ -717,6 +717,429 @@ canvas default), i.e. `resize()` had not run. Not a defect: `readyState`
 was still `loading` 12s in, because the overlay's assets come through the
 SSH tunnel slowly. At 60s the same page read 1280x720. A measurement taken
 before `readyState` leaves `loading` measures nothing.
+---
+
+## 2026-09-02 — WIN-BASED XP (branch `feature/win-based-xp`)
+
+**The premise was half wrong, and the working half mattered.** The order
+was "players are not receiving XP; XP was tied to chat activity and chat
+activity XP is dead." Chat XP is indeed dead — `/api/*` is not mounted at
+all when `adventure_api_secret` is unset (`api.rs:61` returns `None`), so
+`POST /api/activity_xp` 404s and `grant_activity_xp` is unreachable; the
+Twitch-removal session is deleting the function outright.
+
+But `add_xp` has exactly two call sites, and the second one — the boss-win
+grant in `run_encounter_inner` — was working the whole time. Verified
+against LIVE production by reading the public overlay socket
+(`wss://adventure.lokati.net/ws`): stage 2, six characters, every one of
+them level 1 with `xp: 6` and `wins: 1`. Six is exactly `(5 + stage 1) ×
+catchup 1.0`. The mechanism was intact; the RATE was the defect. Chat XP
+at 4 XP / 180 s was worth up to 1,920 XP/day to a chatter against fight
+XP's 672/day, so losing it removed roughly three quarters of all income
+and left a counter that moves once per ten minutes.
+
+**Cadence, from the constants.** `ENCOUNTER_INTERVAL` 600 s → 144 boss
+encounters/day; `BASIC_ENCOUNTER_INTERVAL` 180 s → 480 filler fights,
+which pay no XP and no W/L by design. At the live `target_win_loss_ratio`
+of 2.0 that is 96 wins/day. Two facts make 2:1 the right anchor rather
+than an assumption: Controller B actively drives the party to it, and the
+stage walk is +1 per win / −2 per loss, so exactly 2:1 is NEUTRAL — which
+is also why the old `5 + stage` was a growth term that mostly did not
+grow.
+
+**The curve.** `xp_per_win = win_xp_flat + win_xp_level_pct ×
+xp_to_next_level(level)`. The flat term is fixed in XP so its value in
+levels decays against the quadratic level cost — that is the day-one
+burst. The level-scaled term is worth a constant number of levels forever
+— that is the floor. `levels/day → wins/day × win_xp_level_pct`, so 96 ×
+1/48 = exactly 2/day, and `win_xp_flat = 12` puts day one at exactly 10
+levels. Modelled at 2:1: 10, 5, 4, 3, 3, 3, 3, 3, 2, 3, 2, 3, 2, 3 —
+level 50 at day 14, settling on 2/day. At 1:1 the asymptote is 1.5/day,
+at 4:1 it is 2.4/day.
+
+**Linearity in win rate is automatic**, not a term anyone added: XP is
+paid per win, so daily XP is strictly proportional to the fraction of
+encounters won. RULING (owner, accepted as-is): the band that gives is
+inherently **0× to 1.5× of the 2:1 baseline**, because a win fraction
+cannot exceed 1.0 and 2:1 is 0.667. A 4:1 ratio is only 1.2× the income
+of 2:1. Recorded here explicitly so nobody later reads "linear in win
+rate" as "unbounded" and re-derives the feature around a ratio score.
+
+**Rampage.** A rampage makes `spawn_rampage_loop` the sole encounter
+driver at a 60 s floor with every encounter a boss fight — 10× the rate
+the curve is calibrated on. Guard is `win_xp_cooldown_secs`, a
+per-character 450 s floor between XP-paying wins, mirroring
+`ACTIVITY_XP_COOLDOWN`. At the scheduled 600 s cadence it never binds; a
+rampage is throttled to 1.33× normal instead of 10×, and Force Boss Fight
+(`FORCE_BOSS_MAX_PER_CYCLE`, up to 3× within a cycle) and `!nextencounter`
+fall under the same mechanism. Chosen over a hard "no XP during rampage"
+gate on owner ruling: a gate is exact but turns the most popular content
+in the game into an XP drought.
+
+**`permanent_rampage` was CONFIRMED OFF by the operator reading
+/admin/tunables**, not inferred. Recording how it was established, because
+the inference and the confirmation are not the same evidence: this session
+had no shell on the Debian box and argued from the announcement-feed batch
+pattern (batches of 2–3 fights flushed on the 5-minute timer, which is the
+600 s + 180 s cadence; a rampage would produce 5-fight batches minimum).
+The inference was right, but the operator's read of the admin page is what
+closes it. Note that `C:\PathofDust\adventure-live-tunables.toml` — the
+pre-cutover Windows config — still reads `permanent_rampage = true`, so
+anyone reaching for a local file to answer this question will get the
+wrong answer.
+
+**Order of operations on the grant**, written out because "multiplier" is
+overloaded on `LiveTunables`:
+1. `win_xp_flat + win_xp_level_pct × xp_to_next_level(level)` — level read
+   before `add_xp` can move it, so a win is always priced at the level
+   that earned it.
+2. `× catchup_multiplier` (1.0–3.0, per character, from PRE-fight group
+   levels; switchable via `win_xp_catchup_enabled`).
+3. `× win_xp_mult` — the uniform growth-rate dial (owner request), applied
+   last. It scales both shape terms equally, so it cannot change the decay
+   rate or the level the curve settles onto; it only moves the whole curve.
+4. `.round()`, floored at 0, then `add_xp`.
+`loot_mult` and `sand_mult` are NOT in this chain and never were — they
+scale dust/items and sand. Nothing multiplies XP except steps 2 and 3.
+Bounds on the multiplier are 0.0–100.0: 0 is the deliberate end-of-season
+progression freeze (an operator needs a kill switch, and hiding it behind
+an 0.01 floor would be worse than naming it — the zero this project has
+been bitten by twice is an OMITTED field defaulting to 0.0, which
+`default_win_xp_mult` prevents, not an operator typing one), and 100
+leaves four orders of magnitude above the practical 0.01 floor while still
+rejecting a fat-finger like 1e6.
+
+**No backfill** (owner ruling). Existing World 2 characters keep their 6
+XP and clear level 2 in about three wins at the new 13-XP-per-win rate. No
+levels are handed out that nobody earned.
+
+**Golden corpus untouched, and it did not need to be.** Corpus scenarios
+take `level` as a fixed INPUT to `simulate_battle` and capture combat
+output; the XP grant runs in `run_encounter_inner` after the sim returns
+and never enters a fixture. No regeneration.
+
+KNOWN INTERACTION TO WATCH (owner: accepted deliberately, not a defect) —
+"2 levels/day forever" means level is unbounded, and worlds reset
+seasonally so the real bound is season length, not the curve. The
+compounding term is the archetype bonus multiplier `1 + 0.10 × level`
+(`character.rs:129`), which is 15.8× at the level 148 the model reaches by
+day 60 at 2:1. Defensive stats cap at `defensive_stat_hard_cap` long
+before that; increased-damage and crit do not. The pacing controllers are
+expected to adapt. Worth a look if a season ever runs long.
+
+PATCH NOTE for the deploy session, ship verbatim:
+  "XP comes from winning fights now. Every boss fight your party wins
+   levels you up, and the more of them you win, the faster you level.
+   Filler fights and losses don't give XP. Chat XP is gone."
+
+FOUND — `manager.rs` still carries the pre-existing `unused_mut` on `let
+mut broken: Vec<BrokenItem>` noted in the cutover entry above. Still
+pre-existing, still not touched.
+
+### 2026-09-02, follow-up — the win-XP arithmetic tests
+
+Filling the gap the first pass reported: the grant had no test of its own,
+only the constants assertion inside the HTTP test. On a live-world
+progression change that was the wrong place to stop.
+
+**One structural change to make it testable, and it removes a real bug
+class rather than only exposing it.** The grant was five lines inline in
+`run_encounter_inner`, which is reachable only through a whole simulated
+encounter. It is now `Character::win_xp_for_win(level, catchup, &t)` —
+pure, so the arithmetic is assertable directly — plus
+`Character::award_win_xp(&mut self, catchup, &t)`, which reads the level
+and calls `add_xp`. That second method exists for exactly one reason: the
+price must come from the level that EARNED the win, and `add_xp` moves
+`self.level` in the same breath. Spelling those two steps out at the call
+site is how that becomes an off-by-one where a threshold-crossing win is
+billed at the new, more expensive level — silently, and worth more the
+bigger the grant. Inside one method the read provably precedes the
+mutation.
+
+**11 new tests**, 7 in `character::win_xp_tests` and 4 in
+`manager::win_xp_cooldown_tests`:
+- shipped-default grants at levels 1/10/25/50 (13, 18, 33, 80), each
+  checked against `xp_to_next_level` so a level-curve change fails here
+  too; plus the headline claim that three level-1 wins clear level 2.
+- the off-by-one, forced visible by turning `win_xp_mult` to 100 so one
+  win crosses ten levels — at the shipped 1/48 the adjacent levels round
+  to the same grant (L1 and L2 are both 13), so the shipped dials cannot
+  see this bug and the test has to leave them.
+- order of operations, with values picked so all three readings differ:
+  correct 32, rounding the sum early 33, multipliers on the level term
+  alone 11.
+- `win_xp_mult = 0` grants a clean zero, and NaN/negative floor to 0
+  rather than wrapping into a huge `u64` or hanging `add_xp`'s
+  subtract-and-loop.
+- catch-up at 1.0/2.0/3.0, plus a guard asserting the real
+  `catchup_multiplier` stays inside the 1.0–3.0 band the grant is
+  documented against.
+- the cooldown: two wins inside the window pay once, a win after it
+  elapses pays again, the window is per-character (a newcomer is not
+  locked out by someone else's recent win), 0 means no throttle, and 450 s
+  sits strictly between `RAMPAGE_MIN_INTERVAL` and `ENCOUNTER_INTERVAL`
+  with at least 120 s of slack.
+
+**Mutation-checked, because a test that cannot fail proves nothing.**
+Three deliberate defects were introduced and reverted: pricing after
+`add_xp` (caught by the off-by-one test), rounding the sum before
+multiplying (caught by 3 tests), and applying the multipliers to the
+level-scaled term alone (caught by 3 tests). All three were caught.
+
+Deliberately NOT asserted: that catch-up and `win_xp_mult` can be
+swapped. Multiplication commutes, so their relative order cannot produce
+a different number — the test says so explicitly instead, so nobody later
+"fixes" a non-problem. What is order-sensitive is where the multipliers
+sit relative to the SUM and where the single `round()` sits, and that is
+what is covered.
+
+The timing test uses a 10 ms cooldown against a 250 ms wait — a 25x
+margin, deliberately wide so it does not join the known
+flaky-under-parallel set.
+
+### 2026-09-02 — WIN-BASED XP deploy record (release `win-based-xp`)
+
+Merged `feature/win-based-xp` into master with `--no-ff` (merge `02da915`,
+8 files, no conflicts — the rebase onto `3835699` had already resolved
+them). Deployed to the Debian box by REFACTOR_PLAN §13B.
+
+| | |
+|---|---|
+| master before / after | `3835699` → `02da915` |
+| binary before / after | `4e5b8ca4…` → `154f13e6…` |
+| source archive | `cb2fd853…`, `git archive` of the merge commit |
+| suite (local / box) | 767 passed, 0 failed, 32 suites — identical both sides |
+| build on box | 2 m 37 s, exit 0 |
+| downtime | **0.21 s** |
+| NRestarts | 0 before, 0 after |
+
+Baseline arithmetic, checked rather than assumed: the box's own
+`test-deploy.log` for master alone read **755 / 31 suites**, matching
+§13B.1's recorded baseline. 755 + 12 (11 unit + 1 integration) = 767, and
+the extra suite is `admin_tunables_win_xp_http.rs`. My earlier local
+count of 770 was the same branch on the pre-removal master (758 + 12).
+
+**A misconfigured remote wasted a cycle.** `origin` pointed at the local
+`C:\PathofDust` clone rather than GitHub, so two "pushes" reported earlier
+in the session went nowhere and the local mirror's stale `master` made the
+Twitch-removal merge look unpushed. It was not: `3835699` was already
+GitHub's master. The rebase happened to be correct anyway because it was
+done against the commit hash, not against `origin/master`. Corrected by
+the owner; the stale `feature/win-based-xp` ref left behind at `cac87f4`
+in `C:\PathofDust` was deleted (ref only — that repo's working tree was
+byte-identical before and after, 13 pre-existing dirty entries unchanged).
+
+VERIFIED BY EFFECT, not by inference. §13B.5's seven checks all passed
+(note check 3's expected N is **9**, not the 67 the table still records —
+that is a World-1 figure and predates the World 2 reset). Then the five
+dials rendered on live `/admin/tunables` with their shipped defaults and
+full bounds, and four out-of-range POSTs (`win_xp_mult=101`,
+`win_xp_flat=-1`, `win_xp_level_pct=1.5`, `win_xp_cooldown_secs=3601`)
+each returned 400, named the field, said NOT SAVED, and left the live
+tunables file byte-identical. Those POSTs were built by scraping the
+rendered form's CURRENT values and perturbing one field, so an unexpected
+accept could not have moved anything else.
+
+**The real proof — one live boss win, 15:35:55, all 9 characters
+participating, pre-fight levels [1,1,1,2,2,2,2,2,2]:**
+
+| pre-fight level | XP granted | predicted |
+|---|---|---|
+| 1 (gorshie, jachiny, zolaries) | **38** | 38 |
+| 2 (six others) | **26** | 26 |
+
+Exact on both. Stage advanced 1 → 2 on that win.
+
+FINDING — **the design table was computed at catch-up 1.0, and the live
+roster is not at 1.0.** `catchup_multiplier` returns 1.0 only when every
+level in the fight is equal. The moment the roster is mixed, everyone at
+or below the median gets at least 2×, because the `l <= median` branch
+floors the bonus at 100%. Today that is 2× for the six level-2 characters
+and 3× for the three level-1s — which is exactly why the observed grants
+were 26 and 38 rather than the 13 the no-catch-up model predicts.
+
+This is correct behaviour, not a defect: catch-up on XP predates this
+work, and the owner ruled `win_xp_catchup_enabled` ships ON. But it means
+the approved curve understates real progression whenever the roster is
+uneven, which for a 9-player world with staggered joins is most of the
+time. Modelled at 2:1:
+
+| catch-up | day 1 | day 7 | day 14 |
+|---|---|---|---|
+| 1.0× (the approved table) | L11 (+10) | +3/day | L50 |
+| 2.0× (typical mixed roster) | L16 (+15) | +5/day | L81 |
+| 3.0× (the trailing player) | L20 (+19) | +7/day | L110 |
+
+So the "10 levels on day one, settling to 2/day" shape holds in form but
+runs roughly 1.5–2× hot in practice. Nothing needs changing today —
+levelling being too fast for a week is the recoverable direction, and the
+group converges toward uniform levels which pulls catch-up back to 1.0.
+If the owner wants the table honoured literally, the dial is
+`win_xp_mult` at ~0.5, NOT re-tuning `win_xp_flat`/`win_xp_level_pct`,
+because the multiplier is the one that scales without touching the shape.
+Flagging rather than acting: it is a calibration judgement, not a bug.
+
+FOUND — the `win_xp_*` keys are **absent from
+`/var/lib/pathofdust/adventure-live-tunables.toml`** until the first
+successful save of the tunables form. The running process holds the
+shipped defaults via `#[serde(default)]` on `LiveTunables`, and the admin
+page renders them correctly, so behaviour is right — but a future session
+grepping that file for `win_xp_flat` will find nothing and may conclude
+the feature did not deploy. It did; the file simply predates the fields.
+
+Evidence kept on the box: `/root/watch_win.log` and
+`/root/win_evidence.json` (the before/after character snapshot for the
+verified win), `/root/patch-notes.pre-win-xp.json` and
+`/root/tunables.pre-reject-test.toml` (rollback copies), and the rollback
+slot at `/var/backups/pathofdust/deploy-pre-win-based-xp/`.
+
+Patch notes: one new entry at the top of `patch-notes.json`, "XP comes
+from winning fights now", six items, installed before the swap and
+confirmed live. The rampage throttle is called a nerf in plain words, per
+the honest-patch-notes rule.
+
+### 2026-09-02 — RULING on the hot XP rate: leave it, and the dial if it persists
+
+Owner ruling, recorded so the reasoning survives the session that produced
+it. The deploy record above measured live grants running 1.5–2× the
+approved curve table, because that table was computed at
+`catchup_multiplier` = 1.0 and a mixed roster never is.
+
+**No change made. Do not touch `win_xp_mult` today.** World 2 is a day old
+with nine players clustered at levels 1–2, which is exactly the condition
+that maximises catch-up: the spread between min and median is at its
+widest relative to the level costs. It compresses on its own as the roster
+converges, so today's 1.5–2× is the extreme of the range, not the steady
+state. Too fast is also the recoverable direction, and fast early
+progression is what was asked for. **Revisit in 24–48 hours against real
+cumulative-level data, not against a projection.**
+
+**If it is STILL running hot once levels converge, the dial is
+`win_xp_mult` — not `win_xp_flat`, and not `win_xp_level_pct`.** This is
+the part worth keeping, because the intuitive move is the wrong one.
+
+The two shape terms do different jobs and changing either bends the curve:
+
+* `win_xp_flat` is fixed in XP, so its worth *in levels* decays against
+  the quadratic level cost. It sets the day-one burst and almost nothing
+  else. Cutting it flattens the early game specifically and leaves the
+  late rate untouched.
+* `win_xp_level_pct` is a fraction of the level's own cost, so it is worth
+  a constant number of levels forever. It sets the floor the rate settles
+  onto. Cutting it lowers the asymptote and barely moves day one.
+
+Reach for either and you change the SHAPE the owner approved — which
+level range gets slower — while trying to change only the overall speed.
+`win_xp_mult` multiplies both terms equally, so it scales the whole curve
+and provably cannot alter the decay rate or the level it settles onto.
+That is the entire reason it exists as a multiplier rather than a third
+additive term, and `character::win_xp_tests::
+the_multiplier_scales_without_changing_the_shape_of_the_curve` asserts
+exactly that property at levels 1/10/25/50/100.
+
+So: to halve progression, `win_xp_mult` 1.0 → 0.5. One field, no reshaping,
+and the approved curve comes back intact at a different scale.
+
+Turning `win_xp_catchup_enabled` off is NOT the equivalent lever and
+should not be reached for as one. It would remove the trailing-player
+bonus entirely rather than scaling the curve, which is a different
+mechanic with a different purpose (it predates this work and was ruled to
+ship ON), and it would slow the newest players most — the opposite of
+what catch-up is for.
+
+### 2026-09-02 — CRAFT CONFIRMATION FIX deploy record (template-only)
+
+Merged `9d11733` from `feature/player-facing-batch` into master by HASH,
+not by branch name, per the order. Verified first that its sole parent is
+`3835699` and that nothing else rides along.
+
+**The order's premise about the branch was already stale, in the harmless
+direction:** `9d11733` IS the branch tip — there are no commits after it.
+Merging the hash and merging the tip were the same operation today.
+Merging by hash anyway was still correct: it pins the content against
+someone pushing to that branch mid-deploy.
+
+| | |
+|---|---|
+| master before / after | `1b6595b` → `30beba2` (merge) → `642504d` (docs) |
+| merge conflicts | one, `WIKI_IMPACT.md`, keep-both chronological |
+| suite (local / box) | **768 passed, 0 failed, 33 suites**, identical both sides |
+| arithmetic | 767 (post-XP master) + 1 = 768. The commit's own "756" was 755 + 1 against the pre-XP master |
+| build on box | 2 m 26 s, exit 0 |
+
+**THE BINARY DID NOT CHANGE, AND THAT IS CORRECT.** Candidate hash came
+out bit-identical to live: `154f13e6…` both sides. `git diff` over
+`game/src`, `src`, `Cargo.toml` and `Cargo.lock` between the deployed
+commit and this one is EMPTY — the fix is entirely `templates/base.html`
+plus two test files and docs. The commit says so itself: "No Rust broke."
+
+This matters procedurally, because **`deploy-linux.sh` aborts when the
+two hashes match** ("nothing to deploy, you most likely built the wrong
+tree"). That guard is right for the case it was written for and wrong for
+this one. §13A step 4 already names the category — it makes the binary
+swap conditional on the deploy "changing the game binary's behavior (not a
+source/docs-only or **template-hot-reload-only** change)" — but §13B has
+no written procedure for that category, so a session reaching for the
+script gets an abort and no guidance.
+
+What was actually done, which is the swap step minus the binary:
+`cp -r --preserve=mode,timestamps` of `templates/`, `wiki/` and
+`public_adventure_overlay/` into `/var/lib/pathofdust/`, then
+`chown -R pathofdust:pathofdust`. Took **0.10 s**, and there is **no
+downtime at all** — no `systemctl stop`, no restart, `NRestarts` still 0.
+Templates hot-reload: `adventure_web/render.rs` holds one process-wide
+minijinja `AutoReloader` watching `TEMPLATE_DIR`, and `acquire_env()`
+re-checks mtime on every render, so the next page render picks up the new
+file. That is the property `live_reload_tests::
+editing_a_template_takes_effect_without_a_rebuild` exists to guarantee.
+
+Backups taken before touching anything: `pathofdust-backup.service` ran
+green and its archive `pod-backup-20260902-160501.tar.gz` verifies against
+its own `.sha256` and contains `adventure-characters.json`,
+`adventure-world.json` and `adventure-accounts.json`. A template rollback
+slot was added at
+`/var/backups/pathofdust/deploy-pre-craft-confirm/` (the whole previous
+`templates/`, the previous `patch-notes.json`, and the pre-change
+`base.html` sha `f1f23222…`).
+
+VERIFIED BY EFFECT. On the live `/inventory` page fetched as a logged-in
+player (the craft card lives there — `/craft` is POST-only and answers
+405), **five of the six buttons render `data-confirm`**: Krangle,
+Annulment Orb, Chancing, Scour, Hideout Warrior. On the box,
+`templates/base.html` has exactly one `document.addEventListener('submit'
+…)` and, once `//` comments are stripped, **zero** occurrences of the old
+`querySelector('.craft-actions')?.closest('form')` binding — the one raw
+match is line 960, the comment that quotes the old binding verbatim so it
+is never reintroduced. Same on the HTML the server actually served. No
+listener is bound to anything but `document` for submit.
+
+**Divinity could NOT be verified on a live page, and this is stated rather
+than glossed.** Its row is gated on holding a Unique Shard token
+(`adventure_web.rs:6231`, `craft_token_count(CraftAction::UniqueShard) >
+0`) and **no character in World 2 currently holds one** — checked all
+nine. So the button cannot render anywhere on live today. Its coverage
+rests on `craft_confirm_ui_http.rs`, which renders it on a synthetic
+character and asserts the attribute, plus the structural argument that the
+delegated listener keys off the SUBMITTER's own `data-confirm`, so it
+cannot miss a button it never had to find. That is genuinely weaker
+evidence than the other five have, and it is the one action that has never
+confirmed once in its life. Re-check the moment any player earns a Unique
+Shard.
+
+Health after: active, NRestarts 0, binary unchanged as intended,
+`/characters` 200/76,291 B, `/passives` 200/90,170 B, `/inventory`
+200/100,412 B, anon `/admin/tunables` 404, anon `POST
+/api/commands/join` 404, zero panics, zero template errors, stage 2, two
+fights resolved since the refresh. Check 3 in its new equality form: 9
+logged at boot, 9 entries in the file, equal.
+
+FOUND — §13B has no procedure for a template-only or asset-only deploy,
+even though §13A step 4 names the category. Anyone who follows §13B
+literally for such a change gets an abort from `deploy-linux.sh` and no
+documented next step. Not fixed here; it is a procedure change and belongs
+to whoever owns §13B, not to a deploy session improvising mid-release.
+
+---
 
 ## 2026-09-02 — CRAFTING-COST-CURVE (feature/crafting-cost-curve)
 

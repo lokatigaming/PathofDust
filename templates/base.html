@@ -966,31 +966,47 @@
   })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
   try { (function() {
-    // Confirmation prompt for Krangle & Scour (see action_btn's
-    // data-confirm attribute) - both are irreversible, so this shows
-    // exactly which item is about to be affected before the form
-    // actually submits, instead of a silent one-click commit.
-    var craftForm = document.querySelector('.craft-actions')?.closest('form');
-    if (craftForm) {
-      craftForm.addEventListener('submit', function(e) {
-        var btn = e.submitter;
-        if (!btn || !btn.hasAttribute('data-confirm')) return;
-        // A whole-bag action (Divinity) supplies its own message: the
-        // default text below names the item_a selection, which that
-        // action ignores entirely, so it would confirm the wrong scope.
-        var ownMsg = btn.getAttribute('data-confirm-msg');
-        if (ownMsg) {
-          if (!window.confirm(ownMsg)) e.preventDefault();
-          return;
-        }
-        var itemSelect = craftForm.querySelector('select[name="item_a"]');
-        var itemLabel = itemSelect && itemSelect.selectedOptions.length ? itemSelect.selectedOptions[0].textContent : 'this item';
-        var actionLabel = btn.getAttribute('data-label') || btn.textContent;
-        if (!window.confirm(actionLabel + ' ' + itemLabel + '? This cannot be undone.')) {
-          e.preventDefault();
-        }
-      });
-    }
+    // Confirmation prompt for every irreversible submit button (see
+    // action_btn's data-confirm attribute) - these commit permanently,
+    // so this shows exactly what is about to be affected before the
+    // form actually submits, instead of a silent one-click commit.
+    //
+    // Delegated on `document`, NOT bound to a particular form. It used
+    // to do document.querySelector('.craft-actions').closest('form'),
+    // i.e. the FIRST form on the page containing a .craft-actions row.
+    // On 2026-08-19 the Divine Dust recipe - its own standalone <form>
+    // with its own .craft-actions div - was inserted ABOVE the main
+    // craft form, so from that day the listener attached to a form with
+    // no data-confirm button in it and every confirmation on the page
+    // went silent for two weeks: Krangle, Scour, Annulment, Chancing,
+    // Hideout Warrior, and Divinity, which was added after the break
+    // and so never confirmed once in its life. Submit events bubble, so
+    // listening at the document and keying off the submitter's own
+    // attribute makes this independent of how many forms exist, where
+    // they sit, and what order they render in. A form inserted anywhere
+    // cannot steal the binding, because there is no first-match binding
+    // left to steal - do not "fix" this back into a per-form bind.
+    document.addEventListener('submit', function(e) {
+      var btn = e.submitter;
+      if (!btn || !btn.hasAttribute('data-confirm')) return;
+      // A whole-bag action (Divinity) supplies its own message: the
+      // default text below names the item_a selection, which that
+      // action ignores entirely, so it would confirm the wrong scope.
+      var ownMsg = btn.getAttribute('data-confirm-msg');
+      if (ownMsg) {
+        if (!window.confirm(ownMsg)) e.preventDefault();
+        return;
+      }
+      // Read the selection out of the submitting form itself, so the
+      // named item is always the one that form is about to act on.
+      var form = e.target;
+      var itemSelect = form && form.querySelector ? form.querySelector('select[name="item_a"]') : null;
+      var itemLabel = itemSelect && itemSelect.selectedOptions.length ? itemSelect.selectedOptions[0].textContent : 'this item';
+      var actionLabel = btn.getAttribute('data-label') || btn.textContent;
+      if (!window.confirm(actionLabel + ' ' + itemLabel + '? This cannot be undone.')) {
+        e.preventDefault();
+      }
+    });
   })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
   try { (function() {
