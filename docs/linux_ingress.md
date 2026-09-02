@@ -11,13 +11,33 @@ unreachable ("No public ingress"). This document adds the only public entry poin
 Throughout, `<SERVER-IP>` is the Debian box's address (kept in `C:\dust-work\.server-ip`, not
 in this repo) and `<TUNNEL-UUID>` is the `pod-staging` tunnel id. Neither is committed.
 
-## Model: locally-managed, matching Windows production
+## Model: locally-managed — and it does NOT match Windows production
 
-This is a **locally-managed** tunnel — CLI plus a config file on the origin — the same model as
-the Windows production tunnel (`adventure-dashboard`, credentials under
-`C:\Users\Administrator\.cloudflared\`). No Zero Trust dashboard configuration, no
-remotely-managed tunnel, no connector token. Ingress rules live in the config file on the box
-and nowhere else, so the file below is the whole routing truth.
+This is a **locally-managed** tunnel — CLI plus a config file on the origin. No Zero Trust
+dashboard configuration, no connector token. Ingress rules live in the config file on the box and
+nowhere else, so the file below is the whole routing truth *for this box*.
+
+> **Correction (2026-09-02, CUTOVER-EXECUTE).** An earlier version of this section said the
+> Windows production tunnel used the same model. **It does not.** `adventure-dashboard`
+> (`8f2d0a82-6c4c-4f48-bebf-ab27b41731de`) is **remotely managed**: its Windows service runs
+>
+> ```
+> "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel run --token-file C:\ProgramData\cloudflared\token
+> ```
+>
+> so its ingress is configured **in the Cloudflare dashboard**, not on the box. The
+> `C:\Users\Administrator\.cloudflared\config.yml` that this section pointed at as evidence *does*
+> exist and *does* contain an `adventure.lokati.net → http://localhost:4005` rule — but the
+> service never reads it. **It is vestigial.** Editing it changes nothing, and mistaking it for
+> the live routing truth is the trap this correction exists to prevent.
+>
+> Practical consequences, worth knowing before you need them at 3am:
+> - **Rollback to Windows is more durable than a file-based model would be.** There is no local
+>   file whose loss, edit or permissions could break the fallback ingress.
+> - **Do not try to fix a Windows routing problem by editing that `config.yml`.** Change it in the
+>   Cloudflare dashboard.
+> - The two boxes are genuinely asymmetric. This document's "edit the file, restart the service"
+>   workflow is correct **here** and does not transfer to Windows.
 
 The two tunnels are independent: separate ids, separate credentials, separate hostnames.
 `cloudflared tunnel list` on the staging box shows production's tunnel because both were

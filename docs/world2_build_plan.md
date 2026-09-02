@@ -376,3 +376,8 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
   Consequence: a deploy that reinstalls the checked-in assets restores 9 sprites and a restore-from-backup restores 14, so "the assets are in git" is true of the directory and false of its contents. Any cutover, rebuild, or fresh instance must take this directory from a **backup**, not from a checkout, or characters silently fall back to their hash-default sprite with no error anywhere. Proven on staging: see `docs/linux_deploy.md`.
 
   Not acted on here — player uploads were deliberately **not** added to git in that session.
+- **The Linux tunnel is still named `pod-staging` while serving production** — recorded 2026-09-02 at cutover, **cosmetic, deliberately not fixed then.** `dbe011f9-a8df-4cbf-811c-e7a3d773b9c1` was created as the staging tunnel and now carries `adventure.lokati.net`. Nothing functional depends on the name — DNS points at the UUID, and the ingress rule is matched by hostname — so the cutover session left it alone rather than improvise a rename during a live production move.
+
+  Why it is worth fixing eventually: the name is what a human reads in `cloudflared tunnel list`, in the Cloudflare dashboard, and in any incident. A tunnel labelled `pod-staging` in the row that is actually serving players is a misdirection at exactly the moment nobody can afford one — and the rollback target beside it is honestly named `adventure-dashboard`, which makes the wrong one look like the real one.
+
+  Renaming a tunnel does not move its DNS routes or its credentials, so this is low-risk, but it is not zero-risk and it should not be done during an incident. Schedule it deliberately, when production is quiet and a rollback is not in flight.

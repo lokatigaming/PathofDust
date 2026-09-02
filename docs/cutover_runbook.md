@@ -72,6 +72,30 @@ receiving requests for that hostname the moment the record moves. That is delibe
 untouched, still-running Windows tunnel is what makes rollback a single record edit.** Do not
 stop it, do not edit its config, do not delete its rule.
 
+**Where the Windows tunnel's ingress rule actually lives — know this before you need it.** The
+Windows tunnel `adventure-dashboard` (`8f2d0a82-6c4c-4f48-bebf-ab27b41731de`) is
+**remotely managed**. Its service runs
+
+```
+"C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel run --token-file C:\ProgramData\cloudflared\token
+```
+
+so its ingress is configured **in the Cloudflare dashboard**, not from any file on the box.
+`C:\Users\Administrator\.cloudflared\config.yml` *does* contain an `adventure.lokati.net → http://localhost:4005`
+rule and is **vestigial** — the service never reads it. Editing it changes nothing; finding it
+and concluding "that is the live config" is the trap.
+
+This makes rollback **more** durable, not less: there is no local file whose loss or edit could
+break the fallback path, and nothing this procedure does on the Windows box can disturb the rule.
+The Linux tunnel `pod-staging` (`dbe011f9-a8df-4cbf-811c-e7a3d773b9c1`) is the opposite — locally
+managed, `--config /etc/cloudflared/config.yml`, which is why §7.2 edits a file there and nothing
+here.
+
+**Both boxes hold a zone-authorised `cert.pem`** (`C:\Users\Administrator\.cloudflared\cert.pem`
+and `/root/.cloudflared/cert.pem`), each proven by `cloudflared tunnel list` returning *both*
+tunnels. So either box can move the DNS record — but **run a rollback from Windows**: it must not
+depend on the box you are rolling back away from.
+
 **2.3 The bot's link to the game is not local, and it is not optional.**
 `ADVENTURE_API_BASE_URL` is **absent** from `C:\PathofDust\.env`, so the bot uses its default
 `http://127.0.0.1:4005`. The moment the game leaves Windows, that address is dead and **all 16
@@ -243,9 +267,23 @@ Disable-ScheduledTask -TaskName GameProcess-Watchdog
 Disable-ScheduledTask -TaskName GameProcess
 Disable-ScheduledTask -TaskName GameDataBackup
 Get-ScheduledTask -TaskName GameProcess, GameProcess-Watchdog, GameDataBackup |
-  Select-Object TaskName, State
+  Select-Object TaskName, @{n='Enabled';e={$_.Settings.Enabled}}, State
 ```
-Expect: `State = Disabled` for all three.
+Expect: **`Enabled = False` for all three.**
+
+**Do not assert on `State`.** `GameProcess` is still *running* at this point, and a running
+instance reports `State = Running` no matter what the task's own enabled flag says — only
+`GameProcess-Watchdog` and `GameDataBackup`, which are idle, report `State = Disabled`. Verified
+at cutover 2026-09-02: all three read `Settings.Enabled = False` while `GameProcess` read
+`State = Running`. An earlier version of this step said "expect `State = Disabled` for all three",
+which makes a correctly-disabled `GameProcess` look like a failed Step 0 and invites someone to
+run it again or to conclude the elevated prompt did not take. **`Settings.Enabled` is the field
+that answers the question; `State` answers a different one.**
+
+Note also that the individual trigger objects still report `Enabled = True`
+(`Triggers[Logon=True, Boot=True]`). That is expected and harmless: a task whose
+`Settings.Enabled` is `False` fires none of its triggers regardless of what each trigger's own
+flag says.
 
 **Disabling a task does not stop a running instance.** The game keeps serving. Confirm it:
 ```powershell
@@ -490,17 +528,39 @@ curl -s -o /dev/null -w "case   %{http_code} (must be 404)\n" \
 python3 -c "import json;print('stage', json.load(open('/var/lib/pathofdust/adventure-world.json'))['stage'])"
 ```
 Expect: the journal's character count **equal to production's**, not smaller · `root 200` ·
-`chars 200` with a large body · `sprite 200 687999B` · `case 404` · the world stage matching
-production's last value.
+`sprite 200 687999B` · `case 404` · the world stage matching production's last value.
 
 **The case check is not padding.** ext4 is case-sensitive where NTFS is not. If the lowercase
 variant also returns 200, you are not on the filesystem you think you are and the sprite result
 means nothing.
 
-**Anonymous `/` is worthless as a health probe** — it returns a constant 72,025-byte landing page
-that renders identically whether or not any data loaded. Use `/characters` and the journal line.
+**No anonymous page proves the data loaded — `/characters` included.** Measured on both boxes at
+cutover, 2026-09-02:
 
-**Now run the §7.3 operator-login gate.** Do not proceed past a failure.
+| anonymous fetch | Windows (public) | Linux (loopback) |
+|---|---|---|
+| `/` | 200, 72,025 B | 200, 72,025 B |
+| `/characters` | 200, **72,025 B** | 200, **72,025 B** |
+| `/passives` | — | 200, **72,025 B** |
+
+`/characters` requires a session; logged out it serves the *same* constant landing page as `/`.
+An earlier version of this step called anonymous `/` worthless and then sent you to
+`/characters` instead — but the two are byte-identical, so `/characters` is worthless in exactly
+the same way and for exactly the same reason. The `94,002 B` figure recorded for `/characters` in
+[`docs/linux_deploy.md`](linux_deploy.md) was an **authenticated** fetch; that same block's `/`
+reads 126,480 B, which is the logged-in dashboard, not the 72,025-byte landing page.
+
+**The three checks that actually discriminate**, in order of strength:
+
+1. **The journal line** — `loaded 67 characters from adventure-characters.json`. It is emitted by
+   the load itself, so it cannot be produced by a box that loaded nothing.
+2. **The world stage** — the `python3` read above, compared against the value recorded from
+   production in §5. A stale or empty state file shows a different number.
+3. **An authenticated `/characters` fetch** — run it as part of the §7.3 operator gate below,
+   which has to create a session anyway. Compare *that* byte count, never the anonymous one.
+
+**Now run the §7.3 operator-login gate**, and take the authenticated `/characters` byte count
+while you are logged in — that number is the one worth recording. Do not proceed past a failure.
 
 **8.6 — FLIP THE RECORD. This is the point of no return.**
 
@@ -522,8 +582,15 @@ makes §10.2 a seconds-long rollback.
 ```powershell
 1..10 | % { curl.exe -s -o NUL -w "%{http_code} " https://adventure.lokati.net/characters; Start-Sleep 2 }
 ```
-Expect: possibly a 502 or two, then steady **200**. Confirm the body is Linux's by comparing its
-size to §8.5's `chars` byte count — not by status code, which both boxes return as 200.
+Expect: possibly a 502 or two, then steady **200**.
+
+**A 200 here is already proof that Linux is serving.** Do not compare byte counts: §8.2 stopped
+the Windows game *before* the flip, so nothing is listening on Windows' port 4005 and its tunnel
+has no origin to reach. Windows can now only produce a 502 through its own tunnel — it cannot
+produce a 200. An earlier version of this step told you to compare the body size against §8.5's
+`chars` count; that comparison never worked, because anonymous `/characters` is the same
+72,025-byte landing page on both boxes (see §8.5). **The stopped origin is the discriminator, and
+it is a stronger one than any byte count.**
 
 If it is still serving Windows content after 60 seconds, the record did not move. Check that you
 edited the proxied `adventure` record, on the right zone, and that the Linux tunnel is `active`.
@@ -623,28 +690,123 @@ game — **`0` is not the healthy value here**; a non-running failure code means
 
 ### 10.2 Rollback after §8.6, before any fight resolves on Linux — seconds
 
-Flip the record back. The Windows tunnel is still running with its rule intact, which is the
-entire reason this is fast:
+> **ORDER MATTERS: bring Windows up FIRST, flip the record SECOND.**
+> A flip to a stopped origin is not a rollback — it is a self-inflicted outage. Windows' game is
+> stopped at this point (§8.2) and its tunnel has no origin to reach, so flipping first parks
+> every player on a Cloudflare 502 for as long as the Windows start takes. Start it, prove it
+> answers on loopback, *then* move the record. Nobody sees the gap that way.
+
+**Step 1 — stop Linux, so the two boxes cannot both be writing.** *(Linux)*
 ```sh
-cloudflared tunnel route dns --overwrite-dns <WINDOWS-TUNNEL-NAME> adventure.lokati.net
+systemctl stop pathofdust
+```
+
+**Step 2 — bring Windows back up and PROVE it answers.** *(Windows, elevated)*
+```powershell
+Enable-ScheduledTask -TaskName GameProcess
+Enable-ScheduledTask -TaskName GameProcess-Watchdog
+Enable-ScheduledTask -TaskName GameDataBackup
+Start-ScheduledTask  -TaskName GameProcess
+do { Start-Sleep -Milliseconds 500 }
+  until (Get-NetTCPConnection -State Listen -LocalPort 4005 -ErrorAction SilentlyContinue)
+curl.exe -s -o NUL -w "loopback %{http_code}`n" http://127.0.0.1:4005/
+```
+Expect `loopback 200`. **Do not go to step 3 until you see it.** Check on loopback, not on the
+public hostname — the hostname still points at Linux at this moment, so a 200 there would be
+Linux answering and would tell you nothing about Windows.
+
+**Step 3 — only now, flip the record back.** The Windows tunnel is still running with its rule
+intact, which is the entire reason this is fast:
+```sh
+cloudflared tunnel route dns --overwrite-dns adventure-dashboard adventure.lokati.net
 ```
 or — preferably, under pressure — edit the proxied `adventure` record in the Cloudflare dashboard
-back to the Windows tunnel. Then bring Windows back up per §10.1, and revert §9.2 by removing the
-`ADVENTURE_API_BASE_URL` line from `.env` and restarting the bot per §9.3.
+back to the Windows tunnel. Run it **from the Windows box**, which holds a zone-authorised
+`cert.pem` at `C:\Users\Administrator\.cloudflared\cert.pem`: a rollback must not depend on the
+box you are rolling back away from. Confirm with
+`curl.exe -s -o NUL -w "%{http_code}\n" https://adventure.lokati.net/` → `200`.
 
-**Time: seconds for the record, under a minute for the game. Lost: the in-flight fight, plus any
+**Step 4 — revert the bot repoint.** Remove the `ADVENTURE_API_BASE_URL` line from
+`C:\PathofDust\.env` and restart the bot per §9.3, so it dials loopback again.
+
+**Time: under a minute for the game, seconds for the record. Lost: the in-flight fight, plus any
 fight Linux resolved while it was live.** Windows' state is exactly as it was at §8.2 — it has
-been stopped, not running, so it has not forked.
+been stopped, not running, so it has not forked. **If even one fight resolved on Linux, this is
+no longer the right section — go to §10.3 and copy the state back first.**
 
 ### 10.3 Rollback after Linux has been live for a while — costly, and the cost is players' progress
 
-Same commands as §10.2. The *mechanism* has not got slower. What has changed is what it discards:
-**every fight, level, drop, crafted item and stage advance that happened on Linux is gone.**
-Windows resumes from the moment of §8.2 as if the intervening time never happened. Players who
-earned something in that window lose it, visibly, and there is no way to merge the two histories.
+> **The moment one fight resolves on Linux, Windows' state is stale, and §10.2's steps alone
+> silently throw that progress away.** §10.2 is a pure ingress reversal: it never touches data,
+> so it resumes Windows from its frozen §8.2 snapshot. That is correct while the snapshot is
+> still current and *wrong* the moment it is not. **A late rollback is a state copy-back followed
+> by §10.2, in that order.**
+
+**Which direction is authoritative?** Whichever box has been *running*. After the flip that is
+Linux, and it stays Linux until you stop it. The only exception is the one case a rollback
+actually exists for — Linux's data is corrupt or wrong — and then you do **not** copy back; you
+accept the loss, or you restore from a backup ([`docs/linux_backups.md`](linux_backups.md)).
+Copying corrupt state back onto Windows converts a recoverable incident into an unrecoverable
+one. **Decide which of those two you are in before you type anything.**
+
+### 10.3a The copy-back — Linux → Windows
+
+This is §8.3/§8.4 run backwards, with the same ordering rule: **stop first, then copy.**
+
+**Step 1 — stop Linux and freeze its state.** *(Linux)*
+```sh
+systemctl stop pathofdust
+cd /var/lib/pathofdust
+tar czf /root/pod-rollback-state.tar.gz \
+  adventure-*.json adventure-*.toml patch-notes.json announcements.json \
+  bot-published-constants.json adventure-fights-summary \
+  $( [ -d adventure-fights-pinned ] && echo adventure-fights-pinned )
+sha256sum /root/pod-rollback-state.tar.gz
+```
+The tar list is deliberately the **same set** §8.3 carried across, including every
+`adventure-*marker.json` and the `-seq.json` files, which `adventure-*.json` covers. The churning
+tiers (`-coarse`, `-detail`, `-bundle`) are skipped in this direction too, for the same reason as
+§1: they self-replace within ten minutes.
+
+**Step 2 — pull it to Windows and verify the hash matches before extracting.** *(Windows)*
+```powershell
+scp root@<SERVER-IP>:/root/pod-rollback-state.tar.gz C:\dust-work\
+(Get-FileHash C:\dust-work\pod-rollback-state.tar.gz -Algorithm SHA256).Hash.ToLower()
+```
+Compare against the `sha256sum` from step 1. **Do not extract on a mismatch.**
+
+**Step 3 — move the Windows state aside; never delete it.** *(Windows)*
+```powershell
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+New-Item -ItemType Directory "C:\pod-precutover-$stamp" | Out-Null
+Get-ChildItem C:\PathofDust -File -Filter 'adventure-*' | Move-Item -Destination "C:\pod-precutover-$stamp"
+Move-Item C:\PathofDust\adventure-fights-summary "C:\pod-precutover-$stamp" -ErrorAction SilentlyContinue
+```
+The §8.2 snapshot is the only clean pre-cutover state that exists. Keep it until the rollback is
+verified — it is what you fall back to if the Linux copy turns out to be the corrupt one.
+
+**Step 4 — extract, then resume §10.2 from its step 2.** Use `tar` (Git Bash or Windows' bundled
+`tar.exe`) with POSIX paths — `/c/PathofDust/...`, never `C:\`-style, which POSIX tools read as
+`host:path`:
+```
+tar xzf /c/dust-work/pod-rollback-state.tar.gz -C /c/PathofDust
+```
+There is no `chown` step in this direction; NTFS inherits ACLs from the parent directory and the
+Windows game runs as the same user that owns `C:\PathofDust`.
+
+**Then continue at §10.2 step 2** — enable and start `GameProcess`, prove loopback 200, flip the
+record, revert the bot repoint.
+
+### What a late rollback costs, with and without the copy-back
+
+| | Progress lost |
+|---|---|
+| **With** the copy-back | the in-flight fight at the Linux stop, and roughly ten minutes of detailed replay from the churning tiers. Nothing a player owns. |
+| **Without** it (§10.2's steps alone) | **every fight, level, drop, crafted item and stage advance that happened on Linux.** Windows resumes from §8.2 as if the intervening time never happened. Players who earned something in that window lose it, visibly, and there is no way to merge the two histories afterwards. |
 
 At the current cadence — roughly one encounter every 3.5 minutes — an hour on Linux is about 17
-encounters of progress across the whole party.
+encounters of progress across the whole party. **Skipping the copy-back is not a shortcut; it is
+a decision to discard that.**
 
 **Rolling back at this stage is a decision about players' work, not about infrastructure.** Do it
 for data corruption, or for a defect that is actively destroying progress. Do not do it for
@@ -658,9 +820,14 @@ keep the progress.**
 
 ### What a rollback never does
 
-A rollback restores the **binary and the ingress**, never the data. Data damage is a **restore**
-([`docs/linux_backups.md`](linux_backups.md)) — a different, slower, more deliberate operation.
-Never reach for a rollback to fix corrupted state.
+A rollback restores the **binary and the ingress**. It does not *repair* data. Data damage is a
+**restore** ([`docs/linux_backups.md`](linux_backups.md)) — a different, slower, more deliberate
+operation. Never reach for a rollback to fix corrupted state.
+
+The one thing a rollback **does** have to do with data is **carry it back** — §10.3a — and that
+is movement, not repair. The distinction is the whole decision: a late rollback copies good state
+backwards so it is not lost, and a restore replaces bad state with an older good copy. Doing the
+first when you needed the second spreads the corruption onto the box you were falling back to.
 
 ---
 

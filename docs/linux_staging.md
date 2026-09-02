@@ -141,7 +141,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pathofdust
 
-# TWITCH_CLIENT_ID/SECRET are REQUIRED: main.rs aborts startup without them.
+# TWITCH_CLIENT_ID/SECRET are OPTIONAL since 0fdf2e5 (2026-08-31): absent, the
+# Twitch login is simply not mounted and startup proceeds. An earlier version of
+# this comment said they were REQUIRED and that main.rs aborts without them -
+# that was true when this unit was written and is no longer true. Corrected
+# 2026-09-02 (CUTOVER-EXECUTE).
 # These are deliberate non-secret placeholders - no production credential is on
 # this box. They make the dashboard's Twitch login button non-functional and
 # nothing else; local /account/register is the identity path on staging.
