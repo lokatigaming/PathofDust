@@ -997,3 +997,52 @@ Patch notes: one new entry at the top of `patch-notes.json`, "XP comes
 from winning fights now", six items, installed before the swap and
 confirmed live. The rampage throttle is called a nerf in plain words, per
 the honest-patch-notes rule.
+
+### 2026-09-02 — RULING on the hot XP rate: leave it, and the dial if it persists
+
+Owner ruling, recorded so the reasoning survives the session that produced
+it. The deploy record above measured live grants running 1.5–2× the
+approved curve table, because that table was computed at
+`catchup_multiplier` = 1.0 and a mixed roster never is.
+
+**No change made. Do not touch `win_xp_mult` today.** World 2 is a day old
+with nine players clustered at levels 1–2, which is exactly the condition
+that maximises catch-up: the spread between min and median is at its
+widest relative to the level costs. It compresses on its own as the roster
+converges, so today's 1.5–2× is the extreme of the range, not the steady
+state. Too fast is also the recoverable direction, and fast early
+progression is what was asked for. **Revisit in 24–48 hours against real
+cumulative-level data, not against a projection.**
+
+**If it is STILL running hot once levels converge, the dial is
+`win_xp_mult` — not `win_xp_flat`, and not `win_xp_level_pct`.** This is
+the part worth keeping, because the intuitive move is the wrong one.
+
+The two shape terms do different jobs and changing either bends the curve:
+
+* `win_xp_flat` is fixed in XP, so its worth *in levels* decays against
+  the quadratic level cost. It sets the day-one burst and almost nothing
+  else. Cutting it flattens the early game specifically and leaves the
+  late rate untouched.
+* `win_xp_level_pct` is a fraction of the level's own cost, so it is worth
+  a constant number of levels forever. It sets the floor the rate settles
+  onto. Cutting it lowers the asymptote and barely moves day one.
+
+Reach for either and you change the SHAPE the owner approved — which
+level range gets slower — while trying to change only the overall speed.
+`win_xp_mult` multiplies both terms equally, so it scales the whole curve
+and provably cannot alter the decay rate or the level it settles onto.
+That is the entire reason it exists as a multiplier rather than a third
+additive term, and `character::win_xp_tests::
+the_multiplier_scales_without_changing_the_shape_of_the_curve` asserts
+exactly that property at levels 1/10/25/50/100.
+
+So: to halve progression, `win_xp_mult` 1.0 → 0.5. One field, no reshaping,
+and the approved curve comes back intact at a different scale.
+
+Turning `win_xp_catchup_enabled` off is NOT the equivalent lever and
+should not be reached for as one. It would remove the trailing-player
+bonus entirely rather than scaling the curve, which is a different
+mechanic with a different purpose (it predates this work and was ruled to
+ship ON), and it would slow the newest players most — the opposite of
+what catch-up is for.
