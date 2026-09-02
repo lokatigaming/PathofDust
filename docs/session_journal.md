@@ -2050,3 +2050,161 @@ its own half-finished state.
 `world2_build_plan.md` §5 as instructed, not investigated. Local playlist
 data and `!playlist <username>` are unaffected; only the public site
 falls behind.
+
+---
+
+## 2026-09-03 — Affix tier curve deployed, and an incident 64 seconds later
+
+Merge `c36d582` into master, deployed as `affix-tier-curve`, then
+redeployed as `affix-curve-restore` after a concurrent session reverted
+it. Both swaps clean; the curve is live and the retroactive rescale is
+applied.
+
+| | |
+|---|---|
+| merge | `c36d582` |
+| binary (curve) | `ab49d67953e47f40aa731da9ab1e8282046c4763ca4bbc8f9018a23de4000498` |
+| binary before | `58972241…c19a80` |
+| downtime | 0.17 s (deploy) + 0.15 s (restore) |
+| suite on the box | 786 passed / 0 failed |
+| pre-migration backup | `pod-backup-20260902-191938.tar.gz`, **sha256 verified**, contains `adventure-characters.json`, roster 14 = 14 live |
+
+### THE ROLLBACK, in the owner's words
+
+**Binary rollback, restore `adventure-characters.json` from the
+pre-migration backup, delete the marker file. It loses fights resolved
+since, and the mitigation is that the window is minutes, not that the
+loss is avoidable.**
+
+The owner's original assumption — that the ratio rescale is exactly
+invertible, so rollback would be arithmetic rather than a restore — was
+tested and withdrawn. The arithmetic *is* invertible on a frozen
+snapshot (worst relative error 3.3e-16 across 96,000 cases; the ×0.5
+crit halving is bit-exact, being a power of two). It is **not**
+invertible on a running game: post-migration drops already roll on the
+curve, the three growth sites now grow by the curve ratio, and
+`sync_tier_to` changes `tier` itself — so the inverse factor would be
+computed against the wrong `T` even for pre-existing items.
+
+### The migration, verified on production
+
+| | |
+|---|---|
+| items compared (same id, same tier) | 225 |
+| affix values compared | 346 |
+| value mismatches vs `f(T)/T` | **0** |
+| jitter not preserved to 5 dp | **0** |
+
+Polish preserved exactly, including the cases the spec's own
+jitter-reconstruction shape would have destroyed: `merkosh`'s
+coldDamage at jitter **1.44000 → 1.44000** (Perfect ×1.20 *and* polished
+×1.20), `lokati`'s divineDamage at 1.20000 → 1.20000.
+
+The owner's tier-7 Worn Robe, live from production:
+
+| affix | before | after |
+|---|---|---|
+| cold | 14.92% | **5.64%** |
+| divine | 18.90% | **7.14%** |
+| lightning | 18.10% | **6.84%** |
+| max hp | 22.45% | **8.49%** |
+
+### INCIDENT — a concurrent session reverted the curve for five minutes
+
+**19:19:51** my swap lands, migration runs, marker written.
+**19:20:43** — 64 seconds later — another session runs
+`deploy-linux.sh` for `player-facing-batch` and installs binary
+`c180491e`, built from `/root/deploy-src`, a tree extracted at **18:45**
+that predates my merge and contains **zero** references to
+`affix_tier_curve`. Production spent ~5 minutes with **migrated (curved)
+stored values and a linear binary** — the worst of both: new drops
+rolling at full linear magnitude against gear that had just been cut,
+tier growth re-inflating, and every migrated affix reading Q0% because
+`affix_quality_percent` divides by a linear base.
+**19:24:37** I redeployed master's build. Marker guard held — the
+migration did NOT re-run (Worn Robe still 5.64%, not the 2.13% a second
+application would give).
+
+**Contamination during the window, complete:** 5 affixes across 4 items
+rolled at linear magnitudes (~1.73× high, all T3), plus one item grown
+under the linear ratio (~2.00× high). Left in place deliberately — hand-
+editing live player data outside a marker-guarded migration is a worse
+risk than the inflation, and the amounts are trivial:
+
+| character | item | affix | live value | on-curve equivalent |
+|---|---|---|---|---|
+| lokati | Iron Plate T3 | critMultiplier | 0.15549 | 0.08977 |
+| lokati | Iron Plate T3 | damageReduction | 0.06430 | 0.03713 |
+| sitch89 | Steel Circlet T3 | critMultiplier | 0.12793 | 0.07386 |
+| sitch89 | Sturdy Blade T3 | divineDamage | 0.05941 | 0.03430 |
+| sitch89 | Iron Gloves T3 | chaosDamage | 0.07212 | 0.04164 |
+| galquin | Worn Helm T1→T4 | (all) | ×4.0 applied | ×2.0 correct |
+
+**Two process failures, both worth fixing:**
+
+1. **`/root/deploy-src` is a single fixed path shared by every deploying
+   session.** A concurrent session's `rm -rf /root/deploy-src` destroyed
+   my first build mid-flight (the test run failed with missing `.rlib`s
+   and no binary, on a box with 280 GB free). I rebuilt in
+   `/root/deploy-src-affix-curve`. **§13B should name a per-release
+   source directory, not a shared one.**
+2. **A binary built from an unmerged branch was deployed over master's.**
+   `origin/master` was `c36d582` throughout and still is; the tree that
+   was deployed is on no ref. The house rule that only the deploy session
+   merges and deploys exists precisely for this, and the failure mode it
+   prevents is exactly what happened: a stale branch silently reverting a
+   balance change that had already rewritten player data.
+
+### Backup allow-list — the owner's assumption was wrong, and it mattered
+
+The order assumed `backup-game-data.sh` globs `adventure-*-marker.json`.
+**It does not** — `MARKER_FILES` is a hand-maintained array of 23 literal
+filenames. `adventure-affix-tier-curve-marker.json` was added to it (repo
+and box; `deploy-linux.sh` does **not** refresh `bin/`, so the box copy
+needed a separate `scp`). Verified after the fact: the marker is present
+in `pod-backup-20260902-192057.tar.gz`.
+
+This mattered more than a normal marker would, because
+`migrate_affix_tier_curve` is deliberately **not idempotent**. A restore
+that brought back `adventure-characters.json` without the marker would
+have applied the cut a second time. There is a drift check in the script
+that reports unknown markers on disk, but it warns — it does not back the
+file up.
+
+### FOUND, for the board — not this release
+
+- **The Stone Fist rank-4 cap/efficiency defect is still present**
+  (`character.rs:2933`): `magnitude_at_rank` clamps a Specialization node
+  to `effective_rank = min(rank, 3)` while the cap uses the RAW rank, so
+  rank 4 buys +0.10 of cap and zero efficiency while the node text still
+  reads "up to +30% at 3/3". It affects every `spec()`-tier
+  `OverflowConversion` node — `unbreakable`, `elusive`, `shiftingform`,
+  `aegisward`. Spec D44 ratifies it as a defect; the fix changes live
+  player power and belongs to the passive rebalance.
+- **Every line number in `docs/affix_curve_spec.md` is from the
+  2026-08-23 tree and most no longer resolve.** `affix_base_value` is at
+  385 not 385-387's neighbours; `compute_power` is at 1010, the spec says
+  967. Treat its citations as leads, not addresses. Three of its factual
+  claims have also drifted: `OVERFLOW_CONVERSION_CAP_PER_RANK` is now the
+  `overflow_conversion_cap_per_rank` LiveTunable with a per-node override
+  table, and the clamp is `clamp_overflow_conversion`, not an inline
+  `.min()`.
+- **`reforge_item`'s `tier_ratio` was a third growth site the spec never
+  named** (§4.1 lists only `sync_tier_to` and `roll_recombine`). Found by
+  sweeping for the shape rather than by following the document. Anyone
+  implementing from this spec should sweep rather than trust its lists.
+
+### §5.1 — pacing baselines are now calibrated against a curve that is gone
+
+`BASELINE_STAGE_ANCHORS`/`BASELINE_HP_ANCHORS`/`BASELINE_ATK_ANCHORS`
+were hand-authored against the linear power term, and their own doc
+reasons explicitly from "party power has historically outrun the LINEAR
+stage curve". That premise is now false. They were deliberately NOT
+changed in this release (owner: "note it, do not build it"). They are
+LiveTunables, so this is tunable on `/admin/tunables` without a deploy —
+but the shipped pacing floor is wrong in a direction nobody has measured,
+and it should be retuned once the curve has been live long enough to
+read. The golden corpus is the early warning: 7 of 17 scenarios flipped
+from win to loss, every one at stage 200+, which is what a party running
+on a slower power curve against enemies tuned for the old one looks like.
+Production is at stage 5 and nowhere near it — but the world climbs.
