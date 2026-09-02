@@ -2268,13 +2268,23 @@ with the deploy. Text as ordered, nerf-honest:
 > been added to them: it is the one crafting cost you cannot re-earn with
 > dust.
 >
+> **Most of the enemies in a basic fight were drawn as corpses. That was
+> a bug.** In any filler fight with more than one enemy, every enemy after
+> the first has been rendering with the death sprite. It looked
+> intentional — a horde of the dead — and there was no reason for you to
+> read it as anything but the art. It was not: the game only ever sent one
+> enemy picture per fight, and every slot after the first fell through to
+> the corpse. Fixed. You will see the actual monsters now, and there will
+> be more of them on screen than you are used to.
+>
 > **Basic fights have 50 new enemies.** Filler fights used to reuse three
-> boss sprites. They now draw from fifty of their own. Enemies are also
-> picked by the server instead of your browser, so a fight looks the same
-> every time you replay it and the same for everyone watching — before,
-> the same fight showed different monsters on every replay and on every
-> viewer's screen. Every enemy in a group after the first was also
-> rendering as the death sprite; that is fixed too.
+> boss sprites. They now draw from fifty of their own.
+>
+> **Enemies stay the same across replays.** Your browser used to pick the
+> monsters itself, at the moment of drawing, so the same fight showed
+> different enemies on every replay and different enemies to every person
+> watching at once. The server picks them now: one fight, one set of
+> monsters, the same for everyone, every time.
 >
 > **Report a Bug** is in the top menu. Logged-in players can send a report
 > straight to the owner — it replaces the old `!bugreport` chat command
