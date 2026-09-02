@@ -1802,3 +1802,251 @@ left for the owner rather than edited during a deploy window.
 FOUND, same shape, not acted on: `PATREON_CLIENT_ID`,
 `PATREON_CLIENT_SECRET` and `PATREON_POLL_INTERVAL_MS` are also still
 there although Patreon was removed on 2026-08-28.
+
+---
+
+## 2026-09-03 — OPS-HARDENING (branch `chore/ops-hardening`)
+
+Four pieces, all outside `game/src` by design so the four game sessions
+in flight were not disturbed. Branch cut from `2cf9a59`, confirmed with
+`ls-remote`.
+
+### Piece 1 — the pre-reset check (`docs/world_reset_procedure.md`)
+
+New step: **enumerate everything ratified but unbuilt, and rule on each
+one, before the world opens.** Written in the document's existing shape —
+what it is, what actually happened, the step, the check, why a check and
+not an instruction — and with the incident attached, because that is what
+makes a step get followed.
+
+The incident is stated plainly: World 2 opened on the pre-ratification
+item scaling because `docs/affix_curve_spec.md` — 3,008 owner-ratified
+lines covering the affix tier curve, four new gear slots and the
+crit-multiplier halving — sat on a branch whose final commit message read
+"branch CLOSED" and was never merged. Master carried a four-word stub for
+ten days; a session searched master, found nothing, and recorded that the
+work did not exist. The world is over-tuned by exactly the amount the
+curve and the halving were ratified to remove, and it surfaced only
+because the owner remembered a stray line about base items.
+
+The step is executable rather than aspirational. Three sweeps, each with
+its command: every branch not an ancestor of `origin/master` (via
+`git merge-base --is-ancestor`, the sweep that would have caught this —
+and the step says in terms that a branch's own "CLOSED" message is not
+evidence its contents reached master); every document on master that
+ratifies something, checked **against code, not against another
+document**; and `world2_build_plan.md` §5's deferred list plus §7's open
+rulings. The output is a table committed to this journal **before** the
+reset runs, one row per item, with a decision of exactly BUILD, DEFER or
+DROP against every row and no blanks. DEFER and DROP are owner rulings; a
+session may recommend and may not decide. A DEFER must say what the world
+will be like without the item in player terms. An empty table is itself a
+finding that has to be defended.
+
+The branch sweep was dry-run while writing it and returns 8 branches
+today, so the command in the document is one that has actually been
+executed rather than one that looks right.
+
+### Piece 2 — the stale `C:\PathofDust` checkout: REPORTED, NOT TOUCHED
+
+Held for the owner's ruling per the order. Findings are in the session
+report. Two corrections to the order's premises, both verified:
+`C:\dust-work\c` and `C:\PathofDust` are **independent clones, not
+worktrees of one repository** (`git worktree list` in each shows only
+itself; both have a real `.git` directory), so the stale checkout cannot
+be what forces a session to work detached — this session did `git
+checkout -B` on a branch off master with no trouble. And the dirty
+entries were **14, not 13** at the start of the session, every one of
+them untracked (`??`), with zero modified tracked files.
+
+### Piece 3 — six dead keys removed from `C:\PathofDust\.env`
+
+`ADVENTURE_API_SECRET`, `ADVENTURE_API_BASE_URL`,
+`ADVENTURE_WEB_PUBLIC_URL`, `PATREON_CLIENT_ID`, `PATREON_CLIENT_SECRET`,
+`PATREON_POLL_INTERVAL_MS`. Proven unread first rather than assumed: the
+complete set of keys each binary reads was extracted from its own
+`env_var*` call sites, and none of the six appears in either. The only
+textual hit on any of them anywhere in the tree is a comment in
+`game/src/main.rs:11` stating that `ADVENTURE_WEB_PUBLIC_URL` is read by
+nothing.
+
+Backed up first to `C:\dust-work\PathofDust-env.bak-2026-09-02-ops-hardening`,
+hash-verified identical, and deliberately **outside every git checkout**
+so a secrets file is never sitting untracked inside a repo. 29 keys
+before, 23 after; no value was printed at any point.
+
+Verified by effect, not by reading the file back: the bot was restarted
+under its maintenance flag and came up clean on the trimmed environment —
+all three ports serving (4001 18,924 B, 4002 16,385 B, 4003 4,359 B),
+chat connected, 388 emotes, OBS WebSocket identified, EventSub subscribed
+with its two surviving redemptions, both hourly pricing syncs run. The
+watchdog has run since (00:06:19) and did **not** restart it; PID 37024
+is unchanged and `watchdog.log`'s last entry is still 2026-08-19.
+
+**A process error worth recording, because it could have taken the bot
+down.** After `Stop-ScheduledTask` I waited 4 seconds, saw the old PID
+still alive, and called `Start-ScheduledTask` anyway instead of stopping
+to wait. The task's `MultipleInstances` policy is `IgnoreNew`, so the
+start would have been silently **ignored** had the old process really
+still been running — leaving no bot at all, with its watchdog suppressed
+by my own flag. The old process happened to exit in the gap and one
+healthy instance came up. The correct shape is to loop until the PID is
+gone and abort if it never is; the 12-second wait used in the
+bot-decoupling deploy was adequate and 4 was not.
+
+`OPERATOR_LOGIN` was left in place. It is inert on this box, but unlike
+the six it is read by real code (`game/src/main.rs`) on the Debian box,
+so "nothing reads it" is not true of it in general.
+
+### Piece 4 — orphaned state files
+
+**Answer to the headline question: no reward JSON files remain beyond the
+two that are still live.** `channel-points-theme-reward.json` and
+`channel-points-interrupt-reward.json` are both read every startup by
+`ensure_reward`. There is no `patreon-*.json` on the box at all.
+
+Two genuine orphans found and deleted, copies kept at
+`C:\dust-work\PathofDust-orphans-2026-09-02\`:
+
+- `announcements.json` (567 B, last written 2026-08-06) — zero code
+  references in either crate; `announcements.rs` fetches from
+  `ANNOUNCEMENTS_URL` over HTTP and takes no path at all. A leftover from
+  the Node bot. `docs/platform_portability_audit.md` §13 reached the same
+  conclusion independently on 2026-08-27 and did not act on it.
+- `verify_status.txt` (27 B, 2026-08-24) — contains `build_exit=0` and
+  `test_exit=0`. A past session's scratch file. Zero references anywhere.
+
+**Deliberately NOT deleted, and this is the important half.** Every
+`adventure-*.json` / `adventure-*.toml`, `patch-notes.json` and
+`bot-published-constants.json` is an orphan by the letter of "its writer
+no longer runs here" — `game.exe` runs on Debian now. They are also the
+**frozen pre-cutover World 1 snapshot**, they are still read by live game
+code on the other box, and `bot-published-constants.json` is in
+`backup-game-data.ps1`'s manifest. "Nothing writes it here" is not
+"nothing reads it", and it is nowhere near "safe to delete". They stay.
+
+Also added `/backup-pre-bot-decoupling` to `.gitignore` — that directory
+was created by yesterday's deploy and left untracked, which is one of the
+dirty entries Piece 2 is about. Deleting `verify_status.txt` and ignoring
+that directory takes the checkout from 14 untracked entries to 12 once it
+is next updated.
+
+FOUND — `personal_playlists` sync to Apps Script is intermittently
+failing, and it predates everything in this session: HTTP 404 twice at
+05:04 on 2026-09-02, and a connection error at 16:00:39 after the
+restart. `PLAYLIST_SYNC_SECRET` was not touched here. The bot's local
+playlist data and `!playlist <username>` keep working; only the public
+site falls behind. Not investigated.
+
+FOUND — the owner added a static `!join` command in chat at 23:49 on
+2026-09-02 pointing players at `https://adventure.lokati.net/` to
+register. That is the decoupling working as designed: the builtin arm is
+gone, the name falls through to the static-command table, and the owner
+can point it wherever they like without a deploy.
+
+### Piece 2 — EXECUTED, and two additions the owner ordered on top
+
+**`C:\PathofDust` updated**, `eab55f9` → `2cf9a59`, 33 commits, clean
+fast-forward with no conflicts. Verified afterwards that nothing live
+moved: bot PID **37024 unchanged**, one instance, all three ports serving
+byte counts identical to before (4001 18,924 B, 4002 16,385 B, 4003
+4,359 B), the deployed binary still `DCC1DAFA…`, `.env` still 23 keys.
+No restart, as established — every runtime path is gitignored, so the
+merge could not reach the binary, the environment or any state file.
+
+`.clinerules` re-copied from `CLAUDE.md` and confirmed byte-identical
+(13,915 B, sha `9740FE35…`). It had genuinely diverged: the update
+brought in the two house rules added on 2026-09-02 (append-only defined,
+and branch closure / no silent orphans), so Ox sessions were a revision
+behind until this copy.
+
+Untracked entries: 14 at session start → 13 now.
+
+### ADDITION 1 — the account store was one `git add -A` from a public remote
+
+**This is the most consequential thing this session found, and it reached
+the owner as a row in a table.** It was written up as one line of a
+dirty-entries inventory — `adventure-accounts.json | pre-cutover account
+store` — sitting among sprite art and rollback backups, ranked by nothing
+and flagged as nothing. The owner picked it out of that table. A finding
+about credential exposure does not belong in a column; if something is
+the most serious thing on a page it has to be the loudest thing on the
+page, and this was the quietest.
+
+**What it is.** `adventure-accounts.json` holds usernames and argon2
+password hashes for every account registered in World 1. It was
+**untracked but not ignored** in a git repository whose remote is a
+public GitHub repo. Nothing had committed it — `git ls-files` confirms it
+has never been tracked, so it is not in history — but nothing prevented
+it either. A single `git add -A` by any session or any person puts
+credential material on a public remote permanently.
+
+**Why it happened, which matters more than the fix.** `.gitignore` lists
+runtime state files **one at a time**. `adventure-accounts.json` shipped
+with operator identity (Stage 3a, 2026-08-28); its sibling
+`adventure-sessions.json` was added to the ignore list in the same change
+and **the accounts file was simply missed**. Nothing fails when an entry
+is forgotten: the file works, the bot works, the game works, and the only
+symptom is a `??` in `git status` that reads exactly like the sprite art
+two lines below it. It sat that way for six days.
+
+**Fixed** in the same commit as the `/backup-pre-bot-decoupling` entry,
+placed next to `adventure-sessions.json` so the two are found together,
+with the trap written into the file: this list is per-file, so a new data
+file needs its line in the same commit that introduces it.
+
+**The sweep, so the answer is a measurement rather than a reassurance.**
+All 65 untracked files in the deployment root were enumerated and every
+sensitive candidate was checked for both tracked and ignored status:
+
+| File | Tracked | Ignored before | Action |
+|---|---|---|---|
+| `adventure-accounts.json` | never | **NO** | now ignored |
+| `Quick Notes.md` | never | **NO** | now ignored (owner's personal notes) |
+| `.continue/` | never | **NO** | now ignored (same class as `.clinerules`) |
+| `adventure-sessions.json` (session tokens) | never | yes | — |
+| `tokens.json` (Twitch OAuth) | never | yes | — |
+| `.env` | never | yes | — |
+| the other 10 bot state files | never | yes | — |
+| `adventure-characters.json`, `patch-notes.json` | never | yes | — |
+| `*.json.<pid>.<n>.tmp` atomic-write temps | never | yes (`*.tmp`, line 231) | — |
+
+**Nothing sensitive is or has ever been tracked**, so there is nothing to
+purge from history. The remaining 62 untracked files are sprite art (55),
+rollback binaries (5) and scratch notes.
+
+**The protection is not live yet, and saying otherwise would be false.**
+`C:\PathofDust` now sits at `origin/master`, which does not carry this
+branch. Until `chore/ops-hardening` merges, `adventure-accounts.json` is
+still untracked-and-committable in the deployment root. Merging is what
+closes the window, not this commit.
+
+### ADDITION 2 — REFACTOR_PLAN §13A's stop step, rewritten from a near-miss
+
+The old text was three words — "confirm it exited" — and this session
+read them as "sleep a few seconds and glance": 4 seconds, saw the old PID
+still alive, called `Start-ScheduledTask` anyway. It worked only because
+the process exited in the gap.
+
+**The mechanism it would have hit, written down because the near-miss is
+cheaper than the incident.** `TwitchBotRS`'s `MultipleInstances` setting
+is `IgnoreNew`. A start against a live instance is not an error — it is
+silently ignored, with a success-looking exit. So the deploy would have
+stopped the bot, started nothing, believed it succeeded, and moved on;
+**and the one thing that recovers a dead bot, `TwitchBotRS-Watchdog`, was
+suppressed by the maintenance flag that same step had just set.** Silent
+at every layer: silent stop, silent non-start, silent watchdog.
+
+§13A now carries a polling loop with a 60-second deadline that **aborts**
+rather than starting, plus the instruction to clear the Bot flag before
+walking away from an abort — an aborted deploy that leaves the flag set
+has disarmed the watchdog over a bot that may be wedged. The flag is a
+lease and does expire, but a deploy must not rely on the expiry to undo
+its own half-finished state.
+
+### Board
+
+`personal_playlists`' intermittent Apps Script sync failure recorded in
+`world2_build_plan.md` §5 as instructed, not investigated. Local playlist
+data and `!playlist <username>` are unaffected; only the public site
+falls behind.
