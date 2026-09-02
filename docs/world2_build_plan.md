@@ -295,10 +295,29 @@ Deferred deliberately. None of it blocks the world existing.
 
 - Rampage player vote — cut for now; the tunables toggle replaces it
 - ~~Auto-chess / TFT-style direction~~ — **CLOSED.** Asked and answered; no further investigation. Not a technology port; it would be a different game reusing the combat math.
-- Affix tier curve, four new gear slots, crit multiplier halving, passive rebalance
 - Passive tunables Stage 4 — the 9 remaining nodes (4 structure-only, 2 needing a second value slot, 3 excluded for the same reason)
-- Ledger `#46` — environmental damage credited to nobody
+- Ledger `#75` — environmental damage credited to nobody *(renumbered from `#46` on 2026-09-02; see §7)*
+- Passive rebalance
 - Golden fixture `hitId`/`eventId` churn, which makes every regeneration produce noise
+
+### The item rebalance — recovered 2026-09-02, and what it actually contains
+
+This was a four-word stub — *"Affix tier curve, four new gear slots, crit multiplier halving, passive rebalance"* — that pointed nowhere for ten days. It points at **`docs/affix_curve_spec.md`**, a 3,008-line owner-ratified specification written 2026-08-23 and stranded on `docs/affix-curve-spec` until it was recovered to master on 2026-09-02. Nothing below is a new proposal; all of it was ratified and then lost track of.
+
+**Every status here was verified against code on 2026-09-02, at master `a2d75fa` — not read off a document.**
+
+| Work | Where it is specified | Status in code |
+|---|---|---|
+| **Four new gear slots** — Ring1 and Ring2 (crit chance, `0.01`/tier), Amulet (crit multiplier, `0.025`/tier), Pants (% increased life, `0.03`/tier) | spec **§8**, with §8.1–§8.8 covering base power, Ring1/Ring2 identity and the duplicate-unique guard, power impact, crit concentration, the rng hazard and the desktop companion | **Not built.** `game/src/adventure/item.rs:907` is still `EQUIP_SLOTS: [EquipSlot; 5]` — Weapon, Helm, Body, Gloves, Boots. No Ring, Amulet or Pants variant exists anywhere in the tree. |
+| **Crit multiplier halving** — `default_per_tier` `0.05` → `0.025` | spec **§7**, and ruling **R4**, which puts it in code rather than TOML | **Not applied.** `game/src/adventure/affix.rs:225` still reads `default_per_tier: 0.05`. |
+| **Affix tier curve** — `f(T) = sqrt(T)` below 100, growth decay above | spec **§1–§6**, including §5's four implementation requirements | **Not built.** No curve code exists; `affix_base_value` is unchanged. |
+| **R5 acceptance test** — asserting the four base-power pairings | ruling **R5** | **Never written.** No test under `game/tests/` references `base_power`. |
+
+**The known trap, recorded so it is not rediscovered the hard way.** The spec's structural-changes table (§8.1, item 7) records **six hardcoded five-slot lists in `adventure_web.rs`** that adding a slot will silently break. They are data, not `match` arms over `EquipSlot`, so **the compiler will not catch them** — the build stays green and the new slots simply fail to appear. Anyone implementing §8 finds and fixes all six before shipping, and re-derives the count against the tree of the day rather than trusting the figure six; `adventure_web.rs` has changed since 2026-08-23. This is the same class as ledger `#54` — an audit is a map, not an inventory.
+
+Three second-order consequences the spec costed and that are easy to miss: drop dilution moves from 20% to 11.1% per slot (§8.6, which also covers the seven drop-table sites that pick a slot by index); the wiki needs coordinated updates; and **the change reaches outside this repo** — §8.8 records that the desktop companion (`PathOfDust_Desktop-replay`, separate repo, separate maintainer) hardcodes the five-slot list in six places plus a five-key emoji map in three, and will render the new slots as missing until its maintainer is told.
+
+**Ruling on spec §8.5 — `compute_power` STAYS LINEAR. Closed 2026-09-02.** This was the one question the spec left open, and it blocked implementation. The affix curve replaces the tier term in `affix_base_value` only; `compute_power` for the existing five slots — Weapon's flat damage, Gloves' attack-speed fraction — is **not** curved, and the new slots' implicits follow the same rule. **The ruling rests on the spec's own measurement:** leaving `compute_power` linear gives **T^1.44** over the fresh range against §3's ratified target of **T^1.43**; curving it as well gives **T^0.42**, four times too flat — a game in which doubling every item's tier is worth only ×1.34. The spec recommended linear and the recommendation is adopted. §8.5's own caveat survives the ruling: T^1.43 is an order-of-magnitude target, not a constant, and the exponent varies with the tier window — measure at implementation, do not assume.
 
 ---
 
@@ -344,8 +363,14 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
 
 ### Parked for discussion, not blocking
 
-- **Environmental-tagged damage and attribution** — *corrected 2026-08-27: this was previously cited here as "ledger #46". No such entry exists; that citation was carried forward from a stale summary and was wrong.* What the ledger does record is that Holy Fire carries `sourceKind: "environmental"`, which by construction excludes it from Doom accumulation — logged as an evidentiary gap shared with `#29` (Shattering). Whether environmental-tagged damage is also invisible to player attribution and therefore skews the damage leaderboard is **an open question, not an established finding**. Verify against the code before acting on it or citing it.
-- **JSON → SQLite** — considered 2026-08-27, **deferred deliberately.** Real wins: partial writes (today one character save rewrites all 4.1 MB), WAL transactions replacing the hand-rolled atomic save, single-file backup, and queryable leaderboards. If done, the cheap shape is **SQLite with JSON blob columns** — one row per character, serde structs unchanged — not a relational schema. Not during World 2: no stage requires it, and changing persistence during a platform migration makes any data loss impossible to attribute. "Fresh characters makes it free" is misleading — that removes the migration, not the call-site refactor. **Trigger to revisit:** measure how often the full-file rewrite fires; if it is per-fight, that is ~5.8 GB/day of writes today and scales linearly with player count. Also revisit when a leaderboard query is wanted that cannot afford to load everything (see `#46`).
+- **Environmental damage is credited to nobody** — now `docs/anomaly_ledger.md` **`#75`**, filed 2026-08-23 as `#46`. **This entry is an established finding, not an open question.**
+
+  *Correction, 2026-09-02 — this line previously carried a "correction" of its own, issued 2026-08-28, which read: "this was previously cited here as ledger #46. No such entry exists; that citation was carried forward from a stale summary and was wrong." **That correction was itself wrong, and it stood in this document for five days.*** The entry did exist. It was written on 2026-08-23, in code against `93a136d`, with file:line evidence. It was never missing — it was stranded on `ledger/zolaries-damage-forensics`, a branch that was never merged, so it could not be found by searching master. **The original citation to `#46` was correct.** The 2026-08-28 session searched master, found nothing, and concluded nothing existed.
+
+  The entry is now recovered and renumbered `#75`, because master had independently reused `#46`-`#56` during the ten days the branch sat unmerged. What it records: `full_player_fight_stats` (`manager.rs:1087` as of `93a136d`) matches `AttackSourceKind::Environmental => {}` — an empty arm — on a stale comment claiming that arm never runs. It does run: Holy Fire and Shattering both deliver under that tag, and 329 Environmental hits with real casters were sampled on 2026-08-21. In the originating fight, 5.065e14 across 87 Environmental hits went uncredited — **3.7× the top credited player's entire fight total.** Per-player understatement ran as high as 85.6×. Not re-verified against current master; re-verify before acting.
+
+  **The lesson, because it cost five days and a wrong ruling: absence from master is not absence.** Before recording that something does not exist, search every ref — `git log --all`, `git ls-remote` — not just the branch you are standing on.
+- **JSON → SQLite** — considered 2026-08-27, **deferred deliberately.** Real wins: partial writes (today one character save rewrites all 4.1 MB), WAL transactions replacing the hand-rolled atomic save, single-file backup, and queryable leaderboards. If done, the cheap shape is **SQLite with JSON blob columns** — one row per character, serde structs unchanged — not a relational schema. Not during World 2: no stage requires it, and changing persistence during a platform migration makes any data loss impossible to attribute. "Fresh characters makes it free" is misleading — that removes the migration, not the call-site refactor. **Trigger to revisit:** measure how often the full-file rewrite fires; if it is per-fight, that is ~5.8 GB/day of writes today and scales linearly with player count. Also revisit when a leaderboard query is wanted that cannot afford to load everything (see `#75`, renumbered from `#46` on 2026-09-02).
 
   **TRIGGER FIRED — 2026-08-30.** Measured on the live box after the pool-cap raise lengthened fights from ~2s to ~30s: `adventure-fights-detail` and `adventure-fights-bundle` are writing **~950 MB and ~965 MB per fight**, one fight every ~2.6 minutes — roughly **730 MB/minute sustained**, each through the atomic temp-write → fsync → rename path. The game became visibly sluggish. Summary files are unaffected at ~15 KB.
 
