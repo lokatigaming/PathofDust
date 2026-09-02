@@ -45,6 +45,10 @@ const MULT_MAX: f64 = 10.0;
 const SHIPPED_EXPONENT: f64 = 1.1;
 const EXPONENT_MIN: f64 = 1.0;
 const EXPONENT_MAX: f64 = 1.5;
+/// Must match `craft::CRAFT_TIER_BUMP_MULT` and its bounds (2026-09-02).
+const SHIPPED_BUMP_MULT: f64 = 1.0;
+const BUMP_MULT_MIN: f64 = 0.0;
+const BUMP_MULT_MAX: f64 = 3.0;
 /// Must match `craft::TIER_CRAFT_DUST_COST`.
 const TIER_MULT: f64 = 3.0;
 /// Must match `craft_action_def(Scour).default_cost`. Scour is the
@@ -141,6 +145,7 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
     for (field, min, max, unit_word) in [
         ("craft_base_cost_mult", MULT_MIN, MULT_MAX, "flat dust fee"),
         ("craft_tier_exponent", EXPONENT_MIN, EXPONENT_MAX, "dust per tier"),
+        ("craft_tier_bump_mult", BUMP_MULT_MIN, BUMP_MULT_MAX, "tier"),
     ] {
         let row = {
             let start = form_html.find(&format!("for=\"{field}\"")).unwrap_or_else(|| panic!("the {field} control must render inside the save form"));
@@ -181,17 +186,19 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
     };
 
     // --- a save reaches the tunables the game actually reads --------------
-    let body = body_with(&rendered, &[("craft_base_cost_mult", "0.5"), ("craft_tier_exponent", "1.25")]);
+    let body = body_with(&rendered, &[("craft_base_cost_mult", "0.5"), ("craft_tier_exponent", "1.25"), ("craft_tier_bump_mult", "0")]);
     let saved = post(body, base.clone(), client.clone()).await;
     assert!(saved.status().is_redirection(), "posting exactly the {} fields the page renders must extract cleanly - got {}", rendered.len(), saved.status());
     let t = manager.live_tunables();
     assert_eq!(t.craft_base_cost_mult, 0.5, "a save must move the value the cost formula reads");
     assert_eq!(t.craft_tier_exponent, 1.25, "a save must move the exponent the cost formula reads");
+    assert_eq!(t.craft_tier_bump_mult, 0.0, "a save must move the growth dial the craft path reads - and 0 must be accepted, it is the setting that switches per-craft tier growth off");
 
     // A restart must not silently revert a pricing dial.
     let on_disk = std::fs::read_to_string(scratch.join("adventure-live-tunables.toml")).expect("the dials must persist to the live tunables file");
     assert!(on_disk.contains("craft_base_cost_mult = 0.5"), "the multiplier must survive a restart - got: {on_disk}");
     assert!(on_disk.contains("craft_tier_exponent = 1.25"), "the exponent must survive a restart - got: {on_disk}");
+    assert!(on_disk.contains("craft_tier_bump_mult = 0"), "the growth dial must survive a restart - got: {on_disk}");
 
     // --- out of range cannot get through by bypassing the browser ---------
     // The form's min/max is what an operator sees; a hand-crafted POST has
@@ -206,6 +213,8 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
         ("craft_tier_exponent", "0"),
         ("craft_tier_exponent", "0.9"),
         ("craft_tier_exponent", "3"),
+        ("craft_tier_bump_mult", "-0.5"),
+        ("craft_tier_bump_mult", "5"),
     ] {
         let before = manager.live_tunables();
         let saved = post(body_with(&rendered, &[(field, attempt)]), base.clone(), client.clone()).await;
@@ -216,6 +225,7 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
         let after = manager.live_tunables();
         assert_eq!(after.craft_base_cost_mult, before.craft_base_cost_mult, "a rejected POST must leave the multiplier untouched: {field}={attempt}");
         assert_eq!(after.craft_tier_exponent, before.craft_tier_exponent, "a rejected POST must leave the exponent untouched: {field}={attempt}");
+        assert_eq!(after.craft_tier_bump_mult, before.craft_tier_bump_mult, "a rejected POST must leave the growth dial untouched: {field}={attempt}");
     }
 
     // --- a body that omits the fields entirely preserves live behaviour ---
@@ -223,13 +233,18 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
     // on an `f64` is 0.0, which for the multiplier would silently make every
     // craft's base fee free and for the exponent is below its own floor.
     let without: Vec<(String, String)> =
-        rendered.iter().filter(|(n, _)| n != "craft_base_cost_mult" && n != "craft_tier_exponent").map(|(n, v)| (n.clone(), v.clone())).collect();
-    assert_eq!(without.len(), rendered.len() - 2, "sanity: exactly the two dials were dropped from the body");
+        rendered.iter().filter(|(n, _)| n != "craft_base_cost_mult" && n != "craft_tier_exponent" && n != "craft_tier_bump_mult").map(|(n, v)| (n.clone(), v.clone())).collect();
+    assert_eq!(without.len(), rendered.len() - 3, "sanity: exactly the three dials were dropped from the body");
     let saved = post(without, base.clone(), client.clone()).await;
     assert!(saved.status().is_redirection(), "a body omitting the dials must still extract - got {}. A 422 here means the fields are required rather than defaulted", saved.status());
     let t = manager.live_tunables();
     assert_eq!(t.craft_base_cost_mult, SHIPPED_MULT, "an omitted multiplier must fall back to the SHIPPED CONSTANT, never to 0.0 - 0.0 would make every base fee free");
     assert_eq!(t.craft_tier_exponent, SHIPPED_EXPONENT, "an omitted exponent must fall back to the SHIPPED CONSTANT, never to 0.0");
+    assert_eq!(
+        t.craft_tier_bump_mult,
+        SHIPPED_BUMP_MULT,
+        "an omitted growth dial must fall back to the SHIPPED CONSTANT - 0.0 here would silently switch per-craft tier growth off across the whole game while the page reported a successful save"
+    );
 
     // --- the quoted price IS the charged price ----------------------------
     // Back at the shipped defaults (the omitted-field save above restored
