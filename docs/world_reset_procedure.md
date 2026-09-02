@@ -654,3 +654,60 @@ same run, wrote fight 2 normally. That is the control.
 Not defects, recorded so the next run does not re-investigate them:
 `/fights.json` returns `401` and an empty array without a session (it is
 session-gated); `bc` is not installed on this box.
+
+---
+
+## 10. Execution record — World 1 → World 2, 2026-09-02
+
+**Executed on production. Downtime for the reset itself: 1 second**
+(09:54:39 → 09:54:40 UTC). Three later restarts for the operator bootstrap and
+cleanup added 2 s + 1 s + 1 s, for **5 seconds total** across the whole
+operation.
+
+World 1 final state: stage 7368, `hp_pacing_mult` 623.823, `boss_power_mult`
+0.536, 67 characters, 1 account, 6.8 GB. World 2 after two fights: stage 1,
+both multipliers 1.0, 1 character, 1 account, 40 MB.
+
+Backups taken before anything was touched: `production.env` copied to
+`/root/production.env.pre-reset`; the unit and drop-in to
+`/root/*.pre-reset`; `pathofdust-backup.service` run to `verdict=clean`
+(253 files, 254 archive members); the full rollback snapshot at
+`/var/lib/pod-prereset-20260902-115134` (7.3 GB, includes the fight tiers the
+tarball excludes); and the archive pulled off-box and hash-verified.
+
+### 10.1 Two further corrections this run produced
+
+4. **Steps 1 and 2 do not take effect when you run them.** `EnvironmentFile`
+   and `Environment=` are read at service *start*, so the seam and `/login`
+   stay up until step 10. This is harmless inside the full procedure — the
+   stop/start happens anyway — but an operator doing step 1 alone to "turn the
+   seam off now" will find it still mounted. If you need the seam off without
+   a reset, it is step 1 plus `systemctl restart`.
+5. **The `10-production.conf` drop-in carried the same stale claim** the unit
+   file did, in more detail — it documented supplying the API secret and real
+   Twitch credentials, neither of which happens any more. Rewritten in the
+   same pass. When correcting a comment that lies, grep for the lie: it had
+   been copied.
+
+Also worth knowing for next time: a `grep -rn TWITCH` over the config
+reports the *comments* and reads as a failure. Match assignments explicitly —
+`grep -rnE '^\s*(Environment=)?TWITCH_[A-Z_]+='` — which is the same lesson as
+defect 2 above, in a second place.
+
+### 10.2 Verifying name release without squatting a player's name
+
+Registration creates an account but **not** a character; only `POST /join`
+does. So the name-release check can be run with two throwaway registrations
+that never join, then removed afterwards.
+
+Remove them with the service **stopped** — the account and session maps are
+held in memory and a running process will rewrite the file from memory. And
+remove the **sessions** as well as the accounts: `do_register` refuses a name
+that has a live session, so an account deleted but a session left behind
+keeps that name blocked for the full 30-day TTL.
+
+Do not verify the removal by re-POSTing to `/account/register` with a short
+password: `do_register` checks password length **first**, so reaching the
+password error proves nothing about the name. Verify by inspecting the three
+inputs the guard actually reads — the accounts map, the character map and the
+session logins.
