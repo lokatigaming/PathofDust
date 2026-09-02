@@ -2999,6 +2999,9 @@ fn default_craft_base_cost_mult() -> f64 {
 fn default_craft_tier_exponent() -> f64 {
     crate::adventure::CRAFT_TIER_EXPONENT
 }
+fn default_craft_tier_bump_mult() -> f64 {
+    crate::adventure::CRAFT_TIER_BUMP_MULT
+}
 
 // Serde defaults for the five win-XP fields (2026-09-02). Each resolves
 // to the SHIPPED CONSTANT, never `f64::default()` == 0.0 - this project
@@ -3134,6 +3137,10 @@ struct TunablesForm {
     /// default - see `default_craft_tier_exponent`.
     #[serde(default = "default_craft_tier_exponent")]
     craft_tier_exponent: f64,
+    /// See `LiveTunables::craft_tier_bump_mult`'s doc. Same
+    /// shipped-constant default - see `default_craft_tier_bump_mult`.
+    #[serde(default = "default_craft_tier_bump_mult")]
+    craft_tier_bump_mult: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank1`'s doc.
     rf_self_damage_pct_rank1: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank2`'s doc.
@@ -3471,6 +3478,21 @@ impl TunableViolations {
         }
     }
 
+    /// `craft_base_cost_mult`'s twin for the per-craft tier bump.
+    fn craft_tier_bump_mult(&mut self, field: &str, value: f64) -> f64 {
+        let (min, max) = (crate::adventure::CRAFT_TIER_BUMP_MULT_MIN, crate::adventure::CRAFT_TIER_BUMP_MULT_MAX);
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::sanitize_craft_tier_bump_mult(value)
+        } else {
+            value
+        }
+    }
+
     /// One comma-separated admin-page anchor list ("0, 500, 1000").
     /// Whitespace-tolerant. A malformed entry is now a REJECTION: it used
     /// to invalidate the whole list into an empty Vec, which the runtime
@@ -3582,6 +3604,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 // rather than allowed to reach the cost formula.
                 craft_base_cost_mult: v.craft_base_cost_mult("craft_base_cost_mult", form.craft_base_cost_mult),
                 craft_tier_exponent: v.craft_tier_exponent("craft_tier_exponent", form.craft_tier_exponent),
+                craft_tier_bump_mult: v.craft_tier_bump_mult("craft_tier_bump_mult", form.craft_tier_bump_mult),
                 rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
                 rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
                 rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
@@ -4644,6 +4667,11 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <input type=\"number\" step=\"any\" min=\"{craft_tier_exponent_min}\" max=\"{craft_tier_exponent_max}\" required id=\"craft_tier_exponent\" name=\"craft_tier_exponent\" value=\"{craft_tier_exponent}\">\
               <p class=\"tunable-hint\">{craft_tier_exponent_min} to {craft_tier_exponent_max} — 1.0 is the old flat 3 dust per tier; shipped 1.1 makes cost accelerate with tier, slowly (tier 10: 38 instead of 30; tier 100: 476 instead of 300; tier 201: 1025 instead of 603). Below 1 is refused: it would make crafting relatively cheaper the further a player progresses.</p>\
             </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"craft_tier_bump_mult\">Craft Tier Growth Multiplier (x, on the +3/+2/+1 tiers a craft adds)</label>\
+              <input type=\"number\" step=\"any\" min=\"{craft_tier_bump_mult_min}\" max=\"{craft_tier_bump_mult_max}\" required id=\"craft_tier_bump_mult\" name=\"craft_tier_bump_mult\" value=\"{craft_tier_bump_mult}\">\
+              <p class=\"tunable-hint\">{craft_tier_bump_mult_min} to {craft_tier_bump_mult_max} — every successful craft raises the crafted item's tier (+3 below tier 25, +2 below 50, +1 above), which raises its power, every modifier on it, AND the per-tier surcharge on its next craft. This scales all three bands together. Shipped 1 = unchanged; <strong>0 switches per-craft tier growth off entirely</strong>, which is how to watch the exponent above in isolation. This dial and the exponent act on different things — the exponent prices tier, this decides how fast an item climbs.</p>\
+            </div>\
             <h2>Experience</h2>\
             <p class=\"tunable-hint\">XP is paid on a <strong>boss-fight win only</strong> &mdash; a filler fight pays none, and a loss pays none. One win is worth <strong>Flat XP + Level % &times; that level&rsquo;s own XP cost</strong>, then &times; catch-up, then &times; the multiplier below. Because it is paid per win, XP is already exactly linear in win rate; the band that gives you is 0&times; to 1.5&times; of the 2:1 baseline, since a win rate cannot exceed 100%.</p>\
             <div class=\"tunable-row\">\
@@ -4842,6 +4870,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         craft_tier_exponent = t.craft_tier_exponent,
         craft_tier_exponent_min = trim_float(crate::adventure::CRAFT_TIER_EXPONENT_MIN),
         craft_tier_exponent_max = trim_float(crate::adventure::CRAFT_TIER_EXPONENT_MAX),
+        craft_tier_bump_mult = t.craft_tier_bump_mult,
+        craft_tier_bump_mult_min = trim_float(crate::adventure::CRAFT_TIER_BUMP_MULT_MIN),
+        craft_tier_bump_mult_max = trim_float(crate::adventure::CRAFT_TIER_BUMP_MULT_MAX),
         rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
         rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,

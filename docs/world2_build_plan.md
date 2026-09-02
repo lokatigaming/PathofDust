@@ -369,6 +369,14 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
 
 - **`lastrites`** advertises a 33/66/100% chance that is never rolled — the check is a charge count. Either the description is wrong or the mechanic was never built.
 
+- **Craft-driven power has nothing opposing it** (2026-09-02, from the tier-source audit; **needs an owner ruling, deliberately not patched**). `boss_stats_for` ([manager.rs:7395](../game/src/adventure/manager.rs#L7395)) scales boss HP and damage on **world stage** (+15%/stage) and **average character level** (+15%/level). It does not read gear tier at all. Every other growth vector a player has is therefore self-damping — climbing stages makes bosses harder, gaining levels makes bosses harder — but **item tier is not**, and item tier is the one a player controls directly.
+
+  The loop: a successful craft raises the item's tier (`+3/+2/+1`, see `Character::apply_craft_tier_bump`); `Item::sync_tier_to` rescales `power` and **every affix value** by the tier ratio, both of which are linear in tier; more power wins more boss fights; more wins raise the stage AND grant XP; higher level re-syncs every **Krangled** item's tier upward again (`grow_krangled_items`, on every level-up). Boss difficulty rises with two of those three, and is blind to the one doing the most work.
+
+  Quantified in the same audit: one Hideout Warrior click is five crafts, `+15` tiers from tier 1 — power and every modifier ×16 — while the world sits at stage 4, where a *dropped* item is tier 1. The four stage gates (`sand_drop_stage` 100, `perfect_item_stage` 150, `divine_dust_drop_stage` 300, `sacred_item_stage` 300) are all keyed to world stage and are **not broken by this**, but the assumption underneath them — that an item's tier tracks the stage it was found at, `tier ≈ 1 + stage/5` — no longer holds for any crafted item. Players can hold tier-30 gear at stage 4 while every gate stays shut for another 100+ stages.
+
+  **This is a design question, not a bug to patch**, which is why `fix/craft-tier-bump` shipped only the dial (`craft_tier_bump_mult`, default 1.0 = unchanged) and deliberately left the loop alone. The available answers are at least: let boss scaling read average gear tier; damp the bump; cap tier relative to stage (**ruled out** — the owner has ruled no retroactive item-tier reset and no capping, moderation is to be economic); or accept it as intended and tune the economy around it. Whichever is chosen should be chosen on purpose.
+
 ### Parked for discussion, not blocking
 
 - **Environmental damage is credited to nobody** — now `docs/anomaly_ledger.md` **`#75`**, filed 2026-08-23 as `#46`. **This entry is an established finding, not an open question.**

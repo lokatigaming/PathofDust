@@ -4364,7 +4364,7 @@ impl AdventureManager {
 
         let outcome = {
             let mut rng = rand::thread_rng();
-            character.craft(item_id, action, &mut rng)?
+            character.craft(item_id, action, &mut rng, t.craft_tier_bump_mult)?
         };
         if use_token {
             character.consume_craft_token(action);
@@ -4435,7 +4435,7 @@ impl AdventureManager {
             // this file uses for the same reason.
             let mut rng = rand::thread_rng();
             character.consume_craft_token(CraftAction::UniqueShard);
-            character.apply_divinity(&plan, &mut rng)
+            character.apply_divinity(&plan, &mut rng, self.live_tunables().craft_tier_bump_mult)
         };
         // Points the crafting picker at the last item Divinity handled, the
         // same courtesy every other craft does for its own target.
@@ -4523,6 +4523,7 @@ impl AdventureManager {
         let Some(pending) = self.pending_veils.lock().await.remove(&key) else { return Ok(None) };
         let Some(chosen) = pending.candidates.get(chosen_index).cloned() else { return Ok(None) };
 
+        let tier_bump_mult = self.live_tunables().craft_tier_bump_mult;
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&key) else { return Ok(None) };
         let mut result: Option<VeilChosenOutcome> = None;
@@ -4555,7 +4556,16 @@ impl AdventureManager {
                                     result = Some(VeilChosenOutcome::ChancingContinues);
                                 }
                             }
-                        } else if let Some(item) = character.find_item_by_id(item_id) {
+                        } else {
+                            // The Chancing chain is finished, so this is
+                            // where the whole craft ends - one craft, one
+                            // tier bump, applied here for exactly the same
+                            // reason `Character::craft` applies it on the
+                            // unveiled path. Bumped BEFORE the outcome is
+                            // built so the reported tier is the post-bump
+                            // one, matching what an unveiled craft reports.
+                            character.apply_craft_tier_bump(item_id, tier_bump_mult);
+                            let Some(item) = character.find_item_by_id(item_id) else { return Ok(None) };
                             let final_outcome = CraftOutcome {
                                 item_name: item.name.clone(),
                                 slot: item.slot,
@@ -4612,7 +4622,25 @@ impl AdventureManager {
                     _ => Err(CraftError::ItemNotFound),
                 };
                 match applied {
-                    Ok(applied) => {
+                    Ok(mut applied) => {
+                        // THE UNIFICATION (2026-09-02, an owner ruling).
+                        // Until now this commit path applied no tier bump
+                        // at all, so ticking the Veil checkbox exempted a
+                        // player from both the tier growth and the cost
+                        // growth that every unveiled craft pays - a
+                        // one-checkbox loophole. Same bump, same dial, same
+                        // helper as `Character::craft`.
+                        //
+                        // Unique Shard is excluded because it has no
+                        // unveiled counterpart to be identical TO: its
+                        // picker is unconditional and never routes through
+                        // `Character::craft`, so bumping here would invent
+                        // growth on the veiled side rather than match it.
+                        if *action != CraftAction::UniqueShard {
+                            if let Some(tier) = character.apply_craft_tier_bump(item_id, tier_bump_mult) {
+                                applied.tier = tier;
+                            }
+                        }
                         character.last_crafted_item_id = Some(item_id.clone());
                         result = Some(VeilChosenOutcome::Currency(applied));
                     }
@@ -9771,5 +9799,125 @@ mod stage_gate_tests {
         expected.sort_by_key(|(action, _)| format!("{action:?}"));
         assert_eq!(after, expected, "12 fights must not have added a single craft token - the drop and both pity payouts are gone");
         assert_eq!(character.craft_pity, 0.0, "craft_pity must not accrue either: both advance_pity calls that fed it were removed");
+    }
+}
+
+/// The veiled/unveiled tier-bump unification (2026-09-02, an owner
+/// ruling). Until this change a veiled craft committed through
+/// `apply_craft_affix` and applied NO tier bump, while an unveiled one
+/// went through `Character::craft` and always did - so ticking one
+/// checkbox exempted a player from both the tier growth and, because the
+/// 2026-09-02 cost curve prices tier, the cost growth that everyone else
+/// paid. These tests are the loophole's headstone: they compare the two
+/// paths directly rather than asserting either one's number.
+#[cfg(test)]
+mod tier_bump_unification_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("tier_bump_test_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    /// One bag item with exactly one modifier (so Augment applies), no
+    /// craft tokens (a token forces the veil AND makes the craft free -
+    /// neither is what these tests are measuring) and dust to spare.
+    /// Returns the item's id.
+    async fn joined_with_one_bare_item(manager: &Arc<AdventureManager>, login: &str) -> String {
+        manager.join(login, login).await;
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.dust = 1_000_000;
+        character.craft_tokens.clear();
+        character.inventory.clear();
+        let mut item = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+        item.affixes = vec![(Affix::CritChance, 0.05)];
+        let id = item.id.clone();
+        character.inventory.push(item);
+        id
+    }
+
+    async fn tier_of(manager: &Arc<AdventureManager>, login: &str, item_id: &str) -> u32 {
+        manager.characters.lock().await.get(login).expect("joined").find_item_by_id(item_id).expect("item").tier
+    }
+
+    /// THE RULING. Same action, same starting tier, one veiled and one
+    /// not: the tier must move by the same amount. This is deliberately
+    /// an equality between the two paths and NOT an assertion that the
+    /// bump is 3 - the magnitude is `craft_tier_bump`'s business and is
+    /// tested there, so tuning the bands later cannot make this test lie.
+    #[tokio::test]
+    async fn a_veiled_craft_bumps_the_tier_by_exactly_what_an_unveiled_one_does() {
+        let (manager, _scratch) = disposable_manager("unveiled");
+        let plain_id = joined_with_one_bare_item(&manager, "plain").await;
+        let before_plain = tier_of(&manager, "plain", &plain_id).await;
+        manager.craft_item("plain", &plain_id, CraftAction::Augment, false).await.expect("an unveiled augment on a 1-mod item must apply");
+        let unveiled_growth = tier_of(&manager, "plain", &plain_id).await - before_plain;
+
+        let veiled_id = joined_with_one_bare_item(&manager, "veiled").await;
+        let before_veiled = tier_of(&manager, "veiled", &veiled_id).await;
+        let pending = manager.craft_item("veiled", &veiled_id, CraftAction::Augment, true).await.expect("a veiled augment must offer a choice");
+        assert!(matches!(pending, CraftResult::PendingChoice), "a veiled craft must not apply immediately");
+        // The tier must not move until the player actually picks - the
+        // bump belongs to the craft finishing, not to it being offered.
+        assert_eq!(tier_of(&manager, "veiled", &veiled_id).await, before_veiled, "an unresolved veil must not have grown anything yet");
+        manager.choose_veil_outcome("veiled", 0).await.expect("picking candidate 0 must commit").expect("a candidate must have been applied");
+        let veiled_growth = tier_of(&manager, "veiled", &veiled_id).await - before_veiled;
+
+        assert_eq!(
+            veiled_growth, unveiled_growth,
+            "veiled grew {veiled_growth} tiers and unveiled grew {unveiled_growth} - ticking the Veil checkbox must not exempt a player from tier growth (or, since 2026-09-02 prices tier, from cost growth)"
+        );
+        assert!(unveiled_growth > 0, "sanity: the default multiplier must actually grow something, or this test would pass on two zeroes");
+    }
+
+    /// The dial reaches BOTH paths, not just the one it was wired through
+    /// first. At 0.0 neither may grow - that is the setting an operator
+    /// uses to watch `craft_tier_exponent` on its own, and a veiled craft
+    /// still climbing would quietly invalidate the whole observation.
+    #[tokio::test]
+    async fn a_zero_multiplier_stops_growth_on_both_paths() {
+        let (manager, _scratch) = disposable_manager("zeroed");
+        // Written straight into the in-memory copy rather than through
+        // `save_live_tunables`, which would also write the real
+        // `adventure-live-tunables.toml` - the same reason
+        // `divine_dust_craft_tests` avoids that call.
+        manager.live_tunables.write().expect("lock").craft_tier_bump_mult = 0.0;
+        let plain_id = joined_with_one_bare_item(&manager, "plain0").await;
+        let before_plain = tier_of(&manager, "plain0", &plain_id).await;
+        manager.craft_item("plain0", &plain_id, CraftAction::Augment, false).await.expect("unveiled augment");
+        assert_eq!(tier_of(&manager, "plain0", &plain_id).await, before_plain, "an unveiled craft must not grow the tier at multiplier 0");
+
+        let veiled_id = joined_with_one_bare_item(&manager, "veiled0").await;
+        let before_veiled = tier_of(&manager, "veiled0", &veiled_id).await;
+        manager.craft_item("veiled0", &veiled_id, CraftAction::Augment, true).await.expect("veiled augment");
+        manager.choose_veil_outcome("veiled0", 0).await.expect("commit").expect("applied");
+        assert_eq!(tier_of(&manager, "veiled0", &veiled_id).await, before_veiled, "a veiled craft must not grow the tier at multiplier 0 either");
+    }
+
+    /// The cost consequence of the loophole, stated in dust. Two identical
+    /// characters each do one Augment, one veiled and one not; their NEXT
+    /// craft must then be priced the same. Before the unification the
+    /// veiler's second craft was cheaper forever, compounding on every
+    /// craft after it.
+    #[tokio::test]
+    async fn the_next_craft_costs_the_same_whichever_way_the_first_was_done() {
+        let (manager, _scratch) = disposable_manager("cost");
+        let plain_id = joined_with_one_bare_item(&manager, "plainc").await;
+        manager.craft_item("plainc", &plain_id, CraftAction::Augment, false).await.expect("unveiled augment");
+
+        let veiled_id = joined_with_one_bare_item(&manager, "veiledc").await;
+        manager.craft_item("veiledc", &veiled_id, CraftAction::Augment, true).await.expect("veiled augment");
+        manager.choose_veil_outcome("veiledc", 0).await.expect("commit").expect("applied");
+
+        let t = manager.live_tunables();
+        let plain_next = tier_surcharge(tier_of(&manager, "plainc", &plain_id).await, t.craft_tier_exponent);
+        let veiled_next = tier_surcharge(tier_of(&manager, "veiledc", &veiled_id).await, t.craft_tier_exponent);
+        assert_eq!(plain_next, veiled_next, "the per-tier surcharge on the NEXT craft must not depend on whether the last one was veiled");
     }
 }

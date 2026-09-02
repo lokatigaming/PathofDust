@@ -1482,7 +1482,7 @@ impl Character {
     ///
     /// Pure CPU - no I/O, no locking, no `.await`. The caller holds the
     /// characters lock across the whole run and persists once at the end.
-    pub(crate) fn apply_divinity(&mut self, plan: &DivinityPlan, rng: &mut impl Rng) -> DivinityReport {
+    pub(crate) fn apply_divinity(&mut self, plan: &DivinityPlan, rng: &mut impl Rng, tier_bump_mult: f64) -> DivinityReport {
         let mut report = DivinityReport {
             bag_items: plan.bag_items,
             skipped_krangled: plan.skipped_krangled,
@@ -1499,7 +1499,7 @@ impl Character {
                 // (PreconditionNotMet, NoCandidatesLeft,
                 // CannotKrangleUnique) mean "this step doesn't apply to
                 // this item", which is the chain working as designed.
-                if let Ok(outcome) = self.craft(item_id, action, rng) {
+                if let Ok(outcome) = self.craft(item_id, action, rng, tier_bump_mult) {
                     steps_here += 1;
                     krangled_here |= outcome.now_locked;
                 }
@@ -1788,20 +1788,46 @@ impl Character {
     /// deducted by the caller (`AdventureManager::craft_item`), same
     /// split as every other paid action, so a failed attempt never costs
     /// anything - the tier bump only ever applies on success.
-    pub(crate) fn craft(&mut self, item_id: &str, action: CraftAction, rng: &mut impl Rng) -> Result<CraftOutcome, CraftError> {
+    pub(crate) fn craft(&mut self, item_id: &str, action: CraftAction, rng: &mut impl Rng, tier_bump_mult: f64) -> Result<CraftOutcome, CraftError> {
         let mut outcome = self.craft_inner(item_id, action, rng)?;
-        // Unguarded, and it MUST be: `craft_inner` has already run and
-        // already passed the guard, and if the action was Krangle it has
-        // just set `locked` itself (see `apply_craft_affix`). Re-checking
-        // here would reject every Krangle's own tier bump - the item is
-        // locked by the very craft this is the tail of. Authorisation
-        // happened one line up; this is the same craft finishing, not a
-        // new mutation asking permission.
-        let item = self.find_item_by_id_mut_unguarded(item_id).ok_or(CraftError::ItemNotFound)?;
-        let bump = if item.tier < 25 { 3 } else if item.tier < 50 { 2 } else { 1 };
-        item.sync_tier_to(item.tier + bump);
-        outcome.tier = item.tier;
+        outcome.tier = self.apply_craft_tier_bump(item_id, tier_bump_mult).ok_or(CraftError::ItemNotFound)?;
         Ok(outcome)
+    }
+
+    /// **The one and only place a craft moves an item's tier.**
+    ///
+    /// WHY THIS EXISTS, AND WHY IT READS ODDLY NOW (2026-09-02, recorded
+    /// after an audit that traced it): this bump has been here since the
+    /// INITIAL COMMIT. It is not a recent addition, and a reader coming
+    /// to it from the crafting-cost work must not mistake it for one. It
+    /// was written as a GROWTH REWARD - crafting an item makes it
+    /// stronger, on top of whatever the action itself did - at a time
+    /// when an item's tier had no price attached to it anywhere.
+    ///
+    /// The 2026-09-02 cost-curve release made tier a PRICE INPUT for the
+    /// first time (`craft::tier_surcharge`, `3 x tier^exponent` on every
+    /// craft). The two features were designed years apart and were never
+    /// reconciled: the same +3 that reads as a reward also raises the
+    /// price of the next craft on that item, compounding. That is the
+    /// behaviour, it is deliberate as of this ruling, and
+    /// `craft_tier_bump_mult` is the dial for it - but nobody should
+    /// re-derive the intent from the arithmetic and conclude it was
+    /// designed as a cost escalator, because it was not.
+    ///
+    /// Returns the item's tier AFTER the bump so callers can report it.
+    ///
+    /// Unguarded, and it MUST be: the caller has already run the craft
+    /// and already passed the mutation guard, and if the action was
+    /// Krangle it has just set `locked` itself (see `apply_craft_affix`).
+    /// Re-checking here would reject every Krangle's own tier bump - the
+    /// item is locked by the very craft this is the tail of.
+    /// Authorisation happened at the craft; this is that same craft
+    /// finishing, not a new mutation asking permission.
+    pub(crate) fn apply_craft_tier_bump(&mut self, item_id: &str, tier_bump_mult: f64) -> Option<u32> {
+        let item = self.find_item_by_id_mut_unguarded(item_id)?;
+        let bump = crate::adventure::craft_tier_bump(item.tier, tier_bump_mult);
+        item.sync_tier_to(item.tier + bump);
+        Some(item.tier)
     }
 
     /// Only validates/mutates the item itself (found, unlocked, right
@@ -3966,7 +3992,7 @@ mod protection_tests {
             let (mut character, id) = protected_item_character();
             let before = character.find_item_by_id(&id).cloned().expect("fixture item must exist");
             let err = character
-                .craft(&id, action, &mut StdRng::seed_from_u64(1))
+                .craft(&id, action, &mut StdRng::seed_from_u64(1), CRAFT_TIER_BUMP_MULT)
                 .expect_err("a protected item must refuse {action:?}");
             assert!(
                 matches!(err, CraftError::ItemProtected),
@@ -4110,7 +4136,7 @@ mod divinity_tests {
     fn a_one_modifier_bag_item_runs_four_steps_and_ends_krangled_and_named() {
         let mut character = bagged_character(1);
         let plan = character.plan_divinity();
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(5));
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(5), CRAFT_TIER_BUMP_MULT);
 
         assert_eq!(report.steps_applied, 4, "Transmute must be skipped on a 1-modifier item, the other four must land");
         assert_eq!(report.krangled, 1);
@@ -4134,7 +4160,7 @@ mod divinity_tests {
 
         let plan = character.plan_divinity();
         assert_eq!(plan.targets.len(), 3, "only the three bag items may be planned");
-        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(6));
+        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(6), CRAFT_TIER_BUMP_MULT);
 
         let equipped_after: Vec<Item> = EQUIP_SLOTS.iter().filter_map(|&slot| character.equipped(slot).clone()).collect();
         for (before, after) in equipped_before.iter().zip(equipped_after.iter()) {
@@ -4161,7 +4187,7 @@ mod divinity_tests {
         assert_eq!(plan.skipped_kept, 1);
         assert_eq!(plan.targets.len(), 3, "the other three must still be planned");
 
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(7));
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(7), CRAFT_TIER_BUMP_MULT);
         assert_eq!(report.skipped_krangled, 1, "the report must carry the skip counts, not just the plan");
         assert_eq!(report.skipped_kept, 1);
         assert_eq!(report.items_changed, 3);
@@ -4184,7 +4210,7 @@ mod divinity_tests {
             vec![(Affix::CritChance, 0.05), (Affix::Evasion, 0.05), (Affix::IncreasedDamage, 0.05), (Affix::CritMultiplier, 0.05)];
 
         let plan = character.plan_divinity();
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(8));
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(8), CRAFT_TIER_BUMP_MULT);
 
         assert_eq!(report.steps_applied, 0);
         assert_eq!(report.unchanged, 1);
@@ -4205,7 +4231,7 @@ mod divinity_tests {
         let plan = character.plan_divinity();
         assert_eq!(plan.targets.len(), 150);
 
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(9));
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(9), CRAFT_TIER_BUMP_MULT);
 
         assert_eq!(report.items_changed, 150, "every eligible item must have been worked on");
         assert_eq!(report.krangled, 150, "and every one of them Krangled - Krangle is in the chain by ruling");
@@ -4226,7 +4252,7 @@ mod divinity_tests {
         let mut character = bagged_character(1);
         character.level = 200;
         let plan = character.plan_divinity();
-        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(10));
+        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(10), CRAFT_TIER_BUMP_MULT);
 
         assert_eq!(character.inventory[0].tier, 201, "level-synced by Krangle, then +1 from that step's own tier bump");
     }
@@ -4241,7 +4267,7 @@ mod divinity_tests {
         assert!(plan.targets.is_empty());
         assert_eq!(plan.bag_items, 0);
 
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(11));
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(11), CRAFT_TIER_BUMP_MULT);
         assert_eq!(report.steps_applied, 0);
         assert_eq!(report.items_changed, 0);
     }

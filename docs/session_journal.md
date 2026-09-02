@@ -2872,3 +2872,113 @@ not.
 and a brief tunnel drop. It was folded into the same window as the binary
 swap rather than taken as a second outage. Site verified **HTTP 200 in
 0.048 s** afterwards.
+
+## 2026-09-02 — TIER SOURCE AUDIT + the bump unification (branch `fix/craft-tier-bump`)
+
+**The economy does not brake itself. This is the substantive finding of
+the audit and it should be read before anyone tunes a crafting dial.**
+
+- **Income and cost scale at essentially the same rate in the
+  stage-driven regime.** Every dust source is keyed to WORLD STAGE: boss
+  win `mean(1..3) x stage x loot_mult`, filler win `0.5..1.0 x stage x
+  loot_mult`, disenchant `mean(1..6) x the DROPPED item's tier x
+  max(1, 5 x affixes)` where a dropped item's tier is `1 + stage/5`.
+  Income is therefore linear in tier; cost is `tier^1.1`; **the net brake
+  is only `tier^0.1`**. In boss-wins per Transmute that reads 0.67 at
+  tier 11, 0.56 at tier 21, 0.50 at tier 51, 0.53 at tier 201 —
+  **crafting gets CHEAPER in boss-wins as tier rises**, not harder. There
+  is no brake in this regime.
+
+- **`craft_tier_exponent` acts on that regime and barely moves it.** Boss
+  wins per Transmute from tier 11 to tier 201 (an 18x tier increase):
+  1.0 -> 0.58/0.31, 1.1 -> 0.67/0.53, 1.25 -> 0.86/1.15, 1.5 ->
+  1.35/4.29. **1.5 is where it becomes a force.** At 1.25 it is a nudge.
+
+- **The only real brake is the craft-driven one at fixed stage, and it
+  exists by accident.** With the world held at stage 4, income is FLAT (8
+  dust per boss win) while cost climbs `tier^1.1`: 3.5 boss wins per
+  craft at tier 1, 16.1 at tier 25, 43.4 at tier 70 — a 12.4x
+  degradation. That brake works **only because no dust source reads the
+  crafted item's tier.** It is not a designed mechanism; it is a gap.
+
+- **Raising `loot_mult` removes it.** Loot scales income linearly, so it
+  cancels straight out of the ratio: at tier 51 it moves boss-wins-per-
+  craft 1.01 -> 0.50 -> 0.25 -> 0.05 across loot 0.5/1/2/10. It moves the
+  level, never the slope, and it lifts both regimes at once.
+
+- **Disenchant is the dominant dust source**, 5-7x boss income at every
+  tier (770 vs 100 at tier 11; 14,070 vs 2,000 at tier 201) — and it is
+  stage-driven like the rest.
+
+**The two levers act on two different regimes and must not be confused
+for each other.** `craft_tier_exponent` prices tier and moves the
+stage-driven economy, where there is nearly no brake to move.
+`craft_tier_bump_mult` (new, this branch) governs how fast an individual
+item climbs away from its own world, which is the regime where the brake
+actually lives. Turning one expecting the other's effect will read as the
+dial not working.
+
+### What shipped
+
+RULING 1, the unification. A veiled craft committed through
+`apply_craft_affix` and applied NO tier bump; an unveiled one went
+through `Character::craft` and always did. **Ticking the Veil checkbox
+exempted a player from the tier growth and, since the 2026-09-02 cost
+curve prices tier, from the compounding cost growth too** — for 50 dust.
+Both paths now call one helper, `Character::apply_craft_tier_bump`, which
+is the only place a craft moves a tier. Magnitude deliberately unchanged
+in the same commit, per the ruling: unify first, tune second. Unique
+Shard is excluded because it has no unveiled counterpart to be identical
+TO — bumping it would invent growth on the veiled side rather than match
+it.
+
+Evidence the loophole was real, from my own two production crafts on
+2026-09-02: the token (auto-veiled) Regal left the item at tier 1; the
+unveiled Exalt took it 1 -> 4.
+
+RULING 2, the dial. `craft_tier_bump_mult`, default **1.0 = today's
+behaviour exactly**, range 0.0-3.0. One field over all three bands: the
+bands are a designed shape and a dial per band would let them drift apart
+from an admin page. 0.0 switches per-craft tier growth off, which is the
+setting to use while watching the exponent in isolation. 3.0 is +9 per
+craft, so one Hideout Warrior click takes a fresh item from tier 1 to
+tier 40 — past any plausible intent, and above that is a typo.
+**`round`, not `ceil`** — the opposite of `scaled_base_cost`, deliberately:
+a nonzero PRICE must never round away to free, but a fractional GROWTH
+must be able to reach zero or the bottom of the range is a cliff.
+
+RULING 3 is recorded in `docs/world2_build_plan.md` §7 — `boss_stats_for`
+scales on stage and level and is blind to gear tier, so craft-driven
+power is the one growth vector with nothing opposing it. Not patched, by
+order.
+
+RULING 4 is the doc block on `Character::apply_craft_tier_bump`: the bump
+dates from the **initial commit**, was written as a growth reward when
+tier had no price attached, and only became a cost escalator when the
+2026-09-02 release made tier a price input. Two features designed apart,
+never reconciled. A future reader must not mistake it for a recent
+addition.
+
+CORRECTION — my first FOUND line on this named the wrong mechanism. The
+tier 1 -> 4 I saw on production was the +3 craft bump, not the
+character-level sync. The level sync (`grow_krangled_items`, on every
+level-up) is real but applies **only to Krangled items**.
+
+PATCH NOTE DRAFT (for whoever deploys this — NOT written to
+C:/PathofDust or the box by this session, which did not deploy):
+
+  "Crafting: veiling no longer skips the tier growth" —
+  "Crafting an item has always raised that item's tier — +3 tiers below
+   tier 25, +2 below 50, +1 above — which raises its power and every
+   modifier on it. It turns out that only happened when you crafted
+   WITHOUT ticking Veil. A veiled craft quietly skipped it."
+  "That is now fixed: veiled and unveiled crafts grow an item the same
+   amount. Nothing about the amount has changed, and an unveiled craft
+   behaves exactly as it did yesterday."
+  "Worth knowing, because yesterday's cost change made it matter: the
+   per-tier part of a craft's price is charged on the item's CURRENT
+   tier, so crafting an item makes its next craft a little dearer.
+   Veiling used to dodge that too."
+  HONESTY NOTE, must survive whatever rewording ships: for anyone who
+  was veiling, this IS a nerf — their items will now grow (a buff) and
+  their subsequent crafts will now cost more (a nerf). Say both.

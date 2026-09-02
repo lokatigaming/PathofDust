@@ -153,6 +153,59 @@ pub fn tier_surcharge(tier: u32, exponent: f64) -> u64 {
     (TIER_CRAFT_DUST_COST as f64 * (tier as f64).powf(sanitize_craft_tier_exponent(exponent))).ceil() as u64
 }
 
+/// Shipped default for `LiveTunables::craft_tier_bump_mult` - 1.0, i.e.
+/// the banded per-craft tier bump is applied exactly as it always has
+/// been. The DIAL is the 2026-09-02 deliverable; the behaviour at the
+/// default is unchanged.
+pub const CRAFT_TIER_BUMP_MULT: f64 = 1.0;
+
+/// Lower bound. **Zero is deliberately legal and is the setting most
+/// likely to be wanted first**: it switches per-craft tier growth off
+/// entirely without touching the bands, which is the clean way to watch
+/// `craft_tier_exponent` in isolation.
+pub const CRAFT_TIER_BUMP_MULT_MIN: f64 = 0.0;
+
+/// Upper bound. At 3.0 the fastest band is +9 tiers per craft, so one
+/// Hideout Warrior click (5 crafts) takes a fresh item from tier 1 to
+/// roughly tier 40 - already past any plausible intent. Anything above
+/// that is a typo rather than a lever.
+pub const CRAFT_TIER_BUMP_MULT_MAX: f64 = 3.0;
+
+/// `sanitize_craft_base_cost_mult`'s twin for the tier-bump dial.
+pub fn sanitize_craft_tier_bump_mult(value: f64) -> f64 {
+    if !value.is_finite() {
+        return CRAFT_TIER_BUMP_MULT;
+    }
+    value.clamp(CRAFT_TIER_BUMP_MULT_MIN, CRAFT_TIER_BUMP_MULT_MAX)
+}
+
+/// How many tiers one successful craft adds to the item it crafted.
+///
+/// **The bands are the designed shape and are NOT tunable**: +3 below
+/// tier 25, +2 below 50, +1 above. `mult` scales that shape as a whole -
+/// one dial, so the relationship between the three bands can never drift
+/// apart from an admin page.
+///
+/// **`round`, not `ceil`** - the opposite discipline to `scaled_base_cost`,
+/// and deliberately so. There a nonzero PRICE must never round away to
+/// free, so it rounds up. Here a fractional bump must be allowed to reach
+/// zero: `ceil` would pin every nonzero multiplier at +1 minimum and turn
+/// 0.0 into a cliff, when the whole point of the low end of the range is
+/// to wind growth down gradually and then off.
+///
+/// See `Character::apply_craft_tier_bump`, the single call site, for what
+/// this growth is and why it predates tier having a price.
+pub fn craft_tier_bump(tier: u32, mult: f64) -> u32 {
+    let banded = if tier < 25 {
+        3.0
+    } else if tier < 50 {
+        2.0
+    } else {
+        1.0
+    };
+    (banded * sanitize_craft_tier_bump_mult(mult)).round() as u32
+}
+
 /// The fixed 5-step chain Hideout Warrior runs, in order - the only
 /// sequence of existing `CraftAction::required_affix_count` preconditions
 /// that takes a bare item all the way through to Krangled.
@@ -871,5 +924,69 @@ mod cost_curve_tests {
         let t = LiveTunables::default();
         assert_eq!(t.craft_base_cost_mult, CRAFT_BASE_COST_MULT);
         assert_eq!(t.craft_tier_exponent, CRAFT_TIER_EXPONENT);
+        assert_eq!(t.craft_tier_bump_mult, CRAFT_TIER_BUMP_MULT);
+    }
+
+    /// The bands are the designed shape and the dial scales them as a
+    /// whole. At the shipped 1.0 the numbers are exactly what the initial
+    /// commit wrote, which is what makes this release a no-op on live
+    /// play.
+    #[test]
+    fn the_tier_bump_bands_are_unchanged_at_the_shipped_multiplier() {
+        for (tier, expected) in [(1u32, 3u32), (24, 3), (25, 2), (49, 2), (50, 1), (100, 1), (5000, 1)] {
+            assert_eq!(craft_tier_bump(tier, CRAFT_TIER_BUMP_MULT), expected, "band at tier {tier}");
+        }
+    }
+
+    /// Zero must genuinely switch per-craft tier growth off - it is the
+    /// setting an operator reaches for to watch `craft_tier_exponent` in
+    /// isolation, and a bump of 1 sneaking through would defeat that.
+    #[test]
+    fn a_zero_multiplier_switches_tier_growth_off_in_every_band() {
+        for tier in [1u32, 24, 25, 49, 50, 200] {
+            assert_eq!(craft_tier_bump(tier, 0.0), 0, "tier {tier} must not grow at multiplier 0");
+        }
+    }
+
+    /// `round`, not `ceil` - the opposite of `scaled_base_cost`, on
+    /// purpose. A fractional multiplier has to be able to reach zero, or
+    /// the bottom of the range becomes a cliff instead of a fade.
+    #[test]
+    fn the_bump_rounds_rather_than_ceils_so_the_low_end_fades_out() {
+        assert_eq!(craft_tier_bump(1, 0.5), 2, "3 x 0.5 = 1.5 rounds to 2");
+        assert_eq!(craft_tier_bump(25, 0.5), 1, "2 x 0.5 = 1 exactly");
+        assert_eq!(craft_tier_bump(50, 0.5), 1, "1 x 0.5 = 0.5 rounds up to 1");
+        assert_eq!(craft_tier_bump(50, 0.4), 0, "1 x 0.4 = 0.4 rounds DOWN to 0 - ceil would pin this at 1 forever");
+        assert_eq!(craft_tier_bump(1, 0.1), 0, "3 x 0.1 = 0.3 rounds to 0");
+    }
+
+    /// The ceiling, and the reason it is where it is: at 3.0 the fastest
+    /// band is +9, so one Hideout Warrior click (5 crafts) takes a fresh
+    /// item from tier 1 to roughly tier 40.
+    #[test]
+    fn the_ceiling_is_nine_tiers_a_craft_and_a_hideout_warrior_click_lands_near_forty() {
+        assert_eq!(craft_tier_bump(1, CRAFT_TIER_BUMP_MULT_MAX), 9);
+        let mut tier = 1u32;
+        for _ in 0..5 {
+            tier += craft_tier_bump(tier, CRAFT_TIER_BUMP_MULT_MAX);
+        }
+        assert_eq!(tier, 40, "five crafts at the ceiling");
+        // ...against the shipped multiplier's own five-step climb.
+        let mut tier = 1u32;
+        for _ in 0..5 {
+            tier += craft_tier_bump(tier, CRAFT_TIER_BUMP_MULT);
+        }
+        assert_eq!(tier, 16, "five crafts at the default");
+    }
+
+    /// Out-of-range and non-finite readings never reach the growth, same
+    /// discipline as the two cost dials.
+    #[test]
+    fn out_of_range_bump_multipliers_are_sanitised() {
+        assert_eq!(sanitize_craft_tier_bump_mult(f64::NAN), CRAFT_TIER_BUMP_MULT);
+        assert_eq!(sanitize_craft_tier_bump_mult(f64::INFINITY), CRAFT_TIER_BUMP_MULT);
+        assert_eq!(sanitize_craft_tier_bump_mult(-1.0), CRAFT_TIER_BUMP_MULT_MIN);
+        assert_eq!(sanitize_craft_tier_bump_mult(99.0), CRAFT_TIER_BUMP_MULT_MAX);
+        assert_eq!(craft_tier_bump(1, f64::NAN), craft_tier_bump(1, CRAFT_TIER_BUMP_MULT));
     }
 }
