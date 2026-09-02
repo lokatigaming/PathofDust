@@ -49,7 +49,18 @@ pub async fn start_adventure_overlay_server(port: u16, public_dir: PathBuf, mana
         // to guess which exact URL every OBS setup actually uses.
         .layer(axum::middleware::from_fn(force_no_store));
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    // LOOPBACK ONLY - see the same change on `start_adventure_web_server`
+    // (adventure_web.rs) for the full reasoning. This was `0.0.0.0` until
+    // 2026-09-02.
+    //
+    // This port has even less claim on a public bind than 4005 does: it
+    // is not published through the tunnel at all, and 4005 already serves
+    // the same overlay assets specifically so this port never needs its
+    // own public route (see this file's own note below, and the port
+    // table in docs/platform_portability_audit.md). Its only consumer is
+    // an OBS Browser Source, which reaches the overlay through the
+    // dashboard's copy.
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, app).await {
             tracing::error!("Adventure overlay server crashed: {err}");

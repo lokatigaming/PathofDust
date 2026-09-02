@@ -70,9 +70,10 @@ async fn http_golden_responses_against_a_disposable_game_instance() {
     .await
     .expect("disposable adventure_web server must start");
 
-    // `bound_addr`'s host is `0.0.0.0` (bind to every interface - see
-    // start_adventure_web_server's own listener) - valid to bind, not
-    // valid to connect a client to; loopback reaches the same listener.
+    // `bound_addr`'s host is `127.0.0.1` - the server binds loopback only
+    // (see `start_adventure_web_server`'s own listener, 2026-09-02), so
+    // this connects to exactly the address it is listening on. Only the
+    // port is taken from `bound_addr`, since it was chosen by the OS.
     let base = format!("http://127.0.0.1:{}", bound_addr.port());
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("failed to build reqwest client");
 
