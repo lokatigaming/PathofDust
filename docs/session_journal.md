@@ -603,3 +603,14 @@ never a flurry, and a single skipped beat as the worst case.
 FOUND — `manager.rs` has a pre-existing `unused_mut` on `let mut broken:
 Vec<BrokenItem>` (never mutated afterwards). Confirmed pre-existing on HEAD,
 not introduced here. Not touched.
+
+FOUND — §13B's build step fails on first use: `systemd-run` does not inherit
+the login environment, so `cargo` is not on `PATH` and the build dies
+instantly with `cargo: command not found`, `exit 127`. `cargo` is at
+`/root/.cargo/bin/cargo`. `HOME=/root` is needed too or cargo cannot resolve
+`CARGO_HOME`. Corrected in REFACTOR_PLAN.md §13B.1 with the working form.
+
+FOUND — the bot logs recurring `PayPal relay poll failed` against
+`young-hall-6c35.parnold-id.workers.dev/pending-tips`. Unrelated to the
+cutover or this fix (external Cloudflare Worker endpoint), pre-dates both.
+Not investigated.

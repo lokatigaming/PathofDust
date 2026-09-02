@@ -1395,6 +1395,33 @@ reading a piped command's exit code applies identically here.
 Run these under `systemd-run --unit=...` rather than in the SSH session,
 so a dropped connection does not kill a three-minute build.
 
+> **`systemd-run` does NOT inherit your login environment — you must pass
+> `PATH` and `HOME` explicitly, or the build fails instantly with
+> `cargo: command not found` and `exit 127`.** Found on this procedure's
+> first real use, 2026-09-02. `cargo` lives at `/root/.cargo/bin/cargo`
+> (rustup install), which is on root's *interactive* `PATH` via
+> `~/.cargo/env` but not in the empty environment systemd hands a
+> transient unit. `HOME=/root` matters too — cargo resolves the registry
+> cache and `CARGO_HOME` from it, and without it a build either re-downloads
+> the whole index or fails outright.
+>
+> The form that works:
+>
+> ```sh
+> systemd-run --unit=pod-build --collect --quiet \
+>   --working-directory=/root/deploy-src \
+>   --setenv=PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+>   --setenv=HOME=/root \
+>   /bin/bash -c 'cargo build --release --workspace > /root/build-deploy.log 2>&1; echo "build exit: $?" >> /root/build-deploy.log'
+> ```
+>
+> `--collect` reaps the transient unit when it finishes, so a re-run of the
+> same `--unit` name does not collide with the previous one's leftover
+> failed state. Wait for it with
+> `while systemctl is-active --quiet pod-build; do sleep 10; done`, then read
+> the `exit:` line out of the log — **the exit code of `systemd-run` itself
+> tells you only that the unit started**, never whether the build passed.
+
 Measured on this box (8 vCPU, 16 GB): build **2 m 36 s**, full suite
 **758 passed / 0 failed / 0 ignored**, both while the live service was
 serving and resolving real fights. **The suite saturates all 8 cores**
