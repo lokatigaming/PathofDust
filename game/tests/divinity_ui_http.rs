@@ -95,6 +95,14 @@ async fn a_player_holding_a_shard_can_see_and_run_divinity() {
 
     assert!(body.contains("value=\"divinity\""), "the Divinity pseudo-action button must be rendered for a shard holder:\n{body}");
     assert!(body.contains("Divinity (3 items, 1 Unique Shard)"), "the button must state the real ELIGIBLE count and the shard price");
+    // This asserts the ATTRIBUTE is emitted, and NOTHING MORE. It passed
+    // continuously from 2026-08-24 to 2026-09-02 while Divinity's confirm
+    // dialog never once appeared: base.html's listener was bound to the
+    // wrong form the whole time, so the server-side attribute this line
+    // checks was correct and inert. Read it as "the message text exists",
+    // never as "the confirmation works" - whether anything is listening
+    // is checked by `craft_confirm_ui_http.rs`, which owns that question
+    // for all six confirmed actions.
     assert!(body.contains("data-confirm-msg=\""), "the whole-bag confirm message must be present - the default per-item confirm names an item this action ignores");
 
     // --- Step 2: POST exactly the fields the crafting form renders. ---
