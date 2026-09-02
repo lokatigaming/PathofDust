@@ -8,6 +8,16 @@
 /// meaningfully out-pace the intended fight-driven leveling pace, and
 /// would have become proportionally MORE dominant once victory XP got cut
 /// (see the boss-win xp grant in `run_encounter`) if left untouched here.
+///
+/// RETAINED WITHOUT A CALLER (2026-09-02, Twitch removal). Chat activity
+/// XP is GONE - `grant_activity_xp` and `last_activity_xp` were deleted
+/// along with the `/api/*` seam that was their only caller. These two
+/// constants survive solely because `adventure_web/wiki.rs:308-309` reads
+/// them into the wiki's `ACTIVITY_XP_COOLDOWN_S`/`ACTIVITY_XP_AMOUNT`
+/// placeholders, and that file belongs to the wiki session (CLAUDE.md
+/// §Multi-session rule 1) - this session may not edit it. The wiki
+/// therefore still documents a mechanic the game no longer has; see
+/// WIKI_IMPACT.md. Delete both when the wiki session removes that section.
 pub const ACTIVITY_XP_COOLDOWN: Duration = Duration::from_secs(180);
 pub const ACTIVITY_XP_AMOUNT: u64 = 4;
 
@@ -135,18 +145,6 @@ fn boss_count_for_stage(stage: u32, tunables: &LiveTunables, rng: &mut impl Rng)
     raw.min(cap) as usize
 }
 
-/// What `AdventureManager::register_rampage_vote` handed back -
-/// commands.rs's !rampage (non-mod path) turns each into the right chat
-/// line.
-pub enum RampageVoteOutcome {
-    /// This vote pushed the distinct-voter count to `RAMPAGE_VOTE_THRESHOLD`
-    /// or beyond - a rampage was just started.
-    Triggered,
-    /// Still short of the threshold - carries the current distinct-voter
-    /// count (including this vote).
-    Counted(u32),
-}
-
 /// How often a much weaker, non-progression-advancing "basic enemy" fight
 /// fires - see `run_basic_encounter`.
 pub const BASIC_ENCOUNTER_INTERVAL: Duration = Duration::from_secs(180);
@@ -229,11 +227,22 @@ pub const PLAYBACK_CADENCE_CEILING_MS: u32 = (RAMPAGE_MIN_INTERVAL_MS - OVERLAY_
 /// command, similar to a vote") - how many DISTINCT non-mod voters it
 /// takes. A mod's own !rampage still triggers instantly, same as before;
 /// this is purely the alternate viewer-driven path.
+///
+/// RETAINED WITHOUT A CALLER (2026-09-02, Twitch removal). The rampage
+/// vote is GONE - `register_rampage_vote`, `RampageVoteOutcome` and
+/// `rampage_votes` were deleted along with the `/api/*` seam that was
+/// their only caller; a rampage now starts only from `/admin/ops` or the
+/// timer. This survives solely because `adventure_web/wiki.rs:282` reads
+/// it into the wiki's `RAMPAGE_VOTE_THRESHOLD` placeholder, and that file
+/// belongs to the wiki session (CLAUDE.md §Multi-session rule 1) - this
+/// session may not edit it. The wiki therefore still documents a mechanic
+/// the game no longer has; see WIKI_IMPACT.md. Delete when the wiki
+/// session removes that section.
 pub const RAMPAGE_VOTE_THRESHOLD: u32 = 3;
 /// !rampage persistence (2026-08-17, a live request: "if a rampage was
 /// active when the bot went down the bot should remember the rampage and
-/// come back up where it left off") - unlike `rampage_votes`/
-/// `forced_boss_count`, which stay deliberately in-memory-only,
+/// come back up where it left off") - unlike `forced_boss_count`, which
+/// stays deliberately in-memory-only,
 /// `rampage_remaining` is now mirrored to this file on every change (see
 /// `persist_rampage_remaining`) and reloaded at `AdventureManager::new`,
 /// so a crash/restart mid-rampage resumes the countdown instead of
@@ -1686,13 +1695,9 @@ pub struct AdventureManager {
     characters_path: PathBuf,
     world: Mutex<WorldState>,
     world_path: PathBuf,
-    /// Lowercased username -> last time they earned activity XP — purely
-    /// in-memory rate limiting, doesn't need to survive a restart.
-    last_activity_xp: Mutex<HashMap<String, Instant>>,
     /// Lowercased username -> when they revive after being knocked out —
-    /// purely in-memory (a restart just revives everyone early, same
-    /// tradeoff as last_activity_xp resetting). Entries are pruned lazily
-    /// as they're read past, not on a timer.
+    /// purely in-memory (a restart just revives everyone early). Entries
+    /// are pruned lazily as they're read past, not on a timer.
     downed_until: Mutex<HashMap<String, SystemTime>>,
     /// The earliest instant a new fight is allowed to START (2026-08-17,
     /// a live request: fights were able to overlap - two of the several
@@ -1708,7 +1713,7 @@ pub struct AdventureManager {
     /// including "nobody was eligible" - so even a no-op tick still
     /// enforces the flat 5s floor between fights. In-memory only (a
     /// restart just makes the next fight immediately eligible, same
-    /// tradeoff as `last_activity_xp`/`downed_until`).
+    /// tradeoff as `downed_until`).
     fight_gate: Mutex<Instant>,
     /// Lowercased username -> the hour-bucket (see `current_hour_bucket`)
     /// they last used "Reforge Gear" in — resets for everyone at the top
@@ -1742,18 +1747,21 @@ pub struct AdventureManager {
     /// giveaway (main.rs's own `ITEM_LAUNCH_GIVEAWAYS`), which already
     /// announces on its own - this covers every win after that.
     unique_shard_tx: broadcast::Sender<UniqueShardEvent>,
-    /// Stage 3 (2026-08-19, architecture refactor API seam) - already-
-    /// formatted, ready-to-say chat lines, game-initiated (no request
-    /// preceded them) - what `GET /api/announcements/stream` (an SSE
-    /// endpoint) streams to the bot. A bounded broadcast channel with
-    /// zero subscribers (no SSE client currently connected - the bot is
-    /// down, or hasn't connected yet) just lets sends fall on the floor,
-    /// same as `tokio::sync::broadcast`'s own lagging-receiver behavior -
-    /// exactly the owner-ratified "drop gracefully" policy (§4b), no
-    /// separate persistent queue needed. Fed by `announce_*` methods
-    /// below, which PORT (not yet replace - see REFACTOR_PLAN.md's
-    /// Stage 3 "coexist, no cutover" instruction) the exact formatting
-    /// main.rs's own broadcast subscribers still do today.
+    /// The game's own event bus - already-formatted, ready-to-say lines,
+    /// game-initiated (no request preceded them). Nine producers feed it
+    /// via the `announce_*` methods below: encounter results, loot, batch
+    /// summaries, rampage completion, unique-shard wins, gear crits, the
+    /// Wings giveaway and activity level-ups.
+    ///
+    /// DORMANT, RETAINED DELIBERATELY (2026-09-02, Twitch removal). Its
+    /// last direct reader, `subscribe_announcements` (the `/api/*` SSE
+    /// endpoint), went with the seam. A bounded broadcast channel with
+    /// zero subscribers just lets sends fall on the floor - every
+    /// producer already discards the `Err` with `let _ =` - so this costs
+    /// nothing while idle. It is NOT dead code awaiting a cleanup pass:
+    /// it is exactly what a web narration feed subscribes to, and the
+    /// `announce` TEE below already mirrors every line into
+    /// `announcement_feed`, which the dashboard renders today.
     announcements_tx: broadcast::Sender<String>,
     /// World 2 Stage 2 (2026-08-28) - the last `ANNOUNCEMENT_FEED_CAP`
     /// lines that went out over `announcements_tx`, so the web dashboard
@@ -1775,7 +1783,7 @@ pub struct AdventureManager {
     announcement_feed: std::sync::Mutex<std::collections::VecDeque<String>>,
     /// Lowercased username -> an in-progress veiled craft awaiting a
     /// choice (see `PendingVeil`/`choose_veil_outcome`) - purely
-    /// in-memory, same tradeoff as `last_activity_xp`/`downed_until` (a
+    /// in-memory, same tradeoff as `downed_until` (a
     /// restart just drops anyone's unresolved veil choice, which cost
     /// them dust already spent - an accepted rare edge case, not worth
     /// persisting a whole extra file for).
@@ -1820,13 +1828,6 @@ pub struct AdventureManager {
     /// loop would only notice on its own next poll, adding up to a whole
     /// extra `RAMPAGE_INTERVAL` of delay before the first rampage fight.
     rampage_notify: Notify,
-    /// !rampage vote (2026-08-17) - distinct non-mod chat logins who've
-    /// typed !rampage since the last time the vote either triggered or
-    /// (in the future, if ever needed) was otherwise cleared - see
-    /// `register_rampage_vote`. A `HashSet` so the same viewer spamming
-    /// the command repeatedly only ever counts once. Purely in-memory,
-    /// same "a restart just clears it" convention as `rampage_remaining`.
-    rampage_votes: Mutex<std::collections::HashSet<String>>,
     /// Live drop-rate/boss-difficulty dials, editable with no recompile AND
     /// no restart via the admin-only `/admin/tunables` web page - see
     /// `LiveTunables`'s own doc for why this is a plain `std::sync::RwLock`
@@ -2180,7 +2181,6 @@ impl AdventureManager {
             characters_path,
             world: Mutex::new(world),
             world_path,
-            last_activity_xp: Mutex::new(HashMap::new()),
             downed_until: Mutex::new(HashMap::new()),
             fight_gate: Mutex::new(Instant::now()),
             reforge_cooldown: Mutex::new(reforge_cooldown),
@@ -2198,7 +2198,6 @@ impl AdventureManager {
             operator_action_gate: Mutex::new(()),
             rampage_remaining: Mutex::new(rampage_remaining),
             rampage_notify: Notify::new(),
-            rampage_votes: Mutex::new(std::collections::HashSet::new()),
             live_tunables: std::sync::RwLock::new(load_live_tunables()),
             pending_fight_batch: Mutex::new(PendingFightBatch::default()),
         })
@@ -2305,23 +2304,27 @@ impl AdventureManager {
         self.unique_shard_tx.subscribe()
     }
 
-    /// Stage 3 API seam - see `announcements_tx`'s own doc. What the SSE
-    /// endpoint subscribes to.
+    /// Subscribes to the announcement bus - see `announcements_tx`'s doc.
+    ///
+    /// The removal scope listed this for deletion on the claim that its
+    /// "sole consumer is api.rs:403-411" (the SSE endpoint). That is
+    /// WRONG: `adventure_overlay_server.rs`'s `/ws` handler calls it too,
+    /// teeing every announcement onto the live overlay socket, and that
+    /// consumer has nothing to do with Twitch or the bot. Retained.
     pub fn subscribe_announcements(&self) -> broadcast::Receiver<String> {
         self.announcements_tx.subscribe()
     }
 
     /// The announcement TEE (World 2 Stage 2, 2026-08-28). Every one of
-    /// the `announce_*` producers now goes through here instead of
-    /// calling `announcements_tx.send` directly. It appends to the
-    /// in-memory `announcement_feed` ring the dashboard and `/ws` read,
-    /// and then sends the SAME `String` on the channel, so
-    /// `GET /api/announcements/stream` - and therefore Twitch chat -
-    /// receives byte-identical lines in the same order it always did.
-    /// This ADDS a sink; it reroutes nothing.
+    /// the `announce_*` producers goes through here instead of calling
+    /// `announcements_tx.send` directly. It appends to the in-memory
+    /// `announcement_feed` ring the dashboard and `/ws` read, and then
+    /// sends the SAME `String` on the channel.
     ///
-    /// The send result is discarded exactly as before: zero SSE
-    /// subscribers is the normal state when the bot is down, and the
+    /// Since the Twitch removal (2026-09-02) the ring is the ONLY reader
+    /// that exists; the channel is dormant but retained - see
+    /// `announcements_tx`'s own doc. The send result is discarded exactly
+    /// as before: zero subscribers is now the permanent state, and the
     /// owner-ratified policy for that is "drop gracefully" (§4b).
     fn announce(&self, msg: String) {
         {
@@ -4483,41 +4486,6 @@ impl AdventureManager {
         Some(ReforgeOutcome { item_name, slot, old_tier, new_tier, bonus_affix })
     }
 
-    /// Called for every chat message — grants a small amount of passive
-    /// XP to `username`'s character, if they've joined, rate-limited per
-    /// user so spamming chat can't farm levels. Returns the new level if
-    /// this happened to trigger a level-up.
-    pub async fn grant_activity_xp(&self, username: &str) -> Option<u32> {
-        let key = username.to_lowercase();
-
-        {
-            let mut last = self.last_activity_xp.lock().await;
-            if let Some(prev) = last.get(&key) {
-                if prev.elapsed() < ACTIVITY_XP_COOLDOWN {
-                    return None;
-                }
-            }
-            last.insert(key.clone(), Instant::now());
-        }
-
-        let mut characters = self.characters.lock().await;
-        let Some(character) = characters.get_mut(&key) else { return None };
-        let leveled = character.add_xp(ACTIVITY_XP_AMOUNT);
-        // Stage 3 API seam (2026-08-19) - pushed here rather than left
-        // for a caller to format, matching the "game owns all
-        // player-facing text" design principle. Harmless alongside the
-        // still-untouched in-process path (src/main.rs's own chat_client.say
-        // for this exact message) since nothing subscribes to
-        // `announcements_tx` in production yet - see its own doc.
-        if let Some(new_level) = leveled {
-            self.announce(format!("{} leveled up to level {new_level}!", character.display_name));
-        }
-        self.persist_characters(&characters);
-        drop(characters);
-        self.broadcast_state().await;
-        leveled
-    }
-
     /// Runs forever, triggering an auto-battle encounter every
     /// `ENCOUNTER_INTERVAL` — called once from main.rs. The first
     /// (immediate) tick is skipped so an encounter doesn't fire the
@@ -4688,27 +4656,6 @@ impl AdventureManager {
     fn persist_rampage_remaining(&self, value: u32) {
         if let Err(err) = crate::state::save_json(data_path(RAMPAGE_STATE_PATH), &value) {
             tracing::error!("Failed to persist rampage state to {RAMPAGE_STATE_PATH}: {err}");
-        }
-    }
-
-    /// !rampage vote (2026-08-17) - registers one non-mod chat login's
-    /// vote (deduped, see `rampage_votes`' own doc) and either reports the
-    /// running count or, once `RAMPAGE_VOTE_THRESHOLD` distinct voters is
-    /// reached, clears the vote set and calls `start_rampage` directly -
-    /// same trigger a mod's own !rampage uses, so it gets the exact same
-    /// 50-fight/instant-revive behavior.
-    pub async fn register_rampage_vote(&self, user: &str) -> RampageVoteOutcome {
-        let count = {
-            let mut votes = self.rampage_votes.lock().await;
-            votes.insert(user.to_lowercase());
-            votes.len() as u32
-        };
-        if count >= RAMPAGE_VOTE_THRESHOLD {
-            self.rampage_votes.lock().await.clear();
-            self.start_rampage().await;
-            RampageVoteOutcome::Triggered
-        } else {
-            RampageVoteOutcome::Counted(count)
         }
     }
 

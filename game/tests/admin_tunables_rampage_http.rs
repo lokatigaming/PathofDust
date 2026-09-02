@@ -37,12 +37,8 @@ async fn the_permanent_rampage_checkbox_round_trips_through_a_real_form_post() {
 
     let bound = game::adventure_web::start_adventure_web_server(
         0,
-        "http://localhost".to_string(),
-        Some("test-client-id".to_string()),
-        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
-        None,
     )
     .await
     .expect("disposable adventure_web server must start");

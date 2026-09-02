@@ -16,9 +16,9 @@
 //! at length why an in-process test of it is inherently flaky - any test
 //! in the shared test binary can race to be the first caller and lock in
 //! the value. A child process has its own `OnceLock` and no race at all.
-//! Second, three of these paths are resolved during STARTUP (the log
-//! directory before the subscriber even exists, the wings marker, the
-//! published-constants probe), so only a real startup exercises them.
+//! Second, two of these paths are resolved during STARTUP (the log
+//! directory before the subscriber even exists, and the wings marker),
+//! so only a real startup exercises them.
 //!
 //! Same harness shape as `killed_process_smoke.rs` - `CARGO_BIN_EXE_game`
 //! for a guaranteed-built binary, fixed dedicated ports, `current_dir`
@@ -30,7 +30,6 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-const TEST_SECRET: &str = "data-dir-path-test-secret";
 
 /// Distinct from `killed_process_smoke.rs`'s pair, and from each other -
 /// the two scenarios below run sequentially inside one test, but a
@@ -50,7 +49,6 @@ const SET_OVERLAY_PORT: u16 = 24114;
 const REROUTED_FILES: &[&str] = &[
     "logs",
     "adventure-wings-giveaway-marker.json",
-    "bot-published-constants.json",
     "adventure-sessions.json",
     "adventure-accounts.json",
 ];
@@ -77,12 +75,8 @@ fn spawn_game(cwd: &Path, data_dir: Option<&Path>, web_port: u16, overlay_port: 
     let mut command = Command::new(env!("CARGO_BIN_EXE_game"));
     command
         .current_dir(cwd)
-        .env("TWITCH_CLIENT_ID", "dummy-client-id")
-        .env("TWITCH_CLIENT_SECRET", "dummy-client-secret")
         .env("ADVENTURE_WEB_PORT", web_port.to_string())
         .env("ADVENTURE_OVERLAY_SERVER_PORT", overlay_port.to_string())
-        .env("ADVENTURE_API_SECRET", TEST_SECRET)
-        .env("GAME_SUPPRESS_MISSING_PUBLISHED_CONSTANTS_WARNING", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     match data_dir {
@@ -124,25 +118,8 @@ fn copy_templates_into(cwd: &Path) {
 
 /// Drives one process to the point where every rerouted file has actually
 /// been written, then returns. Each of these is deterministic on a fresh
-/// data set - no fight, no roster and no Twitch login is involved.
+/// data set - no fight and no roster is involved.
 async fn write_every_rerouted_file(client: &reqwest::Client, base: &str) {
-    // bot-published-constants.json - the game writes it on the bot's
-    // behalf now (see `publish_constants`).
-    let published = client
-        .post(format!("{base}/api/published-constants"))
-        .header("x-adventure-api-secret", TEST_SECRET)
-        .json(&serde_json::json!({
-            "builtin_cooldown_secs": 11,
-            "bug_report_cooldown_secs": 22,
-            "song_skip_cooldown_secs": 33,
-            "min_vote_volume": 4,
-            "max_vote_volume": 5,
-        }))
-        .send()
-        .await
-        .expect("POST /api/published-constants failed");
-    assert_eq!(published.status(), reqwest::StatusCode::NO_CONTENT, "the published-constants POST must be accepted");
-
     // adventure-accounts.json AND adventure-sessions.json - registering
     // persists the account and then mints a session, writing both.
     let registered = client
@@ -228,10 +205,10 @@ async fn with_game_data_dir_unset_every_file_resolves_cwd_relative_exactly_as_be
     run_scenario("unset", false, UNSET_WEB_PORT, UNSET_OVERLAY_PORT).await;
 }
 
-/// The other half: set it and all six move together, leaving nothing
+/// The other half: set it and all of them move together, leaving nothing
 /// behind. A file that moved while its neighbour did not would be worse
-/// than neither moving - see `published_constants_path`'s doc for the
-/// failure that shape produces.
+/// than neither moving - a half-moved data dir is the worst outcome of
+/// all.
 #[tokio::test]
 async fn with_game_data_dir_set_every_file_follows_it() {
     run_scenario("set", true, SET_WEB_PORT, SET_OVERLAY_PORT).await;

@@ -89,9 +89,10 @@ touched. The `pathofdust` unit was not restarted at any point — ingress is ent
 
 ## What this does *not* expose
 
-`ADVENTURE_API_SECRET` remains absent from the unit, so `adventure_web/api.rs`'s `router()`
-returns `None` and `/api/*` is never mounted. Publishing the dashboard did **not** publish the
-API. Do not add that key.
+`ADVENTURE_API_SECRET` is absent from the unit, and since 2026-09-02 the seam itself is
+deleted from the source — `adventure_web/api.rs`, the `/api` nest and the `api_secret`
+parameter are gone. Publishing the dashboard did **not** publish the API, and there is no
+longer an API to publish. The key does nothing; do not add it.
 
 **Correction (2026-09-01, CUTOVER-RUNBOOK session).** An earlier version of this document proved
 that with `GET https://staging.lokati.net/api/status` → **404, not 401**. That check is invalid
@@ -115,10 +116,11 @@ It is safe to run against a live instance — the middleware rejects before the 
 request has no side effect. Run against live Windows production on 2026-09-01 it returns **401**,
 which is what a mounted seam looks like; staging must return **404**.
 
-`ADVENTURE_WEB_PUBLIC_URL` is deliberately left at `http://127.0.0.1:4005`. It feeds exactly one
-thing — the Twitch OAuth `redirect_uri` in `adventure_web.rs` (`redirect_uri()`, ~line 123) — and
-Twitch is already non-functional on staging under placeholder credentials. Nothing else in the
-codebase reads it, so a stale value breaks no link the tunnel serves. Session cookies carry
+`ADVENTURE_WEB_PUBLIC_URL` has been **removed** (2026-09-02). It fed exactly one thing — the
+Twitch OAuth `redirect_uri` in `adventure_web.rs` — and that function is deleted, so no code
+reads the variable at all. It is gone from the unit and the environment file rather than left
+at a harmless-looking value: a variable nothing consumes reads as meaningful to whoever finds
+it next. Session cookies carry
 `HttpOnly; SameSite=Lax` with no `Secure` flag, so local `/account/register` login works over
 HTTPS unchanged.
 

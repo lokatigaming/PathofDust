@@ -693,12 +693,18 @@ simplifies that `main`. The bot's own `logs/`
 ([src/main.rs:520-521](../src/main.rs#L520-L521)) is untouched — it stays
 on Windows.
 
-**Step 6 — `.env`. See §11.** Note the game reads only five keys
-(`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `ADVENTURE_WEB_PORT`,
-`ADVENTURE_WEB_PUBLIC_URL`, `ADVENTURE_OVERLAY_SERVER_PORT`) plus
-`ADVENTURE_API_SECRET` and the optional `GAME_DATA_DIR` — it does **not**
-need the bot's ~35 other keys, so the VPS `EnvironmentFile` is a small
-subset, not a copy of the existing `.env`.
+**Step 6 — `.env`. See §11.** Note the game reads only a small subset of
+keys — it does **not** need the bot's ~35 others, so the VPS
+`EnvironmentFile` is a subset, not a copy of the existing `.env`.
+
+> **Updated 2026-09-02 (TWITCH-REMOVAL-GAME).** This paragraph listed six
+> keys. Four of them — `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`,
+> `ADVENTURE_API_SECRET` and `ADVENTURE_WEB_PUBLIC_URL` — are read by no
+> code at all now that the Twitch login and the `/api/*` seam are deleted,
+> and are being removed from the unit and the drop-in. The game's complete
+> environment surface is `ADVENTURE_WEB_PORT`,
+> `ADVENTURE_OVERLAY_SERVER_PORT`, `OPERATOR_LOGIN`, and the optional
+> `GAME_DATA_DIR` and `OPERATOR_BOOTSTRAP`.
 
 #### Revised total — game only
 

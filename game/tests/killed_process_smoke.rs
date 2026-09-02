@@ -1,15 +1,18 @@
-//! Stage 5 (REFACTOR_PLAN.md §4c/§5, 2026-08-19) - a genuinely killed
-//! process, not a synthetic stand-in. Stage 4's tests/api_seam.rs (in the
-//! bot crate) already proved a client fails cleanly against a port that
-//! was simply never served on; this test goes one step further and
-//! spawns the REAL compiled `game` binary as a child process, sends it
-//! a hard kill (`TerminateProcess` on Windows via `Child::kill()` - not
-//! a graceful shutdown, the actual worst case a crash/OOM/manual
-//! `taskkill` on the streamer's machine would look like), and confirms
-//! the wire-level failure is clean. Also checks the reverse: a fresh
-//! process on the same port, same data dir, recovers and serves
-//! normally again - the game-side half of "bot down, game comes back,
-//! everything just works."
+//! A genuinely killed process, not a synthetic stand-in: spawns the REAL
+//! compiled `game` binary as a child process, sends it a hard kill
+//! (`TerminateProcess` on Windows via `Child::kill()` - not a graceful
+//! shutdown, the actual worst case a crash/OOM/manual kill would look
+//! like), and confirms the wire-level failure is clean. Also checks the
+//! reverse: a fresh process on the same port, same data dir, recovers
+//! and serves normally again.
+//!
+//! Re-pointed at the PUBLIC dashboard root (2026-09-02, Twitch removal).
+//! It used to prove liveness through `GET /api/commands/party` with a
+//! shared-secret header; that seam is deleted, and the liveness/recovery
+//! property it was really testing never had anything to do with it. `GET
+//! /` is unauthenticated and renders the logged-out page, so the
+//! assertion is now "the process serves a real rendered page", which is
+//! strictly stronger than the old status-only check.
 //!
 //! Lives in `game/tests/`, not the bot crate's `tests/`, specifically so
 //! `env!("CARGO_BIN_EXE_game")` resolves - that env var is only set for
@@ -29,7 +32,6 @@ use std::time::Duration;
 
 const TEST_PORT: u16 = 24005;
 const TEST_OVERLAY_PORT: u16 = 24004;
-const TEST_SECRET: &str = "kill-test-secret";
 
 fn spawn_game(scratch: &std::path::Path) -> Child {
     Command::new(env!("CARGO_BIN_EXE_game"))
@@ -40,16 +42,32 @@ fn spawn_game(scratch: &std::path::Path) -> Child {
         // root - the same lesson golden_corpus.rs/render.rs already hit).
         .current_dir(scratch)
         .env("GAME_DATA_DIR", scratch)
-        .env("TWITCH_CLIENT_ID", "dummy-client-id")
-        .env("TWITCH_CLIENT_SECRET", "dummy-client-secret")
         .env("ADVENTURE_WEB_PORT", TEST_PORT.to_string())
         .env("ADVENTURE_OVERLAY_SERVER_PORT", TEST_OVERLAY_PORT.to_string())
-        .env("ADVENTURE_API_SECRET", TEST_SECRET)
-        .env("GAME_SUPPRESS_MISSING_PUBLISHED_CONSTANTS_WARNING", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .expect("failed to spawn the real game binary via CARGO_BIN_EXE_game - was it built?")
+}
+
+/// The spawned binary is a release build, so `render.rs`'s `#[cfg(test)]`
+/// absolute-path escape hatch does not apply to it - it resolves a bare
+/// `templates/` against its own CWD, which here is the scratch dir.
+/// Copied rather than symlinked: a symlink needs privileges on Windows.
+/// Lifted verbatim from `game_data_dir_paths.rs`, which hit this first.
+///
+/// Newly required (2026-09-02): while this test proved liveness through
+/// `/api/commands/party` it never rendered a template, so a scratch dir
+/// without `templates/` went unnoticed. `GET /` does render one.
+fn copy_templates_into(cwd: &std::path::Path) {
+    let source = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../templates"));
+    let dest = cwd.join("templates");
+    std::fs::create_dir_all(&dest).expect("failed to create the scratch templates dir");
+    for entry in std::fs::read_dir(source).expect("failed to read the workspace templates dir").flatten() {
+        if entry.path().is_file() {
+            std::fs::copy(entry.path(), dest.join(entry.file_name())).expect("failed to copy a template into the scratch dir");
+        }
+    }
 }
 
 async fn wait_until_ready(client: &reqwest::Client, base: &str) {
@@ -66,6 +84,7 @@ async fn wait_until_ready(client: &reqwest::Client, base: &str) {
 async fn a_killed_game_process_stops_answering_and_a_fresh_one_recovers() {
     let scratch = std::env::temp_dir().join(format!("killed_process_smoke_{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("failed to create scratch dir");
+    copy_templates_into(&scratch);
 
     let base = format!("http://127.0.0.1:{TEST_PORT}");
     let client = reqwest::Client::new();
@@ -74,12 +93,15 @@ async fn a_killed_game_process_stops_answering_and_a_fresh_one_recovers() {
     wait_until_ready(&client, &base).await;
 
     let resp = client
-        .get(format!("{base}/api/commands/party"))
-        .header("x-adventure-api-secret", TEST_SECRET)
+        .get(&base)
         .send()
         .await
         .expect("request to the live process failed");
     assert_eq!(resp.status(), reqwest::StatusCode::OK, "the live process must answer normally before it's killed");
+    assert!(
+        resp.text().await.expect("body").contains("Adventure Character Dashboard"),
+        "and must actually RENDER, not merely accept the connection"
+    );
 
     // The actual "deliberately-killed game process."
     child.kill().expect("failed to kill the game process");
@@ -91,8 +113,7 @@ async fn a_killed_game_process_stops_answering_and_a_fresh_one_recovers() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let dead_result = client
-        .get(format!("{base}/api/commands/party"))
-        .header("x-adventure-api-secret", TEST_SECRET)
+        .get(&base)
         .timeout(Duration::from_secs(5))
         .send()
         .await;
@@ -103,12 +124,15 @@ async fn a_killed_game_process_stops_answering_and_a_fresh_one_recovers() {
     let mut child2 = spawn_game(&scratch);
     wait_until_ready(&client, &base).await;
     let resp = client
-        .get(format!("{base}/api/commands/party"))
-        .header("x-adventure-api-secret", TEST_SECRET)
+        .get(&base)
         .send()
         .await
         .expect("request to the restarted process failed");
     assert_eq!(resp.status(), reqwest::StatusCode::OK, "a fresh process on the same port must serve normally again");
+    assert!(
+        resp.text().await.expect("body").contains("Adventure Character Dashboard"),
+        "and must render the same page the pre-kill process did"
+    );
 
     child2.kill().ok();
     child2.wait().ok();

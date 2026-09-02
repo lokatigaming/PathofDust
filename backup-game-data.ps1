@@ -110,7 +110,6 @@ $CoreFiles = @(
     'adventure-item-balance.toml'      # balance.rs:54 ITEM_BALANCE_PATH
     'adventure-sprite-count.json'      # manager.rs:2053 SPRITE_COUNT_MARKER_PATH
     'patch-notes.json'                 # adventure_web.rs:1768 (CWD, NOT data_path)
-    'bot-published-constants.json'     # published_constants.rs:37 (CWD, NOT data_path)
     'adventure-last-fights.json'       # manager.rs:1496 - pre-split legacy blob, absent post-migration
 )
 

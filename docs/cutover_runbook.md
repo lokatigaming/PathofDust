@@ -316,7 +316,41 @@ so suppressing the game's protection never suppresses the bot's.
 Everything here is done with production still live on Windows. None of it changes what any player
 sees. All of it is undoable.
 
-### 7.1 The four environment values *(Linux)*
+### 7.1 The four environment values *(Linux)* — **RETIRED 2026-09-02**
+
+> **This entire section is obsolete and must not be executed.** It provisioned
+> `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `ADVENTURE_API_SECRET` and
+> `ADVENTURE_WEB_PUBLIC_URL` so that production could serve the bot. All four are
+> now read by **no code at all**: the Twitch OAuth login, the `/api/*` seam and the
+> `redirect_uri()` helper were deleted from the source on 2026-09-02
+> (TWITCH-REMOVAL-GAME), not merely left unconfigured. There is no bot to serve.
+>
+> **What to do instead.** Production needs no environment file for these. If
+> `/etc/pathofdust/production.env` and the `10-production.conf` drop-in already
+> exist on the box, remove both — a variable no code consumes reads as meaningful
+> to whoever finds it next, and every claim in the verification table below is now
+> unreachable (there is no `/login`, and `/api/*` 404s unconditionally):
+>
+> ```sh
+> rm -f /etc/systemd/system/pathofdust.service.d/10-production.conf
+> rm -f /etc/pathofdust/production.env
+> systemctl daemon-reload
+> systemctl restart pathofdust
+> # Confirm none of the four survive anywhere in the resolved unit environment:
+> systemctl show pathofdust -p Environment -p EnvironmentFiles
+> systemctl show pathofdust -p Environment | grep -cE 'TWITCH_CLIENT|ADVENTURE_API_SECRET|ADVENTURE_WEB_PUBLIC_URL'   # expect: 0
+> ```
+>
+> `OPERATOR_LOGIN`, `ADVENTURE_WEB_PORT` and `ADVENTURE_OVERLAY_SERVER_PORT` stay
+> as ordinary `Environment=` lines in the unit. They are the only environment the
+> game reads, alongside optional `GAME_DATA_DIR` and `OPERATOR_BOOTSTRAP`.
+>
+> The original text is kept below, struck through in intent, purely as the record
+> of how the box was configured between 2026-08-31 and the removal.
+
+<details>
+<summary>Original §7.1, superseded — do not execute</summary>
+
 
 The staging unit runs with placeholder Twitch credentials, a loopback public URL, and
 **`ADVENTURE_API_SECRET` deliberately absent** — `docs/linux_staging.md` says in the unit file
@@ -372,6 +406,8 @@ systemctl is-active pathofdust
 **Reversal:** `rm /etc/systemd/system/pathofdust.service.d/10-production.conf` and
 `rm /etc/pathofdust/production.env`, `systemctl daemon-reload`, `systemctl restart pathofdust`.
 Back to the staging configuration exactly.
+
+</details>
 
 ### 7.2 The Linux tunnel ingress rule *(Linux)*
 

@@ -1423,10 +1423,17 @@ so a dropped connection does not kill a three-minute build.
 > tells you only that the unit started**, never whether the build passed.
 
 Measured on this box (8 vCPU, 16 GB): build **2 m 36 s**, full suite
-**758 passed / 0 failed / 0 ignored**, both while the live service was
+**755 passed / 0 failed / 0 ignored**, both while the live service was
 serving and resolving real fights. **The suite saturates all 8 cores**
 and the game's fight cadence visibly stretches while it runs — expected,
 not a fault, but do not read fight timings taken during a test run.
+
+> **Baseline moved 758 → 755 on 2026-09-02** (Twitch removal, commit
+> `e3ebd19`). The arithmetic: the removal deleted three test binaries,
+> each containing exactly one `#[tokio::test]` — `api_seam.rs`,
+> `published_constants_http.rs` and `twitch_optional_http.rs`. 758 − 3 =
+> 755. Nothing else changed count. Recorded here because a stale baseline
+> makes the next deploy read a failure into a correct result.
 
 Hash both binaries and confirm they differ before going near the swap:
 
@@ -1532,7 +1539,7 @@ Not "confirm it works". Seven checks, all of which the rehearsal ran:
 | 4 | `sha256sum /opt/pathofdust/bin/game` | equals the candidate hash from 13B.1 |
 | 5 | authenticated `/characters` **and** `/passives` | 200 **with plausible byte counts** (94 KB / 72 KB today). `/` alone is not a health check: logged out it returns a constant 72,025-byte landing page that renders identically whether or not any data loaded |
 | 6 | anonymous `/admin/tunables` | HTTP **404**, body ~71,722 B. **Corrected 2026-09-02:** this row previously said HTTP **200** with a `<h1>Not Found</h1>` body, and that "the operator gate is content, not status — a status-code assertion proves nothing". That was true when written; commit `6e8cf44` (ledger #51) made the refusal a **real 404** on both GET pages and all three POSTs, so the status code now discriminates. Measured on live production 2026-09-02. Note this proves only that the gate *gates* — it passes on a box with no accounts file at all, so it is not a substitute for an authenticated load |
-| 7 | unauthenticated `curl -s -o /dev/null -w '%{http_code}' -X POST <base>/api/commands/join` — a **real** `/api/*` route (`adventure_web/api.rs:66`), sent with **no** `x-adventure-api-secret` header | **404** on staging — `ADVENTURE_API_SECRET` absent means `router()` returned `None` and `/api/*` was never nested, so the path does not exist. **401** would mean the seam *is* mounted and the shared-secret middleware rejected the missing header. On staging this must stay 404 forever; live Windows production returns 401. **Never probe `/api/status` — it is not a route** (see the route table at `adventure_web/api.rs:65-80`) and returns 404 whether or not `/api/*` is mounted, so it proves nothing in either direction |
+| 7 | unauthenticated `curl -s -o /dev/null -w '%{http_code}' -X POST <base>/api/commands/join` | **404**, permanently and unconditionally. **Rewritten 2026-09-02:** this row used to read 404-means-unmounted / 401-means-mounted, because `ADVENTURE_API_SECRET` was a runtime switch over a router that still existed in the binary. The entire `/api/*` seam — `adventure_web/api.rs`, the nest, the `api_secret` parameter and the env var — is now DELETED from the source. There is no code path that can return 401 any more, on any box, with any environment. A 401 here would mean an old binary is running, which makes this row a useful deploy check rather than a redundant one. |
 
 Plus, before calling a deploy done: **watch one fight resolve.** The web
 server answering proves the web server; only a fight in the journal and a

@@ -26,7 +26,8 @@ use game::adventure::AdventureManager;
 
 /// Already has a character in `adventure-characters.json`.
 const EXISTING_CHARACTER: &str = "veteran_player";
-/// Has a live session but no character yet - the Twitch-minted case.
+/// Has a live session but no character yet - a session minted before the
+/// Twitch removal, proving identity outlived its minter.
 const EXISTING_SESSION_LOGIN: &str = "existing_twitch_user";
 /// Must match `adventure_web::ADMIN_TUNABLES_LOGIN`, which is private.
 const OPERATOR_LOGIN: &str = "lokati_gaming";
@@ -85,12 +86,8 @@ async fn local_accounts_mint_sessions_and_refuse_to_collide_with_existing_identi
 
     let bound = game::adventure_web::start_adventure_web_server(
         0,
-        "http://localhost".to_string(),
-        Some("test-client-id".to_string()),
-        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path.clone(),
-        None,
     )
     .await
     .expect("disposable adventure_web server must start");
@@ -188,17 +185,28 @@ async fn local_accounts_mint_sessions_and_refuse_to_collide_with_existing_identi
     let sessions_file = std::fs::read_to_string(&sessions_path).expect("sessions file");
     assert!(!sessions_file.contains(cookie.trim_start_matches("adv_session=")), "and must be gone from the persisted store");
 
-    // --- the Twitch path is untouched ---------------------------------
-    let twitch = client.get(format!("{base}/login")).send().await.expect("GET failed");
-    assert_eq!(twitch.status(), reqwest::StatusCode::SEE_OTHER, "GET /login must still redirect into Twitch's OAuth flow");
-    let location = twitch.headers().get(reqwest::header::LOCATION).expect("a redirect target").to_str().expect("ascii");
-    assert!(location.starts_with("https://id.twitch.tv/oauth2/authorize?"), "got: {location}");
-    assert!(location.contains("client_id=test-client-id"), "got: {location}");
-    assert!(location.contains("redirect_uri=http%3A%2F%2Flocalhost%2Fauth%2Fcallback"), "got: {location}");
-    assert!(location.contains("state="), "the CSRF state must still be issued, got: {location}");
+    // --- the Twitch path is GONE, not merely unconfigured --------------
+    // Folded in from the deleted `twitch_optional_http.rs` (2026-09-02),
+    // which proved these same two things about credentials being ABSENT.
+    // There are no credentials any more - the routes, the handlers and
+    // the `client_id`/`client_secret` parameters were deleted - so the
+    // surviving assertions are that the routes 404 and that the
+    // logged-out page offers no link to them.
+    for path in ["/login", "/auth/callback"] {
+        let resp = client.get(format!("{base}{path}")).send().await.expect("GET failed");
+        assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND, "{path} must not exist at all, got {}", resp.status());
+    }
+    let logged_out = client.get(&base).send().await.expect("GET failed").text().await.expect("body");
+    assert!(!logged_out.contains("Login with Twitch"), "a link to a deleted route must not be offered");
+    // The exact href, not a bare "/login" substring - `/account/login`
+    // ends with one and must NOT trip this.
+    assert!(!logged_out.contains("href=\"/login\""), "no link to the deleted /login route may survive, got: {logged_out}");
+    assert!(logged_out.contains("/account/login"), "local accounts are the only login path now, got: {logged_out}");
 
-    let twitch_session = client.get(&base).header(reqwest::header::COOKIE, "adv_session=twitch-token").send().await.expect("GET failed").text().await.expect("body");
-    assert!(twitch_session.contains("Welcome, ExistingTwitchUser!"), "a Twitch-minted session must keep working, got: {twitch_session}");
+    // A session minted before the removal still resolves - identity never
+    // depended on Twitch, only the minter did.
+    let pre_existing = client.get(&base).header(reqwest::header::COOKIE, "adv_session=twitch-token").send().await.expect("GET failed").text().await.expect("body");
+    assert!(pre_existing.contains("Welcome, ExistingTwitchUser!"), "a pre-existing session must keep working, got: {pre_existing}");
 
     std::fs::remove_file(&accounts_path).ok();
 }

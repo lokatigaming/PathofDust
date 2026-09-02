@@ -64,12 +64,8 @@ async fn http_golden_responses_against_a_disposable_game_instance() {
 
     let bound_addr = game::adventure_web::start_adventure_web_server(
         0, // ephemeral - the OS picks a free port, returned below
-        "http://localhost".to_string(),
-        Some("test-client-id".to_string()),
-        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
-        None, // Stage 3 API seam not exercised by this pre-existing harness - see tests/api_seam.rs
     )
     .await
     .expect("disposable adventure_web server must start");

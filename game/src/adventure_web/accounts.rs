@@ -1,12 +1,12 @@
-// Local identity (2026-08-27) - the game's own session minter, ADDED
-// alongside the Twitch OAuth flow rather than replacing it. Per
-// docs/external_integration_removal_scope.md Part 2, Twitch is only a
-// *session minter*, never an identity system: `Session`, the
+// Local identity (2026-08-27) - the game's own session minter. Added
+// alongside the Twitch OAuth flow; since 2026-09-02, when that flow was
+// deleted, it is the ONLY one. Per
+// docs/external_integration_removal_scope.md Part 2, Twitch was only ever
+// a *session minter*, never an identity system: `Session`, the
 // `adv_session` cookie, `current_session`, `Character` and
-// `adventure-characters.json` are all already provider-agnostic, so a
-// second minter needs none of them to change. Nothing in this module
-// touches `login`/`callback`/`handle_callback` - existing Twitch
-// sessions keep working untouched.
+// `adventure-characters.json` are all provider-agnostic, so replacing the
+// minter needed none of them to change - and sessions minted by the old
+// flow, still on disk in `adventure-sessions.json`, keep resolving.
 //
 // Deliberately minimal and temporary: open registration, one password,
 // no reset, no email, no 2FA, no recovery, no profile. An external
@@ -91,10 +91,12 @@ const RESERVED_USERNAMES: &[&str] = &[
 
 /// **The seam.** The single place local identity turns a name into a
 /// live session: inserts the same `Session { login, display_name,
-/// created_at }` record the Twitch callback inserts, into the same map,
-/// persisted to the same file, and hands back the opaque token for the
-/// `adv_session` cookie. A future external identity provider mints a
-/// session by calling this and nothing else.
+/// created_at }` record the retired Twitch callback used to insert, into
+/// the same map, persisted to the same file, and hands back the opaque
+/// token for the
+/// `adv_session` cookie. Since the Twitch removal (2026-09-02) this is
+/// the only minter in the process. A future external identity provider
+/// mints a session by calling this and nothing else.
 pub(super) async fn mint_session(state: &AppState, login: &str, display_name: &str) -> String {
     let token = random_token();
     let mut sessions = state.sessions.lock().await;
@@ -274,7 +276,7 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
         return reject_register("That username is already taken.");
     }
     // ...and so does a session minted for it by any provider, including a
-    // Twitch login whose owner has not joined the adventure yet.
+    // pre-removal Twitch login whose owner never joined the adventure.
     {
         let sessions = state.sessions.lock().await;
         if sessions.values().any(|s| s.login.eq_ignore_ascii_case(&key)) {

@@ -21,12 +21,13 @@ confirming the installed binary is current for that commit.
 
 ## Twitch-free by construction
 
-`ADVENTURE_API_SECRET` is **deliberately absent** from the unit. `adventure_web/api.rs`'s
-`router()` returns `None` without it, so the entire `/api/*` router is never mounted — those
-paths 404 rather than 401. No code was deleted and no seam crosses the internet. The
-Twitch-removal work stays on its own track and this instance does not wait for it.
+`ADVENTURE_API_SECRET` is gone from the unit, and as of 2026-09-02 the seam it switched is
+gone from the source: `adventure_web/api.rs` is deleted, along with the `/api` nest and the
+`api_secret` parameter. `/api/*` now 404s unconditionally on every box, with any environment
+— there is no longer a code path that can return 401.
 
-**Do not add that key to this unit.**
+This section used to describe a *runtime* switch over a router that still shipped in the
+binary. It now describes a deletion. **The key does nothing; do not add it.**
 
 ## Layout
 
@@ -141,23 +142,19 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pathofdust
 
-# TWITCH_CLIENT_ID/SECRET are OPTIONAL since 0fdf2e5 (2026-08-31): absent, the
-# Twitch login is simply not mounted and startup proceeds. An earlier version of
-# this comment said they were REQUIRED and that main.rs aborts without them -
-# that was true when this unit was written and is no longer true. Corrected
-# 2026-09-02 (CUTOVER-EXECUTE).
-# These are deliberate non-secret placeholders - no production credential is on
-# this box. They make the dashboard's Twitch login button non-functional and
-# nothing else; local /account/register is the identity path on staging.
+# TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, ADVENTURE_API_SECRET and
+# ADVENTURE_WEB_PUBLIC_URL were all REMOVED from this unit on 2026-09-02
+# (TWITCH-REMOVAL-GAME). This comment has now been corrected twice in the same
+# direction, which is the point: it once said the two Twitch keys were REQUIRED
+# and that main.rs aborts without them; then that they were OPTIONAL
+# placeholders. Both are now moot - no code reads any of the four. The Twitch
+# OAuth login, the /api/* seam and the redirect_uri that was
+# ADVENTURE_WEB_PUBLIC_URL's only consumer are deleted from the source, not
+# merely unmounted by absent configuration. Do not re-add any of them; a
+# variable no code consumes reads as meaningful to whoever finds it next.
 Environment=OPERATOR_LOGIN=lokati
-Environment=TWITCH_CLIENT_ID=staging-no-twitch
-Environment=TWITCH_CLIENT_SECRET=staging-no-twitch
 Environment=ADVENTURE_WEB_PORT=4005
 Environment=ADVENTURE_OVERLAY_SERVER_PORT=4004
-Environment=ADVENTURE_WEB_PUBLIC_URL=http://127.0.0.1:4005
-# ADVENTURE_API_SECRET is INTENTIONALLY ABSENT. adventure_web/api.rs's router()
-# returns None without it, so /api/* is never mounted and this instance is
-# Twitch-free by construction. Do not add it.
 
 NoNewPrivileges=true
 PrivateTmp=true
@@ -184,12 +181,14 @@ This unit had exactly that bug on its first start; it is fixed above and confirm
 
 ### Two environment notes
 
-**`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` are required to start at all.**
-`game/src/main.rs:114-115` aborts startup if either is missing or blank — this is not
-optional and a Twitch-free staging box still has to satisfy it. The unit supplies obvious
-non-secret placeholders. The only consequence is that the dashboard's Twitch login button
-does not work; local `/account/register` is the identity path on staging, and no production
-credential is on the box.
+**`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` no longer exist.** This paragraph
+previously said they were required to start at all and that `main.rs` aborts without
+them. That was true when written, then became false when they were made optional
+(2026-08-31), and is now moot: they were deleted from the source entirely on
+2026-09-02 along with the Twitch OAuth login. Nothing reads them; nothing should set
+them. `ADVENTURE_WEB_PUBLIC_URL` went the same way — its only consumer was the OAuth
+`redirect_uri`. Local `/account/register` is the only identity path, on staging and in
+production alike.
 
 **Operator bootstrap ordering.** `accounts.rs:147` refuses to register any username equal to
 the current `OPERATOR_LOGIN`, so with `OPERATOR_LOGIN=lokati` live you cannot register

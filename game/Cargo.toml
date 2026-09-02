@@ -7,7 +7,6 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
 tower-http = { version = "0.5", features = ["fs"] }
-reqwest = { version = "0.12", features = ["json"] }
 futures-util = "0.3"
 tokio-stream = { version = "0.1", features = ["sync"] }
 serde = { version = "1", features = ["derive"] }
@@ -23,7 +22,6 @@ tracing-appender = "0.2"
 dotenvy = "0.15"
 anyhow = "1"
 urlencoding = "2"
-url = "2"
 base64 = "0.22"
 pulldown-cmark = "0.12"
 minijinja = { version = "2", features = ["loader"] }
@@ -31,10 +29,18 @@ minijinja-autoreload = "2"
 flate2 = "1"
 argon2 = "0.5.3"
 
-# Test-only dependencies for the integration tests under tests/ (the
-# twelve moved here from the bot crate during the bot/game build-time
-# decoupling, 2026-08-22 - they exercise the game over real HTTP/WS).
+# Test-only dependencies for the integration tests under tests/ (moved
+# here from the bot crate during the bot/game build-time decoupling,
+# 2026-08-22 - they exercise the game over real HTTP/WS).
 # Dev-dependencies don't affect the release binaries or any other
 # workspace member's build graph.
+#
+# `reqwest` moved DOWN here from [dependencies] (2026-09-02, Twitch
+# removal): its only src/** use was the OAuth token exchange and the
+# Helix `GET /users` call, both deleted. Every integration test still
+# drives the site over real HTTP with it, so it must stay - deleting it
+# outright would take the whole suite with it. `url` went entirely; its
+# only use was building the Twitch authorize URL.
 [dev-dependencies]
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+reqwest = { version = "0.12", features = ["json"] }

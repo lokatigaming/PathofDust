@@ -1,21 +1,24 @@
 //! Announcement feed (World 2 Stage 2, 2026-08-28) - the web home for
-//! the narration that until now existed only in Twitch chat.
+//! the narration that used to exist only in Twitch chat.
 //!
-//! **The compatibility guarantee is the most important thing in this
-//! file.** This branch ADDS a sink; it reroutes nothing. Every producer
-//! now goes through `AdventureManager::announce`, which appends to the
-//! in-memory ring and THEN sends on `announcements_tx` exactly as the
-//! direct `.send()` calls it replaced did - so
-//! `GET /api/announcements/stream`, and therefore the bot and Twitch
-//! chat, must still receive the same lines, in the same order, with the
-//! same bytes. That is asserted here against a real fight on a real
-//! disposable instance, not reasoned about.
+//! **The tee guarantee is the most important thing in this file.** Every
+//! producer goes through `AdventureManager::announce`, which appends to
+//! the in-memory ring and THEN sends on `announcements_tx` - so the
+//! server-rendered feed card, an already-connected `/ws` client and a
+//! late client's backlog must all carry the same lines, in the same
+//! order, with the same bytes. That is asserted here against a real
+//! fight on a real disposable instance, not reasoned about.
+//!
+//! **Rewritten 2026-09-02 (Twitch removal).** This file used to attach
+//! `GET /api/announcements/stream` as a second observer and trigger the
+//! fight through `POST /api/redemptions/force_boss`. Both went with the
+//! `/api` seam. Neither was the subject: the trigger is now
+//! `try_force_encounter` (exactly what that endpoint called) and `/ws`
+//! is the live observer. Nothing about the producers or the ring moved.
 //!
 //! Harness (disposable instance, OS-assigned ephemeral port, scratch
-//! data dir) copied from `api_seam.rs`, which already drives a real
-//! Force Boss redemption and reads the resulting announcement back off
-//! the SSE stream; the `/ws` half copies `overlay_compression.rs`.
-//! Nothing here can reach the live game.
+//! data dir) as every other `tests/*_http.rs` file here; the `/ws` half
+//! copies `overlay_compression.rs`. Nothing here can reach the live game.
 //!
 //! **Single test function, deliberately** - `adventure::set_data_dir` is
 //! a process-wide `OnceLock`, the same constraint every other
@@ -34,61 +37,8 @@ use futures_util::StreamExt;
 use game::adventure::AdventureManager;
 use tokio_tungstenite::tungstenite::Message;
 
-const TEST_SECRET: &str = "test-shared-secret";
 const TEST_USER: &str = "feed-test-user";
 const SESSION_TOKEN: &str = "feed-test-session-token";
-
-/// Mirrors api_seam.rs's constant, spelled out for the same reason it is
-/// spelled out there - api.rs's own is module-private.
-const API_SECRET_HEADER: &str = "x-adventure-api-secret";
-
-/// Minimal single-frame SSE reader - same wire assumption as the bot's
-/// own hand-rolled parser (`data: <text>`, frames separated by a blank
-/// line). Lifted from api_seam.rs.
-struct AnnouncementsReader {
-    resp: reqwest::Response,
-    pending: String,
-}
-
-impl AnnouncementsReader {
-    async fn next_message(&mut self) -> Option<String> {
-        loop {
-            while let Some(frame_end) = self.pending.find("\n\n") {
-                let frame = self.pending[..frame_end].to_string();
-                self.pending.drain(..frame_end + 2);
-                if let Some(data) = frame.lines().find_map(|line| line.strip_prefix("data: ")) {
-                    return Some(data.to_string());
-                }
-            }
-            let chunk = match self.resp.chunk().await {
-                Ok(Some(chunk)) => chunk,
-                Ok(None) | Err(_) => return None,
-            };
-            self.pending.push_str(&String::from_utf8_lossy(&chunk));
-        }
-    }
-
-    /// Everything the stream delivers until it goes quiet for `idle`. The
-    /// producer count for one fight is not fixed (one-time launch
-    /// giveaways fire on a manager's very first fight), so this drains
-    /// rather than expecting an exact number.
-    ///
-    /// `first` is a longer, separate budget for the FIRST line: a
-    /// fight's announcement is genuinely delayed server-side on purpose
-    /// (`700ms + display_duration_ms`, and `display_duration_ms` has a
-    /// hard 6s floor in `combat::MIN_DISPLAY_MS`), so the first message
-    /// can legitimately take ~6.7s even for a tiny fight - see
-    /// api_seam.rs, which documents the same wait.
-    async fn drain(&mut self, first: Duration, idle: Duration) -> Vec<String> {
-        let mut out = Vec::new();
-        let mut budget = first;
-        while let Ok(Some(msg)) = tokio::time::timeout(budget, self.next_message()).await {
-            out.push(msg);
-            budget = idle;
-        }
-        out
-    }
-}
 
 /// The `type` of a `/ws` frame, or an empty string for a frame that has
 /// none - keeps the match arms below readable.
@@ -97,7 +47,7 @@ fn frame_type(value: &serde_json::Value) -> &str {
 }
 
 #[tokio::test]
-async fn announcements_reach_the_web_feed_without_changing_what_the_sse_stream_receives() {
+async fn announcements_reach_the_web_feed_over_ws_and_server_rendered_html() {
     // Integration tests run with their PACKAGE dir as CWD (game/), but the
     // template loader resolves "templates/" against the workspace root.
     std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
@@ -123,12 +73,8 @@ async fn announcements_reach_the_web_feed_without_changing_what_the_sse_stream_r
 
     let bound = game::adventure_web::start_adventure_web_server(
         0,
-        "http://localhost".to_string(),
-        Some("test-client-id".to_string()),
-        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
-        Some(TEST_SECRET.to_string()),
     )
     .await
     .expect("disposable adventure_web server must start");
@@ -152,20 +98,12 @@ async fn announcements_reach_the_web_feed_without_changing_what_the_sse_stream_r
     assert!(empty_dashboard.contains("id=\"announcement-feed\""), "the dashboard must render the feed card even with nothing in it");
     assert!(empty_dashboard.contains("class=\"announcement-empty muted\""), "an empty feed must say so rather than render a blank list");
 
-    // --- observers, all attached BEFORE anything is announced ----------
+    // --- observer, attached BEFORE anything is announced ---------------
     // A broadcast channel with zero subscribers drops silently (the
     // deliberate "drop gracefully" policy), so subscribing after the fact
-    // would prove nothing.
-    let sse_resp = client
-        .get(format!("{base}/api/announcements/stream"))
-        .header(API_SECRET_HEADER, TEST_SECRET)
-        .send()
-        .await
-        .expect("GET /api/announcements/stream failed")
-        .error_for_status()
-        .expect("the SSE stream must still be served");
-    let mut sse = AnnouncementsReader { resp: sse_resp, pending: String::new() };
-
+    // would prove nothing. `/ws` is the only live observer left: the SSE
+    // stream this test also used to attach here went with the `/api`
+    // seam (2026-09-02).
     let (mut live_ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await.expect("live ws client failed to connect");
 
     // A client connecting to an EMPTY ring still gets a backlog frame -
@@ -187,37 +125,45 @@ async fn announcements_reach_the_web_feed_without_changing_what_the_sse_stream_r
     assert!(saw_empty_backlog, "connecting to /ws must always send the announcement backlog");
 
     // --- trigger real announcements ------------------------------------
-    // Force Boss Fight is the one redemption that runs a real fight
-    // inline, and a fight resolving is the densest real producer there is
-    // (batch summary and loot, plus this manager's first-ever fight's
-    // one-time launch giveaways).
-    let redemption = client
-        .post(format!("{base}/api/redemptions/force_boss"))
-        .header(API_SECRET_HEADER, TEST_SECRET)
-        .json(&serde_json::json!({ "user_name": TEST_USER, "announce": true }))
-        .send()
-        .await
-        .expect("POST /api/redemptions/force_boss failed");
-    assert_eq!(redemption.status(), reqwest::StatusCode::OK, "the only joined character is eligible, so the fight must run");
+    // A resolved fight is the densest real producer there is (batch
+    // summary and loot, plus this manager's first-ever fight's one-time
+    // launch giveaways). Driven straight through `try_force_encounter`,
+    // which is exactly what the deleted Force Boss redemption endpoint
+    // called - the trigger moved, the producers did not.
+    assert!(
+        matches!(manager.try_force_encounter().await, game::adventure::ForceBossOutcome::Triggered),
+        "the only joined character is eligible, so the fight must run"
+    );
 
-    // --- THE COMPATIBILITY GUARANTEE -----------------------------------
-    let over_sse = sse.drain(Duration::from_secs(15), Duration::from_secs(2)).await;
-    assert!(!over_sse.is_empty(), "a resolved fight must still put lines on /api/announcements/stream - this branch must not change what chat receives");
-
-    let ring = manager.recent_announcements();
-    assert_eq!(ring, over_sse, "the tee must hold EVERY line the SSE stream received, in the same order, byte-for-byte - a mismatch here means the feed and chat have diverged");
-
-    // --- the live /ws tee ----------------------------------------------
+    // --- THE TEE GUARANTEE ---------------------------------------------
+    // Drain the live socket until it goes quiet, then hold the ring to it.
+    //
+    // Two budgets, carried over from the SSE reader this replaced. The
+    // FIRST announcement is genuinely delayed server-side on purpose
+    // (`700ms + display_duration_ms`, and `display_duration_ms` has a hard
+    // 6s floor in `combat::MIN_DISPLAY_MS`), so it can legitimately take
+    // ~6.7s even for a tiny fight; everything after it arrives promptly.
+    // A single flat timeout would either flake on the first line or spend
+    // that budget again on every subsequent one.
+    const FIRST_LINE_BUDGET: Duration = Duration::from_secs(15);
+    const IDLE_BUDGET: Duration = Duration::from_secs(2);
     let mut over_ws: Vec<String> = Vec::new();
-    while over_ws.len() < over_sse.len() {
-        let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_millis(2000), live_ws.next()).await else { break };
+    let mut budget = FIRST_LINE_BUDGET;
+    while let Ok(Some(Ok(msg))) = tokio::time::timeout(budget, live_ws.next()).await {
         let Message::Text(text) = msg else { continue };
         let value: serde_json::Value = serde_json::from_str(&text).expect("every /ws frame must be JSON");
         if frame_type(&value) == "announcement" {
             over_ws.push(value["line"].as_str().expect("an announcement frame must carry a string line").to_string());
+            budget = IDLE_BUDGET;
         }
     }
-    assert_eq!(over_ws, over_sse, "an already-connected /ws client must receive the same lines the SSE stream did");
+    assert!(!over_ws.is_empty(), "a resolved fight must put lines on an already-connected /ws client");
+
+    let ring = manager.recent_announcements();
+    assert_eq!(
+        ring, over_ws,
+        "the tee must hold EVERY line the live socket received, in the same order, byte-for-byte - a mismatch means the ring and the socket have diverged"
+    );
 
     // --- backlog on connect, for a client that arrived late -------------
     let (mut late_ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await.expect("late ws client failed to connect");

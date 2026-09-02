@@ -64,7 +64,6 @@ CORE_FILES=(
   adventure-item-balance.toml
   adventure-sprite-count.json
   patch-notes.json
-  bot-published-constants.json
   adventure-last-fights.json
 )
 
