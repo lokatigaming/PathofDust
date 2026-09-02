@@ -2005,7 +2005,19 @@ static SLAYER_NODES: &[PassiveNode] = &[
     // count (same "the magnitude carries the primary numeric aspect"
     // convention as shattering/virulence). The description still
     // advertises a chance - flagged in WIKI_IMPACT.md for the owner.
-    modifier_with_effect("lastrites", "martyrdom", "Last Rites", "A 33% chance per rank (up to 100% at 3/3) to prevent a downed ally's death once per fight.", SpecialPerRank { values: &[1.0, 1.0, 1.0] }),
+    // Last Rites was described as a CHANCE from the game's first commit
+    // (`9f11541`, 2026-08-17) and has never rolled one: the shared death-save
+    // it feeds is a deterministic charge count, so the old 0.33/0.665/1.0
+    // ladder was read by nothing. Stage 3 (2026-08-27) made the stored values
+    // honest at 1/1/1 but left the prose describing the ladder nobody read,
+    // which meant the node advertised 33%->100% while ranks 2 and 3 granted
+    // nothing at all. 2026-09-02: values and text corrected together.
+    // 1/1/2 matches `undying`, the Slayer's OTHER death-save node, exactly,
+    // and matches Guardian Spirit's shape (first charge at the working rank,
+    // second at max) adapted for a Modifier that must function at rank 1.
+    // Every death-save node in the game tops out at 2 charges - see
+    // passive_overrides.rs's declared table - and this one is no exception.
+    modifier_with_effect("lastrites", "martyrdom", "Last Rites", "Once per fight, prevent a party member's death (yourself included) - they survive the killing blow on 1 HP. Rank 3 grants a second save per fight.", SpecialPerRank { values: &[1.0, 1.0, 2.0] }),
 ];
 
 // ---------------------------------------------------------------------

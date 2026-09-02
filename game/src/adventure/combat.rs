@@ -1269,6 +1269,24 @@ pub(crate) struct CombatSimUnit {
     /// (including this Cleric themselves) - consumes a charge and heals
     /// instead of letting the killing blow land. 0 for anyone without it.
     guardian_spirit_charges: u32,
+    /// Which node the charges above actually came from, for the
+    /// `SkillCast` event the save emits (2026-09-02). The field exists
+    /// because `guardian_spirit_charges` is a SHARED mechanic fed by two
+    /// different nodes on two different archetypes - Cleric's Guardian
+    /// Spirit and Slayer's Last Rites - and until now the save always
+    /// announced itself as "Guardian Spirit", so a Slayer's Last Rites
+    /// fired under the Cleric node's name in the fight log and in
+    /// everything downstream of it, the desktop replay app included.
+    ///
+    /// Set from the same `has_archetype` branch that fills the charges,
+    /// NOT re-derived from `archetype` at the emit site. Those two can
+    /// disagree: Split Personality gives a character a secondary
+    /// archetype, and the charge branch tests `has_archetype(Cleric)`
+    /// first, so a Slayer-primary with a Cleric secondary draws Guardian
+    /// Spirit's charges while their PRIMARY archetype still reads Slayer.
+    /// Deriving the label from the primary would have relabelled exactly
+    /// the case this field exists to get right.
+    death_save_skill: &'static str,
     /// % of max HP Guardian Spirit heals for when it saves someone - 20%
     /// flat (not rank-scaled itself) plus Second Chance's per-rank bonus,
     /// snapshotted at construction. 0.0 without Guardian Spirit invested.
@@ -3207,6 +3225,11 @@ impl Default for CombatSimUnit {
             shield_reflect_chance: 0.0,
             shield_reflect_requires_full_absorb: false,
             guardian_spirit_charges: 0,
+            // A test that gives itself charges and asserts on the emitted
+            // skill name must set this too - the default is the Cleric
+            // node because that is what the shared mechanic was named
+            // after, not because it is a safe fallback.
+            death_save_skill: "Guardian Spirit",
             guardian_spirit_heal_pct: 0.0,
             guardian_spirit_save_dr_pct: 0.0,
             guardian_spirit_save_heal_power_pct: 0.0,
@@ -5519,6 +5542,10 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             shield_reflect_chance: 0.0,
             shield_reflect_requires_full_absorb: false,
             guardian_spirit_charges: 0,
+            // Inert - this unit can never hold a death-save charge, so the
+            // label is never read. Named rather than defaulted so the field
+            // stays compiler-enforced at every construction site.
+            death_save_skill: "Guardian Spirit",
             guardian_spirit_heal_pct: 0.0,
             guardian_spirit_save_dr_pct: 0.0,
             guardian_spirit_save_heal_power_pct: 0.0,
@@ -9177,7 +9204,7 @@ pub(crate) fn apply_hit(
     if !is_echo_repeat && !units[target_idx].is_boss && !is_heal_immune(&units[target_idx]) && final_damage >= units[target_idx].hp {
         if let Some(saver_idx) = units.iter().position(|u| !u.is_boss && u.alive && u.guardian_spirit_charges > 0) {
             units[saver_idx].guardian_spirit_charges -= 1;
-            events.push(CombatEvent::SkillCast { at_ms, unit: units[saver_idx].id.clone(), skill: "Guardian Spirit".to_string() });
+            events.push(CombatEvent::SkillCast { at_ms, unit: units[saver_idx].id.clone(), skill: units[saver_idx].death_save_skill.to_string() });
             let heal_pct = units[saver_idx].guardian_spirit_heal_pct;
             let new_hp = (units[target_idx].max_hp as f64 * heal_pct).round().max(1.0).min(units[target_idx].max_hp as f64) as i64;
             units[target_idx].hp = new_hp;
@@ -11681,6 +11708,19 @@ pub(crate) fn simulate_battle(
                 } else {
                     0
                 },
+                // Mirrors the branch immediately above, arm for arm, so
+                // the label can never disagree with where the charges
+                // came from. The `else` arm is unreachable in practice
+                // (no charges means no save means no event) but is named
+                // rather than left empty so a future third contributor to
+                // this shared mechanic has an obvious place to land.
+                death_save_skill: if c.has_archetype(Archetype::Cleric) {
+                    "Guardian Spirit"
+                } else if c.has_archetype(Archetype::Slayer) {
+                    "Last Rites"
+                } else {
+                    "Guardian Spirit"
+                },
                 guardian_spirit_heal_pct: if c.has_archetype(Archetype::Cleric) && c.passive_node_rank("guardianspirit") >= 2 {
                     0.20 + c.passive_node_magnitude("secondchance")
                 } else {
@@ -12491,6 +12531,10 @@ pub(crate) fn simulate_battle(
             reapers_momentum_per_kill: 0,
             reapers_momentum_banked: 0,
             guardian_spirit_charges: 0,
+            // Inert - this unit can never hold a death-save charge, so the
+            // label is never read. Named rather than defaulted so the field
+            // stays compiler-enforced at every construction site.
+            death_save_skill: "Guardian Spirit",
             guardian_spirit_heal_pct: 0.0,
             guardian_spirit_save_dr_pct: 0.0,
             guardian_spirit_save_heal_power_pct: 0.0,
@@ -13653,6 +13697,10 @@ pub(crate) fn simulate_battle(
                                 reapers_momentum_per_kill: 0,
                                 reapers_momentum_banked: 0,
                                 guardian_spirit_charges: 0,
+                                // Inert - this unit can never hold a death-save charge, so the
+                                // label is never read. Named rather than defaulted so the field
+                                // stays compiler-enforced at every construction site.
+                                death_save_skill: "Guardian Spirit",
                                 guardian_spirit_heal_pct: 0.0,
                                 guardian_spirit_save_dr_pct: 0.0,
                                 guardian_spirit_save_heal_power_pct: 0.0,
@@ -20292,6 +20340,71 @@ mod echo_tests {
         assert_eq!(units[1].guardian_spirit_charges, 1, "Guardian Spirit's charge must not be consumed by an echo repeat");
         let attack_event = events.iter().find(|e| matches!(e, CombatEvent::Attack { .. })).expect("the hit must still produce a real Attack event");
         assert!(matches!(attack_event, CombatEvent::Attack { source_kind: AttackSourceKind::Echo, .. }), "the repeat's own Attack event must be tagged Echo, not Direct");
+    }
+
+    /// The death save is a mechanic shared by two nodes on two archetypes,
+    /// and it used to announce itself as "Guardian Spirit" no matter which
+    /// one fed it - so a Slayer's Last Rites was logged under the Cleric
+    /// node's name, in the fight log and everything reading it. Asserts
+    /// the emitted name follows the unit's own `death_save_skill`.
+    fn skill_name_of_a_death_save(saver_skill: &'static str) -> String {
+        let attacker = CombatSimUnit { id: "attacker".to_string(), display_name: "Attacker".to_string(), alive: true, hp: 100, max_hp: 100, ..Default::default() };
+        // The saver is also the target: the save scans the whole party for
+        // any alive non-boss unit holding a charge, and "yourself included"
+        // is the node's own wording.
+        let target = CombatSimUnit {
+            id: "target".to_string(),
+            display_name: "Target".to_string(),
+            alive: true,
+            hp: 1,
+            max_hp: 1_000_000,
+            guardian_spirit_charges: 1,
+            death_save_skill: saver_skill,
+            ..Default::default()
+        };
+        let mut units = vec![attacker, target];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        apply_hit(&mut units, 0, 1, 1_000.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        assert!(units[1].alive, "the banked charge must have saved the target, or this test is asserting on nothing");
+        assert_eq!(units[1].guardian_spirit_charges, 0, "the save must consume the charge");
+        events
+            .iter()
+            .find_map(|e| match e {
+                CombatEvent::SkillCast { skill, .. } => Some(skill.clone()),
+                _ => None,
+            })
+            .expect("a death save must emit a SkillCast event")
+    }
+
+    #[test]
+    fn a_death_save_is_logged_under_the_node_that_actually_fed_it() {
+        assert_eq!(skill_name_of_a_death_save("Guardian Spirit"), "Guardian Spirit", "a Cleric's save keeps its own name");
+        assert_eq!(skill_name_of_a_death_save("Last Rites"), "Last Rites", "a Slayer's Last Rites must NOT be logged as Guardian Spirit");
+    }
+
+    /// Last Rites advertised "a 33% chance per rank (up to 100% at 3/3)"
+    /// from the game's first commit while the mechanic it feeds has always
+    /// been a deterministic charge count. Locks both halves of the fix: the
+    /// real ladder, and copy that no longer promises a roll.
+    #[test]
+    fn last_rites_declares_charges_not_a_chance() {
+        let node = Archetype::Slayer.passive_nodes().iter().find(|n| n.key == "lastrites").expect("the Slayer tree must still carry lastrites");
+
+        assert_eq!(node.magnitude_at_rank(1), 1.0, "rank 1 grants the first save");
+        assert_eq!(node.magnitude_at_rank(2), 1.0, "rank 2 grants no additional save - the family convention, see undying/gloriousdeath");
+        assert_eq!(node.magnitude_at_rank(3), 2.0, "rank 3 grants a second save, so the last rank is worth its point");
+
+        let text = node.description.to_lowercase();
+        assert!(!text.contains("chance"), "the description must not advertise a roll this mechanic never makes: {}", node.description);
+        assert!(!text.contains('%'), "no percentage belongs in a charge-count node's text: {}", node.description);
+
+        // Every death-save node in the game tops out at 2 charges. If this
+        // ever fails, the ladder above was raised without the family being
+        // reconsidered - which is a balance decision, not a refactor.
+        let undying = Archetype::Slayer.passive_nodes().iter().find(|n| n.key == "undying").expect("the Slayer tree must still carry undying");
+        assert_eq!(node.magnitude_at_rank(3), undying.magnitude_at_rank(3), "Last Rites and Undying are the Slayer's two death-save nodes and must cap alike");
     }
 }
 
