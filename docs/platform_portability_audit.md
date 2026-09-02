@@ -6,6 +6,21 @@ against `origin/master`. **No behaviour was changed by this audit and
 nothing here has been implemented.** Every item is file + line, what it
 assumes, what breaks on Linux, and effort to fix.
 
+> **SUPERSEDED IN PART — 2026-09-02 (`chore/bot-decoupling`).** The bot no
+> longer has an adventure integration of any kind. `AdventureApiClient`,
+> `src/published_constants.rs`, the ten adventure chat commands, the three
+> adventure channel-point redemptions, chat activity XP and the SSE
+> announcements relay are all deleted from `src/**`, and
+> `ADVENTURE_API_SECRET`, `ADVENTURE_API_BASE_URL`,
+> `CHANNEL_POINTS_REFORGE_REWARD_COST`, `CHANNEL_POINTS_REPAIR_REWARD_COST`
+> and `CHANNEL_POINTS_FORCE_BOSS_REWARD_COST` no longer exist in
+> `src/config.rs`. The game side went first: `game/src/adventure_web/api.rs`
+> and the whole `/api/*` router are gone. Every statement below that
+> describes the seam, those env keys or those commands as live describes
+> history, not the current tree. The bot itself is unaffected and still
+> runs: Twitch chat, song requests, alerts, entrance themes, the two
+> surviving channel-point rewards, PoE utilities and OBS control.
+
 Effort scale used throughout:
 
 | Rating | Meaning |

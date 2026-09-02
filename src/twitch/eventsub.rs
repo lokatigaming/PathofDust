@@ -154,9 +154,6 @@ async fn subscribe_all(
     broadcaster_id: &str,
     theme_reward_id: Option<&str>,
     interrupt_reward_id: Option<&str>,
-    reforge_reward_id: Option<&str>,
-    repair_reward_id: Option<&str>,
-    force_boss_reward_id: Option<&str>,
 ) -> anyhow::Result<()> {
     if let Err(err) = cleanup_existing_subscriptions(http, auth).await {
         tracing::warn!("EventSub: failed to clean up stale subscriptions before resubscribing: {err}");
@@ -234,51 +231,6 @@ async fn subscribe_all(
         .await?;
     }
 
-    // Same idea, scoped to "Reforge Gear" instead (see
-    // channel_points.rs's ensure_reforge_reward) — a third, independent
-    // condition.
-    if let Some(reward_id) = reforge_reward_id {
-        create_subscription(
-            http,
-            auth,
-            session_id,
-            "channel.channel_points_custom_reward_redemption.add",
-            "1",
-            json!({ "broadcaster_user_id": broadcaster_id, "reward_id": reward_id }),
-        )
-        .await?;
-    }
-
-    // Same idea, scoped to "Repair All Gear" instead (see
-    // channel_points.rs's ensure_repair_reward) — a fourth, independent
-    // condition.
-    if let Some(reward_id) = repair_reward_id {
-        create_subscription(
-            http,
-            auth,
-            session_id,
-            "channel.channel_points_custom_reward_redemption.add",
-            "1",
-            json!({ "broadcaster_user_id": broadcaster_id, "reward_id": reward_id }),
-        )
-        .await?;
-    }
-
-    // Same idea, scoped to "Force Boss Fight" instead (see
-    // channel_points.rs's ensure_force_boss_reward) — a fifth,
-    // independent condition.
-    if let Some(reward_id) = force_boss_reward_id {
-        create_subscription(
-            http,
-            auth,
-            session_id,
-            "channel.channel_points_custom_reward_redemption.add",
-            "1",
-            json!({ "broadcaster_user_id": broadcaster_id, "reward_id": reward_id }),
-        )
-        .await?;
-    }
-
     Ok(())
 }
 
@@ -316,9 +268,6 @@ pub async fn start_eventsub_listener(
     broadcaster_id: String,
     theme_reward_id: Option<String>,
     interrupt_reward_id: Option<String>,
-    reforge_reward_id: Option<String>,
-    repair_reward_id: Option<String>,
-    force_boss_reward_id: Option<String>,
     on_event: impl Fn(TwitchEvent) + Send + Sync + 'static,
 ) {
     let http = reqwest::Client::new();
@@ -332,9 +281,6 @@ pub async fn start_eventsub_listener(
                 &broadcaster_id,
                 theme_reward_id.as_deref(),
                 interrupt_reward_id.as_deref(),
-                reforge_reward_id.as_deref(),
-                repair_reward_id.as_deref(),
-                force_boss_reward_id.as_deref(),
                 &on_event,
             )
             .await
@@ -353,9 +299,6 @@ async fn run_session(
     broadcaster_id: &str,
     theme_reward_id: Option<&str>,
     interrupt_reward_id: Option<&str>,
-    reforge_reward_id: Option<&str>,
-    repair_reward_id: Option<&str>,
-    force_boss_reward_id: Option<&str>,
     on_event: &Arc<impl Fn(TwitchEvent) + Send + Sync + 'static>,
 ) -> anyhow::Result<()> {
     let (ws_stream, _) = tokio_tungstenite::connect_async(WS_URL).await?;
@@ -395,9 +338,6 @@ async fn run_session(
                     broadcaster_id,
                     theme_reward_id,
                     interrupt_reward_id,
-                    reforge_reward_id,
-                    repair_reward_id,
-                    force_boss_reward_id,
                 )
                 .await?;
                 subscribed = true;
@@ -407,15 +347,6 @@ async fn run_session(
                 }
                 if interrupt_reward_id.is_some() {
                     redemptions.push("Interrupt the Music redemptions");
-                }
-                if reforge_reward_id.is_some() {
-                    redemptions.push("Reforge Gear redemptions");
-                }
-                if repair_reward_id.is_some() {
-                    redemptions.push("Repair All Gear redemptions");
-                }
-                if force_boss_reward_id.is_some() {
-                    redemptions.push("Force Boss Fight redemptions");
                 }
                 tracing::info!(
                     "EventSub: subscribed to follows, gift subs, cheers, raids{} (regular subs come from chat).",
