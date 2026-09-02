@@ -1294,7 +1294,8 @@ separately, not to an automatic cleanup.
      `scope : this IS the flag 'TwitchBotRS-Watchdog' reads` (same
      absolute-path rule as the game side: a worktree copy writes a flag
      the live watchdog never reads, and `-Set` refuses that outright) →
-     stop `TwitchBotRS` → confirm it exited → SHA-256 hash old/new
+     stop `TwitchBotRS` → **wait for the PID to actually be gone, and
+     ABORT if it never clears** (recipe and reason below) → SHA-256 hash old/new
      `twitch-bot-rs.exe` → back up the old one into the *same*
      `backup-pre-<name>/` dir used for the game binary → copy in the
      new one → start `TwitchBotRS` → verify healthy (curl its ports) →
@@ -1312,7 +1313,42 @@ separately, not to an automatic cleanup.
      the game.** Verify port 4001 only. A deploy step that waits on a
      service which does not exist either blocks the operator or teaches
      them to skip steps, which is why this is corrected rather than left
-     to be reasoned around mid-deploy. **Do not set the Bot flag on a
+     to be reasoned around mid-deploy. **Amended 2026-09-03
+     (`chore/ops-hardening`), after a near-miss.** "Confirm it exited"
+     used to be three words, and a session read them as "sleep a few
+     seconds and glance": it waited 4s, saw the old PID still alive, and
+     called `Start-ScheduledTask` anyway. It got away with it only
+     because the process exited in the gap. **Had it genuinely still
+     been running, the start would have done nothing at all** —
+     `TwitchBotRS`'s `MultipleInstances` setting is `IgnoreNew`, so a
+     start against a live instance is silently ignored, with no error
+     and a success-looking exit. The deploy would then have stopped the
+     bot, started nothing, and moved on — **and the one thing that
+     would have recovered it, `TwitchBotRS-Watchdog`, is suppressed by
+     the maintenance flag this very step just set.** The failure is
+     silent at every layer. So poll, with a deadline, and abort:
+
+     ```powershell
+     $old = (Get-CimInstance Win32_Process -Filter "Name='twitch-bot-rs.exe'").ProcessId
+     # guard first: never stop anything whose image is not under C:\PathofDust
+     Stop-ScheduledTask -TaskName 'TwitchBotRS'
+     $deadline = (Get-Date).AddSeconds(60)
+     while (Get-CimInstance Win32_Process -Filter "ProcessId=$old" -ErrorAction SilentlyContinue) {
+       if ((Get-Date) -gt $deadline) {
+         throw "ABORT: PID $old still alive after 60s. Do NOT copy the binary and do
+                NOT start the task - a start now is silently ignored (IgnoreNew).
+                Clear the Bot maintenance flag so the watchdog is armed again,
+                then investigate why it will not exit."
+       }
+       Start-Sleep -Seconds 2
+     }
+     ```
+
+     On abort, **clear the flag before walking away.** An aborted deploy
+     that leaves the flag set has disarmed the watchdog for up to 30
+     minutes over a bot that may be wedged. The flag is a lease and it
+     does expire, but a deploy should not rely on the expiry to undo its
+     own half-finished state. **Do not set the Bot flag on a
      game-only release** — see the two-flags note above. The 4a recipe
      applies unchanged, substituting `-Target Bot`, task `TwitchBotRS`,
      port `4001`, and `twitch-bot-rs.exe.pre-<name>`.

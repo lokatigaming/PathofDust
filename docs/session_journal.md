@@ -1943,3 +1943,110 @@ FOUND — the owner added a static `!join` command in chat at 23:49 on
 register. That is the decoupling working as designed: the builtin arm is
 gone, the name falls through to the static-command table, and the owner
 can point it wherever they like without a deploy.
+
+### Piece 2 — EXECUTED, and two additions the owner ordered on top
+
+**`C:\PathofDust` updated**, `eab55f9` → `2cf9a59`, 33 commits, clean
+fast-forward with no conflicts. Verified afterwards that nothing live
+moved: bot PID **37024 unchanged**, one instance, all three ports serving
+byte counts identical to before (4001 18,924 B, 4002 16,385 B, 4003
+4,359 B), the deployed binary still `DCC1DAFA…`, `.env` still 23 keys.
+No restart, as established — every runtime path is gitignored, so the
+merge could not reach the binary, the environment or any state file.
+
+`.clinerules` re-copied from `CLAUDE.md` and confirmed byte-identical
+(13,915 B, sha `9740FE35…`). It had genuinely diverged: the update
+brought in the two house rules added on 2026-09-02 (append-only defined,
+and branch closure / no silent orphans), so Ox sessions were a revision
+behind until this copy.
+
+Untracked entries: 14 at session start → 13 now.
+
+### ADDITION 1 — the account store was one `git add -A` from a public remote
+
+**This is the most consequential thing this session found, and it reached
+the owner as a row in a table.** It was written up as one line of a
+dirty-entries inventory — `adventure-accounts.json | pre-cutover account
+store` — sitting among sprite art and rollback backups, ranked by nothing
+and flagged as nothing. The owner picked it out of that table. A finding
+about credential exposure does not belong in a column; if something is
+the most serious thing on a page it has to be the loudest thing on the
+page, and this was the quietest.
+
+**What it is.** `adventure-accounts.json` holds usernames and argon2
+password hashes for every account registered in World 1. It was
+**untracked but not ignored** in a git repository whose remote is a
+public GitHub repo. Nothing had committed it — `git ls-files` confirms it
+has never been tracked, so it is not in history — but nothing prevented
+it either. A single `git add -A` by any session or any person puts
+credential material on a public remote permanently.
+
+**Why it happened, which matters more than the fix.** `.gitignore` lists
+runtime state files **one at a time**. `adventure-accounts.json` shipped
+with operator identity (Stage 3a, 2026-08-28); its sibling
+`adventure-sessions.json` was added to the ignore list in the same change
+and **the accounts file was simply missed**. Nothing fails when an entry
+is forgotten: the file works, the bot works, the game works, and the only
+symptom is a `??` in `git status` that reads exactly like the sprite art
+two lines below it. It sat that way for six days.
+
+**Fixed** in the same commit as the `/backup-pre-bot-decoupling` entry,
+placed next to `adventure-sessions.json` so the two are found together,
+with the trap written into the file: this list is per-file, so a new data
+file needs its line in the same commit that introduces it.
+
+**The sweep, so the answer is a measurement rather than a reassurance.**
+All 65 untracked files in the deployment root were enumerated and every
+sensitive candidate was checked for both tracked and ignored status:
+
+| File | Tracked | Ignored before | Action |
+|---|---|---|---|
+| `adventure-accounts.json` | never | **NO** | now ignored |
+| `Quick Notes.md` | never | **NO** | now ignored (owner's personal notes) |
+| `.continue/` | never | **NO** | now ignored (same class as `.clinerules`) |
+| `adventure-sessions.json` (session tokens) | never | yes | — |
+| `tokens.json` (Twitch OAuth) | never | yes | — |
+| `.env` | never | yes | — |
+| the other 10 bot state files | never | yes | — |
+| `adventure-characters.json`, `patch-notes.json` | never | yes | — |
+| `*.json.<pid>.<n>.tmp` atomic-write temps | never | yes (`*.tmp`, line 231) | — |
+
+**Nothing sensitive is or has ever been tracked**, so there is nothing to
+purge from history. The remaining 62 untracked files are sprite art (55),
+rollback binaries (5) and scratch notes.
+
+**The protection is not live yet, and saying otherwise would be false.**
+`C:\PathofDust` now sits at `origin/master`, which does not carry this
+branch. Until `chore/ops-hardening` merges, `adventure-accounts.json` is
+still untracked-and-committable in the deployment root. Merging is what
+closes the window, not this commit.
+
+### ADDITION 2 — REFACTOR_PLAN §13A's stop step, rewritten from a near-miss
+
+The old text was three words — "confirm it exited" — and this session
+read them as "sleep a few seconds and glance": 4 seconds, saw the old PID
+still alive, called `Start-ScheduledTask` anyway. It worked only because
+the process exited in the gap.
+
+**The mechanism it would have hit, written down because the near-miss is
+cheaper than the incident.** `TwitchBotRS`'s `MultipleInstances` setting
+is `IgnoreNew`. A start against a live instance is not an error — it is
+silently ignored, with a success-looking exit. So the deploy would have
+stopped the bot, started nothing, believed it succeeded, and moved on;
+**and the one thing that recovers a dead bot, `TwitchBotRS-Watchdog`, was
+suppressed by the maintenance flag that same step had just set.** Silent
+at every layer: silent stop, silent non-start, silent watchdog.
+
+§13A now carries a polling loop with a 60-second deadline that **aborts**
+rather than starting, plus the instruction to clear the Bot flag before
+walking away from an abort — an aborted deploy that leaves the flag set
+has disarmed the watchdog over a bot that may be wedged. The flag is a
+lease and does expire, but a deploy must not rely on the expiry to undo
+its own half-finished state.
+
+### Board
+
+`personal_playlists`' intermittent Apps Script sync failure recorded in
+`world2_build_plan.md` §5 as instructed, not investigated. Local playlist
+data and `!playlist <username>` are unaffected; only the public site
+falls behind.
