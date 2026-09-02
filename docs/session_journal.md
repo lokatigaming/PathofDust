@@ -717,3 +717,58 @@ canvas default), i.e. `resize()` had not run. Not a defect: `readyState`
 was still `loading` 12s in, because the overlay's assets come through the
 SSH tunnel slowly. At 60s the same page read 1280x720. A measurement taken
 before `readyState` leaves `loading` measures nothing.
+
+## 2026-09-02 — CRAFTING-COST-CURVE (feature/crafting-cost-curve)
+
+Base crafting costs cut 10x and the per-tier surcharge changed from
+`3 x tier` to `3 x tier^1.1`, both as LiveTunables
+(`craft_base_cost_mult` 0.1, bounds 0–10; `craft_tier_exponent` 1.1,
+bounds 1.0–1.5) on /admin/tunables. Rounding is ceil PER TERM, then sum —
+a nonzero base fee can never round away to nothing, and a tier-1 craft
+still costs 3 dust even at multiplier 0. Precedent copied throughout:
+`pacing::ENEMY_HP_POOL_HARD_CAP` / `admin_tunables_pool_cap_http.rs`.
+
+SELF-CORRECTION — the fit report argued the 10.0 ceiling "restores the
+pre-cut prices exactly". It does not: the multiplier scales the UNCHANGED
+base constants, so 1.0 is the restore value and 10.0 is ten times the old
+prices. Caught by `the_bounds_restore_the_old_curve_exactly` failing.
+Bounds unchanged (the owner ruled 0–10); the justification in every doc
+comment and the admin hint was corrected.
+
+FOUND — `templates/base.html` carried `var TIER_CRAFT_DUST_COST = 3`, a
+second copy of the cost formula the crafting panel previews with. Left
+alone it would have quoted the old price while the server charged the new
+one. Now parameterised via `data-tier-mult`/`data-tier-exp` on each
+button, with `admin_tunables_craft_cost_http.rs` asserting the quoted
+price equals the dust actually deducted by a real POST /craft.
+
+FOUND — `AdventureManager::new` runs two one-time craft-token backfills
+gated on marker files. Any test that seeds a token-less character in a
+fresh data dir gets the tokens handed straight back unless it pre-writes
+`adventure-craft-token-backfill{,-v2}-marker.json`.
+
+FOUND — panel Reforge (30 x tier dust) was left out of the cut per an
+owner ruling and is now roughly 5x a Scour at tier 10, widening with
+tier. On the board as a follow-up, not shipped silently.
+
+PATCH NOTE DRAFT (for the deploy session to paste into
+C:/PathofDust/patch-notes.json — not written by this session, which does
+not deploy):
+
+  "Crafting Costs" —
+  "Crafting is much cheaper. Every craft's base price is a tenth of what
+   it was: Transmute and Scour now cost 25 dust instead of 250, Augment
+   50, Regal 75, Chancing 80, Annulment 100, Exalt 125, Krangle 250.
+   Veiling a craft costs 50 instead of 500."
+  "The per-tier part of the price now rises a little faster at higher
+   tiers: it was 3 dust per tier, and it is now 3 x tier^1.1. At tier 10
+   that is 38 dust instead of 30, at tier 50 it is 222 instead of 150,
+   at tier 100 it is 476 instead of 300."
+  "Net effect: crafting is cheaper for everyone below roughly tier 120,
+   and the deeper you go the more the per-tier part eats into the
+   saving. On the most expensive actions the cut still wins well past
+   tier 700."
+  NERF DISCLOSURE, must stay in whatever wording ships: past the
+  crossover tier this is a PRICE RISE, not a cut. Do not describe the
+  release as purely cheaper if the live world is past those tiers — see
+  the crossover table in this session's report.

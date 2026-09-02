@@ -823,15 +823,19 @@
     // items are currently picked (each <option> carries data-affixes -
     // see craft_item_options) - server-side is still the source of truth,
     // this is purely a preview so the cost shown matches what submitting
-    // the form will actually charge. The 6 non-Recombine buttons also add
-    // a flat per-tier surcharge (TIER_CRAFT_DUST_COST in adventure.rs -
-    // kept as a literal here, not interpolated, since this script block
-    // has no access to that Rust constant by name) off item_a's own tier
-    // (each <option> carries data-tier) - Recombine doesn't pay this at
-    // all (see AdventureManager::craft_item vs recombine_gear - two
-    // separate cost paths), so it's excluded via the same data-recombine
-    // check the pool surcharge already uses.
-    var TIER_CRAFT_DUST_COST = 3;
+    // the form will actually charge.
+    // The 6 non-Recombine buttons also add the per-tier surcharge off
+    // item_a's own tier (each <option> carries data-tier). Its two
+    // parameters arrive as data-tier-mult/data-tier-exp on each button
+    // that pays it - Recombine doesn't pay it at all (see
+    // AdventureManager::craft_item vs recombine_gear - two separate cost
+    // paths) and so carries neither attribute. Until 2026-09-02 the
+    // multiplier was a hardcoded `var TIER_CRAFT_DUST_COST = 3` right
+    // here, a second copy of the formula that would have gone on quoting
+    // the old price the moment the server's own value changed; both
+    // parameters are now live tunables, so the literal is gone and the
+    // arithmetic below must stay the ceil-per-term shape
+    // AdventureManager::craft_item_ex charges.
     var veilCheckbox = document.querySelector('input[name="veiled"]');
     var itemASelect = document.querySelector('select[name="item_a"]');
     var itemBSelect = document.querySelector('select[name="item_b"]');
@@ -924,15 +928,26 @@
         var n = parseInt(select.selectedOptions[0].getAttribute('data-tier') || '0', 10);
         return isNaN(n) ? 0 : n;
       };
+      // Math.ceil per term, exactly as AdventureManager::craft_item_ex
+      // does - the base fee is already ceil'd server-side into data-base,
+      // this ceils the tier term on its own, and the two are then summed.
+      // Never one ceil over the whole sum, and never Math.round.
+      var tierCostOf = function(btn) {
+        var mult = parseFloat(btn.getAttribute('data-tier-mult'));
+        var exp = parseFloat(btn.getAttribute('data-tier-exp'));
+        if (isNaN(mult) || isNaN(exp)) return 0;
+        var tier = tierOf(itemASelect);
+        if (tier <= 0) return 0;
+        return Math.ceil(mult * Math.pow(tier, exp));
+      };
       var updateCraftCosts = function() {
         var veiled = veilCheckbox.checked;
         var pool = affixCountOf(itemASelect) + affixCountOf(itemBSelect);
-        var tierCost = TIER_CRAFT_DUST_COST * tierOf(itemASelect);
         craftButtons.forEach(function(btn) {
           var base = parseInt(btn.getAttribute('data-base'), 10);
           var extra = btn.getAttribute('data-veil-extra');
           var isRecombine = btn.hasAttribute('data-recombine');
-          var cost = isRecombine ? base : base + tierCost;
+          var cost = isRecombine ? base : base + tierCostOf(btn);
           if (veiled && extra !== null) {
             cost += parseInt(extra, 10);
             if (isRecombine) {

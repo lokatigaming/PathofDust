@@ -41,8 +41,8 @@ use crate::adventure::{
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
-    HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, VEIL_EXTRA_COST,
-    WEB_REFORGE_DUST_COST, WINGS_COST,
+    HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, TIER_CRAFT_DUST_COST,
+    VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST, scaled_base_cost,
 };
 use crate::adventure::default_memory_name;
 use crate::adventure::passive_overrides;
@@ -2788,6 +2788,19 @@ fn default_enemy_hp_pool_hard_cap() -> f64 {
     crate::adventure::pacing::ENEMY_HP_POOL_HARD_CAP
 }
 
+/// Serde defaults for the two crafting-cost dials (2026-09-02). Same
+/// reasoning as `default_enemy_hp_pool_hard_cap` above: `#[serde(default)]`
+/// on an `f64` resolves to 0.0, which for the EXPONENT is below its 1.0
+/// floor and for the MULTIPLIER would silently make every craft's base
+/// fee free - so an omitted field resolves to the shipped constant
+/// instead, never to a value nobody asked for.
+fn default_craft_base_cost_mult() -> f64 {
+    crate::adventure::CRAFT_BASE_COST_MULT
+}
+fn default_craft_tier_exponent() -> f64 {
+    crate::adventure::CRAFT_TIER_EXPONENT
+}
+
 // Serde defaults for the nine dynamic-pacing fields whose accepted range
 // does NOT include zero (2026-08-31). `#[serde(default)]` on an `f64`
 // resolves to 0.0, which is BELOW every one of these floors - so a body
@@ -2859,6 +2872,15 @@ struct TunablesForm {
     divine_dust_craft_sand_cost: u64,
     /// See `LiveTunables::divine_dust_craft_output`'s doc.
     divine_dust_craft_output: u64,
+    /// See `LiveTunables::craft_base_cost_mult`'s doc. `#[serde(default)]`
+    /// resolves to the SHIPPED CONSTANT, never 0.0 - see
+    /// `default_craft_base_cost_mult`.
+    #[serde(default = "default_craft_base_cost_mult")]
+    craft_base_cost_mult: f64,
+    /// See `LiveTunables::craft_tier_exponent`'s doc. Same shipped-constant
+    /// default - see `default_craft_tier_exponent`.
+    #[serde(default = "default_craft_tier_exponent")]
+    craft_tier_exponent: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank1`'s doc.
     rf_self_damage_pct_rank1: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank2`'s doc.
@@ -3103,6 +3125,42 @@ impl TunableViolations {
         }
     }
 
+    /// The two crafting-cost dials (2026-09-02), which sanitise rather
+    /// than plain-clamp for the same reason `pool_cap` does: a non-finite
+    /// reading resolves to the SHIPPED DEFAULT, so a NaN can never reach
+    /// `craft::scaled_base_cost`/`tier_surcharge` and turn a price into
+    /// NaN-cast-to-0. `sanitize_craft_base_cost_mult` is NOT dead once
+    /// this rejects - the cost formula calls it on every craft, which is
+    /// where it earns its keep.
+    fn craft_base_cost_mult(&mut self, field: &str, value: f64) -> f64 {
+        let (min, max) = (crate::adventure::CRAFT_BASE_COST_MULT_MIN, crate::adventure::CRAFT_BASE_COST_MULT_MAX);
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::sanitize_craft_base_cost_mult(value)
+        } else {
+            value
+        }
+    }
+
+    /// `craft_base_cost_mult`'s twin for the exponent.
+    fn craft_tier_exponent(&mut self, field: &str, value: f64) -> f64 {
+        let (min, max) = (crate::adventure::CRAFT_TIER_EXPONENT_MIN, crate::adventure::CRAFT_TIER_EXPONENT_MAX);
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::sanitize_craft_tier_exponent(value)
+        } else {
+            value
+        }
+    }
+
     /// One comma-separated admin-page anchor list ("0, 500, 1000").
     /// Whitespace-tolerant. A malformed entry is now a REJECTION: it used
     /// to invalidate the whole list into an empty Vec, which the runtime
@@ -3189,6 +3247,11 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 divine_dust_craft_dust_cost: form.divine_dust_craft_dust_cost,
                 divine_dust_craft_sand_cost: form.divine_dust_craft_sand_cost,
                 divine_dust_craft_output: v.at_least_u64("divine_dust_craft_output", form.divine_dust_craft_output, 1),
+                // Defence-in-depth behind the rendered min/max, same shape
+                // as `pool_cap` below - a hand-crafted POST is sanitised
+                // rather than allowed to reach the cost formula.
+                craft_base_cost_mult: v.craft_base_cost_mult("craft_base_cost_mult", form.craft_base_cost_mult),
+                craft_tier_exponent: v.craft_tier_exponent("craft_tier_exponent", form.craft_tier_exponent),
                 rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
                 rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
                 rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
@@ -4223,6 +4286,17 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <input type=\"number\" step=\"1\" min=\"1\" id=\"divine_dust_craft_output\" name=\"divine_dust_craft_output\" value=\"{divine_dust_craft_output}\">\
               <p class=\"tunable-hint\">Divine Dust granted per craft, before the x1/x10/x50 batch multiplier.</p>\
             </div>\
+            <h2>Crafting Costs</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"craft_base_cost_mult\">Craft Base Cost Multiplier (x, on the flat per-action fee)</label>\
+              <input type=\"number\" step=\"any\" min=\"{craft_base_cost_mult_min}\" max=\"{craft_base_cost_mult_max}\" required id=\"craft_base_cost_mult\" name=\"craft_base_cost_mult\" value=\"{craft_base_cost_mult}\">\
+              <p class=\"tunable-hint\">{craft_base_cost_mult_min} to {craft_base_cost_mult_max} — multiplies every craft action's flat dust fee (Transmute 250, Krangle 2500, …) and the veil surcharge, before the per-tier surcharge below is added. Shipped 0.1 = the 10x cost cut; 1 restores the pre-cut prices exactly; 10 is ten times those old prices. 0 makes the flat fee free but NOT the craft — the per-tier surcharge still applies. Each fee is rounded UP, so a nonzero fee can never round away to nothing.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"craft_tier_exponent\">Craft Tier Cost Exponent (per-tier surcharge = 3 x tier^exponent, dust)</label>\
+              <input type=\"number\" step=\"any\" min=\"{craft_tier_exponent_min}\" max=\"{craft_tier_exponent_max}\" required id=\"craft_tier_exponent\" name=\"craft_tier_exponent\" value=\"{craft_tier_exponent}\">\
+              <p class=\"tunable-hint\">{craft_tier_exponent_min} to {craft_tier_exponent_max} — 1.0 is the old flat 3 dust per tier; shipped 1.1 makes cost accelerate with tier, slowly (tier 10: 38 instead of 30; tier 100: 476 instead of 300; tier 201: 1025 instead of 603). Below 1 is refused: it would make crafting relatively cheaper the further a player progresses.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -4386,6 +4460,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         divine_dust_craft_dust_cost = t.divine_dust_craft_dust_cost,
         divine_dust_craft_sand_cost = t.divine_dust_craft_sand_cost,
         divine_dust_craft_output = t.divine_dust_craft_output,
+        craft_base_cost_mult = t.craft_base_cost_mult,
+        craft_base_cost_mult_min = trim_float(crate::adventure::CRAFT_BASE_COST_MULT_MIN),
+        craft_base_cost_mult_max = trim_float(crate::adventure::CRAFT_BASE_COST_MULT_MAX),
+        craft_tier_exponent = t.craft_tier_exponent,
+        craft_tier_exponent_min = trim_float(crate::adventure::CRAFT_TIER_EXPONENT_MIN),
+        craft_tier_exponent_max = trim_float(crate::adventure::CRAFT_TIER_EXPONENT_MAX),
         rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
         rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
@@ -6027,15 +6107,34 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
                 s = if tokens == 1 { "" } else { "s" },
             );
         }
-        let base = action.base_cost();
+        // Both the flat fee and the veil surcharge go through
+        // `scaled_base_cost` here for exactly the same reason
+        // `craft_item_ex` does: the panel's preview and the charge must
+        // read the one live `craft_base_cost_mult`, never a second copy of
+        // the arithmetic. The per-tier half of the price is added
+        // client-side (it depends on which item is selected) - see the
+        // `data-tier-mult`/`data-tier-exp` attributes below.
+        let base = scaled_base_cost(action.base_cost(), tunables.craft_base_cost_mult);
         let disabled = if c.dust < base { " disabled" } else { "" };
+        // The per-tier half of the price, as parameters rather than as a
+        // second copy of the formula: `templates/base.html` recomputes
+        // `ceil(mult x tier^exp)` off whichever item is currently
+        // selected. Until 2026-09-02 that script carried its own
+        // hardcoded `var TIER_CRAFT_DUST_COST = 3`, which would have gone
+        // on quoting the old price after this change while the server
+        // charged the new one.
+        let tier_attrs = format!(" data-tier-mult=\"{TIER_CRAFT_DUST_COST}\" data-tier-exp=\"{}\"", tunables.craft_tier_exponent);
         // Scour has nothing to pick between when veiled (is_veilable() is
         // false for it) - omitting data-veil-extra is what tells the
         // preview script to leave its cost alone regardless of the
         // checkbox.
-        let veil_attr = if action.is_veilable() { format!(" data-veil-extra=\"{VEIL_EXTRA_COST}\"") } else { String::new() };
+        let veil_attr = if action.is_veilable() {
+            format!(" data-veil-extra=\"{}\"", scaled_base_cost(VEIL_EXTRA_COST, tunables.craft_base_cost_mult))
+        } else {
+            String::new()
+        };
         format!(
-            "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"{value}\" data-base=\"{base}\" data-label=\"{label}\" data-tip=\"{tip}\"{veil_attr}{disabled}{confirm_attr}>{label} ({base}d)</button>",
+            "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"{value}\" data-base=\"{base}\" data-label=\"{label}\" data-tip=\"{tip}\"{tier_attrs}{veil_attr}{disabled}{confirm_attr}>{label} ({base}d)</button>",
             value = action.label().to_lowercase(),
             label = action.label(),
         )
@@ -6162,7 +6261,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
           <form method=\"post\" action=\"/craft\">\
             <select name=\"item_a\">{options_a}</select>\
             <select name=\"item_b\">{options_b}</select>\
-            <label class=\"veil-check\" data-tip=\"{VEIL_TIP}\"><input type=\"checkbox\" name=\"veiled\" value=\"1\"> Veil this craft (+{VEIL_EXTRA_COST} dust; Recombine also +500 per combined modifier)</label>\
+            <label class=\"veil-check\" data-tip=\"{VEIL_TIP}\"><input type=\"checkbox\" name=\"veiled\" value=\"1\"> Veil this craft (+{veil_extra} dust; Recombine instead costs {VEIL_EXTRA_COST} + 500 per combined modifier)</label>\
             <div class=\"craft-actions\">\
               {transmute}{augment}{regal}{exalt}{krangle}{annulment}{chancing}\
             </div>\
@@ -6186,6 +6285,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables) -> String {
         dust = format_number(c.dust as f64),
         sand = format_number(c.sand as f64),
         divine_dust = format_number(c.divine_dust as f64),
+        veil_extra = scaled_base_cost(VEIL_EXTRA_COST, tunables.craft_base_cost_mult),
         transmute = action_btn(CraftAction::Transmute),
         scour = action_btn(CraftAction::Scour),
         augment = action_btn(CraftAction::Augment),
