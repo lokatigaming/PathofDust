@@ -81,6 +81,12 @@ struct AppState {
     /// away. Its own `Arc` with its own lock, like `AdventureManager`, so
     /// a submission never contends with the session or account maps.
     bugs: Arc<BugReportManager>,
+    /// Failed-login counters, keyed by lowercased username - see
+    /// `accounts::login_throttle_delay`. In memory only and deliberately
+    /// NOT persisted: a restart clearing it is acceptable (deploys are
+    /// rare and announced), and writing a file on every failed password
+    /// would hand an unauthenticated caller a disk-write primitive.
+    login_failures: Arc<Mutex<HashMap<String, accounts::LoginFailure>>>,
 }
 
 fn now_secs() -> u64 {
@@ -148,6 +154,7 @@ pub async fn start_adventure_web_server(
         // land beside the rest of the game state and every test's scratch
         // dir gets its own file rather than sharing production's.
         bugs: BugReportManager::new(crate::adventure::data_path(BUG_REPORTS_PATH)),
+        login_failures: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = axum::Router::<AppState>::new()
