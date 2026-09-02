@@ -1558,6 +1558,130 @@ answered nothing since cutover.
 
 ---
 
+## 2026-09-02 — Stage-gated drops deploy record (binary swap, 0.16 s downtime)
+
+Merge `25989ea` into master, deployed to the Debian box as release
+`stage-gated-drops`. Four drops gated on world stage as LiveTunables, the
+Divine Dust recipe locked behind a one-way latch, free craft-token drops
+retired.
+
+| | |
+|---|---|
+| merge commit | `25989ea` |
+| binary before | `ab458dc67c167fb2eb7d79e9d380edf5d0b95108bea059658a0075eaf9e61a86` |
+| binary after | `58972241ba06422fa06e870c047cf2a495ac3a650600b588203cb254b3c19a80` |
+| downtime | 0.16 s |
+| suite on the box | 788 passed / 0 failed |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-stage-gated-drops/game.pre-stage-gated-drops` |
+| backup archive | `pod-backup-20260902-172120.tar.gz` |
+
+**Master moved seven times during this session.** `3835699` (Twitch
+removal) → `02da915` (win-based XP) → `642504d` → `f04ea49` → `a2d75fa` →
+`371e941` (crafting cost curve) → `e1a369c` (orphaned docs). Three pushes
+were rejected by `--force-with-lease`/non-fast-forward and redone. Every
+check used `git ls-remote`, never a local ref. **The lesson worth keeping:
+on a day like this, the gap between "I confirmed master" and "I pushed" is
+itself long enough for master to move — so confirm immediately before the
+push, and treat a rejection as the system working, not as an obstacle.**
+
+**`master` is checked out in the stale `C:/PathofDust` worktree** (still at
+`eab55f9`), so `git checkout master` fails in any dust-work worktree and
+local `refs/heads/master` is permanently stale. Merges are therefore done on
+a **detached HEAD off `origin/master`**, pushed with `git push origin
+HEAD:master`. That touches neither the Windows deployment root nor the local
+branch ref. Any session that needs to merge should do the same rather than
+trying to fix the worktree.
+
+**One real cross-merge failure, caught by the suite.**
+`admin_tunables_craft_cost_http.rs` (from `feature/crafting-cost-curve`,
+which merged first) asserts the Divine Dust recipe FORM is on the crafting
+panel, and a locked recipe deliberately renders no submittable form. Its
+scratch world sits at stage 0, so it 100% failed against this merge. Fixed
+in the merge commit by seeding its scratch world unlocked — the same
+one-line seed `divine_dust_craft_http.rs` and `divine_dust_ui_http.rs`
+already carry. **Its own assertion was not weakened.** General shape worth
+naming: *any* test that renders `/inventory` or `/craft` and expects the
+Divine Dust row to be interactive now needs an unlocked world, and the
+cheapest way to get one is
+`{"stage":300,"last_boss_kind":null}` written to the scratch world file —
+which also exercises the `highest_stage` backfill for free.
+
+### Verified by effect on production, not by code trace
+
+Live world read from the BOX (`/var/lib/pathofdust/adventure-world.json`),
+never from the frozen `C:\PathofDust` artifact.
+
+- **`highest_stage` backfill worked in production.** The field was ABSENT
+  from the live world file at swap time (stage 4). After the first fight the
+  file carries `highest_stage: 5`. Had the backfill not run, it would have
+  been written as `1` and the Divine Dust recipe would have been re-lockable
+  by regression on a server that had legitimately climbed.
+- **All nine new tunables render** on the live `/admin/tunables`: the four
+  stage gates at 100/150/300/300 and the five `win_xp_*` fields, each with
+  `min`, `max` and `required`. `late_content_stage` is gone from the page.
+- **Three out-of-bounds POSTs** (`100001`, `4294967295`, `999999`) were each
+  refused `400 NOT SAVED`, naming the field and the range, with
+  `adventure-live-tunables.toml` byte-identical (sha256 unchanged) before
+  and after all three.
+- **The saved `adventure-live-tunables.toml` still contains
+  `late_content_stage = 100`**, now an unknown key that serde ignores. This
+  is the live vindication of shipping four NEW fields instead of
+  re-defaulting that one: had the Perfect gate stayed on
+  `late_content_stage`, production would have kept gating Perfect at 100
+  and the ordered move to 150 would have silently done nothing.
+
+### The negative proof — one real boss win at stage 4
+
+All four gates and the token removal sit far above the live stage, so a win
+must award dust and XP and **nothing else**. Triggered one encounter via
+`/admin/ops/next-encounter`; it was a win (stage 4 → 5), all 12 characters
+participated.
+
+| Awarded | Total across the roster | Expected | |
+|---|---|---|---|
+| polishing sand | 0 | 0 | PASS |
+| divine dust | 0 | 0 | PASS |
+| perfect items | 0 | 0 | PASS |
+| sacred items | 0 | 0 | PASS |
+| craft tokens | 0 | 0 | PASS |
+| `craft_pity` movement | none | none | PASS |
+| dust | +114 | >0 | PASS |
+| XP | +208 | >0 | PASS |
+
+The dust and XP rows are the ones that make this a real test rather than a
+tautology: they prove the fight actually paid out, so the five zeros are
+gates holding rather than a fight that did nothing. Two characters show
+negative XP deltas — `jachiny` 4→5 and `kuokiz` 2→3 — which is a level-up
+consuming the bar, not lost XP.
+
+**Starter tokens still granted.** No character had been created under the
+new binary (last registration was six minutes pre-swap), so this was proven
+on a disposable instance of the DEPLOYED binary — same
+`/opt/pathofdust/bin/game`, `GAME_DATA_DIR` pointed at a scratch dir, ports
+4104/4105, production data untouched. A freshly registered character
+received all eight starter tokens, one each, with `craft_pity` at 0. The
+instance was stopped by PID after confirming its PID differed from
+`systemctl show pathofdust -p MainPID` and its cwd was not the production
+data dir — never by image name, per the house rule.
+
+**Locked recipe, live at stage 4:** `/inventory` renders
+`Craft Divine Dust — unlocks at stage 300` with **no** `value="divine dust
+craft"` form on the page, and a hand-crafted POST to `/craft` is refused
+server-side, redirecting to `craft_failed=The Divine Dust recipe unlocks
+when the group reaches stage 300…` with no currency spent.
+
+### Health (§13B.5, all seven)
+
+1 `active` · 2 `NRestarts 0` · 3 journal `loaded 12 characters` = file `12`
+· 4 live hash equals the candidate · 5 `/characters` 200 / 78,105 B,
+`/passives` 200 / 91,032 B · 6 anonymous `/admin/tunables` **404**,
+73,730 B · 7 `POST /api/commands/join` **404**. Zero panics and zero
+error-level journal lines since the swap.
+
+FOUND — `/admin/ops/next-encounter` requires
+`Content-Type: application/x-www-form-urlencoded` even with an empty body; a
+bare `curl -X POST` gets `415`. Harmless from a browser, a trap from the
+command line. Not changed.
 ## 2026-09-02 — BOT-DECOUPLING deploy record (merge `4abecde`)
 
 First bot-only deploy since production moved to Linux, and the first
