@@ -2208,3 +2208,74 @@ read. The golden corpus is the early warning: 7 of 17 scenarios flipped
 from win to loss, every one at stage 200+, which is what a party running
 on a slower power curve against enemies tuned for the old one looks like.
 Production is at stage 5 and nowhere near it — but the world climbs.
+
+## 2026-09-02 — PLAYER-FACING-BATCH (feature/player-facing-batch)
+
+Four commits on a feature branch, in the owner's ordered sequence. Not
+merged, not deployed. Piece 1 is independently deployable and was reported
+separately for that reason.
+
+| # | Commit | What |
+|---|---|---|
+| 1 | `9d11733` | Six craft confirmations, dead in production since 2026-08-19, made to fire again |
+| 2 | `c5075e5` | Unique Shard joins them |
+| 4 | `8320487` | 50 basic-enemy sprites, rolled server-side |
+| 3 | `495e41f` | Bug reports: `/bugs` + `/admin/bugs` |
+
+Suite `cargo test --release --workspace --quiet`: 761 passed, 0 failed
+(755 baseline + 1 confirm-wiring + 4 sprite + 1 bug-report test file).
+Clippy clean on touched code. `node tools/bundle-contract.test.mjs` 19/19.
+
+**Piece 1's fix is structural.** The confirm handler now delegates on
+`document` instead of resolving one form by first match. Verified the new
+test fails against the pre-fix `base.html` and passes after — it is the
+assertion whose absence let a dead confirmation ship for two weeks.
+
+**DOM-order sweep (ordered).** No second live instance. `overlay.html` has
+no `querySelector` or `.closest` at all; its only listeners are on
+`window`. In `base.html` nothing else binds a listener through a
+class-based first-match: the cost-preview block resolves by unique input
+name or unique data-attribute, and the `times` picker is scoped to
+`.polish-reforge-actions`, which the Divine Dust row deliberately does not
+use. All latent rather than live, and all cosmetic label preview — a
+stolen binding there shows a stale price, it does not skip a safety gate.
+
+FOUND — in a basic encounter, every enemy after the first has been
+rendering as the death sprite. The client-side sprite pick produced a
+ONE-entry array, and `spriteNameForEnemySlot` falls back to `death` for any
+slot past the end of the array. Fixed as a side effect of Piece 4.
+
+FOUND — the comment at that call site still described the pre-Lich-adds
+fallback ("reused for every index via bossImgAt's own fallback"), which is
+why the code read as correct. The behaviour changed under it and the
+comment did not.
+
+FOUND — the Annulment button's `action` value is `annulment orb`, not
+`annulment`. Caught on the new confirm test's first run.
+
+### PATCH NOTE DRAFT — for the deploy session
+
+Not written to `C:/PathofDust/patch-notes.json` by this session: that file
+is runtime data on a box this session must not touch, and patch notes ship
+with the deploy. Text as ordered, nerf-honest:
+
+> **Confirmation prompts were broken, and we're sorry.**
+> Since 19 August, the "are you sure?" prompt has not been appearing on
+> Krangle, Scour, Annulment Orb, Chancing or Hideout Warrior. Divinity has
+> never shown one at all — it shipped after the break. If you lost an item
+> to a click you did not mean to make, that was a bug on our side, not you
+> misreading the interface. All six ask again now, and Unique Shard has
+> been added to them: it is the one crafting cost you cannot re-earn with
+> dust.
+>
+> **Basic fights have 50 new enemies.** Filler fights used to reuse three
+> boss sprites. They now draw from fifty of their own. Enemies are also
+> picked by the server instead of your browser, so a fight looks the same
+> every time you replay it and the same for everyone watching — before,
+> the same fight showed different monsters on every replay and on every
+> viewer's screen. Every enemy in a group after the first was also
+> rendering as the death sprite; that is fixed too.
+>
+> **Report a Bug** is in the top menu. Logged-in players can send a report
+> straight to the owner — it replaces the old `!bugreport` chat command
+> that went away with Twitch. One a minute.
