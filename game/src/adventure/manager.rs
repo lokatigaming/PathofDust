@@ -21,6 +21,98 @@
 pub const ACTIVITY_XP_COOLDOWN: Duration = Duration::from_secs(180);
 pub const ACTIVITY_XP_AMOUNT: u64 = 4;
 
+/// Win XP (2026-09-02) — the shipped defaults behind the five
+/// `LiveTunables` win-XP dials. Every one of these is the value
+/// `LiveTunables::default()` and the `/admin/tunables` serde defaults
+/// resolve to, so an omitted form field preserves live behaviour instead
+/// of collapsing to `f64::default()` == 0.0 (CLAUDE.md's both-directions
+/// form-field trap; the same fix `default_enemy_hp_pool_hard_cap`
+/// already applies).
+///
+/// The grant is
+/// `(WIN_XP_FLAT + WIN_XP_LEVEL_PCT * xp_to_next_level(level)) * catchup * WIN_XP_MULT`,
+/// paid on a BOSS win only (a filler fight still pays no XP at all — see
+/// `run_basic_encounter_inner`). The two terms do different jobs:
+///
+/// * `WIN_XP_FLAT` is a fixed number of XP, so its VALUE IN LEVELS decays
+///   as `xp_to_next_level` grows quadratically. It is the day-one burst.
+/// * `WIN_XP_LEVEL_PCT` is a fraction of the level's own cost, so it is
+///   worth a constant number of levels forever. It is the floor the rate
+///   settles onto.
+///
+/// Calibration, at the shipped 600 s `ENCOUNTER_INTERVAL` (144 boss
+/// encounters/day) and the live 2:1 `target_win_loss_ratio` (96 wins/day):
+/// `96 * 1/48 = 2.0` levels/day asymptotically, and `WIN_XP_FLAT = 12`
+/// puts day one at exactly 10 levels. Measured day-by-day at 2:1:
+/// 10, 5, 4, 3, 3, 3, 3, 3, 2, 3, 2, 3, 2, 3 — level 50 at day 14,
+/// settling on 2/day.
+///
+/// Linearity in win rate is automatic and needs no term of its own: XP is
+/// paid per win, so daily XP is strictly proportional to the fraction of
+/// encounters won. The band is inherently 0x to 1.5x of the 2:1 baseline
+/// (win fraction runs 0..1, and 2:1 is 0.667) — "linear" here does NOT
+/// mean "unbounded".
+pub const WIN_XP_FLAT: f64 = 12.0;
+pub const WIN_XP_LEVEL_PCT: f64 = 1.0 / 48.0;
+/// A uniform scalar on the FINAL grant (2026-09-02, owner request) — the
+/// growth rate dial that leaves the shape of the curve alone. Because it
+/// multiplies both terms equally it cannot change how fast the rate
+/// decays or where it settles RELATIVE to itself; it only moves the whole
+/// curve up or down. Contrast `WIN_XP_FLAT`/`WIN_XP_LEVEL_PCT`, which
+/// change the shape, and `loot_mult`/`sand_mult`, which are entirely
+/// separate currencies this never touches.
+pub const WIN_XP_MULT: f64 = 1.0;
+/// Per-character floor on the gap between two XP-paying wins — the
+/// rampage guard. It is the same shape as the chat-activity cooldown that
+/// used to sit above it (per-key last-seen map, checked before paying),
+/// which is where the idiom comes from — but that mechanism is gone as of
+/// the 2026-09-02 Twitch removal, so this is now the only XP throttle in
+/// the game rather than the second of two.
+///
+/// A rampage (`!rampage`, a 3-vote trigger, or the Permanent Rampage
+/// toggle) makes `spawn_rampage_loop` the sole encounter driver at a
+/// `RAMPAGE_MIN_INTERVAL` 60 s floor with every encounter a boss fight —
+/// 10x the boss-encounter rate the curve above is calibrated on. Left
+/// unguarded, a per-win grant would make rampage worth 10x the XP and the
+/// whole curve would be whatever the rampage schedule said it was.
+///
+/// 450 s is 75% of `ENCOUNTER_INTERVAL`: at the scheduled cadence it
+/// never binds (successive grants sit 600 s apart plus the difference in
+/// two fights' resolution times, so it would take a 150 s swing to bite),
+/// while a 60 s rampage cadence is throttled to one grant per 450 s —
+/// 1.33x normal instead of 10x. It covers the Force Boss Fight redemption
+/// (`FORCE_BOSS_MAX_PER_CYCLE`, up to 3x within a normal cycle) and
+/// `!nextencounter` in the same stroke, which is the tell that it is the
+/// right mechanism rather than three special cases.
+///
+/// A throttle, NOT a hard "no XP during rampage" gate: a gate is exact
+/// but turns the most popular content in the game into an XP drought.
+pub const WIN_XP_COOLDOWN_SECS: u64 = 450;
+/// Whether the win-XP grant keeps the `catchup_multiplier` a boss win has
+/// applied to XP since the live "extend catch-up to XP too" request. On
+/// by default — this exists so the curve can be measured without it, not
+/// because turning it off is expected.
+pub const WIN_XP_CATCHUP_ENABLED: bool = true;
+
+/// Accepted ranges for the five dials above, as rendered on
+/// `/admin/tunables` and re-checked in the handler. Spelled out here so
+/// the form, the handler and `tests/admin_tunables_win_xp_http.rs` all
+/// read one declaration.
+///
+/// `WIN_XP_MULT_MIN` is 0.0 on purpose: an operator freezing progression
+/// at the end of a season needs a kill switch, and hiding it behind an
+/// 0.01 floor would be worse than naming it. The zero this project has
+/// been bitten by twice is an OMITTED field silently defaulting to 0.0,
+/// which `default_win_xp_mult` prevents — not an operator deliberately
+/// typing one. `WIN_XP_MULT_MAX` at 100.0 leaves four orders of magnitude
+/// of headroom above the practical 0.01 floor while still rejecting an
+/// obvious fat-finger like 1e6.
+pub const WIN_XP_FLAT_MAX: f64 = 10_000.0;
+pub const WIN_XP_LEVEL_PCT_MAX: f64 = 1.0;
+pub const WIN_XP_MULT_MIN: f64 = 0.0;
+pub const WIN_XP_MULT_MAX: f64 = 100.0;
+pub const WIN_XP_COOLDOWN_SECS_MAX: u64 = 3_600;
+
 /// How often the joined roster auto-battles the next enemy.
 pub const ENCOUNTER_INTERVAL: Duration = Duration::from_secs(600);
 
@@ -1695,6 +1787,13 @@ pub struct AdventureManager {
     characters_path: PathBuf,
     world: Mutex<WorldState>,
     world_path: PathBuf,
+    /// Lowercased character id -> the last time a BOSS WIN actually paid
+    /// them XP. The rampage guard — see `WIN_XP_COOLDOWN_SECS` for why a
+    /// throttle rather than a gate, and `claim_win_xp` for the pass that
+    /// reads it. Purely in-memory and pruned lazily, the same convention
+    /// `downed_until` below uses: a restart just means the next win pays,
+    /// which is the harmless direction.
+    last_win_xp: Mutex<HashMap<String, Instant>>,
     /// Lowercased username -> when they revive after being knocked out —
     /// purely in-memory (a restart just revives everyone early). Entries
     /// are pruned lazily as they're read past, not on a timer.
@@ -2181,6 +2280,7 @@ impl AdventureManager {
             characters_path,
             world: Mutex::new(world),
             world_path,
+            last_win_xp: Mutex::new(HashMap::new()),
             downed_until: Mutex::new(HashMap::new()),
             fight_gate: Mutex::new(Instant::now()),
             reforge_cooldown: Mutex::new(reforge_cooldown),
@@ -4486,6 +4586,40 @@ impl AdventureManager {
         Some(ReforgeOutcome { item_name, slot, old_tier, new_tier, bonus_affix })
     }
 
+    /// The win-XP cooldown pass — decides which of this boss fight's
+    /// winners actually get paid, and stamps them as paid in the same
+    /// lock. Returns the subset of `ids` that earned XP.
+    ///
+    /// Called from `run_encounter_inner` BEFORE the `characters` lock is
+    /// taken, deliberately: the reward loop inside that block holds a
+    /// `ThreadRng`, which is not `Send`, so it cannot `.await` on this
+    /// `Mutex`. Resolving eligibility up front keeps the whole cooldown to
+    /// one await point outside the non-Send region.
+    ///
+    /// See `WIN_XP_COOLDOWN_SECS` for the calibration argument. A cooldown
+    /// of 0 disables the throttle entirely (every win pays), which is a
+    /// legitimate operator choice and not a special case here — `elapsed()
+    /// < 0` is simply never true.
+    async fn claim_win_xp<'a>(&self, ids: impl Iterator<Item = &'a String>, cooldown: Duration) -> HashSet<String> {
+        let now = Instant::now();
+        let mut last = self.last_win_xp.lock().await;
+        // Pruned lazily as the map is walked, same convention as
+        // `downed_until` — an id nobody has fought as for four cooldowns
+        // cannot affect any future decision, and this is the only pass
+        // that ever reads the map.
+        let stale = cooldown.saturating_mul(4);
+        last.retain(|_, prev| now.duration_since(*prev) < stale);
+        let mut paid = HashSet::new();
+        for id in ids {
+            if last.get(id).is_some_and(|prev| now.duration_since(*prev) < cooldown) {
+                continue;
+            }
+            last.insert(id.clone(), now);
+            paid.insert(id.clone());
+        }
+        paid
+    }
+
     /// Runs forever, triggering an auto-battle encounter every
     /// `ENCOUNTER_INTERVAL` — called once from main.rs. The first
     /// (immediate) tick is skipped so an encounter doesn't fire the
@@ -5031,6 +5165,17 @@ impl AdventureManager {
         let group_levels: Vec<u32> = fighting.values().map(|c| c.level).collect();
         let catchup: HashMap<String, f64> = fighting.iter().map(|(id, c)| (id.clone(), catchup_multiplier(c.level, &group_levels))).collect();
 
+        // Win XP eligibility, resolved BEFORE the `characters` lock below.
+        // The reward loop inside that block holds a `ThreadRng` (not
+        // `Send`), so it cannot `.await` on the cooldown map itself - see
+        // `claim_win_xp`. Losses never consult the map at all, so a losing
+        // fight can neither pay XP nor consume a character's cooldown.
+        let xp_paid: HashSet<String> = if won {
+            self.claim_win_xp(fighting.keys(), Duration::from_secs(tunables.win_xp_cooldown_secs)).await
+        } else {
+            HashSet::new()
+        };
+
         {
             let mut characters = self.characters.lock().await;
             // Own scope, dropped before this block's later .await points -
@@ -5040,24 +5185,48 @@ impl AdventureManager {
                 let Some(character) = characters.get_mut(id) else { continue };
                 if won {
                     character.wins += 1;
-                    // Victory XP scales with stage so later fights stay
-                    // worth doing, AND gets the same catch-up multiplier
-                    // as pity's payout size (see `catchup_multiplier`) -
-                    // per a live request to extend catch-up to XP too, so
-                    // newer/lower-level players level up faster relative
-                    // to the group, not just gear up faster. Unlike dust/
-                    // the natural loot rolls below (still deliberately
-                    // flat), XP has no per-fight "pool" to keep even, so
-                    // there's no equivalent tradeoff to preserve here.
-                    // Base/scaling both cut roughly in half (10+2*stage ->
-                    // 5+stage) as part of a live "really slow down
-                    // progression" request - stage has no ceiling and was
-                    // making a single win worth more and more forever,
-                    // independent of the character's own level (see
-                    // `xp_to_next_level`'s doc for the other half of this
-                    // change, and the combined effect).
-                    let xp_catchup = catchup.get(id).copied().unwrap_or(1.0);
-                    character.add_xp(((5 + stage as u64) as f64 * xp_catchup).round() as u64);
+                    // Victory XP (2026-09-02, "XP comes from winning
+                    // fights now"). Replaces the old `(5 + stage) *
+                    // catchup`: stage was the wrong axis - it has no
+                    // ceiling, so a win was worth more and more forever
+                    // independent of the character, and at the live 2:1
+                    // `target_win_loss_ratio` the stage walk (+1 win, -2
+                    // loss) is NEUTRAL anyway, so it was a growth term
+                    // that mostly did not grow. It is now the character's
+                    // own level curve that sets the pace, through five
+                    // `LiveTunables` dials - see `WIN_XP_FLAT` for the
+                    // full calibration.
+                    //
+                    // ORDER OF OPERATIONS, stated explicitly because
+                    // "multiplier" is an overloaded word on this struct:
+                    //
+                    //   1. flat + level_pct * xp_to_next_level(level)
+                    //        the two SHAPE terms, summed. `level` is read
+                    //        here, before `add_xp` can move it, so one
+                    //        win is always priced at the level that
+                    //        earned it even when it crosses a threshold.
+                    //   2. * catchup_multiplier   (1.0..3.0, per-character,
+                    //        from the PRE-fight group levels; switchable
+                    //        off via `win_xp_catchup_enabled`)
+                    //   3. * win_xp_mult          (the uniform growth-rate
+                    //        dial - scales everything, changes no shape)
+                    //   4. .round(), floored at 0, then `add_xp`
+                    //
+                    // `loot_mult` and `sand_mult` are NOT in this chain
+                    // and never have been: they scale dust/items and sand,
+                    // which are separate currencies. Nothing multiplies
+                    // XP except steps 2 and 3.
+                    if xp_paid.contains(id) {
+                        let xp_catchup = if tunables.win_xp_catchup_enabled { catchup.get(id).copied().unwrap_or(1.0) } else { 1.0 };
+                        let shape = tunables.win_xp_flat + tunables.win_xp_level_pct * Character::xp_to_next_level(character.level) as f64;
+                        let granted = (shape * xp_catchup * tunables.win_xp_mult).round();
+                        // A non-finite product can only come from a
+                        // tunable the handler already rejects; clamping
+                        // here rather than trusting that keeps a NaN out
+                        // of `add_xp`'s subtract-and-loop, which would
+                        // never terminate.
+                        character.add_xp(if granted.is_finite() { granted.max(0.0) as u64 } else { 0 });
+                    }
                     // Every boss kill also grants dust to everyone who
                     // fought - 1-3 per stage completed, rolled per player,
                     // +loot_mult on top. Deliberately NOT catch-up-scaled -

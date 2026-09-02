@@ -215,6 +215,38 @@ pub struct LiveTunables {
     /// toggle like this should survive a crash/restart, not silently
     /// revert.
     pub permanent_rampage: bool,
+    /// Win XP (2026-09-02) — the flat half of the per-boss-win XP grant,
+    /// in raw XP. Fixed in XP terms, so its value IN LEVELS decays as
+    /// `Character::xp_to_next_level` grows quadratically: this is the
+    /// day-one burst. See `manager::WIN_XP_FLAT` for the calibration and
+    /// `run_encounter_inner` for the order of operations.
+    pub win_xp_flat: f64,
+    /// The level-scaled half, as a FRACTION OF THE LEVEL'S OWN COST
+    /// (`xp_to_next_level(level)`) rather than raw XP. Worth a constant
+    /// number of levels forever, so it is the floor the levelling rate
+    /// settles onto: at 96 wins/day the shipped 1/48 is exactly 2
+    /// levels/day. See `manager::WIN_XP_LEVEL_PCT`.
+    pub win_xp_level_pct: f64,
+    /// A uniform scalar applied to the FINAL grant, after the two terms
+    /// above are summed and after `catchup_multiplier` (2026-09-02, owner
+    /// request: "a generic flat multiplier on all experience gained, so
+    /// the growth rate can be tuned without changing the shape of the
+    /// curve over time"). Because it scales both terms equally it cannot
+    /// change how fast the rate decays or where it settles — it moves the
+    /// whole curve up or down and nothing else.
+    ///
+    /// Distinct from `loot_mult`/`sand_mult`, which touch dust/items and
+    /// sand respectively and never touch XP. Nothing else multiplies XP.
+    /// See `manager::WIN_XP_MULT`.
+    pub win_xp_mult: f64,
+    /// Per-character floor, in seconds, on the gap between two XP-paying
+    /// wins — the rampage guard. 0 disables the throttle. See
+    /// `manager::WIN_XP_COOLDOWN_SECS` for why this is a throttle rather
+    /// than a "no XP during rampage" gate.
+    pub win_xp_cooldown_secs: u64,
+    /// Whether `catchup_multiplier` still applies to the XP grant (step 2
+    /// of the order of operations). See `manager::WIN_XP_CATCHUP_ENABLED`.
+    pub win_xp_catchup_enabled: bool,
     /// Boss pierce (2026-08-18, a live design call) - the asymptotic
     /// ceiling `boss_pierce_pct` climbs toward as stage grows (see
     /// `simulate_battle`'s own computation) - a stage-scaled fraction of
@@ -554,6 +586,11 @@ impl Default for LiveTunables {
             boss_count_cap_mult: 1.5,
             late_content_stage: 100,
             permanent_rampage: false,
+            win_xp_flat: WIN_XP_FLAT,
+            win_xp_level_pct: WIN_XP_LEVEL_PCT,
+            win_xp_mult: WIN_XP_MULT,
+            win_xp_cooldown_secs: WIN_XP_COOLDOWN_SECS,
+            win_xp_catchup_enabled: WIN_XP_CATCHUP_ENABLED,
             pierce_cap: 0.5,
             pierce_h: 2000.0,
             fight_summary_batch_size: 10,
