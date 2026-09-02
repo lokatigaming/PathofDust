@@ -64,6 +64,20 @@ async fn craft_recipe_and_apply_divine_dust_both_work_over_real_http() {
     characters.insert(TEST_LOGIN.to_string(), character);
     std::fs::write(&characters_path, serde_json::to_string(&characters).expect("must serialize")).expect("failed to seed the scratch characters file");
 
+    // The Divine Dust recipe is gated behind a one-way stage unlock since
+    // 2026-09-02 (`AdventureManager::divine_dust_recipe_unlocked`), so a
+    // fresh stage-0 world would refuse every craft below and this test
+    // would be asserting on the lock rather than on the recipe.
+    //
+    // Seeding the world file rather than reaching for a setter is
+    // deliberate: `highest_stage` is ABSENT from this JSON, exactly as it
+    // is from the real production world file, so this also exercises the
+    // `max(stage)` backfill in `AdventureManager::new` - the thing that
+    // stops an already-past-300 server re-locking a recipe its players
+    // already earned.
+    let world_path = scratch.join("adventure-world.json");
+    std::fs::write(&world_path, r#"{"stage":300,"last_boss_kind":null}"#).expect("failed to seed the scratch world file");
+
     let manager = AdventureManager::new(characters_path.clone(), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
 
     let bound_addr = game::adventure_web::start_adventure_web_server(
