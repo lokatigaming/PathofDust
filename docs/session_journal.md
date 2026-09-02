@@ -526,3 +526,80 @@ ingress rule removed here, DNS record deleted by the owner (NXDOMAIN).
 Rollback assets retained: `/var/lib/pod-precutover-20260902-071616`,
 `/root/pod-cutover-state.tar.gz`, `/root/patch-notes-precutover.json`,
 `C:\dust-work\.env.pre-cutover-backup`, and the frozen `C:\PathofDust` itself.
+
+## 2026-09-02 — CUTOVER-EXECUTE (the post-cutover outage, and its fix)
+
+Production went to Linux at 05:16:51 UTC and was **71% unresponsive**
+within the hour. Root-caused and fixed the same session. No rollback: the
+owner cancelled rollback authorisation mid-triage and ruled that we stay on
+Linux and fix it there. Windows stayed stopped and frozen throughout.
+
+**Two framings were proposed and both were wrong, in sequence. What was
+actually true is the third.**
+
+1. *"It's the tunnel / QUIC."* Reasonable — cloudflared defaults to QUIC over
+   UDP, and a UDP-buffer or MTU problem produces exactly this signature.
+   **Killed by measurement:** loopback `http://localhost:4005/` stalled just
+   as badly as the tunnel (178 samples, 26 non-200, max 8.0 s, mean 1.21 s).
+   A tunnel fault cannot make loopback slow. For the record the transport IS
+   QUIC and there were never any UDP-buffer or MTU warnings.
+2. *"It's the disk — ~1.9 GB per fight."* Half right and the wrong half.
+   The volume is real (detail 933 MB + bundle 943 MB per fight) but it is
+   **CPU serialisation on the async runtime, not disk I/O.** iowait measured
+   **0–1%** throughout, 282 GB free, no OOM, no swap. "It's the big files"
+   and "it's the disk" are different claims and only the first is true.
+3. *"It's the serialisation, so wrap `save_last_fight`."* Also wrong, and
+   this one was the owner's stated leading candidate — re-scoped BEFORE it
+   was acted on. Bracketing the tier writes by their mtimes (coarse 08:50:05
+   -> detail 08:50:10 -> bundle 08:50:17 -> summary 08:50:18) puts the entire
+   write phase at **13 s**, against a **158 s** stall. **The cost is
+   `simulate_battle`, ~145 s — 92% of it.** Wrapping only the writes would
+   have recovered under 10% and left a ~145 s freeze, looking like a failed
+   fix.
+
+**Actual root cause.** `simulate_battle` (`manager.rs:5001`, `:5618`) is a
+synchronous, unbounded-duration computation called directly from the async
+encounter loop. It never yields, so it freezes the whole Tokio runtime.
+Not merely slow handlers: **`accept()` itself stopped** — `LISTEN Recv-Q`
+backed up to 12, and probes showed `connect` completing in 0.00018 s with
+`starttransfer` never arriving. A **static sprite** stalled in the same
+instants as a dynamic page, which is what ruled out per-route lock
+contention on game state. Measured **158 s unresponsive of every 221 s
+cycle**.
+
+**Why it only appeared after the cutover.** The defect was always there and
+was firing on Windows too, just briefly enough to be invisible. This box is
+a generic emulated `QEMU Virtual CPU version 2.5+` (no host passthrough, so
+no modern instruction sets) at ~3992 BogoMIPS; Windows ran an i5-12400F.
+Steal time 0, so it is the vCPU model, not a noisy neighbour. Same code,
+same data, near-identical output sizes, similar cadence — the machine
+simply got much slower at the same work, and a rounding error became 71%
+downtime. This also retires the §11 "known unknown: one unexplained
+120-second stall after a migration load, never reproduced". That was this.
+
+**Fix.** `tokio::task::spawn_blocking` around all four call sites —
+`simulate_battle` at `:5001` and `:5618`, `save_last_fight` at `:5487` and
+`:5852`. Verified before writing any code, at the owner's instruction:
+no lock guard is alive across any of the four boundaries (each `world` /
+`characters` guard sits in an explicit own-scope block that closes first);
+`fighting`, `tunables` and `result` are MOVED in and back out rather than
+cloned, so the ~1 GB event log crosses as a move; and `combat.rs`,
+`fight_storage.rs` and `replay_bundle.rs` contain **zero** occurrences of
+`tokio::`, `.await` or `async fn`, so nothing downstream assumes a runtime
+worker. The RNG is constructed inside each closure — `ThreadRng` is not
+`Send`.
+
+**MissedTickBehavior::Skip**, chosen deliberately rather than defaulted.
+The hazard is NEWLY reachable: before this change the runtime froze during
+a fight so the timer was starved and could not accumulate; moving the work
+off the runtime lets the clock run ahead of the loop. Default `Burst` would
+fire every missed tick back-to-back and resolve several fights in seconds —
+indistinguishable to a player from a bug or an exploit. `Delay` was
+rejected: it reschedules a full interval after each fight completes,
+silently stretching cadence to fight_duration + interval and halving the
+fight rate. `Skip` realigns to the wall-clock grid: one fight per interval,
+never a flurry, and a single skipped beat as the worst case.
+
+FOUND — `manager.rs` has a pre-existing `unused_mut` on `let mut broken:
+Vec<BrokenItem>` (never mutated afterwards). Confirmed pre-existing on HEAD,
+not introduced here. Not touched.

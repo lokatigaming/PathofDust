@@ -4525,6 +4525,25 @@ impl AdventureManager {
     pub fn spawn_encounter_loop(self: Arc<Self>) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(ENCOUNTER_INTERVAL);
+            // MUST NOT be the default `Burst`. A fight now takes real wall-clock
+            // time on a blocking thread (145 s measured at the end of World 1),
+            // and the timer keeps running while it does - so if a fight ever
+            // overruns its interval, `Burst` would fire every missed tick
+            // back-to-back and resolve several fights within seconds. To a
+            // player that is indistinguishable from a bug or an exploit.
+            //
+            // `Skip` drops the missed ticks and realigns to the original
+            // schedule, so the cadence stays anchored to wall-clock: one fight
+            // per interval, never a flurry. `Delay` was rejected - it would
+            // reschedule a full interval AFTER each fight finished, silently
+            // stretching the cadence to fight_duration + interval and halving
+            // the fight rate as fights get more expensive.
+            //
+            // Worth knowing: this hazard is NEWLY reachable. Before the
+            // spawn_blocking change the whole runtime froze during a fight, so
+            // the timer itself was starved and could not accumulate. Moving the
+            // work off the runtime is what lets the clock run ahead of the loop.
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -4555,6 +4574,11 @@ impl AdventureManager {
     pub fn spawn_basic_encounter_loop(self: Arc<Self>) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(BASIC_ENCOUNTER_INTERVAL);
+            // `Skip`, for the reasons documented on the boss loop above. This
+            // is the tighter of the two intervals (180 s vs 600 s), so it is
+            // the one a long fight can actually overrun - it is the loop that
+            // would have burst.
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -4998,7 +5022,29 @@ impl AdventureManager {
         // from this alone - ordering is simply no longer a SECOND,
         // independent source of irreproducibility on top of that.
         let fight_seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, fight_seed, &mut rand::thread_rng());
+        // `simulate_battle` is a SYNCHRONOUS, unbounded-duration computation -
+        // it must never run on an async worker. Measured on Linux production
+        // 2026-09-02: 145 s per fight at stage 7380 with a 46-player party,
+        // during which the whole Tokio runtime froze. Not merely slow handlers:
+        // `accept()` itself stopped (`LISTEN Recv-Q` backed up, connections
+        // established but never read), so even static files hung. The site was
+        // down 158 s of every 221 s cycle. The same defect existed on Windows
+        // and was invisible only because that CPU is far faster.
+        //
+        // `fighting` and `tunables` are MOVED in and MOVED back out rather than
+        // cloned - both are still needed below, and a clone here would add a
+        // per-fight copy for no reason. `bosses` is consumed by value as before.
+        // The ~1 GB of `events` is likewise moved out of the task, not copied.
+        //
+        // The RNG is constructed INSIDE the closure: `ThreadRng` is not `Send`
+        // and is thread-local, so it cannot cross the boundary - the same
+        // reasoning already documented on the `characters` scopes in this file.
+        let (fighting, tunables, won, units, events, rolls) = tokio::task::spawn_blocking(move || {
+            let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, fight_seed, &mut rand::thread_rng());
+            (fighting, tunables, won, units, events, rolls)
+        })
+        .await
+        .expect("simulate_battle blocking task panicked");
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         // Dynamic pacing Controller A's per-fight sample inputs (the push
         // itself wins-only-gates later, see pacing::push_dps_sample):
@@ -5419,7 +5465,9 @@ impl AdventureManager {
         // persisted snapshot AND the broadcast carry identical vitals - see
         // `PlayerVitals`'s own doc for why this can't be the thinned copy.
         let player_vitals = build_player_vitals(&units, &events);
-        let mut result = EncounterResult {
+        // Not `mut`: it is moved into the `save_last_fight` blocking task below
+        // and comes back as a fresh `mut` binding with the summary attached.
+        let result = EncounterResult {
             kind: EncounterKind::Boss,
             stage,
             won,
@@ -5462,7 +5510,19 @@ impl AdventureManager {
             summary: FightSummarySnapshot::default(),
             player_vitals,
         };
-        result.summary = save_last_fight(&result, boss_stats_snapshot);
+        // Also off the runtime. Smaller than the simulation - measured at 13 s
+        // per fight on Linux production (coarse -> detail -> bundle -> summary,
+        // ~1.9 GB of JSON) against the simulation's 145 s - but it is the same
+        // class of defect and there is no reason to leave 13 s of freeze behind.
+        // `result` is MOVED in and back out; it carries the full event log, so
+        // cloning it across the boundary would be the expensive mistake.
+        let (mut result, summary) = tokio::task::spawn_blocking(move || {
+            let summary = save_last_fight(&result, boss_stats_snapshot);
+            (result, summary)
+        })
+        .await
+        .expect("save_last_fight blocking task panicked");
+        result.summary = summary;
         // Presentational only - see `thin_events_for_overlay`'s own doc.
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
@@ -5614,8 +5674,17 @@ impl AdventureManager {
 
         // Same party-ordering seed as the boss path above.
         let fight_seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        let (won, units, events, rolls) =
-            simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, fight_seed, &mut rand::thread_rng());
+        // Off the async runtime for the same reason as the boss path above -
+        // see that call site's comment for the measurement and the rationale.
+        // A filler fight is cheaper than a boss fight but still unbounded, and
+        // "cheaper" is not a scheduling guarantee.
+        let (fighting, tunables, won, units, events, rolls) = tokio::task::spawn_blocking(move || {
+            let (won, units, events, rolls) =
+                simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, fight_seed, &mut rand::thread_rng());
+            (fighting, tunables, won, units, events, rolls)
+        })
+        .await
+        .expect("simulate_battle blocking task panicked");
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         // NO Controller A sample is computed here (2026-08-23 owner
         // ruling): a filler fight is not a pacing signal. See this
@@ -5783,7 +5852,9 @@ impl AdventureManager {
         // See `run_encounter`'s matching line for why this borrows `units`/
         // `events` before they're moved into the struct literal below.
         let player_vitals = build_player_vitals(&units, &events);
-        let mut result = EncounterResult {
+        // Not `mut`: it is moved into the `save_last_fight` blocking task below
+        // and comes back as a fresh `mut` binding with the summary attached.
+        let result = EncounterResult {
             kind: EncounterKind::Basic,
             stage,
             won,
@@ -5806,7 +5877,14 @@ impl AdventureManager {
             summary: FightSummarySnapshot::default(),
             player_vitals,
         };
-        result.summary = save_last_fight(&result, Vec::new());
+        // Off the runtime, same as the boss path's save above.
+        let (mut result, summary) = tokio::task::spawn_blocking(move || {
+            let summary = save_last_fight(&result, Vec::new());
+            (result, summary)
+        })
+        .await
+        .expect("save_last_fight blocking task panicked");
+        result.summary = summary;
         // Presentational only - see `thin_events_for_overlay`'s own doc.
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
