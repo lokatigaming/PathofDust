@@ -1,3 +1,18 @@
+// PERMANENTLY STALE AS OF 2026-09-02 (Twitch removal). The bot is gone
+// and so is the `/api/published-constants` endpoint that wrote this file
+// on its behalf, so `bot-published-constants.json` is never written
+// again - it has been dropped from both backup scripts. `load_json` here
+// returns `None` forever, which `wiki.rs`'s `wiki_placeholder_map`
+// already handles by rendering "varies" for all five placeholders. That
+// is the documented, shipped fallback, so nothing breaks.
+//
+// This module is RETAINED rather than deleted only because `wiki.rs`
+// (owned by the wiki session - CLAUDE.md §Multi-session rule 1) still
+// imports `PublishedConstants` and `published_constants_path`. It should
+// be deleted together with those five placeholders; see WIKI_IMPACT.md.
+//
+// Historical rationale below, kept for the record:
+//
 // Bot→game published constants (2026-08-18, architecture refactor Stage
 // 2 - the owner's ruling on wiki.rs's crate placement: wiki.rs goes
 // GAME-side, full stop, since the standalone deliverable requires the

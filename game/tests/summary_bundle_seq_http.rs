@@ -71,12 +71,8 @@ async fn a_summary_bundle_seq_served_over_http_resolves_to_its_own_bundle() {
 
     let bound = game::adventure_web::start_adventure_web_server(
         0,
-        "http://localhost".to_string(),
-        Some("test-client-id".to_string()),
-        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
-        None,
     )
     .await
     .expect("disposable adventure_web server must start");

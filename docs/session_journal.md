@@ -614,3 +614,67 @@ FOUND — the bot logs recurring `PayPal relay poll failed` against
 `young-hall-6c35.parnold-id.workers.dev/pending-tips`. Unrelated to the
 cutover or this fix (external Cloudflare Worker endpoint), pre-dates both.
 Not investigated.
+
+## 2026-09-02 — Twitch removed from the game repo (session TWITCH-REMOVAL-GAME)
+
+Branch `chore/twitch-removal-game`. The `/api/*` bot seam, the Twitch OAuth
+login and the overlay's Twitch chat embed are DELETED from source, not
+merely unmounted by absent environment. `accounts.rs::mint_session` is now
+the only session minter in the process.
+
+**Overlay.** The chat panel and the canvas-shrink IIFE lived in the same
+`if session.is_some()` block; the IIFE existed only to undo the 340px the
+panel reserved. Deleting the block restores `overlay.html`'s own `resize()`
+as the sole sizer. Measured in headless Chrome against a disposable
+instance with a seeded session: all three canvases (`stage-back`,
+`stage-mid`, `stage-top`) are 1280x720 at a 1280x720 viewport and 1000x600
+after a resize to 1000x600 — full viewport, no reserved strip. Under the
+old code they would have been 940 and 660 wide.
+
+FOUND — the removal scope (docs/external_integration_removal_scope.md D30)
+claims `subscribe_announcements`' "sole consumer is api.rs:403-411". Wrong:
+`adventure_overlay_server.rs:260` calls it too, teeing every announcement
+onto the live `/ws` socket. Deleting it broke the build. Retained, with the
+correction recorded on the method.
+
+FOUND — the scope's D56 says the three `channel-points-*-reward.json` files
+have lines in the backup scripts. They do not; only
+`bot-published-constants.json` did, and it is now removed from both. Those
+three files are written by the bot crate and were never in either script.
+
+FOUND — `AppState.public_url` and `main.rs`'s `env_var_or` helper became
+dead with the OAuth `redirect_uri`. Both removed. `ADVENTURE_WEB_PUBLIC_URL`
+is now read by nothing; it is inert wherever it is still set. Whether to
+pull it from the unit file is a deploy-time call.
+
+FOUND — three constants (`ACTIVITY_XP_COOLDOWN`, `ACTIVITY_XP_AMOUNT`,
+`RAMPAGE_VOTE_THRESHOLD`) are retained WITHOUT callers because
+`wiki.rs:282/308/309` reads them and this session may not edit that file
+(owner ruling 1). The wiki therefore documents two mechanics the game no
+longer has. WIKI_IMPACT.md carries the removal request.
+
+FOUND — the golden-corpus/full-suite run was aborted once by my own error:
+a disposable `/overlay` instance started from `target/release/game.exe`
+file-locked the binary while cargo tried to relink it. Do not start an
+instance from the shared target dir while a suite is running.
+
+**The removal-scope audit has now been wrong three times, all in the same
+direction: calling something dead that has a live consumer.** Owner's ruling,
+2026-09-02 — treat `docs/external_integration_removal_scope.md` as a LEAD, not
+a list. Verify every entry against the code before acting on it.
+
+| # | Audit claim | Reality |
+|---|---|---|
+| 1 | D30: `subscribe_announcements`' "sole consumer is api.rs:403-411" | `adventure_overlay_server.rs:260` calls it too, teeing announcements onto `/ws`. Deleting it broke the build |
+| 2 | D24/D28: the activity-XP and rampage-vote constants fall with their functions | `wiki.rs:282/308/309` reads all three. Deleting them breaks a file this session may not edit |
+| 3 | D56: the three `channel-points-*-reward.json` files have lines in the backup scripts | Neither script ever listed them |
+
+(Ledger #54 recorded the same failure shape on the Patreon slice — five missed
+targets — so this is a fourth instance of the pattern, not a first.)
+
+**Why the overlay measurement means anything.** The numbers are only evidence
+because of the counterfactual: the deleted IIFE set every canvas to
+`window.innerWidth - CHAT_WIDTH_PX` with `CHAT_WIDTH_PX = 340`. Under the old
+code the same two viewports would have produced canvases **940** and **660**
+wide. Measuring 1280 and 1000 is what proves the shrink override is gone rather
+than merely inert.

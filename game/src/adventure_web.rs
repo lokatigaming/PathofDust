@@ -1,28 +1,28 @@
 ﻿// Viewer-facing web dashboard for the chat adventure game (see
 // adventure.rs) — unlike public_adventure_overlay (OBS-only, no auth,
-// pushed state), this is a real multi-user site: each viewer logs in with
-// their OWN Twitch account (OAuth authorization code flow, no scopes
-// requested — all that's needed is confirming who they are via
-// GET /users) and sees/manages their own character, matched by their
-// lowercased Twitch login (same id AdventureManager already keys
-// characters by).
+// pushed state), this is a real multi-user site: each viewer logs in
+// with a local account (see accounts.rs) and sees/manages their own
+// character, matched by their lowercased login (same id
+// AdventureManager already keys characters by).
 //
 // Sessions are an opaque random token in an HttpOnly cookie, mapped to
-// (login, display_name) in an in-memory store - same "restart just clears
-// it, nobody re-persists this" tradeoff as every other cooldown/session
-// map in adventure.rs. Nothing here touches combat/loot logic directly;
-// it only reads/joins through AdventureManager's existing public API.
+// (login, display_name) in a store persisted to adventure-sessions.json
+// so a deploy restart never forces a relog. Nothing here touches
+// combat/loot logic directly; it only reads/joins through
+// AdventureManager's existing public API.
 //
-// Reuses the bot's own TWITCH_CLIENT_ID/SECRET (see config.rs) rather
-// than needing a second registered app - Twitch apps support multiple
-// redirect URIs, so this just needs its own
-// (`{ADVENTURE_WEB_PUBLIC_URL}/auth/callback`) added alongside the
-// existing one-time-setup URI in the app's dashboard settings.
+// Twitch is GONE as of World 2 (2026-09-02): the OAuth login, the
+// `/api/*` bot seam and the overlay's chat embed were all deleted, not
+// merely unmounted. `accounts.rs::mint_session` is now the only session
+// minter, and it is the whole seam an external identity provider
+// replaces later. Identity itself never depended on Twitch - `Session`,
+// the cookie, `current_session`, `Character` and
+// adventure-characters.json are all provider-agnostic and always were.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Form, Path, Query, State};
@@ -49,16 +49,12 @@ use crate::adventure::passive_overrides;
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
 mod accounts;
-mod api;
 mod render;
 mod wiki;
 
 const SESSION_COOKIE: &str = "adv_session";
 /// How long a login lasts before needing to sign in again.
 const SESSION_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-/// How long an in-flight OAuth attempt's CSRF `state` token stays valid -
-/// just long enough to actually complete the Twitch login page.
-const OAUTH_STATE_TTL: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct Session {
@@ -70,35 +66,16 @@ struct Session {
     created_at: u64,
 }
 
-/// The dashboard's own Twitch OAuth app (`TWITCH_CLIENT_ID` /
-/// `TWITCH_CLIENT_SECRET`). OPTIONAL since 2026-08-31 - see
-/// `AppState::twitch`.
-#[derive(Clone)]
-struct TwitchOAuth {
-    client_id: String,
-    client_secret: String,
-}
-
 #[derive(Clone)]
 struct AppState {
     adventure: Arc<AdventureManager>,
-    /// `None` when the Twitch credentials are absent, in which case
-    /// `/login` and `/auth/callback` are never mounted and the dashboard
-    /// offers local accounts only. Same `None`-disables-the-mount shape
-    /// `api_secret` uses for `ADVENTURE_API_SECRET`. A standalone game
-    /// must not refuse to start because it has no Twitch app; with the
-    /// credentials present, behaviour is unchanged.
-    twitch: Option<TwitchOAuth>,
-    /// e.g. "https://adventure.example.com" - no trailing slash.
-    public_url: String,
     sessions: Arc<Mutex<HashMap<String, Session>>>,
     sessions_path: PathBuf,
-    /// Local (non-Twitch) accounts - see `accounts.rs`. Persisted the
-    /// same way `sessions` is, to a sibling file in the same directory.
+    /// Local accounts - see `accounts.rs`. The only session minter since
+    /// Twitch OAuth was removed. Persisted the same way `sessions` is, to
+    /// a sibling file in the same directory.
     accounts: Arc<Mutex<HashMap<String, accounts::Account>>>,
     accounts_path: PathBuf,
-    oauth_states: Arc<Mutex<HashMap<String, Instant>>>,
-    http: reqwest::Client,
 }
 
 fn now_secs() -> u64 {
@@ -118,10 +95,6 @@ fn random_token() -> String {
     let mut bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut bytes);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
-}
-
-fn redirect_uri(public_url: &str) -> String {
-    format!("{public_url}/auth/callback")
 }
 
 /// Nicer display label for a sprite name, e.g. `"melee-knight-red"` ->
@@ -146,20 +119,8 @@ fn sprite_label(name: &str) -> String {
 
 pub async fn start_adventure_web_server(
     port: u16,
-    public_url: String,
-    // OPTIONAL since 2026-08-31 (Linux staging / standalone game). `None`
-    // on either mounts no Twitch login path at all; the process starts
-    // cleanly and local accounts still work. Half-configured is treated
-    // as absent, loudly - see below.
-    client_id: Option<String>,
-    client_secret: Option<String>,
     adventure: Arc<AdventureManager>,
     sessions_path: PathBuf,
-    // Stage 3 API seam (REFACTOR_PLAN.md §4) - `None` mounts nothing,
-    // the exact route table this function had before the seam existed.
-    // See config.rs's `adventure_api_secret` doc for why this is the
-    // production default today.
-    api_secret: Option<String>,
 ) -> anyhow::Result<std::net::SocketAddr> {
     // Resolved through `data_path` here, at the library entry point, rather
     // than by the caller (2026-08-29, Linux-readiness) - the exact shape
@@ -172,50 +133,19 @@ pub async fn start_adventure_web_server(
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
     let accounts_path = accounts::accounts_path(&sessions_path);
     let accounts: HashMap<String, accounts::Account> = crate::state::load_json(&accounts_path).unwrap_or_default();
-    let api_router: Option<axum::Router<AppState>> = api::router(adventure.clone(), api_secret);
-    let twitch = match (client_id, client_secret) {
-        (Some(client_id), Some(client_secret)) => Some(TwitchOAuth { client_id, client_secret }),
-        (None, None) => {
-            tracing::info!("TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET are unset - the dashboard's Twitch login is off (/login and /auth/callback are not mounted, and the link is not offered). Local accounts and everything else run normally.");
-            None
-        }
-        // Half-configured is a typo, not an intention. Treated as absent
-        // so the process still starts, but said out loud - silently
-        // dropping the Twitch login because one of two keys was
-        // misspelled is exactly the kind of quiet failure this change is
-        // meant to avoid.
-        _ => {
-            tracing::warn!("Exactly one of TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET is set - both are needed. The Twitch login is OFF; set both or neither.");
-            None
-        }
-    };
     let state = AppState {
         adventure,
-        twitch,
-        public_url,
         sessions: Arc::new(Mutex::new(sessions)),
         sessions_path,
         accounts: Arc::new(Mutex::new(accounts)),
         accounts_path,
-        oauth_states: Arc::new(Mutex::new(HashMap::new())),
-        http: reqwest::Client::new(),
     };
 
-    let mut app: axum::Router<AppState> = axum::Router::new();
-    if let Some(api_router) = api_router {
-        app = app.nest("/api", api_router);
-    }
-    // The Twitch login path, mounted only when the credentials exist -
-    // same shape as the `/api` nest above. With them present this is the
-    // exact route table this function has always had.
-    if state.twitch.is_some() {
-        app = app.route("/login", get(login)).route("/auth/callback", get(callback));
-    }
-    let app = app
+    let app = axum::Router::<AppState>::new()
         .route("/", get(index))
         .route("/inventory", get(inventory_page))
-        // Local identity (2026-08-27) - a second session minter sitting
-        // beside the Twitch one above, which is untouched. See accounts.rs.
+        // Local identity (2026-08-27) - the only session minter since the
+        // Twitch OAuth login was removed. See accounts.rs.
         .route("/account/register", get(accounts::register_page).post(accounts::do_register))
         .route("/account/login", get(accounts::login_page).post(accounts::do_login))
         .route("/logout", get(logout))
@@ -428,7 +358,7 @@ struct IndexParams {
 async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let (used_this_hour, next_reset_ms) = state.adventure.reforge_status(&login).await;
@@ -450,7 +380,7 @@ async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params):
 async fn inventory_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let pending_veil = state.adventure.pending_veil(&login).await;
@@ -613,143 +543,6 @@ fn render_craft_error_popup(params: &IndexParams) -> String {
           </div>\
         </div>"
     )
-}
-
-async fn login(State(state): State<AppState>) -> axum::response::Response {
-    // Unreachable in practice - this route is only mounted when the
-    // credentials exist - but the state is an `Option`, so answer it
-    // honestly rather than unwrapping.
-    let Some(twitch) = state.twitch.as_ref() else {
-        return Html(render_page(
-            "<div class=\"card\"><h2>Login failed</h2><p>Twitch login is not configured on this instance.</p><p><a class=\"btn\" href=\"/account/login\">Log in with an account instead</a></p></div>",
-        ))
-        .into_response();
-    };
-    let csrf = random_token();
-    {
-        let mut states = state.oauth_states.lock().await;
-        // Lazily prune expired attempts while we're in here anyway -
-        // this map only ever grows from actual login attempts, so it
-        // stays small regardless.
-        states.retain(|_, &mut created| created.elapsed() < OAUTH_STATE_TTL);
-        states.insert(csrf.clone(), Instant::now());
-    }
-
-    let mut url = url::Url::parse("https://id.twitch.tv/oauth2/authorize").expect("static URL");
-    url.query_pairs_mut()
-        .append_pair("client_id", &twitch.client_id)
-        .append_pair("redirect_uri", &redirect_uri(&state.public_url))
-        .append_pair("response_type", "code")
-        // No scopes requested - GET /users (called below) returns the
-        // token's own owner with a bare, scopeless user token, and that's
-        // all this needs: confirming who's logging in.
-        .append_pair("scope", "")
-        .append_pair("state", &csrf);
-
-    Redirect::to(url.as_str()).into_response()
-}
-
-#[derive(Deserialize)]
-struct CallbackParams {
-    code: Option<String>,
-    state: Option<String>,
-    error_description: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
-}
-
-#[derive(Deserialize)]
-struct HelixUser {
-    login: String,
-    display_name: String,
-}
-
-#[derive(Deserialize)]
-struct HelixUsersResponse {
-    data: Vec<HelixUser>,
-}
-
-async fn callback(State(state): State<AppState>, Query(params): Query<CallbackParams>) -> impl IntoResponse {
-    match handle_callback(&state, params).await {
-        Ok((token, login)) => {
-            tracing::info!("Adventure dashboard: {login} logged in.");
-            let cookie = set_cookie_header(&token, SESSION_TTL.as_secs());
-            (StatusCode::FOUND, [cookie, (header::LOCATION, "/".to_string())], "").into_response()
-        }
-        Err(err) => {
-            tracing::warn!("Adventure dashboard login failed: {err}");
-            Html(render_page(&format!(
-                "<div class=\"card\"><h2>Login failed</h2><p>{}</p><p><a class=\"btn\" href=\"/login\">Try again</a></p></div>",
-                escape_html(&err.to_string())
-            )))
-            .into_response()
-        }
-    }
-}
-
-async fn handle_callback(state: &AppState, params: CallbackParams) -> anyhow::Result<(String, String)> {
-    if let Some(desc) = params.error_description {
-        anyhow::bail!("{desc}");
-    }
-    // As in `login`: unreachable while the route is only mounted with the
-    // credentials present, but expressed rather than unwrapped.
-    let twitch = state.twitch.as_ref().ok_or_else(|| anyhow::anyhow!("Twitch login is not configured on this instance."))?;
-    let code = params.code.ok_or_else(|| anyhow::anyhow!("Twitch didn't return an authorization code."))?;
-    let csrf = params.state.ok_or_else(|| anyhow::anyhow!("Missing state parameter."))?;
-
-    {
-        let mut states = state.oauth_states.lock().await;
-        // Single-use: removed the moment it's checked, whether or not it
-        // turns out valid, so a replayed callback URL can never succeed twice.
-        let Some(created) = states.remove(&csrf) else {
-            anyhow::bail!("Login link expired or already used — try logging in again.");
-        };
-        if created.elapsed() > OAUTH_STATE_TTL {
-            anyhow::bail!("Login link expired — try logging in again.");
-        }
-    }
-
-    let resp = state
-        .http
-        .post("https://id.twitch.tv/oauth2/token")
-        .form(&[
-            ("client_id", twitch.client_id.as_str()),
-            ("client_secret", twitch.client_secret.as_str()),
-            ("code", code.as_str()),
-            ("grant_type", "authorization_code"),
-            ("redirect_uri", &redirect_uri(&state.public_url)),
-        ])
-        .send()
-        .await?;
-    if !resp.status().is_success() {
-        anyhow::bail!("Twitch rejected the login (token exchange failed).");
-    }
-    let token: TokenResponse = resp.json().await?;
-
-    let resp = state
-        .http
-        .get("https://api.twitch.tv/helix/users")
-        .bearer_auth(&token.access_token)
-        .header("Client-Id", &twitch.client_id)
-        .send()
-        .await?;
-    if !resp.status().is_success() {
-        anyhow::bail!("Couldn't confirm your Twitch identity.");
-    }
-    let users: HelixUsersResponse = resp.json().await?;
-    let user = users.data.into_iter().next().ok_or_else(|| anyhow::anyhow!("Twitch returned no user for that login."))?;
-
-    let session_token = random_token();
-    {
-        let mut sessions = state.sessions.lock().await;
-        sessions.insert(session_token.clone(), Session { login: user.login.clone(), display_name: user.display_name, created_at: now_secs() });
-        save_sessions(state, &sessions);
-    }
-
-    Ok((session_token, user.login))
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
@@ -990,7 +783,7 @@ struct PassivesParams {
 async fn passives_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<PassivesParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let preview = state.adventure.pending_passive_preview(&login).await;
@@ -1938,28 +1731,6 @@ async fn patch_notes(State(state): State<AppState>, headers: HeaderMap) -> Html<
     Html(render_page(&render_patch_notes(&entries, character.as_ref())))
 }
 
-/// `/overlay` - public, no login needed (same reasoning as patch-notes/
-/// wiki above), serves the EXACT SAME `overlay.html` OBS points a
-/// Browser Source at (port 4004, not publicly exposed - see
-/// `start_adventure_web_server`'s own doc on `/sprites`/`/skill-effects`)
-/// so anyone can watch the live fight animate in a normal browser tab
-/// without needing the stream itself - a live request. Served raw, NOT
-/// wrapped in `render_page`'s own header chrome, since this page is a
-/// full-bleed canvas animation with its own embedded layout that assumes
-/// it owns the whole viewport, same as OBS's Browser Source does.
-/// `overlay.html`'s own asset paths (`sprites/...`, `skill-effects/...`)
-/// and its WebSocket (`${location.host}/ws`) are all relative/host-
-/// relative, so serving the identical file from this ALREADY-public
-/// dashboard host just works, with zero new tunnel/DNS/infra changes -
-/// `/ws` below reuses `adventure_overlay_server::handle_socket` directly,
-/// sharing the same `Arc<AdventureManager>` broadcast this dashboard
-/// already holds.
-/// Same Twitch login `FIGHTS_PAGE_LOGIN` gates its own streamer-only page
-/// with - reused here as the channel Twitch's chat embed points at
-/// (they're the same string only because the streamer's own login IS the
-/// channel name, not because these two constants mean the same thing).
-const TWITCH_CHANNEL: &str = "lokati_gaming";
-
 /// `?embed=app` (2026-08-18) - set by the private companion Electron app
 /// when it iframes `/overlay` (see `overlay_page`'s own doc) - suppresses
 /// the website-only settings tray, since the app provides its own
@@ -1981,7 +1752,7 @@ struct OverlayPageParams {
 /// control rewrites `location.search` on `change` (not continuously)
 /// and mirrors the choice into localStorage so it survives a reload/
 /// revisit that carries none of these params at all. `own_login` is the
-/// authenticated session's stable lowercase Twitch login (never a
+/// authenticated session's stable lowercase login (never a
 /// free-text field) - `None` disables Highlight Me entirely rather than
 /// letting a logged-out visitor type an arbitrary login.
 fn render_overlay_settings_tray(own_login: Option<&str>) -> String {
@@ -2164,6 +1935,22 @@ mod overlay_settings_tray_tests {
     }
 }
 
+/// `/overlay` - public, no login needed (same reasoning as patch-notes/
+/// wiki above), serves the EXACT SAME `overlay.html` OBS points a
+/// Browser Source at (port 4004, not publicly exposed - see
+/// `start_adventure_web_server`'s own doc on `/sprites`/`/skill-effects`)
+/// so anyone can watch the live fight animate in a normal browser tab
+/// without needing the stream itself - a live request. Served raw, NOT
+/// wrapped in `render_page`'s own header chrome, since this page is a
+/// full-bleed canvas animation with its own embedded layout that assumes
+/// it owns the whole viewport, same as OBS's Browser Source does.
+/// `overlay.html`'s own asset paths (`sprites/...`, `skill-effects/...`)
+/// and its WebSocket (`${location.host}/ws`) are all relative/host-
+/// relative, so serving the identical file from this ALREADY-public
+/// dashboard host just works, with zero new tunnel/DNS/infra changes -
+/// `/ws` below reuses `adventure_overlay_server::handle_socket` directly,
+/// sharing the same `Arc<AdventureManager>` broadcast this dashboard
+/// already holds.
 async fn overlay_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<OverlayPageParams>) -> impl IntoResponse {
     match tokio::fs::read_to_string("public_adventure_overlay/overlay.html").await {
         Ok(contents) => {
@@ -2196,58 +1983,6 @@ async fn overlay_page(State(state): State<AppState>, headers: HeaderMap, Query(p
                 let tray_html = format!("<body>{}", render_overlay_settings_tray(own_login));
                 patched = patched.replacen("<body>", &tray_html, 1);
             }
-            // Live chat embed pinned to the right side (moved from an
-            // initial top-strip placement per a live follow-up request) -
-            // gated to logged-in dashboard visitors only (not the
-            // anonymous "no login needed" default this whole page
-            // otherwise has, see this fn's own doc) - an actual Twitch
-            // account is needed to chat there anyway, so a logged-out
-            // visitor gets the plain overlay instead of a chat box they
-            // can only read, not use. Twitch's own embed requires a
-            // `parent` query param matching the EXACT hostname the page
-            // loads from (enforced by Twitch, not this app) - resolved
-            // client-side via `location.hostname` rather than hardcoded,
-            // so this works unchanged whether it's reached via
-            // adventure.lokati.net or localhost.
-            if session.is_some() {
-                const CHAT_WIDTH_PX: u32 = 340;
-                // /* */ block comment, NOT //, inside the JS below -
-                // deliberately, after a confirmed live bug: this whole
-                // string is built with Rust's backslash-newline
-                // continuations (each line ends in `\`), which strip the
-                // actual newline character between lines. A `//` line
-                // comment has no closing delimiter, so with the newlines
-                // gone it silently swallowed every line after it -
-                // including the entire resize IIFE below - into one giant
-                // comment that never executed at all (the chat panel
-                // itself still rendered fine, since that's plain HTML,
-                // unaffected - only the JS silently no-opped). `/* */`
-                // can't make that mistake regardless of how the lines get
-                // joined.
-                let chat_html = format!(
-                    "<div id=\"overlay-chat\" style=\"position:fixed;top:0;right:0;width:{CHAT_WIDTH_PX}px;height:100%;z-index:9999;background:#0e0e10;border-left:2px solid #7c5cff;\">\
-                      <iframe id=\"overlay-chat-frame\" frameborder=\"0\" style=\"width:100%;height:100%;\" title=\"Twitch chat\"></iframe>\
-                    </div>\
-                    <script>\
-                      document.getElementById('overlay-chat-frame').src = 'https://www.twitch.tv/embed/{TWITCH_CHANNEL}/chat?parent=' + location.hostname + '&darkpopout';\
-                      /* overlay.html's OWN resize() (see its own <script>, near the top) sizes EVERY renderer canvas (see the layer-model comment in its own <style>) to the FULL window width - it has no idea this chat panel is reserving {CHAT_WIDTH_PX}px on the right, so without this the game keeps drawing (and getting covered) behind the chat panel. Re-shrinking every canvas here, both immediately (correcting whatever the page's own resize() just set on load) and on every future resize (this listener is attached AFTER the page's own, so it always runs second/last and wins) - querySelectorAll runs once (the set of canvases is static, never created/destroyed after page load), so this stays a single shared formula applied uniformly instead of drifting per-layer. */\
-                      (function() {{\
-                        var stages = document.querySelectorAll('canvas');\
-                        function shrinkForChat() {{\
-                          var w = Math.max(0, window.innerWidth - {CHAT_WIDTH_PX});\
-                          var h = window.innerHeight;\
-                          stages.forEach(function(stage) {{\
-                            stage.width = w;\
-                            stage.height = h;\
-                          }});\
-                        }}\
-                        shrinkForChat();\
-                        window.addEventListener('resize', shrinkForChat);\
-                      }})();\
-                    </script></body>"
-                );
-                patched = patched.replacen("</body>", &chat_html, 1);
-            }
             // Same no-store reasoning as adventure_overlay_server.rs's
             // own `serve_index` - this page is actively iterated on, and
             // a stale cached copy has bitten OBS's own CEF cache before.
@@ -2273,7 +2008,7 @@ async fn overlay_ws_handler(ws: WebSocketUpgrade, Query(params): Query<crate::ad
 async fn character_list(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((login, _)) => {
             let characters = state.adventure.all_characters().await;
             let viewer = state.adventure.character(&login).await;
@@ -2294,7 +2029,7 @@ async fn character_list(State(state): State<AppState>, headers: HeaderMap) -> Ht
 async fn character_detail(State(state): State<AppState>, headers: HeaderMap, Path(login): Path<String>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((viewer_login, _)) => {
             let viewer = state.adventure.character(&viewer_login).await;
             match state.adventure.character(&login).await {
@@ -2317,7 +2052,7 @@ async fn character_detail(State(state): State<AppState>, headers: HeaderMap, Pat
 async fn character_passives_readonly(State(state): State<AppState>, headers: HeaderMap, Path(login): Path<String>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((viewer_login, _)) => {
             let viewer = state.adventure.character(&viewer_login).await;
             match state.adventure.character(&login).await {
@@ -2346,7 +2081,7 @@ const DEFAULT_OPERATOR_LOGIN: &str = "lokati_gaming";
 /// constants stay separate, so pointing one gate somewhere else later is
 /// still a two-line change here.
 ///
-/// Read through `dotenvy` like `GAME_DATA_DIR` and `ADVENTURE_API_SECRET`
+/// Read through `dotenvy` like `GAME_DATA_DIR`
 /// (see main.rs) - `main.rs`'s own `env_var` helper lives in the binary,
 /// not this library, hence the local copy. Lowercased on the way in: every
 /// gate compares against a session login, which is always lowercase.
@@ -2469,7 +2204,7 @@ fn fight_summaries_for_viewer(login: &str, requested_limit: usize) -> Vec<FightS
 async fn fights_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<FightsPageParams>) -> Html<String> {
     let session = current_session(&headers, &state).await;
     let body = match session {
-        None => render_logged_out(state.twitch.is_some()),
+        None => render_logged_out(),
         Some((login, _)) => {
             let viewer = state.adventure.character(&login).await;
             let is_streamer = login == *FIGHTS_PAGE_LOGIN;
@@ -3576,19 +3311,15 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
 
 // ---- Rendering ----
 
-/// `twitch` is `state.twitch.is_some()` - the Twitch login link is only
-/// offered when `/login` is actually mounted (2026-08-31). With the
-/// credentials present, which is every Windows production instance, this
-/// renders byte-identically to what it always did.
-fn render_logged_out(twitch: bool) -> String {
-    let twitch_link = if twitch { "<p class=\"muted\"><a href=\"/login\">Login with Twitch</a></p>" } else { "" };
-    format!(
-        "<div class=\"card\"><h1>Adventure Character Dashboard</h1>\
+/// Lost its `twitch: bool` parameter when the Twitch OAuth login was
+/// removed (2026-09-02) - there is no second login path left to
+/// conditionally offer, so local accounts are simply always the answer.
+fn render_logged_out() -> String {
+    "<div class=\"card\"><h1>Adventure Character Dashboard</h1>\
       <p>Log in to view and manage your adventure character.</p>\
       <p><a class=\"btn\" href=\"/account/login\">Log in</a> <a class=\"btn\" href=\"/account/register\">Register</a></p>\
-      {twitch_link}\
       <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a></p></div>"
-    )
+        .to_string()
 }
 
 fn render_patch_notes(entries: &[PatchNoteEntry], character: Option<&Character>) -> String {

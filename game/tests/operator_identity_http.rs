@@ -5,7 +5,9 @@
 //! and `BUNDLE_OPERATOR_LOGIN` - were hardcoded to `lokati_gaming`, a name
 //! only Twitch OAuth could ever mint a session for. This binary proves all
 //! three follow the `OPERATOR_LOGIN` env key instead, so the operator can
-//! be pointed at a local account BEFORE Twitch is removed.
+//! be pointed at a local account. That gate held: Twitch was removed on
+//! 2026-09-02 with the operator already on a local account, and these
+//! assertions are what proved the lockout could not happen.
 //!
 //! **The unset case is deliberately not tested here.** Six existing test
 //! binaries (`admin_tunables_splash_http.rs`, `admin_passives_http.rs`,
@@ -114,12 +116,8 @@ async fn operator_login_moves_all_three_gates_and_lokati_gaming_stays_reserved()
 
     let bound = game::adventure_web::start_adventure_web_server(
         0,
-        "http://localhost".to_string(),
-        Some("test-client-id".to_string()),
-        Some("test-client-secret".to_string()),
         manager.clone(),
         sessions_path,
-        None,
     )
     .await
     .expect("disposable adventure_web server must start");
