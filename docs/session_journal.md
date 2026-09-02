@@ -1204,3 +1204,87 @@ permanent_rampage=false. It has now misled two sessions on the same day;
 it is recorded as historical-only in docs/world2_build_plan.md. Rule:
 read the live world ONLY from /var/lib/pathofdust on the Debian box. A
 local file being recently modified is not evidence that it is live.
+
+---
+
+## 2026-09-02 — CRAFTING-COST-CURVE deploy record (§13B, binary swap)
+
+Shipped: base crafting costs cut 10x and the per-tier surcharge changed
+from `3 x tier` to `3 x tier^1.1`, both as LiveTunables.
+
+| | |
+|---|---|
+| merge commit | `371e941` (`--no-ff` of feature/crafting-cost-curve), verified on origin with `git ls-remote` |
+| old binary | `154f13e69f6a2805d645e9eff9cb678e1fa80ff98b5f48208a48033508f942ed` |
+| new binary | `ab458dc67c167fb2eb7d79e9d380edf5d0b95108bea059658a0075eaf9e61a86` |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-craft-cost-curve/game.pre-craft-cost-curve` |
+| downtime | 0.22 s |
+| patch notes | new section "Crafting is about ten times cheaper" inserted at the top of the existing September 2, 2026 block (25 blocks, 2 sections in the top one); pre-edit copy at `/root/patch-notes.pre-craft-cost.json` |
+
+Suite on the box: **777 passed / 0 failed**, `cargo test --release
+--workspace --quiet`, exit 0. Baseline arithmetic: 755 was the
+post-Twitch-removal baseline; this branch adds 9 (8 in
+`craft::cost_curve_tests`, 1 in `admin_tunables_craft_cost_http.rs`) and
+the local pre-merge run of the branch alone read 764 = 755 + 9, so
+master at `a2d75fa` stood at 768 and 768 + 9 = 777.
+
+The first box run failed with `live_reload_tests::
+editing_a_template_takes_effect_without_a_rebuild` — the known
+flaky-under-parallel test named in CLAUDE.md. Confirmed passing in
+isolation (`--test-threads=1`, 1 passed), then the full suite re-run
+clean at 777. A `-p game --lib` failure also aborts the run before the
+integration binaries execute, so a first-failure count is never the
+whole suite's count.
+
+Seven health checks: (1) active; (2) NRestarts 0, unchanged; (3) "loaded
+10 characters" against 10 in the characters file — two live numbers, per
+the §13B.8 correction, never a literal; (4) live hash equals the
+candidate; (5) authenticated `/characters` 77,452 B and `/passives`
+90,967 B, both 200; (6) anonymous `/admin/tunables` 404, 73,730 B; (7)
+anonymous `POST /api/commands/join` 404. Two fights resolved after the
+swap (fight-119 at 16:52:34, fight-120 at 16:55:34, restart 16:49:33).
+
+Verified by effect on production, not only in test:
+
+- live world **stage 4** read from `/var/lib/pathofdust` on the box (it
+  was 1 when this session started; the world is advancing). Tier is
+  `1 + stage/5` = **tier 1**, hundreds of stages below the tier-122
+  crossover, so nothing costs more than it did.
+- both dials render with shipped defaults and bounds: `craft_base_cost_mult`
+  value 0.1, min 0 max 10, required; `craft_tier_exponent` value 1.1,
+  min 1 max 1.5, required. 74 fields in the save form, including all
+  five win-XP fields — worktree b's stage gates have NOT landed on
+  master yet, so they are not among them.
+- four out-of-bounds POSTs (mult -1 and 250, exponent 0.5 and 4), each
+  built by scraping the rendered form and changing one field: all **HTTP
+  400**, all naming the field, all leaving
+  `adventure-live-tunables.toml` byte-identical (sha 95cd4bb506a01c74
+  before and after each).
+- **preview vs charge, on production.** The live Exalt button rendered
+  `data-base="125" data-tier-mult="3" data-tier-exp="1.1"
+  data-veil-extra="50"` (1250 and 500 both cut by 10). On a tier-1
+  item the panel's own arithmetic quotes 125 + ceil(3 x 1^1.1) = **128
+  dust**; the real `POST /craft` moved the owner's dust 282 -> 154,
+  **charged exactly 128**. That is the assertion the base.html drift
+  would have broken, proven live.
+- the shard sentinel is still a sentinel: `POST /craft` with `action=
+  unique shard` and no token is refused with "it can't be bought with
+  dust" and takes **0 dust**.
+
+The production craft used the owner's own character and additive actions
+only — a free Regal token (2 -> 3 modifiers, veil candidate 0) to reach
+Exalt's 3-modifier precondition, then the paid Exalt. Nothing was
+scoured, krangled or locked.
+
+FOUND — an item's tier is re-synced to the CHARACTER's level on some
+paths (`Character::sync_tier_to(level)`), not only set from the world
+stage at drop time: the test item read tier 1 before the craft and tier
+4 after, while the charge correctly priced the pre-craft tier and
+matched the preview. Consequence for reading the cost table: a player's
+craft prices climb with their level, not only with the world stage.
+Pre-existing behaviour, untouched by this release.
+
+FOLLOW-UPS on the board, not for this release: panel Reforge is still a
+flat 30 x tier dust (~5x a Scour at tier 10, widening with tier), and
+Recombine's veiled price is still the unscaled 500 + 500 per combined
+modifier. Both are now out of step with everything around them.
