@@ -717,3 +717,182 @@ canvas default), i.e. `resize()` had not run. Not a defect: `readyState`
 was still `loading` 12s in, because the overlay's assets come through the
 SSH tunnel slowly. At 60s the same page read 1280x720. A measurement taken
 before `readyState` leaves `loading` measures nothing.
+---
+
+## 2026-09-02 — WIN-BASED XP (branch `feature/win-based-xp`)
+
+**The premise was half wrong, and the working half mattered.** The order
+was "players are not receiving XP; XP was tied to chat activity and chat
+activity XP is dead." Chat XP is indeed dead — `/api/*` is not mounted at
+all when `adventure_api_secret` is unset (`api.rs:61` returns `None`), so
+`POST /api/activity_xp` 404s and `grant_activity_xp` is unreachable; the
+Twitch-removal session is deleting the function outright.
+
+But `add_xp` has exactly two call sites, and the second one — the boss-win
+grant in `run_encounter_inner` — was working the whole time. Verified
+against LIVE production by reading the public overlay socket
+(`wss://adventure.lokati.net/ws`): stage 2, six characters, every one of
+them level 1 with `xp: 6` and `wins: 1`. Six is exactly `(5 + stage 1) ×
+catchup 1.0`. The mechanism was intact; the RATE was the defect. Chat XP
+at 4 XP / 180 s was worth up to 1,920 XP/day to a chatter against fight
+XP's 672/day, so losing it removed roughly three quarters of all income
+and left a counter that moves once per ten minutes.
+
+**Cadence, from the constants.** `ENCOUNTER_INTERVAL` 600 s → 144 boss
+encounters/day; `BASIC_ENCOUNTER_INTERVAL` 180 s → 480 filler fights,
+which pay no XP and no W/L by design. At the live `target_win_loss_ratio`
+of 2.0 that is 96 wins/day. Two facts make 2:1 the right anchor rather
+than an assumption: Controller B actively drives the party to it, and the
+stage walk is +1 per win / −2 per loss, so exactly 2:1 is NEUTRAL — which
+is also why the old `5 + stage` was a growth term that mostly did not
+grow.
+
+**The curve.** `xp_per_win = win_xp_flat + win_xp_level_pct ×
+xp_to_next_level(level)`. The flat term is fixed in XP so its value in
+levels decays against the quadratic level cost — that is the day-one
+burst. The level-scaled term is worth a constant number of levels forever
+— that is the floor. `levels/day → wins/day × win_xp_level_pct`, so 96 ×
+1/48 = exactly 2/day, and `win_xp_flat = 12` puts day one at exactly 10
+levels. Modelled at 2:1: 10, 5, 4, 3, 3, 3, 3, 3, 2, 3, 2, 3, 2, 3 —
+level 50 at day 14, settling on 2/day. At 1:1 the asymptote is 1.5/day,
+at 4:1 it is 2.4/day.
+
+**Linearity in win rate is automatic**, not a term anyone added: XP is
+paid per win, so daily XP is strictly proportional to the fraction of
+encounters won. RULING (owner, accepted as-is): the band that gives is
+inherently **0× to 1.5× of the 2:1 baseline**, because a win fraction
+cannot exceed 1.0 and 2:1 is 0.667. A 4:1 ratio is only 1.2× the income
+of 2:1. Recorded here explicitly so nobody later reads "linear in win
+rate" as "unbounded" and re-derives the feature around a ratio score.
+
+**Rampage.** A rampage makes `spawn_rampage_loop` the sole encounter
+driver at a 60 s floor with every encounter a boss fight — 10× the rate
+the curve is calibrated on. Guard is `win_xp_cooldown_secs`, a
+per-character 450 s floor between XP-paying wins, mirroring
+`ACTIVITY_XP_COOLDOWN`. At the scheduled 600 s cadence it never binds; a
+rampage is throttled to 1.33× normal instead of 10×, and Force Boss Fight
+(`FORCE_BOSS_MAX_PER_CYCLE`, up to 3× within a cycle) and `!nextencounter`
+fall under the same mechanism. Chosen over a hard "no XP during rampage"
+gate on owner ruling: a gate is exact but turns the most popular content
+in the game into an XP drought.
+
+**`permanent_rampage` was CONFIRMED OFF by the operator reading
+/admin/tunables**, not inferred. Recording how it was established, because
+the inference and the confirmation are not the same evidence: this session
+had no shell on the Debian box and argued from the announcement-feed batch
+pattern (batches of 2–3 fights flushed on the 5-minute timer, which is the
+600 s + 180 s cadence; a rampage would produce 5-fight batches minimum).
+The inference was right, but the operator's read of the admin page is what
+closes it. Note that `C:\PathofDust\adventure-live-tunables.toml` — the
+pre-cutover Windows config — still reads `permanent_rampage = true`, so
+anyone reaching for a local file to answer this question will get the
+wrong answer.
+
+**Order of operations on the grant**, written out because "multiplier" is
+overloaded on `LiveTunables`:
+1. `win_xp_flat + win_xp_level_pct × xp_to_next_level(level)` — level read
+   before `add_xp` can move it, so a win is always priced at the level
+   that earned it.
+2. `× catchup_multiplier` (1.0–3.0, per character, from PRE-fight group
+   levels; switchable via `win_xp_catchup_enabled`).
+3. `× win_xp_mult` — the uniform growth-rate dial (owner request), applied
+   last. It scales both shape terms equally, so it cannot change the decay
+   rate or the level the curve settles onto; it only moves the whole curve.
+4. `.round()`, floored at 0, then `add_xp`.
+`loot_mult` and `sand_mult` are NOT in this chain and never were — they
+scale dust/items and sand. Nothing multiplies XP except steps 2 and 3.
+Bounds on the multiplier are 0.0–100.0: 0 is the deliberate end-of-season
+progression freeze (an operator needs a kill switch, and hiding it behind
+an 0.01 floor would be worse than naming it — the zero this project has
+been bitten by twice is an OMITTED field defaulting to 0.0, which
+`default_win_xp_mult` prevents, not an operator typing one), and 100
+leaves four orders of magnitude above the practical 0.01 floor while still
+rejecting a fat-finger like 1e6.
+
+**No backfill** (owner ruling). Existing World 2 characters keep their 6
+XP and clear level 2 in about three wins at the new 13-XP-per-win rate. No
+levels are handed out that nobody earned.
+
+**Golden corpus untouched, and it did not need to be.** Corpus scenarios
+take `level` as a fixed INPUT to `simulate_battle` and capture combat
+output; the XP grant runs in `run_encounter_inner` after the sim returns
+and never enters a fixture. No regeneration.
+
+KNOWN INTERACTION TO WATCH (owner: accepted deliberately, not a defect) —
+"2 levels/day forever" means level is unbounded, and worlds reset
+seasonally so the real bound is season length, not the curve. The
+compounding term is the archetype bonus multiplier `1 + 0.10 × level`
+(`character.rs:129`), which is 15.8× at the level 148 the model reaches by
+day 60 at 2:1. Defensive stats cap at `defensive_stat_hard_cap` long
+before that; increased-damage and crit do not. The pacing controllers are
+expected to adapt. Worth a look if a season ever runs long.
+
+PATCH NOTE for the deploy session, ship verbatim:
+  "XP comes from winning fights now. Every boss fight your party wins
+   levels you up, and the more of them you win, the faster you level.
+   Filler fights and losses don't give XP. Chat XP is gone."
+
+FOUND — `manager.rs` still carries the pre-existing `unused_mut` on `let
+mut broken: Vec<BrokenItem>` noted in the cutover entry above. Still
+pre-existing, still not touched.
+
+### 2026-09-02, follow-up — the win-XP arithmetic tests
+
+Filling the gap the first pass reported: the grant had no test of its own,
+only the constants assertion inside the HTTP test. On a live-world
+progression change that was the wrong place to stop.
+
+**One structural change to make it testable, and it removes a real bug
+class rather than only exposing it.** The grant was five lines inline in
+`run_encounter_inner`, which is reachable only through a whole simulated
+encounter. It is now `Character::win_xp_for_win(level, catchup, &t)` —
+pure, so the arithmetic is assertable directly — plus
+`Character::award_win_xp(&mut self, catchup, &t)`, which reads the level
+and calls `add_xp`. That second method exists for exactly one reason: the
+price must come from the level that EARNED the win, and `add_xp` moves
+`self.level` in the same breath. Spelling those two steps out at the call
+site is how that becomes an off-by-one where a threshold-crossing win is
+billed at the new, more expensive level — silently, and worth more the
+bigger the grant. Inside one method the read provably precedes the
+mutation.
+
+**11 new tests**, 7 in `character::win_xp_tests` and 4 in
+`manager::win_xp_cooldown_tests`:
+- shipped-default grants at levels 1/10/25/50 (13, 18, 33, 80), each
+  checked against `xp_to_next_level` so a level-curve change fails here
+  too; plus the headline claim that three level-1 wins clear level 2.
+- the off-by-one, forced visible by turning `win_xp_mult` to 100 so one
+  win crosses ten levels — at the shipped 1/48 the adjacent levels round
+  to the same grant (L1 and L2 are both 13), so the shipped dials cannot
+  see this bug and the test has to leave them.
+- order of operations, with values picked so all three readings differ:
+  correct 32, rounding the sum early 33, multipliers on the level term
+  alone 11.
+- `win_xp_mult = 0` grants a clean zero, and NaN/negative floor to 0
+  rather than wrapping into a huge `u64` or hanging `add_xp`'s
+  subtract-and-loop.
+- catch-up at 1.0/2.0/3.0, plus a guard asserting the real
+  `catchup_multiplier` stays inside the 1.0–3.0 band the grant is
+  documented against.
+- the cooldown: two wins inside the window pay once, a win after it
+  elapses pays again, the window is per-character (a newcomer is not
+  locked out by someone else's recent win), 0 means no throttle, and 450 s
+  sits strictly between `RAMPAGE_MIN_INTERVAL` and `ENCOUNTER_INTERVAL`
+  with at least 120 s of slack.
+
+**Mutation-checked, because a test that cannot fail proves nothing.**
+Three deliberate defects were introduced and reverted: pricing after
+`add_xp` (caught by the off-by-one test), rounding the sum before
+multiplying (caught by 3 tests), and applying the multipliers to the
+level-scaled term alone (caught by 3 tests). All three were caught.
+
+Deliberately NOT asserted: that catch-up and `win_xp_mult` can be
+swapped. Multiplication commutes, so their relative order cannot produce
+a different number — the test says so explicitly instead, so nobody later
+"fixes" a non-problem. What is order-sensitive is where the multipliers
+sit relative to the SUM and where the single `round()` sits, and that is
+what is covered.
+
+The timing test uses a 10 ms cooldown against a 250 ms wait — a 25x
+margin, deliberately wide so it does not join the known
+flaky-under-parallel set.

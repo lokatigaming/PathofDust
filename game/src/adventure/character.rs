@@ -3734,6 +3734,52 @@ impl Character {
         leveled.then_some(self.level)
     }
 
+    /// The XP one BOSS WIN is worth to a character at `level`
+    /// (2026-09-02). Pure, so the arithmetic can be asserted directly
+    /// rather than only through a whole simulated encounter - see
+    /// `win_xp_tests`.
+    ///
+    /// ORDER OF OPERATIONS, and it is load-bearing:
+    ///
+    ///   1. `flat + level_pct * xp_to_next_level(level)` - the two SHAPE
+    ///      terms, SUMMED FIRST. Both multipliers below apply to the sum,
+    ///      not to the level-scaled term alone.
+    ///   2. `* catchup`  (1.0..3.0; the caller passes 1.0 when
+    ///      `win_xp_catchup_enabled` is off)
+    ///   3. `* win_xp_mult`  - the uniform growth-rate dial, applied LAST
+    ///   4. `.round()` - ONCE, at the very end. Rounding the sum before
+    ///      multiplying would inflate every grant a catch-up multiplier
+    ///      touches.
+    ///
+    /// Steps 2 and 3 are the only multiplications XP ever sees.
+    /// `loot_mult`/`sand_mult` scale dust/items and sand and are not in
+    /// this chain.
+    ///
+    /// A non-finite product can only come from a tunable the admin
+    /// handler already rejects, but it is floored here anyway: a NaN
+    /// reaching `add_xp`'s subtract-and-loop would never terminate.
+    pub(crate) fn win_xp_for_win(level: u32, catchup: f64, t: &crate::adventure::LiveTunables) -> u64 {
+        let shape = t.win_xp_flat + t.win_xp_level_pct * Self::xp_to_next_level(level) as f64;
+        let granted = (shape * catchup * t.win_xp_mult).round();
+        if granted.is_finite() { granted.max(0.0) as u64 } else { 0 }
+    }
+
+    /// Pays out one boss win's XP and applies any level-ups it covers,
+    /// returning the amount granted.
+    ///
+    /// This exists as a method rather than two lines at the call site for
+    /// exactly one reason: the price must be read from the level that
+    /// EARNED the win, and `add_xp` can move `self.level` in the same
+    /// breath. Splitting it across the caller is how that becomes an
+    /// off-by-one where a win that crosses a threshold is billed at the
+    /// new level - silently, and worth more the bigger the grant. Here
+    /// the read provably precedes the mutation.
+    pub(crate) fn award_win_xp(&mut self, catchup: f64, t: &crate::adventure::LiveTunables) -> u64 {
+        let amount = Self::win_xp_for_win(self.level, catchup, t);
+        self.add_xp(amount);
+        amount
+    }
+
     /// Krangled (locked) items automatically upgrade to a tier equal to
     /// the character's current level - on top of everything else Krangle
     /// already does (permanent lock, one final modifier, can exceed the
@@ -5339,3 +5385,194 @@ pub enum WingsError {
     NotOwned,
 }
 
+
+/// The win-XP grant arithmetic (2026-09-02).
+///
+/// The HTTP test (`tests/admin_tunables_win_xp_http.rs`) proves the
+/// operator half - that the five dials render, save, persist and refuse
+/// out-of-range input. This module proves the half a player actually
+/// feels: that the numbers those dials produce are the numbers the
+/// approved curve calls for, and that the two places this grant could
+/// silently go wrong stay wrong-proof.
+#[cfg(test)]
+mod win_xp_tests {
+    use super::*;
+    use crate::adventure::LiveTunables;
+
+    /// The shipped curve, untouched. Every expectation below that says
+    /// "the approved curve" is measured against this.
+    fn shipped() -> LiveTunables {
+        LiveTunables::default()
+    }
+
+    #[test]
+    fn the_shipped_dials_price_a_win_at_the_approved_curve() {
+        let t = shipped();
+        // Sanity on the inputs, so a failure below points at the grant
+        // rather than at someone having quietly moved a default.
+        assert_eq!(t.win_xp_flat, 12.0);
+        assert_eq!(t.win_xp_level_pct, 1.0 / 48.0);
+        assert_eq!(t.win_xp_mult, 1.0);
+
+        // level -> (xp_to_next_level, expected grant). Worked by hand:
+        // 12 + cost/48, rounded.
+        //   L1:  cost 36   -> 12 + 0.75   = 12.75   -> 13
+        //   L10: cost 270  -> 12 + 5.625  = 17.625  -> 18
+        //   L25: cost 1020 -> 12 + 21.25  = 33.25   -> 33
+        //   L50: cost 3270 -> 12 + 68.125 = 80.125  -> 80
+        for (level, cost, expected) in [(1u32, 36u64, 13u64), (10, 270, 18), (25, 1020, 33), (50, 3270, 80)] {
+            assert_eq!(Character::xp_to_next_level(level), cost, "level {level}: the level curve itself moved");
+            assert_eq!(Character::win_xp_for_win(level, 1.0, &t), expected, "level {level}: a win must be worth {expected} XP on the approved curve");
+        }
+
+        // The headline promise, restated as arithmetic an owner can
+        // check: a level-1 win is 13 XP against 36 to level, so roughly
+        // three wins clears level 2.
+        assert_eq!(Character::win_xp_for_win(1, 1.0, &t), 13);
+        assert!(13 * 3 >= Character::xp_to_next_level(1), "three level-1 wins must clear level 2 - that is what existing World 2 characters were told");
+    }
+
+    #[test]
+    fn a_win_is_priced_at_the_level_that_earned_it_not_the_level_it_reaches() {
+        // THE off-by-one this method exists to prevent. `add_xp` can move
+        // `level` in the same call that pays the grant; if the price is
+        // read afterwards, a win that crosses a threshold is billed at
+        // the new, more expensive level - silently, and worth more the
+        // bigger the grant.
+        //
+        // The shipped dials cannot see this: 1/48 of one level's cost is
+        // small enough that adjacent levels round to the same grant
+        // (L1 -> 13, L2 -> 13). So the multiplier is turned up until one
+        // win crosses ten levels at once, which is exactly the case where
+        // the two readings diverge hard.
+        let mut t = shipped();
+        t.win_xp_mult = 100.0;
+
+        let priced_at_level_1 = Character::win_xp_for_win(1, 1.0, &t);
+        assert_eq!(priced_at_level_1, 1275, "12.75 * 100, rounded");
+
+        let mut character = Character::new("crosser".to_string());
+        character.level = 1;
+        character.xp = 0;
+        let granted = character.award_win_xp(1.0, &t);
+
+        assert_eq!(granted, priced_at_level_1, "the grant must be the price at the PRE-win level, not at whatever level it lands on");
+        assert!(character.level > 1, "sanity: this grant must actually cross at least one threshold, or the test proves nothing");
+
+        // And the wrong reading really is a different number, so the
+        // assertion above is not vacuous.
+        let priced_after = Character::win_xp_for_win(character.level, 1.0, &t);
+        assert_ne!(priced_at_level_1, priced_after, "sanity: pricing at the post-win level must differ, or this test cannot detect the bug it is for");
+    }
+
+    #[test]
+    fn the_multipliers_apply_to_the_summed_shape_and_round_only_at_the_end() {
+        // Multiplication commutes, so "catchup then mult" versus "mult
+        // then catchup" is not a real ordering question and is not what
+        // this asserts. The two orderings that DO change the number are:
+        //
+        //   * whether the multipliers hit the SUM or only the
+        //     level-scaled term, and
+        //   * whether the rounding happens once at the end or on the sum
+        //     before multiplying.
+        //
+        // The values are chosen so all three readings differ.
+        let mut t = shipped();
+        t.win_xp_flat = 10.4;
+        t.win_xp_level_pct = 0.01;
+        t.win_xp_mult = 1.5;
+        let catchup = 2.0;
+
+        // level 1, cost 36 -> shape = 10.4 + 0.36 = 10.76
+        // correct:            (10.76 * 2.0 * 1.5).round() = 32.28 -> 32
+        // rounded too early:  10.76.round() * 3.0        = 11*3   -> 33
+        // multipliers on the pct term only: 10.4 + 0.36*3 = 11.48 -> 11
+        assert_eq!(Character::win_xp_for_win(1, catchup, &t), 32, "the grant must be round(sum * catchup * mult)");
+        assert_ne!(32, 33, "sanity: rounding the sum first is a different answer");
+        assert_ne!(32, 11, "sanity: applying the multipliers to the level term alone is a different answer");
+
+        // Same inputs, the two factors swapped between catchup and the
+        // tunable: the product is identical, which is the point - this
+        // documents that their relative order is NOT a source of error,
+        // so nobody later "fixes" it.
+        let mut swapped = t.clone();
+        swapped.win_xp_mult = catchup;
+        assert_eq!(Character::win_xp_for_win(1, 1.5, &swapped), 32, "catchup and the multiplier commute - only their placement relative to the SUM and the ROUND matters");
+    }
+
+    #[test]
+    fn the_multiplier_scales_without_changing_the_shape_of_the_curve() {
+        // The whole justification for `win_xp_mult` being a multiplier
+        // rather than another additive term: it must move every level's
+        // grant by the same factor, so the decay rate and the level the
+        // curve settles onto are untouched.
+        let base = shipped();
+        let mut doubled = shipped();
+        doubled.win_xp_mult = 2.0;
+        for level in [1u32, 10, 25, 50, 100] {
+            let one = Character::win_xp_for_win(level, 1.0, &base) as f64;
+            let two = Character::win_xp_for_win(level, 1.0, &doubled) as f64;
+            // Rounding costs at most half a point at each end.
+            assert!((two - one * 2.0).abs() <= 1.0, "level {level}: doubling the multiplier must double the grant ({one} -> {two}), or it is changing the curve's shape, not its scale");
+        }
+    }
+
+    #[test]
+    fn a_zero_multiplier_grants_nothing_and_cannot_go_negative() {
+        // 0 is a legal, deliberate setting - the end-of-season
+        // progression freeze. It must be a clean zero, not a panic, not
+        // an underflow into a colossal u64.
+        let mut t = shipped();
+        t.win_xp_mult = 0.0;
+        for level in [1u32, 50, 1000] {
+            assert_eq!(Character::win_xp_for_win(level, 3.0, &t), 0, "level {level}: a 0 multiplier must grant exactly nothing");
+        }
+
+        let mut character = Character::new("frozen".to_string());
+        character.level = 5;
+        character.xp = 10;
+        assert_eq!(character.award_win_xp(3.0, &t), 0);
+        assert_eq!((character.level, character.xp), (5, 10), "a frozen grant must leave the character exactly where it was");
+
+        // Non-finite and negative inputs are rejected by the admin
+        // handler, but the floor is still asserted here: a NaN reaching
+        // `add_xp`'s subtract-and-loop would never terminate.
+        let mut hostile = shipped();
+        hostile.win_xp_mult = f64::NAN;
+        assert_eq!(Character::win_xp_for_win(10, 1.0, &hostile), 0, "a non-finite product must floor to 0, never reach add_xp");
+        hostile.win_xp_mult = -5.0;
+        assert_eq!(Character::win_xp_for_win(10, 1.0, &hostile), 0, "a negative product must floor to 0, never wrap into a huge u64");
+    }
+
+    #[test]
+    fn catchup_scales_the_grant_between_one_and_three_times() {
+        let t = shipped();
+        let plain = Character::win_xp_for_win(10, 1.0, &t);
+        assert_eq!(plain, 18, "1.0 is the no-catch-up case and must be the plain curve value");
+
+        // `catchup_multiplier` is documented as 1.0..3.0 (its bonus_pct
+        // is clamped to 0..200, divided by 100 and offset by 1). Both
+        // ends, plus the midpoint, must scale the grant linearly.
+        assert_eq!(Character::win_xp_for_win(10, 2.0, &t), 35, "17.625 * 2 = 35.25 -> 35");
+        assert_eq!(Character::win_xp_for_win(10, 3.0, &t), 53, "17.625 * 3 = 52.875 -> 53");
+        assert!(Character::win_xp_for_win(10, 3.0, &t) > plain * 2, "the top of the catch-up band must be worth well over double the plain grant");
+
+        // The switch itself lives at the call site (it passes 1.0 when
+        // `win_xp_catchup_enabled` is off), so "off" is exactly the 1.0
+        // case asserted above - stated here so the equivalence is
+        // written down rather than assumed.
+        assert_eq!(Character::win_xp_for_win(10, 1.0, &t), plain, "catch-up OFF is the 1.0 case");
+    }
+
+    #[test]
+    fn the_real_catchup_multiplier_stays_inside_the_band_this_grant_assumes() {
+        // Guards the assumption the test above is built on: if
+        // `catchup_multiplier` ever exceeded 3.0, the XP grant would
+        // quietly inherit the change.
+        let group = [1u32, 5, 10, 20, 40];
+        for level in group {
+            let m = crate::adventure::catchup_multiplier(level, &group);
+            assert!((1.0..=3.0).contains(&m), "catchup_multiplier({level}) = {m} is outside the 1.0..3.0 band the XP grant is documented against");
+        }
+    }
+}

@@ -2788,6 +2788,27 @@ fn default_enemy_hp_pool_hard_cap() -> f64 {
     crate::adventure::pacing::ENEMY_HP_POOL_HARD_CAP
 }
 
+// Serde defaults for the five win-XP fields (2026-09-02). Each resolves
+// to the SHIPPED CONSTANT, never `f64::default()` == 0.0 - this project
+// has been bitten twice by a form field that silently zeroed, and on
+// `win_xp_flat`/`win_xp_level_pct`/`win_xp_mult` a 0.0 is not merely
+// wrong, it stops all XP in the game dead while the page still reports
+// "Saved". `win_xp_catchup_enabled` is deliberately NOT in this list: it
+// is a checkbox, and absent-means-unchecked is the whole protocol for a
+// checkbox (see `TunablesForm::permanent_rampage`).
+fn default_win_xp_flat() -> f64 {
+    crate::adventure::WIN_XP_FLAT
+}
+fn default_win_xp_level_pct() -> f64 {
+    crate::adventure::WIN_XP_LEVEL_PCT
+}
+fn default_win_xp_mult() -> f64 {
+    crate::adventure::WIN_XP_MULT
+}
+fn default_win_xp_cooldown_secs() -> u64 {
+    crate::adventure::WIN_XP_COOLDOWN_SECS
+}
+
 // Serde defaults for the nine dynamic-pacing fields whose accepted range
 // does NOT include zero (2026-08-31). `#[serde(default)]` on an `f64`
 // resolves to 0.0, which is BELOW every one of these floors - so a body
@@ -2876,6 +2897,34 @@ struct TunablesForm {
     /// on this dashboard already uses (see `CraftForm::veiled`).
     #[serde(default)]
     permanent_rampage: Option<String>,
+    /// See `LiveTunables::win_xp_flat`'s doc. `#[serde(default = ...)]`
+    /// resolves to the SHIPPED CONSTANT, not `f64::default()` - this
+    /// field is consumed by the handler below, so an omitted one would
+    /// otherwise zero it (CLAUDE.md's both-directions form-field trap),
+    /// and a zero here stops all XP in the game.
+    #[serde(default = "default_win_xp_flat")]
+    win_xp_flat: f64,
+    /// See `LiveTunables::win_xp_level_pct`'s doc. Shipped-constant
+    /// default, same reasoning as `win_xp_flat` above.
+    #[serde(default = "default_win_xp_level_pct")]
+    win_xp_level_pct: f64,
+    /// See `LiveTunables::win_xp_mult`'s doc. Shipped-constant default,
+    /// same reasoning as `win_xp_flat` above.
+    #[serde(default = "default_win_xp_mult")]
+    win_xp_mult: f64,
+    /// See `LiveTunables::win_xp_cooldown_secs`'s doc. Shipped-constant
+    /// default, same reasoning as `win_xp_flat` above.
+    #[serde(default = "default_win_xp_cooldown_secs")]
+    win_xp_cooldown_secs: u64,
+    /// See `LiveTunables::win_xp_catchup_enabled`'s doc - same
+    /// absent-when-unchecked convention as `permanent_rampage` above, and
+    /// for the same reason: a checkbox that is off sends nothing at all,
+    /// so absent MUST read as false here rather than as the shipped
+    /// default. That is the one field on this form where the
+    /// shipped-constant rule does not apply, and it is safe because
+    /// nothing else can produce the absent state.
+    #[serde(default)]
+    win_xp_catchup_enabled: Option<String>,
     /// See `LiveTunables::shattering_enabled`'s doc - same absent-when-
     /// unchecked convention as `permanent_rampage` above.
     #[serde(default)]
@@ -3083,6 +3132,20 @@ impl TunableViolations {
         }
     }
 
+    /// A one-sided CEILING, for a field where 0 is a meaningful setting
+    /// and only the top end needs a bound (today: `win_xp_cooldown_secs`,
+    /// where 0 means "no throttle").
+    fn at_most_u64(&mut self, field: &str, value: u64, max: u64) -> u64 {
+        if value > max {
+            self.items.push(format!("{field} must be {max} or less — got {value}."));
+        }
+        if self.clamping {
+            value.min(max)
+        } else {
+            value
+        }
+    }
+
     /// The Enemy HP Pool Cap, which sanitises rather than plain-clamps -
     /// non-finite resolves to the SHIPPED DEFAULT so a NaN can never reach
     /// the division in `capped_hp_mult_for_pool`. `sanitize_pool_cap` is
@@ -3177,6 +3240,19 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 boss_count_cap_mult: v.at_least("boss_count_cap_mult", form.boss_count_cap_mult, 0.0),
                 late_content_stage: form.late_content_stage,
                 permanent_rampage: form.permanent_rampage.is_some(),
+                // Defence-in-depth behind the form's own min/max, same as
+                // the pool cap below: the browser is what REPORTS an
+                // out-of-range value to the operator, and these re-check
+                // it for a POST that never went through a browser.
+                win_xp_flat: v.clamp("win_xp_flat", form.win_xp_flat, 0.0, crate::adventure::WIN_XP_FLAT_MAX),
+                win_xp_level_pct: v.clamp("win_xp_level_pct", form.win_xp_level_pct, 0.0, crate::adventure::WIN_XP_LEVEL_PCT_MAX),
+                win_xp_mult: v.clamp("win_xp_mult", form.win_xp_mult, crate::adventure::WIN_XP_MULT_MIN, crate::adventure::WIN_XP_MULT_MAX),
+                // 0 is meaningful here - it is the deliberate "no
+                // throttle, every win pays" setting - so this is a
+                // ceiling check only, in the same spirit as
+                // `hp_relax_after_losses` below.
+                win_xp_cooldown_secs: v.at_most_u64("win_xp_cooldown_secs", form.win_xp_cooldown_secs, crate::adventure::WIN_XP_COOLDOWN_SECS_MAX),
+                win_xp_catchup_enabled: form.win_xp_catchup_enabled.is_some(),
                 shattering_enabled: form.shattering_enabled.is_some(),
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
@@ -4223,6 +4299,30 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <input type=\"number\" step=\"1\" min=\"1\" id=\"divine_dust_craft_output\" name=\"divine_dust_craft_output\" value=\"{divine_dust_craft_output}\">\
               <p class=\"tunable-hint\">Divine Dust granted per craft, before the x1/x10/x50 batch multiplier.</p>\
             </div>\
+            <h2>Experience</h2>\
+            <p class=\"tunable-hint\">XP is paid on a <strong>boss-fight win only</strong> &mdash; a filler fight pays none, and a loss pays none. One win is worth <strong>Flat XP + Level % &times; that level&rsquo;s own XP cost</strong>, then &times; catch-up, then &times; the multiplier below. Because it is paid per win, XP is already exactly linear in win rate; the band that gives you is 0&times; to 1.5&times; of the 2:1 baseline, since a win rate cannot exceed 100%.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"win_xp_flat\">Flat XP per Win</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"{win_xp_flat_max}\" required id=\"win_xp_flat\" name=\"win_xp_flat\" value=\"{win_xp_flat}\">\
+              <p class=\"tunable-hint\"><strong>Unit: raw XP.</strong> Range 0 &ndash; {win_xp_flat_max}. Fixed in XP, so its worth <em>in levels</em> shrinks as levels get more expensive &mdash; <strong>this is the dial that sets the day-one burst.</strong> At 12 and a 2:1 win rate, day one is 10 levels.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"win_xp_level_pct\">Level % per Win</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"{win_xp_level_pct_max}\" required id=\"win_xp_level_pct\" name=\"win_xp_level_pct\" value=\"{win_xp_level_pct}\">\
+              <p class=\"tunable-hint\"><strong>Unit: fraction of the level&rsquo;s own XP cost</strong> (0 to 1), not raw XP. Worth a constant number of levels forever &mdash; <strong>this is the dial that sets the floor the rate settles onto.</strong> Levels per day = wins per day &times; this. At the shipped 0.0208 (1/48) and 96 wins/day that is 2 levels/day.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"win_xp_mult\">Global XP Multiplier</label>\
+              <input type=\"number\" step=\"any\" min=\"{win_xp_mult_min}\" max=\"{win_xp_mult_max}\" required id=\"win_xp_mult\" name=\"win_xp_mult\" value=\"{win_xp_mult}\">\
+              <p class=\"tunable-hint\"><strong>Unit: multiplier</strong> (1.0 = as designed). Range {win_xp_mult_min} &ndash; {win_xp_mult_max}. Scales <em>all</em> XP uniformly, applied last &mdash; after the two terms above are summed and after catch-up. Because it scales both terms equally it moves the whole curve up or down and <strong>changes nothing about its shape</strong>: the decay rate and the level it settles onto are untouched. <strong>0 switches XP off entirely</strong> (a deliberate end-of-season freeze, not a typo guard). Does not touch dust, sand or drop rates &mdash; those are Loot Multiplier and Sand Multiplier, separate dials on separate currencies.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"win_xp_cooldown_secs\">XP Cooldown per Character</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" max=\"{win_xp_cooldown_secs_max}\" required id=\"win_xp_cooldown_secs\" name=\"win_xp_cooldown_secs\" value=\"{win_xp_cooldown_secs}\">\
+              <p class=\"tunable-hint\"><strong>Unit: seconds.</strong> Range 0 &ndash; {win_xp_cooldown_secs_max}. Shortest gap between two XP-paying wins for one character. <strong>This is the rampage guard.</strong> Scheduled boss fights are 600s apart so it never binds there; a rampage runs them 60s apart, and without this a rampage would be worth 10&times; the XP and would set the curve instead of the schedule. At the shipped 450 a rampage pays 1.33&times; normal rather than 10&times;. Also covers Force Boss Fight and !nextencounter. <strong>0 removes the throttle</strong> &mdash; every win pays, and a rampage becomes an XP farm.</p>\
+            </div>\
+            <label class=\"veil-check\"><input type=\"checkbox\" name=\"win_xp_catchup_enabled\" value=\"1\"{win_xp_catchup_enabled_checked}> XP Catch-Up Enabled</label>\
+            <p class=\"tunable-hint\">Keeps the catch-up multiplier (1&times; to 3&times;, by how far below the group median a character is) on the XP grant, so a newer player levels toward the pack. Unchecking makes every winner&rsquo;s XP identical regardless of level.</p>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -4393,6 +4493,16 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
         haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
+        win_xp_flat = t.win_xp_flat,
+        win_xp_level_pct = t.win_xp_level_pct,
+        win_xp_mult = t.win_xp_mult,
+        win_xp_cooldown_secs = t.win_xp_cooldown_secs,
+        win_xp_catchup_enabled_checked = if t.win_xp_catchup_enabled { " checked" } else { "" },
+        win_xp_flat_max = crate::adventure::WIN_XP_FLAT_MAX,
+        win_xp_level_pct_max = crate::adventure::WIN_XP_LEVEL_PCT_MAX,
+        win_xp_mult_min = crate::adventure::WIN_XP_MULT_MIN,
+        win_xp_mult_max = crate::adventure::WIN_XP_MULT_MAX,
+        win_xp_cooldown_secs_max = crate::adventure::WIN_XP_COOLDOWN_SECS_MAX,
         shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
         shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
         shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
