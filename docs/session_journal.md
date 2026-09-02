@@ -418,3 +418,63 @@ FOUND — the Linux unit's placeholder `TWITCH_CLIENT_ID`/`_SECRET` and its
 loopback `ADVENTURE_WEB_PUBLIC_URL` would break Twitch login and its OAuth
 redirect for any new login after cutover. Also a runbook step, with a
 per-value verification.
+
+## 2026-09-02 — CUTOVER-EXECUTE (attempt 1: aborted at the state gate)
+
+Cutover attempt 1 was **aborted at §8.5 before the flip**. DNS never moved,
+production was restored to Windows, and the session ended with Windows live
+and fully protected. Per the standing ruling, an abort is a successful
+outcome. Downtime **4 m 11 s** (04:13:43–04:17:54 UTC).
+
+**OPERATOR ERROR — gate 2, on the owner's record.** The binding abort gate
+was written as "world stage must be 7379", a value read from live production
+during pre-flight, over an hour before the stop. At the stop the stage was
+7369. The gate failed and the session aborted rather than override it.
+
+The data was never at fault: `adventure-world.json`,
+`adventure-characters.json`, `adventure-accounts.json` and
+`adventure-sessions.json` were all byte-identical between the frozen Windows
+source and the payload as it landed on Linux. The world had simply moved in
+the intervening hour, and moved *backwards* — that file carries
+`boss_losses_since_win` and `recent_boss_outcomes`, and a boss loss regresses
+the stage. The gate was measuring elapsed time, not the migration.
+
+Logged as an operator error, not a session error: the owner pinned a binding
+check to a snapshot of a live, mutating value. The session's abort was the
+correct response — a gate the operator overrides on the spot is not a gate.
+The corrected invariant (equality against a reference read at §8.2a, plus
+SHA-256 equality on the four state files) is now in the runbook, with the
+reasoning, so the shape of the mistake does not repeat.
+
+FOUND — **§8.4 would have served a broken site after the flip.** `templates/`
+(2 files), `wiki/` (14) and `public_adventure_overlay/` (40 MB, including the
+14 custom sprites) all live *inside* `/var/lib/pathofdust`, so §8.4's `mv`
+takes them with it — and the runbook's instruction to "restore them from the
+deployment" is impossible, because `/opt/pathofdust` holds only `bin/`. There
+is no deployment copy of any of the three. Following the old text literally
+yields a state directory with no templates: the game starts, the journal
+reports a clean load, and every page render fails. Caught before the window
+opened, worked around by carrying the three directories from the moved-aside
+tree, and now written into §8.4 as a numbered step with its own verification.
+
+FOUND — **§6's premise is false.** It said Step 0 needs an elevated prompt and
+is an owner action, because a deploy session's non-elevated token gets
+`Access denied` from `Disable-ScheduledTask`. The session ran both
+`Disable-ScheduledTask` and `Enable-ScheduledTask` against all three tasks
+with no elevation and no error. Step 0 does not require the owner.
+
+FOUND — **`Start-ScheduledTask` fails outright on a disabled task**
+(`The task is disabled`, `HRESULT 0x80041326`). §10.1 listed `Enable` before
+`Start` but never said why the order binds, and the failure is quiet under
+pressure: the error goes to the error stream while the port poll runs to its
+timeout, so it reads as "slow to start" rather than "never started". Cost
+about a minute of the 4 m 11 s outage during the abort.
+
+FOUND — **`/api/status` remains absent from the route table**, as recorded on
+2026-09-01. The valid probe (`POST /api/commands/join`, no secret header)
+returned 401 on Windows production and 401 on Linux once the drop-in landed.
+
+FOUND — one fight resolved on Linux (`fight-0000018855`) between the load and
+the stop, moving the staged world 7369 -> 7367. DNS never pointed there, so
+no player saw it and Windows at 7369 remained authoritative. Ruled by the
+owner as a fork to discard, not to reconcile; attempt 2's fresh copy wipes it.

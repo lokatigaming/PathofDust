@@ -250,18 +250,25 @@ one.
 
 ---
 
-## 6. Step 0 — retire the Windows restarters *(OWNER, ELEVATED, REVERSIBLE)*
+## 6. Step 0 — retire the Windows restarters *(DEPLOY SESSION, REVERSIBLE)*
 
-**This needs an elevated PowerShell prompt and is an owner action.** A deploy session's
-non-elevated token gets `Access denied` from `Disable-ScheduledTask`; the maintenance-flag
-mechanism used by ordinary deploys is a **30-minute lease** and cannot hold a window this long.
+> **Corrected 2026-09-02 (CUTOVER-EXECUTE). This step does NOT require the owner, and does not
+> require an elevated prompt.** An earlier version of this section said "this needs an elevated
+> PowerShell prompt and is an owner action", on the premise that a deploy session's non-elevated
+> token gets `Access denied` from `Disable-ScheduledTask`. **That premise is false.** The deploy
+> session ran `Disable-ScheduledTask` and `Enable-ScheduledTask` against all three tasks during
+> the cutover — including re-enabling all three during an abort — with no elevation and no access
+> error. Do not hand this step to the owner and wait; run it.
+>
+> The maintenance-flag note remains true and is the reason this uses task disabling at all: that
+> mechanism is a **30-minute lease** and cannot hold a window this long.
 
 `GameProcess-Watchdog` fires **every 2 minutes** and will restart the game you are about to stop.
 `GameProcess` itself has **Logon and Boot triggers**, so a reboot would bring the old world back
 online on its own. `Disable-ScheduledTask` disables the task and every trigger it declares —
 which is exactly what is wanted here.
 
-*(Windows, elevated)*
+*(Windows — an ordinary deploy-session prompt is sufficient)*
 ```powershell
 Disable-ScheduledTask -TaskName GameProcess-Watchdog
 Disable-ScheduledTask -TaskName GameProcess
@@ -466,6 +473,21 @@ empty `Path`, so process identity cannot confirm it, and a released port can.
 Copying before stopping is the one mistake in this procedure that costs players real progress:
 every fight resolved between the copy and the stop is silently discarded. See §4.
 
+**8.2a — Read the reference values NOW, from the frozen state.** *(Windows)*
+The process has exited, so `C:\PathofDust`'s state files can no longer change. **This is the only
+moment at which a reference value for the §8.5 gates can legitimately be taken.**
+```powershell
+cd C:\PathofDust
+(Get-Content adventure-world.json -Raw | ConvertFrom-Json).stage
+```
+```sh
+# Git Bash, same directory
+sha256sum adventure-world.json adventure-characters.json \
+          adventure-accounts.json adventure-sessions.json
+```
+Record the stage and the four hashes in the cutover log. §8.5 compares against **these**, and
+against nothing taken earlier.
+
 **8.3 — Build the state payload.** *(Windows)*
 ```powershell
 cd C:\PathofDust
@@ -497,30 +519,83 @@ Compress. Measured at **25.23 MB/s effective** with `gzip -1` versus 7.54 MB/s u
 because the habit is what makes a re-run with a pinned tier cheap. Hash the payload on both ends
 and confirm the hashes match before extracting.
 
-On the Linux box:
+On the Linux box, **in this order**:
 ```sh
 systemctl stop pathofdust
-mv /var/lib/pathofdust /var/lib/pod-precutover-$(date +%Y%m%d-%H%M%S)   # move, never delete
+
+# 1. Move the old tree aside. Move, never delete.
+OLD=/var/lib/pod-precutover-$(date +%Y%m%d-%H%M%S)
+mv /var/lib/pathofdust $OLD
 install -d -o pathofdust -g pathofdust -m 0750 /var/lib/pathofdust
+
+# 2. CARRY THE CODE ASSETS ACROSS THE MOVE. See the warning below - skipping
+#    this leaves the site with no templates and serves nothing after the flip.
+cp -a $OLD/templates $OLD/wiki $OLD/public_adventure_overlay /var/lib/pathofdust/
+
+# 3. Extract the payload ON TOP. This must come after step 2, so the payload's
+#    sprites/custom (the live 14, five of which are not in git) overwrites the
+#    copy carried from the old tree.
 tar xzf /root/pod-cutover-state.tar.gz -C /var/lib/pathofdust
+
+# 4. Ownership and modes.
 chown -R pathofdust:pathofdust /var/lib/pathofdust
 find /var/lib/pathofdust -type d -exec chmod 0755 {} +
 find /var/lib/pathofdust -type f -exec chmod 0644 {} +
 chmod 0750 /var/lib/pathofdust
+
 systemctl start pathofdust
 ```
 **`chown` is not optional.** A tarball built on Windows extracts with numeric owner
 `197108:197121`, which is nobody on Debian, and the service user then cannot write its own data
 directory. This was hit in rehearsal and it is silent until the first write fails.
 
-`templates/`, `wiki/` and `public_adventure_overlay/` are **code, not state** — they come from the
-deployment, not the payload. If the move disturbed them, restore them from the deployment.
+> ### Step 2 is load-bearing. Without it the cutover serves a broken site.
+>
+> **Corrected 2026-09-02 (CUTOVER-EXECUTE), found by executing this step.** An earlier version of
+> this section said:
+>
+> > *"`templates/`, `wiki/` and `public_adventure_overlay/` are code, not state — they come from
+> > the deployment, not the payload. If the move disturbed them, restore them from the deployment."*
+>
+> **Both halves of that are wrong on this box.** All three directories live *inside*
+> `/var/lib/pathofdust` — they are resolved relative to the unit's `WorkingDirectory` — so the
+> `mv` in step 1 takes them with it. And there is **no deployment to restore them from**:
+> `/opt/pathofdust` contains only `bin/` (`game`, `deploy.sh`, `deploy-linux.sh`,
+> `rollback-linux.sh`, `backup-game-data.sh`, `backup-pull-shell`). Measured at cutover:
+>
+> | in `/var/lib/pathofdust` | size |
+> |---|---|
+> | `templates/` | 80 K, 2 files |
+> | `wiki/` | 128 K, 14 files |
+> | `public_adventure_overlay/` | 40 M (includes `sprites/custom/`, 14 files) |
+>
+> Following the old text literally produces a state directory with **no templates at all**. The
+> game starts, the journal reports a clean load, and every page render fails — and because the
+> flip at §8.6 happens after this, the first person to see it is a player. The old advice would
+> have sent you looking for a deployment copy that does not exist, mid-window.
+>
+> **Do not "fix" this by taking the three directories from a git checkout.** `wiki/*.md` is live
+> content the owner edits directly, and **5 of the 14 custom sprites are not in git** — including
+> `lokati_gaming6.gif`, which a live character references. The moved-aside tree is the correct
+> source: it is the deployed code, and step 3 then overwrites `sprites/custom/` with the live
+> copy from the payload.
+
+**Verify the carry-over landed, before the §8.5 gates.** *(Linux)*
+```sh
+for d in templates wiki public_adventure_overlay; do
+  printf '%-26s %s entries\n' "$d" "$(ls /var/lib/pathofdust/$d | wc -l)"
+done
+ls /var/lib/pathofdust/public_adventure_overlay/sprites/custom | wc -l
+```
+Expect: `templates` **2** · `wiki` **14** · `public_adventure_overlay` non-empty · custom sprites
+**14**. A zero anywhere here means step 2 did not run — stop and fix it before the gates, not
+after the flip. Serving is confirmed by the sprite fetch in §8.5 and by the authenticated page
+load in the §7.3 operator gate; a missing `templates/` fails both.
 
 **8.5 — Verify the load before you flip.** *(Linux)*
 ```sh
 journalctl -u pathofdust --since -2min | grep "loaded .* characters"
 curl -s -o /dev/null -w "root   %{http_code}\n" http://localhost:4005/
-curl -s -o /dev/null -w "chars  %{http_code} %{size_download}B\n" http://localhost:4005/characters
 curl -s -o /dev/null -w "sprite %{http_code} %{size_download}B\n" \
   http://localhost:4005/sprites/custom/Sitch89.gif
 curl -s -o /dev/null -w "case   %{http_code} (must be 404)\n" \
@@ -528,7 +603,49 @@ curl -s -o /dev/null -w "case   %{http_code} (must be 404)\n" \
 python3 -c "import json;print('stage', json.load(open('/var/lib/pathofdust/adventure-world.json'))['stage'])"
 ```
 Expect: the journal's character count **equal to production's**, not smaller · `root 200` ·
-`sprite 200 687999B` · `case 404` · the world stage matching production's last value.
+`sprite 200 687999B` · `case 404`.
+
+### The state gate — two checks, both binding
+
+**Check A — the stage the Linux game loaded must equal the §8.2a reference.** Not a number
+written down before the stop. The value read at §8.2a, and nothing else.
+
+**Check B — the four state files must be byte-identical between the frozen Windows source and
+the payload as it landed.** Read them back *out of the shipped tarball on the Linux box*, so the
+comparison covers the tar, the transfer and the extract:
+```sh
+cd /tmp && rm -rf verify && mkdir verify && cd verify
+tar xzf /root/pod-cutover-state.tar.gz \
+  adventure-world.json adventure-characters.json \
+  adventure-accounts.json adventure-sessions.json
+sha256sum adventure-world.json adventure-characters.json \
+          adventure-accounts.json adventure-sessions.json
+```
+All four must equal the §8.2a hashes. **Both checks bind: either one failing is an abort.**
+
+> ### Why a fixed stage number can NEVER be a gate
+>
+> **Recorded 2026-09-02. This mistake aborted the first cutover attempt and cost 4 m 11 s of
+> downtime.** The first attempt's gate was written as *"world stage must be 7379"* — a value read
+> from live production during pre-flight, over an hour before the stop. At the stop the stage was
+> **7369**. The gate failed and the cutover was correctly aborted.
+>
+> **Nothing was wrong with the data.** All four state files were byte-identical across the
+> transfer. The world had simply *moved* in the intervening hour — and moved *backwards*, which
+> is ordinary: `adventure-world.json` carries `boss_losses_since_win` and `recent_boss_outcomes`,
+> and a boss loss regresses the stage. The gate was not measuring the migration at all. It was
+> measuring how much time had passed since somebody wrote a number down.
+>
+> **The general rule: a gate on a live, mutating value must be an equality against a reference
+> taken at the freeze, never a literal captured earlier.** Production keeps running right up to
+> §8.2; every minute between a pre-flight reading and the stop is a minute for that reading to
+> become fiction. Pre-flight is for *readiness* checks — is the disk big enough, is the tunnel up,
+> is the backup clean — and those are stable. State values are not, and they belong to §8.2a.
+>
+> A corollary worth keeping: **the hash check (B) is strictly stronger than any stage comparison**
+> and is the one that actually proves the migration. Check A survives because it is nearly free
+> and it catches a different failure — a payload that is intact but was never *loaded*, e.g. the
+> service reading a stale directory. B proves the bytes arrived; A proves the game read them.
 
 **The case check is not padding.** ext4 is case-sensitive where NTFS is not. If the lowercase
 variant also returns 200, you are not on the filesystem you think you are and the sprite result
@@ -683,6 +800,21 @@ Expect: `200`. Health-check a real page, not just the port. `(Get-ScheduledTaskI
 GameProcess).LastTaskResult` reads `267009` (`SCHED_S_TASK_RUNNING`) for a healthy long-running
 game — **`0` is not the healthy value here**; a non-running failure code means the start died.
 
+> **`Enable` FIRST. `Start-ScheduledTask` fails outright on a disabled task.** It does not
+> silently enable it and it does not queue — it errors with
+> `Start-ScheduledTask : The task is disabled` (`HRESULT 0x80041326`) and nothing starts. Step 0
+> disabled `GameProcess`, so at this point in a rollback it **is** disabled, and reaching for
+> `Start` first is the natural reflex.
+>
+> Worse, the failure is easy to miss under pressure: the error goes to the error stream while the
+> `until (Get-NetTCPConnection …)` poll below happily runs to its timeout, so it reads as "the
+> game is slow to come up" rather than "the game was never asked to come up". **Recorded
+> 2026-09-02 — this cost roughly one minute of a 4 m 11 s production outage during the first
+> cutover attempt's abort.** Keep the `Enable` lines above `Start`, and do not reorder them.
+>
+> A `Start` that returns without error but never binds the port is a different problem — read
+> `LastTaskResult` per the note above.
+
 *(Linux)* `rm` the drop-in and `/etc/pathofdust/production.env`, `systemctl daemon-reload`,
 `systemctl restart pathofdust`; remove the added ingress lines and `systemctl restart cloudflared`.
 
@@ -701,7 +833,9 @@ game — **`0` is not the healthy value here**; a non-running failure code means
 systemctl stop pathofdust
 ```
 
-**Step 2 — bring Windows back up and PROVE it answers.** *(Windows, elevated)*
+**Step 2 — bring Windows back up and PROVE it answers.** *(Windows — no elevation needed, §6)*
+**`Enable` before `Start`** — `Start-ScheduledTask` errors with `The task is disabled` and starts
+nothing. See the boxed warning in §10.1.
 ```powershell
 Enable-ScheduledTask -TaskName GameProcess
 Enable-ScheduledTask -TaskName GameProcess-Watchdog
