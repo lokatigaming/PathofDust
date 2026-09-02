@@ -459,6 +459,25 @@ pub(crate) struct WorldState {
     /// also cheaper and does not care how far back B happens to retain.
     #[serde(default)]
     boss_losses_since_win: u32,
+    /// High-water mark of `stage` (2026-09-02) - the highest the world has
+    /// EVER reached, never decremented. `stage` itself walks +1 per boss
+    /// win and -2 per loss, so it is not a record of progress; this is.
+    ///
+    /// Exists for exactly one consumer today:
+    /// `AdventureManager::divine_dust_recipe_unlocked`, the ONE-WAY LATCH on
+    /// the Divine Dust craft recipe (owner ruling, 2026-09-02: "losing a
+    /// recipe to a bad boss streak would be miserable"). Every DROP gate
+    /// deliberately reads the live `stage` instead, so a regression really
+    /// does pause those drops - the latch is the deliberate exception, not
+    /// the pattern.
+    ///
+    /// `#[serde(default)]` plus the `max(stage)` backfill in
+    /// `AdventureManager::new` is what makes this correct on the live world
+    /// file, which predates the field: without the backfill an already-past-
+    /// 300 server would load `highest_stage: 0` and RE-LOCK a recipe players
+    /// had already unlocked.
+    #[serde(default)]
+    highest_stage: u32,
 }
 
 /// Manual, not derived - a brand-new install goes through this (see
@@ -471,7 +490,16 @@ pub(crate) struct WorldState {
 /// value.
 impl Default for WorldState {
     fn default() -> Self {
-        WorldState { stage: 0, last_boss_kind: None, boss_power_mult: default_boss_power_mult(), hp_pacing_mult: default_hp_pacing_mult(), recent_boss_outcomes: std::collections::VecDeque::new(), recent_win_dps: std::collections::VecDeque::new(), boss_losses_since_win: 0 }
+        WorldState {
+            stage: 0,
+            last_boss_kind: None,
+            boss_power_mult: default_boss_power_mult(),
+            hp_pacing_mult: default_hp_pacing_mult(),
+            recent_boss_outcomes: std::collections::VecDeque::new(),
+            recent_win_dps: std::collections::VecDeque::new(),
+            boss_losses_since_win: 0,
+            highest_stage: 0,
+        }
     }
 }
 
@@ -1942,12 +1970,56 @@ pub struct AdventureManager {
     pending_fight_batch: Mutex<PendingFightBatch>,
 }
 
+/// Shipped defaults for the four world-stage drop gates (2026-09-02, a
+/// live request - "these should have been tunables already"). Each is the
+/// DEFAULT of a `LiveTunables` field of the same name in snake_case, NOT
+/// the value the game reads: every gate reads
+/// `LiveTunables::sand_drop_stage`/`perfect_item_stage`/
+/// `divine_dust_drop_stage`/`sacred_item_stage`, live-editable on
+/// `/admin/tunables`. They exist as named constants for exactly the reason
+/// `pacing::ENEMY_HP_POOL_HARD_CAP` does: the form's
+/// `#[serde(default = "...")]` has to resolve to the SHIPPED number rather
+/// than `0`, or a POST omitting the field silently opens the gate at stage
+/// 0. That defect has been found twice in this codebase.
+///
+/// Every gate compares against the CURRENT world stage, so a boss-loss
+/// regression below a threshold temporarily stops those drops (owner
+/// ruling: acceptable and intuitive). The one exception is the Divine Dust
+/// craft RECIPE, which latches one-way off `WorldState::highest_stage` -
+/// see `divine_dust_recipe_unlocked`.
+pub const SAND_STAGE_THRESHOLD: u32 = 100;
+/// See `SAND_STAGE_THRESHOLD`. Was `LiveTunables::late_content_stage`
+/// (default 100), REMOVED by the same change - the Perfect gate was that
+/// field's only remaining consumer, and renaming it in place would have
+/// been INERT on the live server: `adventure-live-tunables.toml` is a
+/// full-struct serialisation that already carries `late_content_stage =
+/// 100`, and a saved value always beats a changed compile-time default.
+pub const PERFECT_STAGE_THRESHOLD: u32 = 150;
+/// See `SAND_STAGE_THRESHOLD`. Gates the Divine Dust FIGHT drop, and - via
+/// `divine_dust_recipe_unlocked` - the craft recipe's one-way unlock too.
+pub const DIVINE_DUST_STAGE_THRESHOLD: u32 = 300;
 /// Sacred items (2026-08-16, a live request; moved from 200 to 300 on
-/// 2026-08-17) start dropping at this stage - deliberately a plain
-/// compile-time const, not part of `LiveTunables`, since the request was a
-/// fixed stage cutoff rather than a dial to iterate on live; can move into
-/// `LiveTunables` later if that changes.
+/// 2026-08-17) start dropping at this stage. Kept as a `pub const` after
+/// becoming `LiveTunables::sacred_item_stage` (2026-09-02) for two reasons:
+/// it is the shipped default that field resolves to, AND
+/// `adventure_web/wiki.rs` renders it into `wiki/crafting.md`'s
+/// `{{SACRED_STAGE_THRESHOLD}}` placeholder. That placeholder therefore now
+/// shows the compiled DEFAULT rather than the live tunable - flagged for
+/// the wiki session in WIKI_IMPACT.md rather than fixed here, since this
+/// session does not touch the wiki module.
 pub const SACRED_STAGE_THRESHOLD: u32 = 300;
+
+/// Accepted range for all four stage-gate tunables above, shared by the
+/// `/admin/tunables` form's `min`/`max` (what actually reports a bad value
+/// to the operator, in the browser) and by the save handler's own clamp
+/// (defence in depth against a POST that bypasses the form). 0 is a
+/// legitimate setting - it means "always on", which is exactly what three
+/// of these four effectively were before the gates existed.
+pub const DROP_STAGE_MIN: u32 = 0;
+/// See `DROP_STAGE_MIN`. High enough never to bind in practice (the world
+/// has no stage ceiling) while still refusing a fat-fingered number that
+/// would silently disable a drop forever.
+pub const DROP_STAGE_MAX: u32 = 100_000;
 
 impl AdventureManager {
     pub fn new(characters_path: PathBuf, world_path: PathBuf, reforge_cooldown_path: PathBuf) -> Arc<Self> {
@@ -2266,7 +2338,17 @@ impl AdventureManager {
         // blocks above.
         run_storage_migration();
 
-        let world: WorldState = crate::state::load_json_fail_loud(&world_path).unwrap_or_default();
+        let mut world: WorldState = crate::state::load_json_fail_loud(&world_path).unwrap_or_default();
+        // `highest_stage` backfill (2026-09-02). The live world file
+        // predates the field, so serde hands back 0 for it while `stage`
+        // is whatever the world actually reached. Taking the max here -
+        // NOT marker-guarded, because unlike the one-time character grants
+        // above this is idempotent and must also self-heal a world file
+        // hand-edited backwards - is what stops an already-past-300 server
+        // from re-locking a Divine Dust recipe its players already earned.
+        // Deliberately no persist: the very next fight writes the world
+        // file anyway, and a read-only boot has nothing to save.
+        world.highest_stage = world.highest_stage.max(world.stage);
         let reforge_cooldown: HashMap<String, u64> = crate::state::load_json_fail_loud(&reforge_cooldown_path).unwrap_or_default();
         let (encounter_tx, _rx) = broadcast::channel(16);
         let (state_tx, _rx) = broadcast::channel(16);
@@ -4284,7 +4366,27 @@ impl AdventureManager {
         Ok(report)
     }
 
+    /// Whether the group has ever reached `LiveTunables::divine_dust_drop_stage`
+    /// (default 300) and so permanently unlocked the Divine Dust craft
+    /// recipe (2026-09-02). Reads `WorldState::highest_stage`, NOT the live
+    /// stage - see `DivineDustCraftError::Locked` for why the latch is
+    /// one-way while every DROP gate is not.
+    ///
+    /// Shares `divine_dust_drop_stage` rather than owning a fifth tunable:
+    /// the order gave the recipe and the drop the same number (300), and
+    /// one dial that cannot drift out of step with itself beats two that
+    /// can.
+    pub async fn divine_dust_recipe_unlocked(&self) -> bool {
+        self.world.lock().await.highest_stage >= self.live_tunables().divine_dust_drop_stage
+    }
+
     pub async fn craft_divine_dust(&self, username: &str) -> Result<u64, DivineDustCraftError> {
+        // Checked BEFORE the character lookup and before either currency
+        // check, so a locked recipe reports "locked" rather than the
+        // misleading "not enough sand" a poor player would otherwise see.
+        if !self.divine_dust_recipe_unlocked().await {
+            return Err(DivineDustCraftError::Locked(self.live_tunables().divine_dust_drop_stage));
+        }
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase()).ok_or(DivineDustCraftError::NotJoined)?;
         let tunables = self.live_tunables();
@@ -5262,14 +5364,25 @@ impl AdventureManager {
                     // `run_basic_encounter`'s own, boss-bonus-less grant),
                     // all scaled by `sand_mult` (see `LiveTunables`'s doc -
                     // deliberately a separate dial from `loot_mult`).
-                    character.sand += ((win_rng.gen_range(1..=3) + win_rng.gen_range(2..=3)) as f64 * tunables.sand_mult).round() as u64;
+                    // Stage-gated since 2026-09-02: no sand from fights at
+                    // all below `sand_drop_stage` (default 100). Gates on
+                    // the CURRENT stage, so a loss-regression below the
+                    // threshold pauses it (owner ruling). The disenchant
+                    // route stays open at every stage - see that field's doc.
+                    if stage >= tunables.sand_drop_stage {
+                        character.sand += ((win_rng.gen_range(1..=3) + win_rng.gen_range(2..=3)) as f64 * tunables.sand_mult).round() as u64;
+                    }
                     // Divine Dust fight-drop (2026-08-19) - same
                     // eligibility as sand's own grant just above (every
                     // fighting character, every win), see
                     // `maybe_drop_divine_dust`'s doc. Chat announcement
                     // removed (a live request) - the grant itself is
-                    // unchanged, it just no longer posts.
-                    maybe_drop_divine_dust(character, &mut win_rng, tunables.divine_dust_drop_chance);
+                    // unchanged, it just no longer posts. Stage-gated since
+                    // 2026-09-02 on `divine_dust_drop_stage` (default 300),
+                    // the same current-stage rule sand uses just above.
+                    if stage >= tunables.divine_dust_drop_stage {
+                        maybe_drop_divine_dust(character, &mut win_rng, tunables.divine_dust_drop_chance);
+                    }
 
                     // Perfect Quality's per-character milestone (see
                     // `received_first_perfect`'s doc) - every character
@@ -5277,7 +5390,7 @@ impl AdventureManager {
                     // time they personally take part in a stage-90+ boss
                     // kill, independent of (and stacking with) the
                     // separate shared per-kill Perfect drop rolled below.
-                    if stage >= tunables.late_content_stage && !character.received_first_perfect {
+                    if stage >= tunables.perfect_item_stage && !character.received_first_perfect {
                         let slot = EQUIP_SLOTS[win_rng.gen_range(0..EQUIP_SLOTS.len())];
                         let item = make_item_perfect(generate_item(slot, stage, &mut win_rng));
                         let item_name = item.name.clone();
@@ -5289,12 +5402,12 @@ impl AdventureManager {
                     }
                     // Sacred's own per-character milestone (2026-08-16, a
                     // live request) - same shape as Perfect's above, just
-                    // gated on `SACRED_STAGE_THRESHOLD` (300) instead of
-                    // `late_content_stage` (100) and tracked independently
+                    // gated on `sacred_item_stage` (300) instead of
+                    // `perfect_item_stage` (150) and tracked independently
                     // (see `received_first_sacred`'s doc - not either/or
                     // with the Perfect milestone, a character can and
                     // usually will earn both, at different stages).
-                    if stage >= SACRED_STAGE_THRESHOLD && !character.received_first_sacred {
+                    if stage >= tunables.sacred_item_stage && !character.received_first_sacred {
                         let slot = EQUIP_SLOTS[win_rng.gen_range(0..EQUIP_SLOTS.len())];
                         let item = make_item_sacred(generate_item(slot, stage, &mut win_rng), &mut win_rng);
                         let item_name = item.name.clone();
@@ -5360,7 +5473,6 @@ impl AdventureManager {
             // advance_pity) - empty on a loss, since neither roll runs
             // then anyway.
             let mut item_recipients: HashSet<String> = HashSet::new();
-            let mut token_recipients: HashSet<String> = HashSet::new();
 
             // Loot roll - wins only. One item per 5 players in the fight
             // (rounded up), +LOOT_MULT on top, each independently awarded
@@ -5378,7 +5490,7 @@ impl AdventureManager {
                 // item among its drops, never more. Floors the drop count
                 // at 1 so a very small party's normal roll rounding down
                 // to 0 can't skip the guarantee entirely.
-                if stage >= tunables.late_content_stage {
+                if stage >= tunables.perfect_item_stage {
                     num_drops = num_drops.max(1);
                 }
                 // Perfect's own guarantee only fires half as often once
@@ -5388,9 +5500,9 @@ impl AdventureManager {
                 // per drop, so a multi-drop fight can't converge back
                 // toward guaranteed by just getting more tries at the coin
                 // flip. Below the Sacred threshold, unchanged (always
-                // guaranteed once stage >= late_content_stage).
+                // guaranteed once stage >= perfect_item_stage).
                 let perfect_guarantee_active =
-                    stage >= tunables.late_content_stage && (stage < SACRED_STAGE_THRESHOLD || rng.gen_bool(0.5));
+                    stage >= tunables.perfect_item_stage && (stage < tunables.sacred_item_stage || rng.gen_bool(0.5));
                 let mut perfect_awarded = false;
                 let mut sacred_awarded = false;
                 for _ in 0..num_drops {
@@ -5403,14 +5515,14 @@ impl AdventureManager {
                     let mut item = generate_item(slot, stage, &mut rng);
                     // Sacred (2026-08-16, a live request) - same "exactly
                     // one guaranteed per qualifying kill" shape as Perfect
-                    // below, just gated at `SACRED_STAGE_THRESHOLD` (300).
+                    // below, just gated at `sacred_item_stage` (300).
                     // Takes priority over the plain-Perfect guarantee on
                     // THIS drop (a stage-300+ kill's first drop becomes
                     // Sacred, not merely Perfect) - but doesn't consume
                     // the separate Perfect guarantee, so a multi-drop
                     // stage-300+ fight can still also guarantee a second,
                     // ordinary Perfect item among its other drops.
-                    if stage >= SACRED_STAGE_THRESHOLD && !sacred_awarded {
+                    if stage >= tunables.sacred_item_stage && !sacred_awarded {
                         item = make_item_sacred(item, &mut rng);
                         sacred_awarded = true;
                     } else if perfect_guarantee_active && !perfect_awarded {
@@ -5430,20 +5542,21 @@ impl AdventureManager {
                     item_recipients.insert(recipient_id.clone());
                 }
 
-                // Craft token drop, same "one roll per N players" shape
-                // as the loot roll above - 1 free token plus 1 more per
-                // 10 players in the fight, +loot_mult on top, each
-                // independently a random CraftAction handed to a
-                // uniformly random participant. See `Character::craft_tokens`.
-                let num_tokens = ((1 + fighting_ids.len() / 10) as f64 * tunables.loot_mult).round() as usize;
-                for _ in 0..num_tokens {
-                    let Some(&recipient_id) = fighting_ids.get(rng.gen_range(0..fighting_ids.len())) else { continue };
-                    let action = DROPPABLE_CRAFT_ACTIONS[rng.gen_range(0..DROPPABLE_CRAFT_ACTIONS.len())];
-                    if let Some(character) = characters.get_mut(recipient_id) {
-                        character.add_craft_token(action, 1);
-                        token_recipients.insert(recipient_id.clone());
-                    }
-                }
+                // The boss-kill craft-token drop lived here until
+                // 2026-09-02 (1 free token plus 1 per 10 fighters, times
+                // loot_mult, each a random `DROPPABLE_CRAFT_ACTIONS` to a
+                // random participant). REMOVED by owner order: the only
+                // craft tokens in the game are now the starter set
+                // `Character::new` hands out. Do not restore it here - see
+                // `Character::craft_pity`'s doc for the same warning on the
+                // pity half of this.
+                //
+                // Unique Shards are deliberately NOT affected: they are a
+                // separate currency on their own drop path
+                // (`maybe_drop_unique_shard`, rolled per item handed out
+                // above), are not in `ALL_CRAFT_ACTIONS`/
+                // `DROPPABLE_CRAFT_ACTIONS`, and are the only supply for
+                // Divinity and the Unique Affix picker.
             }
 
             // Pity pass - every participant, win OR lose (a losing fight
@@ -5496,14 +5609,11 @@ impl AdventureManager {
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     }
                 }
-                let got_token = token_recipients.contains(id);
-                let Some(character) = characters.get_mut(id) else { continue };
-                if advance_pity(&mut character.craft_pity, got_token, BOSS_CRAFT_PITY_GAIN) {
-                    for _ in 0..pity_reward_count(catchup_mult, &mut rng) {
-                        let action = DROPPABLE_CRAFT_ACTIONS[rng.gen_range(0..DROPPABLE_CRAFT_ACTIONS.len())];
-                        character.add_craft_token(action, 1);
-                    }
-                }
+                // The boss craft-token PITY payout lived here until
+                // 2026-09-02, alongside the item pity above. Removed with
+                // the drop itself - a pity counter with no drop to be
+                // unlucky at has nothing to compensate for. `craft_pity`
+                // survives as a persisted-but-dead field; see its doc.
             }
 
             self.persist_characters(&characters);
@@ -5551,6 +5661,12 @@ impl AdventureManager {
             } else {
                 world.stage = world.stage.saturating_sub(2).max(1);
             }
+            // High-water mark (2026-09-02) - the ONLY writer, deliberately
+            // right here so it can never drift from the walk above. Only
+            // the Divine Dust recipe's one-way latch reads it; the drop
+            // gates all read the live `stage`, regression included. See
+            // `WorldState::highest_stage`.
+            world.highest_stage = world.highest_stage.max(world.stage);
             // -----------------------------------------------------------------
             // CONTROLLER A (HP / duration axis). THE ONLY SAMPLE SITE -
             // the filler path deliberately feeds neither controller
@@ -5865,13 +5981,20 @@ impl AdventureManager {
                     // just without that fight's extra 2-3 boss-only bonus
                     // on top - this is the lighter filler-fight reward,
                     // scaled by `sand_mult` same as run_encounter's own.
-                    character.sand += (rng.gen_range(1..=3) as f64 * tunables.sand_mult).round() as u64;
+                    // Same two stage gates `run_encounter`'s own grants
+                    // carry (2026-09-02) - a filler win below the threshold
+                    // must not become the back door around a boss gate.
+                    if stage >= tunables.sand_drop_stage {
+                        character.sand += (rng.gen_range(1..=3) as f64 * tunables.sand_mult).round() as u64;
+                    }
                     // Divine Dust fight-drop - same eligibility as sand's
                     // own grant just above, see `maybe_drop_divine_dust`'s
                     // doc and `run_encounter`'s identical boss-win roll.
                     // Chat announcement removed (a live request) - the
                     // grant itself is unchanged, it just no longer posts.
-                    maybe_drop_divine_dust(character, &mut rng, tunables.divine_dust_drop_chance);
+                    if stage >= tunables.divine_dust_drop_stage {
+                        maybe_drop_divine_dust(character, &mut rng, tunables.divine_dust_drop_chance);
+                    }
                 }
                 // Deliberately no gear decay here - only real boss fights
                 // wear equipment down (see run_encounter); these lighter
@@ -5913,11 +6036,9 @@ impl AdventureManager {
 
             // Pity pass - every participant, win OR lose, same reasoning
             // as run_encounter's (see its doc, including catch-up living
-            // here via `pity_reward_count` and nowhere else). A basic
-            // fight never rolls for a craft token at all (only a real
-            // boss fight does), so craft_pity simply advances every
-            // single basic fight unconditionally - `received` is always
-            // false here.
+            // here via `pity_reward_count` and nowhere else). ITEM pity
+            // only since 2026-09-02: the craft-token half of this pass was
+            // removed along with the token drop it compensated for.
             for &id in &fighting_ids {
                 let catchup_mult = catchup.get(id).copied().unwrap_or(1.0);
                 let got_item = item_recipients.contains(id);
@@ -5952,13 +6073,9 @@ impl AdventureManager {
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     }
                 }
-                let Some(character) = characters.get_mut(id) else { continue };
-                if advance_pity(&mut character.craft_pity, false, BASIC_CRAFT_PITY_GAIN) {
-                    for _ in 0..pity_reward_count(catchup_mult, &mut rng) {
-                        let action = DROPPABLE_CRAFT_ACTIONS[rng.gen_range(0..DROPPABLE_CRAFT_ACTIONS.len())];
-                        character.add_craft_token(action, 1);
-                    }
-                }
+                // The basic-encounter craft-token PITY payout lived here
+                // until 2026-09-02 - removed with `run_encounter`'s own,
+                // for the same reason. See `Character::craft_pity`.
             }
 
             self.persist_characters(&characters);
@@ -7272,6 +7389,14 @@ pub const BOSS_ITEM_PITY_GAIN: f64 = 0.25;
 pub const BASIC_ITEM_PITY_GAIN: f64 = 0.05;
 /// Same idea, for craft-currency tokens (see `Character::craft_pity`) -
 /// 10 boss fights or 50 basic fights of bad luck at most.
+///
+/// **No longer read by the game (2026-09-02).** Craft tokens stopped
+/// dropping entirely (owner order), which took both `advance_pity` calls
+/// that used these with it. They are retained solely because
+/// `adventure_web/wiki.rs` renders them into the wiki's pity table -
+/// flagged for the wiki session in WIKI_IMPACT.md rather than deleted
+/// here, since this session does not touch the wiki module. Do not treat
+/// their continued existence as evidence the payout should come back.
 pub const BOSS_CRAFT_PITY_GAIN: f64 = 0.10;
 pub const BASIC_CRAFT_PITY_GAIN: f64 = 0.02;
 
@@ -7302,9 +7427,12 @@ pub(crate) fn advance_pity(pity: &mut f64, received: bool, gain: f64) -> bool {
 /// fight spawns 2/3 DISTINCT bosses at once instead of 1, and boss
 /// `hp`/`atk` get a flat further bump on top of everything else in
 /// `boss_stats_for`) are now `LiveTunables::two_boss_stage`/
-/// `three_boss_stage`/`late_content_stage`/`late_content_difficulty_mult` -
-/// live-editable via the admin-only `/admin/tunables` page, same reasoning
-/// as `DIFFICULTY_MULT`'s doc above.
+/// `three_boss_stage` - live-editable via the admin-only
+/// `/admin/tunables` page, same reasoning as `DIFFICULTY_MULT`'s doc above.
+/// (`late_content_stage` was retired on 2026-09-02, replaced by the four
+/// explicit drop gates - see `SAND_STAGE_THRESHOLD`;
+/// `late_content_difficulty_mult` was folded into `boss_health` by the
+/// 2026-08-16 consolidation.)
 
 /// Safety ceilings for the two boss stats `power_mult` (see
 /// `WorldState::boss_power_mult`/`scale_by_power_mult`) can't rely on an
@@ -7939,6 +8067,18 @@ mod divine_dust_craft_tests {
         (manager, scratch)
     }
 
+    /// Every test in this module is about the recipe's CURRENCY mechanics
+    /// (both costs checked together, nothing partially spent, the batch's
+    /// stop-on-shortfall convention). Since 2026-09-02 the recipe is also
+    /// gated behind a one-way stage unlock, and a fresh scratch world sits
+    /// at stage 0 - so without this every one of them would fail on the
+    /// lock rather than on what it means to test. The gate itself is
+    /// covered by `stage_gate_tests`, which owns both directions of it.
+    async fn unlock_recipe(manager: &Arc<AdventureManager>) {
+        let mut world = manager.world.lock().await;
+        world.highest_stage = manager.live_tunables().divine_dust_drop_stage;
+    }
+
     async fn joined_with_currency(manager: &Arc<AdventureManager>, login: &str, dust: u64, sand: u64) {
         manager.join(login, login).await;
         let mut characters = manager.characters.lock().await;
@@ -7950,6 +8090,7 @@ mod divine_dust_craft_tests {
     #[tokio::test]
     async fn craft_divine_dust_succeeds_and_deducts_both_currencies_atomically() {
         let (manager, scratch) = disposable_manager("success");
+        unlock_recipe(&manager).await;
         joined_with_currency(&manager, "crafter", 2000, 50).await;
 
         let amount = manager.craft_divine_dust("crafter").await.expect("2000 dust/50 sand covers the default 1000/10 recipe");
@@ -7966,6 +8107,7 @@ mod divine_dust_craft_tests {
     #[tokio::test]
     async fn craft_divine_dust_insufficient_dust_consumes_nothing() {
         let (manager, scratch) = disposable_manager("insufficient_dust");
+        unlock_recipe(&manager).await;
         joined_with_currency(&manager, "poor", 500, 50).await;
 
         let err = manager.craft_divine_dust("poor").await.expect_err("500 dust is below the default 1000 cost");
@@ -7984,6 +8126,7 @@ mod divine_dust_craft_tests {
         // The atomicity requirement: plenty of dust must not get spent
         // just because the (later-checked) sand side falls short.
         let (manager, scratch) = disposable_manager("insufficient_sand");
+        unlock_recipe(&manager).await;
         joined_with_currency(&manager, "sandless", 5000, 5).await;
 
         let err = manager.craft_divine_dust("sandless").await.expect_err("5 sand is below the default 10 cost");
@@ -8004,6 +8147,7 @@ mod divine_dust_craft_tests {
         // Err, keep whatever already landed. 2500 dust/25 sand affords
         // exactly 2 units (2000 dust/20 sand) before a 3rd fails.
         let (manager, scratch) = disposable_manager("batch");
+        unlock_recipe(&manager).await;
         joined_with_currency(&manager, "batcher", 2500, 25).await;
 
         let mut completed = 0u32;
@@ -9078,5 +9222,435 @@ mod win_xp_cooldown_tests {
         // a slow fight followed by a fast one can drop a grant.
         let slack = ENCOUNTER_INTERVAL.saturating_sub(guard);
         assert!(slack >= Duration::from_secs(120), "the guard needs at least a 120 s margin under the scheduled interval; got {slack:?}");
+    }
+}
+
+/// World-stage drop gates and the Divine Dust recipe latch (2026-09-02).
+///
+/// Every test here drives a REAL fight through `trigger_encounter_now` /
+/// `run_basic_encounter` rather than asserting on the gate expressions in
+/// isolation: the expressions are one-liners, and what can actually break
+/// is the WIRING - a gate reading the wrong tunable, sitting on the wrong
+/// side of a grant, or missing from one of the two encounter paths.
+///
+/// The boundaries are tested explicitly at `threshold - 1`, `threshold`
+/// and `threshold + 1`, per the order. `>=` and `>` differ only there.
+#[cfg(test)]
+mod stage_gate_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn scratch_for(label: &str) -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("stage_gate_test_{}_{label}_{unique}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        scratch
+    }
+
+    /// The four gates, moved DOWN to low, distinct stages.
+    ///
+    /// **Why the boundary tests do not run at the shipped 100/150/300/300.**
+    /// Boss difficulty is driven by the same `stage` the gates read, and a
+    /// stage-300 boss carries `BOSS_DEFENSE_CAP`-level evasion/block/DR. A
+    /// fight there is not reliably winnable by a test character, and every
+    /// gate here only fires on a WIN - so at the shipped stages the harness
+    /// itself becomes the flaky part and a loss would produce a false pass
+    /// on the "below the gate" half. Lowering the thresholds keeps each
+    /// boundary an honest, deterministic three-fight comparison.
+    ///
+    /// Nothing about a gate is stage-300-specific: each is a `stage >=
+    /// tunable` comparison, and `>=` versus `>` differs only at the
+    /// boundary, which is exactly what is exercised here. The SHIPPED
+    /// numbers are pinned separately and directly by
+    /// `the_shipped_gate_defaults_are_the_ordered_numbers`, and end-to-end
+    /// through the real admin form by
+    /// `tests/admin_tunables_stage_gates_http.rs`.
+    ///
+    /// The four are deliberately DIFFERENT values: a copy-paste bug that
+    /// pointed two gates at one field would pass with four equal ones.
+    const SAND_AT: u32 = 8;
+    const PERFECT_AT: u32 = 11;
+    const DIVINE_DUST_AT: u32 = 14;
+    const SACRED_AT: u32 = 17;
+
+    /// A manager pinned to tunables that make a fight's outcome and its
+    /// drops DETERMINISTIC, so a boundary assertion is a real signal
+    /// rather than a coin flip:
+    ///
+    /// - `boss_health` ~0 and `boss_power` 0: the party cannot lose, and
+    ///   cannot fail to kill. Without this a stage-300 boss beats the
+    ///   level-40 warrior below and the "at/above threshold" half of every
+    ///   test would be asserting against a loss.
+    /// - `loot_mult` 40: the per-kill loot roll (5% per enemy) saturates,
+    ///   so there are always items to inspect for Perfect/Sacred.
+    /// - `divine_dust_drop_chance` 1.0: turns a 10% roll into a certainty,
+    ///   so "no Divine Dust" below the gate and "Divine Dust" above it are
+    ///   both hard assertions rather than probabilistic ones.
+    ///
+    /// `TUNABLES_PATH` is a fixed relative path shared by every manager in
+    /// the process, so this pins the IN-MEMORY copy only - same reasoning
+    /// (and same helper shape) as `dynamic_pacing_tests`.
+    async fn gated_manager(label: &str) -> Arc<AdventureManager> {
+        let scratch = scratch_for(label);
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        let tunables = LiveTunables {
+            boss_health: 0.001,
+            boss_power: 0.0,
+            loot_mult: 40.0,
+            divine_dust_drop_chance: 1.0,
+            sand_drop_stage: SAND_AT,
+            perfect_item_stage: PERFECT_AT,
+            divine_dust_drop_stage: DIVINE_DUST_AT,
+            sacred_item_stage: SACRED_AT,
+            ..LiveTunables::default()
+        };
+        *manager.live_tunables.write().expect("live_tunables lock poisoned") = tunables;
+        manager.join("gated", "gated").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("gated").expect("just joined");
+            character.level = 60;
+            character.archetype = Archetype::Warrior;
+        }
+        manager
+    }
+
+    /// Puts the world at `stage`, clears everything a previous fight could
+    /// have left behind, runs ONE real boss fight, and insists it was a
+    /// WIN before the caller asserts on what dropped.
+    ///
+    /// The explicit win check is not ceremony. Every gate here only ever
+    /// fires on a win, so a LOST fight grants nothing and would satisfy
+    /// every "below the gate" assertion for entirely the wrong reason -
+    /// a false pass, which is worse than a failure.
+    ///
+    /// A fight is RETRIED rather than assumed. `gated_manager` makes a win
+    /// overwhelmingly likely (0-attack bosses at a handful of hit points),
+    /// but not certain: a boss that survives `MAX_FIGHT_DURATION_MS`
+    /// against an unlucky run of missed swings still records a loss, and a
+    /// gate test that tolerated one would report a false PASS on its
+    /// "below the threshold" half, since a lost fight grants nothing for
+    /// entirely the wrong reason. Retrying keeps the test deterministic in
+    /// the only sense that matters - it never passes on a loss and never
+    /// fails on one either. `reset_to_stage` puts the stage, the gear and
+    /// the downed map back before each attempt, so attempts are
+    /// independent rather than compounding.
+    const WIN_ATTEMPTS: u32 = 6;
+
+    async fn win_at(manager: &Arc<AdventureManager>, stage: u32) {
+        for _ in 1..=WIN_ATTEMPTS {
+            reset_to_stage(manager, stage).await;
+            // `NobodyJoined` is retryable for the same reason a loss is:
+            // the previous fight's revival bookkeeping is spawned, so under
+            // a loaded test runner it can land AFTER `reset_to_stage`
+            // cleared the downed map and leave the character sitting out
+            // this one tick. The next attempt clears it again.
+            if matches!(manager.trigger_encounter_now(None).await, TriggerEncounterOutcome::Triggered)
+                && manager.world.lock().await.recent_boss_outcomes.back().copied() == Some(true)
+            {
+                return;
+            }
+        }
+        panic!("stage {stage}: no won fight in {WIN_ATTEMPTS} attempts against 0-attack bosses - the harness, not the gate, has stopped working");
+    }
+
+    /// `run_basic_encounter` with the same retry, for the same reason.
+    async fn basic_fight(manager: &Arc<AdventureManager>) {
+        for _ in 1..=WIN_ATTEMPTS {
+            manager.downed_until.lock().await.clear();
+            if manager.run_basic_encounter().await {
+                return;
+            }
+        }
+        panic!("no filler fight ran in {WIN_ATTEMPTS} attempts - the second of the two removed pity payouts lived there and must actually be exercised");
+    }
+
+    /// Puts the world at `stage` and zeroes what a fight can grant, so
+    /// whatever is there afterwards is exactly what that fight produced.
+    async fn reset_to_stage(manager: &Arc<AdventureManager>, stage: u32) {
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = stage;
+            world.highest_stage = world.highest_stage.max(stage);
+        }
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut("gated").expect("joined in gated_manager");
+        character.sand = 0;
+        character.divine_dust = 0;
+        character.inventory.clear();
+        character.received_first_perfect = false;
+        character.received_first_sacred = false;
+        // A real boss fight wears equipment down, and once every equipped
+        // item hits 0% the character RETREATS - sits out every subsequent
+        // encounter, which shows up here as `NobodyJoined` on the second
+        // iteration rather than as a gate failure. Repairing between
+        // iterations keeps each boundary a fresh, comparable fight.
+        character.repair_all_gear();
+        character.retreated_since = None;
+        drop(characters);
+        // A downed character sits out the NEXT encounter too, which would
+        // surface as `NobodyJoined` on the following boundary rather than
+        // as a gate failure. Clearing it keeps each boundary independent.
+        manager.downed_until.lock().await.clear();
+    }
+
+    async fn currencies(manager: &Arc<AdventureManager>) -> (u64, u64) {
+        let characters = manager.characters.lock().await;
+        let character = characters.get("gated").expect("joined");
+        (character.sand, character.divine_dust)
+    }
+
+    /// Perfect/Sacred items land in the bag, which `reset_to_stage` clears
+    /// before every fight. `generate_item` never rolls `perfect` itself
+    /// (item.rs constructs it `perfect: false`), so a Perfect item in the
+    /// bag can only have come from `make_item_perfect` behind the gate.
+    async fn bag_flags(manager: &Arc<AdventureManager>) -> (bool, bool) {
+        let characters = manager.characters.lock().await;
+        let character = characters.get("gated").expect("joined");
+        let perfect = character.inventory.iter().any(|i| i.perfect);
+        let sacred = character.inventory.iter().any(|i| i.sacred_affix.is_some());
+        (perfect, sacred)
+    }
+
+    /// The shipped numbers, pinned directly. Every other test in this
+    /// module deliberately runs against LOWERED thresholds (see `SAND_AT`),
+    /// so this is what stops the whole file passing while the game ships
+    /// the wrong gates.
+    #[test]
+    fn the_shipped_gate_defaults_are_the_ordered_numbers() {
+        let t = LiveTunables::default();
+        assert_eq!(t.sand_drop_stage, 100, "polishing sand starts at stage 100");
+        assert_eq!(t.perfect_item_stage, 150, "perfect items start at stage 150");
+        assert_eq!(t.divine_dust_drop_stage, 300, "divine dust starts at stage 300 - and so does its recipe's one-way unlock");
+        assert_eq!(t.sacred_item_stage, 300, "sacred items start at stage 300");
+        assert_eq!(t.sand_drop_stage, SAND_STAGE_THRESHOLD, "the field's default must be the named constant the serde default also resolves to");
+        assert_eq!(t.perfect_item_stage, PERFECT_STAGE_THRESHOLD);
+        assert_eq!(t.divine_dust_drop_stage, DIVINE_DUST_STAGE_THRESHOLD);
+        assert_eq!(t.sacred_item_stage, SACRED_STAGE_THRESHOLD);
+    }
+
+    /// Polishing sand, boss path.
+    #[tokio::test]
+    async fn the_sand_gate_opens_exactly_at_its_threshold_on_a_boss_win() {
+        let manager = gated_manager("sand_boss").await;
+        let threshold = manager.live_tunables().sand_drop_stage;
+        assert_eq!(threshold, SAND_AT, "sanity: the harness lowered this gate - see SAND_AT for why, and `the_shipped_gate_defaults_are_the_ordered_numbers` for the real 100");
+
+        for (stage, expect_sand) in [(threshold - 1, false), (threshold, true), (threshold + 1, true)] {
+            win_at(&manager, stage).await;
+            let (sand, _) = currencies(&manager).await;
+            if expect_sand {
+                assert!(sand > 0, "stage {stage} is at or above the sand gate ({threshold}) - a boss win must grant sand, got {sand}");
+            } else {
+                assert_eq!(sand, 0, "stage {stage} is below the sand gate ({threshold}) - a boss win must grant NO sand");
+            }
+        }
+    }
+
+    /// Polishing sand, filler path. The same gate has to hold on BOTH
+    /// encounter types or the cheaper fight becomes the back door.
+    #[tokio::test]
+    async fn the_sand_gate_opens_exactly_at_its_threshold_on_a_basic_win() {
+        let manager = gated_manager("sand_basic").await;
+        let threshold = manager.live_tunables().sand_drop_stage;
+
+        for (stage, expect_sand) in [(threshold - 1, false), (threshold, true), (threshold + 1, true)] {
+            reset_to_stage(&manager, stage).await;
+            basic_fight(&manager).await;
+            let (sand, _) = currencies(&manager).await;
+            if expect_sand {
+                assert!(sand > 0, "stage {stage} is at or above the sand gate ({threshold}) - a filler win must grant sand, got {sand}");
+            } else {
+                assert_eq!(sand, 0, "stage {stage} is below the sand gate ({threshold}) - a filler win must grant NO sand");
+            }
+        }
+    }
+
+    /// Divine Dust's FIGHT drop. Gate default 300, chance pinned to 1.0 by
+    /// `gated_manager` so both directions are hard assertions.
+    #[tokio::test]
+    async fn the_divine_dust_gate_opens_exactly_at_its_threshold() {
+        let manager = gated_manager("divine_dust").await;
+        let threshold = manager.live_tunables().divine_dust_drop_stage;
+        assert_eq!(threshold, DIVINE_DUST_AT, "sanity: the harness lowered this gate - see DIVINE_DUST_AT");
+
+        for (stage, expect_dust) in [(threshold - 1, false), (threshold, true), (threshold + 1, true)] {
+            win_at(&manager, stage).await;
+            let (_, divine_dust) = currencies(&manager).await;
+            if expect_dust {
+                assert!(divine_dust > 0, "stage {stage} is at or above the Divine Dust gate ({threshold}) and the chance is pinned to 1.0 - a win must grant it");
+            } else {
+                assert_eq!(divine_dust, 0, "stage {stage} is below the Divine Dust gate ({threshold}) - a win must grant NONE even at chance 1.0");
+            }
+        }
+    }
+
+    /// Perfect items. Gate default 150 - a REAL move from the retired
+    /// `late_content_stage`'s 100.
+    #[tokio::test]
+    async fn the_perfect_item_gate_opens_exactly_at_its_threshold() {
+        let manager = gated_manager("perfect").await;
+        let threshold = manager.live_tunables().perfect_item_stage;
+        assert_eq!(threshold, PERFECT_AT, "sanity: the harness lowered this gate - see PERFECT_AT");
+        assert!(
+            threshold < manager.live_tunables().sacred_item_stage,
+            "sanity: these boundaries sit below the Sacred gate, so Perfect's guarantee is unconditional here rather than the half-frequency coin flip"
+        );
+
+        for (stage, expect_perfect) in [(threshold - 1, false), (threshold, true), (threshold + 1, true)] {
+            win_at(&manager, stage).await;
+            let (perfect, _) = bag_flags(&manager).await;
+            assert_eq!(
+                perfect, expect_perfect,
+                "stage {stage} vs the Perfect gate ({threshold}): expected a Perfect item in the bag = {expect_perfect}. Below the gate NOTHING can make one - generate_item always builds perfect: false."
+            );
+        }
+    }
+
+    /// Sacred items. Gate default 300.
+    #[tokio::test]
+    async fn the_sacred_item_gate_opens_exactly_at_its_threshold() {
+        let manager = gated_manager("sacred").await;
+        let threshold = manager.live_tunables().sacred_item_stage;
+        assert_eq!(threshold, SACRED_AT, "sanity: the harness lowered this gate - see SACRED_AT");
+
+        for (stage, expect_sacred) in [(threshold - 1, false), (threshold, true), (threshold + 1, true)] {
+            win_at(&manager, stage).await;
+            let (_, sacred) = bag_flags(&manager).await;
+            assert_eq!(sacred, expect_sacred, "stage {stage} vs the Sacred gate ({threshold}): expected a Sacred item in the bag = {expect_sacred}");
+        }
+    }
+
+    /// The recipe latch, at the same three boundaries - and then the whole
+    /// point of it: a regression far below the threshold must NOT re-lock.
+    #[tokio::test]
+    async fn the_divine_dust_recipe_latches_one_way_on_the_highest_stage_reached() {
+        let manager = gated_manager("latch").await;
+        let threshold = manager.live_tunables().divine_dust_drop_stage;
+
+        for (highest, expect_unlocked) in [(threshold - 1, false), (threshold, true), (threshold + 1, true)] {
+            {
+                let mut world = manager.world.lock().await;
+                world.stage = highest;
+                world.highest_stage = highest;
+            }
+            assert_eq!(
+                manager.divine_dust_recipe_unlocked().await,
+                expect_unlocked,
+                "highest stage {highest} vs the recipe threshold ({threshold}): expected unlocked = {expect_unlocked}"
+            );
+        }
+
+        // THE LATCH. Reached 301, world has since collapsed to 1. The
+        // recipe must survive that - losing it to a bad boss streak is
+        // exactly the outcome the owner ruled against.
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = 1;
+            world.highest_stage = threshold + 1;
+        }
+        assert!(manager.divine_dust_recipe_unlocked().await, "a regression to stage 1 must NOT re-lock a recipe the group already earned");
+
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("gated").expect("joined");
+            character.dust = 100_000;
+            character.sand = 1_000;
+        }
+        let granted = manager.craft_divine_dust("gated").await.expect("an unlocked recipe with both currencies in hand must craft");
+        assert_eq!(granted, manager.live_tunables().divine_dust_craft_output, "the craft must pay out its configured output");
+    }
+
+    /// The server-side half of the latch: a locked recipe refuses even
+    /// when the player can easily afford it, and reports LOCKED rather
+    /// than the misleading "not enough sand" a cost check would give.
+    #[tokio::test]
+    async fn a_locked_divine_dust_recipe_refuses_a_craft_it_could_otherwise_afford() {
+        let manager = gated_manager("locked_recipe").await;
+        let threshold = manager.live_tunables().divine_dust_drop_stage;
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = threshold - 1;
+            world.highest_stage = threshold - 1;
+        }
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("gated").expect("joined");
+            character.dust = 10_000_000;
+            character.sand = 10_000_000;
+            character.divine_dust = 0;
+        }
+        let err = manager.craft_divine_dust("gated").await.expect_err("one stage below the threshold the recipe must refuse");
+        assert!(
+            matches!(err, DivineDustCraftError::Locked(stage) if stage == threshold),
+            "the refusal must name the threshold, not report a currency shortfall: {err:?}"
+        );
+
+        let characters = manager.characters.lock().await;
+        let character = characters.get("gated").expect("joined");
+        assert_eq!(character.divine_dust, 0, "a locked craft must grant nothing");
+        assert_eq!(character.dust, 10_000_000, "and must not spend dust");
+        assert_eq!(character.sand, 10_000_000, "and must not spend sand");
+    }
+
+    /// The high-water mark's only writer is the stage walk, and it must
+    /// never move backwards even though `stage` does.
+    #[tokio::test]
+    async fn a_boss_win_carries_the_high_water_mark_but_a_lower_stage_never_pulls_it_down() {
+        let manager = gated_manager("high_water").await;
+        {
+            let mut world = manager.world.lock().await;
+            world.stage = 20;
+            world.highest_stage = 20;
+        }
+        win_at(&manager, 20).await;
+        {
+            let world = manager.world.lock().await;
+            assert_eq!(world.stage, 21, "a win advances the stage by exactly 1");
+            assert_eq!(world.highest_stage, 21, "a win must carry the high-water mark with it");
+        }
+        // Now stand the world where a regression would have left it and
+        // fight again: the walk writes `highest_stage` on every fight, so
+        // this is exactly where a naive `= stage` would pull it down.
+        win_at(&manager, 5).await;
+        let world = manager.world.lock().await;
+        assert_eq!(world.stage, 6, "the stage walks on from wherever it actually is");
+        assert_eq!(world.highest_stage, 21, "the high-water mark must NOT follow the stage down - that is the whole point of the field");
+    }
+
+    /// Part C: craft tokens are STARTING-ONLY. A new character still gets
+    /// the full starter set, and no amount of fighting adds to it.
+    #[tokio::test]
+    async fn fighting_never_grants_a_craft_token_but_the_starter_set_is_intact() {
+        let manager = gated_manager("no_token_drops").await;
+        let starting: Vec<(CraftAction, u32)> = {
+            let characters = manager.characters.lock().await;
+            characters.get("gated").expect("joined").craft_tokens.clone()
+        };
+        assert_eq!(starting.len(), ALL_CRAFT_ACTIONS.len(), "a new character must still receive the full starter set - that grant was explicitly kept");
+        assert!(starting.iter().all(|(_, n)| *n == 1), "one of each, unchanged: {starting:?}");
+
+        // `loot_mult` is pinned to 40 by `gated_manager`, which under the
+        // old rules would have produced a token on EVERY one of these
+        // fights, plus pity payouts on top. Both encounter types, because
+        // the drop lived on one and the pity payouts on both.
+        for _ in 0..3 {
+            win_at(&manager, 5).await;
+            basic_fight(&manager).await;
+        }
+
+        let characters = manager.characters.lock().await;
+        let character = characters.get("gated").expect("joined");
+        // Unique Shards are deliberately still droppable (owner ruling) and
+        // are stored in this same map, so they are excluded rather than
+        // asserted against - see `maybe_drop_unique_shard`.
+        let mut after: Vec<(CraftAction, u32)> = character.craft_tokens.iter().copied().filter(|(action, _)| *action != CraftAction::UniqueShard).collect();
+        after.sort_by_key(|(action, _)| format!("{action:?}"));
+        let mut expected = starting.clone();
+        expected.sort_by_key(|(action, _)| format!("{action:?}"));
+        assert_eq!(after, expected, "12 fights must not have added a single craft token - the drop and both pity payouts are gone");
+        assert_eq!(character.craft_pity, 0.0, "craft_pity must not accrue either: both advance_pity calls that fed it were removed");
     }
 }

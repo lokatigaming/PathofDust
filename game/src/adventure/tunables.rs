@@ -197,14 +197,44 @@ pub struct LiveTunables {
     /// as high as 1 + 2*tiers) never produces an absurdly overloaded
     /// fight. 1.5 by default, matching the request exactly.
     pub boss_count_cap_mult: f64,
-    /// Was `LATE_CONTENT_STAGE`. Kept as its own field even after the
-    /// 2026-08-16 consolidation (see `boss_health`'s doc) - unlike
-    /// `late_content_difficulty_mult`, which really was only ever a boss
-    /// stat multiplier, this stage number is ALSO the gate for the
-    /// guaranteed-Perfect-item-per-character/per-kill milestones in
-    /// `run_encounter` (unrelated to boss combat stats), so it stays a
-    /// real, separate dial.
-    pub late_content_stage: u32,
+    /// World stage at which polishing sand starts dropping from FIGHTS
+    /// (2026-09-02). Below this, a win grants no sand at all - neither
+    /// `run_encounter`'s boss grant nor `run_basic_encounter`'s smaller
+    /// one. Default `manager::SAND_STAGE_THRESHOLD` (100).
+    ///
+    /// **Deliberately porous**: the DISENCHANT route to sand
+    /// (`roll_disenchant_sand`, including the auto-disenchant that fires on
+    /// ordinary drops) is NOT gated - owner ruling, "fight grants only".
+    /// A sub-threshold player therefore still earns sand, just from
+    /// breaking gear down rather than from winning. See the same ruling on
+    /// `divine_dust_drop_stage`.
+    pub sand_drop_stage: u32,
+    /// World stage at which Perfect Quality items start dropping
+    /// (2026-09-02). Replaces `late_content_stage`, whose only remaining
+    /// consumer this was - see `manager::PERFECT_STAGE_THRESHOLD` for why a
+    /// new field rather than a new default on the old one. Gates all three
+    /// Perfect sites in `run_encounter`: the per-character first-Perfect
+    /// milestone, the `num_drops.max(1)` floor, and the per-kill guarantee.
+    /// Default 150.
+    pub perfect_item_stage: u32,
+    /// World stage at which Divine Dust starts dropping from FIGHTS
+    /// (2026-09-02), gating both `maybe_drop_divine_dust` call sites. Same
+    /// deliberate porousness as `sand_drop_stage`: the disenchant route
+    /// (`maybe_drop_divine_dust_on_disenchant`, Sacred items only) is NOT
+    /// gated - though in practice a Sacred item cannot exist below
+    /// `sacred_item_stage` unless it was earned earlier and kept, or the
+    /// gates are tuned apart. ALSO the threshold the Divine Dust craft
+    /// recipe's one-way unlock latches on - see
+    /// `AdventureManager::divine_dust_recipe_unlocked`. Default 300.
+    pub divine_dust_drop_stage: u32,
+    /// World stage at which Sacred items start dropping (2026-09-02). Was
+    /// the hardcoded `manager::SACRED_STAGE_THRESHOLD`, which survives as
+    /// this field's default and as the wiki's placeholder source - see that
+    /// constant's own doc. Gates both Sacred sites in `run_encounter` (the
+    /// per-character milestone and the per-kill guarantee) AND the
+    /// half-frequency rule on Perfect's guarantee, which by design only
+    /// applies once Sacred is actually dropping. Default 300.
+    pub sacred_item_stage: u32,
     /// Permanent Rampage (2026-08-16, admin toggle) - unlike `!rampage`
     /// (which queues a finite `RAMPAGE_ENCOUNTER_COUNT`, see
     /// `AdventureManager::start_rampage`), this never runs out: while
@@ -606,7 +636,10 @@ impl Default for LiveTunables {
             top_layer_half_stage: pacing::defaults::TOP_LAYER_HALF_STAGE,
             boss_count_tier_stages: 100,
             boss_count_cap_mult: 1.5,
-            late_content_stage: 100,
+            sand_drop_stage: SAND_STAGE_THRESHOLD,
+            perfect_item_stage: PERFECT_STAGE_THRESHOLD,
+            divine_dust_drop_stage: DIVINE_DUST_STAGE_THRESHOLD,
+            sacred_item_stage: SACRED_STAGE_THRESHOLD,
             permanent_rampage: false,
             win_xp_flat: WIN_XP_FLAT,
             win_xp_level_pct: WIN_XP_LEVEL_PCT,
