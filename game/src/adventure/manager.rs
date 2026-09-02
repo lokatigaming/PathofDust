@@ -343,10 +343,83 @@ pub const RAMPAGE_VOTE_THRESHOLD: u32 = 3;
 pub(crate) const RAMPAGE_STATE_PATH: &str = "adventure-rampage-state.json";
 
 /// Flavor names for the basic-enemy encounter's "an assortment of
-/// enemies" - purely cosmetic (chat wording), doesn't affect stats. No
-/// dedicated sprite art for these yet (see `run_basic_encounter`'s doc
-/// comment) - the overlay just reuses the boss art pool for now.
+/// enemies" - purely cosmetic (chat wording), doesn't affect stats. The
+/// name and the sprites are picked independently and are NOT expected to
+/// agree: "a pack of Wild Wolves" can show up drawn as skeletons. Art for
+/// these arrived 2026-09-02 - see `BASIC_ENEMY_SPRITES` below, which
+/// replaced the three reused boss-pool sprites this comment used to
+/// apologize for.
 pub(crate) const BASIC_ENEMY_NAMES: &[&str] = &["a pack of Goblin Raiders", "a band of Bandits", "a horde of Skeleton Warriors", "a Dark Wizard's cultists", "a pack of Wild Wolves", "a pair of Cave Trolls"];
+
+/// Every basic-encounter enemy look, as an overlay sprite name relative
+/// to `public_adventure_overlay/sprites/` (so `basicenemy/01-goblin-warrior`
+/// resolves to `sprites/basicenemy/01-goblin-warrior.png` - see
+/// overlay.html's `getOrLoadSprite`).
+///
+/// GENERATED MECHANICALLY from a listing of that directory, never typed:
+/// `ls *.png | sed 's/\.png$//' | sort`. Regenerate it the same way when
+/// sprites are added or removed. `basic_enemy_sprites_exist` pins this
+/// list against the real directory on disk and fails on a name that is
+/// merely MIS-CASED as well as one that is missing, because the dev boxes
+/// are Windows (case-insensitive) and production is Linux (not) - a typo
+/// here renders as a red placeholder circle on the live stream only. That
+/// is the Sitch89.gif class of bug and this list exists in this shape to
+/// make it impossible.
+///
+/// The overlay preloads the same 50 names via its own `BASIC_ENEMY_SPRITES`;
+/// the test asserts the two lists are identical, so they cannot drift.
+pub const BASIC_ENEMY_SPRITES: &[&str] = &[
+    "basicenemy/01-goblin-warrior",
+    "basicenemy/02-goblin-spearman",
+    "basicenemy/03-goblin-bomber",
+    "basicenemy/04-skeleton-shaman",
+    "basicenemy/05-skeleton-swordsman",
+    "basicenemy/06-skeleton-spearman",
+    "basicenemy/07-skeleton-archer",
+    "basicenemy/08-skeleton-necromancer",
+    "basicenemy/09-skeleton-knight",
+    "basicenemy/10-ghost",
+    "basicenemy/11-zombie-shambler",
+    "basicenemy/12-zombie-brute",
+    "basicenemy/13-ghoul",
+    "basicenemy/14-plague-troll",
+    "basicenemy/15-cultist-assassin",
+    "basicenemy/16-cultist-pyromancer",
+    "basicenemy/17-plague-doctor",
+    "basicenemy/18-executioner",
+    "basicenemy/19-bandit-shieldbearer",
+    "basicenemy/20-cultist-flailer",
+    "basicenemy/21-dire-bat",
+    "basicenemy/22-vampire-bat",
+    "basicenemy/23-plague-rat",
+    "basicenemy/24-toxic-rat",
+    "basicenemy/25-hellhound",
+    "basicenemy/26-acid-hound",
+    "basicenemy/27-dire-wolf",
+    "basicenemy/28-goblin-boar-rider",
+    "basicenemy/29-tusked-beast",
+    "basicenemy/30-spiked-beast",
+    "basicenemy/31-green-slime",
+    "basicenemy/32-purple-eye-blob",
+    "basicenemy/33-bone-pile-horror",
+    "basicenemy/34-toxic-slime",
+    "basicenemy/35-crimson-spider",
+    "basicenemy/36-armored-beetle",
+    "basicenemy/37-fire-scorpion",
+    "basicenemy/38-fire-centipede",
+    "basicenemy/39-mushroom-fiend",
+    "basicenemy/40-mushroom-elder",
+    "basicenemy/41-treant-shaman",
+    "basicenemy/42-sapling-creeper",
+    "basicenemy/43-forest-guardian",
+    "basicenemy/44-stone-golem",
+    "basicenemy/45-magma-golem",
+    "basicenemy/46-ice-golem",
+    "basicenemy/47-orc-berserker",
+    "basicenemy/48-orc-brute",
+    "basicenemy/49-red-demon",
+    "basicenemy/50-bone-drake",
+];
 
 /// Flat sand cost of Polishing an already-Perfect-Quality item (see
 /// `craft_item_ex`'s Polishing branch and `Character::polish`'s
@@ -1572,11 +1645,20 @@ pub struct EncounterResult {
     /// Which sprite(s) the overlay should show for the enemy side, in
     /// enemy-index order - one entry (one of `BossKind::sprite`'s 4) per
     /// real boss for a real boss fight (2 entries at `TWO_BOSS_STAGE`+),
-    /// empty for a basic encounter (the overlay still picks randomly
-    /// from its own `BASIC_ENEMY_SPRITES` for those, unchanged).
-    /// Server-authoritative now instead of the overlay guessing
-    /// independently, since the sprite has to agree with which
-    /// `BossKind` mechanic is actually running this fight.
+    /// and since 2026-09-02 one entry per enemy for a basic encounter too
+    /// (rolled from `BASIC_ENEMY_SPRITES`, so `enemy_count` entries).
+    /// Server-authoritative in BOTH cases now instead of the overlay
+    /// guessing independently: for a boss because the sprite has to agree
+    /// with which `BossKind` mechanic is actually running this fight, and
+    /// for a basic encounter because a client-side pick gave a different
+    /// answer on every replay and every viewer's screen. Empty only for
+    /// the fixtures/tests that build a result by hand.
+    ///
+    /// The name is now a misnomer for the basic case. Left alone
+    /// deliberately: it is the wire field name the OBS overlay and the
+    /// desktop replay reader both already parse (`msg.bossSprites`, see
+    /// `replay_bundle.rs`), and renaming it would break every deployed
+    /// client for cosmetics.
     pub boss_sprites: Vec<String>,
     /// Full per-hit roll detail for this fight (2026-08-17, full-detail
     /// combat log) - `#[serde(skip)]` deliberately, on BOTH directions:
@@ -6130,7 +6212,35 @@ impl AdventureManager {
             enemy_name: Some(enemy_name),
             enemy_count: Some(num_enemies as u32),
             retreated: Vec::new(),
-            boss_sprites: Vec::new(),
+            boss_sprites: {
+                // One look per enemy in the group, server-side, exactly
+                // the way `run_encounter` above picks a boss's - same
+                // `rand::thread_rng()` taken HERE, outside and after
+                // `simulate_battle`, so it never touches the fight's own
+                // seeded stream and cannot move a single roll. What
+                // enemies look like is presentation; it is not part of
+                // the simulation and the golden corpus does not record it
+                // (`GoldenSnapshot` is {won, units, events, rolls}).
+                //
+                // This REPLACES a client-side `Math.random()` the overlay
+                // used to run at render time over a 3-name list, which
+                // meant a basic fight showed different mobs on every
+                // replay and on every viewer's client, and - since that
+                // pick produced a ONE-entry array while
+                // `spriteNameForEnemySlot` falls back to `death` for any
+                // slot past the end - every enemy after the first
+                // rendered as the death sprite. Rolling per enemy here
+                // fixes both: the look is decided once, travels with the
+                // fight, and is the same for everyone every time.
+                //
+                // Duplicates are allowed and expected: 50 sprites over a
+                // group of up to ~1.5x party size will repeat, and a
+                // deduped roll would silently cap group size at 50.
+                let mut sprite_rng = rand::thread_rng();
+                (0..num_enemies)
+                    .map(|_| BASIC_ENEMY_SPRITES[sprite_rng.gen_range(0..BASIC_ENEMY_SPRITES.len())].to_string())
+                    .collect()
+            },
             // See `run_encounter`'s matching field for why `rolls` isn't
             // rescaled the way `events` just was above.
             rolls,
