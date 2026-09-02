@@ -678,3 +678,42 @@ because of the counterfactual: the deleted IIFE set every canvas to
 code the same two viewports would have produced canvases **940** and **660**
 wide. Measuring 1280 and 1000 is what proves the shrink override is gone rather
 than merely inert.
+
+### Deploy — World 2, Twitch removal (2026-09-02)
+
+Merge `f3328b7` to master; binary `4e5b8ca4d2742138988257bd433ed9245a98f244097930c5b0001efa12412106`
+(previous `2d7d8114d5a458612d097545f040d2fc0b1ee9b0e71aa2cc90b8d51dd1120c20`).
+Built on the box from `git archive f3328b7` under `systemd-run` with explicit
+PATH/HOME: build 2m36s exit 0, suite **755 passed / 0 failed / 0 ignored**
+across 31 binaries, exit 0 — the corrected §13B baseline, hit exactly.
+`deploy-linux.sh` downtime **0.24s**, `NRestarts=0` before and after both
+restarts. Rollback slot
+`/var/backups/pathofdust/deploy-pre-twitch-removal/game.pre-twitch-removal`,
+backup archive `pod-backup-20260902-143149.tar.gz`.
+
+**Binary verified before any env change** (owner's ordering, so a failure
+would implicate one change not two): all five `/api/*` probes 404, `/login`
+and `/auth/callback` 404, `/` `/account/login` `/patch-notes` `/wiki`
+`/overlay` all 200. Overlay measured in headless Chrome through an SSH
+tunnel against live production: all three canvases 1280x720 at a 1280x720
+viewport, 1000x600 after resize, zero iframes, settings tray intact.
+
+**Env cleanup, second restart.** Deleted `/etc/pathofdust/production.env`
+(one line: `ADVENTURE_WEB_PUBLIC_URL`), `10-production.conf`,
+`20-bootstrap.conf`, and unit line 43. Resolved environment is now exactly
+`OPERATOR_LOGIN=lokati ADVENTURE_WEB_PORT=4005
+ADVENTURE_OVERLAY_SERVER_PORT=4004` — the stale-variable grep returns 0.
+Operator gate verified BY EFFECT after the restart: `/admin/tunables` 200
+with the operator session, 404 anonymous, `/admin/passives` 200.
+
+FOUND — `ADVENTURE_WEB_PUBLIC_URL` was set in TWO places, the env file AND
+unit line 43. The original deploy step removed only the file, which would
+have left behind the exact variable the cleanup existed to remove. Caught
+by the owner's order to enumerate both files before deleting rather than
+after. Enumerate-before-delete earned its keep here.
+
+FOUND — the first production overlay measurement read 300x150 (the HTML
+canvas default), i.e. `resize()` had not run. Not a defect: `readyState`
+was still `loading` 12s in, because the overlay's assets come through the
+SSH tunnel slowly. At 60s the same page read 1280x720. A measurement taken
+before `readyState` leaves `loading` measures nothing.
