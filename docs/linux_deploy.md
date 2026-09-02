@@ -291,7 +291,7 @@ binary    : e5f21e43499626da65c04efca8481ecc17e7dce4269177d5fa2f01ac68ed5930
 /characters          HTTP 200   94,002 B
 /passives            HTTP 200   72,402 B
 /admin/tunables      HTTP 200  103,052 B   (operator session)
-/admin/tunables      HTTP 200  (anonymous) body contains <h1>Not Found</h1>
+/admin/tunables      HTTP 404  (anonymous) ~71,722 B -- see the correction below
 /api/status          HTTP 404   -- INVALID PROBE, see the correction below
 /sprites/custom/Sitch89.gif  HTTP 200  687,999 B
 ```
@@ -440,8 +440,11 @@ session token was held aside before the scrub and replayed after it:
 | `GET /characters` with the production token | HTTP 200, **94,002 B** (authenticated: real character list) | HTTP 200, **72,025 B** (the anonymous landing page — token rejected) |
 | `GET /admin/tunables` with the production token | — | HTTP 404, `Not Found` body |
 
-The byte count is the discriminator, because both cases return 200; a status-code assertion
-would have proved nothing here, the same trap as the operator gate. Then:
+For the `/characters` row the byte count is the discriminator, because both cases return 200 and a
+status-code assertion would have proved nothing there. **That reasoning does not extend to
+`/admin/tunables`, and this document previously implied it did:** since `6e8cf44` (ledger #51) the
+admin refusal is a **real 404** — as the row above already records — so on that route the status
+code discriminates on its own. Corrected 2026-09-02. Then:
 `grep -rl argon2 /var/lib/pathofdust --include=*.json` returns exactly one file — the new
 `adventure-accounts.json`. No production password hash remains on the box. The held-aside
 token file was deleted.

@@ -427,13 +427,39 @@ flip, not after.
 This check can only run after the state load, so it is executed at §8.5 — but it is a **gate on
 the flip**, not a post-flip check. It is written here so nobody plans around it.
 
-Over an SSH port-forward, log in at `/account/login` as the operator and load `/admin/tunables`.
+**The binding check is an AUTHENTICATED load of `/admin/tunables`.** Expect **200 with a real
+page** (~100 KB).
 
-Expect: `/admin/tunables` returns **200 with a real page** (~100 KB) while authenticated, and
-**200 with a small `<h1>Not Found</h1>` body** while anonymous. **Compare byte counts, not status
-codes** — the operator gate returns 200 either way and a status-code assertion proves nothing.
+**How to authenticate without the operator's password.** A deploy session does not have it —
+`adventure-accounts.json` stores only `password_hash`, and there is no `OPERATOR_PASSWORD`
+anywhere. Use a session the payload already carries instead. `adventure-sessions.json` maps
+opaque tokens to `{login, display_name, created_at}`; pick any entry whose `login` is the
+`OPERATOR_LOGIN` (`lokati` — 3 such sessions existed at cutover, out of 152 across 61 logins) and
+present it as the `adv_session` cookie (`adventure_web.rs:56`):
 
-**If the operator cannot log in, do not flip.** Go to §10.1 while nothing has moved.
+```sh
+TOK=$(python3 -c "import json;d=json.load(open('/var/lib/pathofdust/adventure-sessions.json'));print(next(k for k,v in d.items() if v['login']=='lokati'))")
+curl -s -o /dev/null -w 'authed admin/tunables %{http_code} %{size_download}B\n' \
+  -b "adv_session=$TOK" http://localhost:4005/admin/tunables
+```
+Never echo `$TOK`. This exercises the whole chain — the accounts file loaded, the sessions file
+loaded, the token validates, the operator is recognised, and the real page renders. Approved by
+the owner on 2026-09-02 as the standing way to run this gate unattended.
+
+**Secondary, non-authenticated check: anonymous `/admin/tunables` must return a real `404`**
+(~71,722 B). This confirms the gate is actually gating. It does **not** replace the authenticated
+check — it passes on a box with no accounts file at all.
+
+> **Corrected 2026-09-02.** An earlier version of this step said the anonymous response is
+> **200** with a `<h1>Not Found</h1>` body, and instructed you to *"compare byte counts, not
+> status codes — the operator gate returns 200 either way and a status-code assertion proves
+> nothing."* That was true when written and is **stale**: commit `6e8cf44` ("admin gates: real 404
+> on the refusal, on both GET pages and all three POSTs", ledger #51) made the refusal a real
+> `404`. Measured on live production 2026-09-02: anonymous `/admin/tunables` → **404, 71,722 B**.
+> The status code now discriminates. The same stale claim still stands in `REFACTOR_PLAN.md` §13
+> check 6 and in `docs/linux_deploy.md`'s rehearsal record — corrected alongside this.
+
+**If the operator gate fails, do not flip.** Go to §10.1 while nothing has moved.
 
 ---
 
