@@ -896,3 +896,104 @@ what is covered.
 The timing test uses a 10 ms cooldown against a 250 ms wait — a 25x
 margin, deliberately wide so it does not join the known
 flaky-under-parallel set.
+
+### 2026-09-02 — WIN-BASED XP deploy record (release `win-based-xp`)
+
+Merged `feature/win-based-xp` into master with `--no-ff` (merge `02da915`,
+8 files, no conflicts — the rebase onto `3835699` had already resolved
+them). Deployed to the Debian box by REFACTOR_PLAN §13B.
+
+| | |
+|---|---|
+| master before / after | `3835699` → `02da915` |
+| binary before / after | `4e5b8ca4…` → `154f13e6…` |
+| source archive | `cb2fd853…`, `git archive` of the merge commit |
+| suite (local / box) | 767 passed, 0 failed, 32 suites — identical both sides |
+| build on box | 2 m 37 s, exit 0 |
+| downtime | **0.21 s** |
+| NRestarts | 0 before, 0 after |
+
+Baseline arithmetic, checked rather than assumed: the box's own
+`test-deploy.log` for master alone read **755 / 31 suites**, matching
+§13B.1's recorded baseline. 755 + 12 (11 unit + 1 integration) = 767, and
+the extra suite is `admin_tunables_win_xp_http.rs`. My earlier local
+count of 770 was the same branch on the pre-removal master (758 + 12).
+
+**A misconfigured remote wasted a cycle.** `origin` pointed at the local
+`C:\PathofDust` clone rather than GitHub, so two "pushes" reported earlier
+in the session went nowhere and the local mirror's stale `master` made the
+Twitch-removal merge look unpushed. It was not: `3835699` was already
+GitHub's master. The rebase happened to be correct anyway because it was
+done against the commit hash, not against `origin/master`. Corrected by
+the owner; the stale `feature/win-based-xp` ref left behind at `cac87f4`
+in `C:\PathofDust` was deleted (ref only — that repo's working tree was
+byte-identical before and after, 13 pre-existing dirty entries unchanged).
+
+VERIFIED BY EFFECT, not by inference. §13B.5's seven checks all passed
+(note check 3's expected N is **9**, not the 67 the table still records —
+that is a World-1 figure and predates the World 2 reset). Then the five
+dials rendered on live `/admin/tunables` with their shipped defaults and
+full bounds, and four out-of-range POSTs (`win_xp_mult=101`,
+`win_xp_flat=-1`, `win_xp_level_pct=1.5`, `win_xp_cooldown_secs=3601`)
+each returned 400, named the field, said NOT SAVED, and left the live
+tunables file byte-identical. Those POSTs were built by scraping the
+rendered form's CURRENT values and perturbing one field, so an unexpected
+accept could not have moved anything else.
+
+**The real proof — one live boss win, 15:35:55, all 9 characters
+participating, pre-fight levels [1,1,1,2,2,2,2,2,2]:**
+
+| pre-fight level | XP granted | predicted |
+|---|---|---|
+| 1 (gorshie, jachiny, zolaries) | **38** | 38 |
+| 2 (six others) | **26** | 26 |
+
+Exact on both. Stage advanced 1 → 2 on that win.
+
+FINDING — **the design table was computed at catch-up 1.0, and the live
+roster is not at 1.0.** `catchup_multiplier` returns 1.0 only when every
+level in the fight is equal. The moment the roster is mixed, everyone at
+or below the median gets at least 2×, because the `l <= median` branch
+floors the bonus at 100%. Today that is 2× for the six level-2 characters
+and 3× for the three level-1s — which is exactly why the observed grants
+were 26 and 38 rather than the 13 the no-catch-up model predicts.
+
+This is correct behaviour, not a defect: catch-up on XP predates this
+work, and the owner ruled `win_xp_catchup_enabled` ships ON. But it means
+the approved curve understates real progression whenever the roster is
+uneven, which for a 9-player world with staggered joins is most of the
+time. Modelled at 2:1:
+
+| catch-up | day 1 | day 7 | day 14 |
+|---|---|---|---|
+| 1.0× (the approved table) | L11 (+10) | +3/day | L50 |
+| 2.0× (typical mixed roster) | L16 (+15) | +5/day | L81 |
+| 3.0× (the trailing player) | L20 (+19) | +7/day | L110 |
+
+So the "10 levels on day one, settling to 2/day" shape holds in form but
+runs roughly 1.5–2× hot in practice. Nothing needs changing today —
+levelling being too fast for a week is the recoverable direction, and the
+group converges toward uniform levels which pulls catch-up back to 1.0.
+If the owner wants the table honoured literally, the dial is
+`win_xp_mult` at ~0.5, NOT re-tuning `win_xp_flat`/`win_xp_level_pct`,
+because the multiplier is the one that scales without touching the shape.
+Flagging rather than acting: it is a calibration judgement, not a bug.
+
+FOUND — the `win_xp_*` keys are **absent from
+`/var/lib/pathofdust/adventure-live-tunables.toml`** until the first
+successful save of the tunables form. The running process holds the
+shipped defaults via `#[serde(default)]` on `LiveTunables`, and the admin
+page renders them correctly, so behaviour is right — but a future session
+grepping that file for `win_xp_flat` will find nothing and may conclude
+the feature did not deploy. It did; the file simply predates the fields.
+
+Evidence kept on the box: `/root/watch_win.log` and
+`/root/win_evidence.json` (the before/after character snapshot for the
+verified win), `/root/patch-notes.pre-win-xp.json` and
+`/root/tunables.pre-reject-test.toml` (rollback copies), and the rollback
+slot at `/var/backups/pathofdust/deploy-pre-win-based-xp/`.
+
+Patch notes: one new entry at the top of `patch-notes.json`, "XP comes
+from winning fights now", six items, installed before the swap and
+confirmed live. The rampage throttle is called a nerf in plain words, per
+the honest-patch-notes rule.
