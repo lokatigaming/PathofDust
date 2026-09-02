@@ -1555,3 +1555,126 @@ here so the gap in `patch-notes.json` is explained rather than looking
 like an omission. The one arguably player-visible effect is that
 lokati.net/commands.html stops listing nine adventure commands that have
 answered nothing since cutover.
+
+---
+
+## 2026-09-02 — BOT-DECOUPLING deploy record (merge `4abecde`)
+
+First bot-only deploy since production moved to Linux, and the first
+exercise of 13A's bot path with no game on the box.
+
+**Merged twice, because master moved twice underneath.** Base was
+`a2d75fa`; by the time the branch was verified master was `e1a369c`
+(crafting cost curve + orphaned-docs recovery), and by the time THAT
+merge was verified it was `5c116c3` (stage-gated drops). Neither touched
+`src/**`, so neither collided: `git diff --name-only origin/master..HEAD`
+on the final state lists seventeen files, all of them the bot crate or
+docs, and zero under `game/**`. Both merges conflicted only in
+`WIKI_IMPACT.md` and `docs/session_journal.md`, both resolved keep-both.
+The resolution was checked rather than eyeballed: `git diff` against each
+parent showed additions only, zero removed lines on either side.
+
+**Test arithmetic.** Measured on `e1a369c`: 777 passed / 0 failed / 0
+ignored, 34 suites. Measured on the final merged tree `4abecde`: **775
+passed / 0 failed / 0 ignored, 35 suites**
+(`CARGO_TARGET_DIR=C:/dust-work/target-botdecouple cargo test --release
+--workspace --quiet`, exit 0). Master's own baseline at merge time
+(`5c116c3`) is therefore 775 + 13 = **788** — derived, not measured, and
+the derivation is closed rather than assumed: the merged tree is exactly
+`5c116c3` plus a diff containing no `game/**` file, so no game test can
+have moved, and the 13 are pinned by the suite listing (the bot lib's
+`running 3 tests` and the bot bin's `running 10 tests` both became
+`running 0 tests`; the count of empty suites went 5 -> 7). Master itself
+gained 11 between `e1a369c` and `5c116c3` (game lib 730 -> 740, one new
+test binary), which reconciles 777 + 11 = 788. Master was not re-measured
+at `5c116c3` because a third baseline run would have raced a fourth push.
+
+Clippy exit 0, zero errors. The bot binary's only two warnings
+(`too_many_arguments` on `handle_interrupt_redemption`,
+`trim_split_whitespace` in the chat-command split) sit on lines
+byte-identical to the pre-branch master and were untouched here.
+
+**Binary swap.** Old `FA9BB513…` (17,614,336 B, 2026-08-29), new
+`DCC1DAFA…` (17,283,584 B) — 330,752 bytes smaller, which is the deleted
+code. Backed up to `C:\PathofDust\backup-pre-bot-decoupling\` (both
+`twitch-bot-rs.exe` and `twitch-bot-rs.exe.pre-bot-decoupling`, backup
+hash confirmed equal to the old live hash before the copy). Cargo did not
+relink the bot between the two merge commits; that this is correct rather
+than a stale artifact was proved with `git diff f52899a..4abecde -- src/
+Cargo.toml Cargo.lock`, which is empty.
+
+**Watchdog handled as a lease, not a switch.** `-Target Bot -Set`
+confirmed with `-Status` printing `scope : this IS the flag
+'TwitchBotRS-Watchdog' reads` BEFORE anything was stopped, and cleared
+after the health check, confirmed absent. The bot was stopped via
+`Stop-ScheduledTask -TaskName TwitchBotRS`, never by image name; the
+running PID (19844) was resolved first and its `ExecutablePath` asserted
+to be under `C:\PathofDust` before the stop, and confirmed gone after.
+`TwitchBotRS-Watchdog` has run twice since (23:30, 23:40) and restarted
+nothing; `watchdog.log`'s last entry is still 2026-08-19.
+
+**13A's cross-binary start ordering was amended in this release, not
+worked around.** It required starting the bot only after `GameProcess`
+was healthy. `GameProcess` and `GameProcess-Watchdog` are both *Disabled*
+on this box and there is no game here to check, so the step could not be
+performed as written. Rewritten with the date and reason in place; old
+wording preserved inside the amendment.
+
+**THE SYMPTOM IS GONE, MEASURED BOTH SIDES.** Before: 3,585 of the day's
+4,759 bot log lines — 75% of everything the bot wrote — were
+`Failed to open the adventure announcements stream … 404`, running at 108
+lines per 10 minutes. After, over an 11.5-minute window on the new
+binary: **0 adventure lines, 0 WARN, 0 ERROR**, 30 lines total and every
+one of them real work.
+
+**Verified live, by real viewers, not by contrivance.** In that same
+window the surviving bot exercised itself: an entrance theme fired for
+Kalashuddin; `!song` answered; `!playlist <user>` queued five songs each
+for three different people; `!vs` ran a full vote-skip to completion
+(1/3, 2/3, "Vote to skip passed!"); a malformed `!vs#` was handled
+without incident; both hourly PoE pricing sheet syncs ran. All three OBS
+ports serve 200 (4001 alert box 18,924 B, 4002 overlay 16,385 B + dock
+10,729 B, 4003 chat overlay 4,359 B). Chat connected, 388 emotes loaded,
+OBS WebSocket identified, StreamElements and PayPal watchers started.
+EventSub now reports exactly two redemption subscriptions — "entrance-
+theme redemptions and Interrupt the Music redemptions" — where it used to
+report five, which is the cleanest single line of evidence that the three
+adventure subscriptions are gone and the two survivors still work.
+
+`commands-data.json` regenerated at startup: 168 entries, **zero**
+occurrences of `join`, `character`, `rampage`, `pinfight` or `giftdust`,
+and `bugreport` still present. lokati.net/commands.html no longer
+advertises nine commands that answered nothing.
+
+**NOT verifiable without the owner, stated rather than glossed:** nobody
+redeemed a channel-point reward in the window, so the theme and interrupt
+handlers are proven subscribed but not proven end-to-end; no follow, sub,
+raid or tip arrived, so the alert box is proven to serve its page but not
+to fire an alert; no `!votevolume` was used, so the OBS fader path is
+unexercised. Each is unchanged code on a path this release did not touch,
+which is an argument, not a measurement.
+
+The three orphaned `channel-points-{reforge,repair,force-boss}-reward.json`
+were deleted from `C:\PathofDust` after the swap; the theme and interrupt
+files remain.
+
+**STILL OUTSTANDING, OWNER ONLY.** The three rewards remain live in the
+Twitch dashboard. A viewer can still spend points on Reforge Gear, Repair
+All Gear or Force Boss Fight and now gets nothing at all — no handler, so
+no fulfil and no refund, points simply consumed. No code in this repo can
+retire them. This is the one real player-facing harm in the current
+state and it can only be fixed by hand in the Twitch dashboard.
+
+**Patch notes: none, on the owner's explicit instruction.** A knowing
+deviation from 13A step 1's "internal-only releases get a one-line
+`Internal:` entry". Recorded so the gap is explained rather than
+mistaken for an omission. The commands.html change above is the one
+effect that arguably crosses into player-visible.
+
+`.env` on the box still carries `ADVENTURE_API_SECRET`,
+`ADVENTURE_API_BASE_URL` and `ADVENTURE_WEB_PUBLIC_URL`, all three now
+read by nothing in either binary. They are inert, not harmful, and were
+left for the owner rather than edited during a deploy window.
+FOUND, same shape, not acted on: `PATREON_CLIENT_ID`,
+`PATREON_CLIENT_SECRET` and `PATREON_POLL_INTERVAL_MS` are also still
+there although Patreon was removed on 2026-08-28.
