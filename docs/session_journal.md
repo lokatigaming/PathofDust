@@ -2289,3 +2289,69 @@ with the deploy. Text as ordered, nerf-honest:
 > **Report a Bug** is in the top menu. Logged-in players can send a report
 > straight to the owner — it replaces the old `!bugreport` chat command
 > that went away with Twitch. One a minute.
+
+## 2026-09-03 — PLAYER-FACING-BATCH: I reverted the affix curve for four minutes
+
+My account of the concurrent-deploy incident the affix-curve session
+recorded in `ea5ef88`. Their record is the canonical one; this is what I
+did wrong, so the next session does not repeat it.
+
+**What happened.** I deployed `ce6ba5c` (my merge of
+`feature/player-facing-batch` onto master `1465e45`) at 19:20:55 box
+time. The affix-curve release had gone live at 19:19:51 — 64 seconds
+earlier — deployed from its branch BEFORE it merged to master. My binary
+was built from a master that did not contain it, so the swap removed the
+affix tier curve, the crit-multiplier halving and the retroactive
+rescale from production. The affix-curve session re-deployed at 19:24:51
+and restored it. Roughly four minutes of wrong item stats, over one
+basic fight (`fight-0000000182`).
+
+**The check I had and ignored.** I read the live binary hash twice: at
+the start it was `58972241`, and immediately before the swap it was
+`ab49d679`. I NOTICED the change, said so out loud, and then reasoned:
+"another session deployed while I worked; my merge sits on top of that
+master, so my candidate is strictly newer." That inference is invalid
+and is the whole error. A live hash I cannot account for does not mean
+production is behind me — it means I do not know what is running. The
+affix-curve binary was ahead of my master, not behind it.
+
+**Rule this should have been.** Before a swap, the live binary must be
+attributable to a commit that is an ancestor of the one being deployed.
+Hash inequality proves only that something changed. If the live hash
+cannot be tied to a known ancestor, STOP: either identify it or wait.
+A cheap version of this check: `git log origin/master` for a deploy
+record naming that hash, or ask, before swapping.
+
+**Second lesson, unrelated to the collision.** `deploy-linux.sh`'s asset
+refresh works, but on a box where two releases are interleaved the
+assets and the binary can end up from DIFFERENT trees: my 50
+`basicenemy/*.png` are still on the box (new files, nothing deletes
+them) while `overlay.html` and `base.html` came back from the
+affix-curve tree. Assets are not part of the rollback slot, so a
+rollback restores the binary and leaves the other release's assets in
+place. Worth knowing before the next interleaved night.
+
+**Verified by effect, while my release was briefly live** — the release
+itself is sound, which is not in question here:
+
+| | |
+|---|---|
+| `fight-0000000182` (mine live) | 17 enemies, 17 sprites, all `basicenemy/`, zero death sprites |
+| `fight-0000000181` (before) | 16 enemies, 0 sprites — 16 slots drawn as corpses |
+| `fight-0000000183` (after revert) | 8 enemies, 0 sprites — corpses again |
+| health checks 1-7 | all passed; downtime 0.12 s; NRestarts 0 |
+| log during my window | clean apart from a pre-existing retired-affix WARN |
+
+FOUND — the pre/post fight records are the clearest evidence yet for the
+death-sprite bug: every basic fight before this release stored ZERO
+sprites for 8, 16 and 21 enemies respectively. Every slot past the first
+fell through to `death`.
+
+**State at hand-off.** Production runs the affix-curve binary
+`ab49d679`, correct and untouched by me. My patch-notes entry was
+reverted from `/var/lib/pathofdust/patch-notes.json` (restored from
+`/root/patch-notes.pre-player-facing-batch.json`, 27 entries, the
+affix-curve note back on top) because it advertised a release that is no
+longer live; the entry is kept at `/root/patch-entry.json` for re-use.
+`feature/player-facing-batch` is rebased onto master `ea5ef88` and
+pushed. NOT merged to master, NOT deployed, awaiting a fresh go.
