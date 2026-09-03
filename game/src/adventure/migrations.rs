@@ -388,6 +388,69 @@ pub(crate) fn migrate_celestial_shard_into_unique_shard(character: &mut Characte
     character.craft_tokens.retain(|(action, _)| *action != CraftAction::CelestialShard);
 }
 
+/// Refunds every point spent on the two retired dead nodes, `stillwater`
+/// (Monk) and `sacredoverflow` (Paladin).
+///
+/// **NO BALANCE CONSEQUENCE - this migration cannot change any
+/// character's combat output, and a reader auditing migrations for
+/// balance impact can stop at this line.** Both nodes are no-ops today
+/// and always have been: nothing anywhere in `game/src` ever passes
+/// `"stillwater"` to a by-key lookup, and `sacredoverflow` is the tree's
+/// last `PassiveEffect::NotYetImplemented`, whose `magnitude_at_rank` is
+/// a literal `0.0`. Removing their allocations therefore returns points
+/// and changes nothing else. (Found by the 2026-09-03
+/// advertised-vs-actual sweep; retirement ruled by the owner over both
+/// building the mechanics and rewording the copy.)
+///
+/// **Why removing the entry IS the refund.** There is no separate
+/// "points available" counter to keep in sync: every site that asks how
+/// many points a character has spent derives it by summing the map
+/// itself (`manager.rs`'s allocate-time guard and the three
+/// `adventure_web.rs` render sites all do
+/// `passive_allocations.values().sum()`). So a removed entry returns its
+/// points automatically, and the two numbers cannot disagree because
+/// there is only one number.
+///
+/// **Refund, deliberately, rather than remapping onto the replacement
+/// nodes.** `migrate_flowlikewater_swap` above remaps, and it is right to
+/// - that was the same mechanic moving between two tiers. This is
+/// different mechanics arriving. A player who chose a defensive-uptime
+/// node and silently received a party-support node would have been
+/// wronged in a new way by the fix for the old one. They get the points
+/// back and spend them themselves.
+///
+/// **Both trees, and this is the part most likely to be simplified away
+/// by mistake.** Split Personality can run Monk or Paladin as a
+/// SECONDARY archetype, so an affected allocation can live in
+/// `secondary_passive_allocations` and nowhere else. A migration that
+/// touched only the primary map would silently miss exactly those
+/// characters - and, being marker-guarded, would never get a second
+/// chance at them. Same two-map loop as `migrate_flowlikewater_swap`.
+///
+/// Safe on a character with neither node allocated (both `remove`s are
+/// no-ops), and safe against a tree that has already dropped the node
+/// definitions - `remove` needs no node to exist.
+pub(crate) fn migrate_refund_retired_dead_nodes(character: &mut Character) {
+    for tree in [&mut character.passive_allocations, &mut character.secondary_passive_allocations] {
+        for key in RETIRED_DEAD_NODE_KEYS {
+            tree.remove(key);
+        }
+    }
+}
+
+/// The node keys `migrate_refund_retired_dead_nodes` clears. Named rather
+/// than inlined so the test and the migration cannot drift apart.
+///
+/// **These keys are retired permanently and must never be reused.** The
+/// replacement nodes going into the same two tree slots take NEW keys, so
+/// that any allocation this migration fails to clear - a save lost
+/// between the mutation and the marker write, a character restored from a
+/// backup predating it, a path nobody has thought of - resolves to
+/// nothing instead of silently onto a mechanic the player never chose.
+/// Making the bad outcome unrepresentable beats making the migration
+/// perfect.
+pub(crate) const RETIRED_DEAD_NODE_KEYS: [&str; 2] = ["stillwater", "sacredoverflow"];
+
 /// Echo replaces Lingering Effect (2026-08-21, docs/echo_spec.md) - renames
 /// every existing `Affix::LingeringEffect` entry, on every item this
 /// character owns (equipped + bag), to `Affix::Echo` at HALF its stored
@@ -482,6 +545,7 @@ pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[
     ("adventure-celestial-shard-into-unique-shard-marker.json", migrate_celestial_shard_into_unique_shard),
     ("adventure-duplicate-unique-effects-cleanup-marker.json", migrate_duplicate_unique_effects),
     ("adventure-lingering-effect-to-echo-marker.json", migrate_lingering_effect_to_echo),
+    ("adventure-refund-retired-dead-nodes-marker.json", migrate_refund_retired_dead_nodes),
 ];
 
 /// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -
@@ -1449,5 +1513,143 @@ mod affix_curve_tests {
         item.sacred_affix = None;
         item.perfect = false;
         item
+    }
+}
+
+/// The 2026-09-04 retirement refund. What these pin is the property the
+/// owner called non-negotiable - **both** allocation maps - and the
+/// property that makes the migration safe to run at all: it returns
+/// points and touches nothing else.
+#[cfg(test)]
+mod refund_retired_dead_nodes_tests {
+    use super::*;
+
+    fn with(archetype: Archetype, primary: &[(&str, u32)], secondary: &[(&str, u32)]) -> Character {
+        let mut c = Character::new("test".to_string());
+        c.archetype = archetype;
+        c.passive_allocations = primary.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        c.secondary_passive_allocations = secondary.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        c
+    }
+
+    /// `spent` is derived by summing the map at every call site, so
+    /// removing the entry IS the refund. Asserted as the sum rather than
+    /// as a missing key, because the sum is what the game actually reads.
+    fn spent(c: &Character) -> u32 {
+        c.passive_allocations.values().sum::<u32>() + c.secondary_passive_allocations.values().sum::<u32>()
+    }
+
+    #[test]
+    fn refunds_both_retired_nodes_from_the_primary_tree() {
+        let mut c = with(Archetype::Monk, &[("stillwater", 3), ("unmovable", 2)], &[]);
+        assert_eq!(spent(&c), 5);
+        migrate_refund_retired_dead_nodes(&mut c);
+        assert!(!c.passive_allocations.contains_key("stillwater"), "the retired key must be gone, not zeroed");
+        assert_eq!(c.passive_allocations.get("unmovable").copied(), Some(2), "a sibling node must be untouched");
+        assert_eq!(spent(&c), 2, "the 3 points must come back");
+    }
+
+    /// **The non-negotiable one.** Split Personality can run Monk or
+    /// Paladin as a SECONDARY, so an affected allocation can live only in
+    /// `secondary_passive_allocations`. A migration touching just the
+    /// primary map would miss exactly those characters - and, being
+    /// marker-guarded, would never get a second chance at them.
+    #[test]
+    fn refunds_from_the_secondary_tree_too() {
+        let mut c = with(Archetype::Berserker, &[("bloodlust", 3)], &[("stillwater", 2), ("sacredoverflow", 3)]);
+        assert_eq!(spent(&c), 8);
+        migrate_refund_retired_dead_nodes(&mut c);
+        assert!(!c.secondary_passive_allocations.contains_key("stillwater"));
+        assert!(!c.secondary_passive_allocations.contains_key("sacredoverflow"));
+        assert_eq!(c.passive_allocations.get("bloodlust").copied(), Some(3), "the primary tree must be untouched");
+        assert_eq!(spent(&c), 3, "all 5 secondary-tree points must come back");
+    }
+
+    #[test]
+    fn refunds_the_paladin_node_and_leaves_its_siblings() {
+        let mut c = with(Archetype::Paladin, &[("sacredoverflow", 3), ("radiantbarrier", 3), ("graceperiod", 1)], &[]);
+        migrate_refund_retired_dead_nodes(&mut c);
+        assert!(!c.passive_allocations.contains_key("sacredoverflow"));
+        assert_eq!(c.passive_allocations.get("radiantbarrier").copied(), Some(3));
+        assert_eq!(c.passive_allocations.get("graceperiod").copied(), Some(1));
+        assert_eq!(spent(&c), 4);
+    }
+
+    /// Marker-guarded means it runs once, but a migration that is not
+    /// idempotent is a landmine if the marker is ever lost - and this one
+    /// costs nothing to make safe.
+    #[test]
+    fn is_a_no_op_when_neither_node_is_allocated_and_is_safe_to_re_run() {
+        let mut c = with(Archetype::Monk, &[("unshakable", 3)], &[("serenity", 4)]);
+        let before = spent(&c);
+        migrate_refund_retired_dead_nodes(&mut c);
+        migrate_refund_retired_dead_nodes(&mut c);
+        assert_eq!(spent(&c), before, "a character with neither node must be left exactly as-is");
+        assert_eq!(c.passive_allocations.get("unshakable").copied(), Some(3));
+        assert_eq!(c.secondary_passive_allocations.get("serenity").copied(), Some(4));
+    }
+
+    /// **The claim the doc comment opens with, pinned rather than
+    /// asserted in prose: the refund cannot change combat output.**
+    ///
+    /// Note carefully what makes that true, because the obvious test is
+    /// the wrong one. `stillwater` DECLARES a magnitude
+    /// (`Special { at_rank_1: 1.0, .. }`, so `magnitude_at_rank(3)` is
+    /// 3.0) - it is not zero. What makes it inert is that **no call site
+    /// ever passes its key**, which is a property of the CONSUMERS, not
+    /// of the node. So this scans the four files where every by-key
+    /// passive lookup in the game lives, the same `include_str!`
+    /// technique `character.rs`'s `guard_tests` uses to pin the reach of
+    /// the mutation-guard bypasses.
+    ///
+    /// It fails the moment anyone adds a consumer for a retired key -
+    /// which is precisely when the refund would stop being
+    /// balance-neutral.
+    ///
+    /// `passive_overrides.rs` is deliberately NOT scanned: it lists these
+    /// keys in an override allow-list, which is not a combat consumer and
+    /// cannot make a node do anything on its own.
+    #[test]
+    fn no_consumer_anywhere_reads_a_retired_node_key() {
+        const CONSUMER_SOURCES: &[(&str, &str)] = &[
+            ("combat.rs", include_str!("combat.rs")),
+            ("character.rs", include_str!("character.rs")),
+            ("manager.rs", include_str!("manager.rs")),
+            ("adventure_web.rs", include_str!("../adventure_web.rs")),
+        ];
+        for key in RETIRED_DEAD_NODE_KEYS {
+            let needle = format!("\"{key}\"");
+            for (file, source) in CONSUMER_SOURCES {
+                assert!(
+                    !source.contains(&needle),
+                    "{file} names the retired node key {needle}. A retired node must have no consumer - if one exists the node is not inert, and refunding its points silently removes something the player had. Either that consumer is new (do not add one), or a replacement node reused the key (replacements take NEW keys)."
+                );
+            }
+        }
+    }
+
+    /// A retired key must live in **at most one** tree slot, and only as
+    /// the dead node awaiting replacement.
+    ///
+    /// The retired definitions still exist at this commit - this branch
+    /// ships the refund alone, and the replacements land later under NEW
+    /// keys. What must never happen is a retired key appearing on a
+    /// SECOND node, or on an archetype it never belonged to: either would
+    /// mean an unrefunded allocation resolving somewhere the player never
+    /// chose. Combined with `no_consumer_anywhere_reads_a_retired_node_key`
+    /// above, this is the pair that makes reuse of these keys fail loudly.
+    #[test]
+    fn each_retired_key_appears_on_at_most_one_node_and_only_where_it_started() {
+        for key in RETIRED_DEAD_NODE_KEYS {
+            let home = if key == "stillwater" { Archetype::Monk } else { Archetype::Paladin };
+            for archetype in ALL_ARCHETYPES {
+                let hits = archetype.passive_nodes().iter().filter(|n| n.key == key).count();
+                let allowed = if archetype == home { 1 } else { 0 };
+                assert!(
+                    hits <= allowed,
+                    "node key {key:?} appears {hits}x on {archetype:?} (at most {allowed} allowed). A replacement node must take a NEW key, so an unrefunded allocation cannot resolve onto a mechanic the player never chose."
+                );
+            }
+        }
     }
 }
