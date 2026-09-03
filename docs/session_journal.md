@@ -4286,3 +4286,129 @@ fact. The patch note therefore asks affected players to come forward
 rather than promising a number nobody can calculate. **If a blanket
 goodwill grant is wanted instead, it is an owner decision and a separate
 change.**
+
+### 2026-09-03 — ECHO COEFFICIENT: the tier-curve migration missed one affix
+
+Branch `fix/echo-coefficient` off `origin/master` (`f306f64`). Not merged,
+not deployed — merges after today's queue drains, in the same window as
+the deliberate golden-corpus regeneration.
+
+Owner ruling, and the owner supplied the root cause rather than waiting
+for the investigation: Echo's `per_tier` was never re-derived when the
+2026-09-02 affix tier curve migration landed. It was carried forward
+unchanged and the shared `f(T)` crushed it. **Not drift — a gap in that
+migration's scope.**
+
+The symptom, measured before the change: an Echo affix was worth
+**0.0125% at tier 1** and still only **0.243% at tier 1000**. The
+smallest magnitude in the affix pool by an order of magnitude, and
+indistinguishable from zero in play.
+
+#### The change, and the arithmetic on record
+
+`Echo.default_per_tier` `0.000125` → `0.01`, against the unchanged shared
+curve:
+
+| | value |
+|---|---|
+| `0.01 × f(1)` | **1.000000%** |
+| `0.01 × f(100)` | **10.000000%** |
+| `0.01 × f(1000)` | **19.453601%** |
+| `f(1000) = 10 × 10^0.289` | 19.4536008162 |
+
+A **pure coefficient change**: uniformly 80× at every tier, which is what
+"no curve deviation" means arithmetically. Echo gets no exponent of its
+own, stays purely multiplicative in `f(T)`, and so
+`affix_tier_growth_ratio`, `affix_quality_percent` and
+`Item::sync_tier_to` all keep working on it exactly as they do for the
+other sixteen affixes. Nothing became per-affix. The additive floor
+scoped in the previous fit report would have broken all three — the
+ruling is simpler *and* safer, and that is worth recording as the reason
+the design question was worth asking before building.
+
+Source of truth: the in-code `AffixDef` default.
+`adventure-item-balance.toml` is a sparse override file, carries no
+`echo` key, and no copy exists in the repo — the live file is runtime
+data on the box. **If the live file does carry an `echo` override it
+would win over the code default; flagged for verification at deploy.**
+
+#### FORWARD ONLY
+
+No migration, no rescale, no code path touches a stored Echo value that
+already exists. Only fresh rolls — drops, crafts, Krangle re-rolls — see
+the corrected coefficient. Per the ruling no retroactive path was built,
+not even as a flagged option.
+
+#### The affected population — what could and could not be determined
+
+The order asked for a count of live items carrying an Echo affix. **It
+cannot be answered from anything in this repo, and the reason is worth
+recording rather than papering over.** The only character data available
+to a feature session is `tests/fixtures/characters_pseudonymized.json`,
+captured 2026-08-18 — which **predates Echo entirely** (the
+LingeringEffect → Echo rework was 2026-08-21). It contains 0 `echo`
+affixes and 301 `lingeringEffect` ones.
+
+The closest honest proxy, from that snapshot: **301 of 2873 items
+(10.48%) across 46 of 52 characters** carried `lingeringEffect`, and
+those are precisely the items `migrate_lingering_effect_to_echo`
+converted into Echo at half value. Stored values ran 0.00022 to 0.191,
+median 0.0354. So the population holding Echo is **large, not marginal** —
+roughly one item in ten, and nearly every character — which is worth
+knowing given the ruling that none of them are touched.
+
+A true live count needs the game box and was not attempted; the order
+also ruled out querying live data for design purposes.
+
+#### Golden corpus — the prediction was wrong, in the safe direction
+
+The order predicted "most or all of the 17 scenarios" would diverge.
+**Measured: 4 of 17.**
+
+`warrior_vs_lich_stage50`, `warlock_vs_dragon_stage500`,
+`slayer_vs_tough_boss_stage3000`, `mage_passives_vs_cthulhu_stage1000`.
+
+Nothing regenerated. The explanation, and it is the same fact that makes
+the number small: a corpus scenario only moves if its seeded gear
+actually rolled an Echo affix. Echo is 1 of 17 affixes at weight 1.0 and
+each item draws 1–4, so most scenarios' gear carries none and is
+bit-identical.
+
+Worth contrasting with the abandoned `fix/echo-floor` branch, which
+diverged **17 of 17**: a floor on `Character::combat_echo_pct` gave every
+character a nonzero echo chance, inserting an `rng.gen_bool` draw into
+every attack and heal in every fight. The coefficient change touches only
+items that already rolled the affix. **The divergence count is itself
+evidence of the blast radius**, and it says the ruled design is the
+narrower one.
+
+#### Carried forward, and now load-bearing
+
+`echo_geared_character` strips the starter kit's random affixes and
+asserts zero earned Echo before pushing its own. This was hygiene when
+found; the coefficient change makes it necessary. At 80×, a stray tier-1
+Echo roll is worth ~0.85–1.15% instead of 0.0125% — enough to push a
+fixture built at 5.99 past the 6.0 rung and change `roll_echo`'s
+GUARANTEED repeat count from 5 to 6.
+
+**Generalises, and should be treated as a standing fact about this
+codebase: any test asserting an exact `sum_affix` value on a
+`Character::new` fixture is latently flaky, for every affix in the pool,
+because the starter kit rolls random affixes and every affix is eligible
+on every slot.** This is the third instance of the measurement-
+contamination class this week.
+
+#### Patch note draft — NOT written to the box
+
+> **Echo was broken and is now fixed — on new items**
+> - Echo's strength was never recalculated when item modifier scaling was
+>   reworked on 2026-09-02, so it has been rolling about 80x weaker than
+>   intended ever since. An Echo modifier was worth 0.0125% at tier 1 —
+>   effectively nothing.
+> - Fixed: Echo now rolls **1% at tier 1**, 10% at tier 100 and 19.45% at
+>   tier 1000, before the usual roll variance.
+> - **This applies to new rolls only.** Echo modifiers on gear you already
+>   own are unchanged, and there is no retroactive fix — if you check an
+>   old item you will see the old number. New drops, new crafts and
+>   Krangle re-rolls get the corrected value.
+> - No other modifier changed.
