@@ -2605,3 +2605,118 @@ Two things found while writing it:
   tree extracted before the curve merge was built and shipped over
   master's. Added — grep the source for a symbol the release introduces
   and stop if it is absent.
+
+### 2026-09-03 — PLAYER-FACING-BATCH deploy record (release `player-facing-batch`)
+
+First of three queued releases. Merged by HASH `352821d`, not by branch
+name.
+
+| | |
+|---|---|
+| merge | `f5c2035` (master `ea5ef88` → `f5c2035` → `f852584` ops/docs) |
+| binary before | `ab49d679…000498` (affix tier curve) |
+| binary after | `5bf620d4704a5ad103fe8c87ab9b653a1b63337500a2b2fd9c1610661fa4cb33` |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-player-facing-batch/game.pre-player-facing-batch` |
+| downtime | **0.31 s** |
+| build | 2 m 27 s, exit 0 |
+| suite on the box | **791 passed / 0 failed / 0 ignored, 37 suites** — `cargo test --release --workspace --quiet` in `/root/deploy-src-player-facing-batch` |
+| source dir | `/root/deploy-src-player-facing-batch` — **first release under the new per-release §13B path** |
+
+Baseline arithmetic: master was 786 after the affix curve; this branch
+adds `basic_enemy_sprites.rs` (new), `bug_reports_http.rs` (new) and
+extends `craft_confirm_ui_http.rs`. 791 is the branch's own stated count
+and it reproduced exactly on the box.
+
+### The tree-identity check, which is the point of this release's procedure change
+
+This is the branch whose stale build reverted the affix curve yesterday.
+Before building, the unpacked tree was checked for the thing that was
+missing last time:
+
+| check | result |
+|---|---|
+| `c36d582` (curve merge) is an ancestor of `352821d` | **yes** |
+| `affix_tier_curve` references in `$SRC/game/src` | **24** across `affix.rs` and `migrations.rs` (the bad tree had **zero**) |
+| release's own symbols present | `BASIC_ENEMY_SPRITES` ×5, `bug_reports.rs` present, 50 sprites |
+| archive sha256, dev machine vs box | `bbe74983…f02fae` both sides |
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0`, unchanged |
+| 3 | loaded characters vs file | **18 = 18** |
+| 4 | live sha256 | `5bf620d4…` = candidate |
+| 5 | authenticated `/characters`, `/passives` | 200 / 80,074 B, 200 / 91,109 B |
+| 6 | anonymous `/admin/tunables` | **404**, 73,730 B |
+| 7 | anonymous `POST /api/commands/join` | **404** |
+
+Zero panics or ERROR lines since the swap. Fights kept resolving across
+it (`fight-0000000445` at 05:57).
+
+### Verified by effect on production, not by code trace
+
+**Confirmations.** On the live `/inventory` page, rendered with the
+owner's own session, five of the six now carry `data-confirm="1"`:
+**Krangle, Scour, Annulment Orb, Chancing, Hideout Warrior**. The
+remaining two — **Unique Shard and Divinity** — could NOT be
+click-through verified, because both buttons only render when the
+character holds a Unique Shard and the owner holds none
+(`craft_tokens` shows `chancing 0, regal 0, exalt 0`, no unique-shard
+entry). Their `data-confirm="1"` was confirmed in the deployed source at
+`adventure_web.rs:6484` and `:6632`. **Stated as five verified live and
+two verified by trace, rather than six**, because the distinction is
+exactly the one the house rule is about.
+
+Worth recording for whoever re-checks: the confirm attribute is emitted
+on BOTH branches of `action_btn` — the free-token branch and the
+dust-paid branch. Since token drops were retired by stage-gated-drops,
+almost every real craft goes through the dust branch, so a fix that only
+covered the token branch would have been nearly inert. It covers both.
+
+**Sprites.** Fight bundle `fight-0000000445`, resolved at 05:57:32 —
+after the 05:52 swap — carries
+`members.core.bossSprites = ["basicenemy/07-skeleton-archer",
+"basicenemy/17-plague-doctor", "basicenemy/26-acid-hound",
+"basicenemy/45-magma-golem", "basicenemy/49-red-demon", …]`: one
+server-picked sprite per enemy, drawn from the new pool of 50. Before
+this release the overlay rolled `Math.random()` client-side over three
+boss sprites at render time. 50 sprite files landed in
+`/var/lib/pathofdust/public_adventure_overlay/sprites/basicenemy/`.
+
+**New routes.** `/bugs` 200 authenticated; `/admin/bugs` 200 for the
+owner and **403** anonymous.
+
+### Patch notes
+
+Five sections inserted at the top of the existing "September 3, 2026"
+block (1 → 6 sections; the affix curve's entry stays below them).
+Pre-edit copy at `/root/patch-notes.pre-player-facing-batch.json`.
+`/patch-notes` renders at 211,790 B. Nerf-honest per the standing rule —
+the confirmation section leads by saying the prompts were broken since
+19 August and apologising, rather than announcing a feature.
+
+### `backup-game-data.sh` had to be copied separately
+
+`deploy-linux.sh` does **not** refresh `bin/`, so the release's updated
+`backup-game-data.sh` (the `adventure-bugreports.json` line) was
+installed by hand to `/opt/pathofdust/bin/`, before the swap, so the
+first backup taken after `/bugs` went live already covers it. Previous
+copy at `/root/backup-game-data.sh.pre-player-facing-batch`. This is the
+second release in a row to hit this; §13B names it for markers but the
+general shape is "anything under `bin/` needs its own `scp`".
+
+### FOUND — `deploy-linux.sh`'s rollback slot is keyed on release name alone
+
+`BACKUP=/var/backups/pathofdust/deploy-pre-$NAME`, so **re-using a
+release name overwrites the previous slot's rollback binary**. That
+happened today: yesterday's incident left a
+`deploy-pre-player-facing-batch/` directory, and this deploy wrote over
+its `game.pre-player-facing-batch`. **Nothing was lost, by luck** — the
+binary live before today's swap was the same `ab49d679` that slot already
+held — and the pinned corpus merged rather than nesting (`cp -a` into an
+existing directory), so the slot now holds the union, 381 summaries. A
+genuine re-release of a name would have destroyed the only copy of the
+earlier rollback binary. Not fixed; a date suffix on `$NAME`, or refusing
+to write into an existing slot, would close it.
