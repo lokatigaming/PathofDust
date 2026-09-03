@@ -34,12 +34,14 @@ That subset is called out per-row below as "Shared cooldown ({{BUILTIN_COOLDOWN_
 
 <h3 id="bugs">Bug Reports</h3>
 
+<p class="muted"><strong>To report a bug in the adventure, use the website: <a href="/bugs">🐞 Report a Bug</a></strong> in the top navigation. That form is the one wired into the game - see <a href="/wiki/dashboard#bugs">Dashboard</a> for the limits. The chat commands below are the <em>bot's</em> own, separate reporting list; they still work, but a game bug filed through chat lands somewhere else entirely and is read separately.</p>
+
 <div class="wiki-table-wrap">
 
 | Command | Syntax | Who | What it does | Cooldown |
 |---|---|---|---|---|
-| `!bugreport <what happened>` | `!bugreport the dragon fight froze` | everyone | Files a free-text bug report for the streamer. | {{BUGREPORT_COOLDOWN_S}} sec per user |
-| `!bugreports` | `!bugreports` | **Mods** | Lists the 5 most recent reports in chat. | none |
+| `!bugreport <what happened>` | `!bugreport the song queue is stuck` | everyone | Files a free-text report on the **bot's** own list (stream/music/bot issues). For anything about the adventure itself, use [/bugs](/bugs) instead. | {{BUGREPORT_COOLDOWN_S}} sec per user |
+| `!bugreports` | `!bugreports` | **Mods** | Lists the 5 most recent *bot-side* reports in chat. Does not show reports filed at [/bugs](/bugs). | none |
 
 </div>
 

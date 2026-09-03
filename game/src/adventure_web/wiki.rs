@@ -207,10 +207,17 @@ fn substitute_wiki_placeholders(source: &str) -> String {
 /// named `pub(crate)` constants (see `WIKI_IMPACT.md`'s "Pure refactor"
 /// entry), so every one of them is wired below too now.
 /// **THE COMPILED-ONLY RULE (owner ruling, 2026-09-03).** A placeholder
-/// may resolve ONLY against a value that is compiled and stable. If a
-/// number is a `LiveTunables` field, is scaled by one at the point of
-/// use, or is merely the shipped DEFAULT of one, it must NOT be wired
-/// here - the page describes the mechanic instead and points the player
+/// may resolve ONLY against a value that is compiled and stable.
+///
+/// TWO stores can change a number live, and the second is the one that
+/// gets missed: `LiveTunables` (`/admin/tunables`) AND `PassiveOverrides`
+/// (`/admin/passives`), which can retune any passive node magnitude at
+/// any rank. A node value read out of `passive_tree.rs` is the shipped
+/// DEFAULT, not the live number - every read funnels through
+/// `PassiveNode::magnitude_at_rank`, which consults the override store
+/// first. If a number comes from either store, is scaled by one at the
+/// point of use, or is merely the shipped DEFAULT of one, it must NOT be
+/// wired here - the page describes the mechanic instead and points the player
 /// at the value the game itself shows them. This is not stylistic. A
 /// constant that a tunable has since taken over does not stop compiling
 /// when it goes stale; it renders a confident, wrong number forever.

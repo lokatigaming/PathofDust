@@ -73,6 +73,24 @@ currently short and under active review, so don't be surprised if a fight
 you were just in hasn't appeared yet - that's being worked on, not intended
 long-term behavior.
 
+<h3 id="bugs">Report a Bug</h3>
+
+`/bugs` - reachable from **🐞 Report a Bug** in the top navigation - is how you
+tell the owner something is broken. It is the only reporting route wired into
+the game itself.
+
+- **You must be logged in.** Your report is filed under your account name, so there's no name field to fill in.
+- **One report per minute**, per person.
+- **Up to 4000 characters.** Longer than that is rejected rather than truncated, so nothing is silently lost.
+
+Reports are saved on the game server and read by the owner on an
+operator-only page. **Nothing is emailed or forwarded anywhere, and there is
+no automatic reply** - a filed report will not respond to you, so don't wait
+on one. Say what you were doing, what you expected, and what happened
+instead; if it was a specific fight, say which.
+
+<p class="muted">The bot's <code>!bugreport</code> chat command still exists but writes a completely separate list that this page's form never touches - see <a href="/wiki/commands#bugs">Commands</a>. For anything about the adventure, use this form.</p>
+
 <h3 id="patch-notes">Patch Notes</h3>
 
 `/patch-notes` is a public changelog, no login needed - the closest thing to
