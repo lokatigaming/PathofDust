@@ -4064,3 +4064,118 @@ assertion encoding an expected ANSWER rather than the PROPERTY — and the
 four pinned an expectation to a literal a human typed; this one pinned it
 to a random draw. Same shape, and the same cure: derive the expectation
 from the system at the moment of the check.
+
+### 2026-09-03 — FLAKY-EMPTY-SLOT-TEST deploy record (release `flaky-empty-slot-test`)
+
+Queue item 3, from window b. The fix for the ~8% flaky test that halted
+the queue.
+
+| | |
+|---|---|
+| master commit deployed | `7afbe53` |
+| binary before | `d793678d…3980f6` |
+| binary after | `6e35ad68e1ff30249d9062a6bfbf2aa5e4f8106e270aa3e71de8f2349e97b6e3` |
+| downtime | **0.18 s** |
+| suite on the box | **827 passed / 0 failed / 0 ignored, 38 suites** (`-j 4`) — 825 + 2 |
+
+### FIRST PRODUCTION USE OF THE TIMESTAMPED SLOT SCHEME
+
+This is the first deploy under the scheme item 2 shipped, and it behaved:
+
+```
+rollback slot: /var/backups/pathofdust/deploy-pre-20260903-151649-flaky-empty-slot-test/game.pre-flaky-empty-slot-test
+deploy-pre-LATEST -> deploy-pre-20260903-151649-flaky-empty-slot-test
+```
+
+The slot's `SHA256SUMS` carries what the filename deliberately does not:
+
+```
+# release: flaky-empty-slot-test
+# slot:    deploy-pre-20260903-151649-flaky-empty-slot-test
+# commit:  7afbe53a61a537f80a06a8c347b7535624feaa6a
+# saved:   2026-09-03T15:17:02+02:00
+d793678d…  …/game.pre-flaky-empty-slot-test
+```
+
+`--list` puts it first, marked `stamped`, with the fifteen legacy slots
+below marked `legacy`. The slot holds `d793678d` — the predecessor
+binary, which is the invariant that makes a slot worth having. **`LATEST`
+now exists**, so the no-argument rollback has something to follow for the
+first time; the gap recorded in item 2's entry is closed.
+
+### The flake is gone, confirmed independently
+
+b reported 40 consecutive module runs, 0 failures. Not taken on trust —
+**20 consecutive runs of `new_slot_migration_tests` against my own built
+tree: 20 passed, 0 failed.** The full suite passing once would not have
+been evidence, for exactly the reason recorded in the 92% note above: the
+old test passed twice today before failing.
+
+b confirmed the diagnosis rather than re-deriving it, then went further:
+forcing `roll_affixes` to return a `CritChance` on every item produced
+0.10 + 0.096 = **0.196**, against the three observed failures at 0.19277,
+0.19903 and 0.19617. **A forced value reproducing observed failures to two
+decimals is what turns "probably a rolled affix" into "a rolled affix"** —
+it rules out drift in the implicit itself, which is the other thing those
+numbers could have meant.
+
+The one assertion became three: the isolated implicit is worth exactly one
+affix at its tier; a rolled `CritChance` stacks on top without disturbing
+it (which encodes what the old test was accidentally measuring); and a
+filled slot contributes strictly more than an empty one, so it cannot pass
+against a slot that is not wired up at all. The fixture strips rolled
+affixes **and asserts it succeeded** — a fixture that silently failed to
+isolate would put the flake straight back.
+
+### FINDING — a `#[cfg(test)]`-only change moved the release binary by exactly 88 bytes
+
+Worth recording because item 2 shipped on a bit-identity argument, and
+this is the boundary of that argument.
+
+The only source difference between this tree and item 2's is inside
+`#[cfg(test)] mod new_slot_migration_tests`, which is the **last item in
+`character.rs`** — nothing compiled into the release binary follows it.
+`Cargo.lock` and `game/Cargo.toml` are identical. The release binary
+should have been unchanged. It was not:
+
+| | |
+|---|---|
+| size | 17,230,896 → 17,230,984 — **exactly +88 bytes** |
+| diff added | **exactly 88 lines** |
+| differing bytes | 2,482,407 (i.e. everything after the insertion shifted) |
+
+The 88-line ↔ 88-byte correspondence points at a line-indexed structure
+retained in the release build, and the 2.4 MB of differing bytes is what
+an 88-byte insertion does to every offset after it. **The mechanism is not
+proven and is not asserted here** — what matters is the consequence.
+
+**The consequence, which is the useful part: bit-identity is SUFFICIENT
+but not NECESSARY for "this change cannot alter behaviour."** Item 2's
+matching hashes were decisive evidence. This release's *differing* hashes
+are evidence of nothing at all — a test-only edit moved them. So:
+
+- A matching hash still proves the binary is the same binary. Keep using
+  it; it is the strongest evidence available.
+- **A differing hash proves only that the file differs, never that
+  behaviour differs.** Do not reason backwards from it.
+
+The narrow licence granted for item 2 is unaffected and stays exactly as
+narrow: it rests on bit-identity being *present*, which is a claim this
+finding does not weaken.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **20 = 20** |
+| 4 | live sha256 | `6e35ad68…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 80,690 B, 200 / 91,110 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Public tunnel 200. Zero panics or ERROR lines. Roster is now 20.
+
+No patch note: this release changes test code only and has no
+player-visible effect.
