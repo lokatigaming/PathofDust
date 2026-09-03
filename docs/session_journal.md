@@ -3461,3 +3461,167 @@ wording, to be adjusted to fit:
 > being prevented from happening again.*
 
 This is a note to the NEXT deploy session, not a task with an owner.
+
+---
+
+## 2026-09-03 — ROLLBACK-SLOT COLLISION (branch `fix/rollback-slot-collision`)
+
+Not deployed. Changes no game code — two shell scripts and §13B.
+
+### The bug, and why it is worse than losing a file
+
+`deploy-linux.sh` named its rollback slot `deploy-pre-$NAME` — the release
+name and nothing else — and created it with `mkdir -p`, which succeeds
+silently on a directory that already exists. Redeploying a release name
+therefore landed on the previous slot and overwrote three things: the
+rollback binary, `SHA256SUMS`, and (by merge rather than replace) the
+pinned fight corpus.
+
+It fired on 2026-09-03, when `player-facing-batch` was deployed onto the
+slot the previous evening's incident had created. **It was harmless only
+because the two binaries were byte-identical by coincidence** — both were
+`ab49d679`, once because the affix-curve-restore had just installed it and
+once because it was still live.
+
+**The sentence that justifies the whole change:** the collision overwrites
+`SHA256SUMS` *alongside* the binary, so `rollback-linux.sh` would have
+rolled forward to the WRONG binary and **passed its integrity check while
+reporting success**. A lost file announces itself. A lost file with a
+matching checksum does not. The verification travels with the corruption,
+which is what separates this from ordinary data loss.
+
+Same class as the shared `/root/deploy-src` that let one deploy delete
+another's build: a single fixed path shared between actors that cannot
+see each other.
+
+### A second defect, found while measuring the first
+
+**`ls -lt` lies about slot order, and lies plausibly.** `deploy-linux.sh`
+saves the slot with `cp -a`, which preserves the source timestamp — so a
+slot's binary carries the mtime of the binary it *saved*, i.e. its
+**predecessor's** install time:
+
+```
+deploy-pre-gear-slots              dir 08:27:56 | binary 08:09:23
+deploy-pre-craft-tier-bump         dir 08:09:23 | binary 07:50:34
+deploy-pre-small-isolated-defects  dir 07:50:34 | binary 05:54:32
+```
+
+Every entry is off by one deploy. Not obviously wrong — *consistently*
+wrong, which is the worse kind under pressure, because it looks like an
+answer. And the one field that is right, the directory mtime, is
+destroyed by any collision. Written into §13B where somebody would reach
+for it.
+
+### What shipped
+
+| | |
+|---|---|
+| slot name | `deploy-pre-<YYYYMMDD-HHMMSS>-<release-name>` |
+| ordering | timestamp FIRST, so lexical sort **is** chronological sort |
+| convention | matches `pod-backup-YYYYMMDD-HHMMSS` — one convention on the box, not two |
+| guard | `mkdir` without `-p` + explicit `-e` check → **refuses**, never overwrites |
+| commit | recorded inside `SHA256SUMS` as a `#` comment, with release/slot/save-time |
+| newest | `deploy-pre-LATEST` symlink, relative target, repointed by `mv -T` (rename(2), atomic) **only after the live hash is confirmed** |
+
+Commit SHA was considered and rejected **for the name**: it does not sort,
+it still collides when the same commit is redeployed, and it means nothing
+to a human at 3am. Inside the slot it answers a different and useful
+question, so that is where it went. The optional third argument to
+`deploy-linux.sh` carries it, because the build tree is a `git archive`
+extraction with no `.git` to derive it from.
+
+`rollback-linux.sh` became a resolver rather than a path template:
+
+| form | behaviour |
+|---|---|
+| *(no argument)* | follow `LATEST` — the incident form, "undo what just happened" |
+| `<release-name>` | newest matching slot, **across both the new and legacy shapes** |
+| `<slot-dir-name>` | exact |
+| `--list` | every slot, newest first, with hash, date and shape |
+
+It prints the chosen slot, **why** it was chosen, the verified hash and
+the currently-live hash before stopping anything — the part that makes it
+safe to use in a hurry.
+
+### The 14 existing slots were deliberately left alone
+
+Not renamed, not moved, not deleted; the resolver understands the legacy
+shape. **Renaming recovery material to tidy it is the same class of risk
+as the bug being fixed** — the one moment a rename is unsafe is the one
+moment you need the slot. They age out on their own.
+
+**No pruning was added, deliberately.** Deleting rollback binaries is a
+destructive default, 273 G free makes it moot at ~18 MB per deploy, and a
+keep-N would have been deleting recovery material *during* the incident
+that prompted this. If a bound is ever wanted it is its own change,
+keep-N with N ≥ 20, never touching `LATEST`.
+
+### §13B.8 was the half that would have been missed
+
+Template-only releases build the slot **by hand**, in the document, so
+fixing only the script would have left the collision live and hidden it
+better. `deploy-pre-craft-confirm` is on the box now, waiting for a second
+template release of the same name. It gets the same scheme and the same
+`mkdir`-without-`-p` guard, plus one rule the binary path does not need:
+**never repoint `LATEST` at a template slot.** It holds no `game.pre-*`,
+so pointing the binary-rollback path at one would arm a trap for whoever
+reaches for the no-argument form. `rollback-linux.sh` also refuses such a
+slot by name, with a message that says which procedure they want instead.
+
+### Verification — rehearsed, not reasoned
+
+Both scripts were run against a scratch backup root with fake binaries and
+`systemctl`/`curl`/`chown` stubbed, on the box, so the real GNU
+`mv -T`/`stat`/`date` behaviour was exercised. **25 checks, 25 passed.**
+The two that matter:
+
+- **The fix:** deploying the same release name twice produced **two
+  distinct slots**, and the first slot's binary was **byte-unchanged**.
+  Under the old scheme this is exactly where the recovery path died.
+- **The guard:** forcing an exact slot collision was **refused with a
+  non-zero exit and a message naming the reason**, and the pre-existing
+  slot's content was verified untouched afterwards.
+
+Also covered: legacy-slot resolution by release name against a
+legacy-shaped `SHA256SUMS` with no comment lines; `--list` ordering and
+its `LATEST` line; the no-argument form following `LATEST`; a
+template-only slot refused clearly; and a release name matching multiple
+slots choosing the newest and saying so.
+
+**The rehearsal earned its cost — it found two defects that reading the
+script did not:**
+
+1. **Ordering was non-deterministic on a tied timestamp.** Two slots can
+   share a second, and with equal keys `sort` fell through to comparing
+   slot *names*, i.e. alphabetically. The sort key now carries a trailing
+   rank digit (1 = stamped, 0 = legacy) so a tie resolves in favour of the
+   slot whose timestamp is exact rather than the one whose timestamp is
+   only its directory's mtime.
+2. **`${bin:+$(basename "$bin")}${bin:-<none>}` printed both branches.**
+   It reads like an if/else and is not: when `bin` is set, `:+` yields the
+   basename *and* `:-` yields the value rather than the fallback, so the
+   column came out as `game.pre-alpha/full/path/to/game.pre-alpha`.
+   Replaced with a plain `if`.
+
+A third finding was a bug in the **test**, not the script: the ordering
+check asserted that a named slot was newest, but the harness keeps
+creating slots after that point, so a later one legitimately took the
+lead. The assertion now checks the property that actually matters — that
+rows come out in descending time order — rather than naming an expected
+winner. Worth recording because an assertion that encodes an expected
+*answer* rather than the *property* goes stale the moment the fixture
+grows.
+
+The harness is not committed; it is a scratch artifact. The technique is
+the reusable part and is written down here: copy the real scripts, `sed`
+the three production paths to a scratch root, prepend no-op
+`systemctl`/`chown` and a `curl` that echoes 200, then construct the
+failure and watch the old code fail it.
+
+### Not done here
+
+`deploy-linux.sh` still keys nothing on the *content* of what it saves —
+two slots holding byte-identical binaries are stored twice. Noted, not
+fixed; deduplication would trade a simple recovery path for a clever one,
+which is the wrong trade for this file.
