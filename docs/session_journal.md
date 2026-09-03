@@ -3408,6 +3408,7 @@ characters, who found them filled. Not amended here — patch notes are a
 dated record of what was announced, and a correction belongs in the next
 entry rather than in a silent rewrite of this one.
 
+
 ### 2026-09-03 — BACKFILL-BOUND: the starter-kit backfill is guarded by state, not by an invariant
 
 Branch `fix/backfill-bound` off `origin/master` (`35801b7`). Not merged,
@@ -4811,3 +4812,103 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: the wiki is documentation, and the release changes no
 mechanic, cost, chance or timer. The one player-visible consequence — that
 the wiki now says what the game actually does — is the wiki's own content.
+## 2026-09-03 — BOSS-SECONDARY-CURVE: the freeze is gone, on seven dials (branch `feature/boss-secondary-curve`)
+
+Ordered from `C:\dust-work\orders\d.md`, implementing §10 of
+`docs/dynamic_pacing_design_pass.md` (which lives on
+`origin/design/dynamic-pacing`, not master). The fit report for this is
+`C:\dust-work\reports\BOSS-SECONDARY-CURVE-2026-09-03.md`; all four of
+its findings were accepted and every one of them is now recorded against
+the design document itself, on `design/dynamic-pacing-corrections`.
+
+### What shipped
+
+Seven organic boss secondaries in `boss_stats_for` were
+`min(stage × slope, cap)` corners that froze between stage 36 and 150.
+They are now `cap × s/(s + h)` — `pacing::top_layer_for_stage`'s shape —
+through **one** shared `boss_secondary_ramp`, with the seven `h` values
+promoted to LiveTunables under a new "Boss Secondary Curves" admin
+section.
+
+**Shipped at k = 1, and that was the ruling, not an omission.** Each
+default is the stat's old `cap / slope`, which reproduces the old slope
+exactly at stage 0 and is also its old freeze stage. Below the freeze
+stage nothing changes; above it everything unfreezes.
+
+### The design error that changed the decision
+
+§10.3 ratified a ×2 stretch on the reasoning that the asymptotic form
+sits below today above the freeze stage — "the opposite of the goal
+**until `h` is stretched**". That is backwards. `cap·s/(s+h)` is
+**monotonically decreasing in `h`**, so the stretch lowers every value
+and *maximises* the shift of resistance into raw hp/atk it was offered as
+the cure for. At stage 800, damage reduction is 0.632 at `h = 150` and
+**0.545** at `h = 300`, against today's 0.750.
+
+The owner had approved the stretch repeating that reason as load-bearing,
+and disregarded the instruction once shown. The deciding argument became
+§10.7's own approval reason #2: **at k = 1 shipping changes nothing below
+the freeze stage; at k = 2 every one of the 42 cells is below today and
+sub-stage-100 secondaries roughly halve — precisely the range the live
+world occupies.** The case for a stretch survives as a tuning decision to
+make from live data. That is what the dials are for.
+
+### Two more findings against a ratified document
+
+- **§10.5 said the golden corpus would move. It does not, and that
+  removed a stated blocker.** `golden_corpus.rs` excludes
+  `boss_stats_for`/`basic_enemy_stats_for` by name in its own header,
+  because both roll un-seeded `thread_rng()` jitter — an un-seeded RNG
+  could never have been captured into a fixture. **Confirmed by running
+  it, not asserted:** 4 passed, zero fixtures regenerated,
+  `git status` clean.
+- **§10.1's `crit_chance` cap was wrong — 0.70, not 0.75, with a flat
+  0.05 base the table omitted.** Every other cell in §10 is already
+  consistent with 0.70. A literal implementation of the cell as written
+  would have dropped the base *and* missed the document's own numbers.
+
+### Known limitation, ruled in scope-refusal rather than fixed
+
+`apply_dynamic_scaling` multiplies secondaries by `sqrt(dmg_mult)` and
+re-caps at `BOSS_DEFENSE_CAP`. So for **evasion, block and damage
+reduction** the unfreezing only holds while Controller B is near
+baseline: at ×√4 all three re-pin at 0.75, and the flatness returns
+exactly when it matters most. `increased_damage`, `crit_multiplier` and
+`splash` are unaffected.
+
+Both available fixes were **refused explicitly**: raising
+`BOSS_DEFENSE_CAP` (a safety rail — raising one as a side effect of a
+variety change is how rails stop meaning anything) and exempting
+secondaries from `sqrt(dmg_mult)` (a real change to controller/boss
+interaction that deserves its own pass). It is on the board as its own
+item, and the admin section carries it in its own hint text so nobody
+tunes the three defensive dials without knowing the ceiling can take the
+movement back.
+
+### Patch-note DRAFT (not published — this session does not deploy)
+
+> **Bosses stop being the same boss forever.** Every one of a boss's
+> seven secondary stats — evasion, block, damage reduction, crit chance,
+> crit damage, increased damage and splash — used to stop growing at a
+> fixed world stage and never move again. Crit damage froze at stage 36.
+> Evasion froze at 50. The last of them, damage reduction, froze at 150.
+> Past that, the only thing about a boss that changed with stage was how
+> much HP it had and how hard it hit.
+>
+> They now keep climbing for as long as the world does, approaching their
+> ceilings instead of slamming into them. A stage-800 boss is genuinely
+> harder to hit and harder to hurt than a stage-300 one, and your
+> accuracy, pierce and mitigation choices keep mattering instead of being
+> solved on day two.
+>
+> **Honest about the trade: above the old freeze stages, the numbers
+> themselves are lower than they were.** A stage-800 boss now sits around
+> 63% damage reduction where it used to sit at a flat 75%. That is the
+> price of never flattening — and overall difficulty does not change,
+> because dynamic pacing re-balances through HP and damage as it always
+> has. Below the old freeze stages nothing changed at all.
+
+### FOUND
+
+- `boss_stats_for` ends `let stats = BossStats { … }; stats` — clippy's
+  `let_and_return`. Pre-existing (verified against `88d5420`), untouched.
