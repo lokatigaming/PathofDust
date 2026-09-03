@@ -2720,3 +2720,155 @@ existing directory), so the slot now holds the union, 381 summaries. A
 genuine re-release of a name would have destroyed the only copy of the
 earlier rollback binary. Not fixed; a date suffix on `$NAME`, or refusing
 to write into an existing slot, would close it.
+
+### 2026-09-03 — SMALL-ISOLATED-DEFECTS deploy record (release `small-isolated-defects`)
+
+Second of four queued releases. Rebased from `e9aef0a` onto master by
+this session; the authoring session is closed.
+
+| | |
+|---|---|
+| merge | `f960656` |
+| binary before | `5bf620d4…4cb33` |
+| binary after | `7897d6a25f00d4776b63328858cc1a7bee91585334227ba0817409de0970c943` |
+| downtime | **0.16 s** |
+| build | 2 m 16 s, exit 0 |
+| suite on the box | **799 passed / 0 failed / 0 ignored, 37 suites** — `cargo test --release --workspace --quiet` in `/root/deploy-src-small-isolated-defects` |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-small-isolated-defects/game.pre-small-isolated-defects` |
+
+**Suite arithmetic, checked both ways.** The branch reported 794 / 35
+suites against its own base of 786. Master stood at 791 / 37 after
+`player-facing-batch`. 786 + 8 = 794 and 791 + 8 = 799, and 35 + the two
+test files `player-facing-batch` added = 37. Both readings agree the
+branch contributes exactly 8 tests, which is what makes 799 a
+confirmation rather than a number.
+
+### Ordering deviation, approved: build BEFORE push
+
+Merged locally, built and tested on the box, and only then pushed. The
+standing §13B order is merge → push → build. This branch needed a real
+conflict resolution inside `AppState` — `player-facing-batch`'s `bugs`
+field and this branch's `login_failures` both land in the same struct and
+the same initialiser — and a merge that has not compiled has no business
+on origin. Owner ratified the new order for the rest of the queue:
+**merge, build and test on the box, push, then swap.** The push still
+precedes the binary swap.
+
+Two conflicts, both additive, both resolved keep-both: the `AppState`
+field pair above, and `WIKI_IMPACT.md` (chronological, per the
+append-only rule).
+
+### The loopback bind was verified against production BEFORE it was merged
+
+The change binds 4005 and 4004 to `127.0.0.1` instead of `0.0.0.0`. On a
+box whose only ingress is a Cloudflare Tunnel, that is either harmless or
+a total outage, and the difference is not visible in the diff.
+
+What was checked first, on live production:
+
+| | |
+|---|---|
+| ingress | `adventure.lokati.net` → `http://localhost:4005`, cloudflared on the same host |
+| `localhost` resolution order | **`::1` first**, then `127.0.0.1` (`getent ahosts`) |
+| answering on `[::1]:4005` before the change | **nothing** — the old `0.0.0.0` bind is IPv4-only |
+| firewall | nftables `table inet pod` already drops 4004/4005 off-loopback |
+
+So production was *already* running the exact path the change leaves
+behind: cloudflared resolves `localhost`, tries `::1`, gets refused,
+falls back to IPv4. Binding `127.0.0.1` cannot break what `0.0.0.0` was
+not providing. Confirmed after the swap, before touching cloudflared at
+all: both sockets on `127.0.0.1`, public tunnel still **HTTP 200**.
+
+Port 4004 is not published through the tunnel and never was.
+
+### Verified by effect on production
+
+| claim | evidence |
+|---|---|
+| login throttle | **live probe against a nonexistent username**: attempts 1–10 ~0.8 ms, attempt 11 **1.00 s**, 12 **2.00 s**, 13 **4.00 s** — exact doubling, matching `LOGIN_FREE_FAILURES = 10` and the 1 s base under a 30 s cap |
+| loopback bind | `ss -tlnp` shows `127.0.0.1:4004` and `127.0.0.1:4005`; site 200 through the tunnel |
+| Last Rites text | the false wording "33% chance per rank" returns **0 occurrences** anywhere in the rendered passives page |
+
+**NOT verified live, stated rather than glossed:**
+
+- **Last Rites' charge ladder.** There is **no Slayer on the roster** —
+  18 characters, zero slayers, and no secondary archetypes at all — so
+  the node cannot be reached, let alone triggered, on production today.
+  Verified instead from the deployed tree: `passive_tree.rs:2020` ships
+  `SpecialPerRank { values: &[1.0, 1.0, 2.0] }` with the corrected text,
+  and `adventure-passive-overrides.toml` on the box carries no
+  `lastrites` entry, so the shipped values are the live ones. **The buff
+  changes nobody's power today**; it becomes real the first time someone
+  rolls a Slayer.
+- **argon2 moving off the async runtime.** The throttle probe used a
+  username that does not exist, and that path returns in ~0.8 ms — it
+  never reaches a password hash. Proving the runtime change would need a
+  real account and a load generator, which is not worth doing against
+  production. It is covered by the branch's own tests.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **18 = 18** |
+| 4 | live sha256 | `7897d6a2…` = candidate |
+| 5 | `/characters`, `/passives` (auth) | 200 / 80,075 B, 200 / 91,109 B |
+| 6 | anon `/admin/tunables` | **404**, 73,730 B |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Zero panics or ERROR lines since the swap.
+
+### Patch notes
+
+Three sections at the top of the "September 3, 2026" block (6 → 9).
+Pre-edit copy `/root/patch-notes.pre-small-isolated-defects.json`. The
+Last Rites entry leads by saying the node advertised a chance it never
+rolled and that ranks 2 and 3 granted nothing, rather than announcing a
+buff.
+
+---
+
+### 2026-09-03 — CLOUDFLARED INGRESS: `localhost` → `127.0.0.1` (separate from the release above)
+
+Ordered alongside the `small-isolated-defects` deploy because the config
+was already open, and recorded separately because it is **not part of
+that release** — it is a production ingress change with its own risk and
+its own evidence, and it predates every branch in today's queue.
+
+**The premise was that every request paid a failed connection attempt.
+Measured, that is not what happens — but the fix is still right.**
+
+| test (30 parallel requests through the public tunnel) | failed TCP connects |
+|---|---|
+| 20 sequential requests, warm pool, before the change | **0** |
+| 30 parallel requests, before the change | **22** |
+| 30 parallel requests, after the change | **0** |
+
+cloudflared holds a **keep-alive pool** to the origin — 16 established
+connections to `127.0.0.1:4005` at the time of measurement — so a request
+that reuses a pooled connection dials nothing and pays nothing. The
+wasted `::1` attempt is paid **once per NEW origin connection**, not once
+per request. On a warm pool that is zero; under a burst, or connection
+churn, it is one per connection opened, which is where the 22 came from.
+
+So: not "real latency on every page load", but a real and completely
+free-to-remove cost under exactly the conditions where the site is
+busiest. Changed to an explicit `http://127.0.0.1:4005`, which also
+removes a resolver dependency from the hot path.
+
+Procedure: both `/etc/cloudflared/config.yml` and
+`/root/.cloudflared/config.yml` edited and backed up
+(`.bak-preloopback-20260903-*`); validated with
+`cloudflared --config … tunnel ingress validate` → **OK**, and
+`… tunnel ingress rule https://adventure.lokati.net/` → matched rule #0
+to the new service, with an unknown host still falling to the `404`
+catch-all. **`--config` must precede `tunnel`**; the other order silently
+prints help and exits 0, which looks like a passing validation and is
+not.
+
+`cloudflared.service` has **no `ExecReload`**, so this needs a restart
+and a brief tunnel drop. It was folded into the same window as the binary
+swap rather than taken as a second outage. Site verified **HTTP 200 in
+0.048 s** afterwards.
