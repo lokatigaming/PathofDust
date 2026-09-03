@@ -3024,6 +3024,16 @@ fn default_win_xp_cooldown_secs() -> u64 {
     crate::adventure::WIN_XP_COOLDOWN_SECS
 }
 
+// Serde default for the catch-up taper (2026-09-03). Same rule as the
+// five above, and here the zero is the worst one yet: `catchup_full_deficit`
+// is a DIVISOR, so a silently-omitted field resolving to 0.0 would pay the
+// full +200% to everyone standing even one level below the leader -
+// re-creating, in a new shape, exactly the flat-global-multiplier defect
+// this field was added to remove.
+fn default_catchup_full_deficit() -> f64 {
+    crate::adventure::CATCHUP_FULL_DEFICIT
+}
+
 // Serde defaults for the four world-stage drop gates (2026-09-02). Same
 // rule, and the same reason, as `default_enemy_hp_pool_hard_cap` above:
 // `#[serde(default)]` on a `u32` resolves to 0, and 0 means "this gate is
@@ -3186,6 +3196,12 @@ struct TunablesForm {
     /// nothing else can produce the absent state.
     #[serde(default)]
     win_xp_catchup_enabled: Option<String>,
+    /// See `LiveTunables::catchup_full_deficit`'s doc. Shipped-constant
+    /// default, same reasoning as `win_xp_flat` above - and see
+    /// `default_catchup_full_deficit` for why a zero here is worse than
+    /// on any of them.
+    #[serde(default = "default_catchup_full_deficit")]
+    catchup_full_deficit: f64,
     /// See `LiveTunables::shattering_enabled`'s doc - same absent-when-
     /// unchecked convention as `permanent_rampage` above.
     #[serde(default)]
@@ -3587,6 +3603,12 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 // `hp_relax_after_losses` below.
                 win_xp_cooldown_secs: v.at_most_u64("win_xp_cooldown_secs", form.win_xp_cooldown_secs, crate::adventure::WIN_XP_COOLDOWN_SECS_MAX),
                 win_xp_catchup_enabled: form.win_xp_catchup_enabled.is_some(),
+                catchup_full_deficit: v.clamp(
+                    "catchup_full_deficit",
+                    form.catchup_full_deficit,
+                    crate::adventure::CATCHUP_FULL_DEFICIT_MIN,
+                    crate::adventure::CATCHUP_FULL_DEFICIT_MAX,
+                ),
                 shattering_enabled: form.shattering_enabled.is_some(),
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
@@ -4746,7 +4768,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <p class=\"tunable-hint\"><strong>Unit: seconds.</strong> Range 0 &ndash; {win_xp_cooldown_secs_max}. Shortest gap between two XP-paying wins for one character. <strong>This is the rampage guard.</strong> Scheduled boss fights are 600s apart so it never binds there; a rampage runs them 60s apart, and without this a rampage would be worth 10&times; the XP and would set the curve instead of the schedule. At the shipped 450 a rampage pays 1.33&times; normal rather than 10&times;. Also covers Force Boss Fight and !nextencounter. <strong>0 removes the throttle</strong> &mdash; every win pays, and a rampage becomes an XP farm.</p>\
             </div>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"win_xp_catchup_enabled\" value=\"1\"{win_xp_catchup_enabled_checked}> XP Catch-Up Enabled</label>\
-            <p class=\"tunable-hint\">Keeps the catch-up multiplier (1&times; to 3&times;, by how far below the group median a character is) on the XP grant, so a newer player levels toward the pack. Unchecking makes every winner&rsquo;s XP identical regardless of level.</p>\
+            <p class=\"tunable-hint\">Keeps the catch-up multiplier (1&times; to 3&times;, by how far below the group&rsquo;s highest-level character a character is) on the XP grant, so a newer player levels toward the pack. Unchecking makes every winner&rsquo;s XP identical regardless of level.</p>\
+            <div class=\"tunable\">\
+              <label for=\"catchup_full_deficit\">Catch-Up Full-Bonus Deficit</label>\
+              <input type=\"number\" step=\"any\" min=\"{catchup_full_deficit_min}\" max=\"{catchup_full_deficit_max}\" required id=\"catchup_full_deficit\" name=\"catchup_full_deficit\" value=\"{catchup_full_deficit}\">\
+              <p class=\"tunable-hint\"><strong>Unit: fraction of the leader&rsquo;s level.</strong> Range {catchup_full_deficit_min} &ndash; {catchup_full_deficit_max}. How far below the highest-level character in the fight someone must be to earn the <strong>full 3&times;</strong> catch-up bonus. At the shipped 0.5, a character at half the leader&rsquo;s level or below gets the whole bonus, and it tapers straight down to <strong>1&times; for anyone level with the leader</strong> &mdash; so a bunched roster pays nobody a bonus, which is the point. <strong>Bigger is stingier</strong> (a deeper deficit needed for the same bonus); smaller makes catch-up bite sooner. Applies to dust and drop odds as well as XP. Does not switch catch-up off &mdash; that is the checkbox above, and it only covers XP.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
@@ -4936,6 +4963,9 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         win_xp_mult = t.win_xp_mult,
         win_xp_cooldown_secs = t.win_xp_cooldown_secs,
         win_xp_catchup_enabled_checked = if t.win_xp_catchup_enabled { " checked" } else { "" },
+        catchup_full_deficit = t.catchup_full_deficit,
+        catchup_full_deficit_min = crate::adventure::CATCHUP_FULL_DEFICIT_MIN,
+        catchup_full_deficit_max = crate::adventure::CATCHUP_FULL_DEFICIT_MAX,
         win_xp_flat_max = crate::adventure::WIN_XP_FLAT_MAX,
         win_xp_level_pct_max = crate::adventure::WIN_XP_LEVEL_PCT_MAX,
         win_xp_mult_min = crate::adventure::WIN_XP_MULT_MIN,
