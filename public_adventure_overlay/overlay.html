@@ -243,9 +243,45 @@
   const BOSS_SPRITES = ['bosses/boss-lich-green', 'bosses/boss-demon-fire', 'bosses/boss-cthulhu-blue', 'bosses/boss-dragon-purple', 'bosses/boss-dragon-bahamut', 'bosses/cube1', 'bosses/cube2'];
   // "Basic enemy" filler-fight opponents (see adventure.rs's
   // EncounterKind::Basic / run_basic_encounter) - a separate, weaker pool
-  // picked instead of BOSS_SPRITES when the encounter says kind:'basic',
-  // so a minute-to-minute filler fight doesn't show a giant dragon.
-  const BASIC_ENEMY_SPRITES = ['enemy-orc-warrior', 'enemy-ogre-brute', 'enemy-orc-axeman'];
+  // than BOSS_SPRITES, so a minute-to-minute filler fight doesn't show a
+  // giant dragon.
+  //
+  // Like BOSS_SPRITES above, this array exists ONLY so the art gets
+  // preloaded up front - it does not pick anything. Until 2026-09-02 it
+  // was three names and this file chose one with Math.random() at render
+  // time, which meant the same recorded fight showed different monsters
+  // on every replay and on every viewer's screen at once. The server now
+  // rolls one sprite per enemy and sends them all in msg.bossSprites (see
+  // manager.rs's BASIC_ENEMY_SPRITES, from which this list is generated -
+  // a Rust test asserts the two are identical and that every name exists
+  // on disk with exactly this casing).
+  const BASIC_ENEMY_SPRITES = [
+    'basicenemy/01-goblin-warrior', 'basicenemy/02-goblin-spearman',
+    'basicenemy/03-goblin-bomber', 'basicenemy/04-skeleton-shaman',
+    'basicenemy/05-skeleton-swordsman', 'basicenemy/06-skeleton-spearman',
+    'basicenemy/07-skeleton-archer', 'basicenemy/08-skeleton-necromancer',
+    'basicenemy/09-skeleton-knight', 'basicenemy/10-ghost',
+    'basicenemy/11-zombie-shambler', 'basicenemy/12-zombie-brute',
+    'basicenemy/13-ghoul', 'basicenemy/14-plague-troll',
+    'basicenemy/15-cultist-assassin', 'basicenemy/16-cultist-pyromancer',
+    'basicenemy/17-plague-doctor', 'basicenemy/18-executioner',
+    'basicenemy/19-bandit-shieldbearer', 'basicenemy/20-cultist-flailer',
+    'basicenemy/21-dire-bat', 'basicenemy/22-vampire-bat',
+    'basicenemy/23-plague-rat', 'basicenemy/24-toxic-rat',
+    'basicenemy/25-hellhound', 'basicenemy/26-acid-hound',
+    'basicenemy/27-dire-wolf', 'basicenemy/28-goblin-boar-rider',
+    'basicenemy/29-tusked-beast', 'basicenemy/30-spiked-beast',
+    'basicenemy/31-green-slime', 'basicenemy/32-purple-eye-blob',
+    'basicenemy/33-bone-pile-horror', 'basicenemy/34-toxic-slime',
+    'basicenemy/35-crimson-spider', 'basicenemy/36-armored-beetle',
+    'basicenemy/37-fire-scorpion', 'basicenemy/38-fire-centipede',
+    'basicenemy/39-mushroom-fiend', 'basicenemy/40-mushroom-elder',
+    'basicenemy/41-treant-shaman', 'basicenemy/42-sapling-creeper',
+    'basicenemy/43-forest-guardian', 'basicenemy/44-stone-golem',
+    'basicenemy/45-magma-golem', 'basicenemy/46-ice-golem',
+    'basicenemy/47-orc-berserker', 'basicenemy/48-orc-brute',
+    'basicenemy/49-red-demon', 'basicenemy/50-bone-drake',
+  ];
 
   // Sprites are sliced from packed sheets by hand (see the sprite-
   // sourcing note this project keeps hitting), so different source
@@ -702,17 +738,25 @@
       events: msg.events,
       firedIndex: 0,
       enemyCount: msg.enemyCount ?? null,
-      // A real boss fight now names its own sprite(s) (msg.bossSprites,
-      // one per simultaneous boss - see stage-50+ multi-boss fights) -
-      // the server picks specific BossKinds (Lich/Fire Demon/Cthulhu/
-      // Dragon) that also decide which unique mechanics run that fight,
-      // so the sprites shown have to match, not be an independent random
-      // pick like this used to be. A basic encounter still gets nothing
-      // from the server (msg.bossSprites empty/absent) and keeps picking
-      // its own random filler-mob look here, shared by every member of
-      // the group same as before (a single-entry array, reused for every
-      // index via bossImgAt's own fallback).
-      bossSprites: msg.bossSprites && msg.bossSprites.length > 0 ? msg.bossSprites : [BASIC_ENEMY_SPRITES[Math.floor(Math.random() * BASIC_ENEMY_SPRITES.length)]],
+      // Every enemy the server drew, in enemy-index order - one entry per
+      // boss for a boss fight (see stage-50+ multi-boss fights), one per
+      // mob for a basic encounter. The server picks all of them (see
+      // EncounterResult::boss_sprites): for a boss because the BossKind
+      // shown has to be the one whose mechanics are actually running, and
+      // for a basic encounter because this file used to pick one itself,
+      // with Math.random(), AT RENDER TIME - so the same recorded fight
+      // showed different monsters on every replay and on every viewer's
+      // screen simultaneously, and because that pick produced a
+      // ONE-entry array, every enemy past the first fell through
+      // spriteNameForEnemySlot's end-of-array case and rendered as the
+      // death sprite. Both are gone: the look now travels with the fight.
+      //
+      // Still tolerates an absent/empty array rather than assuming one,
+      // for replays recorded before 2026-09-02 and for the desktop
+      // reader's forward-compatibility contract - spriteNameForEnemySlot
+      // falls back to 'death' per slot, and drawEnemy draws its labelled
+      // placeholder for anything that will not load at all.
+      bossSprites: msg.bossSprites || [],
       // Which character ids have already been scattered (see
       // stepEnemyLeap's slam landing) THIS fight - a fresh Set per
       // encounter, so a leap-heavy fight can't knock the same hero around

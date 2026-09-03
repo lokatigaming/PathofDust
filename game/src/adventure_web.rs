@@ -36,11 +36,11 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, BossKind, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    AutoDisenchantTier, BossKind, BugReportManager, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
-    VeilChosenOutcome,
-    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
+    SubmitOutcome, VeilChosenOutcome,
+    ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, BUG_REPORTS_PATH, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MAX_REPORT_LEN, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
     HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, TIER_CRAFT_DUST_COST,
     VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST, scaled_base_cost,
 };
@@ -76,6 +76,11 @@ struct AppState {
     /// a sibling file in the same directory.
     accounts: Arc<Mutex<HashMap<String, accounts::Account>>>,
     accounts_path: PathBuf,
+    /// Player-submitted bug reports - see `adventure::bug_reports`, ported
+    /// from the bot module that backed `!bugreport` before Twitch went
+    /// away. Its own `Arc` with its own lock, like `AdventureManager`, so
+    /// a submission never contends with the session or account maps.
+    bugs: Arc<BugReportManager>,
 }
 
 fn now_secs() -> u64 {
@@ -139,6 +144,10 @@ pub async fn start_adventure_web_server(
         sessions_path,
         accounts: Arc::new(Mutex::new(accounts)),
         accounts_path,
+        // Same `data_path` resolution as `sessions_path` above, so reports
+        // land beside the rest of the game state and every test's scratch
+        // dir gets its own file rather than sharing production's.
+        bugs: BugReportManager::new(crate::adventure::data_path(BUG_REPORTS_PATH)),
     };
 
     let app = axum::Router::<AppState>::new()
@@ -200,6 +209,12 @@ pub async fn start_adventure_web_server(
         // `do_ops_next_encounter`. Same `ADMIN_TUNABLES_LOGIN` gate as
         // the pages above; unlike them it reports every refusal.
         .route("/admin/ops/next-encounter", post(do_ops_next_encounter))
+        // Player-submitted bug reports (2026-09-02). `/bugs` is the
+        // player-facing form, reachable from `top_nav`; `/admin/bugs` is
+        // the operator's read-back, behind the same `ADMIN_TUNABLES_LOGIN`
+        // gate as every other `/admin/*` page here.
+        .route("/bugs", get(bugs_page).post(do_submit_bug))
+        .route("/admin/bugs", get(admin_bugs_page))
         .route("/admin/passives", get(admin_passives_page))
         .route("/admin/passives/save", post(do_save_passive_override))
         .route("/admin/passives/revert", post(do_revert_passive_override))
@@ -2776,6 +2791,147 @@ async fn do_ops_next_encounter(State(state): State<AppState>, headers: HeaderMap
     }
 }
 
+// ---------------------------------------------------------------------
+// Bug reports (2026-09-02) - `/bugs` for players, `/admin/bugs` for the
+// operator. Ported from the bot's `!bugreport` chat command, which went
+// away with Twitch and took with it the only channel a player had for
+// telling the owner something was broken.
+//
+// Reports go to a file beside the rest of the game state
+// (`adventure-bugreports.json`) and are read back on an operator-gated
+// page - the same shape `/admin/ops/next-encounter` established. No
+// email, no external service, no new dependency: nothing here leaves the
+// box.
+//
+// Login-required, reusing `current_session`. That is what names the
+// reporter without asking them to type it (so it cannot be spoofed
+// through the form) and it is the spam control, alongside
+// `PER_USER_COOLDOWN`.
+// ---------------------------------------------------------------------
+
+/// How many reports `/admin/bugs` lists. Deliberately finite - the page
+/// is a triage queue, not an archive; the JSON file keeps everything.
+const ADMIN_BUGS_DISPLAY_LIMIT: usize = 200;
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct BugsPageParams {
+    /// Report id just filed, set by `do_submit_bug`'s redirect - renders
+    /// the "report #N received" banner.
+    filed: Option<u64>,
+    /// A refusal to show instead, as a short key rather than prose so a
+    /// crafted URL cannot put arbitrary text on the page.
+    error: Option<String>,
+    /// Seconds left, for `error=cooldown`.
+    wait: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct BugReportForm {
+    /// `#[serde(default)]` per the house rule: a field the extractor
+    /// requires but the page might not render is a 422 waiting to happen.
+    /// An empty submission is a refusal with a message, not a 422.
+    #[serde(default)]
+    text: String,
+}
+
+fn render_bugs_page(character: Option<&Character>, params: &BugsPageParams) -> String {
+    let banner = if let Some(id) = params.filed {
+        format!("<div class=\"card\"><h2>\u{2705} Report #{id} received</h2><p>Thank you \u{2014} it is saved and the operator can read it. There is no reply channel here, so if it needs a conversation, say so in the report.</p></div>")
+    } else {
+        match params.error.as_deref() {
+            Some("cooldown") => {
+                let wait = params.wait.unwrap_or(0);
+                format!("<div class=\"card\"><h2>Not sent \u{2014} too soon</h2><p>One report a minute, per person. Try again in {wait}s. Your text was not saved, so copy it before you leave this page.</p></div>")
+            }
+            Some("empty") => "<div class=\"card\"><h2>Not sent \u{2014} it was blank</h2><p>Nothing was saved. Describe what happened and send it again.</p></div>".to_string(),
+            Some("toolong") => format!(
+                "<div class=\"card\"><h2>Not sent \u{2014} too long</h2><p>The limit is {MAX_REPORT_LEN} characters. Nothing was saved, so trim it and send it again.</p></div>"
+            ),
+            _ => String::new(),
+        }
+    };
+    format!(
+        "{nav}\
+        {banner}\
+        <div class=\"card\">\
+          <h1>\u{1F41E} Report a Bug</h1>\
+          <p>Something behaving wrongly? Tell the owner here. Say what you did, what you expected, and what happened instead \u{2014} and name the item, passive or boss involved if there is one.</p>\
+          <p class=\"muted\">Your name is taken from your login, so there is no need to sign it. One report a minute. This goes to a file the owner reads; nothing is sent anywhere else, and there is no automatic reply.</p>\
+          <form method=\"post\" action=\"/bugs\">\
+            <textarea name=\"text\" rows=\"10\" maxlength=\"{MAX_REPORT_LEN}\" placeholder=\"What happened?\" style=\"width:100%;box-sizing:border-box;\"></textarea>\
+            <p><button class=\"btn\" type=\"submit\">Send report</button></p>\
+          </form>\
+        </div>",
+        nav = top_nav(character),
+    )
+}
+
+async fn bugs_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<BugsPageParams>) -> Html<String> {
+    let body = match current_session(&headers, &state).await {
+        // Login-gated the same way the rest of the dashboard is - and
+        // here it is load-bearing rather than cosmetic, since the session
+        // is what names the reporter and rate-limits them.
+        None => render_logged_out(),
+        Some((login, _)) => {
+            let viewer = state.adventure.character(&login).await;
+            render_bugs_page(viewer.as_ref(), &params)
+        }
+    };
+    Html(render_page(&body))
+}
+
+async fn do_submit_bug(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<BugReportForm>) -> axum::response::Response {
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return Redirect::to("/account/login").into_response();
+    };
+    // Redirect back rather than rendering, so a refresh cannot re-file
+    // the same report - the POST/redirect/GET the rest of this file uses
+    // for every mutating action.
+    let target = match state.bugs.submit(&login, &form.text).await {
+        SubmitOutcome::Recorded { id } => format!("/bugs?filed={id}"),
+        SubmitOutcome::OnCooldown { remaining_secs } => format!("/bugs?error=cooldown&wait={remaining_secs}"),
+        SubmitOutcome::Empty => "/bugs?error=empty".to_string(),
+        SubmitOutcome::TooLong { .. } => "/bugs?error=toolong".to_string(),
+    };
+    Redirect::to(&target).into_response()
+}
+
+async fn admin_bugs_page(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
+    let is_admin = matches!(current_session(&headers, &state).await, Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN);
+    if !is_admin {
+        // Same visible-refusal shape `do_ops_next_encounter` uses rather
+        // than the silent redirect the older admin pages use: a page that
+        // shows nothing is indistinguishable from a page with nothing on
+        // it, and "are there no reports, or am I not signed in?" is
+        // exactly the question this must not leave open.
+        return ops_result(StatusCode::FORBIDDEN, "Refused - not the operator", "Bug reports are operator-only and your session is not signed in as one.");
+    }
+    let reports = state.bugs.recent(ADMIN_BUGS_DISPLAY_LIMIT).await;
+    let rows = if reports.is_empty() {
+        "<p class=\"muted\">No reports yet.</p>".to_string()
+    } else {
+        reports
+            .iter()
+            .map(|r| {
+                format!(
+                    "<div class=\"card\"><div class=\"header-row\"><h2>#{id}</h2><span class=\"muted\">{who} \u{00B7} {when}</span></div><pre style=\"white-space:pre-wrap;margin:0;\">{text}</pre></div>",
+                    id = r.id,
+                    who = escape_html(&r.user),
+                    when = format_unix_secs(r.at_unix_secs as i64),
+                    // Reports are player-written text rendered on the
+                    // operator's own page - escaped, not trusted.
+                    text = escape_html(&r.text),
+                )
+            })
+            .collect::<String>()
+    };
+    let body = format!(
+        "<div class=\"card\"><h1>\u{1F41E} Bug Reports</h1><p class=\"muted\">Newest first, most recent {ADMIN_BUGS_DISPLAY_LIMIT}. The full history is in {BUG_REPORTS_PATH}.</p></div>{rows}"
+    );
+    Html(render_page(&body)).into_response()
+}
+
 async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<AdminTunablesParams>) -> axum::response::Response {
     let session = current_session(&headers, &state).await;
     let body = match session {
@@ -3784,7 +3940,7 @@ mod character_list_render_tests {
         bravo.losses = 0;
         let characters = vec![("alpha".to_string(), alpha), ("bravo".to_string(), bravo)];
         let output = render_character_list(&characters, None);
-        let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"roster-grid\"><a class=\"roster-card\" href=\"/characters/bravo\"><img class=\"roster-sprite\" src=\"/sprites/sprite-26.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-26.gif'\" alt=\"\"><div class=\"roster-name\">Bravo</div><div class=\"roster-meta\">Level 12 Commoner</div><div class=\"roster-meta\">0W / 0L (\u{2014})</div></a><a class=\"roster-card\" href=\"/characters/alpha\"><img class=\"roster-sprite\" src=\"/sprites/sprite-06.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-06.gif'\" alt=\"\"><div class=\"roster-name\">Alpha</div><div class=\"roster-meta\">Level 5 Commoner</div><div class=\"roster-meta\">10W / 3L (77%)</div></a></div>";
+        let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a><a class=\"top-nav-link\" href=\"/bugs\">\u{1F41E} Report a Bug</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"roster-grid\"><a class=\"roster-card\" href=\"/characters/bravo\"><img class=\"roster-sprite\" src=\"/sprites/sprite-26.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-26.gif'\" alt=\"\"><div class=\"roster-name\">Bravo</div><div class=\"roster-meta\">Level 12 Commoner</div><div class=\"roster-meta\">0W / 0L (\u{2014})</div></a><a class=\"roster-card\" href=\"/characters/alpha\"><img class=\"roster-sprite\" src=\"/sprites/sprite-06.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-06.gif'\" alt=\"\"><div class=\"roster-name\">Alpha</div><div class=\"roster-meta\">Level 5 Commoner</div><div class=\"roster-meta\">10W / 3L (77%)</div></a></div>";
         assert_eq!(output, expected, "render_character_list output must be byte-for-byte identical to the pre-migration baseline");
     }
 
@@ -3794,7 +3950,7 @@ mod character_list_render_tests {
     #[test]
     fn matches_pre_migration_empty_baseline() {
         let output = render_character_list(&[], None);
-        let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"card\"><p class=\"muted\">Nobody's joined the adventure yet.</p></div>";
+        let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a><a class=\"top-nav-link\" href=\"/bugs\">\u{1F41E} Report a Bug</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"card\"><p class=\"muted\">Nobody's joined the adventure yet.</p></div>";
         assert_eq!(output, expected, "empty-roster render_character_list output must be byte-for-byte identical to the pre-migration baseline");
     }
 }
@@ -4729,6 +4885,7 @@ fn top_nav(character: Option<&Character>) -> String {
           <a class=\"top-nav-link\" href=\"/fights\">📜 Fight History</a>\
           <a class=\"top-nav-link\" href=\"/wiki\">📖 Wiki</a>\
           <a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">📺 Watch Overlay</a>\
+          <a class=\"top-nav-link\" href=\"/bugs\">🐞 Report a Bug</a>\
           {stats}\
         </div>"
     )
@@ -6310,8 +6467,21 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
         // scoured/krangle"). Every other action either only adds
         // something or (Polishing/Reforge) has its own separate risk
         // profile the request didn't ask to gate the same way.
+        //
+        // UniqueShard joined them 2026-09-02. It is the one action here
+        // whose price cannot be re-earned by grinding dust: the shard is
+        // consumed outright, binds a unique affix to the item it lands
+        // on, and that item can never take a second. Every other button
+        // on this row spends a currency the player can go and farm more
+        // of, which is why this one was worth gating and Transmute is
+        // not. The message stays the shared item-naming default rather
+        // than a `data-confirm-msg` override - the whole point of the
+        // 2026-08-15 request was that the dialog SAY WHICH ITEM, and a
+        // static override would drop exactly that (see Divinity, which
+        // overrides only because it is whole-bag and has no item to
+        // name).
         let confirm_attr =
-            if matches!(action, CraftAction::Krangle | CraftAction::Scour | CraftAction::Annulment | CraftAction::Chancing) { " data-confirm=\"1\"" } else { "" };
+            if matches!(action, CraftAction::Krangle | CraftAction::Scour | CraftAction::Annulment | CraftAction::Chancing | CraftAction::UniqueShard) { " data-confirm=\"1\"" } else { "" };
         let tokens = c.craft_token_count(action);
         if tokens > 0 {
             return format!(
