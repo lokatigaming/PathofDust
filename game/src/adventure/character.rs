@@ -1043,9 +1043,16 @@ pub(crate) fn divine_dust_reroll_pool(current: Affix, all: &[Affix]) -> Vec<Affi
 }
 
 impl Character {
-    /// New characters start fully kitted out (a basic tier-1 item in
-    /// every slot) rather than naked — see `AdventureManager::new`'s
-    /// startup backfill for characters who joined before this existed.
+    /// New characters start with a basic tier-1 item in each of the five
+    /// STARTER-KIT slots (weapon, helm, body, gloves, boots) rather than
+    /// naked. Deliberately NOT every slot: the four §8 slots below start
+    /// empty by owner ruling, and the list is spelled out again down
+    /// there so the two cannot drift apart unnoticed.
+    ///
+    /// See `AdventureManager::new`'s startup backfill for characters who
+    /// joined before this existed. That backfill is marker-guarded and
+    /// frozen to the same five slots - it does NOT complete this list,
+    /// and the release where it briefly did is written up there.
     pub fn new(display_name: String) -> Self {
         let mut rng = rand::thread_rng();
         Self {
