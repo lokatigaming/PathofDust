@@ -4339,3 +4339,81 @@ recorded earlier.
 file, log, listing or cached result, establish when it was produced and
 whether anything has happened since. If you cannot tell, treat it as
 unknown rather than as evidence.
+
+## 2026-09-04 — GOLEM-MASTER COPY: a deleted penalty that kept being advertised (branch `fix/golem-master-copy`)
+
+Ordered from `C:\dust-work\orders\d.md` as the ship-first item out of the
+advertised-vs-actual sweep
+(`C:\dust-work\reports\ADVERTISED-VS-ACTUAL-SWEEP-2026-09-03.md`).
+**Text only — no code changed, and no behaviour with it.**
+
+### What was wrong
+
+Golem Master told every Elementalist: *"you deal 33% less damage per summoned
+golem, additive (1% of normal damage at 3 golems)."* The penalty was deleted on
+2026-08-20. `combat.rs` says so twice — *"the golem summon damage penalty was
+removed entirely"* at the golem-spawn pass, and *"The penalty no longer
+exists"* on the inheritance-ratio test — and `WIKI_IMPACT.md:202` records the
+removal of *"the field itself, its `resolve_hit` application, its construction
+from `golemmaster` rank, every zero-initializer, and the stale doc referencing
+it."*
+
+**It missed the node description**, which is the one place a player actually
+reads it.
+
+Proven by consumption rather than by comment, which is what makes this safe to
+call: all four `passive_node_count("golemmaster")` sites — combat.rs's spawn
+loop, manager.rs's two slot-unlock checks, adventure_web.rs's picker — are
+**slot counts**, and no damage scaling keyed to golem count exists anywhere in
+`combat.rs` or `character.rs`.
+
+### Why it shipped ahead of the rest of the sweep
+
+The gap is 100×: the copy claims 1% of normal damage at 3/3, the code delivers
+100%. But the size is not the argument — the direction is.
+
+> **Echo under-delivered silently, and a player had to notice an absence. This
+> one changed the allocation decision before play began.** As written the node
+> converted a maxed class mechanic into a 99% self-nerf, so a reader who
+> believed it took one rank or none and never got far enough to find out.
+
+The game also contradicted itself: `wiki/golems.md` already described the
+corrected behaviour (*"Everything else you have inherits at FULL value"*), so a
+player reading both was told two different things — and **the wiki was the half
+telling the truth.** Nothing on `wiki/truth-up` covers this; the defect was in
+the Rust.
+
+### The class, stated because it will happen again
+
+A removal pass deleted the mechanic, its field, its call site, its
+zero-initializers and one doc — and the copy survived because copy is not
+reachable from the code being deleted. **Nothing in a "delete the mechanic"
+change naturally leads you to the sentence that sells it.** The one thing that
+did catch it was a sweep that started from the player-facing text and worked
+back toward the code, which is the opposite direction from how the change was
+made.
+
+### Also corrected in the same commit, none of it player-facing
+
+- `combat.rs`'s golem test fixture still explained itself with the removed
+  penalty's arithmetic ("99% golem-summon-damage penalty at 3 golems, by
+  design"). Corrected rather than deleted: the fixture's reasoning only reads
+  as sound if you know what it was built against.
+- `passive_tree.rs`'s "All 3 of these still NotYetImplemented" comment over
+  `unbroken`/`lastbastion`/`risingdefiance`. All three now carry declared
+  values, live consumers and matching copy — the mismatch it describes is
+  closed. Kept and corrected, because the history explains the names.
+  `sacredoverflow` is now the last `NotYetImplemented` node in the tree.
+- `docs/world2_build_plan.md` §7 still listed **`lastrites`** under Open
+  rulings; `ffda7ad` closed it. Struck through rather than deleted so an old
+  citation still lands on what was written. **The general lesson, recorded
+  there: a ruling being made does not close its board entry, and nothing else
+  does it automatically.** This board sent a session chasing a closed item.
+
+### FOUND
+
+- Nothing new. Three findings from the same sweep are held for rulings and are
+  deliberately NOT in this commit: `shatter`'s dead ranks 2-3 (owner ruled:
+  build the real ladder, magnitude pending), `stillwater` + `sacredoverflow`
+  (owner ruled: retire and replace, with a refund migration), and the `Leech`
+  affix floor (handed to window b).
