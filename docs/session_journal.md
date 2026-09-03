@@ -4339,3 +4339,81 @@ recorded earlier.
 file, log, listing or cached result, establish when it was produced and
 whether anything has happened since. If you cannot tell, treat it as
 unknown rather than as evidence.
+
+### 2026-09-04 — LEECH COEFFICIENT: the second affix the tier-curve migration missed
+
+Branch `fix/leech-coefficient` off `origin/master`. Not merged, not
+deployed — merges in the same window as `fix/echo-coefficient`, after the
+deliberate golden-corpus regeneration.
+
+Owner ruling, from window d's sweep putting every affix coefficient into
+one table. Leech is Echo's nearest sibling and has **the same cause**:
+the coefficient was never re-derived when the 2026-09-02 affix tier curve
+migration landed, so the shared `f(T)` left it far below the pool. Two
+affixes now, from one migration's scope gap — worth recording as a pair
+rather than as two incidents, because the next question is whether a
+third was missed, and d's table is the artifact that answers it.
+
+The symptom: **0.10% at tier 1, 1.00% at tier 100, 1.95% at tier 1000.**
+At tier 100 a Leech affix healed 1% of damage dealt while every competing
+affix on the same item returned 10-30%.
+
+#### The change, and the arithmetic on record
+
+`Leech.default_per_tier` `0.001` to `0.01`, against the unchanged shared
+curve:
+
+| | new | old |
+|---|---|---|
+| `0.01 * f(1)` | **1.000000%** | 0.100000% |
+| `0.01 * f(100)` | **10.000000%** | 1.000000% |
+| `0.01 * f(1000)` | **19.453601%** | 1.945360% |
+
+In line with CritChance. A **pure coefficient change**: uniformly 10x at
+every tier from T1 to T5000, which is what "no curve deviation" means
+arithmetically, and which is a test rather than a claim.
+
+**`default_weight` is UNCHANGED at 0.1**, pinned by its own test. Rarity
+was never the complaint, magnitude was, and "make Leech better" is an
+easy instruction to over-apply — raising both would have been a different
+change from the one ruled.
+
+#### Forward only
+
+No migration, no rescale, nothing touches a stored Leech value. Only
+fresh rolls. Same ruling as Echo, and the patch-note draft says so.
+
+#### Golden corpus — the predicted direction, confirmed
+
+**1 of 17 diverged**: `mage_passives_vs_cthulhu_stage1000`. Nothing
+regenerated.
+
+Against Echo's 4 this is smaller, which is the direction the order asked
+to have checked: Leech's 0.1 roll weight means far fewer seeded scenarios
+carry one. A *larger* number would have meant something was wrong. The
+observation from the Echo entry now has a second data point behind it:
+**the divergence count is a measure of blast radius**, and it tracks roll
+weight the way it should.
+
+#### The fixture discipline, applied before it was needed
+
+No existing test asserted an exact Leech value on a `Character::new`
+fixture, so nothing was broken. The new tests establish the pattern
+anyway, because at 10x a stray tier-1 Leech roll is worth ~0.85-1.15%
+instead of ~0.085-0.115% — the same latent-flake shape Echo had.
+
+#### Patch note draft — NOT written to the box
+
+> **Life Leech was broken and is now fixed — on new items**
+> - Life Leech's strength was never recalculated when item modifier
+>   scaling was reworked on 2026-09-02, the same miss that affected Echo.
+>   A Leech modifier healed 1% of your damage at tier 100 while other
+>   modifiers on the same item gave 10-30%.
+> - Fixed: Leech now rolls **1% at tier 1**, 10% at tier 100 and 19.45% at
+>   tier 1000, before the usual roll variance — in line with Crit Chance.
+> - **Still just as rare.** Leech is deliberately 10x rarer to roll than
+>   any other modifier and that has not changed. It is meant to be a find.
+> - **This applies to new rolls only.** Leech modifiers on gear you
+>   already own are unchanged, and there is no retroactive fix — if you
+>   check an old item you will see the old number. New drops, new crafts
+>   and Krangle re-rolls get the corrected value.
