@@ -4811,3 +4811,88 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: the wiki is documentation, and the release changes no
 mechanic, cost, chance or timer. The one player-visible consequence — that
 the wiki now says what the game actually does — is the wiki's own content.
+
+## 2026-09-04 — REFUND MIGRATION: retiring two dead passive nodes without stealing the points (branch `fix/retire-dead-passive-refund`)
+
+Stage 1 of the retirement ordered in `C:\dust-work\orders\d.md`. **The refund
+alone, on its own branch, before either replacement node exists**, per the
+sequencing — it is correct regardless of what replaces either slot.
+
+### The standing lesson this whole thread produced
+
+Recorded here because the owner asked for it to be, and because it generalises
+past the node that produced it:
+
+> **Nothing in a "delete the mechanic" change naturally leads you to the sentence
+> that sells it. The sweep caught it only because it started from the
+> player-facing text and worked back toward the code, which is the opposite
+> direction from how the change was made.**
+
+`WIKI_IMPACT.md:202` records the 2026-08-20 golem-penalty removal deleting the
+field, its `resolve_hit` application, its construction from rank, every
+zero-initializer *and* a stale doc — a thorough change that still missed the one
+place a player reads it. **This is the standing reason the advertised-vs-actual
+sweep runs from the text side, and why it should be re-run from that side after
+any mechanic is removed.**
+
+### What shipped
+
+`migrate_refund_retired_dead_nodes` — one row in `CHARACTER_MIGRATIONS`,
+marker-guarded (`adventure-refund-retired-dead-nodes-marker.json`), honouring the
+existing save-then-mark-done-per-migration contract. A refund is precisely the
+migration that must never re-run.
+
+**Refund, not remap** (owner ruling). `migrate_flowlikewater_swap` remaps and was
+right to — that was the same mechanic moving between tiers. This is different
+mechanics arriving, and a player who chose a defensive-uptime node and silently
+received a party-support node would have been wronged in a new way by the fix for
+the old one.
+
+**Removing the entry IS the refund**, and that is the property worth remembering:
+every "points spent" site derives the total by summing the allocation map
+(`manager.rs`'s allocate-time guard plus three `adventure_web.rs` render sites all
+do `passive_allocations.values().sum()`). There is no separate available-points
+counter, so there is nothing that can fall out of sync — the two numbers cannot
+disagree because there is only one number.
+
+**Both trees.** Split Personality can run Monk or Paladin as a *secondary*, so an
+affected allocation can live only in `secondary_passive_allocations`. A migration
+touching one map would silently miss exactly those characters and — being
+marker-guarded — never get a second chance at them. Its own test.
+
+### The test I got wrong first, and what it taught
+
+I wrote `the_retired_nodes_contribute_nothing_even_before_the_refund` asserting
+`passive_node_magnitude("stillwater") == 0.0`. **It failed, and the code was
+right.** `stillwater` DECLARES `Special { at_rank_1: 1.0, .. }`, so its magnitude
+at rank 3 is 3.0 — not zero.
+
+What makes it inert is not a property of the node at all: **it is that no call
+site ever passes its key.** That is a property of the CONSUMERS. The test now
+scans `combat.rs`, `character.rs`, `manager.rs` and `adventure_web.rs` for either
+retired key — the same `include_str!` technique `character.rs`'s `guard_tests`
+uses to pin the mutation-guard bypasses — and fails the moment a consumer
+appears, which is exactly when the refund would stop being balance-neutral.
+
+Worth stating as a general shape: **"this node does nothing" is never provable
+from the node.** It is only provable from the absence of readers.
+
+### FOUND — one thing that needs a ruling before this deploys
+
+**The refund is one-shot, but the dead nodes still render in the tree.** Stage 1
+ships the refund alone; the replacements come later under new keys. In the window
+between them a player sees their refunded points and a Stillwater node that still
+promises something, can spend them straight back into it, and — because the
+marker means the migration never runs again — those points are stranded
+permanently with no second refund.
+
+Not fixed here: the order said the refund ships *alone*, and removing the node
+definitions is a scope call that belongs to the owner, not to me mid-build. The
+cheap closure is to drop both node definitions from the tree in the same release
+as this migration, which makes re-allocation impossible by construction rather
+than dependent on release timing. Raised in the report rather than acted on.
+
+### Deliberately not in this commit
+
+Shatter's approved `[1.0, 1.35, 1.65]` ladder (its own branch — it touches
+nothing this migration touches), Shared Aegis, and Still Water.
