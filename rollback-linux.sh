@@ -31,14 +31,20 @@ BIN=/opt/pathofdust/bin
 slot_row() {
   local dir="$1" name when key shape
   name=$(basename "$dir")
+  # The key carries a trailing rank digit as a TIEBREAKER: 1 = stamped,
+  # 0 = legacy. Two slots can share a second (the rehearsal produced
+  # exactly that), and without a deterministic tiebreak `sort` falls back
+  # to comparing slot NAMES, which orders them alphabetically - i.e.
+  # arbitrarily. At equal timestamps the stamped slot wins, because its
+  # time is EXACT while a legacy slot's is only the directory's mtime.
   if [[ "$name" =~ ^deploy-pre-([0-9]{8})-([0-9]{6})-(.+)$ ]]; then
-    key="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    key="${BASH_REMATCH[1]}${BASH_REMATCH[2]}1"
     when="${BASH_REMATCH[1]:0:4}-${BASH_REMATCH[1]:4:2}-${BASH_REMATCH[1]:6:2} ${BASH_REMATCH[2]:0:2}:${BASH_REMATCH[2]:2:2}:${BASH_REMATCH[2]:4:2}"
     shape="stamped"
   else
     # Legacy shape. Directory mtime, formatted the same way so the two
     # sort against each other, but flagged as approximate.
-    key=$(date -d "@$(stat -c %Y "$dir")" +%Y%m%d%H%M%S)
+    key="$(date -d "@$(stat -c %Y "$dir")" +%Y%m%d%H%M%S)0"
     when=$(stat -c %y "$dir" | cut -d. -f1)
     shape="legacy"
   fi
@@ -71,13 +77,17 @@ slot_hash() {
 
 do_list() {
   printf '%-46s  %-19s  %-7s  %-12s  %s\n' SLOT WHEN SHAPE HASH BINARY
-  local key name when shape dir bin hash
+  local key name when shape dir bin hash binlabel
   while IFS=$'\t' read -r key name when shape; do
     dir="$ROOT/$name"
     bin=$(slot_binary "$dir")
     hash=$(slot_hash "$dir")
+    # Plain if/else, NOT `${bin:+x}${bin:-y}` - that idiom prints BOTH
+    # when `bin` is set, because `:-` returns the value rather than the
+    # fallback. It produced `game.pre-alpha/full/path/...` in rehearsal.
+    if [ -n "$bin" ]; then binlabel=$(basename "$bin"); else binlabel="<none - template-only>"; fi
     printf '%-46s  %-19s  %-7s  %-12s  %s\n' \
-      "$name" "$when" "$shape" "${hash:0:12}" "${bin:+$(basename "$bin")}${bin:-<none - template-only>}"
+      "$name" "$when" "$shape" "${hash:0:12}" "$binlabel"
   done < <(all_slots)
   if [ -L "$ROOT/deploy-pre-LATEST" ]; then
     echo
