@@ -2560,6 +2560,16 @@ impl AdventureManager {
     /// type, and a `pub` method returning it is a private-in-public
     /// leak the compiler warns about. The only caller is this crate's
     /// own admin page.
+    /// The live gear-tier-excess distribution, for the `/admin/tunables`
+    /// read-out beside the controller read-outs. Reads every stored
+    /// character, not just the eligible fighters: the admin page has no
+    /// party, and the question the operator is answering ("what weight
+    /// should I set?") is about the population.
+    pub(crate) async fn current_gear_tier_excess(&self) -> GearTierExcessSummary {
+        let characters = self.characters.lock().await;
+        gear_tier_excess_summary(characters.values())
+    }
+
     pub(crate) async fn current_pacing_status(&self) -> pacing::PacingStatus {
         let t = self.live_tunables();
         let world = self.world.lock().await;
@@ -5345,7 +5355,11 @@ impl AdventureManager {
             self.persist_world(&world);
             (stage, boss_kinds, world.hp_pacing_mult, world.boss_power_mult)
         };
-        let avg_level = fighting.values().map(|c| c.level as f64).sum::<f64>() / fighting.len() as f64;
+        // Party average level PLUS `boss_gear_tier_weight` x the party's
+        // average gear-tier excess (2026-09-03) - see
+        // `effective_avg_level`. At the shipped weight of 0.0 this is
+        // exactly the plain average it replaced.
+        let avg_level = effective_avg_level(fighting.values(), &tunables);
         // Each boss is independently generated at FULL strength (not a
         // shared/split stat budget the way a basic encounter's multiple
         // weaker mobs are) - a stage-50+/90+ fight is meant to be
@@ -6063,7 +6077,11 @@ impl AdventureManager {
             let world = self.world.lock().await;
             (world.stage, world.hp_pacing_mult, world.boss_power_mult)
         };
-        let avg_level = fighting.values().map(|c| c.level as f64).sum::<f64>() / fighting.len() as f64;
+        // Party average level PLUS `boss_gear_tier_weight` x the party's
+        // average gear-tier excess (2026-09-03) - see
+        // `effective_avg_level`. At the shipped weight of 0.0 this is
+        // exactly the plain average it replaced.
+        let avg_level = effective_avg_level(fighting.values(), &tunables);
         // Dynamic pacing mirrors the boss path exactly: build the ORGANIC
         // aggregate first (its HP is the base pool Controller A measures
         // expected duration against), compose both controllers'
@@ -7740,6 +7758,162 @@ pub(crate) fn sanitize_boss_secondary_half_stage(value: f64, shipped: f64) -> f6
 pub(crate) fn boss_secondary_ramp(stage: f64, cap: f64, half_stage: f64, shipped_half_stage: f64) -> f64 {
     let half = sanitize_boss_secondary_half_stage(half_stage, shipped_half_stage);
     (cap * stage / (stage + half)).clamp(0.0, cap)
+}
+
+/// Shipped default for `LiveTunables::boss_gear_tier_weight` (2026-09-03,
+/// Option C of the undamped-power-loop pass - see
+/// `docs/world2_build_plan.md` §7 and
+/// `C:\dust-work\reports\UNDAMPED-POWER-LOOP-FIT-2026-09-03.md`).
+///
+/// **0.0 IS THE CORRECT SHIPPED DEFAULT HERE. IT IS NOT THE
+/// ZERO-DEFAULTING DEFECT.** Every other numeric dial in this codebase
+/// treats a 0.0 as the bug - a form field that silently zeroed has
+/// shipped twice - so an audit sweeping for that defect will stop on this
+/// constant. It is deliberate: at 0.0 this mechanism is an exact no-op
+/// and boss generation is bit-for-bit what it was before it existed. The
+/// release ships the MECHANISM and the MEASUREMENT; the weight is then
+/// chosen from the observed distribution on `/admin/tunables` rather than
+/// guessed here.
+pub const BOSS_GEAR_TIER_WEIGHT: f64 = 0.0;
+/// Lower bound: 0.0, which is exactly "off". There is no legitimate
+/// negative setting - it would make crafting REDUCE boss difficulty.
+pub const BOSS_GEAR_TIER_WEIGHT_MIN: f64 = 0.0;
+/// Upper bound: 1.0, at which one tier of gear excess is charged exactly
+/// like one character level. Above parity the world would charge more for
+/// crafted power than for the level it is denominated in, which is the
+/// owner's stated failure mode (crafting made to feel pointless).
+pub const BOSS_GEAR_TIER_WEIGHT_MAX: f64 = 1.0;
+
+/// Resolves a live `boss_gear_tier_weight` reading into the usable range -
+/// non-finite falls back to the shipped default, otherwise clamped. Same
+/// discipline as `pacing::sanitize_pool_cap`: the form's own min/max is
+/// what reports an out-of-range value to the operator, this is the
+/// defence-in-depth behind a hand-crafted POST.
+pub fn sanitize_boss_gear_tier_weight(value: f64) -> f64 {
+    if !value.is_finite() {
+        return BOSS_GEAR_TIER_WEIGHT;
+    }
+    value.clamp(BOSS_GEAR_TIER_WEIGHT_MIN, BOSS_GEAR_TIER_WEIGHT_MAX)
+}
+
+/// ONE character's equipped gear tier **in excess of what the world
+/// already charges them for**, i.e. `max(0, mean equipped tier - level)`.
+///
+/// **The `max(0, … - level)` is the whole design, not a guard.** Boss
+/// difficulty already scales on `avg_level`, and `grow_krangled_items`
+/// pins every Krangled item's tier to exactly `level` - so for that whole
+/// item class tier IS level and `level_mult` is already billing for it.
+/// Measuring the EXCESS makes double-charging a Krangled build
+/// **impossible by construction** rather than something a coefficient has
+/// to be tuned around. That property is why this shape was chosen over
+/// reading average gear tier directly: reading tier raw bills hardest the
+/// players who did the sanctioned thing, and no coefficient fixes it -
+/// it is wrong in shape, not in tuning (owner ruling, 2026-09-03).
+///
+/// A character with nothing equipped has no excess, not a negative one.
+pub(crate) fn gear_tier_excess(character: &Character) -> f64 {
+    let mut sum = 0.0f64;
+    let mut count = 0.0f64;
+    for slot in EQUIP_SLOTS {
+        if let Some(item) = character.equipped(slot) {
+            sum += item.tier as f64;
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        return 0.0;
+    }
+    (sum / count - character.level as f64).max(0.0)
+}
+
+/// The level `boss_stats_for` is generated against: the party's average
+/// character level, plus `boss_gear_tier_weight` × the party's average
+/// gear-tier excess.
+///
+/// **Why this exists.** Craft-driven power was the one growth vector with
+/// nothing opposing it. Climbing stages makes bosses harder and gaining
+/// levels makes bosses harder, but item tier - the vector a player
+/// controls most directly, and the one a single Hideout Warrior click
+/// moves +15 at stage 4 - was invisible to boss generation entirely.
+/// Nothing in the tree read gear tier for difficulty before this.
+///
+/// **Two properties a future reader will not see from the arithmetic
+/// alone, and both are load-bearing:**
+///
+/// 1. **It is a PER-PARTY term computed at generation, never global
+///    controller state.** `hp_pacing_mult` and `boss_power_mult` are
+///    single `WorldState` fields shared by everyone, so when the
+///    controllers absorb a heavy crafter's power they raise difficulty
+///    *for the whole world* - the crafter is not unopposed, the crafter's
+///    opposition is charged to everyone else. A newcomer in tier-1 gear
+///    eats a world tuned to the veterans. This term is computed from the
+///    fighters actually present, so it cannot do that.
+/// 2. **It feeds the ORGANIC curve, not Controller B.** B's only lever is
+///    `dmg_mult`, and `apply_dynamic_scaling` multiplies the boss
+///    secondaries by `sqrt(dmg_mult)` before re-capping at
+///    `BOSS_DEFENSE_CAP` - so every unit of crafted survivability the
+///    world absorbs through B is paid for by re-flattening evasion, block
+///    and damage reduction. (That is what §10.6 of
+///    `docs/dynamic_pacing_design_pass.md` records: §10.6 is the invoice
+///    for B doing this job.) Answering crafted power here instead lets
+///    the world respond without spending B's authority and without
+///    re-pinning the secondaries the boss-secondary curve just unfroze.
+///
+/// At the shipped `boss_gear_tier_weight` of 0.0 this returns exactly the
+/// plain party average - the mechanism is inert until the dial moves.
+pub(crate) fn effective_avg_level<'a>(party: impl IntoIterator<Item = &'a Character>, tunables: &LiveTunables) -> f64 {
+    let mut count = 0.0f64;
+    let mut level_sum = 0.0f64;
+    let mut excess_sum = 0.0f64;
+    for character in party {
+        count += 1.0;
+        level_sum += character.level as f64;
+        excess_sum += gear_tier_excess(character);
+    }
+    if count == 0.0 {
+        // Unreachable in production - both call sites bail on an empty
+        // roster first - but a 0/0 here would put a NaN straight into
+        // `level_mult` and out through a float->int cast, which maps to 0
+        // rather than saturating.
+        return 0.0;
+    }
+    let weight = sanitize_boss_gear_tier_weight(tunables.boss_gear_tier_weight);
+    level_sum / count + weight * (excess_sum / count)
+}
+
+/// The live gear-tier-excess distribution across every stored character,
+/// for the `/admin/tunables` read-out. **This is the actual deliverable of
+/// the 2026-09-03 release**: at `boss_gear_tier_weight = 0.0` nothing
+/// about play changes, so what ships is the visibility that lets the
+/// weight be chosen from an observed distribution instead of guessed.
+pub(crate) struct GearTierExcessSummary {
+    pub characters: usize,
+    /// How many carry any excess at all - the rest are already fully
+    /// charged for through `level_mult`.
+    pub with_excess: usize,
+    pub mean: f64,
+    pub median: f64,
+    pub max: f64,
+}
+
+/// `GearTierExcessSummary` over an arbitrary character set. Split out from
+/// the manager method so it is testable without a manager.
+pub(crate) fn gear_tier_excess_summary<'a>(characters: impl IntoIterator<Item = &'a Character>) -> GearTierExcessSummary {
+    let mut values: Vec<f64> = characters.into_iter().map(gear_tier_excess).collect();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let characters = values.len();
+    if characters == 0 {
+        return GearTierExcessSummary { characters: 0, with_excess: 0, mean: 0.0, median: 0.0, max: 0.0 };
+    }
+    let with_excess = values.iter().filter(|v| **v > 0.0).count();
+    let mean = values.iter().sum::<f64>() / characters as f64;
+    let median = if characters % 2 == 1 {
+        values[characters / 2]
+    } else {
+        (values[characters / 2 - 1] + values[characters / 2]) / 2.0
+    };
+    let max = values[characters - 1];
+    GearTierExcessSummary { characters, with_excess, mean, median, max }
 }
 
 /// Applies the dynamic-pacing controllers' effective multipliers on top
