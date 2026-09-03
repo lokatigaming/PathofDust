@@ -1081,16 +1081,22 @@ mod duplicate_unique_effects_cleanup_tests {
     }
 
     #[test]
-    fn all_five_slots_sharing_the_same_unique_all_get_unequipped() {
+    fn every_slot_sharing_the_same_unique_all_get_unequipped() {
         // The real live case this migration was written for (xDaido, see
         // the fit report's scan) - every single slot carrying the same
         // unique, not just two.
-        let mut c = character_with_equipped_uniques("five_slots", &EQUIP_SLOTS.map(|s| (s, UniqueAffix::CelestialConversion)));
+        //
+        // Named `all_five_slots_...` with a hardcoded `5` until 2026-09-03,
+        // when §8 took the slot count to nine and it became the one test
+        // in the suite that failed on the count alone. Counting
+        // `EQUIP_SLOTS` instead of a literal, since what this asserts is
+        // "every slot was emptied into the bag", not "five were".
+        let mut c = character_with_equipped_uniques("every_slot", &EQUIP_SLOTS.map(|s| (s, UniqueAffix::CelestialConversion)));
         migrate_duplicate_unique_effects(&mut c);
         for slot in EQUIP_SLOTS {
             assert!(c.equipped(slot).is_none(), "{slot:?} must be unequipped");
         }
-        assert_eq!(c.inventory.iter().filter(|i| i.unique_affix == Some(UniqueAffix::CelestialConversion)).count(), 5);
+        assert_eq!(c.inventory.iter().filter(|i| i.unique_affix == Some(UniqueAffix::CelestialConversion)).count(), EQUIP_SLOTS.len());
     }
 
     /// Reproduces the exact 2026-08-21 fit-report scan figures (7

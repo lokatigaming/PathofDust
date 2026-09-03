@@ -4043,6 +4043,57 @@ fn item_card_body_html(item: &Item) -> String {
     )
 }
 
+/// Every gear slot with its player-facing label, in the order the web
+/// dashboard shows them. THE one ordering used by every gear/inventory/
+/// crafting renderer on this page.
+///
+/// Until 2026-09-03 the same five-element list was written out by hand in
+/// six places here (character detail, the owner's dashboard, the inventory
+/// page, `all_items`, the crafting picker's slot groups, and the bag's
+/// per-slot rows), none of which read `EQUIP_SLOTS` and none of which the
+/// compiler checks. When §8 added four slots, all six would have silently
+/// kept rendering five - the new gear invisible on the dashboard while
+/// working perfectly in combat - and `all_items` would additionally have
+/// hidden the new items from CRAFTING, which is a functional bug rather
+/// than a cosmetic one. One named constant instead, so the next slot
+/// addition is one line here and nowhere else.
+///
+/// Deliberately separate from `EQUIP_SLOTS` rather than derived from it:
+/// `EQUIP_SLOTS`'s order is load-bearing for the loot roll's `gen_range`
+/// index and must never be shuffled for presentation reasons, whereas this
+/// one exists to be reordered freely. They are allowed to differ; the
+/// pairing that matters is that this list is COMPLETE, which
+/// `display_slots_covers_every_equip_slot` asserts.
+pub(crate) const DISPLAY_SLOTS: [(EquipSlot, &str); 9] = [
+    (EquipSlot::Weapon, "Weapon"),
+    (EquipSlot::Helm, "Helm"),
+    (EquipSlot::Body, "Body"),
+    (EquipSlot::Gloves, "Gloves"),
+    (EquipSlot::Boots, "Boots"),
+    (EquipSlot::Ring1, "Ring I"),
+    (EquipSlot::Ring2, "Ring II"),
+    (EquipSlot::Amulet, "Amulet"),
+    (EquipSlot::Pants, "Pants"),
+];
+
+/// The bag's per-slot rows (`render_inventory_by_slot`) use their own
+/// order and their own PLURAL labels - it predates `DISPLAY_SLOTS` and
+/// leads with Helm rather than Weapon. Kept as a second named ordering
+/// rather than being folded into `DISPLAY_SLOTS` (which would silently
+/// reorder a page players already know) or left as a sixth hand-written
+/// literal (which is exactly what this change exists to remove).
+const BAG_SLOT_ROWS: [(EquipSlot, &str); 9] = [
+    (EquipSlot::Helm, "Helms"),
+    (EquipSlot::Weapon, "Weapons"),
+    (EquipSlot::Gloves, "Gloves"),
+    (EquipSlot::Body, "Body"),
+    (EquipSlot::Boots, "Boots"),
+    (EquipSlot::Ring1, "Rings I"),
+    (EquipSlot::Ring2, "Rings II"),
+    (EquipSlot::Amulet, "Amulets"),
+    (EquipSlot::Pants, "Pants"),
+];
+
 /// Same gear-slot layout `render_gear_slot` uses on the owner's own
 /// dashboard, minus the form/buttons - viewing someone ELSE'S character
 /// (see `render_character_detail`) is read-only, equip/repair/etc. only
@@ -4077,7 +4128,7 @@ fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character
     let games = c.wins + c.losses;
     let winrate = if games > 0 { format!("{:.0}%", c.wins as f64 / games as f64 * 100.0) } else { "—".to_string() };
     let combat_stats_html = render_combat_stats_card(c, tunables);
-    let gear_html = [(EquipSlot::Weapon, "Weapon"), (EquipSlot::Helm, "Helm"), (EquipSlot::Body, "Body"), (EquipSlot::Gloves, "Gloves"), (EquipSlot::Boots, "Boots")]
+    let gear_html = DISPLAY_SLOTS
         .into_iter()
         .map(|(slot, label)| render_gear_slot_readonly(c.equipped(slot).as_ref(), label))
         .collect::<String>();
@@ -5034,7 +5085,7 @@ fn render_dashboard(
             .to_string(),
     };
 
-    let gear_html = [(EquipSlot::Weapon, "Weapon"), (EquipSlot::Helm, "Helm"), (EquipSlot::Body, "Body"), (EquipSlot::Gloves, "Gloves"), (EquipSlot::Boots, "Boots")]
+    let gear_html = DISPLAY_SLOTS
         .into_iter()
         .map(|(slot, label)| render_gear_slot(c, slot, label))
         .collect::<String>();
@@ -5151,7 +5202,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
         );
     };
 
-    let gear_html = [(EquipSlot::Weapon, "Weapon"), (EquipSlot::Helm, "Helm"), (EquipSlot::Body, "Body"), (EquipSlot::Gloves, "Gloves"), (EquipSlot::Boots, "Boots")]
+    let gear_html = DISPLAY_SLOTS
         .into_iter()
         .map(|(slot, label)| render_gear_slot(c, slot, label))
         .collect::<String>();
@@ -6260,7 +6311,7 @@ fn render_nickname_prompt(c: &Character) -> String {
 
 fn all_items(c: &Character) -> Vec<&Item> {
     let mut items: Vec<&Item> = Vec::new();
-    for slot in [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots] {
+    for (slot, _) in DISPLAY_SLOTS {
         if let Some(item) = c.equipped(slot) {
             items.push(item);
         }
@@ -6379,9 +6430,9 @@ fn craft_item_options(c: &Character, items: &[&Item], with_none: bool, selected_
         format!("<optgroup label=\"Equipped\">{opts}</optgroup>")
     };
 
-    let slot_groups: String = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots]
+    let slot_groups: String = DISPLAY_SLOTS
         .into_iter()
-        .map(|slot| {
+        .map(|(slot, _)| {
             let group_items: Vec<&Item> = items.iter().copied().filter(|i| i.slot == slot && !is_equipped(i)).collect();
             if group_items.is_empty() {
                 return String::new();
@@ -6999,7 +7050,7 @@ fn render_gear_slot(character: &Character, slot: EquipSlot, label: &str) -> Stri
 /// slot you don't care about, not hidden by default the way the sprite
 /// picker is, since browsing your own bag is the whole point of this card.
 fn render_inventory_by_slot(items: &[Item], render_item: impl Fn(&Item) -> String) -> String {
-    let rows: String = [(EquipSlot::Helm, "Helms"), (EquipSlot::Weapon, "Weapons"), (EquipSlot::Gloves, "Gloves"), (EquipSlot::Body, "Body"), (EquipSlot::Boots, "Boots")]
+    let rows: String = BAG_SLOT_ROWS
         .into_iter()
         .map(|(slot, label)| {
             let slot_items: Vec<&Item> = items.iter().filter(|i| i.slot == slot).collect();
@@ -7096,6 +7147,21 @@ fn gear_primary_stat(item: &Item) -> String {
         // stays a plain percentage.
         EquipSlot::Gloves => format!("+{:.0}% speed", item.effective_power() * 100.0),
         EquipSlot::Boots => format!("+{} hp / {:.1}s", format_number(item.effective_power()), item.cooldown_ms() as f64 / 1000.0),
+        // The four §8 slots all follow the Gloves precedent above: their
+        // `effective_power` is a fraction, not a magnitude, so they render
+        // as a percentage. One decimal rather than Gloves' zero because a
+        // T=1 ring is 1.0% and a T=1 amulet 2.5% - rounding those to whole
+        // numbers would show a brand-new player's first ring as "+1%" and
+        // their first amulet as "+2%", losing the difference between a
+        // good roll and a bad one exactly where it is most visible.
+        //
+        // Wording matches the affix labels these implicits are worth
+        // exactly one of (`affix_def`: "crit chance", "crit dmg dealt",
+        // "max hp"), so a player comparing an implicit against a rolled
+        // affix of the same type sees the same words.
+        EquipSlot::Ring1 | EquipSlot::Ring2 => format!("+{:.1}% crit chance", item.effective_power() * 100.0),
+        EquipSlot::Amulet => format!("+{:.1}% crit dmg dealt", item.effective_power() * 100.0),
+        EquipSlot::Pants => format!("+{:.1}% max hp", item.effective_power() * 100.0),
     }
 }
 
@@ -7444,5 +7510,90 @@ mod admin_passives_tests {
         assert_eq!(trim_float(0.0), "0");
         assert_eq!(trim_float(0.15000000000000002), "0.15", "float arithmetic noise must not reach the page");
         assert_eq!(trim_float(0.335), "0.335");
+    }
+}
+
+/// The six hand-written five-slot lists this file carried until
+/// 2026-09-03 were not compiler-caught, which is why §8 named them as the
+/// slot addition's highest-risk non-compiler-caught trap: a nine-slot
+/// character would have rendered as five, the new gear invisible on the
+/// dashboard while working perfectly in combat, and `all_items` would
+/// have hidden it from crafting too. `DISPLAY_SLOTS`/`BAG_SLOT_ROWS`
+/// replaced them; these tests are what make the NEXT slot addition
+/// noisy instead of silent.
+#[cfg(test)]
+mod display_slots_tests {
+    use super::*;
+    use crate::adventure::generate_item_at_tier;
+    use rand::SeedableRng;
+
+    #[test]
+    fn display_slots_covers_every_equip_slot() {
+        for slot in crate::adventure::EQUIP_SLOTS {
+            assert!(
+                DISPLAY_SLOTS.iter().any(|&(s, _)| s == slot),
+                "{slot:?} is equippable but would never render - add it to DISPLAY_SLOTS"
+            );
+        }
+        assert_eq!(DISPLAY_SLOTS.len(), crate::adventure::EQUIP_SLOTS.len(), "DISPLAY_SLOTS must list each slot exactly once");
+    }
+
+    /// Same guarantee for the bag's own ordering, which is a separate
+    /// list precisely because its order and labels differ - and a second
+    /// list is a second thing to forget.
+    #[test]
+    fn bag_slot_rows_covers_every_equip_slot() {
+        for slot in crate::adventure::EQUIP_SLOTS {
+            assert!(
+                BAG_SLOT_ROWS.iter().any(|&(s, _)| s == slot),
+                "{slot:?} is equippable but its bag row would never render - add it to BAG_SLOT_ROWS"
+            );
+        }
+        assert_eq!(BAG_SLOT_ROWS.len(), crate::adventure::EQUIP_SLOTS.len(), "BAG_SLOT_ROWS must list each slot exactly once");
+    }
+
+    #[test]
+    fn every_slot_has_a_distinct_label() {
+        for (i, (_, label)) in DISPLAY_SLOTS.iter().enumerate() {
+            for (_, other) in DISPLAY_SLOTS.iter().skip(i + 1) {
+                assert_ne!(label, other, "two slots rendering the same label is indistinguishable to a player - the two rings especially");
+            }
+        }
+    }
+
+    /// `all_items` feeds the crafting picker. It read a hardcoded
+    /// five-slot list until 2026-09-03; an item in a slot it does not
+    /// list is uncraftable with no error shown, which is a functional
+    /// bug rather than a cosmetic one.
+    #[test]
+    fn all_items_sees_gear_in_every_slot_including_the_new_four() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(83);
+        let mut character = Character::new("nine".to_string());
+        for slot in crate::adventure::EQUIP_SLOTS {
+            character.equip(generate_item_at_tier(slot, 7, &mut rng));
+        }
+        let items = all_items(&character);
+        assert_eq!(items.len(), crate::adventure::EQUIP_SLOTS.len(), "every equipped slot must reach the crafting picker");
+        for slot in crate::adventure::EQUIP_SLOTS {
+            assert!(items.iter().any(|i| i.slot == slot), "an item in {slot:?} must be craftable");
+        }
+    }
+
+    /// Every slot's primary stat must render, and the four §8 slots must
+    /// render as PERCENTAGES (the Gloves precedent) rather than through
+    /// `format_number`, which would show a perfectly normal +10.0% crit
+    /// chance ring as "+0".
+    #[test]
+    fn every_slot_renders_a_primary_stat_and_the_new_four_read_as_percentages() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(84);
+        for slot in crate::adventure::EQUIP_SLOTS {
+            let item = generate_item_at_tier(slot, 50, &mut rng);
+            let line = gear_primary_stat(&item);
+            assert!(!line.is_empty(), "{slot:?} must render a primary stat line");
+            if crate::adventure::slot_power_is_affix_equivalent(slot) {
+                assert!(line.contains('%'), "{slot:?}'s implicit is a fraction and must render as a percentage, got {line:?}");
+                assert!(!line.contains("+0."), "{slot:?} at T=50 must not render as a rounded-to-nothing fraction, got {line:?}");
+            }
+        }
     }
 }

@@ -367,6 +367,29 @@ pub struct Character {
     pub gloves: Option<Item>,
     #[serde(default)]
     pub boots: Option<Item>,
+    /// The four slots added 2026-09-03 (`docs/affix_curve_spec.md` §8).
+    /// `#[serde(default)]` is the whole migration: every character saved
+    /// before these existed loads with all four empty, which is already a
+    /// normal state for a slot (a broken item leaves one empty every day),
+    /// so no marker file, no backfill and no startup pass is needed. New
+    /// characters start empty here too - `Character::new` deliberately
+    /// does NOT put starter gear in them (owner ruling 2026-09-03), so the
+    /// new slots are something to chase rather than something granted.
+    ///
+    /// Their implicits are read as affix-equivalents: `ring1`/`ring2` into
+    /// `combat_crit_chance`'s gear total, `amulet` into
+    /// `combat_crit_multiplier`'s, `pants` into `combat_max_hp`'s
+    /// `gear_increased` - each landing in the SAME additive pool
+    /// `sum_affix` already feeds, which is what makes one of them worth
+    /// exactly one affix rather than a separate multiplicative layer.
+    #[serde(default)]
+    pub ring1: Option<Item>,
+    #[serde(default)]
+    pub ring2: Option<Item>,
+    #[serde(default)]
+    pub amulet: Option<Item>,
+    #[serde(default)]
+    pub pants: Option<Item>,
     /// Unequipped items, managed from the web dashboard (adventure_web.rs)
     /// — every future drop lands here rather than auto-equipping, capped
     /// at `INVENTORY_CAPACITY`. Reforge is the one exception: it still
@@ -1037,6 +1060,14 @@ impl Character {
             body: Some(generate_item_at_tier(EquipSlot::Body, 1, &mut rng)),
             gloves: Some(generate_item_at_tier(EquipSlot::Gloves, 1, &mut rng)),
             boots: Some(generate_item_at_tier(EquipSlot::Boots, 1, &mut rng)),
+            // The four §8 slots start EMPTY on purpose (owner ruling
+            // 2026-09-03) - the starter kit stays five items, and rings,
+            // amulet and pants arrive as drops. Do not "complete" this
+            // list; the empty slots are the point.
+            ring1: None,
+            ring2: None,
+            amulet: None,
+            pants: None,
             inventory: Vec::new(),
             dust: 0,
             sand: 0,
@@ -1184,6 +1215,10 @@ impl Character {
             EquipSlot::Body => &self.body,
             EquipSlot::Gloves => &self.gloves,
             EquipSlot::Boots => &self.boots,
+            EquipSlot::Ring1 => &self.ring1,
+            EquipSlot::Ring2 => &self.ring2,
+            EquipSlot::Amulet => &self.amulet,
+            EquipSlot::Pants => &self.pants,
         }
     }
 
@@ -1221,6 +1256,10 @@ impl Character {
             EquipSlot::Body => self.body = Some(item),
             EquipSlot::Gloves => self.gloves = Some(item),
             EquipSlot::Boots => self.boots = Some(item),
+            EquipSlot::Ring1 => self.ring1 = Some(item),
+            EquipSlot::Ring2 => self.ring2 = Some(item),
+            EquipSlot::Amulet => self.amulet = Some(item),
+            EquipSlot::Pants => self.pants = Some(item),
         }
     }
 
@@ -1233,6 +1272,10 @@ impl Character {
             EquipSlot::Body => &mut self.body,
             EquipSlot::Gloves => &mut self.gloves,
             EquipSlot::Boots => &mut self.boots,
+            EquipSlot::Ring1 => &mut self.ring1,
+            EquipSlot::Ring2 => &mut self.ring2,
+            EquipSlot::Amulet => &mut self.amulet,
+            EquipSlot::Pants => &mut self.pants,
         }
     }
 
@@ -2284,7 +2327,16 @@ impl Character {
                 polished_affixes.push((affix, new_value));
             }
         } else {
-            item.power_roll = (item.power_roll + QUALITY_STEP * jitter_span).min(POWER_ROLL_RANGE.end);
+            // The ITEM's own quality step is measured against ITS SLOT's
+            // range, not the constant - the four §8 slots roll 0.85..1.15
+            // (see `roll_range_for_slot`), so both the 5-percentage-point
+            // step and the ceiling it clamps to are narrower there. The
+            // AFFIX steps above and below deliberately keep using
+            // `jitter_span`/`POWER_ROLL_RANGE`: affix jitter is
+            // slot-independent, and that pairing predates this change.
+            let power_range = roll_range_for_slot(slot);
+            let power_span = power_range.end - power_range.start;
+            item.power_roll = (item.power_roll + QUALITY_STEP * power_span).min(power_range.end);
             item.power = compute_power(slot, tier, item.power_roll);
             new_quality_percent = Some(item.quality_percent());
             if !eligible.is_empty() {
@@ -2408,7 +2460,12 @@ impl Character {
             Ok(DivineDustOutcome { item_name, slot, tier, became_sacred: false, old_affix: Some(current_affix), new_affix, new_value })
         } else {
             if !item.perfect {
-                item.power_roll = POWER_ROLL_RANGE.end;
+                // Slot's own ceiling - 1.15 on the four §8 slots, not the
+                // constant's 1.20. Same reasoning as `make_item_perfect`,
+                // which this path deliberately mirrors: pinning a ring to
+                // 1.20 would put it above its own range and make it worth
+                // more than the one affix it is defined to equal.
+                item.power_roll = roll_range_for_slot(slot).end;
                 item.power = compute_power(slot, tier, item.power_roll) * PERFECT_QUALITY_MULT;
                 for (_, value) in item.affixes.iter_mut() {
                     *value *= PERFECT_QUALITY_MULT;
@@ -2708,7 +2765,12 @@ impl Character {
     /// of the same idea).
     pub fn combat_max_hp(&self, t: &crate::adventure::LiveTunables) -> u32 {
         let base = self.hp() as f64 + self.body.as_ref().map(|i| i.effective_power()).unwrap_or(0.0) + self.sum_affix(Affix::FlatLife);
-        let gear_increased = self.archetype.bonus(self.level).max_hp_pct + self.sum_affix(Affix::IncreasedLife);
+        // Pants' implicit is one `IncreasedLife` affix's worth (spec §8),
+        // so it is summed into the SAME additive gear bucket `sum_affix`
+        // feeds - not given its own multiplicative layer, which would make
+        // it worth more than the one affix it is defined to equal.
+        let gear_increased =
+            self.archetype.bonus(self.level).max_hp_pct + self.sum_affix(Affix::IncreasedLife) + self.slot_implicit(EquipSlot::Pants);
         let tree_increased = self.passive_bonus().max_hp_pct + self.passive_overflow_bonus(t).max_hp_pct;
         (base * (1.0 + gear_increased) * (1.0 + tree_increased)).max(1.0).round() as u32
     }
@@ -2823,6 +2885,28 @@ impl Character {
     /// (power-per-proc, cooldown-ms) for the boots' self-heal, if equipped.
     pub(crate) fn boots_skill(&self) -> Option<(f64, u32)> {
         self.boots.as_ref().map(|i| (i.effective_power(), i.cooldown_ms()))
+    }
+
+    /// The wear-decayed base-power implicit currently worn in `slot`, or
+    /// 0.0 if that slot is empty (which is the normal state for the four
+    /// §8 slots on a character who hasn't found one yet - they start empty
+    /// and arrive as drops).
+    ///
+    /// Only meaningful for the four slots whose base power is an
+    /// affix-equivalent percentage (see
+    /// `item::slot_power_is_affix_equivalent`); calling it for Weapon or
+    /// Body would return a raw damage/hp magnitude, which is what
+    /// `combat_atk`/`combat_max_hp` already read directly off the field.
+    /// Kept as one accessor rather than four `as_ref().map().unwrap_or()`
+    /// chains so the three consumption sites read identically and a fifth
+    /// such slot is one line.
+    ///
+    /// `effective_power` (not `power`) on purpose: a worn-out ring's
+    /// implicit decays exactly like a worn-out weapon's damage does. An
+    /// implicit that ignored durability would be the only gear stat in the
+    /// game that did.
+    fn slot_implicit(&self, slot: EquipSlot) -> f64 {
+        self.equipped(slot).as_ref().map(|i| i.effective_power()).unwrap_or(0.0)
     }
 
     /// Sums `affix`'s wear-decayed value (see `Item::effective_affix_total`)
@@ -3479,7 +3563,14 @@ impl Character {
         // lands at 20% * 1.30 = 26%, not 20% + 30% = 50%. Same principle
         // as every other stat here; gear's own values are never
         // reinterpreted, only how the tree stacks on top of them.
-        let gear_total = BASE_CRIT_CHANCE + self.sum_affix(Affix::CritChance) + self.archetype.bonus(self.level).crit_chance;
+        // Both rings' implicits are one `CritChance` affix each (spec §8),
+        // summed into the same additive gear pool for the same reason
+        // `combat_max_hp` sums Pants into `gear_increased`.
+        let gear_total = BASE_CRIT_CHANCE
+            + self.sum_affix(Affix::CritChance)
+            + self.archetype.bonus(self.level).crit_chance
+            + self.slot_implicit(EquipSlot::Ring1)
+            + self.slot_implicit(EquipSlot::Ring2);
         // Ranger's Deadeye (2026-08-16, moved off its old splash-only
         // override - a live design call that it should boost the main hit
         // directly, same as Chain Shot, with splash inheriting passively
@@ -3496,7 +3587,12 @@ impl Character {
     /// archetype's own bonus (e.g. Mage's), floored so it can never drop
     /// below a normal hit.
     pub fn combat_crit_multiplier(&self, t: &crate::adventure::LiveTunables) -> f64 {
-        let gear_total = BASE_CRIT_MULTIPLIER + self.sum_affix(Affix::CritMultiplier) + self.archetype.bonus(self.level).crit_multiplier;
+        // Amulet's implicit is one `CritMultiplier` affix's worth (spec
+        // §8) - same additive pool, same reasoning as the rings above.
+        let gear_total = BASE_CRIT_MULTIPLIER
+            + self.sum_affix(Affix::CritMultiplier)
+            + self.archetype.bonus(self.level).crit_multiplier
+            + self.slot_implicit(EquipSlot::Amulet);
         let tree_total = self.passive_bonus().crit_multiplier + self.passive_overflow_bonus(t).crit_multiplier;
         (gear_total * (1.0 + tree_total)).max(1.0)
     }
@@ -5413,6 +5509,60 @@ mod duplicate_unique_effects_tests {
         assert_eq!(outcome.unique_affix_added, Some(UniqueAffix::CelestialConversion));
         assert_eq!(character.find_item_by_id(&id).unwrap().unique_affix, Some(UniqueAffix::CelestialConversion));
     }
+
+    /// Spec §8.3: two ring slots are the first pair of slots in the game
+    /// that hold the SAME KIND of item, which is exactly the shape "the
+    /// same unique equipped twice" would exploit. The guard already
+    /// covers it by construction - it iterates `EQUIP_SLOTS` and excludes
+    /// only the DESTINATION slot by enum equality, so `Ring1 != Ring2`
+    /// sees the conflict - but "correct by construction" is the kind of
+    /// claim that stops being true silently, and the two prerequisites it
+    /// rests on (both rings present in `EQUIP_SLOTS`, and the rings being
+    /// distinct variants) are both one careless edit away.
+    #[test]
+    fn the_same_unique_cannot_be_worn_in_both_ring_slots() {
+        let mut character = Character::new("two_rings".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::CelestialConversion));
+        let bagged = unique_item(EquipSlot::Ring2, UniqueAffix::CelestialConversion);
+        let id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        let equipped = character.equip_from_inventory(&id);
+        assert!(!equipped, "the same unique in both ring slots must be refused, same as any other slot pair");
+        assert!(character.ring2.is_none(), "the refused ring must not have landed in the second ring slot");
+        assert!(character.inventory.iter().any(|i| i.id == id), "the refused ring must stay in the bag");
+    }
+
+    /// The other half of the same guarantee: the rings are not a special
+    /// case that blocks EVERYTHING. Two DIFFERENT uniques, one per ring,
+    /// is a legitimate build and must go through.
+    #[test]
+    fn two_different_uniques_may_be_worn_one_in_each_ring() {
+        let mut character = Character::new("mixed_rings".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::CelestialConversion));
+        let bagged = unique_item(EquipSlot::Ring2, UniqueAffix::SplitPersonality);
+        let id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        assert!(character.equip_from_inventory(&id), "two DIFFERENT uniques, one per ring, must be allowed");
+        assert_eq!(character.ring2.as_ref().map(|i| i.unique_affix), Some(Some(UniqueAffix::SplitPersonality)));
+    }
+
+    /// A drop auto-equips into an EMPTY slot, and the four §8 slots start
+    /// empty on every character - so the auto-equip path, not just the
+    /// manual one, is what will actually meet a conflicting ring first.
+    #[test]
+    fn a_dropped_ring_does_not_auto_equip_into_the_second_ring_slot_when_it_would_conflict() {
+        let mut character = Character::new("ring_drop".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::CelestialConversion));
+        let dropped = unique_item(EquipSlot::Ring2, UniqueAffix::CelestialConversion);
+        let id = dropped.id.clone();
+
+        let outcome = character.receive_item(dropped);
+        assert!(matches!(outcome, ReceiveOutcome::AddedToBag), "an empty ring slot must NOT auto-equip a conflicting unique");
+        assert!(character.ring2.is_none());
+        assert!(character.inventory.iter().any(|i| i.id == id));
+    }
 }
 
 /// Why a `purchase_wings`/`toggle_flying` attempt didn't go through.
@@ -5619,5 +5769,66 @@ mod win_xp_tests {
             let m = crate::adventure::catchup_multiplier(level, &group);
             assert!((1.0..=3.0).contains(&m), "catchup_multiplier({level}) = {m} is outside the 1.0..3.0 band the XP grant is documented against");
         }
+    }
+}
+
+/// What happens to a character saved BEFORE the four §8 slots existed
+/// (`docs/affix_curve_spec.md` §8, 2026-09-03). The answer is meant to be
+/// "nothing at all" - `#[serde(default)]` on the four new fields is the
+/// entire migration, with no marker file, no startup backfill and no
+/// rescale pass. That claim is worth a test rather than a comment,
+/// because the failure mode if it were wrong is every character on disk
+/// failing to deserialize at once.
+#[cfg(test)]
+mod new_slot_migration_tests {
+    use super::*;
+
+    #[test]
+    fn a_character_saved_with_only_the_original_five_slots_still_loads() {
+        let mut original = Character::new("legacy".to_string());
+        original.level = 12;
+        let json = serde_json::to_value(&original).expect("a character must serialize");
+        let mut map = json.as_object().expect("a character serializes as an object").clone();
+        // Exactly what a pre-2026-09-03 save looks like: the four keys are
+        // simply absent, not present-and-null.
+        for key in ["ring1", "ring2", "amulet", "pants"] {
+            assert!(map.remove(key).is_some(), "{key} must be a real field before this test can prove its absence is survivable");
+        }
+
+        let loaded: Character = serde_json::from_value(serde_json::Value::Object(map)).expect("a five-slot save must still deserialize - if this fails, every character on disk fails at once");
+        assert_eq!(loaded.level, 12, "the rest of the character must be untouched");
+        for slot in [EquipSlot::Ring1, EquipSlot::Ring2, EquipSlot::Amulet, EquipSlot::Pants] {
+            assert!(loaded.equipped(slot).is_none(), "{slot:?} must load empty, not error and not be invented");
+        }
+        assert!(loaded.weapon.is_some(), "the original five must survive the round trip");
+    }
+
+    /// Empty §8 slots must be a normal, fully-functional state - not a
+    /// state every stat reader has to be taught about. Four of them empty
+    /// is the day-one condition of EVERY character in the game.
+    #[test]
+    fn an_empty_new_slot_contributes_exactly_nothing() {
+        let tunables = LiveTunables::default();
+        let bare = Character::new("bare".to_string());
+        assert!(bare.ring1.is_none() && bare.ring2.is_none() && bare.amulet.is_none() && bare.pants.is_none(), "the starter kit must NOT fill the new slots (owner ruling 2026-09-03)");
+
+        let mut with_ring = bare.clone();
+        with_ring.ring1 = Some(generate_item_at_tier_with_roll(EquipSlot::Ring1, 100, 1.0, &mut rand::thread_rng()));
+
+        // A T=100 ring is one CritChance affix at T=100 - 0.01 * f(100) =
+        // 0.10 - landing in the same additive gear pool sum_affix feeds,
+        // and then multiplied by the (1 + tree) layer like everything
+        // else in that pool.
+        let delta = with_ring.combat_crit_chance(&tunables) - bare.combat_crit_chance(&tunables);
+        assert!((delta - 0.10).abs() < 1e-9, "a T=100 ring must add exactly one T=100 CritChance affix's worth (0.10), got {delta}");
+    }
+
+    /// Four empty slots must not make a character look fully worn out -
+    /// `all_gear_worn_out` benches a character from every encounter, so a
+    /// false positive here would sideline the entire playerbase.
+    #[test]
+    fn four_empty_slots_do_not_read_as_worn_out_gear() {
+        let character = Character::new("fresh".to_string());
+        assert!(!character.all_gear_worn_out(), "a fresh character with four empty §8 slots must not be benched as worn out");
     }
 }
