@@ -3664,3 +3664,58 @@ filled, but the marker is what keeps it that way.
 The 72 items granted on 2026-09-03 stay, per the owner ruling recorded in
 the gear-slots entry. This release stops it recurring; it does not undo
 it.
+---
+
+## 2026-09-03 — BOARD: two items owned by nobody, recorded so they stop being rediscovered
+
+Neither is being worked. Both were found during the four-release deploy
+day and would otherwise be found again by the next session that trips
+over them.
+
+### OWNED BY NOBODY — the off-box backup puller stalls for minutes at a time
+
+`C:\pod-backup-pull\pull-linux-backups.ps1` intermittently stalls on a
+single archive transfer. Two stalls measured directly on 2026-09-03:
+**4 m 09 s** and **7 m 05 s**, against a normal per-archive time of
+**7–8 s** for the same 4.5 MB files over the same link.
+
+**This is not a fault in the puller, and it is not data loss** — both
+stalls recovered on their own and the runs completed with every archive
+verified. It matters because of what it *looks* like: the 7 m 05 s stall
+was read as a dead run by an observer checking mid-flight, and produced a
+detailed and entirely wrong incident report. A transfer that hangs for
+seven minutes and then succeeds is indistinguishable from one that has
+died, and that ambiguity has already cost one investigation.
+
+**Prime suspect, UNTESTED:** Windows Defender real-time protection is on,
+archive scanning is enabled, and `C:\pod-backups-linux` has **no
+exclusion** — so every 4.5 MB `.tar.gz` is unpacked and scanned as it
+lands. Measured on the box: `Get-MpPreference` lists only
+`C:\Program Files (x86)\Diablo II` and a uTorrent path.
+
+Cheapest experiment if anyone picks it up: time a pull with a temporary
+exclusion on `C:\pod-backups-linux`, compare against the 7–8 s baseline,
+remove the exclusion. **Nobody is on this.** Do not treat a stalled
+transfer as a failure without checking whether it later completed —
+`pull end` in `pull-linux-backups.log` is the only authority.
+
+### FOR THE NEXT RELEASE, whoever ships it — one line of patch-note correction
+
+`gear-slots` shipped a patch note saying the four new slots start empty.
+**That is now wrong for the 18 characters that existed at the time**,
+which all loaded with the slots filled by the startup backfill (see the
+gear-slots deploy record above and the owner ruling accepting the 72
+items).
+
+The dated announcement is deliberately NOT being rewritten — patch notes
+record what was announced on the day, and silently editing one is how a
+record stops being trustworthy. **The correction belongs in the next
+release's notes as one line**, whichever release that is. Suggested
+wording, to be adjusted to fit:
+
+> *Correction to yesterday's note: the four new gear slots did not start
+> empty for characters that already existed — everyone was given a basic
+> tier-1 item in each. That was not intended, it is being kept, and it is
+> being prevented from happening again.*
+
+This is a note to the NEXT deploy session, not a task with an owner.
