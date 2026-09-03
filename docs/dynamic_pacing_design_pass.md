@@ -838,3 +838,88 @@ The seven ramps are boss *stat* shape. They do not add new boss
 stage-700 boss to do something a stage-200 boss cannot, that is separate
 content work and is not in this item. This item makes the existing
 numbers keep moving; it does not invent new ones.
+
+## 10.7 The placement rule needs an `S_top` that does not exist — ship provisional
+
+**Approved 2026-09-03 with the stretch bundled into the same change.** The
+recorded reasoning for the approval, because the verdict alone is not the
+argument:
+
+1. **It reuses `top_layer_for_stage`'s asymptotic form rather than
+   inventing one** — the shape and its tunable-half-stage precedent are
+   already in the tree.
+2. **Defaults that reproduce today's slope at `s = 0` and equal each
+   stat's freeze stage mean shipping it changes nothing until a dial
+   moves** — the safest possible landing.
+3. **Difficulty-neutrality is the strongest part.** Because A and B close
+   the loop, secondary shape cannot make the season easier or harder. This
+   is variety with no balance risk attached.
+
+And the caveat from §10.3 is **ratified**: the stretch ships **with** the
+shape, never after. Shipping the curve alone moves resistance out of
+secondaries and into raw hp/atk — the exact flatness this work exists to
+fix, made worse in the name of fixing it.
+
+### The problem with `h ≈ S_top/4`
+
+**There is no `S_top`. Seasons end on time, not at a stage** (owner
+ruling). The rule needs a number the design deliberately does not have.
+
+The only available substitute is §9.5's projection of where a 30-day
+season lands, and it is wide:
+
+| growth decay | stage at 30 d | implied `S_top/4` |
+|---|---|---|
+| half-life 7 d | 269 | 67 |
+| half-life 14 d | 432 | 108 |
+| half-life 28 d | 580 | 145 |
+| none (sustained) | 816 | 204 |
+
+**A 3.0× spread**, so `S_top/4` spans **67 to 204**. The spread is
+multiplicative, so the correct central estimate is the geometric midpoint:
+`sqrt(269 × 816)/4 = ` **117**, not the arithmetic 136.
+
+### Shipping values
+
+Applying a **common stretch factor to the behaviour-preserving defaults**,
+rather than a uniform `h`, preserves the per-stat ordering that §10.4
+argues is the point of per-stat control (evasion early as a build check,
+damage reduction late as a scaling wall). The median default `h` is 58, so
+the factor that puts the middle of the set at 117 is **k = 2.02 → ship
+k = 2**:
+
+| stat | `h` (behaviour-preserving) | **`h` SHIPPED (×2)** | s=150 | s=300 | s=500 | s=800 |
+|---|---|---|---|---|---|---|
+| `crit_multiplier` | 36 | **72** | 0.608 | 0.726 | 0.787 | 0.826 |
+| `evasion` | 50 | **100** | 0.450 | 0.562 | 0.625 | 0.667 |
+| `increased_damage` | 50 | **100** | 0.300 | 0.375 | 0.417 | 0.444 |
+| `crit_chance` | 58 | **117** | 0.394 | 0.504 | 0.568 | 0.611 |
+| `splash` | 60 | **120** | 0.333 | 0.429 | 0.484 | 0.522 |
+| `block_chance` | 75 | **150** | 0.375 | 0.500 | 0.577 | 0.632 |
+| `damage_reduction` | 150 | **300** | 0.250 | 0.375 | 0.469 | 0.545 |
+
+Every column moves. Today, every one of these is a frozen constant above
+stage 150.
+
+### These defaults are PROVISIONAL — guessed, not derived
+
+**Stated explicitly so no later reader mistakes them for a derivation.**
+
+`k = 2` is the midpoint of a projection with a **3× spread**, taken from a
+growth-decay half-life that **has not been measured** — the season is four
+days old and `g` has only been sampled at its fresh-world maximum. It is
+not derived from a known season length, because no season length exists to
+derive it from. **It is the least-wrong guess available on the day, and
+nothing more.**
+
+**Revisit at the two-week mark**, when the season's actual trajectory is
+observable: by then `g`'s decay is measurable from the stage history, and
+`S_top` for a 30-day season can be projected from data instead of from a
+four-point scenario table. If the world is tracking the 7-day-half-life
+path, `k = 2` is roughly double what it should be; if it is tracking the
+sustained path, it is roughly half.
+
+**These are LiveTunables, and that is the whole argument for shipping a
+provisional value rather than waiting for certainty.** Revisiting costs a
+dial move and no deploy. Waiting for a known `S_top` costs the entire
+first season of the flat regime the work exists to fix.
