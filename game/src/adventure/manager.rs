@@ -1,26 +1,5 @@
 ﻿use super::*;
 
-/// How often a single chat message can earn its sender XP — being
-/// present/active is what's rewarded, not message volume, so this stops
-/// spamming chat from being a level-up shortcut. Tripled from 60s as part
-/// of a live "really slow down progression" request - at the old rate, a
-/// long stream's worth of passive chatting alone (no fights needed) could
-/// meaningfully out-pace the intended fight-driven leveling pace, and
-/// would have become proportionally MORE dominant once victory XP got cut
-/// (see the boss-win xp grant in `run_encounter`) if left untouched here.
-///
-/// RETAINED WITHOUT A CALLER (2026-09-02, Twitch removal). Chat activity
-/// XP is GONE - `grant_activity_xp` and `last_activity_xp` were deleted
-/// along with the `/api/*` seam that was their only caller. These two
-/// constants survive solely because `adventure_web/wiki.rs:308-309` reads
-/// them into the wiki's `ACTIVITY_XP_COOLDOWN_S`/`ACTIVITY_XP_AMOUNT`
-/// placeholders, and that file belongs to the wiki session (CLAUDE.md
-/// §Multi-session rule 1) - this session may not edit it. The wiki
-/// therefore still documents a mechanic the game no longer has; see
-/// WIKI_IMPACT.md. Delete both when the wiki session removes that section.
-pub const ACTIVITY_XP_COOLDOWN: Duration = Duration::from_secs(180);
-pub const ACTIVITY_XP_AMOUNT: u64 = 4;
-
 /// Win XP (2026-09-02) — the shipped defaults behind the five
 /// `LiveTunables` win-XP dials. Every one of these is the value
 /// `LiveTunables::default()` and the `/admin/tunables` serde defaults
@@ -314,23 +293,6 @@ pub const FIGHT_GATE_MARGIN_MS: u64 = 5_000;
 /// binds inside Controller A's operating range turns the top of A's
 /// window into work no player can see.
 pub const PLAYBACK_CADENCE_CEILING_MS: u32 = (RAMPAGE_MIN_INTERVAL_MS - OVERLAY_CHARGE_MS - OVERLAY_RESOLVE_MS - FIGHT_GATE_MARGIN_MS) as u32;
-/// !rampage vote (2026-08-17, a live request: "if 3 or more players use
-/// !rampage it will start a rampage without a mod activating the
-/// command, similar to a vote") - how many DISTINCT non-mod voters it
-/// takes. A mod's own !rampage still triggers instantly, same as before;
-/// this is purely the alternate viewer-driven path.
-///
-/// RETAINED WITHOUT A CALLER (2026-09-02, Twitch removal). The rampage
-/// vote is GONE - `register_rampage_vote`, `RampageVoteOutcome` and
-/// `rampage_votes` were deleted along with the `/api/*` seam that was
-/// their only caller; a rampage now starts only from `/admin/ops` or the
-/// timer. This survives solely because `adventure_web/wiki.rs:282` reads
-/// it into the wiki's `RAMPAGE_VOTE_THRESHOLD` placeholder, and that file
-/// belongs to the wiki session (CLAUDE.md §Multi-session rule 1) - this
-/// session may not edit it. The wiki therefore still documents a mechanic
-/// the game no longer has; see WIKI_IMPACT.md. Delete when the wiki
-/// session removes that section.
-pub const RAMPAGE_VOTE_THRESHOLD: u32 = 3;
 /// !rampage persistence (2026-08-17, a live request: "if a rampage was
 /// active when the bot went down the bot should remember the rampage and
 /// come back up where it left off") - unlike `forced_boss_count`, which
@@ -7506,19 +7468,6 @@ pub(crate) const PITY_THRESHOLD: f64 = 1.0;
 /// luck, whichever pity track gets there first).
 pub const BOSS_ITEM_PITY_GAIN: f64 = 0.25;
 pub const BASIC_ITEM_PITY_GAIN: f64 = 0.05;
-/// Same idea, for craft-currency tokens (see `Character::craft_pity`) -
-/// 10 boss fights or 50 basic fights of bad luck at most.
-///
-/// **No longer read by the game (2026-09-02).** Craft tokens stopped
-/// dropping entirely (owner order), which took both `advance_pity` calls
-/// that used these with it. They are retained solely because
-/// `adventure_web/wiki.rs` renders them into the wiki's pity table -
-/// flagged for the wiki session in WIKI_IMPACT.md rather than deleted
-/// here, since this session does not touch the wiki module. Do not treat
-/// their continued existence as evidence the payout should come back.
-pub const BOSS_CRAFT_PITY_GAIN: f64 = 0.10;
-pub const BASIC_CRAFT_PITY_GAIN: f64 = 0.02;
-
 /// Advances one pity counter (`item_pity` or `craft_pity`) by one fight's
 /// worth - resets it to 0 if `received` (they already got a reward this
 /// fight off the normal random roll, whether that's an item or a craft

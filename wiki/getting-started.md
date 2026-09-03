@@ -2,29 +2,40 @@
 
 ## Getting Started
 
+<p class="muted"><strong>Worlds reset.</strong> The shared world is periodically wiped and started over from scratch - characters, levels, gear, currencies and the world stage all go back to the beginning, for everyone at once. Nothing carries across a reset. No schedule for this has been set, so treat everything you build as belonging to the current world rather than as permanent progress.</p>
+
 <h3 id="joining">Joining</h3>
 
-Type `!join` in chat. That's it - it creates a permanent character tied to
-your Twitch login, fully kitted out with a starting item in every slot (you
-don't start naked), and drops you straight into the shared world: every
-joined character auto-battles together against whatever the game throws at
-the party. Running `!join` again while already joined is harmless - it just
-tells you your current level. If you've retreated (see below), `!join` is
-also how you get back in.
+Two steps, both on the website - none of this happens in chat any more.
+
+1. **Make an account.** Register a username and password at `/account/register`. This is the game's own account system; it has nothing to do with Twitch, and you do not need a Twitch account to play.
+2. **Press "Join the Adventure"** on your dashboard. That creates your character, fully kitted out with a starting item in every slot (you don't start naked) and one starting craft token of each kind, and drops you into the shared world.
+
+Every joined character auto-battles together against whatever the game throws
+at the party. If you've retreated (see below), the same Join button is how you
+get back in.
+
+<p class="muted"><strong>There is no password reset.</strong> None exists - not by email, not by support request, not by any in-game flow. If you lose your password there is currently no way to recover the account. Write it down somewhere safe.</p>
 
 <h3 id="leveling">XP &amp; Leveling</h3>
 
-You earn XP two ways: chatting (a small trickle, rate-limited so spamming
-doesn't help - {{ACTIVITY_XP_AMOUNT}} XP per message, at most once every
-{{ACTIVITY_XP_COOLDOWN_S}} seconds) and winning real boss fights (a much
-bigger chunk, scaled to the current world stage). Basic filler encounters
-grant no XP at all.
+**Winning real boss fights is the only source of XP in the game.** Basic filler
+encounters pay none, and neither do losses. Chatting earns nothing - a chat
+activity trickle used to exist and has been removed entirely.
+
+A win's XP is priced off **your own level**, not the world stage: it's a flat
+amount plus a share of whatever your next level costs, so it stays meaningful
+as you climb instead of being dictated by how deep the world has gone. Both of
+those terms, and an overall multiplier, are operator-set dials - the current
+values live on the admin page rather than being published here.
+
+<p class="muted"><strong>There is a minimum gap between two XP-paying wins.</strong> Win a second boss fight inside that window and you still get the loot, the stage movement and everything else - but no XP for it. This is deliberate: it stops a burst of back-to-back fights (see Rampage below) from paying many times the normal rate and setting the leveling curve instead of the schedule. The normal boss cadence is comfortably longer than the window, so it never binds on a normally-scheduled fight. If you win twice in quick succession and only level once, this is why - it isn't a bug.</p>
 
 <p class="muted">The XP needed for your next level grows faster than linearly, so early levels fly by and later ones take real investment: level 2 needs {{XP_TO_LEVEL_2}} XP, level 11 needs {{XP_TO_LEVEL_11}}, level 26 needs {{XP_TO_LEVEL_26}}, and level 51 needs {{XP_TO_LEVEL_51}}. There's no level cap.</p>
 
-If you're behind the rest of the roster, boss-fight rewards (including the
-lucky-drop "pity" payouts below) scale up for you automatically until you
-catch up - lagging behind isn't a permanent disadvantage.
+If you're behind the rest of the roster, boss-fight rewards scale up for you
+automatically until you catch up - lagging behind isn't a permanent
+disadvantage.
 
 Leveling up raises your base HP/attack/defense automatically - there's no
 separate stat-point allocation for base stats (that's what the [passive
@@ -44,11 +55,10 @@ fights.
 you take part in (basic encounters never cost durability). Once every piece
 of equipped gear you own is fully worn out, you're pulled off the
 battlefield entirely until you deal with it. You get back in by: paying dust
-to repair, swapping in fresh gear from your bag, redeeming the free "Repair
-All Gear" channel-points reward, or just waiting - after
+to repair, swapping in fresh gear from your bag, or just waiting - after
 {{RETREAT_REPAIR_DURATION_MIN}} minutes of retreat, the game auto-repairs
-everything for free and puts you straight back on the roster, no `!join`
-needed. Typing `!join` while retreated also works as an explicit "I'm back."
+everything for free and puts you straight back on the roster. Pressing Join
+while retreated also works as an explicit "I'm back."
 
 An optional **auto-repair** toggle on your dashboard spends dust to fix your
 gear immediately after every real boss fight, so you effectively never
@@ -70,55 +80,47 @@ There's one shared "world stage" number for the entire game, not per
 character - it climbs by 1 on every real boss-fight win, and drops by 1 on a
 loss (never below 1). Higher stages mean tougher, often multi-boss fights
 (the exact count varies fight-to-fight, trending upward with stage) and
-better guaranteed loot - see [Bosses](/wiki/bosses) and
-[Crafting](/wiki/crafting)'s Item Tiers section for the Perfect/Sacred
-guarantees that kick in at high stages.
+better loot: several drop types don't unlock at all until the world reaches
+a given stage - see [Crafting](/wiki/crafting#stage-gates).
+
+Stage also quietly makes real bosses harder in a way defensive gear can't
+answer - see [Combat](/wiki/combat#boss-pierce).
 
 By default, a real encounter fires every **{{ENCOUNTER_INTERVAL_MIN}}
 minutes**, with a smaller, easier filler encounter roughly every
 **{{BASIC_ENCOUNTER_INTERVAL_MIN}} minutes** in between (no durability cost,
 no stage movement, no XP - see [Combat](/wiki/combat#basic-vs-boss) for how
-much simpler these are mechanically). A **Rampage** - {{RAMPAGE_ENCOUNTER_COUNT}}
-back-to-back boss fights, everyone instantly revived between each - can be
-triggered by a mod instantly, or by a chat vote ({{RAMPAGE_VOTE_THRESHOLD}}
-distinct voters). The streamer can also flip on **Permanent Rampage**, which
-replaces the normal timer with continuous back-to-back boss fights until
-turned back off - if fights seem to be firing constantly rather than every
-{{ENCOUNTER_INTERVAL_MIN}} minutes, that toggle is probably on.
+much simpler these are mechanically).
 
-<h3 id="announcements">Chat Announcements</h3>
+**Rampage** replaces that timer with continuous back-to-back boss fights,
+everyone instantly revived between each, with a minimum of
+{{RAMPAGE_MIN_INTERVAL_S}} seconds between fights. It is an operator toggle -
+there is no way for a player to trigger one or vote for one. If fights seem
+to be firing constantly rather than every {{ENCOUNTER_INTERVAL_MIN}} minutes,
+that toggle is on. The XP window above still applies during a rampage, so
+most rampage wins pay loot without paying XP.
 
-Routine fight-result messages (win/loss, Top DPS/Tanks/Heals) no longer post
-one at a time per fight - they batch into a single summary covering multiple
-fights at once, flushed every 10 fights or after 5 minutes of no new fight,
-whichever comes first. The Top DPS/Tanks/Heals lines in that summary are
-totals across the whole batch, not any one fight. A new boss's arrival still
-gets its own immediate chat announcement, and per-fight loot/gear-crit lines
-still post right away too - only the routine result summary itself is
-batched.
+<h3 id="announcements">The Adventure Feed</h3>
+
+The game narrates itself - encounter results, loot, batched fight summaries,
+rampage completion, Unique Shard finds, gear crits, level-ups. **All of that
+appears in the Feed card on your dashboard**, newest first. It is not posted
+to Twitch chat; the game no longer speaks to chat at all.
+
+Routine fight-result messages (win/loss, Top DPS/Tanks/Heals) don't post one
+at a time per fight - they batch into a single summary covering multiple
+fights at once. The Top DPS/Tanks/Heals lines in that summary are totals
+across the whole batch, not any one fight. A new boss's arrival and per-fight
+loot/gear-crit lines still post to the Feed immediately.
 
 <h3 id="roster">The Roster</h3>
 
 This isn't a party-invite system - every joined character is permanently
 part of one shared roster, and every encounter battles with *everyone*
 currently eligible (joined, not downed, not retreated) at once. There's no
-way to opt just yourself into a specific fight. Rewards (loot, dust, sand,
-tokens) are rolled and handed out independently per participant, not pooled
-and split.
-
-<h3 id="channel-points">Channel-Point Redemptions</h3>
-
-<div class="wiki-table-wrap">
-
-| Reward | What it does |
-|---|---|
-| Reforge Gear | Reforges one random equipped item into a fresh, higher tier. Needs at least one item equipped; limited to once per clock hour per redeemer. |
-| Repair All Gear | Fully repairs every piece of gear (equipped and bagged), free, and clears retreat status immediately if you were retreated. |
-| Force Boss Fight | Triggers the next boss fight right away instead of waiting for the timer. Shared budget of {{FORCE_BOSS_MAX_PER_CYCLE}} uses per encounter cycle, not per person. |
-
-</div>
-
-<p class="muted">Point costs for these are streamer-configurable and can change - check the actual redemption in the channel-points panel for the current price. Don't confuse "Reforge Gear" (the channel-points reward above) with the dashboard's own on-demand Reforge button, which is dust-costed - see <a href="/wiki/crafting#reforge">Crafting</a>.</p>
+way to opt just yourself into a specific fight. Rewards (loot, dust, sand)
+are rolled and handed out independently per participant, not pooled and
+split.
 
 <h3 id="cosmetics">Cosmetics</h3>
 
