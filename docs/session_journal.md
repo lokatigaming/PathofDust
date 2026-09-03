@@ -4499,3 +4499,138 @@ FOUND — the doc block describing `catchup_multiplier` was physically
 attached to `median_u32` (it sat above `median_u32`'s own doc, so rustdoc
 concatenated both onto the median helper and `catchup_multiplier` itself
 rendered undocumented). Repaired while rewriting the function.
+
+### 2026-09-04 — CATCHUP-DEGENERATION deploy record (release `catchup-degeneration`)
+
+Queue item 5. The real fix for the XP overshoot measured on 2026-09-03,
+of which `win_xp_mult` was only ever a counterweight.
+
+| | |
+|---|---|
+| master commit deployed | `b090246` |
+| binary before | `a09c9c36…c2261e` |
+| binary after | `84854f16053f8611469eabd6a20174d162bcabb7eb1fc92d0a3d932ce1107714` |
+| downtime | **0.32 s** |
+| suite on the box | **793 passed / 1 failed** — one known failure, shipped under an explicit licence, see below |
+| slot | `deploy-pre-20260903-181713-catchup-degeneration`, `LATEST` repointed |
+
+**Build provenance, stated because it is not the usual case.** The binary
+was built from the tree of `ac3c9f8`, an earlier merge of the same branch
+commit. `git diff --name-only ac3c9f8 b090246` returns exactly one file —
+`docs/session_journal.md` — and `game/`, `src/`, `templates/`, `wiki/`,
+`public_adventure_overlay/`, `Cargo.toml` and `Cargo.lock` are all
+byte-identical. So the binary and every deployed asset correspond exactly
+to `b090246`; only an uncompiled, undeployed docs file differs. Recorded
+rather than glossed, because "the binary was built from a different
+commit than the one recorded" is the sort of thing that reads as a defect
+later if the reason is not written down.
+
+### SHIPPED ON A RED SUITE, UNDER THE SECOND LICENCE OF THIS SHAPE
+
+The one failure is
+`stage_gate_tests::fighting_never_grants_a_craft_token_but_the_starter_set_is_intact`
+— a `CelestialShard` dropped during the test's 12 fights, and the test
+excludes `UniqueShard` from its comparison but not `CelestialShard`.
+
+**The licence was granted on a reachability proof, not on a green run,
+and the distinction is the whole point:**
+
+- `gated_manager` joins **exactly one character**.
+- `catchup_multiplier` opens with `if max <= min { return 1.0 }` in
+  **both** the old and the new version.
+- With one character `min == max`, so **both versions return before
+  reaching a single line this release changed.**
+- The branch's only other drop-related edits are doc comments, and
+  `CelestialShard` is granted at `manager.rs:2704` in the tree that was
+  already serving players.
+
+**The changed code cannot execute in the failing test.** A green run
+would only have said the low-probability failure did not fire that time;
+this says the change is not connected to the failure at all.
+
+**The bound, recorded so nobody quotes this loosely.** The licence is for
+a proof demonstrated *in code* that the changed lines are unreachable
+from the failing assertion. **It is not for "this looks unrelated", not
+for "the failure is in another module", and not for a plausibility
+argument however good. If you cannot point at the specific guard that
+returns before your change, you do not have this licence and you stop.**
+
+Thirty isolated runs of that test against the live tree came back 30
+passed / 0 failed. **That was deliberately NOT offered as evidence.** At
+`celestial_shard_drop_chance = 0.002` a low-single-digit failure rate
+survives thirty clean runs easily, and treating an underpowered clean
+result as proof is the same error as re-running until green.
+
+The flake is the **sixth** instance of the assertion-encodes-an-ANSWER
+class — a literal token list asserted against a fixture with a random
+element in it — and goes to b, as the ring test did.
+
+### What changed, against the live roster
+
+The roster at deploy time was the degenerate case exactly:
+
+```
+levels: [6, 9, 13, 13, 15, 15, 16 × 14]
+max 16   median 16   min 6      14 of 20 at the top
+```
+
+**Median equals maximum**, so every one of those fourteen was collecting
+the full +100% intended for stragglers. Multipliers before and after:
+
+| level | old (median-keyed) | new (leader-keyed) |
+|---|---|---|
+| 16 (×14, the pack) | **2.00x** | **1.00x** |
+| 15 | 2.10x | 1.25x |
+| 13 | 2.30x | 1.75x |
+| 9 | 2.70x | **2.75x** |
+| 6 | 3.00x | 3.00x |
+
+Note the shape: the pack halves, and the genuinely-behind players are
+untouched or very slightly better. That is the mechanic doing what it was
+named for, rather than paying everyone.
+
+In grant terms for a level-16 character: `xp_to_next(16) = 516`, so the
+shape term is `12 + 0.0208333 × 516 = 22.75`, and the per-win grant goes
+**46 → 23**.
+
+`catchup_full_deficit` renders live at its shipped `0.5`, and
+`win_xp_mult` stays `1.0` — verified on the box, not taken from an order.
+The curve's shape is untouched; only the axis changed.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **20 = 20** |
+| 4 | live sha256 | `84854f16…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 80,698 B, 200 / 91,056 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+### Patch notes
+
+One section at the top of the September 3 block (14 → 15). Pre-edit copy
+`/root/patch-notes.pre-catchup-degeneration.json`.
+
+Nerf-first, as the rule requires: the heading says *"Catch-up XP was
+paying the leaders. That is fixed, and it is a nerf if you are near the
+top"*, and the body says in capitals that a level-with-the-leaders
+player's XP per win halves, and that on the current roster that is most
+of them. It also says what is NOT taken away — every level already earned
+— and that a genuinely behind player still gets the full 3x.
+
+### The hook check, done rather than assumed
+
+Window a installed hooks on `C:\PathofDust\.git` that refuse commits and
+pushes across every worktree sharing it. This checkout was confirmed
+unaffected before relying on it: `C:/dust-work/c/.git` is a real
+directory, not a worktree pointer; `--git-common-dir` resolves to itself;
+no non-sample hooks are installed and `core.hooksPath` is unset. Then
+confirmed by effect — the push of `b090246` succeeded. **No `--no-verify`
+was used, and none would have been**: overriding another window's safety
+control to get past it proves it can be ignored, which is worse than a
+short wait.
