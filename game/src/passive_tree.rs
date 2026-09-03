@@ -1027,15 +1027,22 @@ static MONK_NODES: &[PassiveNode] = &[
     modifier_with_effect("graniteskin", "stonefist", "Granite Skin", "A second, independent conversion channel off the same evasion overflow Stone Fist draws from - increased damage at 15% efficiency per rank, capped at +10% increased damage per rank (up to +30% at 3/3, stacking with Stone Fist's own cap for up to +60% total).", OverflowConversion { input: Evasion, output: IncreasedDamage, at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("earthenwill", "stonefist", "Earthen Will", "Stone Fist also converts a portion of overflow into max HP, at 25% efficiency per rank, capped at +10% max HP per rank (up to +30% at 3/3).", OverflowConversion { input: Evasion, output: MaxHpPct, at_rank_1: 0.25, per_additional_rank: 0.25 }),
     modifier_with_effect("counterflow", "stonefist", "Counterflow", "An evaded hit has a chance to trigger a free counter-attack - 10% per rank (up to 30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    // All 3 of these still NotYetImplemented - a genuine text/code mismatch
-    // (flagged rather than silently papered over): they describe Unbroken
-    // as "+evasion per 20% missing HP", but a live design call (see the
-    // module doc's 13th-pass entry) redesigned Unbroken ENTIRELY into an
-    // evasion-IGNORE-on-attack mechanic instead
-    // (`combat_unbroken_ignore_evasion_pct`) - these 3 modifiers are
-    // leftover text from before that redesign and no longer amplify
-    // anything their current parent actually does. Needs a live design
-    // decision (new text, or a replacement mechanic) before implementing.
+    // RESOLVED - this comment is kept, corrected, rather than deleted,
+    // because the history explains the names. It used to read "All 3 of
+    // these still NotYetImplemented - a genuine text/code mismatch": they
+    // once described Unbroken as "+evasion per 20% missing HP", and a
+    // live design call (see the module doc's 13th-pass entry) redesigned
+    // Unbroken ENTIRELY into an evasion-IGNORE-on-attack mechanic
+    // (`combat_unbroken_ignore_evasion_pct`), orphaning all three.
+    //
+    // **That mismatch is closed as of 2026-09-03 (verified by the
+    // advertised-vs-actual sweep).** All three now carry declared
+    // per-rank values, live consumers, and copy that matches:
+    // `unbroken` at character.rs's `combat_unbroken_ignore_evasion_pct`,
+    // `lastbastion` at its `..._dr_pct` twin, and `risingdefiance`
+    // through the shared overflow-conversion cap list. Nothing here is
+    // `NotYetImplemented` any more; `sacredoverflow` (Paladin) is the
+    // last node in the whole tree that still is.
     // Renamed "Crippling Grip" (2026-08-17) - see risingdefiance's own
     // comment above for why the old text is orphaned by Unbroken's
     // redesign. NOT an `OverflowConversion` like Overgrown Reach/Earthen
@@ -2084,11 +2091,31 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
     skill(
         "golemmaster",
         "Golem Master",
-        "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems have 33% of your stats; you deal 33% less damage per summoned golem, additive (1% of normal damage at 3 golems).",
+        "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems are built from your whole build with their base stats at 33% of yours; your own damage is unaffected by how many you have out.",
         // A COUNT (1/2/3) - read via `passive_node_count` at every call
         // site since the 2026-08-25 drift batch (spawn, slot-unlock
         // validation and the admin-page picker all read the same count
         // now; it equals the rank at every default rank).
+        //
+        // DESCRIPTION CORRECTED 2026-09-03 (advertised-vs-actual sweep).
+        // It said "you deal 33% less damage per summoned golem, additive
+        // (1% of normal damage at 3 golems)". That penalty was deleted on
+        // 2026-08-20 - see the two statements of it in combat.rs
+        // ("the golem summon damage penalty was removed entirely" at the
+        // golem-spawn pass, and "The penalty no longer exists" on
+        // `golem_per_hit_tracks_the_owner...`). Proven by consumption
+        // rather than by comment: all four
+        // `passive_node_count("golemmaster")` sites (combat.rs's spawn
+        // loop, manager.rs's two slot-unlock checks, adventure_web.rs's
+        // picker) are SLOT COUNTS, and no damage scaling keyed to golem
+        // count exists anywhere in combat.rs or character.rs.
+        //
+        // It mattered more than a normal stale line because it inverted
+        // the allocation decision BEFORE play: as written the node turned
+        // a maxed class mechanic into a 99% self-nerf, so a player who
+        // believed it took one rank or none. wiki/golems.md already
+        // described the corrected behaviour ("Everything else you have
+        // inherits at FULL value"), so the game contradicted itself.
         PassiveEffect::Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     spec(

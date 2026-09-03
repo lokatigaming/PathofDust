@@ -19325,8 +19325,15 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             // targeted/damaged, only the cascade). Real gear (below) and
             // a weak boss atk buy survivability, but the DEEPER fragility
             // was `hp: 500_000` against a SOLO 3-golem Elementalist's own
-            // ~1%-of-normal damage output (99% golem-summon-damage
-            // penalty at 3 golems, by design) - an indefinitely long
+            // damage output at the time this was written - the golem
+            // summon damage penalty then cut it to ~1% of normal at 3
+            // golems. **That penalty was removed entirely on 2026-08-20**
+            // (see the golem-spawn pass), so the specific arithmetic
+            // below is history, not current behaviour; the low boss hp is
+            // still the right fix for the reason that follows. Corrected
+            // 2026-09-03 rather than deleted, because the reasoning for
+            // the fixture only reads as sound if you know what it was
+            // built against - an indefinitely long
             // fight, in which the elementalist's own hp eventually loses
             // to accumulated chip damage no matter how tanky, since nothing
             // here ever heals them. A LOW boss hp instead lets the fight
