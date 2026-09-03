@@ -261,7 +261,28 @@ pub(crate) fn affix_def(affix: Affix) -> AffixDef {
         // "starting at 0.1% before scaling" per the live request, and
         // 10x rarer to even roll at all in the first place - meant to
         // feel like a genuine rare find, not a normal-strength stat.
-        Leech => AffixDef { name: "life leech", label: "life leech", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.001, default_weight: 0.1 },
+        // 0.001 -> 0.01 (2026-09-03, owner ruling). Same correction, and
+        // the same cause, as Echo's on the same day: the coefficient was
+        // never re-derived when the 2026-09-02 affix tier curve migration
+        // landed, and the shared f(T) curve left it far below the pool.
+        // Leech was worth 0.10% at tier 1, 1.00% at tier 100 and 1.95% at
+        // tier 1000 - at tier 100 it healed 1% of damage dealt while every
+        // competing affix on the same item returned 10% to 30%, and it is
+        // additionally rolled 10x more rarely than anything else (see
+        // `default_weight` below, which is UNCHANGED - rarity was never
+        // the problem, magnitude was).
+        //
+        // A PURE COEFFICIENT CHANGE, same as Echo: Leech keeps the shared
+        // `affix_tier_curve` and gets no exponent of its own, so it stays
+        // purely multiplicative in f(T) and `affix_tier_growth_ratio`,
+        // `affix_quality_percent` and `Item::sync_tier_to` all keep
+        // working on it exactly as they do for every other affix.
+        //
+        // 0.01 * f(1) = 1.000000%, 0.01 * f(100) = 10.000000%,
+        // 0.01 * f(1000) = 19.453601% - in line with CritChance. Uniformly
+        // 10x the old value at every tier, which is what "no curve
+        // deviation" means arithmetically.
+        Leech => AffixDef { name: "life leech", label: "life leech", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.01, default_weight: 0.1 },
         IncreasedLife => AffixDef { name: "max hp", label: "max hp", decimals: 0, is_percent: true, eligible_slots: None, default_per_tier: 0.03, default_weight: 1.0 },
         // Flat hp, not a percentage - scaled roughly like a slot's own
         // primary stat (see base_power_for_slot's Body entry, 12.0/tier)
@@ -652,6 +673,134 @@ pub(crate) fn roll_affixes(slot: EquipSlot, tier: u32, rng: &mut impl Rng) -> Ve
             (affix, affix_base_value(affix, tier) * jitter)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod leech_coefficient_tests {
+    use super::*;
+
+    /// The 2026-09-03 ruling, pinned as exact numbers rather than as
+    /// "about 1%" and "about 19.5%".
+    ///
+    /// Leech's `per_tier` was never re-derived when the affix tier curve
+    /// landed on 2026-09-02 - the same omission as Echo's, found by
+    /// window d's sweep putting every coefficient in one table. It was
+    /// worth 0.10% at tier 1 and 1.95% at tier 1000: at tier 100 a Leech
+    /// affix healed 1% of damage dealt while every competing affix on the
+    /// same item returned 10-30%.
+    #[test]
+    fn leech_rolls_one_percent_at_tier_one_and_the_ratified_curve_above_it() {
+        for (tier, expected_pct) in [(1u32, 1.0), (100, 10.0), (1000, 19.453601)] {
+            let got_pct = affix_base_value(Affix::Leech, tier) * 100.0;
+            assert!(
+                (got_pct - expected_pct).abs() < 1e-5,
+                "Leech at tier {tier} must roll {expected_pct}% before jitter, got {got_pct}% - this is the ratified curve, not an approximation"
+            );
+        }
+    }
+
+    /// The change is a COEFFICIENT change, and this is what that means
+    /// arithmetically: the same multiple at every tier. If Leech ever
+    /// acquired a curve of its own this ratio would stop being flat, and
+    /// the rescale paths below would stop being safe.
+    #[test]
+    fn the_correction_is_uniform_across_every_tier_so_the_curve_shape_is_untouched() {
+        const OLD_PER_TIER: f64 = 0.001;
+        for tier in [1u32, 10, 50, 100, 300, 1000, 5000] {
+            let old = OLD_PER_TIER * affix_tier_curve(tier);
+            let ratio = affix_base_value(Affix::Leech, tier) / old;
+            assert!(
+                (ratio - 10.0).abs() < 1e-6,
+                "the correction must be a flat 10x at every tier (tier {tier} gave {ratio}x) - a tier-dependent ratio would mean Leech had deviated from the shared curve"
+            );
+        }
+    }
+
+    /// Leech stays purely multiplicative in `f(T)`, which is the property
+    /// `affix_tier_growth_ratio` (Krangle growth, recombine, reforge) and
+    /// `affix_quality_percent` both rest on.
+    #[test]
+    fn leech_still_rescales_as_a_plain_multiple_through_the_growth_ratio() {
+        for (old_tier, new_tier) in [(1u32, 100u32), (1, 1000), (50, 300), (100, 5000)] {
+            let grown = affix_base_value(Affix::Leech, old_tier) * affix_tier_growth_ratio(old_tier, new_tier);
+            let direct = affix_base_value(Affix::Leech, new_tier);
+            assert!(
+                (grown - direct).abs() < 1e-12,
+                "growing a Leech affix from tier {old_tier} to {new_tier} by the shared growth ratio must land exactly on the tier-{new_tier} base ({grown} vs {direct}) - if these ever diverge, Krangle growth, recombine and reforge are all wrong on Leech"
+            );
+        }
+    }
+
+    /// The quality readout recovers jitter as `value / affix_base_value`,
+    /// so a coefficient change must leave a given jitter reading as the
+    /// same quality - the number on screen describes the ROLL, not the
+    /// coefficient.
+    #[test]
+    fn leech_quality_percent_still_reports_the_jitter_and_not_the_coefficient() {
+        for tier in [1u32, 100, 1000] {
+            for jitter in [0.85, 1.0, 1.15] {
+                let value = affix_base_value(Affix::Leech, tier) * jitter;
+                let quality = affix_quality_percent(Affix::Leech, value, tier, false);
+                let expected = (jitter - 0.85) / (1.15 - 0.85) * 100.0;
+                assert!(
+                    (quality - expected).abs() < 1e-6,
+                    "a {jitter} jitter roll on a tier-{tier} Leech must read as {expected}% quality, got {quality}% - quality describes the roll, and must not move when the coefficient does"
+                );
+            }
+        }
+    }
+
+    /// Rarity was never the complaint - magnitude was - so
+    /// `default_weight` must stay where it is. Pinned because "make Leech
+    /// better" is an easy instruction to over-apply, and doubling its
+    /// magnitude AND its drop rate is a different change from the one
+    /// that was ruled.
+    #[test]
+    fn leech_stays_ten_times_rarer_than_every_other_affix() {
+        assert!((affix_weight(Affix::Leech) - 0.1).abs() < 1e-12, "Leech's roll weight must be unchanged by the magnitude correction");
+        for affix in ALL_AFFIXES {
+            if affix != Affix::Leech {
+                assert!((affix_weight(affix) - 1.0).abs() < 1e-12, "{affix:?} must still be at the common weight - only Leech is deliberately rare");
+            }
+        }
+    }
+
+    /// THE FIXTURE DISCIPLINE, APPLIED BEFORE IT IS NEEDED (per the
+    /// order). `Character::new` rolls random affixes on the starter kit
+    /// and every affix is eligible on every slot, so a plain
+    /// `Character::new` carries a random amount of whatever rolled -
+    /// Leech included. Any test asserting an exact `sum_affix` value on
+    /// that fixture is latently flaky, and at the corrected 10x a stray
+    /// tier-1 Leech roll is worth ~0.85-1.15% instead of 0.085-0.115%.
+    ///
+    /// This is the third affix this class has bitten in a week. Written
+    /// now rather than after it fails, and left here as the pattern any
+    /// future Leech test should copy.
+    #[test]
+    fn a_characters_leech_is_exactly_what_their_gear_carries() {
+        let t = crate::adventure::LiveTunables::default();
+        let mut c = crate::adventure::Character::new("leecher".to_string());
+        for slot in crate::adventure::EQUIP_SLOTS {
+            if let Some(item) = c.equipped_item_mut_unguarded(slot) {
+                item.affixes.clear();
+            }
+        }
+        assert_eq!(c.sum_affix(Affix::Leech), 0.0, "the fixture must start with provably zero earned Leech, or the amount this test pushes is not the amount it measures");
+        let baseline = c.combat_life_leech(&t);
+
+        let rolled = affix_base_value(Affix::Leech, 100);
+        c.equipped_item_mut_unguarded(crate::adventure::EquipSlot::Weapon)
+            .expect("the starter kit fills the weapon slot")
+            .affixes
+            .push((Affix::Leech, rolled));
+
+        let delta = c.combat_life_leech(&t) - baseline;
+        assert!(
+            (delta - rolled).abs() < 1e-12,
+            "one tier-100 Leech affix must add exactly its own rolled value ({rolled}) to the character's life leech, got {delta}"
+        );
+        assert!((rolled - 0.10).abs() < 1e-9, "and that value must be the corrected 10% at tier 100, not the old 1%: {rolled}");
+    }
 }
 
 #[cfg(test)]
