@@ -302,6 +302,42 @@ pub struct LiveTunables {
     /// (the curve's own half-saturation point) - see `simulate_battle`'s
     /// computation. Lower means pierce ramps up faster at earlier stages.
     pub pierce_h: f64,
+    /// Boss secondary curves (2026-09-03, design §10) - the stage at
+    /// which each of the seven organic boss secondary stats reaches HALF
+    /// of its ramp cap, exactly `top_layer_half_stage`'s meaning applied
+    /// seven times. Until this they were `min(stage x slope, cap)`
+    /// corners that FROZE between stage 36 and 150, leaving raw hp/atk as
+    /// the only thing that moved for the rest of a season.
+    ///
+    /// Shipped defaults are `manager::BOSS_*_HALF_STAGE`, each = the old
+    /// `cap / slope`, which reproduces the old slope at stage 0 - so
+    /// shipping the curve changed nothing at the low end and unfroze
+    /// everything above. Lower = the stat arrives earlier and saturates
+    /// sooner; higher = it keeps visibly developing deeper into a season
+    /// but is numerically weaker at every stage. Bounded to
+    /// [`BOSS_SECONDARY_HALF_STAGE_MIN`, `BOSS_SECONDARY_HALF_STAGE_MAX`].
+    ///
+    /// The CAPS stay compile-time constants (Decision 16): `BOSS_DEFENSE_CAP`
+    /// and `CRIT_CHANCE_CAP` are safety rails, not tuning values.
+    pub boss_dr_half_stage: f64,
+    /// See `boss_dr_half_stage`. Block chance; cap `BOSS_DEFENSE_CAP`.
+    pub boss_block_half_stage: f64,
+    /// See `boss_dr_half_stage`. Evasion; cap `BOSS_DEFENSE_CAP`.
+    pub boss_evasion_half_stage: f64,
+    /// See `boss_dr_half_stage`. Increased damage; cap
+    /// `BOSS_INCREASED_DAMAGE_RAMP_CAP` (0.50) - NOT the post-scaling
+    /// `BOSS_INCREASED_DAMAGE_CAP` (10.0).
+    pub boss_increased_damage_half_stage: f64,
+    /// See `boss_dr_half_stage`. Crit chance; the ramp cap is
+    /// `BOSS_CRIT_CHANCE_RAMP_CAP` (0.70), on top of the flat
+    /// `BOSS_CRIT_CHANCE_BASE` (0.05) that sits outside the curve.
+    pub boss_crit_chance_half_stage: f64,
+    /// See `boss_dr_half_stage`. Crit multiplier; the ramp cap is
+    /// `BOSS_CRIT_MULT_RAMP_CAP` (+0.90 over the 1.4 base) - NOT the
+    /// post-scaling `BOSS_CRIT_MULT_CAP` (6.0).
+    pub boss_crit_mult_half_stage: f64,
+    /// See `boss_dr_half_stage`. Splash; cap `BOSS_SPLASH_RAMP_CAP` (0.60).
+    pub boss_splash_half_stage: f64,
     /// Fight-announcement batching (2026-08-19, a live request to cut
     /// per-fight chat spam) - how many encounter results
     /// (`announce_encounter_result`'s per-fight "party of N heroes..."
@@ -679,6 +715,16 @@ impl Default for LiveTunables {
             catchup_full_deficit: CATCHUP_FULL_DEFICIT,
             pierce_cap: 0.5,
             pierce_h: 2000.0,
+            // Exactly the shipped `manager.rs` constants - the test
+            // `default_boss_secondary_half_stages_match_the_shipped_constants`
+            // fails if these ever drift apart.
+            boss_dr_half_stage: crate::adventure::BOSS_DR_HALF_STAGE,
+            boss_block_half_stage: crate::adventure::BOSS_BLOCK_HALF_STAGE,
+            boss_evasion_half_stage: crate::adventure::BOSS_EVASION_HALF_STAGE,
+            boss_increased_damage_half_stage: crate::adventure::BOSS_INCREASED_DAMAGE_HALF_STAGE,
+            boss_crit_chance_half_stage: crate::adventure::BOSS_CRIT_CHANCE_HALF_STAGE,
+            boss_crit_mult_half_stage: crate::adventure::BOSS_CRIT_MULT_HALF_STAGE,
+            boss_splash_half_stage: crate::adventure::BOSS_SPLASH_HALF_STAGE,
             fight_summary_batch_size: 10,
             thunder_redistribution_pct: 0.50,
             thunder_redistribution_window_secs: 2.0,
