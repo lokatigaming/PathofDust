@@ -2208,3 +2208,56 @@ read. The golden corpus is the early warning: 7 of 17 scenarios flipped
 from win to loss, every one at stage 200+, which is what a party running
 on a slower power curve against enemies tuned for the old one looks like.
 Production is at stage 5 and nowhere near it — but the world climbs.
+
+## 2026-09-03 — PACING-ANCHORS (branch `feature/pacing-anchors`, measurement only)
+
+Measured `docs/affix_curve_spec.md` §5.1 — the baseline anchors derived
+against the retired linear affix scaling. **Nothing was changed.** Full
+numbers in `docs/pacing_anchor_measurement.md`.
+
+**The anchors are not binding and are not this season's problem.** At live
+stage 8 the floor is 0.99872 (HP) / 0.99904 (ATK); Controller A sits at
+6.0 and B at 2.1135 — 6.01x and 2.12x ABOVE the floor. `hp_pinned()` and
+`dmg_pinned()` are both `false`. The anchors DECREASE with stage, so the
+floor is tightest at stage 0 and loosest deep: production sits at the
+table's maximum and will not reach the shaped region (first >8% departure
+is stage 500) at the observed rate — world moved 2 to 14 in 7.85 h,
+`highest_stage` 14, oscillating around 8 with no net climb.
+
+**§5.1's re-derivation is a no-op, and that is a code fact.** `pacing.rs`
+contains ZERO references to affixes or crit. The anchors are dimensionless
+fractions of the organic enemy stage/level/party formula, which has no
+affix term. The affix cut changed the numerator (player power), never the
+denominator. Nothing to re-derive; only where the controllers settle
+changes, and that is measured, not derived.
+
+FOUND — **the binding constraint is the CEILING, not the floor.**
+`hp_pacing_mult` = 6.0 is exactly `hp_multiplier_ceiling` = 6.0.
+Inverting A's closed form (`required = mean_dps * 37.5 / base_pool`)
+against observed boss win durations (median 17.4 s, 87% under 30 s, 0%
+over 45 s, max 34.4 s) gives A's honest request as **11.5-12.9 against a
+6.0 ceiling — short by ~2x.** Bosses die in ~17 s against a 30-45 s
+target. The 66.0% win rate (31/47) is on setpoint not because pacing is
+healthy but because **Controller B is compensating**, holding boss damage
+at 2.11x to cover A's saturation. Players get a burst race: bosses that
+evaporate in seconds but wipe the party one fight in three. It is a
+LiveTunable, so it is a dial on `/admin/tunables`, not a deploy. Left for
+the owner — raising a ceiling A will immediately consume is a balance
+decision, not a cleanup.
+
+FOUND — **`top_layer_half_stage = 1500` is the other stage-shaped curve
+read far from its knee**, in the opposite direction from the anchors. At
+stage 8 the top layer contributes **0.32% mitigation** (0.55% at stage
+14; the knee is 30% at stage 1500). The world is 0.5% of the way to it,
+so the stage-tied top layer is inert at live stages. The anchors are read
+past the END of their table; this is read at its very START.
+
+FOUND (third instance) — **`C:\PathofDust` misled this session too.** It
+is mtime-fresh, internally consistent and entirely wrong: stage 7380 vs
+production's 8, and it differs from live on nine pacing fields
+(`hp_max_step_per_fight` 0.05 vs 0.25, `dmg_max_step_per_fight` 0.05 vs
+0.15, `hp_multiplier_ceiling` 1000 vs 6.0, `baseline_atk_anchors`
+terminal 0.45 vs 0.62, `permanent_rampage` true vs false). A complete and
+coherent set of invalid numbers was produced from it before the catch.
+The rule in `session_journal.md:1198` held and is restated here: read the
+live world ONLY from `/var/lib/pathofdust` on the Debian box.
