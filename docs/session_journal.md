@@ -4716,3 +4716,98 @@ failed one full-workspace run (stray CelestialShard from sibling-test
 contamination of the shared data_path store), passed in isolation, and the
 full suite passed twice more after. Intermittent, not caused by this branch —
 a clean tree was also run to confirm. Candidate for the known-flaky list.
+
+### 2026-09-04 — WIKI-TRUTH-UP deploy record (release `wiki-truth-up`)
+
+Queue item 6, from the wiki session.
+
+| | |
+|---|---|
+| master commit deployed | `79e1207` |
+| binary before | `84854f16…07714` |
+| binary after | `a0819cfc1703fe146a79d07a722e4aa21bff3e79ad3629d69dd702354e0b7c27` |
+| downtime | **0.28 s** |
+| suite on the box | **835 passed / 0 failed / 0 ignored, 38 suites** |
+| slot | `deploy-pre-20260903-185600-wiki-truth-up`, `LATEST` repointed |
+
+The run was green, and it included
+`stage_gate_tests::fighting_never_grants_a_craft_token_but_the_starter_set_is_intact`
+— the flake item 5 shipped past. It passed this time, which is what an
+8%-failure test does 92% of the time and is **not** evidence it is fixed.
+It remains b's to fix.
+
+### Not a docs-only change, and it was checked rather than trusted
+
+The label was "clean fast-forward". It deletes **51 lines from
+`manager.rs` and 10 from `combat.rs`**: `ACTIVITY_XP_COOLDOWN`,
+`ACTIVITY_XP_AMOUNT`, `LINGERING_EFFECT_TICK_INTERVAL_MS` and
+`LINGERING_EFFECT_TICKS`. Each had no remaining caller and each carried a
+comment saying it survived **only** because `adventure_web/wiki.rs` read
+it to template a wiki section, and asking the wiki session to remove it on
+its own schedule.
+
+This release removes the readers and the constants together, in that
+order. That is the only safe sequence and it belongs to exactly one
+session: deleting the constants from anywhere else breaks the wiki
+module's build out from under it, and deleting the wiki section without
+the constants leaves dead code pointing at a reader that no longer exists.
+Verified in the built tree — both constant pairs return **0** references.
+
+### Verified by effect, on the thing the release is actually for
+
+| page | result |
+|---|---|
+| `/wiki` | 200, 77,782 B |
+| `/wiki/crafting` | 200, 100,212 B |
+| `/wiki/combat` | 200, 96,045 B |
+| `/wiki/items` | 200, 84,691 B |
+| `/wiki/getting-started` | 200, 84,887 B |
+
+**The wiki still mentions "Lingering Effect", and that is correct.** It
+was checked rather than assumed stale — the live pages read *"Echo
+replaced Lingering Effect entirely"*, and:
+
+> *If a piece of your gear still displays "Lingering Effect", it hasn't
+> been converted yet. Existing items convert to Echo automatically at half
+> their stored value, but the timing of that conversion is not guaranteed
+> … Either way the old affix does nothing.*
+
+That is the wiki doing its job: telling players about a name they can
+still see on their own gear, rather than pretending the rename was
+instantaneous. A page that simply deleted the term would have left a
+player staring at an affix the wiki claims does not exist.
+
+### The `lingeringEffect` startup warning persists, and that is also correct
+
+Still one per boot:
+
+```
+WARN game::adventure::affix: adventure-item-balance.toml:
+'lingeringEffect' is a retired affix with no live base value to override, ignoring
+```
+
+It does **not** come from the constants this release deleted. Its source
+is an empty `[affixes.lingeringEffect]` section header in
+`adventure-item-balance.toml`, which is runtime data on the box with no
+copy in the repo. Owner ruling: leave it — an empty header for a retired
+affix is harmless. Recorded so the next person who removes a
+`LINGERING_EFFECT` symbol and expects the warning to disappear knows where
+it actually comes from.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **20 = 20** |
+| 4 | live sha256 | `a0819cfc…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 80,698 B, 200 / 91,056 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: the wiki is documentation, and the release changes no
+mechanic, cost, chance or timer. The one player-visible consequence — that
+the wiki now says what the game actually does — is the wiki's own content.
