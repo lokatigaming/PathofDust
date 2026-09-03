@@ -2721,6 +2721,7 @@ genuine re-release of a name would have destroyed the only copy of the
 earlier rollback binary. Not fixed; a date suffix on `$NAME`, or refusing
 to write into an existing slot, would close it.
 
+
 ### 2026-09-03 — SMALL-ISOLATED-DEFECTS deploy record (release `small-isolated-defects`)
 
 Second of four queued releases. Rebased from `e9aef0a` onto master by
@@ -4287,6 +4288,7 @@ rather than promising a number nobody can calculate. **If a blanket
 goodwill grant is wanted instead, it is an owner decision and a separate
 change.**
 
+
 ### 2026-09-03 — "An artifact from a previous run, mistaken for the current one" (general note, owner-directed)
 
 Third instance in a day, so it is recorded as a class rather than inside
@@ -4339,3 +4341,161 @@ recorded earlier.
 file, log, listing or cached result, establish when it was produced and
 whether anything has happened since. If you cannot tell, treat it as
 unknown rather than as evidence.
+### 2026-09-03 — CATCHUP-FIX: catch-up keys off the leader, not the median
+
+Branch `fix/catchup-degeneration` off `origin/master` (`0c4dffa`). Fixes
+the defect recorded above under *FOUND — catch-up XP degenerates into a
+flat global multiplier on a bunched roster*. Not merged, not deployed —
+session c holds that authority.
+
+**CORRECTION to this session's own fit report.** The fit report modelled
+the live state as `win_xp_mult` 0.5 and labelled a table row "live now"
+on that basis. That was wrong: the counterweight was recommended in the
+2026-09-02 ruling but **never applied**, and the live admin page has
+`win_xp_mult` at **1.0**. Session a's independent measurement confirms it
+(a level-11 character earning 37 XP per win, the level-2 newcomer 39 —
+the mult-1.0 numbers exactly). The corrected table is below; the proposal
+and the conclusion are unchanged, and simplified, because no dial change
+now accompanies this fix.
+
+#### The formula, before and after
+
+Before (`manager.rs:catchup_multiplier`), keyed on `median_u32`:
+
+| branch | bonus |
+|---|---|
+| `l <= median` | +200% at min, tapering to **+100% at the median** |
+| `l > median`, `max > median` | +100% at the median down to +0% at max |
+| `max == median` | +0% |
+
+The first branch reads no leader level at all and floors at +100%. On a
+bunched roster the median EQUALS the maximum, so the whole lead pack
+lands in it.
+
+After: `deficit = (max - level) / max`, `bonus = 200% * min(1, deficit /
+catchup_full_deficit)`, band unchanged at 1.0–3.0. Every character at
+`max` has a deficit of exactly zero, so a bunched roster returns exactly
+1.0 — no epsilon, no special case — and the leader is 1.0 on every roster
+shape. The deficit is relative rather than an absolute level gap because
+`xp_to_next_level` is quadratic: ten levels behind is a chasm at level 11
+and a rounding error at level 200.
+
+Why median was there in the first place, since it is not obvious: no
+design record survives (`git log -S"catchup_multiplier"` reaches only the
+crate extraction and the win-XP commits). The only stated rationale is
+the function's own doc — *"so the median member still gets a real boost
+(not just the trailing half)"*. Median was chosen to make the payout
+GENEROUS, not to measure a gap. That is why it degenerated: a generosity
+floor with no reference to the leader.
+
+#### The live roster, corrected
+
+Roster at 2026-09-03 02:52Z, `win_xp_mult` **1.0** (live), grants are
+exact `win_xp_for_win` output:
+
+| level | n | today mult | today grant | fix mult | fix grant |
+|---|---|---|---|---|---|
+| 11 | 14 | 2.000 | **37** | **1.000** | **18** |
+| 9 | 1 | 2.222 | 38 | 1.727 | 29 |
+| 8 | 1 | 2.333 | 38 | 2.091 | 34 |
+| 2 | 1 | 3.000 | 39 | 3.000 | 39 |
+
+Stated plainly: **today the level-2 newcomer earns 39 against the pack's
+37 — a 5% edge over people nine levels ahead. Under the fix they earn 39
+against 18, a 2.17x edge**, which is the mechanic finally doing its job.
+The two mid-table stragglers go from a meaningless 1.03x/1.03x relative
+to the pack to a real 1.6x/1.9x.
+
+#### Rate, and the dial
+
+Levels/day at level 11, 96 wins/day (144 encounters at the live 2:1
+ratio):
+
+| config | pack mult | grant | levels/day |
+|---|---|---|---|
+| today (median), mult 1.0 — **live** | 2.00 | 37 | **11.61** |
+| **fix, mult 1.0** | 1.00 | 18 | **5.65** |
+| fix, mult 0.5 | 1.00 | 9 | 2.82 |
+
+Seven-day per-win simulation from the live roster, levels advancing and
+catch-up recomputed every fight, against the approved curve:
+
+| day | fix + mult 1.0 | approved curve |
+|---|---|---|
+| 1 | 15 | 16 |
+| 3 | 23 | 23 |
+| 5 | 29 | 26 |
+| 7 | 35 | 32 |
+
+**`win_xp_mult` needs no change and must not be touched.** It is already
+at 1.0, and the fix at 1.0 reproduces the approved curve to within a
+level, decaying 4 → 3 levels/day across the week and continuing to decay
+as the quadratic cost bites. Setting it to 0.5 on top of this fix would
+double-count the correction and run the game at half the approved curve.
+The 11.61 → 5.65 drop at level 11 is the whole overshoot, closed by the
+formula rather than by a counterweight.
+
+#### Scope
+
+`catchup_multiplier` is shared: it feeds the loot/dust pity payout
+(`pity_reward_count`) as well as win XP. The same degeneracy was paying
+the whole bunched pack ~2 pity rewards instead of 1. Fixing the shared
+function fixes both; an XP-only fork was considered and rejected as the
+larger change. Owner approved the shared fix.
+
+`median_u32` is untouched — `prioritize_above_median` (enemy targeting)
+still uses it, and its doc now says so and records that catch-up no
+longer does.
+
+#### The knob
+
+`catchup_full_deficit`, default `CATCHUP_FULL_DEFICIT` 0.5, range
+0.01–1.0, rendered on `/admin/tunables` under Experience. Unit is a
+fraction of the leader's level. **The 0.01 floor is load-bearing and is
+the one place on that page where a zero floor would be wrong**: the field
+is a DIVISOR, and 0.0 would pay the full 3x to everyone standing one
+level below the leader — the same flat-multiplier defect in a new shape.
+Rejected by the handler, clamped again inside `catchup_multiplier` for a
+hand-edited tunables file, and `#[serde(default =
+"default_catchup_full_deficit")]` resolves an omitted field to the
+shipped constant. `admin_tunables_win_xp_http.rs` already scrapes its
+field set off the rendered page, so the new field entered every POST body
+automatically; it now also asserts the render, the round trip, the
+persistence, the out-of-range rejection (0, -0.5, 1.5) and the
+omitted-field fallback.
+
+Tests: `manager::catchup_multiplier_tests`, five cases — the degenerate
+bunched roster resolving to exactly 1.0 (asserted against the real live
+roster shape, 14×L11 + 9 + 8 + 2, and against four other shapes), a real
+laggard still paid and paid monotonically, the knob scaling the taper and
+surviving a 0.0, no-spread/solo/empty at 1.0, and the 1.0–3.0 band held
+across the knob's full range.
+
+Suite: **796 passed, 0 failed**, `cargo test --release --workspace
+--quiet -j 4 --target-dir target-catchup`. Clippy clean on touched code.
+
+#### Patch note draft — NOT written to the box
+
+Session c writes this at deploy. Honest about the nerf, per the rule:
+
+> **Catch-up now finds the people who are actually behind**
+> - Catch-up bonuses (bonus XP, dust and drop odds for trailing players)
+>   used to be measured against the middle of the pack. Once everyone
+>   bunched up, the middle WAS the top — so the leaders were quietly
+>   collecting a 2x bonus meant for newcomers, and a level-2 player was
+>   out-earning a level-11 player by 5%.
+> - It is now measured against the highest-level character in the fight.
+>   If you are level with the leader you get no bonus at all; the further
+>   behind you are, the bigger it gets, up to 3x.
+> - **This is a nerf for established characters.** A level-11 character
+>   in today's group goes from 37 XP a win to 18. That is the intended
+>   rate — the group has been levelling at roughly twice the designed
+>   speed since the world opened, and this is where the extra came from.
+> - Trailing players are unaffected: the level-2 newcomer still earns 39
+>   a win, and now actually gains ground instead of standing still.
+> - No other XP settings changed.
+
+FOUND — the doc block describing `catchup_multiplier` was physically
+attached to `median_u32` (it sat above `median_u32`'s own doc, so rustdoc
+concatenated both onto the median helper and `catchup_multiplier` itself
+rendered undocumented). Repaired while rewriting the function.

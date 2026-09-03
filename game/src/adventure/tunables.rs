@@ -277,6 +277,18 @@ pub struct LiveTunables {
     /// Whether `catchup_multiplier` still applies to the XP grant (step 2
     /// of the order of operations). See `manager::WIN_XP_CATCHUP_ENABLED`.
     pub win_xp_catchup_enabled: bool,
+    /// How far below the group's LEADER a character must fall to earn the
+    /// full +200% catch-up bonus, as a fraction of the leader's level
+    /// (2026-09-03). Scales the taper in `catchup_multiplier`, which
+    /// feeds both the loot/dust pity payout and — when
+    /// `win_xp_catchup_enabled` is on — the win-XP grant.
+    ///
+    /// Bigger means stingier: a larger deficit is required before the
+    /// bonus reaches its cap. It cannot switch catch-up off (that is
+    /// `win_xp_catchup_enabled` for XP) and it never changes the 1.0–3.0
+    /// band, only where inside it a given character lands. See
+    /// `manager::CATCHUP_FULL_DEFICIT`.
+    pub catchup_full_deficit: f64,
     /// Boss pierce (2026-08-18, a live design call) - the asymptotic
     /// ceiling `boss_pierce_pct` climbs toward as stage grows (see
     /// `simulate_battle`'s own computation) - a stage-scaled fraction of
@@ -664,6 +676,7 @@ impl Default for LiveTunables {
             win_xp_mult: WIN_XP_MULT,
             win_xp_cooldown_secs: WIN_XP_COOLDOWN_SECS,
             win_xp_catchup_enabled: WIN_XP_CATCHUP_ENABLED,
+            catchup_full_deficit: CATCHUP_FULL_DEFICIT,
             pierce_cap: 0.5,
             pierce_h: 2000.0,
             fight_summary_batch_size: 10,
