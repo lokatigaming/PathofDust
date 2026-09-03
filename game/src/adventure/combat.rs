@@ -360,16 +360,6 @@ pub(crate) const SERENITY_DR_DURATION_MS: u32 = 3_000;
 /// without one, matching Serenity's own 3s (both are "evade/hit-driven
 /// timed debuff/buff" nodes at the same tier).
 pub(crate) const FROSTNOVA_DEBUFF_DURATION_MS: u32 = 3_000;
-/// RETIRED (2026-08-21, Lingering Effect removed - replaced by Echo, see
-/// `Affix::Echo`'s doc). No combat code reads these two anymore - kept
-/// declared, frozen at their final pre-retirement values, ONLY because
-/// the wiki module (`adventure_web::wiki`, a parallel session's own
-/// workspace - never edited from here) still reads both directly to
-/// template its "Lingering Effect" page section. Flagged in
-/// WIKI_IMPACT.md for that session to remove on its own schedule, rather
-/// than deleted here and breaking its build out from under it.
-pub const LINGERING_EFFECT_TICK_INTERVAL_MS: u32 = 50;
-pub const LINGERING_EFFECT_TICKS: u32 = 80;
 /// Seed of Life's per-echo shield duration (was: per-tick, before the
 /// 2026-08-21 Echo rework - see `passive_tree.rs`'s own Seed of Life doc).
 pub(crate) const SEEDOFLIFE_SHIELD_DURATION_MS: u32 = 5_000;

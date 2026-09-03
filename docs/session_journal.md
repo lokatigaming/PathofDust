@@ -2722,6 +2722,7 @@ earlier rollback binary. Not fixed; a date suffix on `$NAME`, or refusing
 to write into an existing slot, would close it.
 
 
+
 ### 2026-09-03 — SMALL-ISOLATED-DEFECTS deploy record (release `small-isolated-defects`)
 
 Second of four queued releases. Rebased from `e9aef0a` onto master by
@@ -4676,3 +4677,42 @@ grant observed in 20 minutes" against a live game resolving a fight every
 win-XP had stopped. The check that dissolved it was looking at the
 characters directly rather than re-reading the observer's conclusion —
 they were level 17, which is only reachable by being paid.
+## 2026-09-03 — WIKI-TRUTH-UP (branch `wiki/truth-up`)
+
+Corrected the wiki against the code after several mechanics shipped without
+the pages following. Rewrote getting-started, crafting, combat, items and
+dashboard; surgical fixes to commands, golems and landing. Deleted five
+constants (plus two Lingering Effect ones) that existed in game code for no
+reason except that wiki.rs read them.
+
+The root defect was not any individual wrong number: it was that the
+placeholder map resolved compiled constants for values that had since become
+LiveTunables. A constant a tunable has taken over does not stop compiling when
+it goes stale — it renders a confident wrong number forever. Fixed as a rule
+rather than page by page (the COMPILED-ONLY RULE, on `wiki_placeholder_map`'s
+doc comment), and the drifting placeholders were retired rather than
+re-pointed, because re-pointing only moves the next break.
+
+FOUND — `adventure-live-tunables.toml` in the deploy directory is a frozen
+pre-cutover snapshot, not production state. This session read a live craft
+tunable out of it and reported a stale value to the owner; the owner caught
+it and named it as the fourth session it has misled in two days. Recorded in
+WIKI_IMPACT.md as a standing warning. Nothing in this repo can answer "what is
+this tunable set to right now" — only /admin/tunables can.
+
+FOUND — boss pierce has no player-visible surface anywhere. The wiki now
+documents the mechanic, but deliberately states no number, because unlike
+crafting prices there is no in-game readout to point a player at. Suggested
+follow-up: surface the current pierce share somewhere a player can see it.
+
+FOUND — the order's premise "every Twitch chat command is gone" was wrong.
+The ~50 bot-native commands (music, playlists, themes, poe.ninja, !hug,
+!bugreport) are all still registered and were left alone on the owner's
+ruling; only the 9 adventure rows and !checkpatreon were deleted. Refuting
+the premise before building on it saved deleting a working page.
+
+FOUND — `stage_gate_tests::fighting_never_grants_a_craft_token_but_the_starter_set_is_intact`
+failed one full-workspace run (stray CelestialShard from sibling-test
+contamination of the shared data_path store), passed in isolation, and the
+full suite passed twice more after. Intermittent, not caused by this branch —
+a clean tree was also run to confirm. Candidate for the known-flaky list.

@@ -85,14 +85,14 @@ self-burn - that's still yours to manage.
 - **Growing** - permanently grows its max HP a bit more every time it reforms within the same fight, additively off its original spawn HP (not compounding on its already-grown value).
 - **Terrifying** - explodes for a fraction of its own HP as damage to nearby enemies when it dies.
 
-When a Thunder Golem dies, half of everything it had absorbed doesn't just
+When a Thunder Golem dies, a share of everything it had absorbed doesn't just
 disappear - it splits evenly across your whole party as real, unavoidable
-damage over the following 2 seconds (the other half is forgiven). Losing a
-Thunder Golem has real weight: the more it was tanking, the more your party
-feels its death. This can down a party member exactly like any other lethal
-damage.
+damage spread over the next couple of seconds (the remainder is forgiven).
+Losing a Thunder Golem has real weight: the more it was tanking, the more your
+party feels its death. This can down a party member exactly like any other
+lethal damage.
 
-<p class="muted"><strong>⚠️ Balance in flux:</strong> the redistributed amount is still being tuned - it's currently landing a bit short of the intended 50% share in some cases, with a follow-up fix in progress. Treat the exact delivery numbers as not final; the mechanic itself (half absorbed, half forgiven, on-death) is.</p>
+<p class="muted">What share gets redistributed, and how long it spreads over, are operator dials rather than fixed numbers - the mechanic is "some of what it absorbed comes back at the party when it dies, the rest is forgiven," and the split can be retuned. Several bugs that used to make the real delivery fall short of the configured share have been fixed: a recipient who died before their tick landed no longer loses it (it redirects to someone still alive), and a golem dying twice in quick succession no longer discards the first death's undelivered amount.</p>
 
 <h3 id="flame">Flame Golem</h3>
 
@@ -127,9 +127,9 @@ heal-boosting effects. Running more than one Water Golem doesn't stack this
   shields they receive.
 - **Shattering** - when an enemy dies in the Water Golem's presence, sends
   icicles at (splash + rank) nearby enemies. Each icicle deals a percentage
-  of the *dead* enemy's own health - currently 1% at every rank, admin-
-  tunable, so treat that figure as the current default rather than a fixed
-  number. Icicle damage is **Environmental**: mitigated only by the target's
+  of the *dead* enemy's own health - that percentage is an operator dial set
+  per rank, so it is not printed here. Icicle damage is **Environmental**:
+  mitigated only by the target's
   own damage reduction (never evasion or block, and never past the universal
   95% DR cap - see [Combat](/wiki/combat#block-and-dr), so a target can never
   become fully immune to it), can never crit, and draws nothing from the
@@ -145,7 +145,7 @@ or a party-wide heal amplifier (Singing).
 
 - **Golems die when you die.** If your Elementalist goes down, every golem you had out dies instantly with you.
 - **Golems don't keep a fight going.** They're never counted toward "is anyone still alive" - a fight where every real player is down ends normally even if a Thunder Golem is mid-reform.
-- **Your golems' stats count as yours.** Damage dealt and damage absorbed/tanked by any of your golems (including a Thunder Golem's tanking) roll up into your own totals everywhere per-player stats are shown or ranked - Top DPS/Tanks/Heals in chat announcements, and your fight history. A golem never shows up as its own separate entry.
+- **Your golems' stats count as yours.** Damage dealt and damage absorbed/tanked by any of your golems (including a Thunder Golem's tanking) roll up into your own totals everywhere per-player stats are shown or ranked - Top DPS/Tanks/Heals in the <a href="/wiki/dashboard#feed">Feed</a>'s fight summaries, and your fight history. A golem never shows up as its own separate entry.
 - **Healing credit is specific about *what* counts as healing.** A Thunder Golem reforming (coming back after dying) is not a heal - it grants no healing credit to anyone, yours or otherwise. A Water Golem's base party-wide regen and its Replenishing modifier are both real healing, and both credit *you*, same as any other golem stat. Rising Phoenix (a Righteous Fire passive, not a golem one) works the same way when it revives a nearby ally - the healing credit goes to *you*, the Elementalist whose Phoenix triggered, not to the ally who got revived.
 - **Golems are invisible on the OBS overlay, on purpose** - not a bug. They're fully real in combat (the fight log, damage, and outcome all reflect them correctly) but don't currently get their own sprite on stream. Visualizing them is a known future improvement, not yet built.
 

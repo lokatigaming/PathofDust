@@ -7,31 +7,12 @@ or the broadcaster; everything else works for any viewer in chat. There's no
 subscriber-only tier anywhere in this bot - it's always one of "everyone,"
 "mods," or (for one command) "broadcaster only."
 
+<p class="muted"><strong>The adventure has no chat commands any more.</strong> <code>!join</code>, <code>!character</code>, <code>!party</code>, <code>!rampage</code> and the rest were removed - the bot no longer talks to the game at all, and typing them does nothing (the bot stays silent rather than replying with an error). Everything they used to do now lives on the website: see <a href="/wiki/getting-started#joining">Getting Started</a> to join and <a href="/wiki/dashboard">Dashboard</a> for the rest. The commands on this page are the bot's own and are unaffected.</p>
+
 Most commands have no cooldown at all. A specific subset shares one **global**
 cooldown per command name - "global" means if one viewer runs it,
 *everyone* is briefly blocked from that same command, not just that viewer.
 That subset is called out per-row below as "Shared cooldown ({{BUILTIN_COOLDOWN_S}} seconds)."
-
-<h3 id="adventure">Adventure</h3>
-
-The chat RPG the rest of this wiki covers. See [Getting Started](/wiki/getting-started) for what these actually do mechanically.
-
-<div class="wiki-table-wrap">
-
-| Command | Syntax | Who | What it does |
-|---|---|---|---|
-| `!join` | `!join` | everyone | Creates your character the first time; rejoins you if retreated. |
-| `!character` / `!char` / `!me` | `!character` | everyone | Your level, archetype, XP, win/loss record, dust, and a link to your dashboard. |
-| `!party` / `!adventure` | `!party` | everyone | Current world stage plus how many joined heroes are active right now. |
-| `!rampage` | `!rampage` | everyone (mods trigger instantly; everyone else casts a vote) | Non-mods: votes for a rampage - {{RAMPAGE_VOTE_THRESHOLD}} distinct voters triggers it. Mods: starts it immediately. |
-| `!nextencounter [boss]` | `!nextencounter [lich\|firedemon\|cthulhu\|dragon\|bahamut\|purple\|cube]` | **Mods** | Runs the next encounter immediately; optionally forces a specific boss. |
-| `!clearbattlefield` / `!resetbattlefield` | `!clearbattlefield` | **Mods** | Force-retreats every joined hero back to "needs to !join again." |
-| `!giveloot` / `!gearall` | `!giveloot` | **Mods** | Grants every joined hero one random piece of gear. |
-| `!giftdust <all\|username> <amount>` | `!giftdust all 500` | **Mods** | Grants dust to everyone joined, or to one named hero. |
-
-<p class="muted">`!nextencounter`'s boss names also quietly accept a few unlisted synonyms (`demon`, `fire`, `gelatinouscube`) - the ones above are the ones actually meant to be used.</p>
-
-</div>
 
 <h3 id="general">General</h3>
 
@@ -139,7 +120,6 @@ Live Path of Exile market data pulled from poe.ninja - unrelated to this game's 
 |---|---|
 | `!command add\|edit\|delete\|remove !name [reply]` | Manages the custom text-command list below. |
 | `!announcetest` | Replays every configured periodic announcement immediately. |
-| `!checkpatreon` | Forces an immediate Patreon supporter check. |
 | `!alerttest [follow\|subscription\|subscriptionGift\|cheer\|raid\|tip]` | Fires a fake alert-box event for testing overlays. |
 | `!replaytips` | Re-broadcasts the last 5 recorded tips as alert events. |
 
