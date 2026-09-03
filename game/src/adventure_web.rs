@@ -2654,8 +2654,27 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
     // Reject a key that isn't in the class being edited - the page never
     // generates one, so this only fires on a hand-crafted POST, and a
     // bad key would otherwise sit in the file forever matching nothing.
+    //
+    // Until 2026-09-03 this returned `redirect()` - the SAME `?saved=1`
+    // page a real save gets - so a POST that stored nothing reported
+    // success. Identical shape to ledger `#51` (the non-operator refusal
+    // that redirected as a save), and the shape `do_save_tunables` already
+    // avoids by answering 400. A status code describes what happened to
+    // the request: nothing was written, so this is a refusal.
+    //
+    // Row-level feedback is no use here - `render_admin_passives_page`
+    // matches feedback by `node_key`, and a key that is on no row would
+    // render the error nowhere at all. Page-level card, same shape as
+    // `ops_result`, with a back-link to passives rather than tunables.
     if !form.class.passive_nodes().iter().any(|n| n.key == form.node_key) {
-        return redirect();
+        let body = format!(
+            "<div class=\"card\"><h1>Not saved</h1>\
+               <p>No passive node <code>{}</code> exists on {:?}. Nothing was written.</p>\
+               <p><a href=\"/admin/passives?class={slug}\">&larr; Back to passives</a></p></div>",
+            escape_html(&form.node_key),
+            form.class
+        );
+        return (StatusCode::BAD_REQUEST, Html(render_page(&body))).into_response();
     }
 
     // The per-node conversion cap (OverflowConversion rows render it
@@ -2684,6 +2703,18 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
         },
     };
 
+    // `status` is a parameter because the two feedback paths are NOT the
+    // same kind of answer, and conflating them is how this page came to
+    // report 200 for a refusal (2026-09-03):
+    //
+    //   REJECT -> 400. The save was refused and nothing was written, the
+    //             same class of failure `do_save_tunables` answers 400 to.
+    //   WARN   -> 200. A rendered question the operator has not answered
+    //             yet; "Save anyway" legitimately continues from it.
+    //             400 would mean "you did something wrong" when they have
+    //             not yet done anything.
+    // Returns the BODY only; the status is applied at each call site,
+    // because the two feedback paths are not the same kind of answer.
     let feedback_page = |error: Option<String>, warning: Option<String>| async {
         let viewer = state.adventure.character(&login).await;
         let feedback = PassiveSaveFeedback {
@@ -2693,21 +2724,28 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
             pending: Some((form.r1, form.r2, form.r3, cap_text.map(str::to_string))),
         };
         let body = render_admin_passives_page(viewer.as_ref(), form.class, false, state.adventure.live_tunables().overflow_conversion_cap_per_rank, Some(&feedback));
-        Html(render_page(&body)).into_response()
+        Html(render_page(&body))
     };
 
     if let Some(message) = checks.iter().find_map(|c| match c {
         crate::adventure::ValueCheck::Reject(m) => Some(m.clone()),
         _ => None,
     }) {
-        return feedback_page(Some(message), None).await;
+        // REJECT -> 400. The save was refused and nothing was written -
+        // the same class of failure `do_save_tunables` answers 400 to.
+        // Until 2026-09-03 this was a bare 200.
+        return (StatusCode::BAD_REQUEST, feedback_page(Some(message), None).await).into_response();
     }
     if form.confirm.as_deref() != Some("1") {
         if let Some(message) = checks.iter().find_map(|c| match c {
             crate::adventure::ValueCheck::Warn(m) => Some(m.clone()),
             _ => None,
         }) {
-            return feedback_page(None, Some(message)).await;
+            // WARN -> 200, deliberately. This is a rendered question the
+            // operator has not answered yet, and "Save anyway" continues
+            // from it. 400 would mean "you did something wrong" when they
+            // have not yet done anything (owner ruling 2026-09-03).
+            return (StatusCode::OK, feedback_page(None, Some(message)).await).into_response();
         }
     }
 
