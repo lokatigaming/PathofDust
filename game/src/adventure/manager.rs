@@ -6953,8 +6953,7 @@ mod gear_tier_excess_tests {
         assert_eq!(sanitize_boss_gear_tier_weight(5.0), BOSS_GEAR_TIER_WEIGHT_MAX);
         assert_eq!(sanitize_boss_gear_tier_weight(0.0), 0.0, "0 is a LEGAL setting here - it is the shipped one");
         // A non-finite live reading must not poison the effective level.
-        let mut t = LiveTunables::default();
-        t.boss_gear_tier_weight = f64::NAN;
+        let t = LiveTunables { boss_gear_tier_weight: f64::NAN, ..Default::default() };
         assert_eq!(effective_avg_level([character_at(10, 1000)].iter(), &t), 10.0);
     }
 
