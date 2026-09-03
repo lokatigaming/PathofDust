@@ -4700,16 +4700,283 @@ mod render_fights_page_tests {
     }
 }
 
+/// The 24 passive-dial inputs, as HTML, with no card or form around them.
+/// (2026-09-03)
+///
+/// Extracted so it has TWO callers, and the second one is the point:
+/// `render_admin_passives_page` renders it, and `render_tunables_page`
+/// calls it purely to SCRAPE the field names out, so its Ungrouped section
+/// can tell "filed on the other page" from "filed nowhere at all".
+/// Without that, every field living on the passives page would show up as
+/// ungrouped on the tunables page.
+///
+/// Deriving the exclusion from the real rendering - rather than listing 24
+/// names somewhere - is the same rule the rest of this mechanism follows:
+/// a hand-maintained list stops covering new members and never says so.
+fn passive_tunables_fields_html(t: &LiveTunables) -> String {
+    format!(
+        "\
+            <h2>Overflow Economy (cross-class caps)</h2>\n            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
+                <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
+              </div>\
+            <h2>Righteous Fire</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Haloed Steps</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Water Golem Shattering</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
+              <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
+              <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Verdant Burst</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
+                <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
+              </div>\
+            <h2>Elementalist</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
+                <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
+                <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
+              </div>\
+            <h2>Splash (player ladder)</h2>\n          <p class=\"tunable-hint\">These six govern the <strong>player</strong> splash ladder — how many extra targets a player's splash reaches and at what damage. <strong>Boss splash is a separate roll</strong>, scaled from stage in <code>boss_stats_for</code> and configured on /admin/tunables, not here. If you are looking for how hard bosses splash, this is the wrong group.</p>\n            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
+                <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
+                <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
+                <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
+                <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
+                <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_damage_pct\">Splash Damage %</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
+                <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
+              </div>\
+        ",
+        thunder_redistribution_pct = t.thunder_redistribution_pct,
+        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
+        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
+        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
+        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
+        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
+        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
+        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
+        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
+        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
+        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
+        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
+        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
+        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
+        evasion_overflow_cap = t.evasion_overflow_cap,
+        block_overflow_cap = t.block_overflow_cap,
+        dr_overflow_cap = t.dr_overflow_cap,
+        intervene_overflow_cap = t.intervene_overflow_cap,
+        splash_extra_targets = t.splash_extra_targets,
+        splash_support_floor_targets = t.splash_support_floor_targets,
+        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
+        splash_ladder_step_pct = t.splash_ladder_step_pct,
+        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
+        splash_damage_pct = t.splash_damage_pct,
+    )
+}
+
+/// Renders any `LiveTunables` field that the grouped form did NOT render, so
+/// a dial can never silently vanish from the admin page (2026-09-03).
+///
+/// **There is no list of field names anywhere in here, and that is the whole
+/// design.** The two sides of the comparison are both derived:
+///
+/// * what the page rendered - scraped out of `form_html`, the string
+///   `render_tunables_page` has just built, by reading its `name="..."`
+///   attributes;
+/// * what exists - `serde_json::to_value(t)`'s keys, which come straight from
+///   `LiveTunables`' own `Serialize` derive.
+///
+/// So a field added to `LiveTunables` later and filed into no group appears
+/// here **automatically**, visibly, and editable - rather than existing in the
+/// struct with nothing on the page to say so. A hand-maintained assignment
+/// table would have exactly the rot this project has been digging out all
+/// week: it stops covering new members and never announces it.
+///
+/// The cross-page derived test is the other half - it fails CI when a field
+/// renders on NEITHER page. This is the half an operator can see.
+///
+/// `RETIRED` is the one deliberate exclusion, and it is named rather than
+/// silent: see `LiveTunables::dynamic_scaling_mult`'s doc. Re-rendering a
+/// retired dial would re-arm a switch that was deliberately taken out of
+/// service.
+fn ungrouped_tunables_html(form_html: &str, passive_html: &str, t: &LiveTunables) -> String {
+    /// Fields that exist on `LiveTunables` and are deliberately NOT on any
+    /// page. Adding to this list is a decision someone has to write down.
+    const RETIRED: &[&str] = &["dynamic_scaling_mult"];
+
+    // Both strings are RENDERED markup, so they carry real quotes - the
+    // backslashes in the source are Rust's own escaping and are long gone by
+    // the time this sees them.
+    //
+    // BOTH pages count as "rendered", and `passive_html` is the real passives
+    // markup from `passive_tunables_fields_html` rather than a list of names
+    // copied out of it. So a dial moving between the two pages, or a new one
+    // landing on either, needs no edit here. "Ungrouped" means on NEITHER page.
+    let mut rendered: Vec<&str> = Vec::new();
+    for html in [form_html, passive_html] {
+        for piece in html.split("name=\"").skip(1) {
+            if let Some(name) = piece.split('"').next() {
+                rendered.push(name);
+            }
+        }
+    }
+
+    let all = match serde_json::to_value(t) {
+        Ok(serde_json::Value::Object(map)) => map,
+        // A non-object or a serialisation failure is not something to render
+        // a broken section over - the derived test is the hard guard.
+        _ => return String::new(),
+    };
+
+    let mut rows = String::new();
+    let mut missing = 0usize;
+    for (key, value) in all.iter() {
+        if RETIRED.contains(&key.as_str()) || rendered.contains(&key.as_str()) {
+            continue;
+        }
+        missing += 1;
+        let input = match value {
+            serde_json::Value::Bool(b) => {
+                format!("<label class=\"veil-check\"><input type=\"checkbox\" name=\"{key}\" value=\"1\"{}> Enabled</label>", if *b { " checked" } else { "" })
+            }
+            serde_json::Value::Number(n) => {
+                format!("<input type=\"number\" step=\"any\" id=\"{key}\" name=\"{key}\" value=\"{n}\">")
+            }
+            // Arrays (the anchor lists) and anything else round-trip as text
+            // rather than being dropped; the operator can still see the value.
+            other => {
+                let text = match other {
+                    serde_json::Value::String(s) => s.clone(),
+                    v => v.to_string(),
+                };
+                format!("<input type=\"text\" id=\"{key}\" name=\"{key}\" value=\"{}\">", escape_html(&text))
+            }
+        };
+        rows.push_str(&format!("<div class=\"tunable-row\"><label for=\"{key}\">{key}</label>{input}</div>"));
+    }
+
+    if missing == 0 {
+        return String::new();
+    }
+    format!(
+        "<h2>Ungrouped</h2>\
+         <p class=\"tunable-hint\" style=\"color:#e6b34d\">⚠ {missing} tunable{} on <code>LiveTunables</code> {} not been filed into a group on this page. \
+         They are shown here so they stay editable and visible rather than disappearing — but they have no label, no hint and no range, \
+         so file them into a group in <code>render_tunables_page</code> when you get the chance.</p>{rows}",
+        if missing == 1 { "" } else { "s" },
+        if missing == 1 { "has" } else { "have" }
+    )
+}
+
 /// Admin-only live-tunables form (see `ADMIN_TUNABLES_LOGIN`/`LiveTunables`)
-/// - one number input per field, pre-filled with the current live value,
-/// grouped into the same two sections `LiveTunables`'s own doc describes.
+/// - one number input per field, pre-filled with the current live value.
+///
+/// **54 of the 78 fields, in 12 groups (2026-09-03.)** The other 24 tune
+/// individual passive nodes and render on `/admin/passives` via
+/// `passive_tunables_fields_html`; they are still `LiveTunables` fields, only
+/// the form carrying them differs. See `PassiveTunablesForm` for why the two
+/// forms are separate rather than one wide optional one.
+///
 /// A save POSTs everything at once (not per-field) and redirects back here
 /// with `?saved=1` for the confirmation banner - same query-param-flash
 /// pattern `IndexParams`'s fields already use elsewhere on this dashboard.
 /// `rejected` replays a refused save back onto the page it came from
 /// (2026-08-31) - `t` then carries what the operator TYPED rather than
-/// what is live, so no other edit on this 66-field form is lost to one bad
-/// number. `None` is the ordinary render.
+/// what is live, so no other edit on this form is lost to one bad number.
+/// `None` is the ordinary render.
+///
+/// Built in TWO stages so the catch-all can derive what was rendered from the
+/// markup itself rather than from a list - see `ungrouped_tunables_html`.
 fn render_tunables_page(
     viewer: Option<&Character>,
     t: &LiveTunables,
@@ -5287,264 +5554,6 @@ fn render_tunables_page(
 /// after the links - another live request, so a player's own level/
 /// archetype/dust/sand stay visible while browsing pages that otherwise
 /// show none of that (Bag & Crafting, Passives, Wiki, Character List).
-
-
-/// The 24 passive-dial inputs, as HTML, with no card or form around them.
-/// (2026-09-03)
-///
-/// Extracted so it has TWO callers, and the second one is the point:
-/// `render_admin_passives_page` renders it, and `render_tunables_page`
-/// calls it purely to SCRAPE the field names out, so its Ungrouped section
-/// can tell "filed on the other page" from "filed nowhere at all".
-/// Without that, every field living on the passives page would show up as
-/// ungrouped on the tunables page.
-///
-/// Deriving the exclusion from the real rendering - rather than listing 24
-/// names somewhere - is the same rule the rest of this mechanism follows:
-/// a hand-maintained list stops covering new members and never says so.
-fn passive_tunables_fields_html(t: &LiveTunables) -> String {
-    format!(
-        "\
-            <h2>Overflow Economy (cross-class caps)</h2>\n            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
-              <div class=\"tunable-row\">\
-                <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
-                <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
-              </div>\
-            <h2>Righteous Fire</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
-                <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
-                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
-                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-              </div>\
-            <h2>Haloed Steps</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
-                <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
-                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
-                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-              </div>\
-            <h2>Water Golem Shattering</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
-              <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
-              <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
-              <div class=\"tunable-row\">\
-                <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
-                <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
-                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
-                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-              </div>\
-            <h2>Verdant Burst</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
-                <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
-              </div>\
-            <h2>Elementalist</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
-                <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
-                <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
-              </div>\
-            <h2>Splash (player ladder)</h2>\n          <p class=\"tunable-hint\">These six govern the <strong>player</strong> splash ladder — how many extra targets a player's splash reaches and at what damage. <strong>Boss splash is a separate roll</strong>, scaled from stage in <code>boss_stats_for</code> and configured on /admin/tunables, not here. If you are looking for how hard bosses splash, this is the wrong group.</p>\n            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
-                <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
-                <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
-                <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
-                <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
-                <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_damage_pct\">Splash Damage %</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
-                <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
-              </div>\
-        ",
-        thunder_redistribution_pct = t.thunder_redistribution_pct,
-        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
-        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
-        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
-        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
-        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
-        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
-        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
-        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
-        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
-        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
-        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
-        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
-        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
-        evasion_overflow_cap = t.evasion_overflow_cap,
-        block_overflow_cap = t.block_overflow_cap,
-        dr_overflow_cap = t.dr_overflow_cap,
-        intervene_overflow_cap = t.intervene_overflow_cap,
-        splash_extra_targets = t.splash_extra_targets,
-        splash_support_floor_targets = t.splash_support_floor_targets,
-        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
-        splash_ladder_step_pct = t.splash_ladder_step_pct,
-        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
-        splash_damage_pct = t.splash_damage_pct,
-    )
-}
-/// Renders any `LiveTunables` field that the grouped form did NOT render, so
-/// a dial can never silently vanish from the admin page (2026-09-03).
-///
-/// **There is no list of field names anywhere in here, and that is the whole
-/// design.** The two sides of the comparison are both derived:
-///
-/// * what the page rendered - scraped out of `form_html`, the string
-///   `render_tunables_page` has just built, by reading its `name="..."`
-///   attributes;
-/// * what exists - `serde_json::to_value(t)`'s keys, which come straight from
-///   `LiveTunables`' own `Serialize` derive.
-///
-/// So a field added to `LiveTunables` later and filed into no group appears
-/// here **automatically**, visibly, and editable - rather than existing in the
-/// struct with nothing on the page to say so. A hand-maintained assignment
-/// table would have exactly the rot this project has been digging out all
-/// week: it stops covering new members and never announces it.
-///
-/// The cross-page derived test is the other half - it fails CI when a field
-/// renders on NEITHER page. This is the half an operator can see.
-///
-/// `RETIRED` is the one deliberate exclusion, and it is named rather than
-/// silent: see `LiveTunables::dynamic_scaling_mult`'s doc. Re-rendering a
-/// retired dial would re-arm a switch that was deliberately taken out of
-/// service.
-fn ungrouped_tunables_html(form_html: &str, passive_html: &str, t: &LiveTunables) -> String {
-    /// Fields that exist on `LiveTunables` and are deliberately NOT on any
-    /// page. Adding to this list is a decision someone has to write down.
-    const RETIRED: &[&str] = &["dynamic_scaling_mult"];
-
-    // Both strings are RENDERED markup, so they carry real quotes - the
-    // backslashes in the source are Rust's own escaping and are long gone by
-    // the time this sees them.
-    //
-    // BOTH pages count as "rendered", and `passive_html` is the real passives
-    // markup from `passive_tunables_fields_html` rather than a list of names
-    // copied out of it. So a dial moving between the two pages, or a new one
-    // landing on either, needs no edit here. "Ungrouped" means on NEITHER page.
-    let mut rendered: Vec<&str> = Vec::new();
-    for html in [form_html, passive_html] {
-        for piece in html.split("name=\"").skip(1) {
-            if let Some(name) = piece.split('"').next() {
-                rendered.push(name);
-            }
-        }
-    }
-
-    let all = match serde_json::to_value(t) {
-        Ok(serde_json::Value::Object(map)) => map,
-        // A non-object or a serialisation failure is not something to render
-        // a broken section over - the derived test is the hard guard.
-        _ => return String::new(),
-    };
-
-    let mut rows = String::new();
-    let mut missing = 0usize;
-    for (key, value) in all.iter() {
-        if RETIRED.contains(&key.as_str()) || rendered.contains(&key.as_str()) {
-            continue;
-        }
-        missing += 1;
-        let input = match value {
-            serde_json::Value::Bool(b) => {
-                format!("<label class=\"veil-check\"><input type=\"checkbox\" name=\"{key}\" value=\"1\"{}> Enabled</label>", if *b { " checked" } else { "" })
-            }
-            serde_json::Value::Number(n) => {
-                format!("<input type=\"number\" step=\"any\" id=\"{key}\" name=\"{key}\" value=\"{n}\">")
-            }
-            // Arrays (the anchor lists) and anything else round-trip as text
-            // rather than being dropped; the operator can still see the value.
-            other => {
-                let text = match other {
-                    serde_json::Value::String(s) => s.clone(),
-                    v => v.to_string(),
-                };
-                format!("<input type=\"text\" id=\"{key}\" name=\"{key}\" value=\"{}\">", escape_html(&text))
-            }
-        };
-        rows.push_str(&format!("<div class=\"tunable-row\"><label for=\"{key}\">{key}</label>{input}</div>"));
-    }
-
-    if missing == 0 {
-        return String::new();
-    }
-    format!(
-        "<h2>Ungrouped</h2>\
-         <p class=\"tunable-hint\" style=\"color:#e6b34d\">⚠ {missing} tunable{} on <code>LiveTunables</code> {} not been filed into a group on this page. \
-         They are shown here so they stay editable and visible rather than disappearing — but they have no label, no hint and no range, \
-         so file them into a group in <code>render_tunables_page</code> when you get the chance.</p>{rows}",
-        if missing == 1 { "" } else { "s" },
-        if missing == 1 { "has" } else { "have" }
-    )
-}
 fn top_nav(character: Option<&Character>) -> String {
     let stats = character.map_or(String::new(), |c| {
         format!(
