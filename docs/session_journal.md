@@ -5025,3 +5025,184 @@ close.
   prior report over-read a twenty-fight one) will read as steady state
   when it isn't. Belongs beside the pacing anchors for whoever tunes B
   next.
+
+### 2026-09-04 — BOSS-SECONDARY-CURVE deploy record (release `boss-secondary-curve`)
+
+Queue item 7, from window d. Boss defensive and offensive secondary stats
+no longer freeze; they ramp asymptotically toward their caps, each on its
+own half-stage dial.
+
+| | |
+|---|---|
+| master commit deployed | `e6615da` |
+| binary before | `a0819cfc…0b7c27` |
+| binary after | `c51a635b3da6b0847050c1cf34d88f5ad29c9a85669d50d348f30f36c5900f14` |
+| downtime | **0.14 s** |
+| suite on the box | **843 passed / 0 failed / 0 ignored, 39 suites** (835 + 8, and a new suite) |
+| slot | `deploy-pre-20260903-191243-boss-secondary-curve`, `LATEST` repointed |
+
+### The seven dials, checked against arithmetic rather than against memory
+
+The order's warning was that a missing or zero half-stage silently
+restores the frozen boss this change removes — a defaulting failure here
+would look like the *old behaviour*, not like an error. So each dial was
+checked live against the expression it ships as, and specifically checked
+non-zero:
+
+| dial | live | shipped expression | = |
+|---|---|---|---|
+| `boss_dr_half_stage` | **150** | `BOSS_DEFENSE_CAP / 0.005` | 150 |
+| `boss_block_half_stage` | **75** | `BOSS_DEFENSE_CAP / 0.010` | 75 |
+| `boss_evasion_half_stage` | **50** | `BOSS_DEFENSE_CAP / 0.015` | 50 |
+| `boss_increased_damage_half_stage` | **50** | `BOSS_INCREASED_DAMAGE_RAMP_CAP / 0.010` | 50 |
+| `boss_crit_chance_half_stage` | **58.33333333333333** | `(CRIT_CHANCE_CAP − BOSS_CRIT_CHANCE_BASE) / 0.012` | 58.33 |
+| `boss_crit_mult_half_stage` | **36** | `BOSS_CRIT_MULT_RAMP_CAP / 0.025` | 36 |
+| `boss_splash_half_stage` | **60** | `BOSS_SPLASH_RAMP_CAP / 0.010` | 60 |
+
+**7 of 7 match and none is zero.** The expected column was computed from
+the shipped constants rather than typed from the order, which is the
+point: a table of numbers I had written down by hand would only have
+proved the dials matched my typing. `boss_crit_chance_half_stage`
+rendering as `58.33333333333333` rather than a rounded literal is itself
+evidence it is a computed constant reaching the page, not a hardcoded
+value.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **20 = 20** |
+| 4 | live sha256 | `c51a635b…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 80,701 B, 200 / 91,118 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+### What it means in play, at the stage the world is actually at
+
+The ramp is `cap × stage / (stage + half_stage)`, so at the live stage of
+16 the secondaries sit at a small fraction of their caps — evasion at
+`16/66 ≈ 24%`, damage reduction at `16/166 ≈ 10%` — and keep developing
+instead of hitting a corner and stopping. The old shape was
+`min(stage × slope, cap)`, which froze every one of the seven somewhere
+between stage 36 and 150 and left raw HP and attack as the only thing
+still moving for the rest of a season.
+
+Each default is the old `cap / slope`, so the curve reproduces the old
+slope at stage 0: **shipping it changed nothing at the low end and
+unfroze everything above.** That is why this release needs no patch note
+of its own — at stage 16 no player can observe a difference yet, and the
+change becomes visible only as the world climbs past where the old shape
+used to stop.
+
+### 2026-09-04 — GEAR-TIER-EXCESS deploy record (release `gear-tier-excess`)
+
+Queue item 8, from window d. `boss_stats_for` now scales on an effective
+average level that adds `boss_gear_tier_weight × mean(max(0, equipped
+tier − level))`, so craft-driven power stops being the one growth vector
+boss difficulty is blind to.
+
+| | |
+|---|---|
+| master commit deployed | `4d676a9` |
+| binary before | `c51a635b…900f14` |
+| binary after | `e3b7d2cb4da54945feceb48029977b27d031500fcc38af72f10228f7bcd01f6d` |
+| downtime | **0.33 s** |
+| suite on the box | **852 passed / 0 failed, 40 suites** (843 + 9, and a new suite) |
+| slot | `deploy-pre-20260903-193140-gear-tier-excess`, `LATEST` repointed |
+
+### The dial reads 0.0, and here that is the CORRECT value
+
+Verified live: `boss_gear_tier_weight = 0`. **This is the one dial in the
+codebase where a zero is right rather than a defaulting failure**, and it
+was checked as such rather than flagged. At 0.0 the mechanism is an exact
+no-op — the effective average level equals the plain average — pinned by a
+test that builds a party deliberately full of excess and asserts the two
+are equal precisely.
+
+Worth recording so an audit sweeping for the zero-default defect does not
+"fix" it: d flagged the inversion in four places for exactly that reason,
+and the serde reasoning is the interesting half. The default still routes
+through a **named** function rather than a bare `#[serde(default)]`, even
+though a bare default would produce the same 0.0 today. The point is not
+the value — it is that the field must keep tracking the **constant**. The
+moment a nonzero weight ships, a bare default would silently disagree with
+it, which is the failure the named-default discipline exists to prevent.
+
+### The read-out it ships alongside, which is the actual deliverable
+
+Live on `/admin/tunables`:
+
+> *Gear-tier excess (max(0, mean equipped tier − level), all 21
+> characters): mean 0.1 — median 0.0*
+
+That is the point of shipping at zero: the weight gets chosen from an
+observed distribution rather than guessed in a release. **On the current
+roster there is almost no excess to charge for** — mean 0.1 tiers, median
+0.0 — which is itself the answer to "what should the weight be", and a
+number nobody had before this shipped.
+
+### Item 7's seven dials re-checked AFTER item 8 landed on top
+
+Because items 7 and 8 both add `LiveTunables` and both touch
+`render_tunables_page`, the merge could have damaged item 7's fields
+without failing a build. Re-verified live after this deploy: **7 of 7
+still match their shipped expressions and none is zero.**
+
+### The conflict resolution, recorded because it needed reading
+
+Six code conflicts across three sources plus two docs. Three distinct
+shapes, and only one of them was a keep-both:
+
+1. **Cleanly additive** — `tunables.rs` field declarations and
+   initialisers, `adventure_web.rs` form fields. Marker deletion is
+   correct.
+2. **Shared tail** — `manager.rs`'s constants/functions block, and
+   `adventure_web.rs`'s serde-default block. Both sides end *mid-item* and
+   share the closing brace that follows, so deleting the three marker
+   lines leaves one side's item unclosed. Resolved by duplicating the
+   tail. **This is the same trap that produced an unclosed delimiter on
+   item 5**; it was checked for deliberately this time rather than
+   rediscovered.
+3. **Genuinely overlapping** — both branches added a *new* validator
+   method modelled on `craft_tier_exponent`, so they collided on the
+   identical middle body they had each copied from it. Not additive and
+   not a keep-both: resolved into **two complete separate functions** —
+   `boss_half_stage`, which takes the stat's own shipped default because a
+   non-finite reading must fall back to that and never to 0.0, and
+   `boss_gear_tier_weight`, whose floor deliberately *permits* zero
+   because zero is a legal setting there.
+
+Verified before building rather than after: net brace counts match **both
+parents exactly** on all three sources, and `rustfmt` parses all three
+clean.
+
+**One self-correction on the gate itself.** The first `rustfmt` run
+reported `adventure_web.rs: PARSE ERROR — failed to resolve mod
+accounts`. That was my harness, not the code: I had copied the file to
+`/tmp`, away from the sibling module files it declares. Re-run with
+`--skip-children`, it parses clean. I came close to recording my own
+tooling artifact as a defect in someone else's branch, which is the same
+shape as every other finding this week — **an artifact that looks like
+evidence about the thing you are examining, and is actually evidence about
+your instrument.**
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `e3b7d2cb…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,002 B, 200 / 91,118 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: at `boss_gear_tier_weight = 0.0` the release is an exact
+no-op for players. It becomes announceable the day the weight moves.
