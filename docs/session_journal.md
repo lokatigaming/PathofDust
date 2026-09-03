@@ -3931,3 +3931,136 @@ Assert the ordering property rather than naming the winner.
 Stated as a rule, so it is checkable in review: *if an assertion, guard or
 baseline contains a literal that a human typed from observation, ask what
 falsifies it and whether anything would notice.* Four times, nothing did.
+
+### 2026-09-03 — ROLLBACK-SLOT-COLLISION deploy record (release `rollback-slot-collision`)
+
+Queue item 2. **No binary swap, no service stop, no downtime** — this
+release changes two shell scripts, `REFACTOR_PLAN` §13B/§13B.8, a harness
+and docs. It is the first release on this box deployed as a
+scripts-and-docs change rather than a binary swap.
+
+| | |
+|---|---|
+| master commit deployed | `aace3b1` |
+| binary before / after | `d793678d…3980f6` — **unchanged, bit-identical** |
+| downtime | **none** — `systemctl` was not invoked |
+| `NRestarts` | `0`, still, and the service has been up since 13:47:02 |
+| scripts installed | `deploy-linux.sh` `3e5570017cf0…`, `rollback-linux.sh` `fe08d80abbf8…` |
+| previous scripts | `/root/deploy-linux.sh.pre-rollback-slot-collision`, `/root/rollback-linux.sh.pre-rollback-slot-collision` |
+
+`deploy-linux.sh` was **not** used to deploy this. It aborts when the
+candidate hash equals the live one, and that abort is correct here — the
+same category §13B.1 already names. `bin/` is not refreshed by the deploy
+script, so both files were installed by hand, exactly as
+`backup-game-data.sh` was for the previous two releases.
+
+### Shipped on a red suite, deliberately, on an explicit and narrow licence
+
+The full suite was **783 passed / 1 failed** on this tree. It was shipped
+anyway, on the owner's ruling, and the reasoning is recorded because the
+verdict on its own would be a bad precedent:
+
+> *"The suite must be green" is not the actual requirement. It is a proxy
+> for "this change did not break anything," and a proxy is only worth what
+> it measures.*
+
+The real question was answered directly and more strongly than the proxy
+could: `diff -r` over `game/src` between this tree and the one already
+serving players returns **IDENTICAL**, and both binaries hash
+`d793678d…`. **A test suite cannot tell you more about a binary than the
+binary's own hash does.** The suite is doubly irrelevant here — it does
+not exercise shell scripts at all. The real gate for this change is the
+rehearsal harness, and that is 25/25.
+
+The failing test is `an_empty_new_slot_contributes_exactly_nothing`, a
+gear-slots unit test live in production since 08:27, flaky at ~8%
+(25 isolated runs, 23/2). Diagnosed here, **fixed by window b** — it sits
+in `new_slot_migration_tests`, which b owns and is editing.
+
+**THE LICENCE DOES NOT GENERALISE, and it is written down so nobody
+quotes it later as precedent.** It applies to a change whose bit-identity
+is *provable* and to nothing else. Every other item in the queue alters
+the binary and waits for a green run. **If you find yourself reaching for
+this reasoning on a change that alters the binary, you have misread it —
+stop and ask.**
+
+### Verified against production, not only against the harness
+
+`rollback-linux.sh --list` was run against the real box — read-only, and
+the only form of the command that is safe to run on production, since
+every other form performs a rollback. All 15 slots resolved:
+
+- **Ordering is correct against the real deploy chain**: backfill-bound
+  13:47 → gear-slots 08:27:56 → craft-tier-bump 08:09:23 →
+  small-isolated-defects 07:50:34 → affix-curve-restore 19:24:51 →
+  player-facing-batch 19:20:55 → affix-tier-curve 19:19:51 → … That is
+  the actual order those releases happened.
+- **Each slot holds its predecessor's binary**, which is the invariant
+  that makes a rollback slot useful: `deploy-pre-backfill-bound` holds
+  `28cf2151` (the gear-slots binary), `deploy-pre-gear-slots` holds
+  `417b00f4` (craft-tier-bump's), and so on down the chain.
+- **The template-only slot is flagged, not crashed on**:
+  `deploy-pre-craft-confirm` prints `<none - template-only>` with no
+  hash, which is §13B.8's slot shape being handled rather than tripped
+  over.
+- `LATEST -> (not set yet)`, correctly — no deploy has yet run under the
+  timestamped scheme. The next binary deploy creates it.
+
+All 15 legacy slots remain, none renamed or removed, and all 15 still
+resolve by release name.
+
+### The gap between now and the next binary deploy, stated plainly
+
+Until the next binary deploy writes `deploy-pre-LATEST`, the no-argument
+form of `rollback-linux.sh` has nothing to follow. It does not guess: it
+refuses, says why, and prints the full list so the operator can choose.
+The most recent slot is `deploy-pre-backfill-bound`, reachable as
+`rollback-linux.sh backfill-bound`. That is a working recovery path today,
+and it is the error message itself that hands it to you — which is the
+behaviour the design was aiming at.
+
+### 2026-09-03 — ~92% is the dangerous pass rate (general note, owner-directed)
+
+Recorded as its own note rather than inside the release that tripped over
+it, because the lesson is about gates in general.
+
+`an_empty_new_slot_contributes_exactly_nothing` fails about 8% of runs
+(25 isolated runs: 23 passed, 2 failed). It shipped with gear-slots and
+**passed by luck twice in the same day** — at 824 and at 825 — before
+failing on the third full run.
+
+**That rate is the worst possible one.** A test that fails half the time
+is obviously broken and gets fixed within the hour. A test that fails one
+run in a thousand is noise nobody sees. A test that fails one run in
+twelve is **frequent enough to look green and rare enough that the first
+failure reads as "something I did"** — so the person who hits it goes
+looking for their own mistake, finds nothing, re-runs, sees green, and
+moves on.
+
+**The lesson people learn from a flaky gate is "re-run until green", and
+that is exactly how a real failure gets waved through.** The cost is not
+the wasted run. It is that the gate stops being evidence: once re-running
+is normal, a genuine regression produces the same ritual and the same
+shrug. A gate that is right 92% of the time does not give you 92% of a
+gate — past some threshold it gives you none of one, because it has
+trained its readers to discount it.
+
+Two practical consequences:
+
+1. **A flaky test is a broken test, at any rate above zero.** It is not a
+   lower-priority class than a failing one; it is a failing one that has
+   learned to hide. Fix it or delete it, but do not leave it green enough
+   to tolerate.
+2. **Confirm in isolation before flagging, and confirm with a COUNT.** The
+   count is what separates "flaky" from "regression" and turns an
+   irritation into a diagnosis. 23/2 with the failure values clustering
+   at 0.10 + ~0.096 pointed straight at `roll_affixes` adding a second
+   CritChance on top of the implicit; a single red run would have pointed
+   nowhere and would probably have been re-run away.
+
+Related: this was the fifth instance of the class recorded above — an
+assertion encoding an expected ANSWER rather than the PROPERTY — and the
+**first one caught by the rule rather than by an incident.** The other
+four pinned an expectation to a literal a human typed; this one pinned it
+to a random draw. Same shape, and the same cure: derive the expectation
+from the system at the moment of the check.
