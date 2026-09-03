@@ -1,9 +1,39 @@
 ﻿use super::*;
 
-/// The five gear slots — one item each. A drop auto-equips into an empty
+/// The nine gear slots — one item each. A drop auto-equips into an empty
 /// slot (see `run_encounter`'s loot roll) or lands in the bag otherwise;
 /// a player can also manually equip/unequip/swap any bag item from the
 /// web dashboard's `/inventory` page (see `Character::equip_from_inventory`).
+///
+/// `Ring1`/`Ring2`/`Amulet`/`Pants` joined the original five on 2026-09-03
+/// (`docs/affix_curve_spec.md` §8) as part of the world-2 restart. Three
+/// things about them differ from the original five, all deliberate:
+///
+/// - their base power is an AFFIX-EQUIVALENT (see `compute_power`), so it
+///   runs through `affix_tier_curve` where the original five stay linear
+///   (spec D11/§12.1);
+/// - they roll their `power_roll` against the affix jitter band rather
+///   than `POWER_ROLL_RANGE` (see `roll_range_for_slot`, spec D13/§12.2);
+/// - `Character::new` does NOT put starter gear in them (owner ruling
+///   2026-09-03) — they arrive as drops, which is what gives the new
+///   slots something to chase.
+///
+/// The two rings are distinct VARIANTS rather than one `Ring` occupying
+/// two fields, because every slot-keyed mechanism here (`equipped`,
+/// `equipped_mut`, `equip`'s dispatch on `item.slot`, the `SLOT_POWER`
+/// map, the loot roll's slot pick) is keyed by the enum value — a shared
+/// variant would make "which ring is this" unrepresentable and `equip`
+/// would silently overwrite whichever ring was already worn. It is also
+/// what makes the duplicate-unique guard
+/// (`Character::has_conflicting_unique_affix_value`) cover "the same
+/// unique in both ring slots" with no change at all: that guard excludes
+/// only the DESTINATION slot by enum equality, and `Ring1 != Ring2`.
+///
+/// KNOWN, ACCEPTED (owner ruling 2026-09-03, spec §8.6): distinct ring
+/// variants also mean a Ring1 can never be recombined with a Ring2,
+/// since `Character::recombine` requires same-slot inputs. Unblocking it
+/// would mean loosening the same-slot rule, and the duplicate-unique
+/// guard leans on that rule — the wrinkle is cheaper than the hole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum EquipSlot {
@@ -12,6 +42,10 @@ pub enum EquipSlot {
     Body,
     Gloves,
     Boots,
+    Ring1,
+    Ring2,
+    Amulet,
+    Pants,
 }
 
 /// Backward-compat default for items saved before durability existed —
@@ -28,7 +62,65 @@ pub(crate) fn default_max_uses() -> Option<u32> {
 /// `reforge_equipped_item`), so gaining tiers can never make an item
 /// weaker than it already was. Also what `Item::quality_percent` measures
 /// against for the web dashboard's Quality display.
+///
+/// NOT universal since 2026-09-03 - the four slots added by
+/// `docs/affix_curve_spec.md` §8 roll against the affix jitter band
+/// instead. Read the range through `roll_range_for_slot`, never this
+/// constant directly, anywhere a specific ITEM's roll is being measured,
+/// clamped or maxed out.
 pub const POWER_ROLL_RANGE: std::ops::Range<f64> = 0.85..1.2;
+
+/// The `power_roll` range a given slot draws from, and the range every
+/// "how good is this roll" / "max this roll out" calculation must measure
+/// that slot against (spec D13/§12.2, ratified 2026-09-02).
+///
+/// The original five keep `POWER_ROLL_RANGE` (0.85..1.20). The four slots
+/// added in §8 use the AFFIX jitter band (0.85..1.15, the same range
+/// `roll_affixes`/`craft_affix_value_range` draw from) because §8's ruling
+/// is that one of those slots' base power equals exactly ONE AFFIX of that
+/// type at the item's tier - and under `POWER_ROLL_RANGE` the implicit
+/// tops out 4.3% ABOVE the affix it is defined to equal (at T=100 an
+/// Amulet would reach 30.00% against a 28.75% affix maximum). An invariant
+/// that holds at the floor and breaks at the ceiling is not an invariant.
+///
+/// This makes the four new slots the first equipment in the game that does
+/// not share the others' roll range, which is exactly why this is a helper
+/// rather than a bare constant swap: `quality_percent`, `has_polish_room`,
+/// `make_item_perfect`/`apply_divine_dust` and the `QUALITY_STEP` polish
+/// math all measure against the range, and all four fail SILENTLY if they
+/// keep reading `POWER_ROLL_RANGE` - a maxed ring would read as ~86%
+/// quality forever, would report polish room it cannot use, and a Perfect
+/// ring would be set to 1.20, back above its own ceiling and worth exactly
+/// the 4.3% more than one affix this ruling exists to remove.
+///
+/// Note this does NOT change the rng draw count: `gen_range` is called
+/// exactly once either way, just against a different range, so §5.3's
+/// constraint on the generator stream is respected.
+pub(crate) fn roll_range_for_slot(slot: EquipSlot) -> std::ops::Range<f64> {
+    if slot_power_is_affix_equivalent(slot) { AFFIX_JITTER_RANGE } else { POWER_ROLL_RANGE }
+}
+
+/// The jitter band every affix roll draws from, and (via
+/// `roll_range_for_slot`) the band the four §8 slots roll their base
+/// power against. Named here rather than left as the bare `0.85`/`1.15`
+/// literals `craft_affix_value_range`/`affix_quality_percent` use, because
+/// `roll_range_for_slot` needs it as a range value.
+pub(crate) const AFFIX_JITTER_RANGE: std::ops::Range<f64> = 0.85..1.15;
+
+/// Whether a slot's base power is an AFFIX-EQUIVALENT - i.e. one of the
+/// four slots added by spec §8, whose implicit is defined as "exactly one
+/// affix of that type at the item's tier" rather than as a slot power in
+/// its own right.
+///
+/// Two things key off this, and they are the whole of the difference:
+/// `compute_power` runs the tier term through `affix_tier_curve` for these
+/// slots and leaves it linear for the original five (D11: curving the
+/// original five as well flattens progression to T^0.42 against a ratified
+/// T^1.43 target), and `roll_range_for_slot` gives them the affix jitter
+/// band. Both follow from the same ruling, so they read the same predicate.
+pub(crate) fn slot_power_is_affix_equivalent(slot: EquipSlot) -> bool {
+    matches!(slot, EquipSlot::Ring1 | EquipSlot::Ring2 | EquipSlot::Amulet | EquipSlot::Pants)
+}
 
 /// Backward-compat default for items saved before `power_roll` existed -
 /// 1.0 is the middle-ish of `POWER_ROLL_RANGE`, a fair neutral guess with
@@ -400,8 +492,12 @@ impl Item {
     /// included - see `power_roll`'s doc). Shown on the web dashboard
     /// right above Tier.
     pub fn quality_percent(&self) -> f64 {
-        let span = POWER_ROLL_RANGE.end - POWER_ROLL_RANGE.start;
-        ((self.power_roll - POWER_ROLL_RANGE.start) / span * 100.0).clamp(0.0, 100.0)
+        // Measured against THIS slot's own range, not the constant - the
+        // four §8 slots roll 0.85..1.15, and a maxed one would otherwise
+        // read as ~86% quality forever. See `roll_range_for_slot`.
+        let range = roll_range_for_slot(self.slot);
+        let span = range.end - range.start;
+        ((self.power_roll - range.start) / span * 100.0).clamp(0.0, 100.0)
     }
 
     /// Whether `CraftAction::Polishing` could actually improve this item
@@ -414,7 +510,10 @@ impl Item {
     /// grey out the dashboard's Polishing button client-side (see
     /// `craft_item_options`' `data-polish-room` attribute).
     pub fn has_polish_room(&self) -> bool {
-        if !self.perfect && self.power_roll < POWER_ROLL_RANGE.end - MAX_JITTER_TOLERANCE {
+        // Slot's own ceiling, not the constant - a maxed §8-slot item sits
+        // at 1.15 and would otherwise report room it can never use, which
+        // is the 2026-08-17 "sand charged for nothing" bug all over again.
+        if !self.perfect && self.power_roll < roll_range_for_slot(self.slot).end - MAX_JITTER_TOLERANCE {
             return true;
         }
         !polish_eligible_affixes(self).is_empty()
@@ -912,7 +1011,38 @@ pub struct GearCritEvent {
     pub affix: Affix,
 }
 
-pub const EQUIP_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
+/// Every `EquipSlot`, in one place. Iterated by `sum_affix`/`count_affix`,
+/// wear decay, the repair-cost calculation, the duplicate-unique guard and
+/// the loot roll's slot pick - so a variant MISSING from this array is
+/// invisible to all of them while still being equippable, which is the
+/// highest-risk single line in the §8 slot addition.
+///
+/// The four new slots are APPENDED, never inserted. Order is load-bearing
+/// in one place: the loot roll indexes this array with
+/// `rng.gen_range(0..EQUIP_SLOTS.len())`, so reordering would silently
+/// change which slot a given seed drops. Display order is deliberately NOT
+/// taken from here - see `adventure_web::DISPLAY_SLOTS`.
+///
+/// Going 5 -> 9 (2026-09-03) dilutes each existing slot's drop share from
+/// 20% to 11.1% and raises the coupon-collector expectation to fill every
+/// slot once from 11.4 to 25.5 drops. Owner ruling 2026-09-03: ship as-is,
+/// do NOT compensate in code. `loot_mult` is a live tunable and the call
+/// can be made with data. WARNING for whoever reaches for that dial:
+/// raising `loot_mult` erases the only real brake on craft-driven tier
+/// growth - at a fixed stage dust income is flat while crafting cost
+/// climbs, and that gap is the sole thing limiting tier inflation. It
+/// trades a loot-feel problem for a tier-inflation one; it is not free.
+pub const EQUIP_SLOTS: [EquipSlot; 9] = [
+    EquipSlot::Weapon,
+    EquipSlot::Helm,
+    EquipSlot::Body,
+    EquipSlot::Gloves,
+    EquipSlot::Boots,
+    EquipSlot::Ring1,
+    EquipSlot::Ring2,
+    EquipSlot::Amulet,
+    EquipSlot::Pants,
+];
 
 /// Random item for `slot`, scaled off the current world stage - higher
 /// stages roll higher tiers, same "current progression, not raw level"
@@ -952,6 +1082,21 @@ pub(crate) fn default_base_power_for_slot(slot: EquipSlot) -> f64 {
         // tier-95 Perfect glove around 123% instead of 616%.
         EquipSlot::Gloves => 0.009,
         EquipSlot::Boots => 13.0,
+        // The four §8 slots (2026-09-03). These four numbers are NOT
+        // independently derived and must not be "rebalanced" on their own:
+        // the owner ruling is that one of these slots' base power equals
+        // exactly ONE AFFIX of that type at the item's tier, so each is
+        // identical to the corresponding `affix_def` `default_per_tier` -
+        // CritChance 0.01, CritMultiplier 0.025 (the post-halving value,
+        // see `affix_def`'s own note), IncreasedLife 0.03. That pairing
+        // spans two config sections with nothing between them, so
+        // `slot_base_power_pairing_tests` asserts it through the RESOLVED
+        // accessors; if you change one of these, change the affix too or
+        // the test tells you the slot stopped being worth one affix.
+        EquipSlot::Ring1 => 0.01,
+        EquipSlot::Ring2 => 0.01,
+        EquipSlot::Amulet => 0.025,
+        EquipSlot::Pants => 0.03,
     }
 }
 
@@ -1015,8 +1160,17 @@ pub fn base_power_for_slot(slot: EquipSlot) -> f64 {
 /// recomputes to when either changes, and what the one-time Krangled-item
 /// accuracy pass (see `AdventureManager::new`) checks existing items
 /// against. Single source of truth so all three stay consistent.
+/// The tier term is NOT the same for every slot since 2026-09-03. The
+/// original five stay LINEAR in `tier` (spec D11/§12.1 — ratified against
+/// measurement: curving them too lands the fresh range at T^0.42 against
+/// the ratified T^1.43 target, a game where doubling every item's tier is
+/// worth 34% more damage). The four §8 slots run through
+/// `affix_tier_curve` instead — not because they are slot powers, but
+/// because their implicits are AFFIX-EQUIVALENTS by ruling, and every
+/// affix value is on the curve. See `slot_power_is_affix_equivalent`.
 pub(crate) fn compute_power(slot: EquipSlot, tier: u32, power_roll: f64) -> f64 {
-    let raw = base_power_for_slot(slot) * tier as f64 * power_roll;
+    let tier_term = if slot_power_is_affix_equivalent(slot) { affix_tier_curve(tier) } else { tier as f64 };
+    let raw = base_power_for_slot(slot) * tier_term * power_roll;
     match slot_power(slot).1 {
         Some(cap) => raw.min(cap),
         None => raw,
@@ -1082,7 +1236,9 @@ pub(crate) fn cooldown_curves() -> &'static ResolvedCooldownCurves {
 /// `generate_item_at_tier_with_roll` instead, carrying the old item's
 /// roll forward so gaining tiers can't roll it into a weaker item.
 pub(crate) fn generate_item_at_tier(slot: EquipSlot, tier: u32, rng: &mut impl Rng) -> Item {
-    let power_roll = rng.gen_range(POWER_ROLL_RANGE);
+    // One `gen_range` call either way - only the range varies by slot, so
+    // the generator's draw COUNT is unchanged. See `roll_range_for_slot`.
+    let power_roll = rng.gen_range(roll_range_for_slot(slot));
     generate_item_at_tier_with_roll(slot, tier, power_roll, rng)
 }
 
@@ -1109,6 +1265,14 @@ pub(crate) fn generate_item_at_tier_with_roll(slot: EquipSlot, tier: u32, power_
         EquipSlot::Body => &["Armor", "Plate", "Robe", "Cuirass"],
         EquipSlot::Gloves => &["Gloves", "Gauntlets", "Wraps"],
         EquipSlot::Boots => &["Boots", "Greaves", "Treads"],
+        // Both ring pools are deliberately IDENTICAL - Ring1/Ring2 are
+        // distinct variants for storage reasons (see `EquipSlot`), not two
+        // different kinds of jewellery, and a player should not be able to
+        // tell from an item's name which finger it came from.
+        EquipSlot::Ring1 => &["Ring", "Band", "Signet", "Loop"],
+        EquipSlot::Ring2 => &["Ring", "Band", "Signet", "Loop"],
+        EquipSlot::Amulet => &["Amulet", "Pendant", "Talisman", "Charm"],
+        EquipSlot::Pants => &["Pants", "Leggings", "Greaves", "Trousers"],
     };
     let adjective_pool: &[&str] = match tier {
         1..=2 => &["Rusty", "Worn", "Crude"],
@@ -1457,8 +1621,12 @@ pub fn reforge_crit_chance(quality_percent: f64, perfect: bool) -> f64 {
 }
 
 /// Upgrades an already-generated item to Perfect Quality in place: pins
-/// its `power_roll` to `POWER_ROLL_RANGE`'s own max (the actual "100%
-/// quality" reference point `quality_percent` displays), then applies
+/// its `power_roll` to ITS OWN SLOT's max (`roll_range_for_slot`, the
+/// actual "100% quality" reference point `quality_percent` displays -
+/// 1.20 for the original five, 1.15 for the four §8 slots; using the
+/// constant here would push a Perfect ring above its own ceiling and make
+/// it worth exactly the 4.3% more than one affix that D13 exists to
+/// remove), then applies
 /// `PERFECT_QUALITY_MULT` on top of both `power` and every affix value -
 /// so a Perfect item is always EXACTLY 20% ahead of the best a normal
 /// roll could ever produce, not just "usually better". Deliberately a
@@ -1467,7 +1635,7 @@ pub fn reforge_crit_chance(quality_percent: f64, perfect: bool) -> f64 {
 /// applied selectively to exactly one drop per the stage-90 boss-kill
 /// rule (see `run_encounter`).
 pub(crate) fn make_item_perfect(mut item: Item) -> Item {
-    item.power_roll = POWER_ROLL_RANGE.end;
+    item.power_roll = roll_range_for_slot(item.slot).end;
     item.power = compute_power(item.slot, item.tier, item.power_roll) * PERFECT_QUALITY_MULT;
     for (_, value) in item.affixes.iter_mut() {
         *value *= PERFECT_QUALITY_MULT;
@@ -1498,3 +1666,140 @@ pub(crate) fn make_item_sacred(item: Item, rng: &mut impl Rng) -> Item {
     item
 }
 
+
+/// R5 (`docs/affix_curve_spec.md` §10.5, RATIFIED) - the four §8 slots'
+/// base power must equal exactly ONE AFFIX of that type at the item's
+/// tier.
+///
+/// This invariant spans two independent config sections
+/// (`[slot_base_power]` and `[affixes.*]`) plus the `affix_def` code
+/// defaults, with nothing between them. It will drift the first time
+/// someone tunes a crit number, and the drift is SILENT: the amulet
+/// simply stops being worth one affix and nothing reports it.
+///
+/// Deliberately reads through the RESOLVED accessors
+/// (`base_power_for_slot`/`affix_balance`) rather than the raw `AffixDef`
+/// constants - reading the constants would pass while the live game, with
+/// a TOML override applied, was mismatched, which is the exact failure
+/// this exists to prevent.
+///
+/// This is a DESIGN invariant, not a physical one. If a future ruling
+/// deliberately breaks a pairing, update this test alongside it; its job
+/// is to make the break visible and deliberate, not to forbid it.
+#[cfg(test)]
+mod slot_base_power_pairing_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    /// Every §8 slot and the affix its base power is defined to equal.
+    const PAIRINGS: [(EquipSlot, Affix); 4] = [
+        (EquipSlot::Ring1, Affix::CritChance),
+        (EquipSlot::Ring2, Affix::CritChance),
+        (EquipSlot::Amulet, Affix::CritMultiplier),
+        (EquipSlot::Pants, Affix::IncreasedLife),
+    ];
+
+    #[test]
+    fn each_new_slots_base_power_equals_one_affix_of_its_type() {
+        for (slot, affix) in PAIRINGS {
+            let slot_coefficient = base_power_for_slot(slot);
+            let affix_coefficient = affix_balance(affix).0;
+            assert!(
+                (slot_coefficient - affix_coefficient).abs() < 1e-12,
+                "{slot:?}'s base power ({slot_coefficient}) must equal one {affix:?} ({affix_coefficient}) - \
+                 spec §8's ruling. If this pairing was broken deliberately, update this test with the ruling that did it."
+            );
+        }
+    }
+
+    /// D13's other half (§12.2). R5 alone tests the COEFFICIENT, which is
+    /// only half of "worth exactly one affix" - if the ranges diverge the
+    /// implicit still outrolls the affix at the ceiling, which is the
+    /// precise 4.3% deviation D13 was ratified to remove. §12.2 records
+    /// this as a recommended addition to R5; here it is.
+    #[test]
+    fn each_new_slot_rolls_against_the_same_band_its_affix_does() {
+        for (slot, _) in PAIRINGS {
+            let range = roll_range_for_slot(slot);
+            assert_eq!(range, AFFIX_JITTER_RANGE, "{slot:?} must roll its implicit against the affix jitter band, not POWER_ROLL_RANGE");
+        }
+        for slot in [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots] {
+            assert_eq!(roll_range_for_slot(slot), POWER_ROLL_RANGE, "{slot:?} is one of the original five and must keep POWER_ROLL_RANGE");
+        }
+    }
+
+    /// The whole point of the pairing, end to end: at equal roll, one of
+    /// these slots' implicit and one affix of its type must be the SAME
+    /// NUMBER at the same tier - across the curve's knee in both
+    /// directions, since `compute_power` and `affix_base_value` reach the
+    /// curve by different routes and only agree if both are on it.
+    #[test]
+    fn implicit_and_affix_agree_at_equal_roll_on_both_sides_of_the_curve_knee() {
+        for (slot, affix) in PAIRINGS {
+            for tier in [1, 25, 50, 100, 101, 200, 1000] {
+                let implicit = compute_power(slot, tier, 1.0);
+                let one_affix = affix_base_value(affix, tier);
+                assert!(
+                    (implicit - one_affix).abs() < 1e-12,
+                    "{slot:?} at T={tier}: implicit {implicit} must equal one {affix:?} {one_affix}"
+                );
+            }
+        }
+    }
+
+    /// A Perfect item pins its roll to the top of ITS OWN range. Without
+    /// `roll_range_for_slot` this lands at 1.20 on a ring - above its own
+    /// 1.15 ceiling, worth exactly the 4.3% more than one affix D13 exists
+    /// to remove, and displayed as a quality over 100%.
+    #[test]
+    fn a_perfect_new_slot_item_stops_at_its_own_ceiling() {
+        let mut rng = StdRng::seed_from_u64(913);
+        for (slot, _) in PAIRINGS {
+            let item = make_item_perfect(generate_item_at_tier(slot, 40, &mut rng));
+            assert_eq!(item.power_roll, AFFIX_JITTER_RANGE.end, "a Perfect {slot:?} must pin to 1.15, not POWER_ROLL_RANGE's 1.20");
+            assert!((item.quality_percent() - 100.0).abs() < 1e-9, "a Perfect {slot:?} must read as 100% quality, not ~86%");
+        }
+    }
+
+    /// The `has_polish_room` half of the same range-awareness, isolated.
+    /// Affixes are stripped on purpose: `has_polish_room` is two OR'd
+    /// paths (this item's `power_roll`, and any affix with room left), and
+    /// only the first one is slot-range-dependent - leaving affixes on
+    /// would let the second path mask a regression in the first.
+    ///
+    /// Reading `POWER_ROLL_RANGE` here instead of the slot's own range is
+    /// the 2026-08-17 "sand charged for a no-op" bug re-opened for four
+    /// slots: a maxed ring sits at 1.15, `1.15 < 1.20 - tolerance` is
+    /// true, and Polishing would take the sand and do nothing forever.
+    #[test]
+    fn a_maxed_new_slot_item_reports_no_polish_room_left() {
+        let mut rng = StdRng::seed_from_u64(914);
+        for (slot, _) in PAIRINGS {
+            let mut item = generate_item_at_tier_with_roll(slot, 40, AFFIX_JITTER_RANGE.end, &mut rng);
+            item.affixes.clear();
+            assert!(!item.has_polish_room(), "a {slot:?} already at its own 1.15 ceiling must not report polish room it can never use");
+
+            let mut short = item.clone();
+            short.power_roll = AFFIX_JITTER_RANGE.start;
+            assert!(short.has_polish_room(), "a {slot:?} at the FLOOR of its range must still be polishable - the fix must not overshoot into refusing every polish");
+        }
+    }
+
+    /// D11/§12.1: the ORIGINAL five stay linear in tier. Curving them too
+    /// was measured at T^0.42 against a ratified T^1.43 target - a game
+    /// where doubling every item's tier is worth 34% more damage. This
+    /// asserts the split rather than the value, so it survives a
+    /// coefficient tune.
+    #[test]
+    fn the_original_five_stay_linear_while_the_new_four_are_on_the_curve() {
+        // Doubling the tier doubles an original-five slot's power exactly.
+        let weapon_10 = compute_power(EquipSlot::Weapon, 10, 1.0);
+        let weapon_20 = compute_power(EquipSlot::Weapon, 20, 1.0);
+        assert!((weapon_20 / weapon_10 - 2.0).abs() < 1e-12, "Weapon's base power must stay LINEAR in tier (D11)");
+
+        // Doubling the tier on a curved slot below the knee is sqrt(2).
+        let ring_10 = compute_power(EquipSlot::Ring1, 10, 1.0);
+        let ring_20 = compute_power(EquipSlot::Ring1, 20, 1.0);
+        assert!((ring_20 / ring_10 - 2.0f64.sqrt()).abs() < 1e-12, "Ring1's implicit must ride the affix tier curve, not the linear term");
+    }
+}
