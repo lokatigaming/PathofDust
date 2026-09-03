@@ -1420,7 +1420,7 @@ Paths, fixed by `docs/linux_staging.md`:
 | deploy script | `/opt/pathofdust/bin/deploy-linux.sh` |
 | rollback script | `/opt/pathofdust/bin/rollback-linux.sh` |
 | data / `WorkingDirectory` | `/var/lib/pathofdust` (pathofdust:pathofdust 0750) |
-| backups | `/var/backups/pathofdust/`, per-deploy `deploy-pre-<name>/` |
+| backups | `/var/backups/pathofdust/`, per-deploy `deploy-pre-<YYYYMMDD-HHMMSS>-<name>/`, newest also reachable as `deploy-pre-LATEST` |
 | logs | journald — `journalctl -u pathofdust` |
 
 **Steps 1, 2 and 5 of 13A are unchanged and still apply on Linux:** write
@@ -1596,13 +1596,67 @@ anything**:
    archive (`docs/linux_backups.md`): 13 core state files, the markers,
    the seq counters, the summary tier and `sprites/custom`, each verified
    and the archive hashed, into `/var/backups/pathofdust/`.
-2. `cp -a /opt/pathofdust/bin/game` → `deploy-pre-<name>/game.pre-<name>`
-   — **the rollback slot**, plus a `SHA256SUMS` beside it.
-3. `cp -a adventure-fights-summary` → `deploy-pre-<name>/` — the pinned
+2. `cp -a /opt/pathofdust/bin/game` →
+   `deploy-pre-<YYYYMMDD-HHMMSS>-<name>/game.pre-<name>` — **the rollback
+   slot**, plus a `SHA256SUMS` beside it carrying `#` comment lines for
+   the release, slot, commit and save time.
+3. `cp -a adventure-fights-summary` → the same slot — the pinned
    pre-deploy fight corpus, exactly as 13A step 4 does and for the same
    reason: the live tier is capped at `SUMMARY_FIGHTS_CAPACITY = 200`, so
    pre-deploy fights age out within hours and before/after comparison
    becomes impossible.
+4. `deploy-pre-LATEST` is repointed at the new slot, **after** the live
+   hash is confirmed.
+
+> **THE SLOT NAME CARRIES A TIMESTAMP, AND IT COMES FIRST. Added
+> 2026-09-03.** It used to be `deploy-pre-<name>` — the release name
+> alone — so redeploying a name landed on the previous slot and
+> overwrote it. That happened on 2026-09-03, when `player-facing-batch`
+> was deployed a second time onto the slot yesterday's incident had
+> created, and it was harmless **only** because the two binaries were
+> byte-identical by coincidence.
+>
+> **Why it is worse than losing a file:** the collision overwrites
+> `SHA256SUMS` alongside the binary, so `rollback-linux.sh` would have
+> rolled forward to the WRONG binary and **passed its integrity check
+> while reporting success**. A lost file announces itself. A lost file
+> with a matching checksum does not.
+>
+> Timestamp first so lexical sort *is* chronological sort — `ls` alone
+> orders these correctly, and no tool has to parse anything. The format
+> matches `pod-backup-YYYYMMDD-HHMMSS` deliberately: one convention on
+> this box, not two. A commit SHA was considered and rejected **for the
+> name** — it does not sort, it still collides when the same commit is
+> redeployed, and it means nothing to a human at 3am. It is recorded
+> inside `SHA256SUMS` instead, where it answers a different question.
+>
+> `deploy-linux.sh` uses `mkdir` **without** `-p` plus an explicit
+> existence check, and **refuses** rather than overwriting. `-p`
+> succeeding silently on an existing directory is precisely how the old
+> scheme destroyed a recovery path.
+
+> **DO NOT ORDER SLOTS BY `ls -lt`. It lies, and it lies plausibly.**
+> Step 2 copies with `cp -a`, which preserves the source timestamp, so a
+> slot's binary carries the mtime of the binary it saved — that is, its
+> **predecessor's** install time. Every entry is off by one deploy: not
+> obviously wrong, just consistently wrong, which is the worst kind under
+> pressure. Order by the timestamp in the slot **name**, or let
+> `rollback-linux.sh --list` do it for you.
+
+**Rolling back**, all four forms — the first is the one you want at 3am:
+
+```sh
+rollback-linux.sh                  # the last deploy (follows deploy-pre-LATEST)
+rollback-linux.sh <release-name>   # newest slot for that release, either shape
+rollback-linux.sh <slot-dir-name>  # that exact slot
+rollback-linux.sh --list           # every slot, newest first, with hashes
+```
+
+It prints the slot it chose, why it chose it, the verified hash and the
+currently-live hash **before** it stops anything. Legacy `deploy-pre-<name>`
+slots from before this change still resolve — they were deliberately not
+renamed, because renaming recovery material is the same class of risk as
+the bug this fixed.
 
 **No `rsync --delete` and no `rm -rf` against `/var/lib/pathofdust`
 appears anywhere in either script.** The asset refresh is
@@ -1808,12 +1862,29 @@ content check are what make it one.
 **Take a template rollback slot** — `deploy-linux.sh` normally creates the
 rollback slot for you, and on this path nothing does:
 
+**This path collides exactly like the binary path used to, and it is the
+half a reviewer misses.** It builds the slot by hand, so it did not get
+fixed when `deploy-linux.sh` did — and `deploy-pre-craft-confirm` is on
+the box right now, waiting to be overwritten by a second template release
+of the same name. Same scheme, same guard, and note the `mkdir` has **no
+`-p`** for the same reason it does not in the script:
+
 ```sh
-mkdir -p /var/backups/pathofdust/deploy-pre-<release-name>
-cp -a /var/lib/pathofdust/templates      /var/backups/pathofdust/deploy-pre-<release-name>/templates
-cp -a /var/lib/pathofdust/patch-notes.json /var/backups/pathofdust/deploy-pre-<release-name>/patch-notes.json
-sha256sum /var/lib/pathofdust/templates/<changed-file> > /var/backups/pathofdust/deploy-pre-<release-name>/BASE_HTML_SHA256
+SLOT=/var/backups/pathofdust/deploy-pre-$(date +%Y%m%d-%H%M%S)-<release-name>
+mkdir "$SLOT"          # NOT -p: refuse an existing slot, never overwrite one
+cp -a /var/lib/pathofdust/templates        "$SLOT/templates"
+cp -a /var/lib/pathofdust/patch-notes.json "$SLOT/patch-notes.json"
+sha256sum /var/lib/pathofdust/templates/<changed-file> > "$SLOT/BASE_HTML_SHA256"
+echo "$SLOT"           # write this down - the restore below needs it
 ```
+
+> **Do NOT repoint `deploy-pre-LATEST` at a template slot.** `LATEST`
+> tracks the newest slot holding a **binary**, because that is what
+> `rollback-linux.sh` with no argument restores. A template slot holds no
+> `game.pre-*`, so pointing the binary-rollback path at one would arm a
+> trap for whoever reaches for it in an incident. `rollback-linux.sh`
+> refuses such a slot by name with a message saying so, but the right
+> place to not create the problem is here.
 
 Patch notes go in before the refresh, per §13A step 1, same as any other
 release.
@@ -1915,7 +1986,10 @@ this path otherwise has none of. Restore the templates from the slot §8.3
 took:
 
 ```sh
-cp -r --preserve=mode,timestamps /var/backups/pathofdust/deploy-pre-<release-name>/templates/. /var/lib/pathofdust/templates/
+SLOT=/var/backups/pathofdust/deploy-pre-<YYYYMMDD-HHMMSS>-<release-name>   # the one §8.3 printed
+# Forgotten which? They sort chronologically, so the newest is simply the last:
+#   ls -d /var/backups/pathofdust/deploy-pre-*-<release-name> | tail -1
+cp -r --preserve=mode,timestamps "$SLOT/templates/." /var/lib/pathofdust/templates/
 chown -R pathofdust:pathofdust /var/lib/pathofdust/templates
 sha256sum /var/lib/pathofdust/templates/<changed-file>   # must equal the slot's BASE_HTML_SHA256
 ```
