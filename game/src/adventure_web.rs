@@ -2972,7 +2972,8 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
         Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
             let current_pacing = state.adventure.current_pacing_status().await;
-            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, params.saved.is_some(), None)
+            let gear_excess = state.adventure.current_gear_tier_excess().await;
+            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, gear_excess, params.saved.is_some(), None)
         }
         _ => return admin_not_found(),
     };
@@ -3001,6 +3002,20 @@ fn default_craft_tier_exponent() -> f64 {
 }
 fn default_craft_tier_bump_mult() -> f64 {
     crate::adventure::CRAFT_TIER_BUMP_MULT
+}
+
+/// Serde default for `boss_gear_tier_weight` (2026-09-03). **This one is
+/// the exception that proves the rule and it is written out deliberately:
+/// the shipped constant IS 0.0.** Everywhere else in this file a
+/// `#[serde(default)]` resolving to 0.0 is the defect - it has shipped
+/// twice - so this still routes through a named function rather than a
+/// bare `#[serde(default)]`. The reason is not the value, it is that the
+/// field must keep tracking the CONSTANT: if the owner ever ships a
+/// nonzero weight, a bare `#[serde(default)]` would silently start
+/// disagreeing with it, and that is exactly the failure the named-default
+/// discipline exists to prevent.
+fn default_boss_gear_tier_weight() -> f64 {
+    crate::adventure::BOSS_GEAR_TIER_WEIGHT
 }
 
 // Serde defaults for the five win-XP fields (2026-09-02). Each resolves
@@ -3110,6 +3125,11 @@ struct TunablesForm {
     pierce_cap: f64,
     /// See `LiveTunables::pierce_h`'s doc.
     pierce_h: f64,
+    /// See `LiveTunables::boss_gear_tier_weight`'s doc. The
+    /// `#[serde(default)]` resolves to the SHIPPED CONSTANT, which for
+    /// this one field really is 0.0 - see `default_boss_gear_tier_weight`.
+    #[serde(default = "default_boss_gear_tier_weight")]
+    boss_gear_tier_weight: f64,
     /// See `LiveTunables::fight_summary_batch_size`'s doc.
     fight_summary_batch_size: u32,
     /// See `LiveTunables::thunder_redistribution_pct`'s doc.
@@ -3478,6 +3498,24 @@ impl TunableViolations {
         }
     }
 
+    /// `craft_base_cost_mult`'s twin for the gear-tier weight. 0 is a
+    /// LEGAL setting here and is the shipped one - it means "off" - so
+    /// unlike the crafting dials this validator's floor is not a refusal
+    /// of zero.
+    fn boss_gear_tier_weight(&mut self, field: &str, value: f64) -> f64 {
+        let (min, max) = (crate::adventure::BOSS_GEAR_TIER_WEIGHT_MIN, crate::adventure::BOSS_GEAR_TIER_WEIGHT_MAX);
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::sanitize_boss_gear_tier_weight(value)
+        } else {
+            value
+        }
+    }
+
     /// `craft_base_cost_mult`'s twin for the per-craft tier bump.
     fn craft_tier_bump_mult(&mut self, field: &str, value: f64) -> f64 {
         let (min, max) = (crate::adventure::CRAFT_TIER_BUMP_MULT_MIN, crate::adventure::CRAFT_TIER_BUMP_MULT_MAX);
@@ -3590,6 +3628,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 shattering_enabled: form.shattering_enabled.is_some(),
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
+                boss_gear_tier_weight: v.boss_gear_tier_weight("boss_gear_tier_weight", form.boss_gear_tier_weight),
                 fight_summary_batch_size: v.at_least_u32("fight_summary_batch_size", form.fight_summary_batch_size, 1),
                 thunder_redistribution_pct: v.clamp("thunder_redistribution_pct", form.thunder_redistribution_pct, 0.0, 1.0),
                 thunder_redistribution_window_secs: v.at_least("thunder_redistribution_window_secs", form.thunder_redistribution_window_secs, 0.0),
@@ -3701,7 +3740,8 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
         };
         let viewer = state.adventure.character(&login).await;
         let current_pacing = state.adventure.current_pacing_status().await;
-        let body = render_tunables_page(viewer.as_ref(), &candidate, current_pacing, false, Some(&rejection));
+        let gear_excess = state.adventure.current_gear_tier_excess().await;
+        let body = render_tunables_page(viewer.as_ref(), &candidate, current_pacing, gear_excess, false, Some(&rejection));
         return (StatusCode::BAD_REQUEST, Html(render_page(&body))).into_response();
     }
 
@@ -4358,7 +4398,14 @@ mod render_fights_page_tests {
 /// (2026-08-31) - `t` then carries what the operator TYPED rather than
 /// what is live, so no other edit on this 66-field form is lost to one bad
 /// number. `None` is the ordinary render.
-fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: PacingStatus, saved: bool, rejected: Option<&TunablesRejection>) -> String {
+fn render_tunables_page(
+    viewer: Option<&Character>,
+    t: &LiveTunables,
+    pacing: PacingStatus,
+    gear_excess: crate::adventure::GearTierExcessSummary,
+    saved: bool,
+    rejected: Option<&TunablesRejection>,
+) -> String {
     let nav = top_nav(viewer);
     // Operator control (2026-08-28) - the select is generated from
     // `BossKind::FORCED_CHOICES` rather than hand-written, so the page
@@ -4396,6 +4443,31 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         pacing.dmg_baseline,
         pacing.dmg_effective,
         pinned_note(pacing.dmg_pinned())
+    );
+    // The gear-tier-excess distribution, beside the two controller
+    // read-outs because it answers the same kind of question: what is the
+    // world actually seeing right now. **This read-out IS the deliverable
+    // of the 2026-09-03 release** - at `boss_gear_tier_weight = 0.0` the
+    // mechanism changes nothing, so what ships is the ability to choose
+    // the weight from an observed distribution instead of guessing it.
+    // The effective-level line is spelled out because the weight's units
+    // ("levels per tier of excess") are meaningless until you can see
+    // what it does to the number `boss_stats_for` actually scales on.
+    let gear_excess_readout = format!(
+        "Gear-tier excess (max(0, mean equipped tier − level), all {} characters): mean {:.1} — median {:.1} — max {:.1} — {} of {} carry any excess. At the current weight {:+.3} that adds <strong>{:+.1} effective levels</strong> to an average party.{}",
+        gear_excess.characters,
+        gear_excess.mean,
+        gear_excess.median,
+        gear_excess.max,
+        gear_excess.with_excess,
+        gear_excess.characters,
+        t.boss_gear_tier_weight,
+        t.boss_gear_tier_weight * gear_excess.mean,
+        if t.boss_gear_tier_weight == 0.0 {
+            " <strong>The weight is 0, so this is a measurement only and changes nothing.</strong>"
+        } else {
+            ""
+        }
     );
     // A rejected save echoes the three CSV inputs exactly as typed - they
     // cannot round-trip through the parsed `Vec`s, and a malformed list is
@@ -4480,6 +4552,12 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
             <h2>Dynamic Pacing</h2>\
             <p class=\"tunable-hint\">{hp_pacing_readout}</p>\
             <p class=\"tunable-hint\">{dmg_pacing_readout}</p>\
+            <p class=\"tunable-hint\">{gear_excess_readout}</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_gear_tier_weight\">Gear-Tier Weight (effective levels per tier of gear excess)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_gear_tier_weight_min}\" max=\"{boss_gear_tier_weight_max}\" required id=\"boss_gear_tier_weight\" name=\"boss_gear_tier_weight\" value=\"{boss_gear_tier_weight}\">\
+              <p class=\"tunable-hint\">{boss_gear_tier_weight_min} to {boss_gear_tier_weight_max}. Boss HP and ATK scale on the party's average LEVEL; this adds the party's average gear-tier <em>excess</em> — <code>max(0, mean equipped tier − level)</code> — to that level, weighted. 1 charges a tier of excess exactly like a level. <strong>Shipped at 0, and 0 is the intended setting, not an unset field</strong> — every other dial here treats a 0 as a bug, this one's 0 is the no-op. It ships with the read-out above so the weight is chosen from the observed distribution rather than guessed. <strong>Why the EXCESS and not the tier:</strong> Krangled items already sit at exactly the character's level, so raw tier would bill twice the players who did the sanctioned thing; measuring the excess makes that impossible rather than something to tune around. <strong>Why here and not through a controller:</strong> this is a per-party term on the organic curve, so it does not tax a newcomer for a veteran's crafting, and it does not spend Controller B's authority — B's only lever is boss damage, which re-flattens boss evasion, block and damage reduction into their cap. Raising this makes bosses harder for parties carrying crafted gear beyond their level; Controllers A and B will re-equilibrate duration and win rate around it.</p>\
+            </div>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"dynamic_pacing_enabled\" value=\"1\"{dynamic_pacing_enabled_checked}> Dynamic pacing enabled (master kill-switch)</label>\
             <p class=\"tunable-hint\">Unchecked = BOTH controllers completely inert (no sampling, no updates); both multipliers freeze where they sit. The stage baseline floor and the top-layer mitigation below are separate systems with their own switches.</p>\
             <div class=\"tunable-row\">\
@@ -4875,6 +4953,10 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         boss_power = t.boss_power,
         hp_pacing_readout = hp_pacing_readout,
         dmg_pacing_readout = dmg_pacing_readout,
+        gear_excess_readout = gear_excess_readout,
+        boss_gear_tier_weight = t.boss_gear_tier_weight,
+        boss_gear_tier_weight_min = trim_float(crate::adventure::BOSS_GEAR_TIER_WEIGHT_MIN),
+        boss_gear_tier_weight_max = trim_float(crate::adventure::BOSS_GEAR_TIER_WEIGHT_MAX),
         dynamic_pacing_enabled_checked = if t.dynamic_pacing_enabled { " checked" } else { "" },
         pacing_window_fights = t.pacing_window_fights,
         target_duration_min_s = t.target_duration_min_s,

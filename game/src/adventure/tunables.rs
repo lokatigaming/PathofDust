@@ -290,6 +290,23 @@ pub struct LiveTunables {
     /// (the curve's own half-saturation point) - see `simulate_battle`'s
     /// computation. Lower means pierce ramps up faster at earlier stages.
     pub pierce_h: f64,
+    /// **The undamped power loop's dial** (2026-09-03, Option C). How much
+    /// of a party's average gear-tier EXCESS - `max(0, mean equipped tier
+    /// - level)`, see `manager::gear_tier_excess` - is added to the
+    /// average level that `boss_stats_for` scales HP and ATK on. 1.0
+    /// charges a tier of excess exactly like a character level.
+    ///
+    /// **The shipped default is 0.0 and that is CORRECT, not a
+    /// zero-defaulting bug.** At 0.0 the mechanism is an exact no-op. It
+    /// ships alongside a read-out of the live excess distribution on
+    /// `/admin/tunables`, so the weight gets chosen from an observed
+    /// distribution rather than guessed in a release.
+    ///
+    /// Bounded to [`manager::BOSS_GEAR_TIER_WEIGHT_MIN`,
+    /// `manager::BOSS_GEAR_TIER_WEIGHT_MAX`]. See `effective_avg_level`
+    /// for why this is a per-party term on the ORGANIC curve rather than
+    /// a third controller or a raw gear-tier read.
+    pub boss_gear_tier_weight: f64,
     /// Fight-announcement batching (2026-08-19, a live request to cut
     /// per-fight chat spam) - how many encounter results
     /// (`announce_encounter_result`'s per-fight "party of N heroes..."
@@ -666,6 +683,11 @@ impl Default for LiveTunables {
             win_xp_catchup_enabled: WIN_XP_CATCHUP_ENABLED,
             pierce_cap: 0.5,
             pierce_h: 2000.0,
+            // Exactly the shipped `manager.rs` constant - the test
+            // `default_boss_gear_tier_weight_matches_the_shipped_constant`
+            // fails if these ever drift apart. 0.0 here is the no-op, not
+            // an unset field.
+            boss_gear_tier_weight: crate::adventure::BOSS_GEAR_TIER_WEIGHT,
             fight_summary_batch_size: 10,
             thunder_redistribution_pct: 0.50,
             thunder_redistribution_window_secs: 2.0,
