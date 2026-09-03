@@ -4068,6 +4068,7 @@ four pinned an expectation to a literal a human typed; this one pinned it
 to a random draw. Same shape, and the same cure: derive the expectation
 from the system at the moment of the check.
 
+
 ### 2026-09-03 — FLAKY-EMPTY-SLOT-TEST deploy record (release `flaky-empty-slot-test`)
 
 Queue item 3, from window b. The fix for the ~8% flaky test that halted
@@ -4912,3 +4913,115 @@ movement back.
 
 - `boss_stats_for` ends `let stats = BossStats { … }; stats` — clippy's
   `let_and_return`. Pre-existing (verified against `88d5420`), untouched.
+## 2026-09-03 — GEAR-TIER-EXCESS: boss difficulty learns to see crafted gear, shipped inert (branch `feature/gear-tier-excess`)
+
+Ordered from `C:\dust-work\orders\d.md`, implementing Option C of the
+undamped-power-loop pass. Fit report:
+`C:\dust-work\reports\UNDAMPED-POWER-LOOP-FIT-2026-09-03.md`.
+
+### The correction the owner returned
+
+That fit report measured `C:\PathofDust` and found 67 characters at stage
+7380, not the order's stated 19 characters at stage 10. Flagged rather
+than assumed. The owner's answer: **that checkout is World 1, retired —
+production moved to a Linux box on 2026-09-02 and World 2 was reset that
+morning.** `C:\PathofDust` "has now misled five separate sessions" and is
+never to be read as production data again. Recorded here so a sixth
+session does not repeat it: **production world data lives on the Linux
+box, not on this Windows checkout.**
+
+Consequence for the report's own findings: §2.1/§2.2 (the 42%-carry-more-
+than-2×-their-level figure) described World 1's population and cannot be
+quoted about World 2 — re-run against the live box before citing
+anywhere. §2.3 (the mechanics-derived day-one argument) stands regardless
+of which world it's read against. Leak 1 (Controller A's pool cap
+saturated at its own maximum) is not live in World 2 (A at 11.88 of a 50
+ceiling) but is judged the most valuable finding in the report anyway:
+World 1 ran a year and arrived exactly there, with its documented escape
+hatch fully spent, and World 2 will walk the same path if nothing
+changes.
+
+### What shipped
+
+`boss_stats_for` is now generated against `effective_avg_level` = party
+average level + `boss_gear_tier_weight` × party average gear-tier
+EXCESS, `max(0, mean equipped tier − level)`, not raw tier. The excess
+measure is the deciding property: `grow_krangled_items` pins a Krangled
+item's tier to exactly the character's level, so a Krangled build's
+excess is zero by construction and cannot be double-billed on top of
+`level_mult`, which already charges for it. Reading raw tier would have
+billed hardest the players who did the sanctioned thing — wrong in
+shape, not tunable around.
+
+**Shipped at `boss_gear_tier_weight = 0.0` — an exact no-op**, verified
+by a unit test that constructs a party deliberately full of excess
+(levels 10/20/30 against tiers 5000/1/30) and asserts
+`effective_avg_level` returns precisely the plain average. Ships with a
+live read-out of the excess distribution on `/admin/tunables`, beside
+the two controller read-outs, because at w = 0 the read-out — not the
+mechanism — is the actual deliverable: the weight gets chosen from an
+observed distribution instead of guessed.
+
+Two properties recorded in the doc comment because they are invisible in
+the arithmetic: it is a per-party term computed at generation, never
+global controller state (so a tier-1 newcomer never inherits a veteran
+crafter's difficulty — the report's "Leak 4"); and it feeds the organic
+curve rather than Controller B, so it spends none of B's authority and
+does not re-pin the boss-secondary curve's defensive stats (the report's
+"Leak 3" — the connection the order asked for between this item and
+§10.6 of the pacing design doc).
+
+Option B (a third controller) was rejected on the record, for the reason
+the report gave: the problem is a missing plant input, not a missing
+feedback loop, and `pacing.rs`'s own doctrine already warns there is no
+arbitration between the two loops it has.
+
+### A defect this session introduced and caught before shipping
+
+The unit-test fixtures for `gear_tier_excess_tests` originally reached
+equipped items through `Character::equipped_mut`, one of the mutation
+guard's named bypasses (`guard_tests::BYPASSES` in `character.rs`) —
+and manager.rs is not on that bypass's allowlist. The narrow test run
+during iteration didn't catch it (different test module); the full
+workspace suite did, exactly why the standing order runs it once before
+reporting rather than trusting the narrow pass. Fixed by matching
+`combat.rs`'s own equivalent fixture, which sets `character.weapon =
+Some(...)` directly through the public field instead of through the
+guard — a throwaway test character has no reason to reach through a
+player's lock guard at all. Re-ran clean after.
+
+### Design doc: canonical branch, and the §10.6 connection
+
+`design/dynamic-pacing` at `3d02d98` is stale — three corrections and
+the k=1 ruling from the prior task never reached it, because pushing
+that specific branch name is refused by the environment's command
+classifier (confirmed twice: ordinary form, no refspec, no force, while
+the same session pushed other branches freely; confirmed a strict
+fast-forward before each attempt). Owner ruling: **stop trying, do not
+work around it.** `design/dynamic-pacing-corrections` is now the
+canonical branch, and the stale one carries a loud banner saying so at
+its top, per the branch-closure rule (a recorded supersession is a fine
+end state, a silent orphan is not).
+
+Also recorded there, verbatim per the owner's instruction: §10.6's
+Controller-B limitation and this item are the same feedback path seen
+from two ends. B's only lever is `dmg_mult`; the sole channel through
+which the world learns a player crafted defensively is the same channel
+that flattens evasion/block/damage-reduction back onto their cap. §10.6
+is the invoice for B doing that job. `boss_gear_tier_weight` is the
+alternate channel — the more it carries, the less of §10.6 is left to
+close.
+
+### FOUND (both recorded per the order; the second is operational)
+
+- Anomaly #67's pool-cap saturation is not live in World 2 today (A at
+  11.88/50) but is the shape World 1 arrived at after a year running the
+  same mechanics — worth a ruling of its own before `boss_gear_tier_weight`
+  is dialled above 0, since raising it raises the organic pool Controller
+  A must scale.
+- **Controller B is rate-limited to 5% per fight — a correction takes
+  roughly 46 fights, about two hours at the live fight cadence.**
+  Transients on that axis last hours; a short observation window (the
+  prior report over-read a twenty-fight one) will read as steady state
+  when it isn't. Belongs beside the pacing anchors for whoever tunes B
+  next.

@@ -2560,6 +2560,16 @@ impl AdventureManager {
     /// type, and a `pub` method returning it is a private-in-public
     /// leak the compiler warns about. The only caller is this crate's
     /// own admin page.
+    /// The live gear-tier-excess distribution, for the `/admin/tunables`
+    /// read-out beside the controller read-outs. Reads every stored
+    /// character, not just the eligible fighters: the admin page has no
+    /// party, and the question the operator is answering ("what weight
+    /// should I set?") is about the population.
+    pub(crate) async fn current_gear_tier_excess(&self) -> GearTierExcessSummary {
+        let characters = self.characters.lock().await;
+        gear_tier_excess_summary(characters.values())
+    }
+
     pub(crate) async fn current_pacing_status(&self) -> pacing::PacingStatus {
         let t = self.live_tunables();
         let world = self.world.lock().await;
@@ -5345,7 +5355,11 @@ impl AdventureManager {
             self.persist_world(&world);
             (stage, boss_kinds, world.hp_pacing_mult, world.boss_power_mult)
         };
-        let avg_level = fighting.values().map(|c| c.level as f64).sum::<f64>() / fighting.len() as f64;
+        // Party average level PLUS `boss_gear_tier_weight` x the party's
+        // average gear-tier excess (2026-09-03) - see
+        // `effective_avg_level`. At the shipped weight of 0.0 this is
+        // exactly the plain average it replaced.
+        let avg_level = effective_avg_level(fighting.values(), &tunables);
         // Each boss is independently generated at FULL strength (not a
         // shared/split stat budget the way a basic encounter's multiple
         // weaker mobs are) - a stage-50+/90+ fight is meant to be
@@ -6063,7 +6077,11 @@ impl AdventureManager {
             let world = self.world.lock().await;
             (world.stage, world.hp_pacing_mult, world.boss_power_mult)
         };
-        let avg_level = fighting.values().map(|c| c.level as f64).sum::<f64>() / fighting.len() as f64;
+        // Party average level PLUS `boss_gear_tier_weight` x the party's
+        // average gear-tier excess (2026-09-03) - see
+        // `effective_avg_level`. At the shipped weight of 0.0 this is
+        // exactly the plain average it replaced.
+        let avg_level = effective_avg_level(fighting.values(), &tunables);
         // Dynamic pacing mirrors the boss path exactly: build the ORGANIC
         // aggregate first (its HP is the base pool Controller A measures
         // expected duration against), compose both controllers'
@@ -6843,6 +6861,145 @@ pub(crate) fn roll_divine_dust_disenchant(is_sacred: bool, rng: &mut impl Rng, d
         1
     } else {
         0
+    }
+}
+
+/// The undamped power loop's answer (2026-09-03, Option C). The property
+/// these exist to pin is that the SHIPPED configuration is an exact
+/// no-op, and that the excess - not the tier - is what is measured.
+#[cfg(test)]
+mod gear_tier_excess_tests {
+    use super::*;
+
+    /// A character at `level` with every equipped slot set to `tier`.
+    fn character_at(level: u32, tier: u32) -> Character {
+        let mut c = Character::new("excess-tester".to_string());
+        c.level = level;
+        // Direct field assignment, not `equipped_mut` - manager.rs is not
+        // on that bypass's allowlist (`guard_tests::BYPASSES`), and there
+        // is no reason a test fixture needs the mutation guard's reach
+        // pinned any wider than combat.rs's own equivalent fixture, which
+        // sets `character.weapon = Some(...)` directly for the same
+        // reason.
+        for item in [&mut c.weapon, &mut c.helm, &mut c.body, &mut c.gloves, &mut c.boots, &mut c.ring1, &mut c.ring2, &mut c.amulet, &mut c.pants].into_iter().flatten() {
+            item.tier = tier;
+        }
+        c
+    }
+
+    /// The deciding property of Option C over reading gear tier directly:
+    /// `grow_krangled_items` pins a Krangled item's tier to exactly the
+    /// character's level, and `level_mult` already bills for level. A
+    /// character in that state must contribute NOTHING here, or the
+    /// players who did the sanctioned thing get billed twice.
+    #[test]
+    fn gear_at_or_below_level_is_already_charged_for_and_contributes_no_excess() {
+        assert_eq!(gear_tier_excess(&character_at(500, 500)), 0.0, "tier == level is the Krangled steady state and must be free");
+        assert_eq!(gear_tier_excess(&character_at(500, 1)), 0.0, "tier below level must not go negative and refund difficulty");
+        assert_eq!(gear_tier_excess(&character_at(500, 499)), 0.0);
+    }
+
+    #[test]
+    fn excess_is_the_mean_equipped_tier_above_level() {
+        assert_eq!(gear_tier_excess(&character_at(10, 160)), 150.0);
+        // A character with nothing equipped has no excess, not a negative
+        // one and not a NaN from an empty mean.
+        let mut bare = Character::new("bare".to_string());
+        bare.level = 400;
+        bare.weapon = None;
+        bare.helm = None;
+        bare.body = None;
+        bare.gloves = None;
+        bare.boots = None;
+        // ring1/ring2/amulet/pants are already None on a fresh character
+        // (owner ruling, 2026-09-03: no starter gear in the new slots).
+        assert_eq!(gear_tier_excess(&bare), 0.0);
+    }
+
+    /// **The shipped configuration is an exact no-op.** This is the whole
+    /// safety argument for the release: at `boss_gear_tier_weight = 0.0`,
+    /// `boss_stats_for` is generated against precisely the plain party
+    /// average it was generated against before this existed.
+    #[test]
+    fn at_the_shipped_weight_the_effective_level_is_exactly_the_plain_average() {
+        let t = LiveTunables::default();
+        assert_eq!(t.boss_gear_tier_weight, 0.0, "sanity: this test only means anything while the shipped weight is 0");
+        let party = vec![character_at(10, 5000), character_at(20, 1), character_at(30, 30)];
+        let plain = party.iter().map(|c| c.level as f64).sum::<f64>() / party.len() as f64;
+        assert_eq!(effective_avg_level(party.iter(), &t), plain, "the mechanism must be inert until the dial moves");
+    }
+
+    #[test]
+    fn the_weight_adds_the_party_mean_excess_in_effective_levels() {
+        let mut t = LiveTunables::default();
+        // levels 10/20/30 -> plain average 20. Excesses 90/0/0 -> mean 30.
+        let party = vec![character_at(10, 100), character_at(20, 20), character_at(30, 1)];
+        assert_eq!(effective_avg_level(party.iter(), &t), 20.0);
+        t.boss_gear_tier_weight = 1.0;
+        assert_eq!(effective_avg_level(party.iter(), &t), 50.0, "at parity one tier of excess is worth exactly one level");
+        t.boss_gear_tier_weight = 0.5;
+        assert_eq!(effective_avg_level(party.iter(), &t), 35.0);
+    }
+
+    /// An empty roster can never reach production (both call sites bail
+    /// first), but a 0/0 here would put a NaN into `level_mult` and out
+    /// through a float->int cast, which maps to 0 rather than saturating.
+    #[test]
+    fn an_empty_party_yields_zero_rather_than_a_nan() {
+        let t = LiveTunables::default();
+        let empty: Vec<Character> = Vec::new();
+        assert_eq!(effective_avg_level(empty.iter(), &t), 0.0);
+    }
+
+    #[test]
+    fn an_out_of_range_weight_is_sanitised_rather_than_obeyed() {
+        assert_eq!(sanitize_boss_gear_tier_weight(f64::NAN), BOSS_GEAR_TIER_WEIGHT);
+        // Non-finite falls back to the SHIPPED DEFAULT rather than
+        // clamping to the nearest bound - infinity included. Same
+        // discipline as `sanitize_craft_tier_exponent` and
+        // `pacing::sanitize_pool_cap`: a nonsense reading is not a
+        // request for maximum difficulty.
+        assert_eq!(sanitize_boss_gear_tier_weight(f64::INFINITY), BOSS_GEAR_TIER_WEIGHT);
+        assert_eq!(sanitize_boss_gear_tier_weight(f64::NEG_INFINITY), BOSS_GEAR_TIER_WEIGHT);
+        assert_eq!(sanitize_boss_gear_tier_weight(-1.0), BOSS_GEAR_TIER_WEIGHT_MIN, "a negative weight would make crafting REDUCE difficulty");
+        assert_eq!(sanitize_boss_gear_tier_weight(5.0), BOSS_GEAR_TIER_WEIGHT_MAX);
+        assert_eq!(sanitize_boss_gear_tier_weight(0.0), 0.0, "0 is a LEGAL setting here - it is the shipped one");
+        // A non-finite live reading must not poison the effective level.
+        let t = LiveTunables { boss_gear_tier_weight: f64::NAN, ..Default::default() };
+        assert_eq!(effective_avg_level([character_at(10, 1000)].iter(), &t), 10.0);
+    }
+
+    /// A fresh install and a `Default::default()` must generate the same
+    /// boss. Twin of `craft`'s `default_craft_dials_match_the_shipped_constants`.
+    #[test]
+    fn default_boss_gear_tier_weight_matches_the_shipped_constant() {
+        assert_eq!(LiveTunables::default().boss_gear_tier_weight, BOSS_GEAR_TIER_WEIGHT);
+    }
+
+    /// The admin read-out's numbers. This is the actual deliverable at
+    /// `w = 0`, so its arithmetic is pinned like a mechanic's.
+    #[test]
+    fn the_summary_reports_the_distribution_an_operator_picks_a_weight_from() {
+        let party = vec![
+            character_at(10, 10),  // 0
+            character_at(10, 20),  // 10
+            character_at(10, 110), // 100
+            character_at(10, 40),  // 30
+        ];
+        let s = gear_tier_excess_summary(party.iter());
+        assert_eq!(s.characters, 4);
+        assert_eq!(s.with_excess, 3, "the zero-excess character must be counted but not as carrying excess");
+        assert_eq!(s.mean, 35.0);
+        assert_eq!(s.median, 20.0, "even count: the mean of the two middle values, 10 and 30");
+        assert_eq!(s.max, 100.0);
+
+        let odd = vec![character_at(10, 10), character_at(10, 20), character_at(10, 110)];
+        assert_eq!(gear_tier_excess_summary(odd.iter()).median, 10.0, "odd count: the middle value");
+
+        let empty: Vec<Character> = Vec::new();
+        let s = gear_tier_excess_summary(empty.iter());
+        assert_eq!(s.characters, 0);
+        assert_eq!(s.mean, 0.0, "an empty roster must not divide by zero into the admin page");
     }
 }
 
@@ -7740,6 +7897,162 @@ pub(crate) fn sanitize_boss_secondary_half_stage(value: f64, shipped: f64) -> f6
 pub(crate) fn boss_secondary_ramp(stage: f64, cap: f64, half_stage: f64, shipped_half_stage: f64) -> f64 {
     let half = sanitize_boss_secondary_half_stage(half_stage, shipped_half_stage);
     (cap * stage / (stage + half)).clamp(0.0, cap)
+}
+
+/// Shipped default for `LiveTunables::boss_gear_tier_weight` (2026-09-03,
+/// Option C of the undamped-power-loop pass - see
+/// `docs/world2_build_plan.md` §7 and
+/// `C:\dust-work\reports\UNDAMPED-POWER-LOOP-FIT-2026-09-03.md`).
+///
+/// **0.0 IS THE CORRECT SHIPPED DEFAULT HERE. IT IS NOT THE
+/// ZERO-DEFAULTING DEFECT.** Every other numeric dial in this codebase
+/// treats a 0.0 as the bug - a form field that silently zeroed has
+/// shipped twice - so an audit sweeping for that defect will stop on this
+/// constant. It is deliberate: at 0.0 this mechanism is an exact no-op
+/// and boss generation is bit-for-bit what it was before it existed. The
+/// release ships the MECHANISM and the MEASUREMENT; the weight is then
+/// chosen from the observed distribution on `/admin/tunables` rather than
+/// guessed here.
+pub const BOSS_GEAR_TIER_WEIGHT: f64 = 0.0;
+/// Lower bound: 0.0, which is exactly "off". There is no legitimate
+/// negative setting - it would make crafting REDUCE boss difficulty.
+pub const BOSS_GEAR_TIER_WEIGHT_MIN: f64 = 0.0;
+/// Upper bound: 1.0, at which one tier of gear excess is charged exactly
+/// like one character level. Above parity the world would charge more for
+/// crafted power than for the level it is denominated in, which is the
+/// owner's stated failure mode (crafting made to feel pointless).
+pub const BOSS_GEAR_TIER_WEIGHT_MAX: f64 = 1.0;
+
+/// Resolves a live `boss_gear_tier_weight` reading into the usable range -
+/// non-finite falls back to the shipped default, otherwise clamped. Same
+/// discipline as `pacing::sanitize_pool_cap`: the form's own min/max is
+/// what reports an out-of-range value to the operator, this is the
+/// defence-in-depth behind a hand-crafted POST.
+pub fn sanitize_boss_gear_tier_weight(value: f64) -> f64 {
+    if !value.is_finite() {
+        return BOSS_GEAR_TIER_WEIGHT;
+    }
+    value.clamp(BOSS_GEAR_TIER_WEIGHT_MIN, BOSS_GEAR_TIER_WEIGHT_MAX)
+}
+
+/// ONE character's equipped gear tier **in excess of what the world
+/// already charges them for**, i.e. `max(0, mean equipped tier - level)`.
+///
+/// **The `max(0, … - level)` is the whole design, not a guard.** Boss
+/// difficulty already scales on `avg_level`, and `grow_krangled_items`
+/// pins every Krangled item's tier to exactly `level` - so for that whole
+/// item class tier IS level and `level_mult` is already billing for it.
+/// Measuring the EXCESS makes double-charging a Krangled build
+/// **impossible by construction** rather than something a coefficient has
+/// to be tuned around. That property is why this shape was chosen over
+/// reading average gear tier directly: reading tier raw bills hardest the
+/// players who did the sanctioned thing, and no coefficient fixes it -
+/// it is wrong in shape, not in tuning (owner ruling, 2026-09-03).
+///
+/// A character with nothing equipped has no excess, not a negative one.
+pub(crate) fn gear_tier_excess(character: &Character) -> f64 {
+    let mut sum = 0.0f64;
+    let mut count = 0.0f64;
+    for slot in EQUIP_SLOTS {
+        if let Some(item) = character.equipped(slot) {
+            sum += item.tier as f64;
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        return 0.0;
+    }
+    (sum / count - character.level as f64).max(0.0)
+}
+
+/// The level `boss_stats_for` is generated against: the party's average
+/// character level, plus `boss_gear_tier_weight` × the party's average
+/// gear-tier excess.
+///
+/// **Why this exists.** Craft-driven power was the one growth vector with
+/// nothing opposing it. Climbing stages makes bosses harder and gaining
+/// levels makes bosses harder, but item tier - the vector a player
+/// controls most directly, and the one a single Hideout Warrior click
+/// moves +15 at stage 4 - was invisible to boss generation entirely.
+/// Nothing in the tree read gear tier for difficulty before this.
+///
+/// **Two properties a future reader will not see from the arithmetic
+/// alone, and both are load-bearing:**
+///
+/// 1. **It is a PER-PARTY term computed at generation, never global
+///    controller state.** `hp_pacing_mult` and `boss_power_mult` are
+///    single `WorldState` fields shared by everyone, so when the
+///    controllers absorb a heavy crafter's power they raise difficulty
+///    *for the whole world* - the crafter is not unopposed, the crafter's
+///    opposition is charged to everyone else. A newcomer in tier-1 gear
+///    eats a world tuned to the veterans. This term is computed from the
+///    fighters actually present, so it cannot do that.
+/// 2. **It feeds the ORGANIC curve, not Controller B.** B's only lever is
+///    `dmg_mult`, and `apply_dynamic_scaling` multiplies the boss
+///    secondaries by `sqrt(dmg_mult)` before re-capping at
+///    `BOSS_DEFENSE_CAP` - so every unit of crafted survivability the
+///    world absorbs through B is paid for by re-flattening evasion, block
+///    and damage reduction. (That is what §10.6 of
+///    `docs/dynamic_pacing_design_pass.md` records: §10.6 is the invoice
+///    for B doing this job.) Answering crafted power here instead lets
+///    the world respond without spending B's authority and without
+///    re-pinning the secondaries the boss-secondary curve just unfroze.
+///
+/// At the shipped `boss_gear_tier_weight` of 0.0 this returns exactly the
+/// plain party average - the mechanism is inert until the dial moves.
+pub(crate) fn effective_avg_level<'a>(party: impl IntoIterator<Item = &'a Character>, tunables: &LiveTunables) -> f64 {
+    let mut count = 0.0f64;
+    let mut level_sum = 0.0f64;
+    let mut excess_sum = 0.0f64;
+    for character in party {
+        count += 1.0;
+        level_sum += character.level as f64;
+        excess_sum += gear_tier_excess(character);
+    }
+    if count == 0.0 {
+        // Unreachable in production - both call sites bail on an empty
+        // roster first - but a 0/0 here would put a NaN straight into
+        // `level_mult` and out through a float->int cast, which maps to 0
+        // rather than saturating.
+        return 0.0;
+    }
+    let weight = sanitize_boss_gear_tier_weight(tunables.boss_gear_tier_weight);
+    level_sum / count + weight * (excess_sum / count)
+}
+
+/// The live gear-tier-excess distribution across every stored character,
+/// for the `/admin/tunables` read-out. **This is the actual deliverable of
+/// the 2026-09-03 release**: at `boss_gear_tier_weight = 0.0` nothing
+/// about play changes, so what ships is the visibility that lets the
+/// weight be chosen from an observed distribution instead of guessed.
+pub(crate) struct GearTierExcessSummary {
+    pub characters: usize,
+    /// How many carry any excess at all - the rest are already fully
+    /// charged for through `level_mult`.
+    pub with_excess: usize,
+    pub mean: f64,
+    pub median: f64,
+    pub max: f64,
+}
+
+/// `GearTierExcessSummary` over an arbitrary character set. Split out from
+/// the manager method so it is testable without a manager.
+pub(crate) fn gear_tier_excess_summary<'a>(characters: impl IntoIterator<Item = &'a Character>) -> GearTierExcessSummary {
+    let mut values: Vec<f64> = characters.into_iter().map(gear_tier_excess).collect();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let characters = values.len();
+    if characters == 0 {
+        return GearTierExcessSummary { characters: 0, with_excess: 0, mean: 0.0, median: 0.0, max: 0.0 };
+    }
+    let with_excess = values.iter().filter(|v| **v > 0.0).count();
+    let mean = values.iter().sum::<f64>() / characters as f64;
+    let median = if characters % 2 == 1 {
+        values[characters / 2]
+    } else {
+        (values[characters / 2 - 1] + values[characters / 2]) / 2.0
+    };
+    let max = values[characters - 1];
+    GearTierExcessSummary { characters, with_excess, mean, median, max }
 }
 
 /// Applies the dynamic-pacing controllers' effective multipliers on top
