@@ -372,6 +372,24 @@ pub struct LiveTunables {
     /// (it would make high-tier crafting relatively cheaper as players
     /// progress, inverting the sink).
     pub craft_tier_exponent: f64,
+    /// Scales the per-craft tier bump - the +3/+2/+1 (below tier 25 /
+    /// below 50 / above) that every successful craft adds to the item it
+    /// crafted (2026-09-02). ONE dial over all three bands, deliberately:
+    /// the bands are a designed shape, and a dial per band would let them
+    /// drift apart from an admin page. Default
+    /// `craft::CRAFT_TIER_BUMP_MULT` (1.0, i.e. exactly today's
+    /// behaviour); bounded to [`craft::CRAFT_TIER_BUMP_MULT_MIN`,
+    /// `craft::CRAFT_TIER_BUMP_MULT_MAX`], where 0.0 switches per-craft
+    /// tier growth off entirely.
+    ///
+    /// Note for whoever tunes this: it and `craft_tier_exponent` act on
+    /// DIFFERENT regimes and are not interchangeable. See the
+    /// 2026-09-02 audit in `docs/session_journal.md` - the exponent moves
+    /// the stage-driven economy (where dust income is linear in stage and
+    /// the net brake is only tier^0.1), while THIS dial is the one that
+    /// governs how fast an individual item climbs away from its own
+    /// world.
+    pub craft_tier_bump_mult: f64,
     /// Righteous Fire self-damage rework (2026-08-19) - the self-burn
     /// percentage (max HP taken per second while active) is now its own
     /// tunable, decoupled from the `righteousfire` node's own magnitude
@@ -662,6 +680,7 @@ impl Default for LiveTunables {
             // and its exponent twin fail if these ever drift apart.
             craft_base_cost_mult: crate::adventure::CRAFT_BASE_COST_MULT,
             craft_tier_exponent: crate::adventure::CRAFT_TIER_EXPONENT,
+            craft_tier_bump_mult: crate::adventure::CRAFT_TIER_BUMP_MULT,
             rf_self_damage_pct_rank1: 0.10,
             rf_self_damage_pct_rank2: 0.20,
             rf_self_damage_pct_rank3: 0.30,
