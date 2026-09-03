@@ -202,6 +202,8 @@ Consuming a Unique Shard token (never dust) opens a picker letting you choose wh
 
 <p class="muted">You can only have one copy of a given unique effect <em>equipped</em> at a time. Applying a shard to an item you are already wearing will offer you only the non-conflicting choice, or refuse outright if every choice would duplicate something you already have equipped - and a refused attempt does not spend the shard. Applying one to an item sitting in your bag is never restricted.</p>
 
+<p class="muted"><strong>Spending a Unique Shard asks for confirmation first</strong>, the same way Krangle, Scour, Annulment Orb and Chancing do. Nothing about the action changed - same one-shard cost, same picker, same rules. It is gated because a shard is the one price on that row you cannot go and re-earn with dust.</p>
+
 <p class="muted">Mutually exclusive with Krangle: an item carrying a Unique Affix can never be Krangled, and vice versa.</p>
 
 <h3 id="item-tiers">Item Tiers</h3>

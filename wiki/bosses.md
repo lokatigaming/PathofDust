@@ -30,4 +30,14 @@ As the world stage climbs, more bosses join the fight at once - it's not a fixed
 
 <p class="muted">These five only show up in real world-boss fights. The smaller, more frequent filler encounters between them use weaker, unnamed enemies instead.</p>
 
+<h3 id="basic-enemies">Filler Encounter Enemies</h3>
+
+Basic encounters draw from a pool of **50 distinct enemy sprites**, one picked
+per enemy in the group. The server picks them, not your browser, which means
+the fight looks the same for everyone watching and looks the same again on a
+replay - it used to be re-rolled at render time, so it differed on every
+screen and every rewatch.
+
+<p class="muted">Presentation only - no stats, costs, chances or mechanics changed, and these enemies are still mechanically bare (see <a href="/wiki/combat#basic-vs-boss">Combat</a>). The enemy <em>name</em> you see announced ("a pack of Wild Wolves") is rolled separately from the artwork, so the two are not expected to match.</p>
+
 </div>
