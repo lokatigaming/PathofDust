@@ -3003,6 +3003,35 @@ fn default_craft_tier_bump_mult() -> f64 {
     crate::adventure::CRAFT_TIER_BUMP_MULT
 }
 
+/// Serde defaults for the seven boss-secondary half-stages (2026-09-03).
+/// Same reasoning as the crafting dials above, and it bites harder here:
+/// `#[serde(default)]` on an `f64` resolves to 0.0, and a half-stage of
+/// 0 puts `cap * s/(s + h)` at its cap from stage 1 - i.e. it would
+/// silently restore the frozen boss this change exists to remove, on
+/// every stat, from the first stage. Each resolves to the SHIPPED
+/// CONSTANT, never 0.0.
+fn default_boss_dr_half_stage() -> f64 {
+    crate::adventure::BOSS_DR_HALF_STAGE
+}
+fn default_boss_block_half_stage() -> f64 {
+    crate::adventure::BOSS_BLOCK_HALF_STAGE
+}
+fn default_boss_evasion_half_stage() -> f64 {
+    crate::adventure::BOSS_EVASION_HALF_STAGE
+}
+fn default_boss_increased_damage_half_stage() -> f64 {
+    crate::adventure::BOSS_INCREASED_DAMAGE_HALF_STAGE
+}
+fn default_boss_crit_chance_half_stage() -> f64 {
+    crate::adventure::BOSS_CRIT_CHANCE_HALF_STAGE
+}
+fn default_boss_crit_mult_half_stage() -> f64 {
+    crate::adventure::BOSS_CRIT_MULT_HALF_STAGE
+}
+fn default_boss_splash_half_stage() -> f64 {
+    crate::adventure::BOSS_SPLASH_HALF_STAGE
+}
+
 // Serde defaults for the five win-XP fields (2026-09-02). Each resolves
 // to the SHIPPED CONSTANT, never `f64::default()` == 0.0 - this project
 // has been bitten twice by a form field that silently zeroed, and on
@@ -3110,6 +3139,29 @@ struct TunablesForm {
     pierce_cap: f64,
     /// See `LiveTunables::pierce_h`'s doc.
     pierce_h: f64,
+    /// See `LiveTunables::boss_dr_half_stage`'s doc. Every one of the
+    /// seven `#[serde(default)]`s below resolves to the SHIPPED CONSTANT,
+    /// never 0.0 - a 0 half-stage pins the stat at its cap from stage 1.
+    #[serde(default = "default_boss_dr_half_stage")]
+    boss_dr_half_stage: f64,
+    /// See `LiveTunables::boss_block_half_stage`'s doc.
+    #[serde(default = "default_boss_block_half_stage")]
+    boss_block_half_stage: f64,
+    /// See `LiveTunables::boss_evasion_half_stage`'s doc.
+    #[serde(default = "default_boss_evasion_half_stage")]
+    boss_evasion_half_stage: f64,
+    /// See `LiveTunables::boss_increased_damage_half_stage`'s doc.
+    #[serde(default = "default_boss_increased_damage_half_stage")]
+    boss_increased_damage_half_stage: f64,
+    /// See `LiveTunables::boss_crit_chance_half_stage`'s doc.
+    #[serde(default = "default_boss_crit_chance_half_stage")]
+    boss_crit_chance_half_stage: f64,
+    /// See `LiveTunables::boss_crit_mult_half_stage`'s doc.
+    #[serde(default = "default_boss_crit_mult_half_stage")]
+    boss_crit_mult_half_stage: f64,
+    /// See `LiveTunables::boss_splash_half_stage`'s doc.
+    #[serde(default = "default_boss_splash_half_stage")]
+    boss_splash_half_stage: f64,
     /// See `LiveTunables::fight_summary_batch_size`'s doc.
     fight_summary_batch_size: u32,
     /// See `LiveTunables::thunder_redistribution_pct`'s doc.
@@ -3478,6 +3530,28 @@ impl TunableViolations {
         }
     }
 
+    /// ONE validator for all seven boss-secondary half-stages, so they
+    /// cannot drift apart the way seven copies would (2026-09-03). Takes
+    /// the stat's own shipped default because that is what a non-finite
+    /// reading falls back to - never 0.0, which would pin the stat at its
+    /// cap from stage 1.
+    fn boss_half_stage(&mut self, field: &str, value: f64, shipped: f64) -> f64 {
+        let (min, max) = (
+            crate::adventure::BOSS_SECONDARY_HALF_STAGE_MIN,
+            crate::adventure::BOSS_SECONDARY_HALF_STAGE_MAX,
+        );
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::sanitize_boss_secondary_half_stage(value, shipped)
+        } else {
+            value
+        }
+    }
+
     /// `craft_base_cost_mult`'s twin for the per-craft tier bump.
     fn craft_tier_bump_mult(&mut self, field: &str, value: f64) -> f64 {
         let (min, max) = (crate::adventure::CRAFT_TIER_BUMP_MULT_MIN, crate::adventure::CRAFT_TIER_BUMP_MULT_MAX);
@@ -3590,6 +3664,16 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 shattering_enabled: form.shattering_enabled.is_some(),
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
+                // Defence-in-depth behind the rendered min/max - a
+                // hand-crafted POST is sanitised rather than allowed to
+                // reach `boss_secondary_ramp`.
+                boss_dr_half_stage: v.boss_half_stage("boss_dr_half_stage", form.boss_dr_half_stage, crate::adventure::BOSS_DR_HALF_STAGE),
+                boss_block_half_stage: v.boss_half_stage("boss_block_half_stage", form.boss_block_half_stage, crate::adventure::BOSS_BLOCK_HALF_STAGE),
+                boss_evasion_half_stage: v.boss_half_stage("boss_evasion_half_stage", form.boss_evasion_half_stage, crate::adventure::BOSS_EVASION_HALF_STAGE),
+                boss_increased_damage_half_stage: v.boss_half_stage("boss_increased_damage_half_stage", form.boss_increased_damage_half_stage, crate::adventure::BOSS_INCREASED_DAMAGE_HALF_STAGE),
+                boss_crit_chance_half_stage: v.boss_half_stage("boss_crit_chance_half_stage", form.boss_crit_chance_half_stage, crate::adventure::BOSS_CRIT_CHANCE_HALF_STAGE),
+                boss_crit_mult_half_stage: v.boss_half_stage("boss_crit_mult_half_stage", form.boss_crit_mult_half_stage, crate::adventure::BOSS_CRIT_MULT_HALF_STAGE),
+                boss_splash_half_stage: v.boss_half_stage("boss_splash_half_stage", form.boss_splash_half_stage, crate::adventure::BOSS_SPLASH_HALF_STAGE),
                 fight_summary_batch_size: v.at_least_u32("fight_summary_batch_size", form.fight_summary_batch_size, 1),
                 thunder_redistribution_pct: v.clamp("thunder_redistribution_pct", form.thunder_redistribution_pct, 0.0, 1.0),
                 thunder_redistribution_window_secs: v.at_least("thunder_redistribution_window_secs", form.thunder_redistribution_window_secs, 0.0),
@@ -4632,6 +4716,45 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
               <input type=\"number\" step=\"1\" min=\"1\" id=\"fight_summary_batch_size\" name=\"fight_summary_batch_size\" value=\"{fight_summary_batch_size}\">\
               <p class=\"tunable-hint\">How many fight results (Basic and Boss alike) accumulate into one batched chat summary. 1 = post every fight individually, same as before batching existed. A partial batch always posts after ~5 minutes even if it hasn't reached this count.</p>\
             </div>\
+            <h2>Boss Secondary Curves</h2>\
+            <p class=\"tunable-hint\">Each of a boss's seven <em>secondary</em> stats ramps with world stage as <strong>cap &times; stage / (stage + half-stage)</strong> &mdash; the same saturating shape as Boss Pierce above. <strong>Placement rule:</strong> a stat reaches <strong>50% of its cap at the half-stage</strong>, <strong>80% at 4&times;</strong> it, and <strong>90% at 9&times;</strong> it. So to have a stat still visibly developing at the stage your season actually reaches, set its half-stage to about a quarter of that stage. Lower = the stat arrives earlier and then flattens; higher = it keeps moving all season but is numerically weaker at every stage. The caps are not tunable &mdash; they are safety rails.</p>\
+            <p class=\"tunable-hint\"><strong>PROVISIONAL &mdash; these seven defaults are the old frozen ramps re-expressed, not a tuned set.</strong> Each shipped value is the stat's old <em>cap &divide; slope</em>, which reproduces the old curve exactly at stage 0 and is also the stage the stat used to freeze at. That was chosen so shipping the curve changed nothing at the low end; it is explicitly <em>not</em> a claim that these are the right numbers. The design's own placement rule wants them roughly <strong>2&times; larger</strong> to keep stats developing across a 30-day season &mdash; but that factor came from a projection with a 3&times; spread and no measured season length, so it is a dial to move from observation, not a guess to bake in. <strong>Revisit once a season's real trajectory is visible.</strong> Raising a half-stage makes the boss weaker on that stat at every stage; Controllers A and B will re-equilibrate difficulty through hp/atk, so the effect is texture, not difficulty.</p>\
+            <p class=\"tunable-hint\"><strong>Known limitation (2026-09-03):</strong> for <em>evasion</em>, <em>block</em> and <em>damage reduction</em> the unfreezing only holds while Controller B is near baseline. <code>apply_dynamic_scaling</code> multiplies these by <code>sqrt(dmg_mult)</code> and re-caps at 0.75, so whenever B runs hot they re-pin at the cap and the flatness returns &mdash; which is exactly when it matters most. <em>Increased damage</em>, <em>crit multiplier</em> and <em>splash</em> are unaffected (their post-scaling caps sit far above the ramp). On the board as its own item.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_dr_half_stage\">Boss Damage Reduction Half-Stage (cap 0.75)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_dr_half_stage\" name=\"boss_dr_half_stage\" value=\"{boss_dr_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_dr_half_stage_default}. The slowest of the three defensive stats by design: DR stacks multiplicatively with block and evasion rather than replacing them.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_block_half_stage\">Boss Block Chance Half-Stage (cap 0.75)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_block_half_stage\" name=\"boss_block_half_stage\" value=\"{boss_block_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_block_half_stage_default}.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_evasion_half_stage\">Boss Evasion Half-Stage (cap 0.75)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_evasion_half_stage\" name=\"boss_evasion_half_stage\" value=\"{boss_evasion_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_evasion_half_stage_default}. The strongest of the three (full avoidance), so it arrives fastest. This is the dial that decides how long accuracy and pierce investment keep paying off.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_increased_damage_half_stage\">Boss Increased Damage Half-Stage (cap 0.50)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_increased_damage_half_stage\" name=\"boss_increased_damage_half_stage\" value=\"{boss_increased_damage_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_increased_damage_half_stage_default}. Cap 0.50 is the ORGANIC ramp ceiling, not the 10.0 post-scaling safety cap the controllers work against.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_crit_chance_half_stage\">Boss Crit Chance Half-Stage (base 0.05 + ramp cap 0.70)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_crit_chance_half_stage\" name=\"boss_crit_chance_half_stage\" value=\"{boss_crit_chance_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_crit_chance_half_stage_default}. Every boss carries a flat 0.05 crit chance OUTSIDE the curve; the ramp adds up to 0.70 on top, so the total approaches the 0.75 cap without the half-stage ever being able to exceed it.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_crit_mult_half_stage\">Boss Crit Multiplier Half-Stage (base 1.4 + ramp cap 0.90)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_crit_mult_half_stage\" name=\"boss_crit_mult_half_stage\" value=\"{boss_crit_mult_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_crit_mult_half_stage_default}, the earliest of the seven. The curve adds up to +0.90 over a flat 1.4 base, so the organic ceiling is 2.3 — NOT the 6.0 post-scaling safety cap.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_splash_half_stage\">Boss Splash Half-Stage (cap 0.60)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_splash_half_stage\" name=\"boss_splash_half_stage\" value=\"{boss_splash_half_stage}\">\
+              <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_splash_half_stage_default}. How much of a boss hit spills onto the rest of the party.</p>\
+            </div>\
             <h2>Elementalist</h2>\
             <div class=\"tunable-row\">\
               <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
@@ -4906,6 +5029,22 @@ fn render_tunables_page(viewer: Option<&Character>, t: &LiveTunables, pacing: Pa
         drop_stage_max = crate::adventure::DROP_STAGE_MAX,
         pierce_cap = t.pierce_cap,
         pierce_h = t.pierce_h,
+        boss_half_stage_min = trim_float(crate::adventure::BOSS_SECONDARY_HALF_STAGE_MIN),
+        boss_half_stage_max = trim_float(crate::adventure::BOSS_SECONDARY_HALF_STAGE_MAX),
+        boss_dr_half_stage = t.boss_dr_half_stage,
+        boss_dr_half_stage_default = trim_float(crate::adventure::BOSS_DR_HALF_STAGE),
+        boss_block_half_stage = t.boss_block_half_stage,
+        boss_block_half_stage_default = trim_float(crate::adventure::BOSS_BLOCK_HALF_STAGE),
+        boss_evasion_half_stage = t.boss_evasion_half_stage,
+        boss_evasion_half_stage_default = trim_float(crate::adventure::BOSS_EVASION_HALF_STAGE),
+        boss_increased_damage_half_stage = t.boss_increased_damage_half_stage,
+        boss_increased_damage_half_stage_default = trim_float(crate::adventure::BOSS_INCREASED_DAMAGE_HALF_STAGE),
+        boss_crit_chance_half_stage = t.boss_crit_chance_half_stage,
+        boss_crit_chance_half_stage_default = trim_float(crate::adventure::BOSS_CRIT_CHANCE_HALF_STAGE),
+        boss_crit_mult_half_stage = t.boss_crit_mult_half_stage,
+        boss_crit_mult_half_stage_default = trim_float(crate::adventure::BOSS_CRIT_MULT_HALF_STAGE),
+        boss_splash_half_stage = t.boss_splash_half_stage,
+        boss_splash_half_stage_default = trim_float(crate::adventure::BOSS_SPLASH_HALF_STAGE),
         fight_summary_batch_size = t.fight_summary_batch_size,
         thunder_redistribution_pct = t.thunder_redistribution_pct,
         thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,

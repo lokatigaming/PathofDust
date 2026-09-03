@@ -7605,6 +7605,92 @@ pub(crate) const BOSS_INCREASED_DAMAGE_CAP: f64 = 10.0;
 pub(crate) const BOSS_DEFENSE_CAP: f64 = 0.75;
 pub const CRIT_CHANCE_CAP: f64 = 0.75;
 
+/// The three boss-secondary ramp ceilings that are NOT shared safety
+/// rails - `increased_damage`, `crit_multiplier` and `splash` were bare
+/// literals inside `boss_stats_for` until 2026-09-03. Named here so the
+/// half-stage defaults below can be written as `cap / slope` and so the
+/// admin page can quote them.
+///
+/// **These are RAMP caps, not the post-scaling caps.** Do not confuse
+/// them with `BOSS_CRIT_MULT_CAP` (6.0) and `BOSS_INCREASED_DAMAGE_CAP`
+/// (10.0) above: those bound the stat AFTER
+/// `apply_dynamic_scaling`/`scale_by_power_mult` have multiplied it, and
+/// sit far above anything the organic stage ramp can produce. A future
+/// reader WILL confuse them - `BOSS_INCREASED_DAMAGE_RAMP_CAP` is 0.50
+/// and `BOSS_INCREASED_DAMAGE_CAP` is 10.0, and both are real.
+pub(crate) const BOSS_INCREASED_DAMAGE_RAMP_CAP: f64 = 0.5;
+/// Ramp ceiling for the crit-multiplier ADDER over its 1.4 base (so the
+/// organic ceiling is 2.3). Post-scaling counterpart: `BOSS_CRIT_MULT_CAP`.
+pub(crate) const BOSS_CRIT_MULT_RAMP_CAP: f64 = 0.9;
+/// Ramp ceiling for boss splash. The result is still clamped to 1.0.
+pub(crate) const BOSS_SPLASH_RAMP_CAP: f64 = 0.6;
+/// The flat crit chance every boss carries before the stage ramp adds
+/// anything - it was an unnamed `0.05 +` inside the expression. It is a
+/// BASE, not part of the ramp: the ramp's own ceiling is
+/// `BOSS_CRIT_CHANCE_RAMP_CAP`, and base + ramp is exactly
+/// `CRIT_CHANCE_CAP`.
+pub(crate) const BOSS_CRIT_CHANCE_BASE: f64 = 0.05;
+/// Ceiling on the crit-chance RAMP alone, i.e. `CRIT_CHANCE_CAP` less the
+/// flat base. 0.70, not 0.75 - see the 2026-09-03 correction recorded
+/// against §10.1 of `docs/dynamic_pacing_design_pass.md`, which listed
+/// 0.75 and omitted the base.
+pub(crate) const BOSS_CRIT_CHANCE_RAMP_CAP: f64 = CRIT_CHANCE_CAP - BOSS_CRIT_CHANCE_BASE;
+
+/// Shipped defaults for the seven `boss_*_half_stage` LiveTunables
+/// (2026-09-03, design §10). Each is written as `cap / slope` using the
+/// slope the stat had when it was a `min(stage x slope, cap)` corner
+/// ramp, because that is exactly the value at which `cap * s/(s + h)`
+/// reproduces the old slope at `s = 0` - so shipping the new shape at
+/// these defaults changes nothing at the low end and unfreezes
+/// everything above the old freeze stage. It is also, not by accident,
+/// each stat's old freeze stage.
+///
+/// k = 1 (the behaviour-preserving set) was chosen DELIBERATELY, not by
+/// omission - see the 2026-09-03 ruling recorded against §10.3/§10.7 of
+/// `docs/dynamic_pacing_design_pass.md`. The design's ratified reason for
+/// bundling a x2 stretch was backwards (stretching `h` LOWERS every
+/// value), and the real case for a stretch is a tuning decision to make
+/// from live data on these dials, not a guess baked into a release.
+pub(crate) const BOSS_DR_HALF_STAGE: f64 = BOSS_DEFENSE_CAP / 0.005;
+pub(crate) const BOSS_BLOCK_HALF_STAGE: f64 = BOSS_DEFENSE_CAP / 0.010;
+pub(crate) const BOSS_EVASION_HALF_STAGE: f64 = BOSS_DEFENSE_CAP / 0.015;
+pub(crate) const BOSS_INCREASED_DAMAGE_HALF_STAGE: f64 = BOSS_INCREASED_DAMAGE_RAMP_CAP / 0.010;
+pub(crate) const BOSS_CRIT_CHANCE_HALF_STAGE: f64 = BOSS_CRIT_CHANCE_RAMP_CAP / 0.012;
+pub(crate) const BOSS_CRIT_MULT_HALF_STAGE: f64 = BOSS_CRIT_MULT_RAMP_CAP / 0.025;
+pub(crate) const BOSS_SPLASH_HALF_STAGE: f64 = BOSS_SPLASH_RAMP_CAP / 0.010;
+
+/// Bounds shared by all seven half-stage dials. The floor is 1, matching
+/// `top_layer_half_stage`/`pierce_h` - at 0 the ramp would sit at its cap
+/// from stage 1, which is the corner it replaces. The ceiling is far
+/// above any sane setting (66x the largest shipped default) and exists
+/// only so a fat-fingered extra digit is refused rather than silently
+/// flattening a stat to nothing for the whole season.
+pub(crate) const BOSS_SECONDARY_HALF_STAGE_MIN: f64 = 1.0;
+pub(crate) const BOSS_SECONDARY_HALF_STAGE_MAX: f64 = 10_000.0;
+
+/// Resolves a live half-stage reading into the usable range - non-finite
+/// falls back to the shipped default, otherwise clamped. Same discipline
+/// as `pacing::sanitize_pool_cap` and `sanitize_craft_tier_exponent`: the
+/// form's own min/max is what reports an out-of-range value to the
+/// operator, this is the defence-in-depth behind a hand-crafted POST.
+pub(crate) fn sanitize_boss_secondary_half_stage(value: f64, shipped: f64) -> f64 {
+    if !value.is_finite() {
+        return shipped;
+    }
+    value.clamp(BOSS_SECONDARY_HALF_STAGE_MIN, BOSS_SECONDARY_HALF_STAGE_MAX)
+}
+
+/// The ONE saturating ramp all seven boss secondaries go through, so they
+/// cannot drift apart (2026-09-03, design §10.3). `cap * s/(s + h)` -
+/// exactly `pacing::top_layer_for_stage`'s shape, reaching half of `cap`
+/// at stage `h`, 80% at `4h`, 90% at `9h`, and approaching but never
+/// reaching `cap`. Replaces `min(s * slope, cap)`, whose corner froze
+/// every one of the seven between stage 36 and 150.
+pub(crate) fn boss_secondary_ramp(stage: f64, cap: f64, half_stage: f64, shipped_half_stage: f64) -> f64 {
+    let half = sanitize_boss_secondary_half_stage(half_stage, shipped_half_stage);
+    (cap * stage / (stage + half)).clamp(0.0, cap)
+}
+
 /// Applies the dynamic-pacing controllers' effective multipliers on top
 /// of a boss's ORGANIC stage-derived stats (2026-08-22 - replaces the old
 /// single-knob `scale_by_power_mult`). The two axes are independent:
@@ -7710,6 +7796,13 @@ pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, tuna
     // apiece so a high enough stage can't make a boss literally
     // unhittable. Crit chance keeps its own older, lower cap (unrelated
     // to this request - it's an offensive stat, not a defensive one).
+    //
+    // 2026-09-03 (design §10): the seven secondaries below are no longer
+    // `min(s * slope, cap)` corners - they are `boss_secondary_ramp`,
+    // `cap * s/(s + h)`, on a per-stat LiveTunable half-stage. The rates
+    // described above are now the slope AT STAGE 0 rather than a rate
+    // held until a freeze stage; the shipped half-stages reproduce them
+    // exactly, so the low end is unchanged and the 36-150 freeze is gone.
     let s = stage as f64;
     let boss_jitter = 1.0 + rand::thread_rng().gen_range(-0.15..0.15);
 
@@ -7726,13 +7819,17 @@ pub(crate) fn boss_stats_for(stage: u32, party_size: usize, avg_level: f64, tuna
         // consolidated counterpart for ATK.
         atk: (3.5 * tunables.boss_power * atk_level_mult * atk_stage_mult).round() as u64,
         attack_interval_ms: attack_interval_ms.max(50),
-        damage_reduction: ((s * 0.005).min(BOSS_DEFENSE_CAP) * boss_jitter).clamp(0.0, BOSS_DEFENSE_CAP),
-        block_chance: ((s * 0.010).min(BOSS_DEFENSE_CAP) * boss_jitter).clamp(0.0, BOSS_DEFENSE_CAP),
-        evasion: ((s * 0.015).min(BOSS_DEFENSE_CAP) * boss_jitter).clamp(0.0, BOSS_DEFENSE_CAP),
-        increased_damage: ((s * 0.01).min(0.5) * boss_jitter).max(0.0),
-        crit_chance: ((0.05 + s * 0.012).min(CRIT_CHANCE_CAP) * boss_jitter).clamp(0.0, CRIT_CHANCE_CAP),
-        crit_multiplier: 1.4 + ((s * 0.025).min(0.9) * boss_jitter).max(0.0),
-        splash: ((s * 0.01).min(0.6) * boss_jitter).clamp(0.0, 1.0),
+        damage_reduction: (boss_secondary_ramp(s, BOSS_DEFENSE_CAP, tunables.boss_dr_half_stage, BOSS_DR_HALF_STAGE) * boss_jitter).clamp(0.0, BOSS_DEFENSE_CAP),
+        block_chance: (boss_secondary_ramp(s, BOSS_DEFENSE_CAP, tunables.boss_block_half_stage, BOSS_BLOCK_HALF_STAGE) * boss_jitter).clamp(0.0, BOSS_DEFENSE_CAP),
+        evasion: (boss_secondary_ramp(s, BOSS_DEFENSE_CAP, tunables.boss_evasion_half_stage, BOSS_EVASION_HALF_STAGE) * boss_jitter).clamp(0.0, BOSS_DEFENSE_CAP),
+        increased_damage: (boss_secondary_ramp(s, BOSS_INCREASED_DAMAGE_RAMP_CAP, tunables.boss_increased_damage_half_stage, BOSS_INCREASED_DAMAGE_HALF_STAGE) * boss_jitter).max(0.0),
+        // The 0.05 base sits OUTSIDE the ramp - the ramp's own ceiling is
+        // `CRIT_CHANCE_CAP` less that base, so base + ramp asymptotes to
+        // exactly `CRIT_CHANCE_CAP` and the clamp stays a rail, not the
+        // shape.
+        crit_chance: ((BOSS_CRIT_CHANCE_BASE + boss_secondary_ramp(s, BOSS_CRIT_CHANCE_RAMP_CAP, tunables.boss_crit_chance_half_stage, BOSS_CRIT_CHANCE_HALF_STAGE)) * boss_jitter).clamp(0.0, CRIT_CHANCE_CAP),
+        crit_multiplier: 1.4 + (boss_secondary_ramp(s, BOSS_CRIT_MULT_RAMP_CAP, tunables.boss_crit_mult_half_stage, BOSS_CRIT_MULT_HALF_STAGE) * boss_jitter).max(0.0),
+        splash: (boss_secondary_ramp(s, BOSS_SPLASH_RAMP_CAP, tunables.boss_splash_half_stage, BOSS_SPLASH_HALF_STAGE) * boss_jitter).clamp(0.0, 1.0),
     };
     stats
 }
