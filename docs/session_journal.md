@@ -3547,3 +3547,120 @@ different number is seeing the counting bug, not drift.
 > - From now on a new character starts with five items and four empty
 >   slots (two rings, amulet, pants). You fill those from drops, which is
 >   how it was meant to work.
+
+### 2026-09-03 — BACKFILL-BOUND deploy record (release `backfill-bound`)
+
+First of four in the deploy-queue order. The release that stops the
+startup backfill re-arming.
+
+| | |
+|---|---|
+| master commit deployed | `fac1215` |
+| merge | `cd8f0e6` (branch `fix/backfill-bound`, rebased from `bbae4bc`) |
+| binary before | `28cf2151…f94372` |
+| binary after | `d793678d035ffb71b54c641282e8d6ef29b1f8d2851ab103dbfe37affc3980f6` |
+| downtime | **0.35 s** |
+| suite on the box | **825 passed / 0 failed / 0 ignored, 38 suites** — `cargo test --release --workspace --quiet -j 4` |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-backfill-bound/` (**old naming — `fix/rollback-slot-collision` is queue item 2, not yet live**) |
+
+824 + 1 = 825 and 37 + 1 = 38: the branch adds one test file with one
+test. Both reconcile.
+
+### The verification that mattered, and how it was made falsifiable
+
+The change guards the loop with a marker **and** freezes it to the five
+slots it was written for. The marker did not exist on the box, so the
+first startup after the swap necessarily ran the loop one last time —
+that pass is the thing that had to be proved harmless.
+
+`xayse`, the one character created since the gear-slots release, is the
+witness. After the deploy:
+
+```
+xayse | empty spec-8 slots: ['ring1', 'amulet']
+        original five:      weapon, helm, body, gloves, boots  (all filled)
+```
+
+**If the final pass had iterated `EQUIP_SLOTS`, that list would be empty
+— all four §8 slots would have been filled.** Two are still empty, and
+the two that are filled (`ring2`, `pants`) came from drops: the service
+had `NRestarts=0` since 08:27, so no startup ran between that character's
+creation and this deploy. The frozen list held, and the proof does not
+depend on reading the code.
+
+The marker is now written (`true`), so the loop cannot run again whatever
+`EQUIP_SLOTS` becomes.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **19 = 19** |
+| 4 | live sha256 | `d793678d…` = candidate |
+| 5 | `/characters`, `/passives` (auth) | 200 / 80,369 B, 200 / 91,110 B |
+| 6 | anon `/admin/tunables` | **404**, 73,730 B |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Public tunnel HTTP 200 in 0.100 s. Zero panics or ERROR lines, and no
+backfill persist error in the journal.
+
+### The patch note was CORRECTED, not supplemented — and this reverses an earlier call
+
+**Owner ruling, 2026-09-03**, overriding the position taken in the
+gear-slots deploy record above, which argued that a dated announcement
+should not be rewritten and that a correction belonged in the next
+entry. That entry stays as written; **this is the dated correction to
+it**, and the ruling is the reason:
+
+> *A player reading the old sentence and looking at a filled ring slot
+> concludes the game is broken.*
+
+That is the deciding fact, and it beats the archival argument. The
+supplement-elsewhere approach helps a reader who finds the supplement;
+the false sentence is the one they are actually reading, next to the
+evidence contradicting it. **Correct the sentence a player is standing
+in front of.** Archival integrity is served by saying the note was
+corrected and when — which the new text does, in the player's own view —
+not by leaving a falsehood in place.
+
+Verified live on `/patch-notes` (217,491 B): the old sentence renders
+**0** times, the correction **1**, the new section **1**. Pre-edit copy
+at `/root/patch-notes.pre-backfill-bound.json`. The correction names the
+date, says the items are kept, and says characters made from now on
+really do start empty.
+
+### Completed on the way past — the marker was not in the backup allow-list
+
+The branch adds a new marker file and did not add it to
+`backup-game-data.sh`'s hand-maintained `MARKER_FILES`. Added here.
+
+Nothing was at risk: the drift check stages every marker the glob finds
+whether listed or not. But that leads to a second, worse finding —
+
+**A comment in `backup-game-data.sh` was lying about the script's own
+behaviour.** It read: *"the check near the bottom of this script will
+TELL you when a marker on disk is missing from here, but it will not back
+the file up for you."* The code 145 lines below says the opposite —
+`Anything the glob finds IS backed up regardless`, and
+`for f in "${DRIFT[@]}"; do stage_one "$f"; done`.
+
+The false claim was repeated into the affix-curve journal entry
+(2026-09-03, "there is a drift check … but it warns — it does not back
+the file up") and believed from there. That is how a wrong sentence about
+a recovery path propagates: written once, quoted once, then treated as
+established. Corrected in place with a dated note rather than a silent
+edit, because the false version is what people have been reading.
+
+The distinction worth keeping: **this marker is a GUARD, not a record.**
+Most markers here say "a migration ran". This one says "the loop must not
+run". A restore that brought back characters without it would re-arm the
+loop — harmless now that it is frozen to five slots every character has
+filled, but the marker is what keeps it that way.
+
+### Not done, deliberately
+
+The 72 items granted on 2026-09-03 stay, per the owner ruling recorded in
+the gear-slots entry. This release stops it recurring; it does not undo
+it.
