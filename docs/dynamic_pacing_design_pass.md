@@ -667,3 +667,174 @@ the full pace when the content can carry it.
 owner asked for a pace and the flatness is fixable without touching pace.
 But it is his call, and (b) is the honest alternative rather than a
 hedge — stated so he can choose knowing what each buys.
+
+---
+
+# 10. QUEUED WORK — boss secondary ramps (top content priority)
+
+**Status: QUEUED. Not a proposal to act on now. No code is to be written
+from this section until it is scheduled.** Owner ruling 2026-09-03: ship
+`dmg_max_step_per_fight` = 0.0384, and this becomes the top content
+priority.
+
+Recorded so the work can be picked up cold by a session that has not read
+this conversation.
+
+## 10.1 What the work is, exactly
+
+Seven hardcoded stat ramps in `boss_stats_for`
+(`game/src/adventure/manager.rs:7532-7601`). Each has the shape
+`min(stage × slope, cap) × jitter`:
+
+| stat | slope | cap | frozen from stage |
+|---|---|---|---|
+| `crit_multiplier` | 0.025 | +0.90 (over a 1.4 base) | **36** |
+| `evasion` | 0.015 | 0.75 (`BOSS_DEFENSE_CAP`) | **50** |
+| `increased_damage` | 0.010 | 0.50 | **50** |
+| `crit_chance` | 0.012 | 0.75 (`CRIT_CHANCE_CAP`) | **58** |
+| `splash` | 0.010 | 0.60 | **60** |
+| `block_chance` | 0.010 | 0.75 (`BOSS_DEFENSE_CAP`) | **75** |
+| `damage_reduction` | 0.005 | 0.75 (`BOSS_DEFENSE_CAP`) | **150** |
+
+Above stage 150 **all seven are pinned**. Only `hp` (+15%/stage) and `atk`
+(+10%/stage) still move, and both are unbounded.
+
+Nothing about boss secondary *shape* is tunable today. `boss_health` and
+`boss_power` are scalar multipliers on hp/atk only.
+
+## 10.2 What it costs the player — the argument for prioritising
+
+**Progress becomes invisible, and that is the whole of it.**
+
+Dynamic pacing's job is to hold the *experience* constant while the
+numbers grow: A holds fight duration in the 30-45 s band, B holds the win
+rate at 2:1. That is correct and intentional — it is the resistance model
+working. But it has a consequence nobody chose:
+
+> A stage-700 fight already lasts the same time and is won just as often
+> as a stage-200 fight. The controllers guarantee that. **Boss behaviour
+> is the only axis left on which the late season could feel different —
+> and it is frozen from stage 150.**
+
+The controllers deliberately remove every other source of variation, so
+the one remaining source carries the entire load. Right now it carries
+none. **A player at stage 700 has no sensory evidence they are not at
+stage 200 except the number on the counter.**
+
+Three consequences that follow:
+
+1. **Counterplay stops developing.** Evasion pinned at 0.75 from stage 50
+   means accuracy and pierce investment have a fixed value for the rest of
+   the season. The build-optimisation problem is solved once, around day
+   2, and stays solved.
+2. **No threat ever debuts.** Nothing a boss does at stage 700 differs
+   from stage 200. There is never a "this boss finally does X" moment
+   after the first two days.
+3. **The gates become the only content.** Sand 100, perfect items 150,
+   divine dust and sacred 300 are the only things that change after day 5.
+   Between and beyond them, nothing changes at all.
+
+At the approved pace this is **75-82% of a 30-day season** (§9.6).
+
+**And the decisive point for scheduling: this is difficulty-neutral to
+fix.** Because A and B close the loop on difficulty, changing boss
+secondary shape *cannot* make the season easier or harder in aggregate —
+the controllers re-equilibrate to 2:1 and 30-45 s regardless. It changes
+texture only. That makes it an unusually safe content change: it cannot
+break balance, and it is the only lever that adds variety without
+touching pace.
+
+## 10.3 The shape they should have
+
+**Replace `min(s × slope, cap)` with `cap × s/(s + h)`** — the saturating
+form, approaching the cap asymptotically instead of hitting a corner.
+
+**This is not a new shape. It is `top_layer_for_stage`'s
+(`pacing.rs:741`): `cap × s/(s + half)`, already in the codebase, already
+tested, and already carrying a LiveTunable half-stage
+(`top_layer_half_stage`).** Copy that precedent rather than inventing one.
+
+**Default `h = cap / slope`, which preserves today's behaviour exactly at
+the low end.** The derivative of `cap·s/(s+h)` at `s = 0` is `cap/h`, so
+`h = cap/slope` reproduces the current slope precisely — and it happens to
+equal each stat's current freeze stage, so **the defaults are the numbers
+already in the code, reinterpreted.** No new constants to invent, and the
+first two days of a season are unchanged.
+
+Values under that default:
+
+| stat | h | s=150 | s=300 | s=500 | s=800 | s=1500 |
+|---|---|---|---|---|---|---|
+| `damage_reduction` | 150 | 0.375 | 0.500 | 0.577 | 0.632 | 0.682 |
+| `block_chance` | 75 | 0.500 | 0.600 | 0.652 | 0.686 | 0.714 |
+| `evasion` | 50 | 0.562 | 0.643 | 0.682 | 0.706 | 0.726 |
+| `increased_damage` | 50 | 0.375 | 0.429 | 0.455 | 0.471 | 0.484 |
+| `crit_chance` | 58 | 0.504 | 0.586 | 0.627 | 0.652 | 0.674 |
+| `crit_multiplier` | 36 | 0.726 | 0.804 | 0.840 | 0.861 | 0.879 |
+| `splash` | 60 | 0.429 | 0.500 | 0.536 | 0.558 | 0.577 |
+
+against today's, which are a single frozen column from stage 150 on
+(0.750 / 0.750 / 0.750 / 0.500 / 0.700 / 0.900 / 0.600).
+
+**Placement rule for tuning:** the curve reaches 50% of cap at `h`, 80% at
+`4h`, 90% at `9h`. So to have a stat still visibly developing at the stage
+a season actually reaches, set `h ≈ S_top / 4`. For a 30-day season
+reaching ~600-800 (§9.5), that is `h` in the 150-200 range — roughly
+**3× the behaviour-preserving defaults.** The defaults are the safe
+starting point; the stretch is the tuning the owner will actually want.
+
+**One caveat to state honestly:** the asymptotic form is *always* below
+the old value above the freeze stage, so bosses are numerically weaker in
+the 150+ band than today. That is difficulty-neutral by §10.2 — A and B
+raise hp/atk to compensate — but it does shift resistance out of
+secondary stats and into raw scaling in the short term, which is the
+opposite of the goal until `h` is stretched. **Ship the stretch with the
+shape change, not after it.**
+
+## 10.4 Should they be tunable? Yes — seven half-stages
+
+**Promote the seven `h` values to LiveTunables.** Precedent is exact:
+`top_layer_half_stage` is one LiveTunable for one curve of this shape, so
+seven curves take seven. This is the standard "add a tunable field in four
+places" change the CLAUDE.md efficiency rule describes, ×7.
+
+**Keep the caps as compile-time constants.** `BOSS_DEFENSE_CAP` (0.75,
+shared by evasion/block/DR) and `CRIT_CHANCE_CAP` (0.75) are structural
+safety limits — they are what stops a high enough stage making a boss
+literally unhittable — and qualify for the Decision-16 shared-constant
+exception, same as `TOP_LAYER_ABSOLUTE_CAP` and `BOSS_DEFENSE_CAP` already
+do. The three unshared caps (`increased_damage` 0.50, `crit_multiplier`
++0.90, `splash` 0.60) are tuning values rather than safety rails and
+should become tunables in a follow-on, but they are not needed to fix the
+flatness and should not expand this item's scope.
+
+**Rejected: a single `boss_secondary_stretch` multiplier applied to all
+seven.** One dial is cheaper, but it forbids exactly the tuning that makes
+this worth doing — e.g. evasion arriving early as a build check while
+damage reduction arrives late as a scaling wall. Per-stat control is the
+point.
+
+## 10.5 Scope, and what a session picking this up must check
+
+- **Seven LiveTunable fields**, each in the four standard places, plus the
+  admin form.
+- **`#[serde(default)]` on every new `TunablesForm` field** — the trap
+  named in CLAUDE.md, which has already bitten twice. And the form-POST
+  test must derive its field set from the rendered page, per the
+  `admin_tunables_splash_http.rs` shape.
+- **Golden corpus will move.** Every fixture whose scenario runs at stage
+  ≥ 36 changes, because every boss secondary changes. Report mismatches
+  with attributed causes; regeneration happens at merge, not on the
+  branch.
+- **`WIKI_IMPACT.md` line required** — this is player-facing boss
+  behaviour, and the wiki renders boss stats.
+- **Verify against a live click-through**, not a code trace: boss stat
+  rendering at several stages on the admin page.
+
+## 10.6 What this does NOT address
+
+The seven ramps are boss *stat* shape. They do not add new boss
+*mechanics* — no new ability, phase, or behaviour. If the owner wants a
+stage-700 boss to do something a stage-200 boss cannot, that is separate
+content work and is not in this item. This item makes the existing
+numbers keep moving; it does not invent new ones.
