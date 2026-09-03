@@ -3883,3 +3883,51 @@ failure and watch the old code fail it.
 two slots holding byte-identical binaries are stored twice. Noted, not
 fixed; deduplication would trade a simple recovery path for a clever one,
 which is the wrong trade for this file.
+
+### 2026-09-03, addendum — two general rules from the rollback-slot work (owner ruling)
+
+Both were approved as general rules rather than as local conveniences, so
+they are recorded as rules rather than left inside the change that
+prompted them.
+
+**1. Rank the recorded fact above the inferred one.** When
+`rollback-linux.sh` sorts slots and two share a timestamp, the stamped
+slot wins over the legacy slot. That is not a tiebreak convenience. A
+stamped slot's time is a **fact recorded at the moment of the deploy** —
+written into the name by the process that did the thing. A legacy slot's
+apparent time is its **directory mtime**, which is an *inference* about
+when the deploy happened, and one this very codebase has already shown to
+be unreliable: `cp -a` preserves source timestamps, so mtimes here are
+routinely somebody else's. **Where a fact and an inference disagree, or
+tie, the fact ranks first.** The general form: prefer the value the
+system wrote down at the time over the value you can deduce afterwards.
+
+**2. An assertion must encode the PROPERTY, not the expected ANSWER.**
+The harness's ordering check originally asserted "slot X is newest". It
+passed, then broke — not because the code regressed but because a later
+test created another slot, and X was legitimately no longer newest. The
+assertion now checks that rows descend in time, which is what was
+actually meant. An assertion that names an expected answer is pinned to
+the fixture as it stood the day it was written, and goes stale the moment
+the fixture grows.
+
+**This is the same defect class as pinning a gate to a number a human
+typed, rather than to a value the system produces, and it has now cost
+this project four times:**
+
+| # | where | the pinned value | how it broke |
+|---|---|---|---|
+| 1 | `admin_tunables_splash_http.rs` | a hand-maintained POST field list | a superset body kept passing while the page stopped rendering a field; every real browser save 422'd silently |
+| 2 | the suite baseline | "581 passed", then "758" | a stale number read a correct result as a failure, and a real regression as fine |
+| 3 | `manager.rs` startup backfill | *"once everyone has all **5** slots filled, this is a no-op"* | growing `EQUIP_SLOTS` to 9 falsified the comment and re-armed the loop; 72 items granted |
+| 4 | the harness ordering check | "slot X is newest" | a later fixture addition made a different slot newest |
+
+The cure is the same in all four: **derive the expectation from the
+system at the moment of the check.** Scrape the field names out of the
+rendered page. Count the tests you actually ran. Guard a migration with a
+marker on disk, which is state, not with a claim about an invariant.
+Assert the ordering property rather than naming the winner.
+
+Stated as a rule, so it is checkable in review: *if an assertion, guard or
+baseline contains a literal that a human typed from observation, ask what
+falsifies it and whether anything would notice.* Four times, nothing did.
