@@ -4128,10 +4128,11 @@ fn render_patch_notes(entries: &[PatchNoteEntry], character: Option<&Character>)
     format!("{header}{dated_entries}")
 }
 
-/// Aggregate secondary stats across all 5 equipped items PLUS the
-/// archetype's own bonus (see Character::combat_*/Affix/Archetype) - the
-/// breakdown a viewer can't get from !character alone, since that
-/// reply's already long. Shared between the owner's own dashboard (see
+/// Aggregate secondary stats across every equipped item (`EQUIP_SLOTS`,
+/// nine as of spec §8) PLUS the archetype's own bonus (see
+/// Character::combat_*/Affix/Archetype) - the breakdown a viewer can't
+/// get from !character alone, since that reply is already long. Shared
+/// between the owner's own dashboard (see
 /// `render_dashboard`) and the read-only character-list detail view (see
 /// `render_character_detail`) - same numbers either way, nothing here
 /// depends on who's looking. Every attack action now splits between
@@ -6967,7 +6968,8 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
 /// live request - the flat unsorted list made otherwise-identical-looking
 /// pieces hard to tell apart once a character owned more than a handful):
 /// every currently-equipped item first under an "Equipped" `<optgroup>`
-/// (order: Weapon, Helm, Body, Gloves, Boots), THEN every remaining item
+/// (in `DISPLAY_SLOTS` order, which covers every slot `EQUIP_SLOTS`
+/// names - nine as of spec §8), THEN every remaining item
 /// grouped into its own per-slot `<optgroup>` in that same order. `c` is
 /// only used to determine which of `items` are equipped right now (via
 /// `Character::equipped`, matched by id) - `render_equip_picker` passes

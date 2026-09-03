@@ -2731,30 +2731,20 @@ impl Character {
         Ok(cost)
     }
 
-    /// !character's gear line — only equipped slots, "no gear yet" if none.
-    /// Deliberately terse (name + tier, durability noted only when it's
-    /// actually worn) rather than a full per-item affix dump - the old
-    /// version pushed a well-built character's entire !character reply
-    /// past Twitch's ~500-char chat message limit, which Twitch silently
-    /// drops with no error back to the bot at all (confirmed live via a
-    /// real outage report on 2026-08-13 - every affected reply measured
-    /// 600+ chars). Full per-item stats are what the dashboard link at
-    /// the end of !character's reply is for.
-    pub fn gear_summary(&self) -> String {
-        let items: Vec<&Item> = [&self.weapon, &self.helm, &self.body, &self.gloves, &self.boots].into_iter().flatten().collect();
-        if items.is_empty() {
-            "no gear yet".to_string()
-        } else {
-            items
-                .iter()
-                .map(|i| match i.durability_percent() {
-                    Some(pct) if pct < 100 => format!("{} T{} ({pct}%)", i.display_name(), i.tier),
-                    _ => format!("{} T{}", i.display_name(), i.tier),
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        }
-    }
+    // `gear_summary` was DELETED here (2026-09-04). It rendered
+    // !character's gear line for Twitch chat, and Twitch was removed from
+    // this project on 2026-09-02, leaving it with no callers anywhere in
+    // the workspace - a `pub fn` on a `pub struct` in a library crate, so
+    // dead_code never fired on it.
+    //
+    // Deleted rather than widened because it was also one of the last
+    // hand-written five-slot lists: it built
+    // `[weapon, helm, body, gloves, boots]` by name and so under-reported
+    // rings, amulet and pants. Fixing a dead function costs a future
+    // session real time for no benefit, and leaving it costs them the
+    // same time deciding whether it is safe to touch. Its Twitch-length
+    // history is preserved in the git log rather than in a function
+    // nothing calls.
 
     /// XP needed to advance from `level` to `level + 1` - a live request
     /// to "really slow down" progression after the top of the roster hit
@@ -2948,7 +2938,8 @@ impl Character {
     }
 
     /// Sums `affix`'s wear-decayed value (see `Item::effective_affix_total`)
-    /// across all 5 equipped slots - the shared plumbing behind every
+    /// across every equipped slot (`EQUIP_SLOTS`, nine as of spec §8) - the
+    /// shared plumbing behind every
     /// `combat_*` secondary-stat getter below. Slot doesn't matter for
     /// these (unlike weapon/body/gloves' primary stats) - an affix rolled
     /// on a helm counts exactly the same as one rolled on a boot.
@@ -2957,7 +2948,8 @@ impl Character {
     }
 
     /// Counts `affix`'s rolled INSTANCES (see `Item::affix_instance_count`)
-    /// across all 5 equipped slots - a presence count, not a value sum
+    /// across every equipped slot (`EQUIP_SLOTS`, nine as of spec §8) - a
+    /// presence count, not a value sum
     /// (unlike `sum_affix` above), and deliberately ignores wear/durability
     /// decay: an item's affix either is or isn't there, decay only shrinks
     /// what it's worth. Cleric's Haloed Steps (`Affix::DivineDamage`) is
