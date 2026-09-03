@@ -1434,15 +1434,46 @@ impl Character {
     ///   save, which is strictly worse than the drift it repairs.
     pub(crate) fn owned_items_mut_unguarded(&mut self) -> impl Iterator<Item = &mut Item> {
         // Named field-by-field rather than through `equipped_mut` in a
-        // loop: the borrow checker cannot see that five successive
-        // `equipped_mut(slot)` calls touch five DISJOINT fields, so a loop
+        // loop: the borrow checker cannot see that successive
+        // `equipped_mut(slot)` calls touch DISJOINT fields, so a loop
         // would need one mutable borrow of `self` per slot and they would
         // overlap. Listing the fields borrows each exactly once, which is
         // also why this cannot simply chain over `EQUIP_SLOTS`.
-        [&mut self.weapon, &mut self.helm, &mut self.body, &mut self.gloves, &mut self.boots]
-            .into_iter()
-            .filter_map(|slot| slot.as_mut())
-            .chain(self.inventory.iter_mut())
+        //
+        // THAT IS THE ONE THING THIS LIST IS ALLOWED TO DIFFER FROM
+        // `EQUIP_SLOTS` ON - the mechanism, never the membership. It must
+        // name EVERY equip slot. It did not between the gear-slots
+        // release (spec §8) and 2026-09-03: it still listed the original
+        // five, so Repair All and the free auto-repair-on-retreat silently
+        // skipped rings, amulet and pants. `repair_all_cost` reads
+        // `EQUIP_SLOTS` and so BILLED for those items, which made the paid
+        // path charge for a repair it then did not perform. The same
+        // omission also stopped `grow_krangled_items` from re-tiering
+        // Krangled gear on the new slots, and made every startup item
+        // migration skip them.
+        //
+        // The const assertion below is deliberate and load-bearing: it is
+        // what turns "someone added a tenth slot and forgot this list"
+        // from a silent live bug into a COMPILE ERROR pointing here. Do not
+        // relax it to a runtime check.
+        const _: () = assert!(
+            EQUIP_SLOTS.len() == 9,
+            "EQUIP_SLOTS has changed size. `owned_items_mut_unguarded` names every equipped field BY HAND (the borrow checker cannot do it in a loop) - add the new slot's field to the array below and update this count, or repair, Krangle re-tiering and every item migration will silently skip that slot."
+        );
+        [
+            &mut self.weapon,
+            &mut self.helm,
+            &mut self.body,
+            &mut self.gloves,
+            &mut self.boots,
+            &mut self.ring1,
+            &mut self.ring2,
+            &mut self.amulet,
+            &mut self.pants,
+        ]
+        .into_iter()
+        .filter_map(|slot| slot.as_mut())
+        .chain(self.inventory.iter_mut())
     }
 
     /// EXEMPTION 2 of 2 (single slot): the item in one equip slot, mutably
@@ -5917,5 +5948,83 @@ mod new_slot_migration_tests {
     fn four_empty_slots_do_not_read_as_worn_out_gear() {
         let character = Character::new("fresh".to_string());
         assert!(!character.all_gear_worn_out(), "a fresh character with four empty §8 slots must not be benched as worn out");
+    }
+
+    /// Equips a destructible, fully-worn item in EVERY slot `EQUIP_SLOTS`
+    /// names, so a slot added tomorrow is covered by these tests the day
+    /// it lands rather than the day a player reports it.
+    fn worn_in_every_slot(login: &str) -> Character {
+        let mut character = Character::new(login.to_string());
+        let mut rng = rand::thread_rng();
+        for slot in EQUIP_SLOTS {
+            let mut item = generate_item_at_tier(slot, 5, &mut rng);
+            item.max_uses = Some(10);
+            item.uses = 10;
+            character.equip(item);
+        }
+        for slot in EQUIP_SLOTS {
+            assert!(character.equipped(slot).as_ref().is_some_and(|i| i.needs_repair()), "fixture: {slot:?} must start worn, or the test below proves nothing");
+        }
+        character
+    }
+
+    /// THE LIVE BUG (2026-09-03, owner report): Repair All silently
+    /// skipped rings, amulet and pants, because
+    /// `owned_items_mut_unguarded` names the equipped fields by hand and
+    /// still listed the original five. Gear on those slots wears out and
+    /// could never be repaired.
+    ///
+    /// The paid path was the worse half: `repair_all_cost` reads
+    /// `EQUIP_SLOTS`, so it BILLED for the new slots' items and then did
+    /// not repair them - the player was charged for a service they did not
+    /// receive, and the call still returned `Ok`.
+    #[test]
+    fn repair_all_repairs_every_equipped_slot_and_bills_for_exactly_those() {
+        let mut character = worn_in_every_slot("repairer");
+        let cost = character.repair_all_cost();
+        assert!(cost > 0, "a character worn out in every slot must cost something to repair");
+        character.dust = cost;
+
+        let paid = character.repair_all().expect("repair_all must succeed when the character can afford it");
+        assert_eq!(paid, cost, "the charge must match the quoted cost");
+        assert_eq!(character.dust, 0, "the quoted cost must be what is actually deducted");
+
+        for slot in EQUIP_SLOTS {
+            let item = character.equipped(slot).as_ref().expect("every slot was equipped by the fixture");
+            assert_eq!(
+                item.uses, 0,
+                "Repair All left {slot:?} worn. It was BILLED for (repair_all_cost reads EQUIP_SLOTS) and not repaired, so the player paid for nothing - this is the 2026-09-03 live bug, and it returns the moment `owned_items_mut_unguarded` stops naming every equip slot"
+            );
+        }
+        assert_eq!(character.repair_all_cost(), 0, "nothing may still need repair after a full paid repair");
+    }
+
+    /// The free path: auto-repair on retreat (`repair_all_gear`) runs
+    /// through the same iterator, so it had the same hole. No billing
+    /// here - the failure is simply that the gear never comes back.
+    #[test]
+    fn free_auto_repair_covers_every_equipped_slot() {
+        let mut character = worn_in_every_slot("retreater");
+        character.repair_all_gear();
+        for slot in EQUIP_SLOTS {
+            let item = character.equipped(slot).as_ref().expect("every slot was equipped by the fixture");
+            assert_eq!(item.uses, 0, "the free auto-repair-on-retreat left {slot:?} worn - a player with auto-repair on would watch that item break permanently");
+        }
+    }
+
+    /// The bug was never repair-specific: `owned_items_mut_unguarded` is
+    /// also what re-tiers Krangled gear on level-up and what every startup
+    /// item migration walks. Asserted directly so a future edit that
+    /// narrows the iterator fails here too, naming the other two victims.
+    #[test]
+    fn the_unguarded_bulk_iterator_reaches_every_equipped_slot() {
+        let mut character = worn_in_every_slot("bulk");
+        let reached = character.owned_items_mut_unguarded().count();
+        assert_eq!(
+            reached,
+            EQUIP_SLOTS.len(),
+            "the bulk iterator reached {reached} of {} equipped items. Every slot it misses is a slot that cannot be repaired, whose Krangled gear stops re-tiering on level-up, and that every item migration skips",
+            EQUIP_SLOTS.len()
+        );
     }
 }
