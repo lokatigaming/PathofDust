@@ -4286,3 +4286,56 @@ fact. The patch note therefore asks affected players to come forward
 rather than promising a number nobody can calculate. **If a blanket
 goodwill grant is wanted instead, it is an owner decision and a separate
 change.**
+
+### 2026-09-03 — "An artifact from a previous run, mistaken for the current one" (general note, owner-directed)
+
+Third instance in a day, so it is recorded as a class rather than inside
+any one of them.
+
+**The three:**
+
+1. **The frozen `C:\PathofDust` checkout.** A working copy that had
+   stopped moving while everyone kept reading it as current. It misled
+   five sessions before anyone asked how old it was.
+2. **`ls -lt` on the rollback slots.** `cp -a` preserves source
+   timestamps, so every slot's binary carries its *predecessor's* install
+   time. The listing is not garbage — it is plausible, and consistently
+   wrong by exactly one deploy.
+3. **A stale `test-<rel>.log`, today.** The cleanup line used `\$REL`,
+   which expands on the REMOTE side where `REL` is unset, so it deleted
+   `/root/test-.log` and nothing else. A leftover `test exit: 101` from a
+   previous failed run then sat next to a build that was still compiling,
+   and read exactly like a fresh failure.
+
+**What makes this class dangerous is that the artifact is not corrupt.**
+Every one of the three was internally consistent, well-formed, and
+truthful *about the moment it was made*. Nothing announces itself. A
+corrupt file throws; a stale one answers confidently.
+
+**The general cure: ask when the artifact was produced before believing
+what it says.** Not "is it valid" — it is — but "is it *current*". In
+practice that means carrying a timestamp or a generation marker alongside
+anything you will later read as a result:
+
+- The stale log was resolved by comparing `stat -c %y` on the log against
+  the unit's `ActiveEnterTimestamp`. Two timestamps settled in one command
+  what re-reading the tail could never settle, because re-reading a stale
+  file just re-reads the stale file.
+- The slot ordering was fixed by putting the timestamp **in the name**,
+  where it cannot be inherited from something else, and the `ls -lt`
+  warning was written into §13B at the place someone would reach for it.
+- The frozen checkout was resolved by checking its ref against the remote
+  rather than reading its contents.
+
+Note the family resemblance to the other class recorded above — *an
+assertion encoding an expected ANSWER rather than the PROPERTY*. Both are
+the same underlying error: **trusting a value that was true when it was
+captured, in a context that has since moved.** One captures a number, the
+other captures a file. The cure is the same shape too — derive it from the
+system at the moment you need it, rather than reading back something
+recorded earlier.
+
+**Stated as a check, so it is usable in review:** before believing any
+file, log, listing or cached result, establish when it was produced and
+whether anything has happened since. If you cannot tell, treat it as
+unknown rather than as evidence.
