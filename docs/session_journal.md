@@ -3258,3 +3258,145 @@ deliberately not written from here.
 > range once you have filled them. Both land on the same characters
 > because world 2 is one day old and nobody has a set worth mourning yet.
 > That timing is deliberate: this is the cheapest moment it will ever be.
+
+### 2026-09-03 — BACKFILL-BOUND: the starter-kit backfill is guarded by state, not by an invariant
+
+Branch `fix/backfill-bound` off `origin/master` (`35801b7`). Not merged,
+not deployed — session c holds that authority. Committed and pushed in
+two steps (`eb2e9f5` WIP, then the completion) because the machine lost
+power twice today and an unpushed branch is one power cut from gone.
+
+#### What was wrong
+
+`AdventureManager::new`'s starter-kit backfill iterated `EQUIP_SLOTS` and
+claimed in its own comment to be *"idempotent: once everyone has all 5
+slots filled, this is just a fast no-op scan on every future startup."*
+That was not a guard. It was an **invariant**, resting on the data
+converging on a state where the `if` never matches. The gear-slots
+release took `EQUIP_SLOTS` from 5 to 9 and falsified it: the loop
+re-armed, granted **72 tier-1 items across 18 live characters**, and
+persisted them. Nothing failed to compile and no test failed.
+
+Worse forward, and the reason this was urgent rather than merely untidy:
+`Character::new` leaves the four §8 slots empty by owner ruling, so
+**every future character would have had them auto-filled at the next
+service restart** — the ruling permanently defeated by a startup path
+nobody would think to look at.
+
+The 72 items are KEPT by owner ruling. No migration removes them.
+
+#### The fix: two halves, neither redundant
+
+1. **The marker** (`adventure-starter-kit-backfill-marker.json`), same
+   shape as the eight other one-off grants in that fn. This is the state
+   guard: once written, the loop cannot run again whatever `EQUIP_SLOTS`
+   becomes. **Written even when nothing changed** — a marker written only
+   on a change would leave the guard unarmed on exactly the installs
+   where the loop was a no-op, which is every install that matters.
+2. **A frozen `STARTER_KIT_BACKFILL_SLOTS: [EquipSlot; 5]`** replacing
+   `EQUIP_SLOTS` in the loop.
+
+Half 2 is the part worth recording, because the marker alone looks
+sufficient and is not. **The marker does not exist on the live box yet.**
+The first restart after this ships finds no marker and runs the loop one
+final time. For the 18 characters already granted that is a genuine
+no-op — but any character created since the gear-slots release has four
+empty slots and would be filled on that last pass, **defeating the ruling
+one more time on the way to enforcing it.** Over the frozen five the
+final run is a provable no-op.
+
+Alternatives rejected: marker only (grants on deploy day, as above);
+frozen list only (structurally safe, but leaves the migration guarded by
+an invariant a future editor swaps back to `EQUIP_SLOTS` "for
+consistency"); the sprite-count pattern of storing `EQUIP_SLOTS.len()`
+and firing on growth (right for a standing policy that SHOULD re-arm,
+which is why it is correct for `ALL_SPRITES` — here re-arming on growth
+*is* the defect); deleting the loop (defensible, its population is empty,
+but the order said bound, not remove).
+
+#### The test, and the mutation check
+
+`game/tests/starter_kit_backfill_bound.rs`, through the real constructor,
+asserting against what lands on disk. Phase 1 (marker absent): the five
+starter-kit slots get filled, and every slot **outside** them stays empty
+— that set is computed from `EQUIP_SLOTS` at runtime, so a future tenth
+slot lands in it automatically. Phase 2 (marker present): reopen a
+starter-kit slot, restart, assert it is left alone. The test states its
+own `ORIGINAL_FIVE` rather than importing the production constant, so it
+verifies behaviour instead of restating the implementation.
+
+**Both halves were verified by mutation, not by assertion alone**, and
+this is the part that should be copied by anyone writing a guard here:
+
+| mutation | result |
+|---|---|
+| loop restored to `EQUIP_SLOTS` | FAILS — *"the startup backfill filled Ring1, which is not a starter-kit slot"* |
+| marker check replaced with `if true` | FAILS — *"the backfill ran a second time"* |
+
+A guard without a test that proves the guard holds is the same class of
+promise the original comment made.
+
+#### Survey — is any OTHER startup migration guarded by an invariant?
+
+Asked for explicitly; this was the eighth implicit five-slot assumption
+found in one release. Every path in `AdventureManager::new`:
+
+| migration | guard | verdict |
+|---|---|---|
+| starter-kit backfill | invariant | **the defect — the only one** |
+| `run_item_migrations` | state, per-entry marker | ok |
+| crit-reforge equipped backfill | state | ok — iterates `EQUIP_SLOTS`, sealed |
+| `run_character_migrations` | state, per-entry marker | ok |
+| craft-token backfill + v2 | state | ok |
+| pity launch grant | state | ok |
+| wings launch grant | state | ok |
+| passive key rename | state | ok |
+| kibukah compensation | state | ok — iterates `EQUIP_SLOTS`, sealed |
+| sprite-growth free change | state (stored count) | ok — re-arms on growth **by design** |
+| `run_storage_migration` | state | ok |
+| `highest_stage` backfill | invariant (`max`) | **not the same class** |
+
+**Answer: no other startup migration in `manager.rs` is guarded by a
+falsifiable invariant.** `highest_stage` is invariant-guarded but `max`
+is a fixed point, so it is genuinely idempotent for any future value, and
+it must stay unguarded to self-heal a world file hand-edited backwards.
+Three migrations iterate `EQUIP_SLOTS`, but two of them are sealed behind
+markers that have already fired.
+
+#### Two lying comments, fixed rather than filed
+
+Owner ruled these get fixed in this change, not journalled and left:
+
+- The kibukah compensation block said *"A full 5-slot item assortment"*.
+  Its loop reads `EQUIP_SLOTS`, so it would grant 9 if its marker were
+  ever cleared. Now says so explicitly.
+- `Character::new`'s first doc line said *"a basic tier-1 item in every
+  slot"*, contradicted by its own comment nine lines below. Now names the
+  five starter-kit slots and points at the backfill's frozen list.
+
+Both are exactly the class of comment-that-lies this project has been
+bitten by repeatedly, and both sit in the file a reader opens when the
+next slot is added.
+
+Suite: **825 passed, 0 failed**, `cargo test --release --workspace
+--quiet -j 4 --target-dir target-backfill`. Clippy clean on touched code.
+
+CORRECTION to two earlier counts in this session's own records: the
+2026-09-03 CATCHUP-FIX journal entry and commit `ed5c529` report "796
+passed". That number came from an `awk` field split that mis-parsed the
+`test result:` line and undercounted. The verdict it supported — 0
+failures — was independently confirmed by grep and stands. The true total
+for that run was higher; anyone re-running that branch and getting a
+different number is seeing the counting bug, not drift.
+
+#### Patch note draft — NOT written to the box
+
+> **New characters keep their empty gear slots**
+> - A startup routine meant for players who joined before starter kits
+>   existed had been quietly filling every empty gear slot with a basic
+>   item. When rings, amulet and pants were added it started filling
+>   those too — 72 free items went out on 2026-09-03.
+> - **Those items are yours and are not being taken back.**
+> - From now on a new character starts with five items and four empty
+>   slots (two rings, amulet, pants). You fill those from drops, which is
+>   how it was meant to work.
