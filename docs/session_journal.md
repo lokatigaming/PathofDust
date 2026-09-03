@@ -3258,3 +3258,150 @@ deliberately not written from here.
 > range once you have filled them. Both land on the same characters
 > because world 2 is one day old and nobody has a set worth mourning yet.
 > That timing is deliberate: this is the cheapest moment it will ever be.
+
+### 2026-09-03 — GEAR-SLOTS deploy record (release `gear-slots`)
+
+Fourth and last of the queued releases, deployed last on the owner's
+instruction: largest surface, a net ×1.31 power buff, and it should land
+on a world whose pacing has settled rather than into a transient. It did
+— stage had recovered to 10 and boss W/L stood at 14/6 at the moment of
+the swap.
+
+| | |
+|---|---|
+| merge | `35801b7` |
+| binary before | `417b00f4…f77959` |
+| binary after | `28cf215130b65bcbae1b43ac56380c7879bdcc5bf8390bfbe27a5f761f094372` |
+| downtime | **0.16 s** |
+| suite on the box | **824 passed / 0 failed / 0 ignored, 37 suites** — `cargo test --release --workspace --quiet -j 4` in `/root/deploy-src-gear-slots` |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-gear-slots/game.pre-gear-slots` |
+
+**Suite arithmetic.** 807 + 17 = 824. The branch adds exactly **17**
+`#[test]` attributes and removes none, counted from the diff. The order
+stated 13 new tests; that undercounts by four. Recorded because a count
+that does not reconcile is the thing this project has been burned by, and
+this one does reconcile — against the source, not against a memory of it.
+
+**All four releases verified coexisting in the built tree before the
+build ran**, since the wide `adventure_web.rs` diff auto-merged against
+three earlier releases that all touched that file: the curve's
+`affix_tier_growth_ratio` (4 refs), branch 1's `bug_reports.rs`, branch
+2's `login_throttle_delay`, branch 3's `apply_craft_tier_bump` still
+delegating to `sync_tier_to`, and `EQUIP_SLOTS: [EquipSlot; 9]`.
+
+Conflicts were docs only. Golden corpus untouched — not one fixture in
+the diff, as claimed.
+
+### THE STOP-CONDITION FIRED, AND IT WAS RIGHT TO
+
+The order carried an explicit stop: *"existing characters get four empty
+slots via serde defaults, no migration and no marker. If anything on the
+box suggests otherwise, stop."*
+
+Something did. Post-deploy verification found **all 18 characters with
+all four new slots FILLED** — 72 tier-1 items (Worn Signet, Rusty Loop,
+Crude Talisman, Worn Greaves), implicits correctly rolled, already
+persisted to disk. Work stopped there and the finding went to the owner
+before anything else was touched.
+
+**The branch is innocent and its code is correct.** `Character::new` sets
+`ring1: None`, and the branch ships a test asserting exactly the
+behaviour the order described:
+
+```
+assert!(bare.ring1.is_none() && ..., "the starter kit must NOT fill the
+new slots (owner ruling 2026-09-03)");
+```
+
+That test passes. It is not wrong, and it did not fail to catch this,
+because what it asserts is true: the starter kit does not fill the slots.
+
+**The cause is pre-existing master code**, in `AdventureManager`'s
+startup path (`manager.rs:2130`), dating back to the Stage 1 crate
+extraction (`2fa9445`). Branch 4 never touches `manager.rs` at all:
+
+```rust
+// One-time backfill for anyone who joined before Character::new()
+// started handing out a full starter kit - fills only EMPTY slots with
+// a basic tier-1 item, never touching gear they already have.
+// Idempotent: once everyone has all 5 slots filled, this is just a fast
+// no-op scan on every future startup.
+for slot in EQUIP_SLOTS {
+    if character.equipped(slot).is_none() {
+        character.equip(generate_item_at_tier(slot, 1, &mut rng));
+    }
+}
+```
+
+It iterates `EQUIP_SLOTS`. This release took that array from 5 to 9, and
+a loop whose own comment guarantees it is a permanent no-op re-armed and
+granted four items to every character on first startup.
+
+### RULING (owner, 2026-09-03): ACCEPT. Player data is not touched.
+
+The 72 items stay. They are tier 1, uniform across all 18 characters,
+worth roughly one fight of loot, and they partly offset the drop dilution
+that shipped in the same release. **Stripping them would mean
+hand-editing live player data outside a marker-guarded migration, which
+the affix-curve ruling already established is the larger risk**, and a
+rollback would spend real resolved fights to undo a fair and trivial
+grant.
+
+Confirmed not harmful: existing gear untouched (weapon tiers still 13–22),
+service `active`, `NRestarts=0`, all seven §13B.5 checks green, tunnel
+200, zero panics or ERROR lines.
+
+**The loop is deliberately NOT fixed in this release.** A separate
+session owns that branch, and it deploys ahead of the catch-up fix. Until
+it lands, the live binary carries this OPEN behaviour: `Character::new`
+correctly leaves the four new slots empty, so **every new character will
+have them auto-filled at the next service restart**, and any future slot
+addition re-arms the same loop again.
+
+### THE GENERALISABLE LESSON, which is bigger than this incident
+
+**A one-time migration guarded by an INVARIANT rather than by STATE will
+re-arm the moment the invariant changes.** The comment said permanent
+no-op and was *true when written*. Growing an array falsified it
+silently: no compiler error, no test failure, no marker file to check,
+nothing to notice. Contrast every other migration in this codebase, which
+is guarded by a marker file on disk — STATE, which cannot be falsified by
+editing a constant somewhere else.
+
+The rule that follows: **a migration whose guard is "this condition can
+no longer occur" is not guarded.** If it must not run twice, give it a
+marker.
+
+**This was the eighth hardcoded-or-implicit five-slot assumption in this
+release, and the only one that reached production.** The other seven were
+found and fixed while the branch was being written:
+
+| | where | outcome |
+|---|---|---|
+| 1–6 | six hardcoded five-slot lists | replaced by `DISPLAY_SLOTS` |
+| 7 | `ALL_SLOTS` in `affix.rs` | fixed |
+| 8 | `has_polish_room` | fixed |
+| **9** | **the startup backfill's `EQUIP_SLOTS` loop** | **reached production** |
+
+The seven that were caught were all *in the files the branch was already
+editing*. The one that escaped was in a file the branch never opened.
+That is the shape of the trap, and it is worth stating plainly: a
+widening constant's blast radius is every consumer of that constant, not
+every file in the diff.
+
+### Patch notes
+
+Two sections at the top of the September 3 block (10 → 12), pre-edit copy
+`/root/patch-notes.pre-gear-slots.json`. The second is headed **"Drops
+are spread across nine slots now, so any one slot drops less often. This
+is a nerf"** — each slot's share falls 20% → 11.1%, a weapon drops ~44%
+less often, and filling every slot once goes from ~11 drops to ~25. The
+note says it is deliberate, uncompensated, that `loot_mult` is a dial to
+be set from real data, and asks for feedback. It also states the upside
+honestly so players can judge the trade.
+
+The notes were written before the backfill was discovered and describe
+the four slots as starting empty. That is now wrong for the 18 existing
+characters, who found them filled. Not amended here — patch notes are a
+dated record of what was announced, and a correction belongs in the next
+entry rather than in a silent rewrite of this one.
