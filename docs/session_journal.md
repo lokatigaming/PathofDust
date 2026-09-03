@@ -4179,3 +4179,110 @@ Public tunnel 200. Zero panics or ERROR lines. Roster is now 20.
 
 No patch note: this release changes test code only and has no
 player-visible effect.
+
+### 2026-09-03 — REPAIR-NEW-SLOTS deploy record (release `repair-new-slots`)
+
+Queue item 4, from window b. Highest player impact in the queue.
+
+| | |
+|---|---|
+| master commit deployed | `d11424b` |
+| binary before | `6e35ad68…7b6e3` |
+| binary after | `a09c9c362a87866dbc12e8a5924524f78c693d9e7314788e3a0cf4e9a5c2261e` |
+| downtime | **0.59 s** |
+| suite on the box | **830 passed / 0 failed / 0 ignored, 38 suites** (827 + 3) |
+| slot | `deploy-pre-20260903-154244-repair-new-slots`, `LATEST` repointed |
+
+### The bug's footprint, measured rather than described
+
+`owned_items_mut_unguarded` names the equipped fields **by hand** — the
+borrow checker cannot yield nine simultaneous mutable references from a
+loop — and still listed the original five. `repair_all_cost` reads
+`EQUIP_SLOTS`. So the price counted nine slots and the repair touched
+five, and the call returned `Ok`. Durability wear also iterates
+`EQUIP_SLOTS`, so the new-slot items kept wearing out with no way back.
+
+Counted on the live roster at deploy time:
+
+| slot class | worn out / equipped |
+|---|---|
+| the original five | **1 / 100** |
+| the four new | **44 / 77** |
+
+**57% versus 1%.** That gap is not wear variance; it is the shape of a
+population that has been wearing out and never being repaired, next to one
+that has been repaired all along. It is also the cleanest statement of why
+this was the most urgent item in the queue: a third of all equipped
+new-slot items in the game were dead, and every paid Repair All was
+charging for them.
+
+Everything comes back on the first repair after this deploy — nothing was
+permanently lost. What is not recoverable is the dust already spent on
+repairs that did nothing.
+
+### The guard is the durable part
+
+The fix adds the four fields. The part worth keeping is what it adds
+alongside them:
+
+```
+EQUIP_SLOTS.len() == 9,
+"EQUIP_SLOTS has changed size. `owned_items_mut_unguarded` names every
+ equipped field BY HAND (the borrow checker cannot do it in a loop) - add
+ the new slot's field to the array below and update this count, or repair,
+ Krangle re-tiering and every item migration will silently skip that slot."
+```
+
+**This is the third time today the same shape has been the root cause**,
+and the second time in three releases that the cure was the same: a
+hand-maintained membership needs something that **fires when the invariant
+changes**, not a comment asserting it will not. The starter-kit backfill
+needed a marker; this needed a length check. Note the message names the
+three things that break rather than restating the rule — the next person
+adding a slot is told the consequence, which is what makes a guard get
+obeyed instead of edited away.
+
+Three new tests, one of which names this live bug in its failure message,
+so a regression reads as *this incident* rather than as a puzzle.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **20 = 20** |
+| 4 | live sha256 | `a09c9c36…` = candidate |
+| 5 | `/characters`, `/inventory` | 200 / 80,691 B, 200 / 117,594 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+**Not verified by click-through, and stated rather than glossed:** the
+repair itself was not exercised on production, because doing so means
+spending a real player's dust and consuming a real item's durability.
+It is covered by the branch's three tests and by the census above, which
+is the observable consequence.
+
+### Patch notes
+
+One section, top of the September 3 block (13 → 14). Renders at 218,635 B.
+Pre-edit copy `/root/patch-notes.pre-repair-new-slots.json`.
+
+Written nerf-honest in the direction that matters here — the note leads
+with *"has been charging you … without repairing them"*, gives the 44/77
+against 1/100 figures so players can check it against their own gear, says
+plainly that the spent dust does **not** come back automatically, and
+offers to sort out anyone badly hit individually. It also says the mistake
+was ours and avoidable, and what now prevents it.
+
+### FOUND — a refund question the owner may want to answer
+
+No dust refund was issued and none was ordered. The amount is not
+reconstructible from what is stored: repair spend is not itemised
+anywhere, so there is no way to compute per-player compensation after the
+fact. The patch note therefore asks affected players to come forward
+rather than promising a number nobody can calculate. **If a blanket
+goodwill grant is wanted instead, it is an owner decision and a separate
+change.**
