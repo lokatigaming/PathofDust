@@ -2982,3 +2982,136 @@ C:/PathofDust or the box by this session, which did not deploy):
   HONESTY NOTE, must survive whatever rewording ships: for anyone who
   was veiling, this IS a nerf — their items will now grow (a buff) and
   their subsequent crafts will now cost more (a nerf). Say both.
+
+### 2026-09-03 — CRAFT-TIER-BUMP deploy record (release `craft-tier-bump`)
+
+Third of four queued releases. Rebased from `ba6b15c`; its base was
+`4abecde`, which **predates the affix tier curve**, so the interaction
+with the curve was the whole risk of this one.
+
+| | |
+|---|---|
+| merge | `bae43ef` |
+| binary before | `7897d6a2…70c943` |
+| binary after | `417b00f445902bbc0b4c41e802d93b57c035d87b78733819176ee4652ef77959` |
+| downtime | **0.14 s** |
+| suite on the box | **807 passed / 0 failed / 0 ignored, 37 suites** (799 + 8) |
+| rollback slot | `/var/backups/pathofdust/deploy-pre-craft-tier-bump/game.pre-craft-tier-bump` |
+
+### Why the curve interaction is safe, structurally rather than by luck
+
+The concern was that a branch written before the curve would reintroduce
+linear tier-growth math and silently revert part of it — yesterday's
+incident in a different costume.
+
+It cannot, and the reason is compositional: **this branch changes only
+how many TIERS a craft adds; it does not touch how values scale with
+tier.** `apply_craft_tier_bump` computes a bump and then calls
+`Item::sync_tier_to`, and `sync_tier_to` lives in `item.rs`, which this
+branch does not modify at all. Master's curve had already rewritten that
+function to scale affixes by `affix_tier_growth_ratio` — `f(new)/f(old)`,
+not `new/old`. `roll_recombine` and `reforge_item`, the other two growth
+sites, are untouched too.
+
+Verified in the merged tree rather than assumed: `sync_tier_to` still
+calls `affix_tier_growth_ratio`, and `apply_craft_tier_bump` still
+delegates to `sync_tier_to`.
+
+Conflicts were **docs only** — `WIKI_IMPACT.md` and
+`docs/session_journal.md`, both append-only keep-both.
+`character.rs`, `manager.rs`, `adventure_web.rs` and
+`world2_build_plan.md` auto-merged; they were read rather than trusted.
+
+### The `TunablesForm` trap, checked in BOTH directions
+
+This branch adds a form field, which is the exact shape CLAUDE.md warns
+about twice:
+
+| | |
+|---|---|
+| `#[serde(default = "default_craft_tier_bump_mult")]` on the field | present |
+| an `<input name="craft_tier_bump_mult">` really rendered | present — live page shows `value="1"` |
+| the form test derives its POST set from the rendered page | yes — `admin_tunables_splash_http.rs` splits on `name="` out of the fetched form |
+
+So drift in either direction fails the suite, including the direction no
+hand-maintained superset body can catch.
+
+### FOUND — the branch's own rationale is now half stale, and overstates by 4x
+
+`docs/world2_build_plan.md` gains an audit note from this branch reading
+*"`Item::sync_tier_to` rescales `power` and **every affix value** by the
+tier ratio, both of which are linear in tier"*, and quantifies the loop
+as *"+15 tiers from tier 1 — power and every modifier ×16"*.
+
+Post-curve, that is half right:
+
+| | scaling for tier 1 → 16 |
+|---|---|
+| `power` — `compute_power` is `base × tier × roll` | **×16**, still linear, claim holds |
+| affixes — `affix_tier_growth_ratio` = `f(16)/f(1)` = `sqrt(16)` | **×4**, not ×16 |
+
+The text was written against a pre-curve tree and is accurate for the
+tree it was written against, so per the append-only rule it stays as
+written; this dated note is the correction. **The practical effect is
+that the audit overstates the modifier half of the craft-power loop by a
+factor of four**, which matters because that document is explicitly
+framed as the input to an owner ruling on whether to damp the bump. The
+loop is real; it is smaller than the document says.
+
+### NOT verified live, stated rather than glossed
+
+**The veiled-craft change itself was not click-through verified.** The
+shipped behaviour change is that a veiled craft now applies the same tier
+bump an unveiled one always did. Exercising that on production means
+spending a real player's dust and permanently raising a real player's
+item tier, which is not a thing to do to somebody's character to satisfy
+a check. It is covered by the branch's tests and by the dial rendering at
+its default. What *was* confirmed live: the new tunable exists on
+`/admin/tunables` at `value="1"`, so the magnitude is unchanged until the
+owner moves it.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **18 = 18** |
+| 4 | live sha256 | `417b00f4…` = candidate |
+| 5 | `/characters`, `/passives` (auth) | 200 / 80,075 B, 200 / 91,109 B |
+| 6 | anon `/admin/tunables` | **404**, 73,730 B |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Public tunnel **HTTP 200 in 0.090 s**. Zero panics or ERROR lines.
+
+### Patch notes
+
+One section at the top of the September 3 block (9 → 10), pre-edit copy
+`/root/patch-notes.pre-craft-tier-bump.json`. Headed *"Veiling no longer
+exempts a craft from tier growth. This is partly a nerf"* — because it
+is. Veiling for 50 dust previously skipped both the tier growth and the
+escalating per-tier dust surcharge, so it was a way to craft an item
+indefinitely without its price ever climbing. The note says that plainly,
+names the nerf in capitals, and also states the other side (veiled crafts
+now make the item stronger, which they did not before).
+
+### Build parallelism capped mid-release (owner standing constraint)
+
+Adopted while this release's tests were running. Four sessions compile
+this workspace concurrently with isolated target dirs and no shared
+cache. The uncapped test run was measured at **load average 8.02 on 8
+vCPUs** — a box that is also serving production. The in-flight run was
+stopped and re-run under `CARGO_BUILD_JOBS=4` plus `-j 4`; load settled
+to **3.22**, and the suite returned the same clean result.
+
+The transient unit was stopped **by unit name** (`systemctl stop
+pod-build-craft-tier-bump`), never by process image — `taskkill /IM`-shaped
+kills are banned here precisely because they match production's `game`
+binary too.
+
+Worth knowing for whoever inherits the constraint: `-j 4` and
+`CARGO_BUILD_JOBS` cap **compile** jobs. The test binaries' own harness
+threads are a separate knob (`--test-threads`), deliberately not touched,
+because this suite has known flaky-under-parallel tests and changing
+their concurrency changes what the run means. Load settled acceptably
+without it.
