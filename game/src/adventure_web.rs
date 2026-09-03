@@ -224,6 +224,7 @@ pub async fn start_adventure_web_server(
         .route("/admin/bugs", get(admin_bugs_page))
         .route("/admin/passives", get(admin_passives_page))
         .route("/admin/passives/save", post(do_save_passive_override))
+        .route("/admin/passives/tunables/save", post(do_save_passive_tunables))
         .route("/admin/passives/revert", post(do_revert_passive_override))
         .route("/fights/:seq/members/:member", get(bundle_member))
         .route("/overlay", get(overlay_page))
@@ -2350,7 +2351,7 @@ async fn admin_passives_page(State(state): State<AppState>, headers: HeaderMap, 
     let body = match session {
         Some((login, _)) if login == *ADMIN_TUNABLES_LOGIN => {
             let viewer = state.adventure.character(&login).await;
-            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), state.adventure.live_tunables().overflow_conversion_cap_per_rank, None)
+            render_admin_passives_page(viewer.as_ref(), params.class.unwrap_or(Archetype::Warrior), params.saved.is_some(), &state.adventure.live_tunables(), None, None)
         }
         // Same generic fallback as `/admin/tunables` - a restricted
         // page's existence isn't hinted at. A real 404 since 2026-08-31.
@@ -2375,7 +2376,7 @@ struct PassiveSaveFeedback {
     pending: Option<(f64, f64, f64, Option<String>)>,
 }
 
-fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool, global_conversion_cap: f64, feedback: Option<&PassiveSaveFeedback>) -> String {
+fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool, t: &LiveTunables, feedback: Option<&PassiveSaveFeedback>, tunable_violations: Option<&[String]>) -> String {
     let nav = top_nav(viewer);
     let overrides = passive_overrides();
     let banner = if saved {
@@ -2486,11 +2487,11 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             let (conversion_input, conversion_hint) = if is_conversion {
                 let input = match overrides.conversion_cap_for(key) {
                     Some(cap) => format!("<label class=\"passive-rank\"><span>Cap / rank</span><input type=\"number\" step=\"any\" name=\"conversion_cap\" value=\"{}\"></label>", trim_float(cap)),
-                    None => format!("<label class=\"passive-rank\"><span>Cap / rank</span><input type=\"number\" step=\"any\" name=\"conversion_cap\" placeholder=\"{}\"></label>", trim_float(global_conversion_cap)),
+                    None => format!("<label class=\"passive-rank\"><span>Cap / rank</span><input type=\"number\" step=\"any\" name=\"conversion_cap\" placeholder=\"{}\"></label>", trim_float(t.overflow_conversion_cap_per_rank)),
                 };
                 let hint = format!(
                     "<p class=\"tunable-hint\">Cap / rank: the ceiling on THIS node's own converted output per invested rank. Blank follows the global Conversion Output Cap / Rank ({}).</p>",
-                    trim_float(global_conversion_cap)
+                    trim_float(t.overflow_conversion_cap_per_rank)
                 );
                 (input, hint)
             } else {
@@ -2576,6 +2577,176 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
         })
         .collect();
 
+    // The 24 passive-specific LiveTunables (2026-09-03). Rendered HERE,
+    // beside the per-node table they tune, rather than in the world/economy
+    // form. The VALUES did not move stores - every one is still a
+    // `LiveTunables` field in `adventure-live-tunables.toml`; only the form
+    // carrying them changed. Posts to its own route so every field stays
+    // required on exactly one form (see `PassiveTunablesForm`).
+    let tunables_banner = match tunable_violations {
+        Some(items) if !items.is_empty() => {
+            let list = items.iter().map(|m| format!("<li>{}</li>", escape_html(m))).collect::<String>();
+            format!(
+                "<p class=\"tunable-hint\" style=\"color:#e6b34d\">⚠ NOT SAVED — {} rejected, and nothing in this section was written. Your other edits are still in the boxes below; fix these and save again.</p><ul style=\"color:#e6b34d\">{list}</ul>",
+                if items.len() == 1 { "1 value was".to_string() } else { format!("{} values were", items.len()) }
+            )
+        }
+        _ => String::new(),
+    };
+    let passive_tunables = format!(
+        "<div class=\"card\">\
+          <h1>🎛️ Passive Tunables</h1>\
+          <p class=\"muted\">Dials that tune specific passive NODES, live on the next fight. Separate from the per-node values above: those set a node's rank magnitudes, these set the constants the node's behaviour is built from.</p>\
+          {tunables_banner}\
+          <form method=\"post\" action=\"/admin/passives/tunables/save\">\
+            <h2>Overflow Economy (cross-class caps)</h2>\n            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
+                <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
+              </div>\
+            <h2>Righteous Fire</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Haloed Steps</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Water Golem Shattering</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
+              <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
+              <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Verdant Burst</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
+                <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
+              </div>\
+            <h2>Elementalist</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
+                <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
+                <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
+              </div>\
+            <h2>Splash (player ladder)</h2>\n          <p class=\"tunable-hint\">These six govern the <strong>player</strong> splash ladder — how many extra targets a player's splash reaches and at what damage. <strong>Boss splash is a separate roll</strong>, scaled from stage in <code>boss_stats_for</code> and configured on /admin/tunables, not here. If you are looking for how hard bosses splash, this is the wrong group.</p>\n            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
+                <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
+                <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
+                <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
+                <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
+                <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_damage_pct\">Splash Damage %</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
+                <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
+              </div>\
+            <button class=\"btn\" type=\"submit\">Save Passive Tunables</button>\
+          </form>\
+        </div>",
+        thunder_redistribution_pct = t.thunder_redistribution_pct,
+        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
+        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
+        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
+        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
+        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
+        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
+        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
+        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
+        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
+        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
+        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
+        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
+        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
+        evasion_overflow_cap = t.evasion_overflow_cap,
+        block_overflow_cap = t.block_overflow_cap,
+        dr_overflow_cap = t.dr_overflow_cap,
+        intervene_overflow_cap = t.intervene_overflow_cap,
+        splash_extra_targets = t.splash_extra_targets,
+        splash_support_floor_targets = t.splash_support_floor_targets,
+        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
+        splash_ladder_step_pct = t.splash_ladder_step_pct,
+        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
+        splash_damage_pct = t.splash_damage_pct,
+    );
     format!(
         "{nav}\
         <div class=\"card\">\
@@ -2588,7 +2759,8 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
           <p class=\"tunable-hint\">Every node has three meaningful ranks — a Specialization's 4th point only unlocks its modifiers, so it reuses the rank 3 value. \
           Revert removes the override entirely and returns the node to its compiled-in numbers.</p>\
           {rows}\
-        </div>"
+        </div>\
+        {passive_tunables}"
     )
 }
 
@@ -2723,7 +2895,7 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
             warning,
             pending: Some((form.r1, form.r2, form.r3, cap_text.map(str::to_string))),
         };
-        let body = render_admin_passives_page(viewer.as_ref(), form.class, false, state.adventure.live_tunables().overflow_conversion_cap_per_rank, Some(&feedback));
+        let body = render_admin_passives_page(viewer.as_ref(), form.class, false, &state.adventure.live_tunables(), Some(&feedback), None);
         Html(render_page(&body))
     };
 
@@ -3232,10 +3404,6 @@ struct TunablesForm {
     boss_gear_tier_weight: f64,
     /// See `LiveTunables::fight_summary_batch_size`'s doc.
     fight_summary_batch_size: u32,
-    /// See `LiveTunables::thunder_redistribution_pct`'s doc.
-    thunder_redistribution_pct: f64,
-    /// See `LiveTunables::thunder_redistribution_window_secs`'s doc.
-    thunder_redistribution_window_secs: f64,
     /// See `LiveTunables::reactive_proc_cap_ms`'s doc.
     reactive_proc_cap_ms: u32,
     /// See `LiveTunables::divine_dust_drop_chance`'s doc.
@@ -3261,18 +3429,6 @@ struct TunablesForm {
     /// shipped-constant default - see `default_craft_tier_bump_mult`.
     #[serde(default = "default_craft_tier_bump_mult")]
     craft_tier_bump_mult: f64,
-    /// See `LiveTunables::rf_self_damage_pct_rank1`'s doc.
-    rf_self_damage_pct_rank1: f64,
-    /// See `LiveTunables::rf_self_damage_pct_rank2`'s doc.
-    rf_self_damage_pct_rank2: f64,
-    /// See `LiveTunables::rf_self_damage_pct_rank3`'s doc.
-    rf_self_damage_pct_rank3: f64,
-    /// See `LiveTunables::haloedsteps_per_instance_pct_rank1`'s doc.
-    haloedsteps_per_instance_pct_rank1: f64,
-    /// See `LiveTunables::haloedsteps_per_instance_pct_rank2`'s doc.
-    haloedsteps_per_instance_pct_rank2: f64,
-    /// See `LiveTunables::haloedsteps_per_instance_pct_rank3`'s doc.
-    haloedsteps_per_instance_pct_rank3: f64,
     /// A checkbox only shows up in the form body at all when checked -
     /// same `#[serde(default)]`-as-absent convention every other checkbox
     /// on this dashboard already uses (see `CraftForm::veiled`).
@@ -3312,16 +3468,6 @@ struct TunablesForm {
     /// on any of them.
     #[serde(default = "default_catchup_full_deficit")]
     catchup_full_deficit: f64,
-    /// See `LiveTunables::shattering_enabled`'s doc - same absent-when-
-    /// unchecked convention as `permanent_rampage` above.
-    #[serde(default)]
-    shattering_enabled: Option<String>,
-    /// See `LiveTunables::shattering_damage_pct_rank1`'s doc.
-    shattering_damage_pct_rank1: f64,
-    /// See `LiveTunables::shattering_damage_pct_rank2`'s doc.
-    shattering_damage_pct_rank2: f64,
-    /// See `LiveTunables::shattering_damage_pct_rank3`'s doc.
-    shattering_damage_pct_rank3: f64,
     /// See `LiveTunables::defensive_stat_hard_cap`'s doc.
     defensive_stat_hard_cap: f64,
     /// See `LiveTunables::enemy_hp_pool_hard_cap`'s doc. `#[serde(default)]`
@@ -3331,34 +3477,6 @@ struct TunablesForm {
     /// CLAUDE.md on the both-directions form-field trap).
     #[serde(default = "default_enemy_hp_pool_hard_cap")]
     enemy_hp_pool_hard_cap: f64,
-    /// See `LiveTunables::splash_extra_targets`'s doc.
-    splash_extra_targets: u32,
-    /// See `LiveTunables::splash_support_floor_targets`'s doc.
-    splash_support_floor_targets: u32,
-    /// See `LiveTunables::splash_overcap_bonus_targets`'s doc.
-    splash_overcap_bonus_targets: u32,
-    /// See `LiveTunables::splash_ladder_step_pct`'s doc.
-    splash_ladder_step_pct: u32,
-    /// See `LiveTunables::splash_ladder_targets_per_step`'s doc.
-    splash_ladder_targets_per_step: u32,
-    /// See `LiveTunables::splash_damage_pct`'s doc.
-    splash_damage_pct: f64,
-    /// See `LiveTunables::verdantburst_echo_threshold_pct`'s doc.
-    verdantburst_echo_threshold_pct: f64,
-    /// Stage 1 overflow-economy caps (2026-08-24). `#[serde(default)]` on
-    /// every one of these per CLAUDE.md's BUILD & TEST rule - a POST body
-    /// from an older page (or any test that forgets a field) must never
-    /// 422 just because new dials shipped.
-    #[serde(default)]
-    overflow_conversion_cap_per_rank: f64,
-    #[serde(default)]
-    evasion_overflow_cap: f64,
-    #[serde(default)]
-    block_overflow_cap: f64,
-    #[serde(default)]
-    dr_overflow_cap: f64,
-    #[serde(default)]
-    intervene_overflow_cap: f64,
     /// See `LiveTunables::buffsnapshot_dedupe_window_ms`'s doc.
     buffsnapshot_dedupe_window_ms: u32,
     // ---- Dynamic pacing (2026-08-22) - every field #[serde(default)] so
@@ -3429,6 +3547,94 @@ struct TunablesForm {
     /// means "leave it alone," parsed by hand in `do_save_tunables`.
     #[serde(default)]
     boss_power_mult_override: String,
+}
+
+/// The passive-specific half of `LiveTunables`, posted by `/admin/passives`
+/// (2026-09-03). These 24 dials tune individual passive NODES, so they are
+/// rendered beside the per-node override table they belong with rather than
+/// buried in the world/economy form.
+///
+/// **The values do not move stores.** Every field here still lives in
+/// `LiveTunables` and `adventure-live-tunables.toml` exactly as before; only
+/// which FORM carries it changed. `PassiveOverrides` is a separate file and
+/// nothing crossed between them.
+///
+/// **Why a second form struct rather than making these optional on
+/// `TunablesForm`.** The obvious move - `Option<T>` so each page posts only
+/// what it renders - does not stop at these 24: the passives page would then
+/// be missing the *other* 54, which are equally required, so all 78 would
+/// have to become optional. That trades a loud 422 for a silent preserve on
+/// every field the project will ever have, permanently. Splitting the form
+/// instead keeps **every field required on exactly one form**, so the
+/// 2026-08-23 tripwire (a rendered field set that no longer matches its
+/// extractor) still fires on both pages.
+///
+/// Both handlers merge their own fields into the CURRENT `LiveTunables` and
+/// write the whole struct, the same carry-forward `dynamic_scaling_mult`
+/// already relies on in `tunables_from_form`.
+///
+/// Bounds live in `passive_tunables_from_form`, which uses the SAME
+/// `TunableViolations` validator as `tunables_from_form` - one validator, so
+/// the two handlers cannot drift apart on what a legal value is.
+#[derive(Deserialize)]
+struct PassiveTunablesForm {
+    /// See `LiveTunables::thunder_redistribution_pct`'s doc.
+    thunder_redistribution_pct: f64,
+    /// See `LiveTunables::thunder_redistribution_window_secs`'s doc.
+    thunder_redistribution_window_secs: f64,
+    /// See `LiveTunables::rf_self_damage_pct_rank1`'s doc.
+    rf_self_damage_pct_rank1: f64,
+    /// See `LiveTunables::rf_self_damage_pct_rank2`'s doc.
+    rf_self_damage_pct_rank2: f64,
+    /// See `LiveTunables::rf_self_damage_pct_rank3`'s doc.
+    rf_self_damage_pct_rank3: f64,
+    /// See `LiveTunables::haloedsteps_per_instance_pct_rank1`'s doc.
+    haloedsteps_per_instance_pct_rank1: f64,
+    /// See `LiveTunables::haloedsteps_per_instance_pct_rank2`'s doc.
+    haloedsteps_per_instance_pct_rank2: f64,
+    /// See `LiveTunables::haloedsteps_per_instance_pct_rank3`'s doc.
+    haloedsteps_per_instance_pct_rank3: f64,
+    /// See `LiveTunables::shattering_enabled`'s doc. `#[serde(default)]`
+    /// because an unchecked checkbox is ABSENT from a browser POST - that is
+    /// how HTML works, not an optional field in the tripwire sense. Every
+    /// numeric field below is required.
+    #[serde(default)]
+    shattering_enabled: Option<String>,
+    /// See `LiveTunables::shattering_damage_pct_rank1`'s doc.
+    shattering_damage_pct_rank1: f64,
+    /// See `LiveTunables::shattering_damage_pct_rank2`'s doc.
+    shattering_damage_pct_rank2: f64,
+    /// See `LiveTunables::shattering_damage_pct_rank3`'s doc.
+    shattering_damage_pct_rank3: f64,
+    /// See `LiveTunables::verdantburst_echo_threshold_pct`'s doc.
+    verdantburst_echo_threshold_pct: f64,
+    /// The six PLAYER splash-ladder dials. Boss splash is a separate roll in
+    /// `boss_stats_for` and is not configured here - see the note the Splash
+    /// group renders above these inputs.
+    splash_extra_targets: u32,
+    /// See `LiveTunables::splash_support_floor_targets`'s doc.
+    splash_support_floor_targets: u32,
+    /// See `LiveTunables::splash_overcap_bonus_targets`'s doc.
+    splash_overcap_bonus_targets: u32,
+    /// See `LiveTunables::splash_ladder_step_pct`'s doc.
+    splash_ladder_step_pct: u32,
+    /// See `LiveTunables::splash_ladder_targets_per_step`'s doc.
+    splash_ladder_targets_per_step: u32,
+    /// See `LiveTunables::splash_damage_pct`'s doc.
+    splash_damage_pct: f64,
+    /// Stage 1 overflow-economy caps (2026-08-24). These five carried
+    /// `#[serde(default)]` on `TunablesForm` so an older page's POST could
+    /// not 422; on this form they are REQUIRED, because the passives page
+    /// renders all five and a body missing one is drift worth failing on.
+    overflow_conversion_cap_per_rank: f64,
+    /// See `LiveTunables::evasion_overflow_cap`'s doc.
+    evasion_overflow_cap: f64,
+    /// See `LiveTunables::block_overflow_cap`'s doc.
+    block_overflow_cap: f64,
+    /// See `LiveTunables::dr_overflow_cap`'s doc.
+    dr_overflow_cap: f64,
+    /// See `LiveTunables::intervene_overflow_cap`'s doc.
+    intervene_overflow_cap: f64,
 }
 
 /// Every out-of-range value in one submitted `/admin/tunables` form
@@ -3721,6 +3927,17 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
             // The retired `dynamic_scaling_mult` field is no longer on the
             // form - preserve whatever value is already live/on file so a
             // save never rewrites it to anything else.
+            //
+            // Since 2026-09-03 the same carry-forward covers the 24
+            // passive-specific dials, which moved to `PassiveTunablesForm`
+            // and `/admin/passives/tunables/save`. Each reads `previous.x`
+            // for exactly the reason the retired field does: this form no
+            // longer carries them, so a save from THIS page must leave them
+            // precisely as they were. `passive_tunables_from_form` does the
+            // mirror for the 54 fields it does not carry. Between them every
+            // field is written by exactly one form and preserved by the
+            // other - which is what lets both forms keep every field
+            // REQUIRED, and keeps the 2026-08-23 tripwire live on both.
             LiveTunables {
                 loot_mult: v.at_least("loot_mult", form.loot_mult, 0.0),
                 sand_mult: v.at_least("sand_mult", form.sand_mult, 0.0),
@@ -3759,7 +3976,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                     crate::adventure::CATCHUP_FULL_DEFICIT_MIN,
                     crate::adventure::CATCHUP_FULL_DEFICIT_MAX,
                 ),
-                shattering_enabled: form.shattering_enabled.is_some(),
+                shattering_enabled: previous.shattering_enabled,
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
                 // Defence-in-depth behind the rendered min/max - a
@@ -3774,8 +3991,8 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 boss_splash_half_stage: v.boss_half_stage("boss_splash_half_stage", form.boss_splash_half_stage, crate::adventure::BOSS_SPLASH_HALF_STAGE),
                 boss_gear_tier_weight: v.boss_gear_tier_weight("boss_gear_tier_weight", form.boss_gear_tier_weight),
                 fight_summary_batch_size: v.at_least_u32("fight_summary_batch_size", form.fight_summary_batch_size, 1),
-                thunder_redistribution_pct: v.clamp("thunder_redistribution_pct", form.thunder_redistribution_pct, 0.0, 1.0),
-                thunder_redistribution_window_secs: v.at_least("thunder_redistribution_window_secs", form.thunder_redistribution_window_secs, 0.0),
+                thunder_redistribution_pct: previous.thunder_redistribution_pct,
+                thunder_redistribution_window_secs: previous.thunder_redistribution_window_secs,
                 reactive_proc_cap_ms: form.reactive_proc_cap_ms,
                 divine_dust_drop_chance: v.clamp("divine_dust_drop_chance", form.divine_dust_drop_chance, 0.0, 1.0),
                 divine_dust_disenchant_chance: v.clamp("divine_dust_disenchant_chance", form.divine_dust_disenchant_chance, 0.0, 1.0),
@@ -3788,34 +4005,34 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 craft_base_cost_mult: v.craft_base_cost_mult("craft_base_cost_mult", form.craft_base_cost_mult),
                 craft_tier_exponent: v.craft_tier_exponent("craft_tier_exponent", form.craft_tier_exponent),
                 craft_tier_bump_mult: v.craft_tier_bump_mult("craft_tier_bump_mult", form.craft_tier_bump_mult),
-                rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
-                rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
-                rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
-                haloedsteps_per_instance_pct_rank1: v.clamp("haloedsteps_per_instance_pct_rank1", form.haloedsteps_per_instance_pct_rank1, 0.0, 1.0),
-                haloedsteps_per_instance_pct_rank2: v.clamp("haloedsteps_per_instance_pct_rank2", form.haloedsteps_per_instance_pct_rank2, 0.0, 1.0),
-                haloedsteps_per_instance_pct_rank3: v.clamp("haloedsteps_per_instance_pct_rank3", form.haloedsteps_per_instance_pct_rank3, 0.0, 1.0),
-                shattering_damage_pct_rank1: v.clamp("shattering_damage_pct_rank1", form.shattering_damage_pct_rank1, 0.0, 1.0),
-                shattering_damage_pct_rank2: v.clamp("shattering_damage_pct_rank2", form.shattering_damage_pct_rank2, 0.0, 1.0),
-                shattering_damage_pct_rank3: v.clamp("shattering_damage_pct_rank3", form.shattering_damage_pct_rank3, 0.0, 1.0),
+                rf_self_damage_pct_rank1: previous.rf_self_damage_pct_rank1,
+                rf_self_damage_pct_rank2: previous.rf_self_damage_pct_rank2,
+                rf_self_damage_pct_rank3: previous.rf_self_damage_pct_rank3,
+                haloedsteps_per_instance_pct_rank1: previous.haloedsteps_per_instance_pct_rank1,
+                haloedsteps_per_instance_pct_rank2: previous.haloedsteps_per_instance_pct_rank2,
+                haloedsteps_per_instance_pct_rank3: previous.haloedsteps_per_instance_pct_rank3,
+                shattering_damage_pct_rank1: previous.shattering_damage_pct_rank1,
+                shattering_damage_pct_rank2: previous.shattering_damage_pct_rank2,
+                shattering_damage_pct_rank3: previous.shattering_damage_pct_rank3,
                 defensive_stat_hard_cap: v.clamp("defensive_stat_hard_cap", form.defensive_stat_hard_cap, 0.0, 1.0),
                 // Defence-in-depth behind the form's own min/max (which is
                 // what actually reports an out-of-range value to the
                 // operator); a hand-crafted POST that bypasses the browser
                 // is clamped rather than allowed to reach generation.
                 enemy_hp_pool_hard_cap: v.pool_cap("enemy_hp_pool_hard_cap", form.enemy_hp_pool_hard_cap),
-                splash_extra_targets: form.splash_extra_targets,
-                splash_support_floor_targets: form.splash_support_floor_targets,
-                splash_overcap_bonus_targets: form.splash_overcap_bonus_targets,
-                splash_ladder_step_pct: form.splash_ladder_step_pct,
-                splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
-                splash_damage_pct: v.at_least("splash_damage_pct", form.splash_damage_pct, 0.0),
-                verdantburst_echo_threshold_pct: v.at_least("verdantburst_echo_threshold_pct", form.verdantburst_echo_threshold_pct, 0.0),
+                splash_extra_targets: previous.splash_extra_targets,
+                splash_support_floor_targets: previous.splash_support_floor_targets,
+                splash_overcap_bonus_targets: previous.splash_overcap_bonus_targets,
+                splash_ladder_step_pct: previous.splash_ladder_step_pct,
+                splash_ladder_targets_per_step: previous.splash_ladder_targets_per_step,
+                splash_damage_pct: previous.splash_damage_pct,
+                verdantburst_echo_threshold_pct: previous.verdantburst_echo_threshold_pct,
                 buffsnapshot_dedupe_window_ms: v.at_least_u32("buffsnapshot_dedupe_window_ms", form.buffsnapshot_dedupe_window_ms, 1),
-                overflow_conversion_cap_per_rank: v.clamp("overflow_conversion_cap_per_rank", form.overflow_conversion_cap_per_rank, 0.0, 1.0),
-                evasion_overflow_cap: v.clamp("evasion_overflow_cap", form.evasion_overflow_cap, 0.0, 1.0),
-                block_overflow_cap: v.clamp("block_overflow_cap", form.block_overflow_cap, 0.0, 1.0),
-                dr_overflow_cap: v.clamp("dr_overflow_cap", form.dr_overflow_cap, 0.0, 1.0),
-                intervene_overflow_cap: v.clamp("intervene_overflow_cap", form.intervene_overflow_cap, 0.0, 1.0),
+                overflow_conversion_cap_per_rank: previous.overflow_conversion_cap_per_rank,
+                evasion_overflow_cap: previous.evasion_overflow_cap,
+                block_overflow_cap: previous.block_overflow_cap,
+                dr_overflow_cap: previous.dr_overflow_cap,
+                intervene_overflow_cap: previous.intervene_overflow_cap,
                 dynamic_pacing_enabled: form.dynamic_pacing_enabled.is_some(),
                 pacing_window_fights: v.at_least_u32("pacing_window_fights", form.pacing_window_fights, 1),
                 target_duration_min_s: v.at_least("target_duration_min_s", form.target_duration_min_s, 0.001),
@@ -3844,6 +4061,51 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 top_layer_half_stage: v.at_least("top_layer_half_stage", form.top_layer_half_stage, 1.0),
             }
         }
+    }
+}
+
+/// The mirror of `tunables_from_form` for `/admin/passives`' 24 passive
+/// dials (2026-09-03): validates its own fields and takes every OTHER field
+/// verbatim from `previous`, so a save here can only ever move the 24 it
+/// renders.
+///
+/// Uses the SAME `TunableViolations` validator, with each bound copied
+/// unchanged from where it lived in `tunables_from_form` - one validator and
+/// one declaration per bound, so the two handlers cannot drift on what a
+/// legal value is. Runs twice for the same collect-then-clamp reason; see
+/// `TunableViolations`.
+fn passive_tunables_from_form(form: &PassiveTunablesForm, previous: &LiveTunables, v: &mut TunableViolations) -> LiveTunables {
+    LiveTunables {
+        thunder_redistribution_pct: v.clamp("thunder_redistribution_pct", form.thunder_redistribution_pct, 0.0, 1.0),
+        thunder_redistribution_window_secs: v.at_least("thunder_redistribution_window_secs", form.thunder_redistribution_window_secs, 0.0),
+        rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
+        rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
+        rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
+        haloedsteps_per_instance_pct_rank1: v.clamp("haloedsteps_per_instance_pct_rank1", form.haloedsteps_per_instance_pct_rank1, 0.0, 1.0),
+        haloedsteps_per_instance_pct_rank2: v.clamp("haloedsteps_per_instance_pct_rank2", form.haloedsteps_per_instance_pct_rank2, 0.0, 1.0),
+        haloedsteps_per_instance_pct_rank3: v.clamp("haloedsteps_per_instance_pct_rank3", form.haloedsteps_per_instance_pct_rank3, 0.0, 1.0),
+        shattering_enabled: form.shattering_enabled.is_some(),
+        shattering_damage_pct_rank1: v.clamp("shattering_damage_pct_rank1", form.shattering_damage_pct_rank1, 0.0, 1.0),
+        shattering_damage_pct_rank2: v.clamp("shattering_damage_pct_rank2", form.shattering_damage_pct_rank2, 0.0, 1.0),
+        shattering_damage_pct_rank3: v.clamp("shattering_damage_pct_rank3", form.shattering_damage_pct_rank3, 0.0, 1.0),
+        verdantburst_echo_threshold_pct: v.at_least("verdantburst_echo_threshold_pct", form.verdantburst_echo_threshold_pct, 0.0),
+        splash_extra_targets: form.splash_extra_targets,
+        splash_support_floor_targets: form.splash_support_floor_targets,
+        splash_overcap_bonus_targets: form.splash_overcap_bonus_targets,
+        splash_ladder_step_pct: form.splash_ladder_step_pct,
+        splash_ladder_targets_per_step: form.splash_ladder_targets_per_step,
+        splash_damage_pct: v.at_least("splash_damage_pct", form.splash_damage_pct, 0.0),
+        overflow_conversion_cap_per_rank: v.clamp("overflow_conversion_cap_per_rank", form.overflow_conversion_cap_per_rank, 0.0, 1.0),
+        evasion_overflow_cap: v.clamp("evasion_overflow_cap", form.evasion_overflow_cap, 0.0, 1.0),
+        block_overflow_cap: v.clamp("block_overflow_cap", form.block_overflow_cap, 0.0, 1.0),
+        dr_overflow_cap: v.clamp("dr_overflow_cap", form.dr_overflow_cap, 0.0, 1.0),
+        intervene_overflow_cap: v.clamp("intervene_overflow_cap", form.intervene_overflow_cap, 0.0, 1.0),
+        // Everything else is this page's business to PRESERVE, never to
+        // write. `..previous.clone()` is deliberate rather than a field
+        // list: a field added to `LiveTunables` later is carried forward
+        // automatically instead of needing a line here that someone must
+        // remember to add.
+        ..previous.clone()
     }
 }
 
@@ -3907,6 +4169,54 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
         state.adventure.set_hp_pacing_mult(value).await;
     }
     Redirect::to("/admin/tunables?saved=1").into_response()
+}
+
+/// `/admin/passives/tunables/save` (2026-09-03) - the 24 passive dials the
+/// passives page now renders. Mirrors `do_save_tunables` exactly: same
+/// operator gate, same collect-then-clamp two-pass, same "nothing was
+/// written" rejection, and the same whole-struct write.
+///
+/// It is a SEPARATE route rather than a second body shape on
+/// `/admin/tunables/save` so that both forms can keep every field required.
+/// See `PassiveTunablesForm`'s doc for why that matters.
+async fn do_save_passive_tunables(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PassiveTunablesForm>) -> axum::response::Response {
+    // Same gate as every other admin write - ledger `#51`: a non-operator
+    // must not get the redirect a real save gets.
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return admin_not_found();
+    };
+    if login != *ADMIN_TUNABLES_LOGIN {
+        return admin_not_found();
+    }
+
+    let previous = state.adventure.live_tunables();
+    // Pass one: collect, values exactly as typed.
+    let mut collected = TunableViolations::default();
+    let candidate = passive_tunables_from_form(&form, &previous, &mut collected);
+    if !collected.items.is_empty() {
+        let viewer = state.adventure.character(&login).await;
+        let body = render_admin_passives_page(
+            viewer.as_ref(),
+            Archetype::Warrior,
+            false,
+            // `candidate`, not `previous` - the operator's typed values come
+            // back into the inputs, the same replay `/admin/tunables` does
+            // for a refused save rather than showing numbers nobody entered.
+            &candidate,
+            None,
+            Some(&collected.items),
+        );
+        return (StatusCode::BAD_REQUEST, Html(render_page(&body))).into_response();
+    }
+
+    // Pass two: the same build with clamps live - a no-op here, kept as the
+    // backstop against a bound added later without a violation path.
+    let mut clamping = TunableViolations { items: Vec::new(), clamping: true };
+    let tunables = passive_tunables_from_form(&form, &previous, &mut clamping);
+    if let Err(err) = state.adventure.save_live_tunables(tunables) {
+        tracing::error!("Failed to persist live tunables: {err}");
+    }
+    Redirect::to("/admin/passives?saved=1").into_response()
 }
 
 // ---- Rendering ----
@@ -4893,49 +5203,6 @@ fn render_tunables_page(
               <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_splash_half_stage\" name=\"boss_splash_half_stage\" value=\"{boss_splash_half_stage}\">\
               <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_splash_half_stage_default}. How much of a boss hit spills onto the rest of the party.</p>\
             </div>\
-            <h2>Elementalist</h2>\
-            <div class=\"tunable-row\">\
-              <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
-              <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
-              <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
-            </div>\
-            <h2>Righteous Fire</h2>\
-            <div class=\"tunable-row\">\
-              <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
-              <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
-              <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
-              <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-            </div>\
-            <h2>Haloed Steps</h2>\
-            <div class=\"tunable-row\">\
-              <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
-              <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
-              <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
-              <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-            </div>\
             <h2>Reactive Procs</h2>\
             <div class=\"tunable-row\">\
               <label for=\"reactive_proc_cap_ms\">Reactive Counter Cap (ms)</label>\
@@ -5016,95 +5283,12 @@ fn render_tunables_page(
             <h2>Rampage</h2>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
-            <h2>Water Golem Shattering</h2>\
-            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
-            <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
-            <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
-              <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
-              <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
-              <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-            </div>\
             <h2>Defensive Stat Hard Cap</h2>\
             <p class=\"tunable-hint\">Owner doctrine: maximum damage mitigation from damage reduction, applies universally — no character, golem, or enemy may ever be immune to any damage source through DR. Does NOT cover evasion, block, or Intervene (separate mechanics, their own caps) or Thunder Golem absorption/redirect (not damage reduction at all).</p>\
             <div class=\"tunable-row\">\
               <label for=\"defensive_stat_hard_cap\">Max DR Mitigation</label>\
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"defensive_stat_hard_cap\" name=\"defensive_stat_hard_cap\" value=\"{defensive_stat_hard_cap}\">\
               <p class=\"tunable-hint\">0 to 1 — a landed hit always deals at least (1 − this) of its raw mitigable damage, however stacked a defender's DR sources get. Default 0.95.</p>\
-            </div>\
-            <h2>Overflow Economy (cross-class caps)</h2>\
-            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
-              <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
-              <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
-              <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
-              <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
-              <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
-            </div>\
-            <h2>Splash</h2>\
-            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
-              <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
-              <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
-              <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
-              <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
-              <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"splash_damage_pct\">Splash Damage %</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
-              <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
-              <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
             </div>\
             <h2>Live Overlay Broadcast</h2>\
             <div class=\"tunable-row\">\
@@ -5193,8 +5377,6 @@ fn render_tunables_page(
         boss_splash_half_stage = t.boss_splash_half_stage,
         boss_splash_half_stage_default = trim_float(crate::adventure::BOSS_SPLASH_HALF_STAGE),
         fight_summary_batch_size = t.fight_summary_batch_size,
-        thunder_redistribution_pct = t.thunder_redistribution_pct,
-        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
         reactive_proc_cap_ms = t.reactive_proc_cap_ms,
         divine_dust_drop_chance = t.divine_dust_drop_chance,
         divine_dust_disenchant_chance = t.divine_dust_disenchant_chance,
@@ -5210,12 +5392,6 @@ fn render_tunables_page(
         craft_tier_bump_mult = t.craft_tier_bump_mult,
         craft_tier_bump_mult_min = trim_float(crate::adventure::CRAFT_TIER_BUMP_MULT_MIN),
         craft_tier_bump_mult_max = trim_float(crate::adventure::CRAFT_TIER_BUMP_MULT_MAX),
-        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
-        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
-        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
-        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
-        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
-        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
         win_xp_flat = t.win_xp_flat,
         win_xp_level_pct = t.win_xp_level_pct,
@@ -5230,27 +5406,11 @@ fn render_tunables_page(
         win_xp_mult_min = crate::adventure::WIN_XP_MULT_MIN,
         win_xp_mult_max = crate::adventure::WIN_XP_MULT_MAX,
         win_xp_cooldown_secs_max = crate::adventure::WIN_XP_COOLDOWN_SECS_MAX,
-        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
-        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
-        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
-        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
         defensive_stat_hard_cap = t.defensive_stat_hard_cap,
         enemy_hp_pool_hard_cap = t.enemy_hp_pool_hard_cap,
         enemy_hp_pool_cap_min = crate::adventure::pacing::ENEMY_HP_POOL_CAP_MIN,
         enemy_hp_pool_cap_max = crate::adventure::pacing::ENEMY_HP_POOL_CAP_MAX,
-        splash_extra_targets = t.splash_extra_targets,
-        splash_support_floor_targets = t.splash_support_floor_targets,
-        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
-        splash_ladder_step_pct = t.splash_ladder_step_pct,
-        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
-        splash_damage_pct = t.splash_damage_pct,
-        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
         buffsnapshot_dedupe_window_ms = t.buffsnapshot_dedupe_window_ms,
-        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
-        evasion_overflow_cap = t.evasion_overflow_cap,
-        block_overflow_cap = t.block_overflow_cap,
-        dr_overflow_cap = t.dr_overflow_cap,
-        intervene_overflow_cap = t.intervene_overflow_cap,
     )
 }
 
@@ -7667,7 +7827,7 @@ mod admin_passives_tests {
     /// Every render test wants the compiled-in global cap as the
     /// fallback display - the LIVE global belongs to the handler.
     fn admin_page(archetype: Archetype, saved: bool) -> String {
-        render_admin_passives_page(None, archetype, saved, crate::adventure::LiveTunables::default().overflow_conversion_cap_per_rank, None)
+        render_admin_passives_page(None, archetype, saved, &crate::adventure::LiveTunables::default(), None, None)
     }
 
     fn node(archetype: Archetype, key: &str) -> &'static PassiveNode {
