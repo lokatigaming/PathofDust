@@ -206,6 +206,51 @@ fn substitute_wiki_placeholders(source: &str) -> String {
 /// of Phase 4 - the primary session has since hoisted all of them into
 /// named `pub(crate)` constants (see `WIKI_IMPACT.md`'s "Pure refactor"
 /// entry), so every one of them is wired below too now.
+/// **THE COMPILED-ONLY RULE (owner ruling, 2026-09-03).** A placeholder
+/// may resolve ONLY against a value that is compiled and stable.
+///
+/// TWO stores can change a number live, and the second is the one that
+/// gets missed: `LiveTunables` (`/admin/tunables`) AND `PassiveOverrides`
+/// (`/admin/passives`), which can retune any passive node magnitude at
+/// any rank. A node value read out of `passive_tree.rs` is the shipped
+/// DEFAULT, not the live number - every read funnels through
+/// `PassiveNode::magnitude_at_rank`, which consults the override store
+/// first. If a number comes from either store, is scaled by one at the
+/// point of use, or is merely the shipped DEFAULT of one, it must NOT be
+/// wired here - the page describes the mechanic instead and points the player
+/// at the value the game itself shows them. This is not stylistic. A
+/// constant that a tunable has since taken over does not stop compiling
+/// when it goes stale; it renders a confident, wrong number forever.
+/// That failure has now happened four separate times: Perfect's gate
+/// rendered a hardcoded "stage 100" after the gate became a tunable, the
+/// three splash constants sat frozen at 2/2/2 after the six `splash_*`
+/// tunables took over, every craft price rendered its
+/// pre-`craft_base_cost_mult` value, and `SACRED_STAGE_THRESHOLD`
+/// rendered a constant the game no longer reads. All four are retired
+/// below rather than re-pointed, because re-pointing only moves the next
+/// break.
+///
+/// **Do not go looking for the live values to quote instead.**
+/// The `adventure-live-tunables.toml` file on the deploy box is a FROZEN
+/// pre-cutover snapshot, NOT production state - it has misled four
+/// sessions in two days. `/admin/tunables` renders live values; nothing
+/// in this repo does. Describe the mechanic and point the player there.
+///
+/// Retired under this rule (do not re-add): the 8 craft action costs,
+/// `TIER_CRAFT_DUST_COST`, `VEIL_EXTRA_COST` (all scaled by
+/// `craft_base_cost_mult`/`craft_tier_exponent`), `SACRED_STAGE_THRESHOLD`
+/// (now `sacred_item_stage`), `PLAYER_SPLASH_MAX_TARGETS`/
+/// `HEAL_SPLASH_MAX_TARGETS`/`SPLASH_OVERFLOW_BONUS_TARGETS` (now the six
+/// `splash_*` tunables), and `FORCE_BOSS_MAX_PER_CYCLE`/
+/// `RAMPAGE_ENCOUNTER_COUNT` (their triggers no longer exist).
+/// `ENEMY_SPLASH_MAX_TARGETS`/`CUBE_SPLASH_MAX_TARGETS` stay: those two
+/// are each a boss's own compiled base count and are still live-read.
+///
+/// Deleted outright with the text they fed (owner ruling, same date):
+/// `RAMPAGE_VOTE_THRESHOLD`, `ACTIVITY_XP_COOLDOWN`, `ACTIVITY_XP_AMOUNT`,
+/// `BOSS_CRAFT_PITY_GAIN`, `BASIC_CRAFT_PITY_GAIN` and the two
+/// `LINGERING_EFFECT_*` constants - every one of them was retained in
+/// game code for no reason except that this map read it.
 fn wiki_placeholder_map() -> HashMap<&'static str, String> {
     let pct = |fraction: f64| -> String { format!("{}", (fraction * 100.0).round() as i64) };
     let crit_pct = |quality: f64, perfect: bool| -> String { format!("{:.1}", crate::adventure::reforge_crit_chance(quality, perfect) * 100.0) };
@@ -223,18 +268,10 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
     let varies = || "varies".to_string();
 
     HashMap::from([
-        // Currency-crafting dust costs - live, override-aware.
-        ("TRANSMUTE_COST", CraftAction::Transmute.base_cost().to_string()),
-        ("AUGMENT_COST", CraftAction::Augment.base_cost().to_string()),
-        ("REGAL_COST", CraftAction::Regal.base_cost().to_string()),
-        ("EXALT_COST", CraftAction::Exalt.base_cost().to_string()),
-        ("SCOUR_COST", CraftAction::Scour.base_cost().to_string()),
-        ("KRANGLE_COST", CraftAction::Krangle.base_cost().to_string()),
-        ("ANNULMENT_COST", CraftAction::Annulment.base_cost().to_string()),
-        ("CHANCING_COST", CraftAction::Chancing.base_cost().to_string()),
-        ("TIER_CRAFT_DUST_COST", crate::adventure::TIER_CRAFT_DUST_COST.to_string()),
+        // Reforge-on-demand is a bare constant, unscaled by
+        // `craft_base_cost_mult` (unlike every CraftAction price), so it
+        // is still safe to render - see the compiled-only rule above.
         ("WEB_REFORGE_DUST_COST", crate::adventure::WEB_REFORGE_DUST_COST.to_string()),
-        ("VEIL_EXTRA_COST", crate::adventure::VEIL_EXTRA_COST.to_string()),
         // Reforge's quality-scaled bonus-affix crit chance - computed at
         // the same four sample points the wiki's table shows, straight
         // from the real formula instead of hand-copied numbers.
@@ -243,7 +280,6 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("REFORGE_CRIT_AT_100", crit_pct(100.0, false)),
         ("REFORGE_CRIT_AT_PERFECT", crit_pct(100.0, true)),
         ("PERFECT_QUALITY_BONUS_PCT", pct(crate::adventure::PERFECT_QUALITY_MULT - 1.0)),
-        ("SACRED_STAGE_THRESHOLD", crate::adventure::SACRED_STAGE_THRESHOLD.to_string()),
         ("CELESTIAL_CONVERSION_PCT", pct(crate::adventure::CELESTIAL_CONVERSION_PCT)),
         // Cthulhu's Bubble.
         ("CTHULHU_DEBUFF_CADENCE_S", (crate::adventure::CTHULHU_DEBUFF_CADENCE_MS / 1000).to_string()),
@@ -279,34 +315,22 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("VOTESKIP_COOLDOWN_S", published.as_ref().map(|p| p.song_skip_cooldown_secs.to_string()).unwrap_or_else(varies)),
         ("MIN_VOTE_VOLUME", published.as_ref().map(|p| p.min_vote_volume.to_string()).unwrap_or_else(varies)),
         ("MAX_VOTE_VOLUME", published.as_ref().map(|p| p.max_vote_volume.to_string()).unwrap_or_else(varies)),
-        ("RAMPAGE_VOTE_THRESHOLD", crate::adventure::RAMPAGE_VOTE_THRESHOLD.to_string()),
         // Core combat mechanics (wiki/combat.md).
         ("CRIT_BONUS_MULT_PCT", pct(crate::adventure::CRIT_BONUS_MULT)),
         ("OVERCRIT_CURVE_A", format!("{}", crate::adventure::OVERCRIT_CURVE_A)),
         ("CRIT_CHANCE_CAP_PCT", pct(crate::adventure::CRIT_CHANCE_CAP)),
         ("BLOCK_DAMAGE_REDUCTION_PCT", pct(crate::adventure::BLOCK_DAMAGE_REDUCTION)),
         ("LIFE_LEECH_CAP_PER_SEC_PCT", pct(crate::adventure::LIFE_LEECH_CAP_PER_SEC)),
-        ("PLAYER_SPLASH_MAX_TARGETS", crate::adventure::PLAYER_SPLASH_MAX_TARGETS.to_string()),
         ("ENEMY_SPLASH_MAX_TARGETS", crate::adventure::ENEMY_SPLASH_MAX_TARGETS.to_string()),
-        ("SPLASH_OVERFLOW_BONUS_TARGETS", crate::adventure::SPLASH_OVERFLOW_BONUS_TARGETS.to_string()),
-        ("HEAL_SPLASH_MAX_TARGETS", crate::adventure::HEAL_SPLASH_MAX_TARGETS.to_string()),
         ("ELEMENTAL_PROC_CHANCE_DIVISOR", (crate::adventure::ELEMENTAL_PROC_CHANCE_DIVISOR as i64).to_string()),
         ("ELEMENTAL_PROC_DURATION_S", (crate::adventure::ELEMENTAL_PROC_DURATION_MS / 1000).to_string()),
         ("ELEMENTAL_DEFENSE_FLOOR_PCT", pct(crate::adventure::ELEMENTAL_DEFENSE_FLOOR)),
         ("ELEMENTAL_DEFENSE_CEILING_PCT", pct(crate::adventure::ELEMENTAL_DEFENSE_CEILING)),
         ("ELEMENTAL_LIGHTNING_MAX_STACKS", crate::adventure::ELEMENTAL_LIGHTNING_MAX_STACKS.to_string()),
         ("ELEMENTAL_DIVINE_ENEMY_MAX_STACKS", crate::adventure::ELEMENTAL_DIVINE_ENEMY_MAX_STACKS.to_string()),
-        ("LINGERING_EFFECT_TICK_INTERVAL_MS", crate::adventure::LINGERING_EFFECT_TICK_INTERVAL_MS.to_string()),
-        ("LINGERING_EFFECT_TICKS", crate::adventure::LINGERING_EFFECT_TICKS.to_string()),
-        (
-            "LINGERING_EFFECT_DURATION_S",
-            ((crate::adventure::LINGERING_EFFECT_TICK_INTERVAL_MS * crate::adventure::LINGERING_EFFECT_TICKS) / 1000).to_string(),
-        ),
         ("MAX_FIGHT_DURATION_S", (crate::adventure::MAX_FIGHT_DURATION_MS / 1000).to_string()),
         ("REVIVE_DURATION_S", crate::adventure::REVIVE_DURATION.as_secs().to_string()),
         // Character lifecycle & progression (wiki/getting-started.md).
-        ("ACTIVITY_XP_COOLDOWN_S", crate::adventure::ACTIVITY_XP_COOLDOWN.as_secs().to_string()),
-        ("ACTIVITY_XP_AMOUNT", crate::adventure::ACTIVITY_XP_AMOUNT.to_string()),
         ("XP_TO_LEVEL_2", Character::xp_to_next_level(1).to_string()),
         ("XP_TO_LEVEL_11", Character::xp_to_next_level(10).to_string()),
         ("XP_TO_LEVEL_26", Character::xp_to_next_level(25).to_string()),
@@ -320,8 +344,6 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ("INVENTORY_CAPACITY", crate::adventure::INVENTORY_CAPACITY.to_string()),
         ("ENCOUNTER_INTERVAL_MIN", (crate::adventure::ENCOUNTER_INTERVAL.as_secs() / 60).to_string()),
         ("BASIC_ENCOUNTER_INTERVAL_MIN", (crate::adventure::BASIC_ENCOUNTER_INTERVAL.as_secs() / 60).to_string()),
-        ("FORCE_BOSS_MAX_PER_CYCLE", crate::adventure::FORCE_BOSS_MAX_PER_CYCLE.to_string()),
-        ("RAMPAGE_ENCOUNTER_COUNT", crate::adventure::RAMPAGE_ENCOUNTER_COUNT.to_string()),
         ("RAMPAGE_MIN_INTERVAL_S", crate::adventure::RAMPAGE_MIN_INTERVAL.as_secs().to_string()),
         // Items & loot (wiki/items.md).
         ("EQUIP_SLOTS_COUNT", crate::adventure::EQUIP_SLOTS.len().to_string()),
@@ -339,8 +361,6 @@ fn wiki_placeholder_map() -> HashMap<&'static str, String> {
         ),
         ("BOSS_ITEM_PITY_GAIN_PCT", pct(crate::adventure::BOSS_ITEM_PITY_GAIN)),
         ("BASIC_ITEM_PITY_GAIN_PCT", pct(crate::adventure::BASIC_ITEM_PITY_GAIN)),
-        ("BOSS_CRAFT_PITY_GAIN_PCT", pct(crate::adventure::BOSS_CRAFT_PITY_GAIN)),
-        ("BASIC_CRAFT_PITY_GAIN_PCT", pct(crate::adventure::BASIC_CRAFT_PITY_GAIN)),
         // Classes & Passives (wiki/classes.md).
         ("ARCHETYPE_COUNT", ALL_ARCHETYPES.len().to_string()),
         ("POINTS_AT_LEVEL_1", crate::passive_tree::points_for_level(1).to_string()),

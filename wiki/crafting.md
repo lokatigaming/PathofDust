@@ -4,14 +4,19 @@
 
 Every currency, every action, and the one rule that governs them all: no item can ever carry more than seven modifiers, however you get there.
 
+<p class="muted"><strong>About prices on this page.</strong> Crafting costs are set by operator dials that can change at any time without a patch, so this page deliberately does not print most dust prices - it would go stale silently and tell you something confidently wrong. <strong>The real, current price of every action is shown on the crafting panel itself, next to the button.</strong> Where a number here is fixed in the game's code rather than on a dial, it is printed and said to be fixed.</p>
+
 <h3 id="currencies">Currencies</h3>
 
 <div class="wiki-currency-grid">
-  <div class="wiki-currency-card"><h4>Dust</h4><p>Earned from wins and boss kills. Pays for every currency-crafting action, Reforge, and Recombine.</p></div>
-  <div class="wiki-currency-card"><h4>Sand</h4><p>Earned from wins and disenchanting. Spent exclusively on Polishing.</p></div>
-  <div class="wiki-currency-card"><h4>Craft Tokens</h4><p>One kind per action (Transmute, Scour, Augment, Regal, Exalt, Krangle, Annulment, Chancing). Spending a token skips that action's dust cost entirely.</p></div>
-  <div class="wiki-currency-card"><h4>Unique Shard</h4><p>A rare token, separate from every other currency. Lets you pick which Unique Affix to grant an item - Celestial Conversion or Split Personality (unlocks a second class's passive tree - see <a href="/wiki/classes#split-personality">Classes &amp; Passives</a>).</p></div>
+  <div class="wiki-currency-card"><h4>Dust</h4><p>Earned from wins and disenchanting. Pays for every currency-crafting action, Reforge, Recombine and repairs.</p></div>
+  <div class="wiki-currency-card"><h4>Sand</h4><p>Spent exclusively on Polishing. Dropped by boss wins once the world is deep enough, and by disenchanting at any stage.</p></div>
+  <div class="wiki-currency-card"><h4>Divine Dust</h4><p>Makes an item Sacred, or rerolls a Sacred item's implicit affix. See <a href="#divine-dust">Divine Dust</a> below.</p></div>
+  <div class="wiki-currency-card"><h4>Craft Tokens</h4><p>One kind per action. Spending a token skips that action's dust cost entirely. <strong>Starting stock only</strong> - see below.</p></div>
+  <div class="wiki-currency-card"><h4>Unique Shard</h4><p>A rare drop. Lets you pick which Unique Affix to grant an item - Celestial Conversion or Split Personality - or spend it on <a href="#divinity">Divinity</a>.</p></div>
 </div>
+
+<p class="muted"><strong>Craft Tokens no longer drop.</strong> You are given one of each (Transmute, Scour, Augment, Regal, Exalt, Krangle, Annulment, Chancing) when you first join, and that is the entire supply - there is no fight drop, and the "pity" payout that used to guarantee one after a dry streak has been removed too. Spend them deliberately. Unique Shards are unaffected and still drop normally.</p>
 
 <h3 id="ceiling">The Modifier Ceiling</h3>
 
@@ -36,26 +41,37 @@ The R and C slots each carry a memory: while the bonus modifier either crit gran
 
 A Unique Affix (from a Unique Shard) and Sacred's implicit affix live entirely outside this pool — they never count toward the seven, and no crafting action can touch them.
 
+<h3 id="cost-formula">What a Craft Costs</h3>
+
+Every dust-priced craft action is charged the same way, in two parts added together:
+
+1. **A flat fee for the action.** Krangle costs more than Transmute, and so on down the list. Each action's own fee is multiplied by a single operator dial that scales all of them at once - that dial is how crafting gets made cheaper or dearer across the board, and it has been moved.
+2. **A per-tier surcharge that accelerates.** It is *not* a flat rate per tier. The surcharge is the item's tier raised to an exponent above 1, so the cost per tier climbs as the tier climbs - the gap between crafting a tier-10 item and a tier-100 item is much wider than ten times. That exponent is also an operator dial and has been moved.
+
+Both parts are rounded up independently, then summed. **The crafting panel shows you the real total before you commit** - read it there rather than computing it from this page.
+
+<p class="muted">Two consequences worth knowing. First, every craft also bumps the item's tier, which means every craft makes the <em>next</em> craft on that item more expensive - the cost of working one item up compounds. Second, spending that action's Craft Token skips the dust entirely, both parts, which makes a token most valuable on a high-tier item, not a fresh one.</p>
+
 <h3 id="currency-crafting">Currency Crafting</h3>
 
-Eight actions in total. Six are gated by exactly how many modifiers the target item currently has; Annulment and Chancing just need at least one modifier to work with. Every one of them also bumps the item's tier as a side effect — `{{TIER_CRAFT_DUST_COST}}` dust × tier, on top of the base cost below.
+Eight actions in total. Six are gated by exactly how many modifiers the target item currently has; Annulment and Chancing just need at least one modifier to work with.
 
 <div class="wiki-table-wrap">
 
-| Action | Effect | Requires | Dust | Veilable |
-|---|---|---|---|---|
-| Transmute | Adds a random modifier to a bare item. | 0 modifiers | {{TRANSMUTE_COST}} | Yes |
-| Augment | Adds a 2nd modifier. | 1 modifier | {{AUGMENT_COST}} | Yes |
-| Regal | Adds a 3rd modifier. | 2 modifiers | {{REGAL_COST}} | Yes |
-| Exalt | Adds a 4th modifier. | 3 modifiers | {{EXALT_COST}} | Yes |
-| Scour | Strips every modifier back to none. | 1+ modifiers | {{SCOUR_COST}} | No |
-| Krangle | Adds one final modifier beyond the normal 4, then permanently locks the item — no further crafting of any kind, ever. | Any unlocked item | {{KRANGLE_COST}} | Yes |
-| Annulment Orb | Removes one modifier. Unveiled: a random one goes. Veiled: rolls up to 2 candidates and you pick which leaves. | 1+ modifiers | {{ANNULMENT_COST}} | Yes |
-| Chancing | Rerolls every existing modifier to a brand-new *type* (not just a new value), each at a fresh roll range. Veiled: walks them one at a time with 3 candidates each. | 1+ modifiers | {{CHANCING_COST}} | Yes |
+| Action | Effect | Requires | Veilable |
+|---|---|---|---|
+| Transmute | Adds a random modifier to a bare item. | 0 modifiers | Yes |
+| Augment | Adds a 2nd modifier. | 1 modifier | Yes |
+| Regal | Adds a 3rd modifier. | 2 modifiers | Yes |
+| Exalt | Adds a 4th modifier. | 3 modifiers | Yes |
+| Scour | Strips every modifier back to none. | 1+ modifiers | No |
+| Krangle | Adds one final modifier beyond the normal 4, then permanently locks the item — no further crafting of any kind, ever. | Any unlocked item | Yes |
+| Annulment Orb | Removes one modifier. Unveiled: a random one goes. Veiled: rolls up to 2 candidates and you pick which leaves. | 1+ modifiers | Yes |
+| Chancing | Rerolls every existing modifier to a brand-new *type* (not just a new value), each at a fresh roll range. Veiled: walks them one at a time with 3 candidates each. | 1+ modifiers | Yes |
 
 </div>
 
-<p class="muted">Every action above also costs <code>{{TIER_CRAFT_DUST_COST}}&times;tier</code> extra dust on top of its base price &mdash; unless you spend that action's own Craft Token instead, which skips the dust entirely. A locked (Krangled) item is permanently excluded from all eight.</p>
+<p class="muted">Relative cost order, cheapest to dearest, which does not change when the dials move: Transmute and Scour, then Augment, Regal, Chancing, Annulment, Exalt, and Krangle dearest of all. A locked (Krangled) item is permanently excluded from all eight.</p>
 
 **Hideout Warrior** is a one-click macro on the dashboard's crafting card
 that runs Transmute → Augment → Regal → Exalt → (optionally Krangle, via a
@@ -64,13 +80,32 @@ precondition doesn't currently match, and always paying full dust per step
 rather than spending a banked token. It stops early if you run out of dust
 partway through.
 
+<h3 id="divinity">Divinity</h3>
+
+Costs **1 Unique Shard** and runs the whole Hideout Warrior chain - including
+Krangle - over **every eligible item in your bag at once**, waiving all dust.
+Equipped gear is never touched. Items that are already Krangled, or that have
+**Keep** ticked, are skipped and reported back to you as skipped. Every item
+it Krangles is auto-named "From Divinity".
+
+The button only appears if you hold a Unique Shard, is disabled when nothing
+in your bag is eligible, and asks for confirmation first. It is never batched -
+one shard per use, no x10. If it refuses (no shard, empty bag, nothing
+eligible) it costs you nothing.
+
 <h3 id="reforge">Reforge</h3>
 
 Raises an item's tier and rescales everything it already has to match — the closest thing to a straightforward power-up. Comes in two forms.
 
-**Reforge Now** — a free action (via the dashboard button or its matching channel-points redemption), or `{{WEB_REFORGE_DUST_COST}}` dust on demand. Always targets a random unlocked equipped item, replacing it with a freshly reforged version at the same slot.
+**Reforge Now** — the dashboard button. Costs `{{WEB_REFORGE_DUST_COST}}` dust
+(a fixed price, not affected by the crafting dials) and is limited to **once
+per clock hour**. Targets a random unlocked equipped item, replacing it with a
+freshly reforged version in the same slot.
 
-**Crafting-Panel Reforge** — costs `{{PANEL_REFORGE_DUST_PER_TIER}}×tier` dust and lets you pick the exact item, equipped or bagged, rather than leaving it to chance. No cooldown, unlike the free button.
+**Crafting-Panel Reforge** — costs `{{PANEL_REFORGE_DUST_PER_TIER}}×tier` dust
+(also fixed, and note this is charged per tier at a flat rate rather than on
+the accelerating curve the eight actions above use) and lets you pick the exact
+item, equipped or bagged. No hourly cooldown.
 
 **Tier jump:** +2 to +4 below tier 50, +1 to +2 at tier 50–99, +1 at tier 100+.
 
@@ -99,7 +134,7 @@ Forges two items of the same slot into one, consuming both. The result inherits 
 - **Unique Affix & durability:** either source's Unique Affix carries over; the result is indestructible if either source was.
 - **Perfect & Sacred never carry over.** The result is always an ordinary item, regardless of what went in.
 
-Free to recombine unveiled - no dust cost at all, blind result. **Veiling** it (or spending one of your banked free recombines, which always veils too) rolls 3 full candidate outcomes and lets you pick, and guarantees the higher power roll plus every shared modifier's transfer - costs `{{VEIL_EXTRA_COST}}` dust flat, plus `500` per modifier across *both* source items combined. A rare **{{RECOMBINE_CRIT_CHANCE_PCT}}% crit** can add a bonus modifier on top of any recombine, veiled or not — the "C" slot from the ceiling, tracked and gated exactly like Reforge's own crit, independently.
+Free to recombine unveiled - no dust cost at all, blind result. **Veiling** it (or spending one of your banked free recombines, which always veils too) rolls 3 full candidate outcomes and lets you pick, and guarantees the higher power roll plus every shared modifier's transfer - it costs a flat veil fee plus a further per-modifier charge counted across *both* source items combined, shown on the panel. A rare **{{RECOMBINE_CRIT_CHANCE_PCT}}% crit** can add a bonus modifier on top of any recombine, veiled or not — the "C" slot from the ceiling, tracked and gated exactly like Reforge's own crit, independently.
 
 <h3 id="polishing">Polishing</h3>
 
@@ -107,7 +142,52 @@ The only action priced in Sand instead of Dust, and the only one that improves r
 
 On an ordinary item, Polishing nudges the primary stat's roll upward by a fixed step, and does the same to one random modifier that still has room to climb. On a <span class="gear-unique">Perfect</span> item — whose primary stat is already maxed — it instead nudges up to two modifiers at once. An affix already sitting at its own cap is skipped automatically.
 
-<p class="muted">Cost scales with how much room is left to improve: <code>ceil(quality% &divide; {{POLISH_SAND_COST_PER_QUALITY_PCT}})</code> sand on a normal item (1 to {{POLISH_MAX_SAND_COST}}), or a flat <code>{{POLISH_PERFECT_SAND_COST}}</code> sand on a Perfect one. Bypasses tokens and veiling entirely.</p>
+<p class="muted">Sand costs are fixed in code, not on a dial: <code>ceil(quality% &divide; {{POLISH_SAND_COST_PER_QUALITY_PCT}})</code> sand on a normal item (1 to {{POLISH_MAX_SAND_COST}}), or a flat <code>{{POLISH_PERFECT_SAND_COST}}</code> sand on a Perfect one. Bypasses tokens and veiling entirely.</p>
+
+<h3 id="divine-dust">Divine Dust</h3>
+
+A separate currency that exists to make items **Sacred**.
+
+**Getting it.** Three sources: a chance per character per boss or basic win
+(only once the world is deep enough - see Stage Gates below), a chance each
+time you manually disenchant a **Sacred** item (non-Sacred disenchants never
+yield any, and this source is *not* stage-gated), and a craft recipe that
+converts dust plus sand into Divine Dust. All the rates and the recipe's
+amounts are operator dials; the recipe's real cost and output are shown on the
+crafting panel. None of these announce themselves - Divine Dust arrives
+silently.
+
+**Spending it.** Applying Divine Dust to an item costs **2 × the item's tier**
+in Divine Dust, on the crafting panel beside the other actions.
+
+- On an item that is **not yet Sacred**: it becomes Sacred and gains one random affix drawn from the full pool regardless of slot, as its own implicit line.
+- On an item that is **already Sacred**: it instead rerolls that implicit affix to a different one, excluding the current one.
+
+<p class="muted"><strong>Sacralizing also makes the item Perfect, and this surprises people.</strong> If the item was not already Perfect, applying Divine Dust maxes its power roll and bumps every existing modifier by the Perfect quality multiplier <em>in the same click</em> - it is not merely "gains a sacred affix" on top of whatever quality it had. This is deliberate: everything else in the game assumes Sacred implies Perfect. It means a mediocre-quality item is a much better Divine Dust target than it looks.</p>
+
+Krangle's lock applies: a locked item rejects Divine Dust like every other crafting action.
+
+<h3 id="stage-gates">Stage Gates</h3>
+
+Four drop types don't exist at all until the shared world stage is deep enough.
+All four thresholds are operator dials; the **stage they gate on is the current
+world stage**, so a losing streak that walks the stage back below a threshold
+temporarily switches that drop off again.
+
+<div class="wiki-table-wrap">
+
+| Drop | Gated on |
+|---|---|
+| Polishing sand (from fight wins) | A mid-early stage threshold |
+| <span class="gear-unique">Perfect</span> items | A higher threshold than sand |
+| Divine Dust (from fight wins) | A late threshold |
+| <span class="gear-sacred">Sacred</span> items | The same late threshold as Divine Dust |
+
+</div>
+
+<p class="muted"><strong>Two ways around the gates.</strong> Sand and Divine Dust from <em>disenchanting</em> are deliberately not gated - breaking gear down yields both at any stage, just at low volume compared to what a boss win pays once the gate opens. That's a real route, not a loophole.</p>
+
+<p class="muted"><strong>The Divine Dust craft recipe is locked separately, and unlike the drops it latches.</strong> It unlocks when the group reaches the Divine Dust stage threshold and then <em>stays</em> unlocked forever, even if the world stage later falls back below it. While locked, the recipe shows on the crafting page as a locked row naming the stage it needs, with no usable form.</p>
 
 <h3 id="celestial-shard">Unique Shard</h3>
 
@@ -118,29 +198,35 @@ Consuming a Unique Shard token (never dust) opens a picker letting you choose wh
 - **Celestial Conversion** — effect depends on the wielder's role. **Healers** convert {{CELESTIAL_CONVERSION_PCT}}% of every heal into bonus damage against a random enemy. **Every other archetype** instead lands a follow-up hit on whatever they just struck, for {{CELESTIAL_CONVERSION_PCT}}% of that hit's damage — a real second hit that can trigger Leech, elemental procs, and anything else an on-hit effect would.
 - **Split Personality** — unlocks a second class's passive tree on that item. See [Classes &amp; Passives](/wiki/classes#split-personality) for the full mechanic.
 
-<p class="muted">Mutually exclusive with Krangle: an item carrying a Unique Affix can never be Krangled, and vice versa. Celestial Conversion and Split Personality used to be two separate currencies (Celestial Shard and Unique Shard); they've since merged into this one Unique Shard with a picker - if you held Celestial Shards before the merge, they converted 1:1 into Unique Shards automatically.</p>
+<p class="muted">There is only one shard currency. "Celestial Shard" was a separate token once; it was merged into Unique Shard, and any Celestial Shards you held converted 1:1 automatically. Nothing drops Celestial Shards any more, and any older text you find calling Celestial Conversion "the Celestial Shard affix" is out of date - both effects come from the same Unique Shard picker now.</p>
+
+<p class="muted">You can only have one copy of a given unique effect <em>equipped</em> at a time. Applying a shard to an item you are already wearing will offer you only the non-conflicting choice, or refuse outright if every choice would duplicate something you already have equipped - and a refused attempt does not spend the shard. Applying one to an item sitting in your bag is never restricted.</p>
+
+<p class="muted"><strong>Spending a Unique Shard asks for confirmation first</strong>, the same way Krangle, Scour, Annulment Orb and Chancing do. Nothing about the action changed - same one-shard cost, same picker, same rules. It is gated because a shard is the one price on that row you cannot go and re-earn with dust.</p>
+
+<p class="muted">Mutually exclusive with Krangle: an item carrying a Unique Affix can never be Krangled, and vice versa.</p>
 
 <h3 id="item-tiers">Item Tiers</h3>
 
-Beyond the normal 0–100% quality roll, two rarer tiers exist — both earned from boss kills, never crafted.
+Beyond the normal 0–100% quality roll, two rarer tiers exist. Both drop from boss kills; Sacred can also be crafted onto an item with Divine Dust.
 
 <div class="wiki-tier-grid">
   <div class="wiki-tier-card"><h4>Normal</h4><p>Rolls somewhere in the standard quality band. What every drop starts as.</p></div>
-  <div class="wiki-tier-card"><h4><span class="gear-unique">Perfect Quality</span></h4><p>Primary stat pinned to its maximum roll, plus a flat {{PERFECT_QUALITY_BONUS_PCT}}% bonus to that stat <em>and</em> every modifier. Guaranteed on stage-100+ boss kills &mdash; once per kill, and once more the first time each character personally takes part in one. Once Sacred also starts dropping (stage {{SACRED_STAGE_THRESHOLD}}+), that per-kill guarantee only fires half as often.</p></div>
-  <div class="wiki-tier-card"><h4><span class="gear-sacred">Sacred</span></h4><p>Everything Perfect Quality gets, plus one further modifier &mdash; drawn from the full affix pool regardless of slot, rolled at its own maximum, shown as its own implicit line. Outside the 4-modifier pool entirely; no crafting action can ever touch it. Same drop mechanism as Perfect, gated to stage {{SACRED_STAGE_THRESHOLD}}+.</p></div>
+  <div class="wiki-tier-card"><h4><span class="gear-unique">Perfect Quality</span></h4><p>Primary stat pinned to its maximum roll, plus a flat {{PERFECT_QUALITY_BONUS_PCT}}% bonus to that stat <em>and</em> every modifier. Guaranteed on a boss kill once the world passes the Perfect threshold &mdash; once per kill, and once more the first time each character personally takes part in one. Once Sacred also starts dropping, that per-kill guarantee only fires half as often.</p></div>
+  <div class="wiki-tier-card"><h4><span class="gear-sacred">Sacred</span></h4><p>Everything Perfect Quality gets, plus one further modifier &mdash; drawn from the full affix pool regardless of slot, rolled at its own maximum, shown as its own implicit line. Outside the 4-modifier pool entirely; no crafting action can ever touch it. Same drop mechanism as Perfect, at a deeper stage &mdash; or apply Divine Dust yourself.</p></div>
 </div>
 
 <h3 id="veiling">Veiling</h3>
 
 Most crafts are a blind gamble — you commit, then see what you got. Veiling flips that: pay extra to see the exact result first, and choose whether to keep it.
 
-Available on Transmute, Augment, Regal, Exalt, Krangle, Annulment, Chancing, and Recombine. **Not** available on Scour (nothing to choose — it's fully deterministic), Unique Shard (its own free effect picker isn't part of this system), Polishing (bypasses this system entirely), or Reforge.
+Available on Transmute, Augment, Regal, Exalt, Krangle, Annulment, Chancing, and Recombine. **Not** available on Scour (nothing to choose — it's fully deterministic), Unique Shard (its own free effect picker isn't part of this system), Divine Dust, Polishing (bypasses this system entirely), or Reforge.
 
-<p class="muted">Veiling any currency-craft action other than Recombine adds a flat <code>{{VEIL_EXTRA_COST}}</code> dust surcharge on top of its base + per-tier cost. Recombine's own veil cost works differently &mdash; see Recombine above.</p>
+<p class="muted">Veiling any currency-craft action other than Recombine adds a flat dust surcharge on top of its base + per-tier cost. That surcharge is scaled by the same operator dial as the base fees, so it moves with them &mdash; the panel shows the real figure. Recombine's own veil cost works differently &mdash; see Recombine above.</p>
 
 <h3 id="disenchanting">Disenchanting</h3>
 
-Turns an unwanted item straight into Dust, valued by how much was invested in it.
+Turns an unwanted item straight into Dust, valued by how much was invested in it. It's also an ungated source of Sand, and of Divine Dust from Sacred items.
 
 <div class="wiki-table-wrap">
 
@@ -156,7 +242,13 @@ Turns an unwanted item straight into Dust, valued by how much was invested in it
 
 <p class="muted">Sacred's bonus implicit counts as one more modifier toward this same table &mdash; a Sacred item with <em>N</em> normal modifiers is always worth exactly what a Perfect item with <em>N+1</em> would be.</p>
 
-Toggle **Keep** on any item to protect it from both single and bulk disenchanting — independent of Krangle's lock, and reversible any time. A Krangled item can still be disenchanted; locking only ever blocks further crafting.
+Toggle **Keep** on any item to protect it. **Keep now blocks every kind of
+modification, not just disenchanting** - crafts, Polish, Reforge, Divine Dust,
+applying a unique, Recombine as either input, and Divinity all refuse a
+Keep-ticked item. Repair and Krangle's level growth still apply. It's
+independent of Krangle's own lock and reversible any time.
+
+A Krangled item can still be disenchanted; Krangle's lock only ever blocks further crafting.
 
 **Auto-disenchant** can be set to a threshold — Quality, Perfect, or Sacred — so any new drop at or below that tier is converted to Dust automatically the moment it's picked up, instead of filling the bag.
 
@@ -164,22 +256,23 @@ Toggle **Keep** on any item to protect it from both single and bulk disenchantin
 
 <div class="wiki-table-wrap">
 
-| Action | Currency | Base cost | Notable rule |
+| Action | Currency | Cost | Notable rule |
 |---|---|---|---|
-| Transmute | Dust | {{TRANSMUTE_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Bare items only |
-| Augment | Dust | {{AUGMENT_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | 1 modifier only |
-| Regal | Dust | {{REGAL_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | 2 modifiers only |
-| Exalt | Dust | {{EXALT_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | 3 modifiers only |
-| Scour | Dust | {{SCOUR_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Not veilable |
-| Krangle | Dust | {{KRANGLE_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Locks the item forever |
-| Annulment Orb | Dust | {{ANNULMENT_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Needs 1+ modifiers |
-| Chancing | Dust | {{CHANCING_COST}} + {{TIER_CRAFT_DUST_COST}}/tier | Needs 1+ modifiers |
-| Reforge (free) | — | 0 | Random equipped item |
-| Reforge (on demand) | Dust | {{WEB_REFORGE_DUST_COST}} | Random equipped item |
-| Reforge (crafting panel) | Dust | {{PANEL_REFORGE_DUST_PER_TIER}}/tier | Choose the exact item |
-| Recombine | Dust | Free unveiled | Veiled: +{{VEIL_EXTRA_COST}}, +500/combined modifier |
-| Polishing | Sand | 1–{{POLISH_MAX_SAND_COST}}, or {{POLISH_PERFECT_SAND_COST}} flat if Perfect | Not veilable |
+| Transmute | Dust | On the panel — dial-scaled | Bare items only |
+| Augment | Dust | On the panel — dial-scaled | 1 modifier only |
+| Regal | Dust | On the panel — dial-scaled | 2 modifiers only |
+| Exalt | Dust | On the panel — dial-scaled | 3 modifiers only |
+| Scour | Dust | On the panel — dial-scaled | Not veilable |
+| Krangle | Dust | On the panel — dial-scaled, dearest action | Locks the item forever |
+| Annulment Orb | Dust | On the panel — dial-scaled | Needs 1+ modifiers |
+| Chancing | Dust | On the panel — dial-scaled | Needs 1+ modifiers |
+| Reforge (dashboard) | Dust | {{WEB_REFORGE_DUST_COST}}, fixed | Random equipped item, once per clock hour |
+| Reforge (crafting panel) | Dust | {{PANEL_REFORGE_DUST_PER_TIER}}/tier, fixed | Choose the exact item |
+| Recombine | Dust | Free unveiled; veil fee + per-modifier on the panel | Perfect/Sacred never carry over |
+| Polishing | Sand | 1–{{POLISH_MAX_SAND_COST}}, or {{POLISH_PERFECT_SAND_COST}} flat if Perfect — fixed | Not veilable |
+| Divine Dust | Divine Dust | 2 × tier, fixed | Sacralizes (and makes Perfect), or rerolls |
 | Unique Shard | Shard token | 1 token | Excludes Krangle |
+| Divinity | Shard token | 1 token | Whole bag, no dust |
 
 </div>
 

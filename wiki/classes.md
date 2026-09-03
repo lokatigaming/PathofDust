@@ -8,6 +8,8 @@ Specialization, and Modifier with its real rank-by-rank numbers - see the
 code-generated [Passives](/wiki/passives) viewer, which draws the exact same
 tree the game itself uses.
 
+<p class="muted"><strong>Node values can be retuned live, without a patch.</strong> That is why this page describes what a node does rather than printing its per-rank percentages: a number copied into prose here would go stale silently, while the tree viewer always renders the real current value and says so explicitly when a node has been tuned away from its shipped default. If this page and the tree ever disagree about a number, <strong>the tree is right</strong>.</p>
+
 <h3 id="archetypes">The {{ARCHETYPE_COUNT}} Classes</h3>
 
 Everyone starts as **Commoner** - a plain fighter with no archetype bonus and
@@ -131,7 +133,7 @@ Its 3 specs (Shocking/Chilling/Scorching Focus) each add "applies debuffs
 more frequently," and their modifiers add gear-scaled elemental damage, bonus
 crit, and on-proc shields for their own element.
 
-<p class="muted">The per-level numbers here get large fast (rank 3 is 15% × your level, separately for each of fire/cold/lightning) - but this stat feeds a proc-chance roll that's hard-capped at 100%, not a raw damage multiplier. In practice this means a mid-level Elementalist's elemental debuffs go from "sometimes" to "reliably every hit" well before max level, not that damage itself scales unboundedly - your base attack damage, crit, and increased-damage stats are untouched by this branch.</p>
+<p class="muted">The per-level numbers here get large fast - the node's value is multiplied by your character level, separately for each of fire/cold/lightning - but this stat feeds a proc-chance roll that's hard-capped at 100%, not a raw damage multiplier. In practice this means a mid-level Elementalist's elemental debuffs go from "sometimes" to "reliably every hit" well before max level, not that damage itself scales unboundedly - your base attack damage, crit, and increased-damage stats are untouched by this branch.</p>
 
 <p class="muted">Fire/Cold/Lightning/Divine/Chaos damage affixes now roll on every gear slot, not just Weapon/Helm (see <a href="/wiki/items#affixes">Items</a>) - Overshock/Polar Flux/Incinerate all scale off your own elemental gear stats, so this branch benefits directly from stacking those affixes across more of your kit than before.</p>
 
@@ -142,11 +144,11 @@ you take ongoing self-damage every second while it's active: reduced by your
 own damage reduction, with whatever's left after that absorbed by your
 active shield before it touches your HP - evasion and block never apply to
 it (you can't dodge your own fire). Damage reduction can never fully cancel
-this out, by design - it caps at mitigating 95% of the tick (see
-[Combat](/wiki/combat#block-and-dr) for the universal DR cap this follows),
-so at least 5% of the raw self-damage always lands even on an extremely
-tanky build, and your shield absorbs that post-cap remainder, not the full
-pre-mitigation amount. This is meant to be offset by the branch's own
+this out, by design - it is subject to the same universal cap on damage
+reduction every other damage source is (see
+[Combat](/wiki/combat#block-and-dr)), so some of the raw self-damage always
+lands even on an extremely tanky build, and your shield absorbs that
+post-cap remainder, not the full pre-mitigation amount. This is meant to be offset by the branch's own
 healing/shield/DR investment (Healing Flames' self-regen, Shielding Flames,
 Lightning/Chilling/Scorching Aegis's on-proc shields) rather than avoided
 outright - a tanky or shield-generating Righteous Fire build can sustain it
