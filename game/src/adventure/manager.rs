@@ -2124,24 +2124,70 @@ impl AdventureManager {
         tracing::info!("loaded {} characters from {}", characters.len(), characters_path.display());
 
         // One-time backfill for anyone who joined before Character::new()
-        // started handing out a full starter kit - fills only EMPTY
-        // slots with a basic tier-1 item, never touching gear they
-        // already have. Idempotent: once everyone has all 5 slots
-        // filled, this is just a fast no-op scan on every future startup.
+        // started handing out a starter kit - fills only EMPTY starter-kit
+        // slots with a basic tier-1 item, never touching gear they already
+        // have.
+        //
+        // GUARDED BY A MARKER, and bounded to a FROZEN slot list. Both,
+        // and neither is redundant. Read this before touching either.
+        //
+        // This block used to claim it was "idempotent: once everyone has
+        // all 5 slots filled, this is just a fast no-op scan on every
+        // future startup". That was true when written and it was not a
+        // guard - it was an INVARIANT, resting on the data converging on a
+        // state where the `if` never matches. The gear-slots release
+        // (2026-09-03, spec §8) took `EQUIP_SLOTS` from 5 to 9 and
+        // falsified it: the loop silently re-armed, granted 72 tier-1
+        // items across 18 live characters, and persisted them. Nothing
+        // failed to compile and no test failed. Worse forward,
+        // `Character::new` leaves the four §8 slots EMPTY by owner ruling,
+        // so every future character would have been auto-filled at the
+        // next service restart - the ruling permanently defeated. The
+        // durable lesson, and the reason for the shape below: a one-time
+        // migration must be guarded by STATE, not by an invariant a future
+        // change can falsify.
+        //
+        // 1. THE MARKER is the state guard. Once written, this cannot run
+        //    again no matter what `EQUIP_SLOTS` becomes. Same shape as
+        //    every other one-off grant in this fn.
+        // 2. THE FROZEN LIST is what makes the one unavoidable remaining
+        //    run harmless. The marker does not exist on the live box yet,
+        //    so the first restart after this ships finds no marker and
+        //    runs the loop one final time. Over `EQUIP_SLOTS` that final
+        //    pass would fill the four §8 slots for every character created
+        //    since the gear-slots release - defeating the ruling one more
+        //    time on the way to enforcing it. Over the five slots the
+        //    migration was actually written for it is a provable no-op.
+        //
+        // Do NOT "modernise" this list to `EQUIP_SLOTS`. It is frozen at
+        // the five slots that existed when the migration was written, on
+        // purpose, and the marker means it will never run again anyway.
+        // `starter_kit_backfill_bound.rs` fails if either half is removed.
         {
-            let mut rng = rand::thread_rng();
-            let mut changed = false;
-            for character in characters.values_mut() {
-                for slot in EQUIP_SLOTS {
-                    if character.equipped(slot).is_none() {
-                        character.equip(generate_item_at_tier(slot, 1, &mut rng));
-                        changed = true;
+            const STARTER_KIT_BACKFILL_MARKER_PATH: &str = "adventure-starter-kit-backfill-marker.json";
+            const STARTER_KIT_BACKFILL_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
+            if crate::state::load_json::<bool>(data_path(STARTER_KIT_BACKFILL_MARKER_PATH)).is_none() {
+                let mut rng = rand::thread_rng();
+                let mut changed = false;
+                for character in characters.values_mut() {
+                    for slot in STARTER_KIT_BACKFILL_SLOTS {
+                        if character.equipped(slot).is_none() {
+                            character.equip(generate_item_at_tier(slot, 1, &mut rng));
+                            changed = true;
+                        }
                     }
                 }
-            }
-            if changed {
-                if let Err(err) = crate::state::save_json(&characters_path, &characters) {
-                    tracing::error!("Failed to persist starter-kit backfill to {}: {err}", characters_path.display());
+                if changed {
+                    if let Err(err) = crate::state::save_json(&characters_path, &characters) {
+                        tracing::error!("Failed to persist starter-kit backfill to {}: {err}", characters_path.display());
+                    }
+                }
+                // Written even when nothing changed - that is the whole
+                // point. A marker only written on a change would leave the
+                // guard unarmed on exactly the installs where the loop was
+                // a no-op, which is every install that matters here.
+                if let Err(err) = crate::state::save_json(data_path(STARTER_KIT_BACKFILL_MARKER_PATH), &true) {
+                    tracing::error!("Failed to persist starter-kit backfill marker to {STARTER_KIT_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
         }
@@ -2340,8 +2386,14 @@ impl AdventureManager {
         // catch-up-weighted recipient selection bug (see `catchup_multiplier`'s
         // history/the loot rework above that reverted it back to
         // uniform) - low-level alts were soaking up most of the drop
-        // rolls in a 36-character roster. A full 5-slot item assortment
-        // (one per equip slot, at whatever the world's currently at)
+        // rolls in a 36-character roster. A full item assortment (one per
+        // equip slot, at whatever the world's currently at) - five items
+        // when this actually fired, and it can never fire again because
+        // its marker is set, but note the loop reads `EQUIP_SLOTS` and so
+        // would grant one per slot at whatever the list is TODAY (9 as of
+        // spec §8) if the marker were ever cleared. Stated because the
+        // number in this comment was wrong for exactly one release and
+        // this is the file people open when a slot is added
         // plus a dust lump sum and a couple craft tokens, standing in
         // for what pity would have paid out correctly over that
         // stretch. Same guarded-by-marker, fire-once shape as every
