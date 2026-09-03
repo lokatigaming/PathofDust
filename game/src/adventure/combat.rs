@@ -20256,10 +20256,36 @@ mod echo_tests {
         }
     }
 
+    /// A character whose ONLY Echo is the amount asked for.
+    ///
+    /// The affix strip is load-bearing, not tidiness. `Character::new`
+    /// rolls random affixes on the starter kit and every affix is eligible
+    /// on every slot, so a plain `Character::new` carries a random amount
+    /// of whatever the roll produced - `Echo` included. `sum_affix` adds
+    /// that to whatever a test pushed, so ANY assertion on an exact
+    /// summed-affix value is silently approximate. Measured at 0.00014 of
+    /// stray Echo on one run while this was being written.
+    ///
+    /// The 2026-09-03 coefficient correction made that dangerous rather
+    /// than merely untidy: at 80x, a stray tier-1 Echo roll is worth about
+    /// 0.85-1.15% instead of 0.0125%, which is enough to push a fixture
+    /// built at 5.99 over the 6.0 rung and change `roll_echo`'s
+    /// GUARANTEED repeat count from 5 to 6. A test asserting a repeat
+    /// count would then fail on the roll, not on the code.
+    ///
+    /// Generalises beyond Echo: any test asserting an exact `sum_affix`
+    /// value on a `Character::new` fixture is latently flaky, for every
+    /// affix in the pool.
     fn echo_geared_character(name: &str, echo_pct: f64) -> Character {
         let mut c = Character::new(name.to_string());
         c.archetype = Archetype::Warrior;
         c.level = 100;
+        for slot in crate::adventure::EQUIP_SLOTS {
+            if let Some(item) = c.equipped_item_mut_unguarded(slot) {
+                item.affixes.clear();
+            }
+        }
+        assert_eq!(c.sum_affix(Affix::Echo), 0.0, "the fixture must start with provably zero earned Echo, or the amount this test pushes is not the amount it measures");
         let weapon = c.equipped_item_mut_unguarded(EquipSlot::Weapon).expect("starter kit fills every slot");
         weapon.affixes.push((Affix::Echo, echo_pct));
         c
