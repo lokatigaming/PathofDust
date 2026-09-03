@@ -325,3 +325,172 @@ to LiveTunables; the missing sample-before-compress regression test.
    you want when one axis cannot deliver (§2)?
 4. Do you accept the recommendation *against* pacing reading player power
    directly (§3)?
+
+---
+
+# 8. REVISION — the resistance model (owner ruling, 2026-09-03)
+
+**Supersedes the framing of §5 and re-ranks §6.** The stationary fixed
+point is **intentional design**, not a defect. The world resists at 2:1;
+stage progress is *earned* by improving builds, items and characters
+faster than the controllers can compensate. §1-§4 and §7 stand unchanged.
+
+**Do not design a way to make the world climb. Design the resistance.**
+
+## 8.1 The stage walk IS Controller B's setpoint
+
+Win = +1 stage, loss = −2, so net stage per boss fight is exactly
+
+> **net = 3p − 2**, where `p` = boss win rate
+
+which is **zero at p = 2/3 — precisely B's `target_win_loss_ratio` of
+2.0.** B is not merely correlated with the stationary point; B *is* the
+mechanism that enforces it. This is the whole design in one line.
+
+| win rate | net stage/fight | stages/day (≈144 boss fights) |
+|---|---|---|
+| **66.7%** (setpoint) | 0.000 | **0** |
+| 68.0% | 0.040 | 5.7 |
+| **68.3%** (measured) | 0.049 | **7.0** |
+| 70.0% | 0.100 | 14.4 |
+| 72.0% | 0.160 | 23.0 |
+| 75.0% | 0.250 | 35.9 |
+
+## 8.2 Breakthrough rate is set by B's gain, and only B's gain
+
+B's per-fight compensation is `dmg_step × tanh(ln(ratio/2))`. Equilibrium
+is where B's compensation equals the party's power growth `g` per boss
+fight, giving a closed form for the earned win rate:
+
+> **ratio = 2·exp(atanh(g / dmg_step))**
+
+Inverting the measured 7.0 stages/day gives **g ≈ 0.0112 per boss fight**
+today (a fresh world: levels and first items, so this is the fastest `g`
+the season will ever see). The model reproduces the observed rate exactly,
+which is the check that it is the right model.
+
+| g/fight | `dmg_step` 0.15 (live) | 0.10 | 0.05 (World 1) |
+|---|---|---|---|
+| **0.0112** (today) | p=0.683, **7.1/day** | p=0.691, 10.6/day | p=0.715, 20.9/day |
+| 0.0050 | p=0.674, 3.2/day | p=0.678, 4.8/day | p=0.689, 9.4/day |
+| 0.0020 | p=0.670, 1.3/day | p=0.671, 1.9/day | p=0.676, 3.8/day |
+| 0.0010 | p=0.668, 0.6/day | p=0.669, 1.0/day | p=0.671, 1.9/day |
+
+**`dmg_max_step_per_fight` is the season-pace dial.** Lower gain = the
+world concedes more win rate for the same player effort = faster
+breakthrough. It is a LiveTunable: **the season's difficulty ships today,
+without a deploy.**
+
+## 8.3 What the two changed parameters actually did
+
+**`hp_multiplier_ceiling` 6 → 50: better fights, same season pace.**
+A targets *duration*; B targets *win rate*; the stage walk is neutral at
+B's setpoint. So **A cannot change the equilibrium breakthrough rate — B
+owns it.** Unpinning A fixes fight *texture* (~17 s bosses → the 30-45 s
+band) and B will absorb the difficulty by easing `boss_power_mult` back
+down from 2.11. **Checkable prediction: `boss_power_mult` falls over the
+next day while the stage rate returns to ~7/day.** If it does not, this
+model is wrong.
+
+**The transient is the risk, and it is not oscillation — it is stage
+loss.** A doubles boss HP in **3.4 fights (~34 min)** at step 0.25, while
+B needs its **20-fight window** to even observe the consequence — a
+**5.8:1 timescale mismatch.** In between, the party loses, and every loss
+walks stage **−2**, floored at 1. From stage 8 a bad transient can erase
+the season's progress to date. A's relaxation valve (3 consecutive losses,
+0.20/fight decay) then drags A back *down*, undoing the climb — so the
+fast step converts a one-time correction into a repeating cycle.
+
+## 8.4 Revised recommendation on `hp_max_step_per_fight`: 0.05, not 0.10
+
+**This is a change from §6 #1, and the reason changed with it.** `hp_step`
+is *not* a season-pace parameter — B's gain is. It is a **transient
+coupling** parameter, and the principled constraint is:
+
+> A's slew time must be at least B's observation window, or the two
+> controllers fight each other while B is still blind.
+
+Spreading A's ×2.15 move over B's 20-fight window gives **0.039**; over 15
+fights, **0.052**.
+
+| `hp_step` | fights to travel | vs B's 20-fight window |
+|---|---|---|
+| 0.25 (live) | 3.4 | **5.8:1 mismatch** |
+| 0.10 (my earlier pick) | 8.0 | 2.5:1 |
+| **0.05** (World 1) | 15.7 | **1.3:1 — matched** |
+
+The derivation lands on **0.05 — the value the owner already used in World
+1.** My earlier 0.10 was a hedge against oscillation; under the correct
+framing the constraint is sharper and the answer is lower.
+
+## 8.5 The gates at 100 / 150 / 300
+
+Days from stage 8, with `g` decaying at half-life `H` (fresh-world growth
+does not last):
+
+| scenario | gate 100 | gate 150 | gate 300 |
+|---|---|---|---|
+| step 0.15, no decay | 13 d | 20 d | 41 d |
+| step 0.15, H = 28 d | 16 d | 28 d | **NEVER** |
+| step 0.15, H = 14 d | 21 d | 89 d | **NEVER** |
+| step 0.15, H = 7 d | **NEVER** | **NEVER** | **NEVER** |
+| step 0.05, no decay | 4 d | 7 d | 14 d |
+| step 0.05, H = 28 d | 5 d | 7 d | 17 d |
+| step 0.05, H = 14 d | 5 d | 8 d | 23 d |
+| step 0.05, H = 7 d | 6 d | 11 d | **NEVER** |
+
+**Where the world stalls at the live step of 0.15**, once growth decays:
+
+| power-growth half-life | world stalls at stage |
+|---|---|
+| 28 days | **~295** |
+| 14 days | **~152** |
+| 7 days | **~80** |
+
+**The answer to "is divine dust at 300 a mid-season goal or a thing nobody
+sees" is: at the live `dmg_step` of 0.15 it is a thing nobody sees**, in
+every scenario where player power growth decays at all. Stage 300 at 0.15
+requires growth that essentially never slows. At 0.05 it is a 2-3 week
+goal and survives realistic decay.
+
+This is not an argument for moving the gates. It is an argument that
+**`dmg_max_step_per_fight` and the gate stages are the same decision**,
+and they are currently being made independently.
+
+## 8.6 What §5's finding means under this framing
+
+The stage-shaped rescale proposed in §5 is withdrawn — season pace is not
+set by stage-shaped curves. **The saturation finding survives, restated:**
+boss secondaries cap at stage **36-150** (crit mult 36, evasion 50, crit
+chance 58, splash 60, block 75, DR 150). Past ~150 the world's resistance
+becomes **purely scalar** — bigger HP and ATK numbers, no new boss
+behaviour. Under "design the resistance," that is a resistance-*quality*
+question: the world stops finding new ways to fight back exactly in the
+range the gates live in. Worth deciding, not urgent, and orthogonal to
+pace.
+
+The anchors and `top_layer_half_stage` are simply **inert** in the
+reachable range and can be left alone. If the owner wants stage-tied
+mitigation to be part of the resistance, the top layer's knee belongs
+near the middle of the reachable band (~80-300), not at 1500.
+
+## 8.7 Re-ranked
+
+| # | proposal | ships as | why |
+|---|---|---|---|
+| **1** | **Set `dmg_max_step_per_fight` deliberately** — it is the season-pace dial (§8.2), and it decides whether the 300 gate is ever seen (§8.5) | **LiveTunable, today** | The single highest-leverage number in the game under this framing, currently sitting at a compiled default nobody chose |
+| **2** | **`hp_max_step_per_fight` → 0.05** (§8.4) | **LiveTunable, today** | Protects earned stage during A's in-flight ×2.15 correction; −2 per loss from stage 8 is unforgiving |
+| **3** | Ceiling-saturation visibility (§2) | code, small | A silent rail is what let ~17 s bosses run unnoticed |
+| **4** | Fix F3, then shorten A's window (§3) | LiveTunable + code | ~20% denominator error at the live stage |
+| **5** | Cost telemetry, then event budget (§1) | code | No instrument exists; nothing at risk today |
+| **6** | Pre-reset tunable-diff sweep (§4) | procedure | Both step dials — now known to be *the difficulty* — reverted silently at this reset |
+| **7** | Do **not** read player power (§3) | — | Unchanged |
+
+## 8.8 What I need ruled (replaces §7)
+
+1. **What breakthrough rate do you want**, in stages/day? That single
+   number sets `dmg_max_step_per_fight` via §8.2, and §8.5 says whether
+   your gates are reachable under it.
+2. **`hp_max_step_per_fight` → 0.05 now?** (§8.4 — recommend yes, today.)
+3. Items 3-7 of §8.7 are unchanged from the previous pass and still need a
+   go/no-go.
