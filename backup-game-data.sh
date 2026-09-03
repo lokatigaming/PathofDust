@@ -107,8 +107,27 @@ MARKER_FILES=(
   # NOTE FOR WHOEVER ADDS THE NEXT ONE: this array is a hand-maintained
   # literal list, NOT a glob over adventure-*-marker.json. The drift
   # check near the bottom of this script will TELL you when a marker on
-  # disk is missing from here, but it will not back the file up for you.
+  # disk is missing from here.
+  #
+  # CORRECTION, 2026-09-03: the two lines above used to end "...but it
+  # will not back the file up for you." That is FALSE and has been for as
+  # long as the drift check has existed - it stages every marker the glob
+  # finds, listed or not ("Anything the glob finds IS backed up
+  # regardless", and `for f in "${DRIFT[@]}"; do stage_one "$f"; done`).
+  # The claim was repeated into the affix-curve journal entry and believed
+  # from there. Left as a correction rather than a silent edit because the
+  # false version is what people have been reading. Keeping this list
+  # current still matters - it is what stops the drift warning firing on
+  # every run - but a forgotten marker is a untidy log line, not data
+  # loss.
   adventure-affix-tier-curve-marker.json
+  # 2026-09-03, starter-kit backfill (fix/backfill-bound). This one is
+  # the GUARD for a migration rather than a record that one ran: while it
+  # exists the startup backfill cannot fire. Restoring characters without
+  # it would re-run the loop - harmless now, because the loop is frozen to
+  # the original five slots and every character has those filled, but the
+  # marker is the thing keeping it that way.
+  adventure-starter-kit-backfill-marker.json
 )
 
 # Fight-tier sequence counters. THESE ARE COPIED LAST, AFTER the fight
