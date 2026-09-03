@@ -2208,3 +2208,146 @@ read. The golden corpus is the early warning: 7 of 17 scenarios flipped
 from win to loss, every one at stage 200+, which is what a party running
 on a slower power curve against enemies tuned for the old one looks like.
 Production is at stage 5 and nowhere near it — but the world climbs.
+
+## 2026-09-03 — GEAR-SLOTS: four new equipment slots (spec §8)
+
+Branch `feature/gear-slots` off `origin/master` @ `ea5ef88`. Built,
+tested, pushed. NOT merged, NOT deployed — the deploy session holds that.
+
+### What shipped
+
+`Ring1`/`Ring2` (crit chance, 0.01/tier), `Amulet` (crit multiplier,
+0.025/tier), `Pants` (% increased life, 0.03/tier). Each slot's base
+power equals exactly one affix of that type at the item's tier (R5),
+runs through `affix_tier_curve` while the original five stay linear
+(D11), and rolls against the affix jitter band 0.85..1.15 rather than
+`POWER_ROLL_RANGE` (D13). Implicits land in the same additive gear pool
+`sum_affix` feeds, via a new `Character::slot_implicit`.
+
+### Spec premises checked, and one refuted
+
+- The six hardcoded five-slot lists in `adventure_web.rs` were still
+  exactly six; every line number in §8 had moved (3155→3867, 3903→4815,
+  4019→4932, 5128→6041, 5236→6160, 5748→6767). Replaced by
+  `DISPLAY_SLOTS` + `BAG_SLOT_ROWS`, with tests asserting both cover
+  `EQUIP_SLOTS`. The seven `EQUIP_SLOTS[gen_range]` loot sites were also
+  still exactly seven.
+- **REFUTED — §8.7's rng hazard does not reach the golden corpus.**
+  §8.7 predicts the 17 fixtures diverge because `EQUIP_SLOTS.len()`
+  changes `gen_range(0..5)` to `gen_range(0..9)` at seven loot sites.
+  `run_scenario` (golden_corpus.rs:414-418) never calls those sites — it
+  equips five slots EXPLICITLY from the seeded rng and runs combat only,
+  with no loot path anywhere in the scenario. Predicted before building
+  that all 17 fixtures would stay byte-identical; **they did.** Nothing
+  regenerated, nothing to regenerate. §8.7's two-commit sequencing advice
+  is sound in general and its stated reason is wrong for this repo.
+
+### FOUND
+
+- **A seventh five-slot list §8 missed:** `ALL_SLOTS` in
+  `affix.rs:662`, test-only and therefore not compiler-caught. It would
+  have gone on asserting the 17-affix pool for the original five and
+  silently stopped covering the new four. Now reads `EQUIP_SLOTS`.
+- **A seventh D13 touch point §12.2 missed:** `Item::has_polish_room`
+  compares `power_roll` against `POWER_ROLL_RANGE.end`. Left alone, a
+  maxed ring at 1.15 reports polish room forever and Polishing charges
+  sand for a no-op — the exact 2026-08-17 live bug, re-opened for four
+  slots. Now reads `roll_range_for_slot`.
+- `migrations.rs`'s `all_five_slots_sharing_the_same_unique...` asserted
+  a hardcoded `5`; the only test in the suite that failed on slot count
+  alone. Renamed and now counts `EQUIP_SLOTS.len()`.
+- `migrate_power_roll_backfill` reverse-engineers a roll as
+  `power / (base * tier)` — linear, so it would mis-recover a new slot's
+  roll. Inert today (marker-gated, already run, and no legacy items exist
+  in the new slots) and deliberately not touched, since it is a
+  historical one-shot. Worth knowing if it is ever re-run.
+
+### BOARD — recorded deliberately, not acted on
+
+1. **Crit stops being a build choice (spec §8.5b).** With the implicits
+   guaranteed, 74% of a typical character's crit chance and 59% of their
+   crit multiplier arrive automatically with a filled ring/amulet slot,
+   at every tier — the ratio is constant because implicit and rolled
+   contributions ride the same `f(T)`. The consequence worth deciding:
+   **rolling `CritChance` or `CritMultiplier` on gear is now the worst
+   affix outcome in the game**, because it tops up a stat the character
+   already has a large guaranteed base in while every other affix starts
+   from zero. That is a drop-quality regression nobody ordered. The fix
+   is a spec change (which stats the implicits grant), not an
+   implementation choice — owner ruling 2026-09-03 is to see it live
+   first and decide deliberately.
+2. **Ring1 cannot be recombined with Ring2.** Automatic consequence of
+   distinct variants plus recombine's same-slot rule. ACCEPTED and
+   recorded rather than fixed (owner ruling 2026-09-03): unblocking it
+   means loosening the same-slot rule, and the duplicate-unique guard
+   leans on that rule. A minor inconvenience is a better trade than a
+   hole in unique-duplication protection.
+3. **The loot dial is coupled to tier inflation.** Nine slots cut each
+   slot's drop share 20% → 11.1% and take the fill-every-slot-once
+   expectation from 11.4 to 25.5 drops. Ruling: ship as-is, do not
+   compensate in code — `loot_mult` is live-tunable and the call can be
+   made with data. **The coupling whoever reaches for that dial must
+   know:** raising `loot_mult` erases the only real brake on craft-driven
+   tier growth. At a fixed stage, dust income is flat while crafting cost
+   climbs, and that gap is the sole thing limiting tier inflation.
+   Raising loot trades a loot-feel problem for a tier-inflation one. It
+   is not free. Recorded in `EQUIP_SLOTS`'s own doc too, since that is
+   where someone will be standing when they think of it.
+4. **The ×1.31 is a buff, not an offset (spec §8.4).** The four slots are
+   worth ×1.05 at T=1 rising to ×1.65 at T=200; the crit halving is worth
+   ×0.995 to ×1.000 and is invisible in this range. They are not in
+   balance and are barely in the same conversation. Noted at fit-report
+   time that "characters who took the cut" and "characters who get the
+   buff" are different populations — owner ruling: true in principle and
+   nearly empty in practice, since world 2 is one day old at stage 13
+   with 14 characters and nobody has an established set. That is the
+   argument for shipping it now rather than in three weeks.
+
+### CROSS-REPO — owner must relay to kibukah, this session cannot fix it
+
+`C:\PathOfDust_Desktop-replay` is a separate repo with a separate
+maintainer. Its equipment rendering is not data-driven: it hardcodes the
+five-slot list in `bag.html:655`, `builds.html:317`,
+`solver/advisor-core.mjs:416`, `item-codec.js:50` and
+`extension/shared/item-codec.js:50`, plus a five-key `SLOT_EMOJI` in
+`bag.html:215`, `character.html:116` and `extension/card.js:6`.
+
+The message: **the four new wire strings are `ring1`, `ring2`, `amulet`,
+`pants`** (`EquipSlot` is `#[serde(rename_all = "lowercase")]`), and
+**`item-codec.js`'s `SLOTS` array is POSITIONAL — append only, never
+insert or reorder.** `shrink()` stores `SLOTS.indexOf(it.s)` as an
+integer and the payload version is chosen by size, not by schema, so
+reordering silently decodes every previously-shared v2 item link to the
+WRONG slot with no error and no version bump. Appending is safe for old
+links, and until the append happens the code already degrades gracefully
+(`s < 0 ? it.s : s` stores the raw string — a longer payload, not a wrong
+one). The same append-only constraint applies to `LABELS` in that codec,
+which is a positional affix-label array and already lacks `echo`.
+Separately and already true before this change: `advisor-core.mjs`
+carries its own damage model with no knowledge of `f(T)`, the halved crit
+coefficient, or any implicit, and will keep giving confident wrong advice.
+
+### Patch-notes draft — NOT written to the box
+
+Deploy session: this is a draft for `C:/PathofDust/patch-notes.json`,
+deliberately not written from here.
+
+> **Four new gear slots.** You can now equip two Rings, an Amulet and
+> Pants alongside your weapon, helm, body, gloves and boots. Rings give
+> crit chance, the Amulet gives crit damage, Pants give max hp — and
+> unlike an affix, that stat is guaranteed on every one of them. Nobody
+> starts with them: they drop like any other gear, and everyone starts
+> the hunt from zero.
+>
+> Two honest notes. **Nine slots means each individual slot drops less
+> often** — a weapon now shows up about 44% less than it did, and filling
+> out a full set takes roughly twice as many drops. That is the cost of
+> having more to chase, and we are watching the drop rate.
+>
+> And the obvious question: **yes, this is a buff, and no, it is not an
+> apology for last night.** The affix cut is what makes gear scale sanely
+> at high tiers, and it stays. These slots are a separate thing — more
+> places to put gear, which is worth about 30% more power across the
+> range once you have filled them. Both land on the same characters
+> because world 2 is one day old and nobody has a set worth mourning yet.
+> That timing is deliberate: this is the cheapest moment it will ever be.

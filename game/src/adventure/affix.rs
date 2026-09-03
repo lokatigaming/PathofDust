@@ -659,7 +659,15 @@ mod elemental_slot_widen_tests {
     use super::*;
 
     const ELEMENTAL_AFFIXES: [Affix; 5] = [Affix::ColdDamage, Affix::FireDamage, Affix::LightningDamage, Affix::DivineDamage, Affix::ChaosDamage];
-    const ALL_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
+    // Reads `EQUIP_SLOTS` rather than restating the list: this was a
+    // hand-written five-element literal until 2026-09-03, and being
+    // test-only it is not compiler-caught - when §8 added four slots it
+    // would have gone on asserting the 17-affix pool for the original five
+    // and silently stopped covering the new ones, which is precisely the
+    // case worth covering (the new slots inherit the full pool because
+    // every `AffixDef` has `eligible_slots: None`, and nothing else
+    // checks that).
+    use crate::adventure::EQUIP_SLOTS as ALL_SLOTS;
 
     #[test]
     fn every_elemental_affix_is_now_eligible_on_every_slot() {
