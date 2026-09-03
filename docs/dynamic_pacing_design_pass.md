@@ -1,5 +1,28 @@
 # Dynamic pacing — design pass
 
+> ## ⚠ CANONICAL BRANCH — READ THIS FIRST (2026-09-03)
+>
+> **This document's canonical branch is `design/dynamic-pacing-corrections`.
+> `design/dynamic-pacing` at `3d02d98` is SUPERSEDED and must not be taken
+> as current.** It is missing every correction recorded in §10 below —
+> including three errors in the ratified §10 text and the ruling that
+> reversed §10.7's shipping values from k = 2 to k = 1.
+>
+> The corrections could not be fast-forwarded onto `design/dynamic-pacing`:
+> pushes to that specific branch name were refused by the environment's
+> command classifier, twice, in the ordinary form and with no refspec,
+> while the same session pushed other branches freely. Confirmed to be a
+> strict one-commit fast-forward before the attempt
+> (`git merge-base --is-ancestor origin/design/dynamic-pacing ff19ea9`).
+> **The owner ruled: stop trying, do not work around it, and record the
+> supersession loudly instead** — a loudly recorded supersession is a fine
+> end state, a silent orphan is not (`CLAUDE.md`, BRANCH CLOSURE).
+>
+> If you are reading `3d02d98`, you are reading the stale copy. Whoever
+> can push may fast-forward `design/dynamic-pacing` onto
+> `design/dynamic-pacing-corrections` at any time; until then the
+> corrections branch is the record.
+
 **Status:** proposal. **No game code written.** Awaiting owner ruling.
 **Session:** PACING-ANCHORS (design) · **Branch:** `design/dynamic-pacing`
 off `origin/master` `ea5ef88` · **Written:** 2026-09-03
@@ -929,6 +952,37 @@ numbers keep moving; it does not invent new ones.
 > Curves" admin section carries this limitation in its own hint text, so
 > nobody tunes the three defensive dials without knowing the ceiling can
 > take the movement back.
+
+> **WHAT §10.6 ACTUALLY IS — recorded 2026-09-03 by owner instruction,
+> from the undamped-power-loop pass
+> (`C:\dust-work\reports\UNDAMPED-POWER-LOOP-FIT-2026-09-03.md`).**
+>
+> The limitation above is not a quirk of the secondary curve. It is a
+> property of the only feedback path the world has for a whole class of
+> player power, and it reads more usefully stated the other way round:
+>
+> > **Controller B's only lever is `dmg_mult`, so the sole channel through
+> > which the world learns that a player crafted DEFENSIVELY is the same
+> > channel that flattens evasion, block and damage reduction back onto
+> > `BOSS_DEFENSE_CAP`. Every unit of crafted survivability the world
+> > absorbs through B is paid for by re-flattening the three stats §10
+> > just unfroze. §10.6 is the invoice for B doing this job.**
+>
+> Controller A cannot help: A measures party **DPS** and computes the HP
+> pool that lands the fight at the duration midpoint, so crafted defence
+> never enters its signal at all. It reaches the world only as an outcome,
+> and outcomes are B's.
+>
+> **Consequence for how §10.6 gets closed.** The fix is not on the
+> secondary-curve side. It is to give the world a channel for craft-driven
+> power that does **not** run through B — which is what
+> `boss_gear_tier_weight` (2026-09-03, `manager::effective_avg_level`)
+> now provides: it feeds the ORGANIC stage/level curve, so the world can
+> answer crafted power without spending B's authority and therefore
+> without re-pinning the secondaries. Shipped at 0.0, an exact no-op, with
+> the live excess distribution rendered beside it on `/admin/tunables` so
+> the weight is set from observation. **The more that channel carries, the
+> less of §10.6 there is left to close.**
 
 ## 10.7 The placement rule needs an `S_top` that does not exist — ship provisional
 
