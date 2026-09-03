@@ -81,6 +81,12 @@ struct AppState {
     /// away. Its own `Arc` with its own lock, like `AdventureManager`, so
     /// a submission never contends with the session or account maps.
     bugs: Arc<BugReportManager>,
+    /// Failed-login counters, keyed by lowercased username - see
+    /// `accounts::login_throttle_delay`. In memory only and deliberately
+    /// NOT persisted: a restart clearing it is acceptable (deploys are
+    /// rare and announced), and writing a file on every failed password
+    /// would hand an unauthenticated caller a disk-write primitive.
+    login_failures: Arc<Mutex<HashMap<String, accounts::LoginFailure>>>,
 }
 
 fn now_secs() -> u64 {
@@ -148,6 +154,7 @@ pub async fn start_adventure_web_server(
         // land beside the rest of the game state and every test's scratch
         // dir gets its own file rather than sharing production's.
         bugs: BugReportManager::new(crate::adventure::data_path(BUG_REPORTS_PATH)),
+        login_failures: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = axum::Router::<AppState>::new()
@@ -233,7 +240,34 @@ pub async fn start_adventure_web_server(
         // `/sprites` above.
         .nest_service("/skill-effects", tower_http::services::ServeDir::new("public_adventure_overlay/skill-effects"));
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    // LOOPBACK ONLY, unconditionally, and deliberately not configurable
+    // (2026-09-02). This was `0.0.0.0` until today.
+    //
+    // Nothing needs to reach this listener from off-box: ingress is a
+    // Cloudflare Tunnel and `cloudflared` runs here, dialling
+    // `http://localhost:4005` (docs/linux_ingress.md), so loopback is
+    // functionally identical to the old bind for every real caller.
+    //
+    // Why it changed. The host firewall drops non-loopback traffic to
+    // 4004/4005 (docs/linux_staging.md), which is correct today - but it
+    // is a deny-list on a chain whose policy is `accept`, naming two
+    // LITERAL ports, while the ports themselves are env-configurable
+    // (`ADVENTURE_WEB_PORT`, `ADVENTURE_OVERLAY_SERVER_PORT`, both read
+    // in main.rs and set in the systemd unit). Change that env var - a
+    // config edit, no rebuild, no code review - and the nftables rule
+    // silently stops matching what it was protecting. The dashboard goes
+    // public with no error and no log line. Two layers that disagree
+    // about which ports matter, only one of which tracks the change.
+    //
+    // The firewall REMAINS the outer layer. This is defence in depth, not
+    // a replacement for it: do not remove those nftables rules on the
+    // strength of this line.
+    //
+    // The one thing that would justify making this configurable: wanting
+    // to reach the dashboard from the LAN without going through the
+    // tunnel. Nothing wants that today, and a knob nobody needs is just
+    // one more thing to misconfigure back to `0.0.0.0`.
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     // Read BEFORE spawning/moving the listener - callers that bind to
     // port 0 (an ephemeral port, e.g. Stage 1.5's HTTP golden-response
     // harness spinning up a disposable instance) need the OS-assigned

@@ -55,6 +55,118 @@ const USERNAME_MIN_LEN: usize = 3;
 const USERNAME_MAX_LEN: usize = 25;
 const PASSWORD_MIN_LEN: usize = 8;
 
+// ---------------------------------------------------------------------
+// Failed-login throttle (2026-09-02)
+// ---------------------------------------------------------------------
+//
+// KEYED ON USERNAME, NOT ON IP, AND THAT IS DELIBERATE. Do not "improve"
+// this to per-IP without reading this paragraph. Ingress is a Cloudflare
+// Tunnel: `cloudflared` runs on the box and dials the game over loopback,
+// so the peer address of EVERY request is 127.0.0.1. Per-IP throttling
+// here would therefore have to trust the `CF-Connecting-IP` header, and
+// that header is only trustworthy for as long as the tunnel is the sole
+// ingress. The moment anything else can reach the port - a debug
+// port-forward, a second front end, a firewall rule that stops matching
+// after a port change - an attacker sets that header themselves and every
+// per-IP bucket becomes whatever they say it is. Username is a property
+// of the request body, not of a hop we are choosing to believe.
+//
+// The tradeoff, stated so it is not discovered later: per-username does
+// not slow an attacker spraying ONE password across MANY usernames, only
+// one guessing MANY passwords for ONE account. That is the right half to
+// defend here - the accounts worth taking are specific ones - and the
+// spray case is bounded instead by argon2 now running on the blocking
+// pool rather than the reactor (see `verify_password_blocking`).
+const LOGIN_FREE_FAILURES: u32 = 10;
+const LOGIN_FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const LOGIN_DELAY_CAP: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Hard bound on the throttle map. Entries are ~100 bytes, so this caps
+/// it around 1 MB - see `record_login_failure` for what happens at the
+/// bound and why the eviction order is what it is.
+const LOGIN_THROTTLE_MAX_ENTRIES: usize = 10_000;
+
+/// One username's recent failed-login history. `Instant`, not a unix
+/// timestamp: this is never persisted, so there is no process boundary
+/// for it to cross, and `Instant` is immune to a wall-clock jump.
+pub(super) struct LoginFailure {
+    count: u32,
+    last: std::time::Instant,
+}
+
+/// How long this login attempt should be delayed before it is even
+/// checked, given what is already recorded against the username.
+///
+/// Ten failures are free, so a player fat-fingering a password three
+/// times pays nothing at all. From the eleventh the delay doubles -
+/// 1s, 2s, 4s, 8s, 16s - capped at 30s. An entry whose last failure is
+/// older than the 15-minute window is treated as absent, so the ladder
+/// resets on its own without anything having to sweep it.
+fn login_throttle_delay(failures: &HashMap<String, LoginFailure>, key: &str, now: std::time::Instant) -> std::time::Duration {
+    let Some(entry) = failures.get(key) else {
+        return std::time::Duration::ZERO;
+    };
+    if now.duration_since(entry.last) >= LOGIN_FAILURE_WINDOW {
+        return std::time::Duration::ZERO;
+    }
+    let Some(over) = entry.count.checked_sub(LOGIN_FREE_FAILURES) else {
+        return std::time::Duration::ZERO;
+    };
+    // `over` is 0 on the first throttled attempt, giving 2^0 = 1s.
+    // Shift rather than powi, and saturate: `over` is attacker-influenced
+    // and 1u64 << 64 is undefined behaviour territory, not a big number.
+    let seconds = 1u64.checked_shl(over).unwrap_or(u64::MAX);
+    std::time::Duration::from_secs(seconds).min(LOGIN_DELAY_CAP)
+}
+
+/// Record one failed attempt against `key`.
+///
+/// UNBOUNDED GROWTH IS THE REAL RISK HERE, because an unauthenticated
+/// caller chooses the keys: POSTing a fresh username every time would
+/// otherwise grow this map forever. Three things bound it.
+///
+/// 1. Every write first drops entries whose window has already expired,
+///    which is what reclaims the ordinary case - the map's steady state
+///    is "usernames that failed in the last 15 minutes", not "every
+///    username ever tried".
+/// 2. If the map is still at `LOGIN_THROTTLE_MAX_ENTRIES` after that
+///    sweep, the OLDEST entry is evicted to make room.
+/// 3. The sweep is O(n) and only runs when the map is at the bound, not
+///    on every failure.
+///
+/// Evicting oldest rather than refusing new entries is the security
+/// choice, and it is the less obvious one. Refusing to add would mean an
+/// attacker could fill the table with junk usernames and thereby switch
+/// the throttle OFF for everyone not already in it - the exact account
+/// they are attacking would become untracked. Evicting oldest keeps the
+/// most recently-active attackers throttled, which is the population
+/// that matters. It does mean a sustained flood of >10,000 distinct
+/// usernames inside one 15-minute window can push a specific victim's
+/// counter out early; that costs the attacker far more requests than it
+/// buys them, and each of those requests is itself argon2-bounded.
+fn record_login_failure(failures: &mut HashMap<String, LoginFailure>, key: &str, now: std::time::Instant) {
+    if let Some(entry) = failures.get_mut(key) {
+        // A stale entry restarts the ladder rather than resuming it.
+        if now.duration_since(entry.last) >= LOGIN_FAILURE_WINDOW {
+            entry.count = 1;
+        } else {
+            entry.count = entry.count.saturating_add(1);
+        }
+        entry.last = now;
+        return;
+    }
+
+    if failures.len() >= LOGIN_THROTTLE_MAX_ENTRIES {
+        failures.retain(|_, e| now.duration_since(e.last) < LOGIN_FAILURE_WINDOW);
+        if failures.len() >= LOGIN_THROTTLE_MAX_ENTRIES {
+            if let Some(oldest) = failures.iter().min_by_key(|(_, e)| e.last).map(|(k, _)| k.clone()) {
+                failures.remove(&oldest);
+            }
+        }
+    }
+    failures.insert(key.to_string(), LoginFailure { count: 1, last: now });
+}
+
 /// Operator and system names nobody may register. The three operator
 /// gates (`ADMIN_TUNABLES_LOGIN` and friends) compare a bare login
 /// string, so a registration matching one of those would hand out
@@ -129,6 +241,52 @@ fn verify_password(password: &str, stored: &str) -> bool {
         return false;
     };
     Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok()
+}
+
+// ---------------------------------------------------------------------
+// Argon2 runs on the BLOCKING pool, never on an async worker (2026-09-02)
+// ---------------------------------------------------------------------
+//
+// `Argon2::default()` is the RFC 9106 second-recommended parameter set:
+// m = 19 MiB, t = 2, p = 1. That is deliberate and correct for a password
+// hash - it is supposed to be expensive - but it means every call is tens
+// to hundreds of milliseconds of straight-line CPU plus a 19 MiB
+// allocation, and `verify_password` is reachable by anyone who can POST
+// `/account/login`, before any authentication whatsoever.
+//
+// Called directly from an `async fn`, that work runs ON a Tokio worker
+// thread and never yields. This is the same defect class as `5f17202`
+// (2026-09-02), where `simulate_battle` on the async runtime left
+// production 71% unresponsive - `accept()` itself stopped, so even static
+// sprite requests hung. The production box is an emulated QEMU vCPU with
+// no host passthrough at ~3992 BogoMIPS, so these costs land at the top of
+// their range, and unlike the fight loop this one has an unauthenticated
+// trigger and no natural concurrency limit.
+//
+// `spawn_blocking` moves it to the blocking pool, which is sized and
+// separate: a burst of login attempts queues there instead of starving the
+// reactor, and the request handlers stay responsive. The throttle below
+// bounds how much work an attacker can queue; this wrapper bounds where
+// that work lands. They are independent fixes and either is worth having
+// without the other.
+//
+// The password crosses a thread boundary as an owned `String`, which is
+// why these take `String` rather than `&str`.
+async fn hash_password_blocking(password: String) -> anyhow::Result<String> {
+    tokio::task::spawn_blocking(move || hash_password(&password)).await.map_err(|err| anyhow::anyhow!("password hashing task failed: {err}"))?
+}
+
+/// Always returns a bool - a join error is reported as "did not verify",
+/// which fails closed. There is no path here that lets a panicking or
+/// cancelled task be read as a successful login.
+async fn verify_password_blocking(password: String, stored: String) -> bool {
+    match tokio::task::spawn_blocking(move || verify_password(&password, &stored)).await {
+        Ok(verified) => verified,
+        Err(err) => {
+            tracing::error!("password verification task failed, treating as a failed login: {err}");
+            false
+        }
+    }
 }
 
 /// Every reason a username can be refused, in the order they are checked.
@@ -267,7 +425,7 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
         return reject_register("Passwords must be at least 8 characters long.");
     }
 
-    let mut accounts = state.accounts.lock().await;
+    let accounts = state.accounts.lock().await;
     if let Some(reason) = username_rejection(&key, &accounts) {
         return reject_register(reason);
     }
@@ -284,13 +442,28 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
         }
     }
 
-    let password_hash = match hash_password(&form.password) {
+    // Hashing happens off the async runtime - see `hash_password_blocking`.
+    // The accounts lock is deliberately NOT held across this await: it is
+    // dropped here and re-taken below, because holding a mutex across ~19
+    // MiB and hundreds of milliseconds of argon2 would serialise every
+    // other account operation behind one registration.
+    drop(accounts);
+    let password_hash = match hash_password_blocking(form.password.clone()).await {
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!("Local account registration failed: {err}");
             return reject_register("Something went wrong creating that account. Try again.");
         }
     };
+    // Re-check under the re-taken lock. Between the drop above and here,
+    // another registration could have claimed this key - the collision
+    // checks above are no longer guaranteed to hold, and a bare `insert`
+    // would silently overwrite the winner's account with this one's hash,
+    // handing their character to whoever registered second.
+    let mut accounts = state.accounts.lock().await;
+    if accounts.contains_key(&key) {
+        return reject_register("That username is already taken.");
+    }
     accounts.insert(key.clone(), Account { username: typed.clone(), password_hash, created_at: now_secs() });
     if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
         tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
@@ -304,13 +477,57 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
 
 pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<CredentialsForm>) -> axum::response::Response {
     let key = form.username.trim().to_lowercase();
+
+    // Throttle BEFORE the password is checked - see the block comment on
+    // `LOGIN_FREE_FAILURES` for why this keys on username and not on IP.
+    // Sleeping and then verifying (rather than rejecting outright) is what
+    // keeps this honest for the legitimate case: a player who trips the
+    // ladder and then types the RIGHT password waits out the delay and is
+    // let in, instead of being locked out of their own account by someone
+    // else guessing at their username.
+    //
+    // A sleeping task costs a few hundred bytes and no CPU, which is
+    // orders of magnitude less than the argon2 pass it is pacing.
+    let delay = {
+        let failures = state.login_failures.lock().await;
+        login_throttle_delay(&failures, &key, std::time::Instant::now())
+    };
+    if !delay.is_zero() {
+        tracing::warn!("Adventure dashboard: throttling login for {key:?} by {:?} after repeated failures.", delay);
+        tokio::time::sleep(delay).await;
+    }
+
     let account = state.accounts.lock().await.get(&key).cloned();
+    // Verification happens off the async runtime - see
+    // `verify_password_blocking`. The accounts lock is already released
+    // above (the `.cloned()` ends its temporary), so nothing is held
+    // across the await.
+    //
     // One message for both "no such account" and "wrong password" -
     // nothing here should confirm which names exist.
-    let Some(account) = account.filter(|a| verify_password(&form.password, &a.password_hash)) else {
+    let verified = match &account {
+        Some(a) => verify_password_blocking(form.password.clone(), a.password_hash.clone()).await,
+        // No account: nothing to verify, and deliberately no compensating
+        // dummy hash. The response body and status are already identical
+        // for both arms, so the only difference is timing - and paying a
+        // full argon2 pass to hide it would hand an attacker exactly the
+        // CPU burn this commit exists to deny them, on the cheaper of the
+        // two paths. Enumeration by timing is the lesser problem.
+        None => false,
+    };
+    let Some(account) = account.filter(|_| verified) else {
+        {
+            let mut failures = state.login_failures.lock().await;
+            record_login_failure(&mut failures, &key, std::time::Instant::now());
+        }
         tracing::warn!("Adventure dashboard: failed local login for {key:?}.");
         return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("Incorrect username or password."))))).into_response();
     };
+
+    // Cleared on success, so a player who eventually remembers their
+    // password starts clean rather than carrying a ladder they can only
+    // wait out.
+    state.login_failures.lock().await.remove(&key);
 
     tracing::info!("Adventure dashboard: {key} logged in locally.");
     let token = mint_session(&state, &key, &account.username).await;
@@ -347,6 +564,95 @@ mod tests {
         assert!(username_rejection("admin", &empty).is_some());
         assert!(username_rejection("moderator", &empty).is_some());
         assert!(username_rejection("ordinary_player", &empty).is_none());
+    }
+
+    /// The number the owner actually asked about: three wrong passwords
+    /// must cost a legitimate player nothing at all.
+    #[test]
+    fn fat_fingering_a_password_three_times_is_free() {
+        let mut failures = HashMap::new();
+        let now = std::time::Instant::now();
+        for _ in 0..3 {
+            record_login_failure(&mut failures, "player", now);
+        }
+        assert_eq!(login_throttle_delay(&failures, "player", now), std::time::Duration::ZERO, "three failures must not delay anyone");
+    }
+
+    #[test]
+    fn ten_failures_are_free_and_the_eleventh_starts_the_ladder() {
+        let mut failures = HashMap::new();
+        let now = std::time::Instant::now();
+        for _ in 0..LOGIN_FREE_FAILURES {
+            record_login_failure(&mut failures, "player", now);
+        }
+        assert_eq!(login_throttle_delay(&failures, "player", now), std::time::Duration::from_secs(1), "the 11th attempt pays 1s");
+
+        // One further failure per step: 11 free-plus-one -> 2s, then 4, 8, 16.
+        for expected in [2u64, 4, 8, 16] {
+            record_login_failure(&mut failures, "player", now);
+            let count = failures["player"].count;
+            assert_eq!(login_throttle_delay(&failures, "player", now), std::time::Duration::from_secs(expected), "at {count} failures the delay must be {expected}s");
+        }
+
+        // And it stops doubling at the cap rather than growing forever.
+        for _ in 0..8 {
+            record_login_failure(&mut failures, "player", now);
+        }
+        assert_eq!(login_throttle_delay(&failures, "player", now), LOGIN_DELAY_CAP, "the ladder must settle at the 30s cap");
+    }
+
+    #[test]
+    fn the_delay_is_capped_and_never_overflows() {
+        let mut failures = HashMap::new();
+        let now = std::time::Instant::now();
+        // Well past the point where 1 << over would leave u64 - the shift
+        // is where an attacker-influenced count would bite if unguarded.
+        failures.insert("player".to_string(), LoginFailure { count: u32::MAX, last: now });
+        assert_eq!(login_throttle_delay(&failures, "player", now), LOGIN_DELAY_CAP, "the ladder caps at 30s and must not overflow");
+    }
+
+    #[test]
+    fn an_expired_window_resets_the_ladder() {
+        let mut failures = HashMap::new();
+        let now = std::time::Instant::now();
+        let stale = now - LOGIN_FAILURE_WINDOW - std::time::Duration::from_secs(1);
+        failures.insert("player".to_string(), LoginFailure { count: 50, last: stale });
+        assert_eq!(login_throttle_delay(&failures, "player", now), std::time::Duration::ZERO, "a failure older than the window must not delay");
+        record_login_failure(&mut failures, "player", now);
+        assert_eq!(failures["player"].count, 1, "a stale entry restarts the ladder rather than resuming it");
+    }
+
+    #[test]
+    fn the_throttle_map_is_bounded_and_evicts_the_oldest() {
+        let mut failures = HashMap::new();
+        let now = std::time::Instant::now();
+        // Fill to the bound with entries that are all still IN window, so
+        // the expiry sweep cannot reclaim anything and the eviction path
+        // is the one under test.
+        for i in 0..LOGIN_THROTTLE_MAX_ENTRIES {
+            // Oldest first, so entry 0 is the eviction candidate.
+            let age = std::time::Duration::from_secs((LOGIN_THROTTLE_MAX_ENTRIES - i) as u64 / 16);
+            failures.insert(format!("user{i}"), LoginFailure { count: 1, last: now - age });
+        }
+        assert_eq!(failures.len(), LOGIN_THROTTLE_MAX_ENTRIES);
+
+        record_login_failure(&mut failures, "newcomer", now);
+        assert!(failures.len() <= LOGIN_THROTTLE_MAX_ENTRIES, "the map must stay at or under its bound, got {}", failures.len());
+        assert!(failures.contains_key("newcomer"), "a new attacker must still get tracked - refusing to add would switch the throttle off for them");
+        assert!(!failures.contains_key("user0"), "the oldest entry is the one evicted");
+    }
+
+    #[test]
+    fn expired_entries_are_reclaimed_before_anything_is_evicted() {
+        let mut failures = HashMap::new();
+        let now = std::time::Instant::now();
+        let stale = now - LOGIN_FAILURE_WINDOW - std::time::Duration::from_secs(1);
+        for i in 0..LOGIN_THROTTLE_MAX_ENTRIES {
+            failures.insert(format!("user{i}"), LoginFailure { count: 1, last: stale });
+        }
+        record_login_failure(&mut failures, "newcomer", now);
+        assert_eq!(failures.len(), 1, "an all-stale map is swept clean, not evicted one entry at a time");
+        assert!(failures.contains_key("newcomer"));
     }
 
     #[test]

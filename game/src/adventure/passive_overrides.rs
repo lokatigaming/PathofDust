@@ -317,7 +317,7 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
     "frenzy", // berserker - extra strikes per proc (1/2/3)
     "gloriousdeath", // berserker - Glorious Death charges (1/1/2)
     "guardianspirit", // cleric - party-wide death saves per fight (0/1/2)
-    "lastrites", // slayer - party-wide death save charges (1/1/1)
+    "lastrites", // slayer - party-wide death save charges (1/1/2)
     "markedfordeath", // rogue - marked hits that count as crits (0/2/3)
     "quickdraw", // rogue - free Fleetfoot stacks on entering combat (0/1/2)
     "shattering", // elementalist - Water Golem icicle extra targets (1/2/3)
@@ -1428,7 +1428,7 @@ mod passive_override_tests {
         (Archetype::Cleric, "compassion", [0.0, 0.0, 0.05]),
         // Slayer
         (Archetype::Slayer, "undying", [1.0, 1.0, 2.0]),
-        (Archetype::Slayer, "lastrites", [1.0, 1.0, 1.0]),
+        (Archetype::Slayer, "lastrites", [1.0, 1.0, 2.0]),
         // Elementalist
         (Archetype::Elementalist, "shattering", [1.0, 2.0, 3.0]),
     ];
