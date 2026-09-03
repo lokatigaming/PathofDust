@@ -787,7 +787,52 @@ static BERSERKER_NODES: &[PassiveNode] = &[
     // Migrated 2026-08-27 (Stage 3): the block-chance shred was a
     // hardcoded 1.0 behind an invested check; the declared 1/1/1 table IS
     // that value - a FRACTION of Overwhelm's own shred that carries over.
-    modifier_with_effect("shatter", "overwhelm", "Shatter", "Overwhelm's damage reduction shred also applies to block chance, by the same amount per rank.", SpecialPerRank { values: &[1.0, 1.0, 1.0] }),
+    // A REAL LADDER since 2026-09-04 (advertised-vs-actual sweep). It was
+    // `[1.0, 1.0, 1.0]` - a flat on/off gate whose ranks 2 and 3 bought
+    // exactly nothing - while the copy said "by the same amount per rank",
+    // which reads as per-rank scaling. Every OTHER flat-ladder node in the
+    // tree names its dead rung in its own text; this one did not.
+    //
+    // WHY 1.65 AND NOT A ROUND 2.0. The multiplier scales Overwhelm's live
+    // shred (`stack_shred_bonus`) and is SUBTRACTED from the defender's
+    // block chance in `resolve_hit`. Block is clamped only at the roll
+    // (`.clamp(0.0, 1.0)`); the `.max(pre_boss_block.min(0.25))` just below
+    // the subtraction belongs to the BOSS's own defense-ignore and runs
+    // AFTER this, so it cannot hold block up against Shatter. There is
+    // therefore no relative floor here and block can be driven to zero.
+    //
+    // At the Berserker's own end state - Overwhelm 3/3 (0.09/stack),
+    // Bloodlust at its 5-stack cap, boss block pinned at BOSS_DEFENSE_CAP
+    // 0.75 - the shred is 0.45, so block reaches zero at a multiplier of
+    // 0.75/0.45 = 1.667. ANY rank-3 value at or above that is fully
+    // absorbed by the clamp in exactly the configuration a maxed Berserker
+    // plays in, which is the same defect wearing a new number. 1.65 is the
+    // largest value provably not absorbed: it leaves block at 0.008 rather
+    // than 0. Below full stacks the saturation point is much higher (2.78x
+    // at 3 stacks, 5.0x at Overwhelm 1/3), so a value sized to the narrow
+    // case stays meaningful everywhere else.
+    //
+    // Rank 1 is deliberately unchanged at 1.0: anyone holding one point
+    // keeps exactly what they had. The ladder goes up from 1.0, never down
+    // to it - a silent nerf to existing allocations is not an acceptable
+    // way to fix our own copy (owner ruling).
+    //
+    // Effect on damage through a blocking target, where a block halves the
+    // hit so damage scales as (1 - block/2): 0.625 unshattered, 0.850 at
+    // rank 1, 0.929 at rank 2, 0.996 at rank 3 - so the marginal point
+    // buys +9.3% then +7.3%, and nothing at all against a target that does
+    // not block.
+    //
+    // `SpecialPerRank`, not `Special`: the deltas are 0.35 then 0.30, so
+    // the ladder is not linear and cannot be expressed as
+    // `at_rank_1 + per_additional_rank`.
+    modifier_with_effect(
+        "shatter",
+        "overwhelm",
+        "Shatter",
+        "Overwhelm's damage-reduction shred also applies to the target's block chance - at 100% of the shred at rank 1, 135% at rank 2, 165% at rank 3.",
+        SpecialPerRank { values: &[1.0, 1.35, 1.65] },
+    ),
     modifier_with_effect("exposed", "overwhelm", "Exposed", "Overwhelm's effect lingers 1 additional second per rank after Bloodlust falls off (up to +3s at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     // Migrated 2026-08-27 (Stage 3): real ladder 0 / 0.50 / 0.65 (a
     // FRACTION of damage reduction) lived in combat.rs; the old linear
@@ -2725,5 +2770,105 @@ mod tree_shape_tests {
 
     fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {
         archetype.passive_nodes().iter().find(|n| n.key == key).unwrap_or_else(|| panic!("no node with key {key:?}"))
+    }
+}
+
+/// Shatter's ladder (2026-09-04). What these pin is the reason the values
+/// are what they are: rank 1 is untouched, and no rank is spent against
+/// the block clamp.
+#[cfg(test)]
+mod shatter_ladder_tests {
+    use super::*;
+
+    /// The reference configuration the ladder was sized against: the
+    /// Berserker's own end state. Overwhelm 3/3 is 0.09 of damage
+    /// reduction shred per Bloodlust stack, Bloodlust caps at 5 stacks,
+    /// and a boss's block chance is pinned at `BOSS_DEFENSE_CAP` 0.75.
+    const OVERWHELM_SHRED_PER_STACK_AT_3_3: f64 = 0.09;
+    const BLOODLUST_MAX_STACKS: f64 = 5.0;
+    const BOSS_BLOCK_AT_CAP: f64 = 0.75;
+
+    fn shatter() -> &'static PassiveNode {
+        Archetype::Berserker.passive_nodes().iter().find(|n| n.key == "shatter").expect("the Berserker tree must still carry shatter")
+    }
+
+    /// Constraint 1 of the owner's ruling: anyone already holding one
+    /// point keeps exactly what they had. The ladder goes UP from 1.0,
+    /// never down to it.
+    #[test]
+    fn rank_1_is_never_nerfed_and_the_ladder_only_rises() {
+        let n = shatter();
+        assert_eq!(n.magnitude_at_rank(1), 1.0, "rank 1 must stay at 100% of Overwhelm's shred - changing it is a silent nerf to existing allocations");
+        assert!(n.magnitude_at_rank(2) > n.magnitude_at_rank(1), "rank 2 must buy something - a flat rung is the defect this ladder replaces");
+        assert!(n.magnitude_at_rank(3) > n.magnitude_at_rank(2), "rank 3 must buy something");
+    }
+
+    /// Constraint 2, and the whole reason rank 3 is 1.65 rather than a
+    /// round 2.0. Block is clamped at the roll and there is no relative
+    /// floor protecting the defender from Shatter, so block reaches zero
+    /// at `0.75 / 0.45` = 1.667. Any rank at or above that is fully
+    /// absorbed by the clamp in exactly the configuration a maxed
+    /// Berserker plays in - a ladder scaling into a cap is the same
+    /// defect wearing a new number.
+    #[test]
+    fn no_rank_is_absorbed_by_the_block_clamp() {
+        let shred = OVERWHELM_SHRED_PER_STACK_AT_3_3 * BLOODLUST_MAX_STACKS;
+        let saturation = BOSS_BLOCK_AT_CAP / shred;
+        assert!((saturation - 1.6666).abs() < 0.001, "sanity: saturation is 0.75/0.45, got {saturation}");
+        let n = shatter();
+        for rank in 1..=n.max_rank {
+            let mult = n.magnitude_at_rank(rank);
+            let remaining_block = BOSS_BLOCK_AT_CAP - shred * mult;
+            assert!(
+                remaining_block > 0.0,
+                "rank {rank} ({mult}x) drives block to {remaining_block} - at or past the {saturation}x saturation point, so the rank is spent against the clamp rather than on the player"
+            );
+        }
+    }
+
+    /// The marginal point has to be worth taking. A block halves the hit,
+    /// so damage through a target scales as `1 - block/2`; this pins that
+    /// each rank moves that number by a real amount rather than a
+    /// rounding artefact.
+    #[test]
+    fn each_rank_meaningfully_moves_damage_through_a_blocking_target() {
+        let shred = OVERWHELM_SHRED_PER_STACK_AT_3_3 * BLOODLUST_MAX_STACKS;
+        let n = shatter();
+        let damage_mult = |mult: f64| {
+            let block = (BOSS_BLOCK_AT_CAP - shred * mult).max(0.0);
+            1.0 - block / 2.0
+        };
+        let unshattered = damage_mult(0.0);
+        let r1 = damage_mult(n.magnitude_at_rank(1));
+        let r2 = damage_mult(n.magnitude_at_rank(2));
+        let r3 = damage_mult(n.magnitude_at_rank(3));
+        assert!((unshattered - 0.625).abs() < 0.001, "sanity: 0.75 block halves damage to 0.625, got {unshattered}");
+        // Each step must be worth at least a few percent of the previous,
+        // or the point is not worth spending.
+        assert!(r1 / unshattered > 1.30, "rank 1 must be a large jump, got {:.3}x", r1 / unshattered);
+        assert!(r2 / r1 > 1.05, "rank 2 must buy a real gain over rank 1, got {:.3}x", r2 / r1);
+        assert!(r3 / r2 > 1.05, "rank 3 must buy a real gain over rank 2, got {:.3}x", r3 / r2);
+    }
+
+    /// The ladder is non-linear (deltas 0.35 then 0.30), so it cannot be
+    /// expressed as `Special { at_rank_1, per_additional_rank }` and must
+    /// stay a `SpecialPerRank`. This fails if someone "simplifies" it.
+    #[test]
+    fn the_ladder_is_non_linear_and_must_stay_a_per_rank_table() {
+        let n = shatter();
+        let d1 = n.magnitude_at_rank(2) - n.magnitude_at_rank(1);
+        let d2 = n.magnitude_at_rank(3) - n.magnitude_at_rank(2);
+        assert!((d1 - d2).abs() > 1e-9, "the ladder became linear ({d1} then {d2}); if that is deliberate say so, but a linear table hides that rank 3 was sized against the clamp");
+    }
+
+    /// The copy must state the multipliers, because "by the same amount
+    /// per rank" is exactly the wording that made this a finding.
+    #[test]
+    fn the_description_states_the_real_multipliers() {
+        let d = shatter().description;
+        for needle in ["100%", "135%", "165%"] {
+            assert!(d.contains(needle), "Shatter's description must state its actual multipliers - missing {needle:?}: {d}");
+        }
+        assert!(!d.contains("by the same amount per rank"), "the wording that implied per-rank scaling while the ladder was flat must not come back");
     }
 }

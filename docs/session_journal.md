@@ -4811,3 +4811,63 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: the wiki is documentation, and the release changes no
 mechanic, cost, chance or timer. The one player-visible consequence — that
 the wiki now says what the game actually does — is the wiki's own content.
+
+## 2026-09-04 — SHATTER: a real ladder, sized against the clamp rather than to a round number (branch `fix/shatter-ladder`)
+
+Approved at `[1.0, 1.35, 1.65]` from the advertised-vs-actual sweep. Its own
+branch — it touches nothing the refund migration touches, so the deploy queue
+can order the two freely.
+
+### What was wrong
+
+`SpecialPerRank { values: &[1.0, 1.0, 1.0] }` — a flat on/off gate whose second
+and third points bought exactly nothing — under copy that read *"by the same
+amount per rank"*, i.e. as per-rank scaling. Every other flat-ladder node in the
+tree names its dead rung in its own text (*"unlocked at rank 2"*, *"once per
+fight at rank 1, twice at rank 3"*). This was the one that did not.
+
+### The number, and why it is not round
+
+The multiplier scales Overwhelm's live shred and is subtracted from the
+defender's block chance. **There is no relative floor protecting the defender
+from it**: block is clamped only at the roll, and the
+`.max(pre_boss_block.min(0.25))` sitting just below the subtraction belongs to
+the *boss's own* defense-ignore and runs after Shatter has already applied. So
+block can be driven to zero.
+
+At the Berserker's end state — Overwhelm 3/3 (0.09/stack), Bloodlust at its
+5-stack cap, boss block pinned at `BOSS_DEFENSE_CAP` — the shred is 0.45, so
+block reaches zero at **0.75 / 0.45 = 1.667**.
+
+**Any rank-3 value at or above 1.667 is fully absorbed by the clamp in exactly
+the configuration a maxed Berserker plays in — a ladder scaling into a cap is the
+same defect wearing a new number.** 1.65 is the largest value provably not
+absorbed; it leaves block at 0.008 rather than 0. A round 2.0 would have spent a
+third of the top rung on nothing.
+
+Rank 1 stays 1.0 by ruling: the ladder goes up from it, never down to it. A
+silent nerf to existing allocations is not an acceptable way to fix our own copy.
+
+| rank | mult | boss block 0.75 → | damage mult (1 − block/2) | vs previous |
+|---|---|---|---|---|
+| — | — | 0.750 | 0.625 | — |
+| 1 | 1.00 | 0.300 | 0.850 | +36.0% |
+| 2 | 1.35 | 0.143 | 0.929 | +9.3% |
+| 3 | 1.65 | 0.008 | 0.996 | +7.3% |
+
+### The general shape worth keeping
+
+**Solve for where the clamp bites, then sit just under it.** The sweep's original
+finding was a ladder absorbed by a cap; the fix is only a fix if the new ladder
+is not. That is a property to test, not to eyeball — `no_rank_is_absorbed_by_the_block_clamp`
+recomputes the saturation point from the constants and asserts every rank lands
+strictly below it, so the test still holds if Overwhelm, the stack cap or
+`BOSS_DEFENSE_CAP` ever move.
+
+### Also
+
+`passive_overrides.rs`'s Stage-3 shipped-values table moved with the node, the
+same way `lastrites`'s row did when its values changed deliberately — annotated
+so a reader knows that row is no longer the Stage-3 snapshot. Description
+rewritten to state all three multipliers, since the old wording is exactly what
+made this a finding.
