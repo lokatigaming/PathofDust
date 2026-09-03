@@ -4634,3 +4634,45 @@ confirmed by effect — the push of `b090246` succeeded. **No `--no-verify`
 was used, and none would have been**: overriding another window's safety
 control to get past it proves it can be ignored, which is worse than a
 short wait.
+
+#### 2026-09-04, addendum — item 5 verified by effect, and my observer's blind spot
+
+**The prediction was made before the measurement, and it held exactly.**
+For a level-16 character, `xp_to_next(16) = 516`, so the win-XP shape term
+is `12 + 0.0208333 × 516 = 22.75`, giving a per-win grant of **46 at the
+old 2.00x catch-up and 23 at the new 1.00x**. Measured on production
+across the first real grant after the swap:
+
+| char | before | after | gained |
+|---|---|---|---|
+| `galquin` | L16 + 497 | L17 + 4 | **23** |
+| `gorshie` | L16 + 497 | L17 + 4 | **23** |
+| `jachiny` | L16 + 489 | L16 + 512 | **23** |
+
+Three characters, two of which levelled *through* the boundary, all
+gaining exactly the predicted 23. The mechanic is doing on production
+what the arithmetic said it would.
+
+**My first observer missed it entirely, and the reason is the day's own
+lesson turned on me.** It compared each character's `xp` between two
+snapshots and reported a grant only when the level was unchanged —
+`$2==$4 && $5>$3` — because a level-up wraps `xp` back toward zero and
+would otherwise look like a *loss*. Every level-16 character then levelled
+to 17 on that very grant, so every grant was filtered out and the run
+reported *"no grant observed within 20 minutes."*
+
+That is **an assertion encoding an expected SHAPE rather than the
+PROPERTY**, which is the same class as the five instances recorded above,
+committed by me while verifying a fix for one of them. The property was
+"XP was granted"; what I encoded was "XP rose without the level
+changing". The cure was the same one every other instance needed: measure
+the thing itself — cumulative XP across the level boundary,
+`(xp_to_next(old) − old_xp) + Σ xp_to_next(intervening) + new_xp` —
+rather than a proxy that happens to hold in the common case.
+
+**Worth noting how close this came to being read as a failure.** "No
+grant observed in 20 minutes" against a live game resolving a fight every
+~2.3 minutes is an alarming sentence, and the obvious reading is that
+win-XP had stopped. The check that dissolved it was looking at the
+characters directly rather than re-reading the observer's conclusion —
+they were level 17, which is only reachable by being paid.
