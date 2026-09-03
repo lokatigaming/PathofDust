@@ -696,6 +696,24 @@ Seven hardcoded stat ramps in `boss_stats_for`
 | `block_chance` | 0.010 | 0.75 (`BOSS_DEFENSE_CAP`) | **75** |
 | `damage_reduction` | 0.005 | 0.75 (`BOSS_DEFENSE_CAP`) | **150** |
 
+> **CORRECTION 2026-09-03 (implementing session, accepted by the owner).**
+> **The `crit_chance` row above is wrong in one cell.** Its cap is
+> **0.70, not 0.75**, and the formula has a **flat 0.05 base the table
+> omits**: the code is `(0.05 + s * 0.012).min(CRIT_CHANCE_CAP)`, so the
+> *ramp* ceiling is `CRIT_CHANCE_CAP` less that base. The rest of §10 is
+> already consistent with 0.70 — the listed freeze stage 58 is
+> `0.70/0.012`, the "today frozen" column reads 0.700, and every cell of
+> §10.3's and §10.7's value tables checks out — so this is a single-cell
+> error. It mattered because a session implementing
+> `CRIT_CHANCE_CAP * s/(s+h)` literally would have **dropped the 0.05
+> base** and missed this document's own numbers. As shipped, the base
+> sits OUTSIDE the curve (`BOSS_CRIT_CHANCE_BASE`) and the ramp climbs to
+> `BOSS_CRIT_CHANCE_RAMP_CAP` (0.70), so base + ramp approaches exactly
+> `CRIT_CHANCE_CAP` and the clamp stays a rail rather than the shape.
+>
+> The other six rows were verified against the code and **reproduce
+> exactly**, as do the freeze stages.
+
 Above stage 150 **all seven are pinned**. Only `hp` (+15%/stage) and `atk`
 (+10%/stage) still move, and both are unbounded.
 
@@ -791,6 +809,28 @@ secondary stats and into raw scaling in the short term, which is the
 opposite of the goal until `h` is stretched. **Ship the stretch with the
 shape change, not after it.**
 
+> **CORRECTION 2026-09-03 (implementing session, accepted by the owner).**
+> **The sentence above is backwards, and it was load-bearing.** Stretching
+> `h` does not cure the "resistance moves into raw hp/atk" effect — it
+> *maximises* it. `cap·s/(s + h)` is **monotonically decreasing in `h`**,
+> so every stretch lowers every value at every stage. At stage 800,
+> damage reduction is 0.632 at the behaviour-preserving `h = 150` but
+> **0.545** at the stretched `h = 300`, against today's frozen 0.750. The
+> stretch is offered here as the cure for exactly the thing it makes
+> worse.
+>
+> **The correct reasoning.** The real case for a stretch is a different
+> one, and it survives intact: a larger `h` keeps a stat **visibly
+> moving** deeper into a season instead of saturating early, which is
+> §10.2's actual goal. That is a genuine argument — but it is a *tuning*
+> decision to make from observation once the curve is live, not a guess
+> baked into a release. It trades absolute boss strength at every stage
+> for continued movement at high stages, and nothing in this document
+> measures where that trade should sit.
+>
+> See the ruling recorded against §10.7, which supersedes the "ship the
+> stretch with the shape change" instruction.
+
 ## 10.4 Should they be tunable? Yes — seven half-stages
 
 **Promote the seven `h` values to LiveTunables.** Precedent is exact:
@@ -826,6 +866,19 @@ point.
   ≥ 36 changes, because every boss secondary changes. Report mismatches
   with attributed causes; regeneration happens at merge, not on the
   branch.
+
+  > **CORRECTION 2026-09-03 (implementing session, accepted by the
+  > owner). This bullet is wrong, and it removed a stated blocker.** The
+  > golden corpus does **not** move. `golden_corpus.rs` says so outright
+  > in its own header: *"Boss stats are hand-authored fixed values, NOT
+  > `boss_stats_for`/`basic_enemy_stats_for` — those two apply their own
+  > un-seeded `rand::thread_rng()` jitter."* Fixtures build `BossStats`
+  > through local `boss()`/`tough_boss()` helpers, and `boss_stats_for`
+  > has exactly two callers, both production. **Confirmed by running the
+  > corpus, not asserted:** it passed unchanged on the implementing
+  > branch, with zero fixtures regenerated. An un-seeded RNG could never
+  > have been captured into a golden fixture in the first place — that is
+  > why the exclusion exists.
 - **`WIKI_IMPACT.md` line required** — this is player-facing boss
   behaviour, and the wiki renders boss stats.
 - **Verify against a live click-through**, not a code trace: boss stat
@@ -838,6 +891,44 @@ The seven ramps are boss *stat* shape. They do not add new boss
 stage-700 boss to do something a stage-200 boss cannot, that is separate
 content work and is not in this item. This item makes the existing
 numbers keep moving; it does not invent new ones.
+
+> **ADDITION 2026-09-03 (implementing session; RULED by the owner —
+> accept and record, do not widen scope).**
+>
+> **The controllers partially undo this change on the three defensive
+> stats, and §10 does not model that feedback path.**
+> `apply_dynamic_scaling` multiplies the secondaries by
+> `sqrt(dmg_mult)` and then re-caps at `BOSS_DEFENSE_CAP` (0.75). Weaker
+> bosses → higher win rate → Controller B raises `dmg_mult` → the
+> secondaries multiply straight back into the cap:
+>
+> | stat | s=300 raw | ×√2 | ×√4 |
+> |---|---|---|---|
+> | `evasion` | 0.562 | 0.750 **pinned** | 0.750 **pinned** |
+> | `block_chance` | 0.500 | 0.707 | 0.750 **pinned** |
+> | `damage_reduction` | 0.375 | 0.530 | 0.750 **pinned** |
+>
+> **So for evasion, block and damage reduction the unfreezing only holds
+> while B is near baseline, and the flatness returns whenever B runs hot
+> — which is exactly when it matters most.** `increased_damage`,
+> `crit_multiplier` and `splash` are **unaffected**: their post-scaling
+> caps (10.0 and 6.0, and splash's own 1.0) sit far above anything the
+> organic ramp produces.
+>
+> **Ruled out of scope, deliberately, and both rejections are on the
+> record:**
+> - **Do NOT raise `BOSS_DEFENSE_CAP`.** It is a safety rail that stops
+>   an unhittable boss. Raising a safety rail as a side effect of a
+>   variety change is how rails stop meaning anything.
+> - **Do NOT exempt secondaries from `sqrt(dmg_mult)`.** That is a real
+>   change to how the controllers interact with boss composition and it
+>   deserves its own pass.
+>
+> **This is on the board as its own item, to be decided deliberately
+> later.** It is also surfaced to the operator: the "Boss Secondary
+> Curves" admin section carries this limitation in its own hint text, so
+> nobody tunes the three defensive dials without knowing the ceiling can
+> take the movement back.
 
 ## 10.7 The placement rule needs an `S_top` that does not exist — ship provisional
 
@@ -912,6 +1003,10 @@ not derived from a known season length, because no season length exists to
 derive it from. **It is the least-wrong guess available on the day, and
 nothing more.**
 
+**REVISIT NOTE 2026-09-03:** the revisit below still stands, but it is
+now a revisit of **k = 1**, not of k = 2 — see the superseding ruling at
+the end of this section.
+
 **Revisit at the two-week mark**, when the season's actual trajectory is
 observable: by then `g`'s decay is measurable from the stage history, and
 `S_top` for a 30-day season can be projected from data instead of from a
@@ -923,3 +1018,57 @@ sustained path, it is roughly half.
 provisional value rather than waiting for certainty.** Revisiting costs a
 dial move and no deploy. Waiting for a known `S_top` costs the entire
 first season of the flat regime the work exists to fix.
+
+## 10.8 SUPERSEDING RULING 2026-09-03 — ship k = 1, not k = 2
+
+**This section replaces §10.7's shipping values and §10.3's "ship the
+stretch with the shape change" instruction. Both of those remain above,
+unedited and dated, because a reader chasing an old citation must land on
+what was actually written.**
+
+**Shipped: `h = cap / slope`, k = 1 — the behaviour-preserving set.**
+
+| stat | shipped `h` | constant |
+|---|---|---|
+| `crit_multiplier` | 36 | `BOSS_CRIT_MULT_HALF_STAGE` |
+| `evasion` | 50 | `BOSS_EVASION_HALF_STAGE` |
+| `increased_damage` | 50 | `BOSS_INCREASED_DAMAGE_HALF_STAGE` |
+| `crit_chance` | 58.33 | `BOSS_CRIT_CHANCE_HALF_STAGE` |
+| `splash` | 60 | `BOSS_SPLASH_HALF_STAGE` |
+| `block_chance` | 75 | `BOSS_BLOCK_HALF_STAGE` |
+| `damage_reduction` | 150 | `BOSS_DR_HALF_STAGE` |
+
+**Why the decision changed.** §10.7's approval was ordered on a reason
+that is backwards — see the correction recorded against §10.3. The
+stretch was offered as the cure for resistance shifting into raw hp/atk,
+and it is in fact the thing that maximises that shift. The owner
+approved the stretch repeating that reason as load-bearing, and
+disregarded the instruction once the error was shown.
+
+**The deciding argument is §10.7's own approval reason #2**, which is the
+property that made this change safe in the first place:
+
+> at **k = 1**, shipping genuinely **changes nothing below the freeze
+> stage and unfreezes everything above it**.
+
+That is the shape of every change that has gone well on this project:
+ship the mechanism at defaults that alter nothing, then tune on a dial
+with real data. **At k = 2 that property is false** — every one of the 42
+cells in §10.7's table is lower than today, and boss secondaries below
+stage 100 are roughly halved, which is precisely the stage range the live
+world occupies right now.
+
+**The case for a stretch is not rejected — it is deferred to
+observation.** Keeping stats visibly moving all season rather than
+saturating is a good argument and it survives intact. It is a tuning
+decision to make once the curve is live, not a guess baked into a
+release. **That is what the seven dials are for**, and the admin section
+says as much in its own hint text: it states the placement rule, states
+that the shipped defaults are PROVISIONAL and are the old ramps
+re-expressed rather than a tuned set, and states that the design's own
+placement rule wants them roughly 2× larger.
+
+**k = 1 was chosen DELIBERATELY, not by omission.** Recorded here, in the
+constants' doc comments, and in the shipping commit message, so that a
+later reader finding `h = 150` for damage reduction does not mistake it
+for the stretch never having been applied.
