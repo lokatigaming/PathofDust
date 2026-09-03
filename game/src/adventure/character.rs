@@ -5810,24 +5810,104 @@ mod new_slot_migration_tests {
         assert!(loaded.weapon.is_some(), "the original five must survive the round trip");
     }
 
+    /// A ring carrying its slot implicit and NOTHING else.
+    ///
+    /// `generate_item_at_tier_with_roll` ends in `roll_affixes`, so a
+    /// generated ring also carries one or more random affixes. When one of
+    /// them happens to be `CritChance` it lands in the same additive pool
+    /// as the implicit, and any measurement of "what the implicit is
+    /// worth" silently becomes "the implicit plus whatever else rolled".
+    /// That is what made the old single test flaky at roughly 1 run in 12
+    /// - frequent enough to look green, rare enough that the first failure
+    /// reads as somebody's regression.
+    ///
+    /// Stripping the rolled affixes here rather than teaching the
+    /// generator to skip them is deliberate: an affix-free item is a thing
+    /// a test can construct for itself, whereas a no-affix switch would be
+    /// test-only machinery living in production code purely to serve an
+    /// assertion.
+    fn ring_with_only_its_implicit(tier: u32) -> Item {
+        let mut ring = generate_item_at_tier_with_roll(EquipSlot::Ring1, tier, 1.0, &mut rand::thread_rng());
+        ring.affixes.clear();
+        assert!(ring.affixes.is_empty() && ring.unique_affix.is_none() && ring.sacred_affix.is_none(), "the fixture must isolate the implicit - any surviving affix would be measured as part of it");
+        ring
+    }
+
     /// Empty §8 slots must be a normal, fully-functional state - not a
     /// state every stat reader has to be taught about. Four of them empty
     /// is the day-one condition of EVERY character in the game.
+    ///
+    /// Asserted as a ROUND TRIP, with no expected magnitude anywhere in
+    /// it: fill the slot, empty it again, and the stat must land exactly
+    /// where it started. That states "empty contributes nothing" without
+    /// depending on what a full slot happens to be worth, so it cannot be
+    /// made flaky by anything the item rolls.
     #[test]
     fn an_empty_new_slot_contributes_exactly_nothing() {
         let tunables = LiveTunables::default();
+        let mut character = Character::new("bare".to_string());
+        assert!(
+            character.ring1.is_none() && character.ring2.is_none() && character.amulet.is_none() && character.pants.is_none(),
+            "the starter kit must NOT fill the new slots (owner ruling 2026-09-03)"
+        );
+        let empty = character.combat_crit_chance(&tunables);
+
+        character.ring1 = Some(generate_item_at_tier_with_roll(EquipSlot::Ring1, 100, 1.0, &mut rand::thread_rng()));
+        let filled = character.combat_crit_chance(&tunables);
+        assert!(filled > empty, "a T=100 ring must contribute SOMETHING, or this test would pass on a slot that is not wired up at all");
+
+        character.ring1 = None;
+        assert!(
+            (character.combat_crit_chance(&tunables) - empty).abs() < 1e-12,
+            "emptying the slot must return the stat exactly to where it started - an empty slot contributes nothing, and nothing lingers"
+        );
+    }
+
+    /// The magnitude, measured on its own so it can state a real number.
+    ///
+    /// A T=100 ring's implicit is one CritChance affix at T=100 - 0.01 *
+    /// f(100) = 0.10 - landing in the same additive gear pool `sum_affix`
+    /// feeds, and then multiplied by the (1 + tree) layer like everything
+    /// else in that pool. Deterministic because the fixture carries no
+    /// rolled affixes to add themselves to the measurement.
+    #[test]
+    fn a_ring_implicit_is_worth_exactly_one_affix_at_its_tier() {
+        let tunables = LiveTunables::default();
         let bare = Character::new("bare".to_string());
-        assert!(bare.ring1.is_none() && bare.ring2.is_none() && bare.amulet.is_none() && bare.pants.is_none(), "the starter kit must NOT fill the new slots (owner ruling 2026-09-03)");
-
         let mut with_ring = bare.clone();
-        with_ring.ring1 = Some(generate_item_at_tier_with_roll(EquipSlot::Ring1, 100, 1.0, &mut rand::thread_rng()));
+        with_ring.ring1 = Some(ring_with_only_its_implicit(100));
 
-        // A T=100 ring is one CritChance affix at T=100 - 0.01 * f(100) =
-        // 0.10 - landing in the same additive gear pool sum_affix feeds,
-        // and then multiplied by the (1 + tree) layer like everything
-        // else in that pool.
         let delta = with_ring.combat_crit_chance(&tunables) - bare.combat_crit_chance(&tunables);
-        assert!((delta - 0.10).abs() < 1e-9, "a T=100 ring must add exactly one T=100 CritChance affix's worth (0.10), got {delta}");
+        assert!((delta - 0.10).abs() < 1e-9, "a T=100 ring's implicit must be worth exactly one T=100 CritChance affix (0.10), got {delta}");
+    }
+
+    /// The regression guard for the flakiness itself: a ring that rolled a
+    /// `CritChance` affix must be worth its implicit PLUS that affix, and
+    /// the implicit measurement above must be unmoved by it. Written as
+    /// the mutation the old test could not survive - if someone reverts
+    /// the fixture to a rolled item, this is the arithmetic that proves
+    /// why the number moved rather than leaving it looking like a
+    /// regression.
+    #[test]
+    fn a_rolled_crit_affix_adds_on_top_of_the_implicit_and_does_not_disturb_it() {
+        let tunables = LiveTunables::default();
+        let bare = Character::new("bare".to_string());
+
+        let mut implicit_only = bare.clone();
+        implicit_only.ring1 = Some(ring_with_only_its_implicit(100));
+        let implicit_delta = implicit_only.combat_crit_chance(&tunables) - bare.combat_crit_chance(&tunables);
+
+        let mut with_affix = bare.clone();
+        let mut ring = ring_with_only_its_implicit(100);
+        ring.affixes.push((Affix::CritChance, 0.05));
+        with_affix.ring1 = Some(ring);
+        let total_delta = with_affix.combat_crit_chance(&tunables) - bare.combat_crit_chance(&tunables);
+
+        assert!(
+            (total_delta - (implicit_delta + 0.05)).abs() < 1e-9,
+            "a rolled CritChance affix must stack ON TOP of the implicit (expected {} + 0.05, got {total_delta}) - this is exactly the sum the old test was measuring while claiming to measure the implicit alone",
+            implicit_delta
+        );
     }
 
     /// Four empty slots must not make a character look fully worn out -
