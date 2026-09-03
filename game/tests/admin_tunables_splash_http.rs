@@ -86,41 +86,18 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         ("pierce_cap", baseline.pierce_cap.to_string()),
         ("pierce_h", baseline.pierce_h.to_string()),
         ("fight_summary_batch_size", baseline.fight_summary_batch_size.to_string()),
-        ("thunder_redistribution_pct", baseline.thunder_redistribution_pct.to_string()),
-        ("thunder_redistribution_window_secs", baseline.thunder_redistribution_window_secs.to_string()),
         ("reactive_proc_cap_ms", baseline.reactive_proc_cap_ms.to_string()),
         ("divine_dust_drop_chance", baseline.divine_dust_drop_chance.to_string()),
         ("divine_dust_disenchant_chance", baseline.divine_dust_disenchant_chance.to_string()),
         ("divine_dust_craft_dust_cost", baseline.divine_dust_craft_dust_cost.to_string()),
         ("divine_dust_craft_sand_cost", baseline.divine_dust_craft_sand_cost.to_string()),
         ("divine_dust_craft_output", baseline.divine_dust_craft_output.to_string()),
-        ("rf_self_damage_pct_rank1", baseline.rf_self_damage_pct_rank1.to_string()),
-        ("rf_self_damage_pct_rank2", baseline.rf_self_damage_pct_rank2.to_string()),
-        ("rf_self_damage_pct_rank3", baseline.rf_self_damage_pct_rank3.to_string()),
-        ("haloedsteps_per_instance_pct_rank1", baseline.haloedsteps_per_instance_pct_rank1.to_string()),
-        ("haloedsteps_per_instance_pct_rank2", baseline.haloedsteps_per_instance_pct_rank2.to_string()),
-        ("haloedsteps_per_instance_pct_rank3", baseline.haloedsteps_per_instance_pct_rank3.to_string()),
-        ("shattering_damage_pct_rank1", baseline.shattering_damage_pct_rank1.to_string()),
-        ("shattering_damage_pct_rank2", baseline.shattering_damage_pct_rank2.to_string()),
-        ("shattering_damage_pct_rank3", baseline.shattering_damage_pct_rank3.to_string()),
         ("defensive_stat_hard_cap", baseline.defensive_stat_hard_cap.to_string()),
         // Stage 1 overflow-economy caps - distinctive non-default values,
         // same reasoning as the splash block below: a name mismatch must
         // show up as a wrong number, not a false pass.
-        ("overflow_conversion_cap_per_rank", "0.07".to_string()),
-        ("evasion_overflow_cap", "0.60".to_string()),
-        ("block_overflow_cap", "0.70".to_string()),
-        ("dr_overflow_cap", "0.65".to_string()),
-        ("intervene_overflow_cap", "0.40".to_string()),
-        ("verdantburst_echo_threshold_pct", baseline.verdantburst_echo_threshold_pct.to_string()),
         ("buffsnapshot_dedupe_window_ms", baseline.buffsnapshot_dedupe_window_ms.to_string()),
         // Distinctive, non-default splash values - the actual point of this test.
-        ("splash_extra_targets", "7".to_string()),
-        ("splash_support_floor_targets", "4".to_string()),
-        ("splash_overcap_bonus_targets", "9".to_string()),
-        ("splash_ladder_step_pct", "250".to_string()),
-        ("splash_ladder_targets_per_step", "3".to_string()),
-        ("splash_damage_pct", "0.42".to_string()),
         ("boss_power_mult_override", String::new()),
     ];
     let form_refs: Vec<(&str, &str)> = form.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -137,6 +114,56 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
     let save = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&form_refs).send().await.expect("POST failed");
     assert!(save.status().is_redirection(), "a real Form<TunablesForm> extraction must succeed with every field present - a 4xx here means a name mismatch");
 
+
+    // --- the passive half, posted to its OWN route (2026-09-03) --------
+    // These 24 dials moved off `TunablesForm` onto `PassiveTunablesForm`
+    // and `/admin/passives/tunables/save`. They are still `LiveTunables`
+    // fields in the same file - only the form carrying them changed. The
+    // split exists so BOTH forms can keep every field required: making
+    // them optional on one wide form would have meant making all 78
+    // optional, trading a loud 422 for a silent preserve everywhere.
+    //
+    // Same required-field discipline as the tunables body above: every
+    // numeric field is present, so a missing one 422s rather than
+    // silently defaulting.
+    let passive_form: Vec<(&str, String)> = vec![
+        ("thunder_redistribution_pct", baseline.thunder_redistribution_pct.to_string()),
+        ("thunder_redistribution_window_secs", baseline.thunder_redistribution_window_secs.to_string()),
+        ("rf_self_damage_pct_rank1", baseline.rf_self_damage_pct_rank1.to_string()),
+        ("rf_self_damage_pct_rank2", baseline.rf_self_damage_pct_rank2.to_string()),
+        ("rf_self_damage_pct_rank3", baseline.rf_self_damage_pct_rank3.to_string()),
+        ("haloedsteps_per_instance_pct_rank1", baseline.haloedsteps_per_instance_pct_rank1.to_string()),
+        ("haloedsteps_per_instance_pct_rank2", baseline.haloedsteps_per_instance_pct_rank2.to_string()),
+        ("haloedsteps_per_instance_pct_rank3", baseline.haloedsteps_per_instance_pct_rank3.to_string()),
+        ("shattering_damage_pct_rank1", baseline.shattering_damage_pct_rank1.to_string()),
+        ("shattering_damage_pct_rank2", baseline.shattering_damage_pct_rank2.to_string()),
+        ("shattering_damage_pct_rank3", baseline.shattering_damage_pct_rank3.to_string()),
+        ("overflow_conversion_cap_per_rank", "0.07".to_string()),
+        ("evasion_overflow_cap", "0.60".to_string()),
+        ("block_overflow_cap", "0.70".to_string()),
+        ("dr_overflow_cap", "0.65".to_string()),
+        ("intervene_overflow_cap", "0.40".to_string()),
+        ("verdantburst_echo_threshold_pct", baseline.verdantburst_echo_threshold_pct.to_string()),
+        ("splash_extra_targets", "7".to_string()),
+        ("splash_support_floor_targets", "4".to_string()),
+        ("splash_overcap_bonus_targets", "9".to_string()),
+        ("splash_ladder_step_pct", "250".to_string()),
+        ("splash_ladder_targets_per_step", "3".to_string()),
+        ("splash_damage_pct", "0.42".to_string()),
+    ];
+    let passive_refs: Vec<(&str, &str)> = passive_form.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let passive_save = client
+        .post(format!("{base}/admin/passives/tunables/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&passive_refs)
+        .send()
+        .await
+        .expect("POST failed");
+    assert!(
+        passive_save.status().is_redirection(),
+        "a real Form<PassiveTunablesForm> extraction must succeed with every field present - a 4xx here means a name mismatch, got {}",
+        passive_save.status()
+    );
     let saved = manager.live_tunables();
     assert_eq!(saved.splash_extra_targets, 7);
     assert_eq!(saved.splash_support_floor_targets, 4);
@@ -174,15 +201,40 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         .text()
         .await
         .expect("body");
-    assert!(admin_page.contains("value=\"7\""), "the retuned splash_extra_targets must render back into its own input");
-    assert!(admin_page.contains("name=\"splash_ladder_step_pct\""), "the new ladder field must actually be in the form");
+    // The splash and overflow dials render on /admin/passives since
+    // 2026-09-03, not here - they tune passive NODES, so they live beside
+    // the per-node table. The VALUES did not move stores; they are still
+    // `LiveTunables` fields written to the same file.
+    let passives_page = client
+        .get(format!("{base}/admin/passives"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .send()
+        .await
+        .expect("GET failed")
+        .text()
+        .await
+        .expect("body");
+    assert!(passives_page.contains("value=\"7\""), "the retuned splash_extra_targets must render back into its own input");
+    assert!(passives_page.contains("name=\"splash_ladder_step_pct\""), "the new ladder field must actually be in the form");
+    // And they must NOT still be on the tunables page - a field rendered on
+    // both pages would be written by two forms, which is the lost-update
+    // shape the split exists to avoid.
+    for field in ["splash_ladder_step_pct", "rf_self_damage_pct_rank1", "overflow_conversion_cap_per_rank"] {
+        assert!(!admin_page.contains(&format!("name=\"{field}\"")), "{field} moved to /admin/passives and must not render on /admin/tunables too");
+    }
     // Stage 1: the overflow-economy group must render its heading and all
     // five dials, or the page-derived drift guard below would silently
     // stop covering them.
-    assert!(admin_page.contains("Overflow Economy (cross-class caps)"), "the Stage 1 group heading must render");
+    assert!(passives_page.contains("Overflow Economy (cross-class caps)"), "the Stage 1 group heading must render");
     for field in ["overflow_conversion_cap_per_rank", "evasion_overflow_cap", "block_overflow_cap", "dr_overflow_cap", "intervene_overflow_cap"] {
-        assert!(admin_page.contains(&format!("name=\"{field}\"")), "{field} must render as a form input");
+        assert!(passives_page.contains(&format!("name=\"{field}\"")), "{field} must render as a form input");
     }
+    // Ruling 1 (2026-09-03): the player/boss splash ambiguity is named on
+    // the page rather than resolved silently, because it will bite someone.
+    assert!(
+        passives_page.contains("Boss splash is a separate roll"),
+        "the Splash group must say these are the PLAYER ladder and that boss splash is configured elsewhere"
+    );
     // Both pacing controllers must show the multiplier ACTUALLY in force
     // (the max of the controller's own value and the stage baseline) -
     // without it, a controller pinned to the baseline renders a "current"
