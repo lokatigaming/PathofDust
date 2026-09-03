@@ -494,3 +494,176 @@ near the middle of the reachable band (~80-300), not at 1500.
 2. **`hp_max_step_per_fight` → 0.05 now?** (§8.4 — recommend yes, today.)
 3. Items 3-7 of §8.7 are unchanged from the previous pass and still need a
    go/no-go.
+
+---
+
+# 9. Season pace solved, and the ceiling prediction checked
+
+**Owner rulings received 2026-09-03:** `hp_max_step_per_fight` → 0.05
+(accepted, reasoning in §8.4); season pace → **+30% on World 1**.
+
+## 9.1 The prediction from §8.3 is CONFIRMED
+
+Measured live before the ceiling change, and again after:
+
+| | before | after | §8.3 predicted |
+|---|---|---|---|
+| `hp_pacing_mult` (A) | 6.0 (at ceiling) | **11.71875** | A's request 11.5–12.9 ✅ |
+| `boss_power_mult` (B) | 2.1135 | **1.6631** (−21.3%) | falls ✅ |
+| stage | 8 | **6** | transient stage loss ✅ |
+| boss window | 12W/8L (p=0.60) | 11W/9L (p=0.55) | B still easing |
+
+**A landed inside the predicted band**, and it did so in exactly three
+rate-limited steps: `6.0 × 1.25³ = 11.71875` — the arithmetic is exact,
+which confirms both the rate limit and §8.3's "3.4 fights" estimate.
+B is easing as predicted. The model stands.
+
+**§8.3's transient warning also came true:** stage fell 8 → 6 while A
+travelled. That is the cost of `hp_max_step` at 0.25, and it is the reason
+Ruling 1 is right.
+
+## 9.2 SEQUENCING — do not set `dmg_max_step_per_fight` yet
+
+**The transient is still running.** The current window is p = 0.55, well
+below the 2/3 setpoint, so net stage is **3(0.55) − 2 = −0.35 per fight**
+— about **−2.1 stage/hour** — and the stage floor is **1**, from a current
+stage of **6**.
+
+B is easing at `0.15 × tanh(ln(1.222/2))` = **6.8% per fight** and needs
+roughly 10–15 fights (~2 h) to re-equilibrate.
+
+**Lowering `dmg_step` to 0.0384 now would slow B's recovery by ~3.9×**, to
+40–60 fights (7–10 h) of continued bleed from stage 6. **That floors the
+world at stage 1.**
+
+**Order of operations:**
+
+1. Set `hp_max_step_per_fight` = **0.05** now. It protects the *next*
+   correction and does not affect the recovery in progress (A has already
+   arrived).
+2. **Wait** for `boss_power_mult` to stabilise and the boss win rate to
+   return to ≈ 2/3.
+3. *Then* set `dmg_max_step_per_fight` = **0.0384**.
+
+## 9.3 The exact solve
+
+Recovered growth constant, from the measured 7.0 stages/day at
+`dmg_step` 0.15: **g = 0.01108030 per boss fight** (≈ ×4.9 player power
+per day — a fresh world, so this is the fastest `g` the season will see).
+
+World 1's pace at `dmg_step` 0.05 is **20.722 stages/day**, so +30% is
+**26.939 stages/day**. Inverting
+`ratio = 2·exp(atanh(g / dmg_step))`:
+
+> p = 0.729155 → ratio = 2.692149 → **`dmg_max_step_per_fight` = 0.038374**
+
+**Value to enter: `0.0384`** → **26.92 stages/day (+29.9% on World 1)**.
+
+| candidate | stages/day | vs World 1 |
+|---|---|---|
+| 0.0380 | 27.20 | +31.3% |
+| 0.0383 | 26.99 | +30.3% |
+| **0.0384** | **26.92** | **+29.9%** |
+| 0.0390 | 26.51 | +27.9% |
+
+**Range:** the form is `<input type="number" step="any" min="0">` and the
+server clamps `[0.0, 100.0]` (`adventure_web.rs:3438`). `0.0384` is well
+inside range and `step="any"` accepts the full precision. **No rounding
+into a lie.**
+
+**B saturation is not a risk at this value.** B only loses proportional
+control if `g ≥ dmg_step`; at 0.0384 that needs **×225 player power per
+day** against today's ×4.9. Dismissed with the number.
+
+## 9.4 Gates at `dmg_step` = 0.0384
+
+Days from stage 8:
+
+| growth decay | sand 100 | perfect 150 | divine/sacred 300 |
+|---|---|---|---|
+| none (sustained) | 3.5 d | 5.3 d | **10.9 d** |
+| half-life 28 d | 3.6 d | 5.7 d | **12.6 d** |
+| half-life 14 d | 3.7 d | 6.1 d | **15.5 d** |
+| half-life 7 d | 4.2 d | 7.4 d | **NEVER** |
+
+**Stage 300 goes from "a thing nobody sees" to a 11-16 day mid-season
+destination** in every scenario except the most severe decay. That is the
+single biggest gameplay consequence of this ruling.
+
+## 9.5 A 30-day season at this pace
+
+| growth decay | stage at 30 d | eventual stall |
+|---|---|---|
+| none (sustained) | **816** | unbounded |
+| half-life 28 d | **580** | ~1107 |
+| half-life 14 d | **432** | ~558 |
+| half-life 7 d | **269** | ~283 |
+
+## 9.6 FLAG — the flat regime becomes the season
+
+At 27 stages/day, **stage 150 arrives on day 5.3**, and the world spends
+**75–82% of a 30-day season above it**:
+
+| growth decay | time above stage 150 in 30 days |
+|---|---|
+| none | 24.7 d (**82%**) |
+| half-life 28 d | 24.3 d (**81%**) |
+| half-life 14 d | 23.9 d (**80%**) |
+| half-life 7 d | 22.6 d (**75%**) |
+
+Above stage 150 **every** boss secondary is pinned at its cap — crit
+multiplier (36), evasion (50), increased damage (50), crit chance (58),
+splash (60), block (75), damage reduction (150). Only `hp` (+15%/stage)
+and `atk` (+10%/stage) still move. **Boss behaviour is frozen; only the
+numbers grow.**
+
+**Honest sizing.** This is a *quality* problem, not a functional one — the
+resistance still works, because A and B scale exactly the hp/atk terms
+that keep growing. Nothing breaks. But the texture of every fight from
+day 5 to day 30 is identical, and at 27/day that is the season rather
+than its tail.
+
+**The ruling does not cause this — it exposes it.** Stage 150 is reached
+within a 30-day season at *every* pace considered: day 20.3 even at the
+current 0.15. The pace only decides whether the flat regime is a third of
+the season or four fifths of it.
+
+| `dmg_step` | stages/day | stage 150 lands |
+|---|---|---|
+| 0.0384 | 26.92 | day 5.3 |
+| 0.05 | 20.72 | day 6.9 |
+| 0.08 | 13.03 | day 10.9 |
+| 0.10 | 10.45 | day 13.6 |
+| 0.15 (live) | 7.00 | day 20.3 |
+
+**What it would take to fix.** The seven ramp coefficients and their caps
+are hardcoded in `boss_stats_for` (`manager.rs:7532-7601`); nothing about
+boss secondary *shape* is tunable today (`boss_health` and `boss_power`
+are scalar multipliers on hp/atk only). Two options:
+
+1. **Stretch the ramps** so they reach cap near stage 600-800 instead of
+   36-150 — a coefficient change, still **code + deploy**.
+2. **Promote the seven ramps and their caps to LiveTunables** — the
+   tunables-doctrine-correct fix, and the standard "add a tunable field in
+   four places" shape. Larger, but it makes boss texture a dial forever.
+
+**Scheduling consequence, and it is the real point:** the pace ships today
+on a dial, but the work that makes a fast season *interesting* is code
+that is not queued. Recommend promoting this above §8.7 items 3-7. If it
+cannot be scheduled soon, option (b) in §9.7 is the honest alternative.
+
+## 9.7 Two ways to take this
+
+**(a) Ship 0.0384 now.** The owner gets the pace he asked for and the 300
+gate becomes reachable, at the cost of a texturally flat season from day
+5. Recommended **if** the boss-secondary work can be scheduled inside the
+season.
+
+**(b) Ship an interim 0.08 (13.0/day, stage 150 at day 10.9), then go to
+0.0384 once the ramps are stretched.** Half the requested speedup now,
+the full pace when the content can carry it.
+
+**Recommend (a) with the boss-secondary work prioritised**, because the
+owner asked for a pace and the flatness is fixable without touching pace.
+But it is his call, and (b) is the honest alternative rather than a
+hedge — stated so he can choose knowing what each buys.
