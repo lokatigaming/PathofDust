@@ -2593,159 +2593,17 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
         }
         _ => String::new(),
     };
+    let passive_fields = passive_tunables_fields_html(t);
     let passive_tunables = format!(
         "<div class=\"card\">\
           <h1>🎛️ Passive Tunables</h1>\
           <p class=\"muted\">Dials that tune specific passive NODES, live on the next fight. Separate from the per-node values above: those set a node's rank magnitudes, these set the constants the node's behaviour is built from.</p>\
           {tunables_banner}\
           <form method=\"post\" action=\"/admin/passives/tunables/save\">\
-            <h2>Overflow Economy (cross-class caps)</h2>\n            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
-              <div class=\"tunable-row\">\
-                <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
-                <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
-                <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
-              </div>\
-            <h2>Righteous Fire</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
-                <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
-                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
-                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-              </div>\
-            <h2>Haloed Steps</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
-                <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
-                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
-                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-              </div>\
-            <h2>Water Golem Shattering</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
-              <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
-              <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
-              <div class=\"tunable-row\">\
-                <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
-                <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
-                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
-                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
-              </div>\
-            <h2>Verdant Burst</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
-                <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
-              </div>\
-            <h2>Elementalist</h2>\n            <div class=\"tunable-row\">\
-                <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
-                <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
-                <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
-              </div>\
-            <h2>Splash (player ladder)</h2>\n          <p class=\"tunable-hint\">These six govern the <strong>player</strong> splash ladder — how many extra targets a player's splash reaches and at what damage. <strong>Boss splash is a separate roll</strong>, scaled from stage in <code>boss_stats_for</code> and configured on /admin/tunables, not here. If you are looking for how hard bosses splash, this is the wrong group.</p>\n            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
-                <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
-                <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
-                <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
-                <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
-                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
-                <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
-              </div>\
-              <div class=\"tunable-row\">\
-                <label for=\"splash_damage_pct\">Splash Damage %</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
-                <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
-              </div>\
+            {passive_fields}\
             <button class=\"btn\" type=\"submit\">Save Passive Tunables</button>\
           </form>\
-        </div>",
-        thunder_redistribution_pct = t.thunder_redistribution_pct,
-        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
-        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
-        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
-        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
-        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
-        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
-        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
-        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
-        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
-        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
-        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
-        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
-        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
-        evasion_overflow_cap = t.evasion_overflow_cap,
-        block_overflow_cap = t.block_overflow_cap,
-        dr_overflow_cap = t.dr_overflow_cap,
-        intervene_overflow_cap = t.intervene_overflow_cap,
-        splash_extra_targets = t.splash_extra_targets,
-        splash_support_floor_targets = t.splash_support_floor_targets,
-        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
-        splash_ladder_step_pct = t.splash_ladder_step_pct,
-        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
-        splash_damage_pct = t.splash_damage_pct,
+        </div>"
     );
     format!(
         "{nav}\
@@ -4964,15 +4822,14 @@ fn render_tunables_page(
         let items: String = pinned_fights.iter().map(|f| format!("<li>{}</li>", escape_html(f))).collect();
         format!("<ul>{items}</ul>")
     };
-    format!(
-        "{nav}\
-        <div class=\"card\">\
-          <h1>⚙️ Live Tunables</h1>\
-          <p class=\"muted\">Changes apply immediately to the next fight — no rebuild, no restart required.</p>\
-          {banner}\
-          <form method=\"post\" action=\"/admin/tunables/save\">\
-            <h2>Drop Rates</h2>\
-            <div class=\"tunable-row\">\
+    // Rendered in TWO stages since 2026-09-03, and the order is the
+    // point: the grouped fields are built first, then `ungrouped_tunables_html`
+    // reads THIS STRING back to discover what was actually rendered. That is
+    // what lets the catch-all need no hand-maintained list of field names -
+    // see its own doc.
+    let form_fields = format!(
+        "\
+            <h2>Economy &amp; Drops</h2>\n            <div class=\"tunable-row\">\
               <label for=\"loot_mult\">Loot Multiplier</label>\
               <input type=\"number\" step=\"any\" id=\"loot_mult\" name=\"loot_mult\" value=\"{loot_mult}\">\
               <p class=\"tunable-hint\">Scales dust, item drops, and craft-token drops together (boss and basic-encounter wins alike).</p>\
@@ -4992,144 +4849,48 @@ fn render_tunables_page(
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"celestial_shard_drop_chance\" name=\"celestial_shard_drop_chance\" value=\"{celestial_shard_drop_chance}\">\
               <p class=\"tunable-hint\">0 to 1 (e.g. 0.002 = 0.2%). One roll on every real item drop, rolls for every archetype. (Celestial Shard and Unique Shard were merged into one currency 2026-08-19 - this used to be two independent rolls at half this rate each.)</p>\
             </div>\
-            <h2>Boss Difficulty</h2>\
             <div class=\"tunable-row\">\
-              <label for=\"boss_health\">Boss Health</label>\
-              <input type=\"number\" step=\"any\" id=\"boss_health\" name=\"boss_health\" value=\"{boss_health}\">\
-              <p class=\"tunable-hint\">Single multiplier on boss HP (consolidated 2026-08-16 from 4 separate dials — 1.0 = base design.)</p>\
+              <label for=\"divine_dust_drop_chance\">Divine Dust Fight-Drop Chance</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_drop_chance\" name=\"divine_dust_drop_chance\" value=\"{divine_dust_drop_chance}\">\
+              <p class=\"tunable-hint\">0 to 1 — chance per fighting character, per win (boss or basic, same eligibility as sand), of gaining exactly 1 Divine Dust.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"boss_power\">Boss Power</label>\
-              <input type=\"number\" step=\"any\" id=\"boss_power\" name=\"boss_power\" value=\"{boss_power}\">\
-              <p class=\"tunable-hint\">Boss Health's own counterpart for boss ATK. 1.0 = base design.</p>\
+              <label for=\"divine_dust_disenchant_chance\">Divine Dust Disenchant Chance</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_disenchant_chance\" name=\"divine_dust_disenchant_chance\" value=\"{divine_dust_disenchant_chance}\">\
+              <p class=\"tunable-hint\">0 to 1 — chance per Sacred item manually disenchanted of gaining 1 Divine Dust. Non-Sacred disenchants never grant any.</p>\
             </div>\
-            <h2>Dynamic Pacing</h2>\
-            <p class=\"tunable-hint\">{hp_pacing_readout}</p>\
-            <p class=\"tunable-hint\">{dmg_pacing_readout}</p>\
-            <p class=\"tunable-hint\">{gear_excess_readout}</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"boss_gear_tier_weight\">Gear-Tier Weight (effective levels per tier of gear excess)</label>\
-              <input type=\"number\" step=\"any\" min=\"{boss_gear_tier_weight_min}\" max=\"{boss_gear_tier_weight_max}\" required id=\"boss_gear_tier_weight\" name=\"boss_gear_tier_weight\" value=\"{boss_gear_tier_weight}\">\
-              <p class=\"tunable-hint\">{boss_gear_tier_weight_min} to {boss_gear_tier_weight_max}. Boss HP and ATK scale on the party's average LEVEL; this adds the party's average gear-tier <em>excess</em> — <code>max(0, mean equipped tier − level)</code> — to that level, weighted. 1 charges a tier of excess exactly like a level. <strong>Shipped at 0, and 0 is the intended setting, not an unset field</strong> — every other dial here treats a 0 as a bug, this one's 0 is the no-op. It ships with the read-out above so the weight is chosen from the observed distribution rather than guessed. <strong>Why the EXCESS and not the tier:</strong> Krangled items already sit at exactly the character's level, so raw tier would bill twice the players who did the sanctioned thing; measuring the excess makes that impossible rather than something to tune around. <strong>Why here and not through a controller:</strong> this is a per-party term on the organic curve, so it does not tax a newcomer for a veteran's crafting, and it does not spend Controller B's authority — B's only lever is boss damage, which re-flattens boss evasion, block and damage reduction into their cap. Raising this makes bosses harder for parties carrying crafted gear beyond their level; Controllers A and B will re-equilibrate duration and win rate around it.</p>\
-            </div>\
-            <label class=\"veil-check\"><input type=\"checkbox\" name=\"dynamic_pacing_enabled\" value=\"1\"{dynamic_pacing_enabled_checked}> Dynamic pacing enabled (master kill-switch)</label>\
-            <p class=\"tunable-hint\">Unchecked = BOTH controllers completely inert (no sampling, no updates); both multipliers freeze where they sit. The stage baseline floor and the top-layer mitigation below are separate systems with their own switches.</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"pacing_window_fights\">Pacing Window (fights)</label>\
-              <input type=\"number\" step=\"1\" min=\"1\" id=\"pacing_window_fights\" name=\"pacing_window_fights\" value=\"{pacing_window_fights}\">\
-              <p class=\"tunable-hint\">Rolling window for BOTH controllers (A's DPS samples, B's win/loss ratio). Both stay neutral until a full window exists.</p>\
+            <h2>Crafting</h2>\n            <div class=\"tunable-row\">\
+              <label for=\"divine_dust_craft_dust_cost\">Divine Dust Recipe: Dust Cost</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_dust_cost\" name=\"divine_dust_craft_dust_cost\" value=\"{divine_dust_craft_dust_cost}\">\
+              <p class=\"tunable-hint\">Dust cost of the /craft recipe (deliberately cheap relative to veteran holdings — sand is the intended pacing constraint).</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"target_duration_min_s\">Target Fight Duration Min (s)</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_duration_min_s\" name=\"target_duration_min_s\" value=\"{target_duration_min_s}\">\
-              <p class=\"tunable-hint\">Controller A (HP axis) targets this window of REAL fight time, aiming at the midpoint with the max below. Real clock, not the overlay's compressed playback.</p>\
+              <label for=\"divine_dust_craft_sand_cost\">Divine Dust Recipe: Sand Cost</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_sand_cost\" name=\"divine_dust_craft_sand_cost\" value=\"{divine_dust_craft_sand_cost}\">\
+              <p class=\"tunable-hint\">Sand cost of the same recipe.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"target_duration_max_s\">Target Fight Duration Max (s)</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_duration_max_s\" name=\"target_duration_max_s\" value=\"{target_duration_max_s}\">\
-              <p class=\"tunable-hint\">Window upper bound; A scales enemy HP pools (never the per-enemy split) so expected kill time lands near (min+max)/2. Samples WINNING fights only — a wipe never feeds the measure.</p>\
+              <label for=\"divine_dust_craft_output\">Divine Dust Recipe: Output</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"divine_dust_craft_output\" name=\"divine_dust_craft_output\" value=\"{divine_dust_craft_output}\">\
+              <p class=\"tunable-hint\">Divine Dust granted per craft, before the x1/x10/x50 batch multiplier.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"hp_max_step_per_fight\">HP Max Step Per Fight</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" id=\"hp_max_step_per_fight\" name=\"hp_max_step_per_fight\" value=\"{hp_max_step_per_fight}\">\
-              <p class=\"tunable-hint\">Max RELATIVE change of A's multiplier per winning fight (0.25 = &plusmn;25%). The oscillation damper.</p>\
+              <label for=\"craft_base_cost_mult\">Craft Base Cost Multiplier (x, on the flat per-action fee)</label>\
+              <input type=\"number\" step=\"any\" min=\"{craft_base_cost_mult_min}\" max=\"{craft_base_cost_mult_max}\" required id=\"craft_base_cost_mult\" name=\"craft_base_cost_mult\" value=\"{craft_base_cost_mult}\">\
+              <p class=\"tunable-hint\">{craft_base_cost_mult_min} to {craft_base_cost_mult_max} — multiplies every craft action's flat dust fee (Transmute 250, Krangle 2500, …) and the veil surcharge, before the per-tier surcharge below is added. Shipped 0.1 = the 10x cost cut; 1 restores the pre-cut prices exactly; 10 is ten times those old prices. 0 makes the flat fee free but NOT the craft — the per-tier surcharge still applies. Each fee is rounded UP, so a nonzero fee can never round away to nothing.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"hp_multiplier_floor\">HP Multiplier Floor</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"hp_multiplier_floor\" name=\"hp_multiplier_floor\" value=\"{hp_multiplier_floor}\">\
-              <p class=\"tunable-hint\">Floor on A's own multiplier RELATIVE to the organic stage curve — NOT the absolute difficulty floor; the baseline anchors below bind first. Hard floor 0.05 / hard ceiling 1,000,000 regardless.</p>\
+              <label for=\"craft_tier_exponent\">Craft Tier Cost Exponent (per-tier surcharge = 3 x tier^exponent, dust)</label>\
+              <input type=\"number\" step=\"any\" min=\"{craft_tier_exponent_min}\" max=\"{craft_tier_exponent_max}\" required id=\"craft_tier_exponent\" name=\"craft_tier_exponent\" value=\"{craft_tier_exponent}\">\
+              <p class=\"tunable-hint\">{craft_tier_exponent_min} to {craft_tier_exponent_max} — 1.0 is the old flat 3 dust per tier; shipped 1.1 makes cost accelerate with tier, slowly (tier 10: 38 instead of 30; tier 100: 476 instead of 300; tier 201: 1025 instead of 603). Below 1 is refused: it would make crafting relatively cheaper the further a player progresses.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"hp_multiplier_ceiling\">HP Multiplier Ceiling</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"hp_multiplier_ceiling\" name=\"hp_multiplier_ceiling\" value=\"{hp_multiplier_ceiling}\">\
-              <p class=\"tunable-hint\">Ceiling on A's multiplier (hard-capped at 1,000,000 no matter what).</p>\
+              <label for=\"craft_tier_bump_mult\">Craft Tier Growth Multiplier (x, on the +3/+2/+1 tiers a craft adds)</label>\
+              <input type=\"number\" step=\"any\" min=\"{craft_tier_bump_mult_min}\" max=\"{craft_tier_bump_mult_max}\" required id=\"craft_tier_bump_mult\" name=\"craft_tier_bump_mult\" value=\"{craft_tier_bump_mult}\">\
+              <p class=\"tunable-hint\">{craft_tier_bump_mult_min} to {craft_tier_bump_mult_max} — every successful craft raises the crafted item's tier (+3 below tier 25, +2 below 50, +1 above), which raises its power, every modifier on it, AND the per-tier surcharge on its next craft. This scales all three bands together. Shipped 1 = unchanged; <strong>0 switches per-craft tier growth off entirely</strong>, which is how to watch the exponent above in isolation. This dial and the exponent act on different things — the exponent prices tier, this decides how fast an item climbs.</p>\
             </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"enemy_hp_pool_hard_cap\">Enemy HP Pool Cap (hit points, summed over all enemies)</label>\
-              <input type=\"number\" step=\"any\" min=\"{enemy_hp_pool_cap_min}\" max=\"{enemy_hp_pool_cap_max}\" required id=\"enemy_hp_pool_hard_cap\" name=\"enemy_hp_pool_hard_cap\" value=\"{enemy_hp_pool_hard_cap}\">\
-              <p class=\"tunable-hint\"><strong>Unit: hit points.</strong> Range 1e15 &ndash; 5e16. Out-of-range is rejected by the form; a POST that bypasses the browser is clamped instead. Ceiling on the TOTAL scaled HP of every enemy in one encounter, applied to Controller A's multiplier before scaling &mdash; <strong>this is what decides whether A's output reaches the fight at all.</strong> Measured 2026-08-30 (anomaly ledger #67): at the 1e15 default it binds on every boss fight, cutting A's honest request of ~186 down to 13.35 and delivering 2.69s fights against the 30&ndash;45s target above. Reaching that window needs roughly 1.4e16. <strong>Raise in small watched steps, never one jump</strong> &mdash; boss HP rises with it AND every time-based boss mechanic the ~2.7s runway has been starving (boss defence ignore at 2%/s, pierce, the Gelatinous Cube's 3s shred window) starts running to completion. Both sides of the fight get harder at once.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"hp_relax_after_losses\">HP Relax After (consecutive losses)</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"hp_relax_after_losses\" name=\"hp_relax_after_losses\" value=\"{hp_relax_after_losses}\">\
-              <p class=\"tunable-hint\">Consecutive LOST boss fights before Controller A starts decaying back toward neutral. A samples wins only — correct, but it means a wipe teaches A nothing, so an overshoot has no way back without this. 0 = unset (uses the shipped default); to switch relaxation off set the step below to 0.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"hp_relax_step_per_fight\">HP Relax Step (per lost fight)</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" id=\"hp_relax_step_per_fight\" name=\"hp_relax_step_per_fight\" value=\"{hp_relax_step_per_fight}\">\
-              <p class=\"tunable-hint\">How far back toward neutral A moves per lost fight once that streak is reached (0.20 = 20%). Never pushes A below neutral 1.0, and never applies while A is already at or under neutral — a losing party is never made harder by this path. <strong>0 disables relaxation entirely.</strong></p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"target_win_loss_ratio\">Target Win:Loss Ratio</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_win_loss_ratio\" name=\"target_win_loss_ratio\" value=\"{target_win_loss_ratio}\">\
-              <p class=\"tunable-hint\">Controller B (damage axis) steers the rolling BOSS win:loss ratio here. Default 2.0 = two wins per loss — exactly neutral stage progression (+1 per win, -2 per loss), so the party only climbs by beating it. Boss outcomes only.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"dmg_max_step_per_fight\">Damage Max Step Per Fight</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" id=\"dmg_max_step_per_fight\" name=\"dmg_max_step_per_fight\" value=\"{dmg_max_step_per_fight}\">\
-              <p class=\"tunable-hint\">Max RELATIVE change of B's multiplier per boss fight (0.15 = &plusmn;15%).</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"dmg_multiplier_floor\">Damage Multiplier Floor</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"dmg_multiplier_floor\" name=\"dmg_multiplier_floor\" value=\"{dmg_multiplier_floor}\">\
-              <p class=\"tunable-hint\">Floor on B's own multiplier relative to the organic curve (default 0.4 — real room in BOTH directions before the baseline binds). Hard floor 0.05 regardless.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"dmg_multiplier_ceiling\">Damage Multiplier Ceiling</label>\
-              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"dmg_multiplier_ceiling\" name=\"dmg_multiplier_ceiling\" value=\"{dmg_multiplier_ceiling}\">\
-              <p class=\"tunable-hint\">Ceiling on B's multiplier (hard-capped at 1,000,000 no matter what).</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"baseline_stage_anchors\">Baseline Stage Anchors (CSV)</label>\
-              <input type=\"text\" id=\"baseline_stage_anchors\" name=\"baseline_stage_anchors\" value=\"{baseline_stage_anchors_csv}\">\
-              <p class=\"tunable-hint\">Hand-authored difficulty floor, X axis: strictly ascending STAGE anchor points. Linearly interpolated against the value lists below, flat after the last. Malformed = neutral (organic curve is the floor).</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"baseline_hp_anchors\">Baseline HP Anchors (CSV)</label>\
-              <input type=\"text\" id=\"baseline_hp_anchors\" name=\"baseline_hp_anchors\" value=\"{baseline_hp_anchors_csv}\">\
-              <p class=\"tunable-hint\">Minimum enemy HP per anchor, as a FRACTION of the organic stage/level/party formula (1.0 = full curve). Neither controller can ever pull effective difficulty below this. Hand-set by design — NOT derived from live player gear.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"baseline_atk_anchors\">Baseline Damage Anchors (CSV)</label>\
-              <input type=\"text\" id=\"baseline_atk_anchors\" name=\"baseline_atk_anchors\" value=\"{baseline_atk_anchors_csv}\">\
-              <p class=\"tunable-hint\">Same curve for enemy attack. Must have exactly as many values as stage anchors.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"hp_pacing_mult_override\">HP Controller Override: {hp_mult_override_label}</label>\
-              <input type=\"text\" id=\"hp_pacing_mult_override\" name=\"hp_pacing_mult_override\" placeholder=\"leave blank to keep as-is\">\
-              <p class=\"tunable-hint\">Manual override for Controller A's OWN multiplier (the read-out above shows the effective value incl. baseline). Leave blank to change nothing.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"boss_power_mult_override\">Damage Controller Override: {dmg_mult_override_label}</label>\
-              <input type=\"text\" id=\"boss_power_mult_override\" name=\"boss_power_mult_override\" placeholder=\"leave blank to keep as-is\">\
-              <p class=\"tunable-hint\">Manual override for Controller B's own multiplier (e.g. after a bad losing streak leaves it stuck low). Leave blank to change nothing.</p>\
-            </div>\
-            <h2>Top-Layer Mitigation (stage-tied)</h2>\
-            <label class=\"veil-check\"><input type=\"checkbox\" name=\"top_layer_enabled\" value=\"1\"{top_layer_enabled_checked}> Top-layer mitigation enabled</label>\
-            <p class=\"tunable-hint\">A final ABSOLUTE damage reduction on every enemy, applied at the very END of damage resolution — after every other mitigation. NOTHING bypasses it: no armor pen, no ignore-DR, no true-damage exemption. Structurally separate from the normal DR stat and its cap. Scales with STAGE only (never with the HP controller), so gear upgrades still visibly shorten fights while HP-keyed mechanics (Shattering, Ashes to Ashes) stay sane.</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"top_layer_cap_pct\">Top-Layer Cap</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"top_layer_cap_pct\" name=\"top_layer_cap_pct\" value=\"{top_layer_cap_pct}\">\
-              <p class=\"tunable-hint\">Asymptotic ceiling (fraction), clamped to 0.95 no matter what — an unkillable enemy is a worse failure than a long fight. Default 0.60: ~30% at stage 1500, ~41% at stage 3222.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"top_layer_half_stage\">Top-Layer Half Stage</label>\
-              <input type=\"number\" step=\"any\" min=\"1\" id=\"top_layer_half_stage\" name=\"top_layer_half_stage\" value=\"{top_layer_half_stage}\">\
-              <p class=\"tunable-hint\">The stage where the layer reaches HALF its cap (same asymptote shape as boss pierce). Lower = ramps in sooner.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"boss_count_tier_stages\">Boss Count Tier Size (stages)</label>\
-              <input type=\"number\" step=\"1\" min=\"1\" id=\"boss_count_tier_stages\" name=\"boss_count_tier_stages\" value=\"{boss_count_tier_stages}\">\
-              <p class=\"tunable-hint\">Boss count = 1 + a random 1-or-2 roll per completed tier of this many stages (jitter, re-rolled every fight), capped below. E.g. 100 means stage 400 is 4 tiers.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"boss_count_cap_mult\">Boss Count Cap Multiplier</label>\
-              <input type=\"number\" step=\"0.1\" min=\"0\" id=\"boss_count_cap_mult\" name=\"boss_count_cap_mult\" value=\"{boss_count_cap_mult}\">\
-              <p class=\"tunable-hint\">Hard ceiling on total bosses: floor(tiers × this). E.g. stage 400 (4 tiers) × 1.5 caps at 6 bosses even though the jitter alone could roll up to 8 — the jitter is what makes any two fights at the same stage different, this is what keeps it from spiraling. Only 5 named boss kinds exist, so past 5 the extra slots duplicate (preferring variety first — see BossKind::random_excluding_multiple).</p>\
-            </div>\
-            <h2>Drop Stage Gates</h2>\
             <p class=\"tunable-hint\">The world stage at which each of these four starts dropping. All four read the CURRENT stage, so a boss-loss regression below a threshold temporarily stops those drops until the group climbs back — that is intended. Polishing sand and Divine Dust are gated on FIGHT grants only: disenchanting gear still yields both at any stage.</p>\
-            <div class=\"tunable-row\">\
+            <h2>Drop Stage Gates</h2>\n            <div class=\"tunable-row\">\
               <label for=\"sand_drop_stage\">Polishing Sand Drop Stage (world stage)</label>\
               <input type=\"number\" step=\"1\" min=\"{drop_stage_min}\" max=\"{drop_stage_max}\" required id=\"sand_drop_stage\" name=\"sand_drop_stage\" value=\"{sand_drop_stage}\">\
               <p class=\"tunable-hint\">World stage from which a fight win grants polishing sand (boss and filler alike). 0 = always. Disenchanting is unaffected at any stage.</p>\
@@ -5149,21 +4910,34 @@ fn render_tunables_page(
               <input type=\"number\" step=\"1\" min=\"{drop_stage_min}\" max=\"{drop_stage_max}\" required id=\"sacred_item_stage\" name=\"sacred_item_stage\" value=\"{sacred_item_stage}\">\
               <p class=\"tunable-hint\">World stage from which Sacred items drop. Also the point where Perfect's own per-kill guarantee drops to half frequency, since that rule exists to make room for Sacred. The wiki still renders the compiled default (300) for this one, not the live value.</p>\
             </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"pierce_cap\">Boss Pierce Cap</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"pierce_cap\" name=\"pierce_cap\" value=\"{pierce_cap}\">\
-              <p class=\"tunable-hint\">0 to 1 — the asymptotic ceiling a real boss's unavoidable/unmitigable pierce fraction climbs toward as stage grows (never actually reached). 0 = pierce disabled entirely, exactly today's pre-pierce behavior.</p>\
+            <h2>Encounter Shape</h2>\n            <div class=\"tunable-row\">\
+              <label for=\"boss_health\">Boss Health</label>\
+              <input type=\"number\" step=\"any\" id=\"boss_health\" name=\"boss_health\" value=\"{boss_health}\">\
+              <p class=\"tunable-hint\">Single multiplier on boss HP (consolidated 2026-08-16 from 4 separate dials — 1.0 = base design.)</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"pierce_h\">Boss Pierce Half-Stage</label>\
-              <input type=\"number\" step=\"any\" min=\"1\" id=\"pierce_h\" name=\"pierce_h\" value=\"{pierce_h}\">\
-              <p class=\"tunable-hint\">The stage at which pierce reaches HALF of the cap above. Lower = ramps up faster at earlier stages.</p>\
+              <label for=\"boss_power\">Boss Power</label>\
+              <input type=\"number\" step=\"any\" id=\"boss_power\" name=\"boss_power\" value=\"{boss_power}\">\
+              <p class=\"tunable-hint\">Boss Health's own counterpart for boss ATK. 1.0 = base design.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"fight_summary_batch_size\">Fight Summary Batch Size</label>\
-              <input type=\"number\" step=\"1\" min=\"1\" id=\"fight_summary_batch_size\" name=\"fight_summary_batch_size\" value=\"{fight_summary_batch_size}\">\
-              <p class=\"tunable-hint\">How many fight results (Basic and Boss alike) accumulate into one batched chat summary. 1 = post every fight individually, same as before batching existed. A partial batch always posts after ~5 minutes even if it hasn't reached this count.</p>\
+              <label for=\"boss_count_tier_stages\">Boss Count Tier Size (stages)</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"boss_count_tier_stages\" name=\"boss_count_tier_stages\" value=\"{boss_count_tier_stages}\">\
+              <p class=\"tunable-hint\">Boss count = 1 + a random 1-or-2 roll per completed tier of this many stages (jitter, re-rolled every fight), capped below. E.g. 100 means stage 400 is 4 tiers.</p>\
             </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_count_cap_mult\">Boss Count Cap Multiplier</label>\
+              <input type=\"number\" step=\"0.1\" min=\"0\" id=\"boss_count_cap_mult\" name=\"boss_count_cap_mult\" value=\"{boss_count_cap_mult}\">\
+              <p class=\"tunable-hint\">Hard ceiling on total bosses: floor(tiers × this). E.g. stage 400 (4 tiers) × 1.5 caps at 6 bosses even though the jitter alone could roll up to 8 — the jitter is what makes any two fights at the same stage different, this is what keeps it from spiraling. Only 5 named boss kinds exist, so past 5 the extra slots duplicate (preferring variety first — see BossKind::random_excluding_multiple).</p>\
+            </div>\
+            <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
+            <p class=\"tunable-hint\">{gear_excess_readout}</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_gear_tier_weight\">Gear-Tier Weight (effective levels per tier of gear excess)</label>\
+              <input type=\"number\" step=\"any\" min=\"{boss_gear_tier_weight_min}\" max=\"{boss_gear_tier_weight_max}\" required id=\"boss_gear_tier_weight\" name=\"boss_gear_tier_weight\" value=\"{boss_gear_tier_weight}\">\
+              <p class=\"tunable-hint\">{boss_gear_tier_weight_min} to {boss_gear_tier_weight_max}. Boss HP and ATK scale on the party's average LEVEL; this adds the party's average gear-tier <em>excess</em> — <code>max(0, mean equipped tier − level)</code> — to that level, weighted. 1 charges a tier of excess exactly like a level. <strong>Shipped at 0, and 0 is the intended setting, not an unset field</strong> — every other dial here treats a 0 as a bug, this one's 0 is the no-op. It ships with the read-out above so the weight is chosen from the observed distribution rather than guessed. <strong>Why the EXCESS and not the tier:</strong> Krangled items already sit at exactly the character's level, so raw tier would bill twice the players who did the sanctioned thing; measuring the excess makes that impossible rather than something to tune around. <strong>Why here and not through a controller:</strong> this is a per-party term on the organic curve, so it does not tax a newcomer for a veteran's crafting, and it does not spend Controller B's authority — B's only lever is boss damage, which re-flattens boss evasion, block and damage reduction into their cap. Raising this makes bosses harder for parties carrying crafted gear beyond their level; Controllers A and B will re-equilibrate duration and win rate around it.</p>\
+            </div>\
+            <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
             <h2>Boss Secondary Curves</h2>\
             <p class=\"tunable-hint\">Each of a boss's seven <em>secondary</em> stats ramps with world stage as <strong>cap &times; stage / (stage + half-stage)</strong> &mdash; the same saturating shape as Boss Pierce above. <strong>Placement rule:</strong> a stat reaches <strong>50% of its cap at the half-stage</strong>, <strong>80% at 4&times;</strong> it, and <strong>90% at 9&times;</strong> it. So to have a stat still visibly developing at the stage your season actually reaches, set its half-stage to about a quarter of that stage. Lower = the stat arrives earlier and then flattens; higher = it keeps moving all season but is numerically weaker at every stage. The caps are not tunable &mdash; they are safety rails.</p>\
             <p class=\"tunable-hint\"><strong>PROVISIONAL &mdash; these seven defaults are the old frozen ramps re-expressed, not a tuned set.</strong> Each shipped value is the stat's old <em>cap &divide; slope</em>, which reproduces the old curve exactly at stage 0 and is also the stage the stat used to freeze at. That was chosen so shipping the curve changed nothing at the low end; it is explicitly <em>not</em> a claim that these are the right numbers. The design's own placement rule wants them roughly <strong>2&times; larger</strong> to keep stats developing across a 30-day season &mdash; but that factor came from a projection with a 3&times; spread and no measured season length, so it is a dial to move from observation, not a guess to bake in. <strong>Revisit once a season's real trajectory is visible.</strong> Raising a half-stage makes the boss weaker on that stat at every stage; Controllers A and B will re-equilibrate difficulty through hp/atk, so the effect is texture, not difficulty.</p>\
@@ -5203,57 +4977,140 @@ fn render_tunables_page(
               <input type=\"number\" step=\"any\" min=\"{boss_half_stage_min}\" max=\"{boss_half_stage_max}\" required id=\"boss_splash_half_stage\" name=\"boss_splash_half_stage\" value=\"{boss_splash_half_stage}\">\
               <p class=\"tunable-hint\">{boss_half_stage_min} to {boss_half_stage_max} — shipped {boss_splash_half_stage_default}. How much of a boss hit spills onto the rest of the party.</p>\
             </div>\
-            <h2>Reactive Procs</h2>\
+            <h2>Dynamic Pacing</h2>\n            <p class=\"tunable-hint\">{hp_pacing_readout}</p>\
+            <p class=\"tunable-hint\">{dmg_pacing_readout}</p>\
+            <h2>Dynamic Pacing — Controller A (HP / duration)</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"dynamic_pacing_enabled\" value=\"1\"{dynamic_pacing_enabled_checked}> Dynamic pacing enabled (master kill-switch)</label>\
+            <p class=\"tunable-hint\">Unchecked = BOTH controllers completely inert (no sampling, no updates); both multipliers freeze where they sit. The stage baseline floor and the top-layer mitigation below are separate systems with their own switches.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"pacing_window_fights\">Pacing Window (fights)</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"pacing_window_fights\" name=\"pacing_window_fights\" value=\"{pacing_window_fights}\">\
+              <p class=\"tunable-hint\">Rolling window for BOTH controllers (A's DPS samples, B's win/loss ratio). Both stay neutral until a full window exists.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"target_duration_min_s\">Target Fight Duration Min (s)</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_duration_min_s\" name=\"target_duration_min_s\" value=\"{target_duration_min_s}\">\
+              <p class=\"tunable-hint\">Controller A (HP axis) targets this window of REAL fight time, aiming at the midpoint with the max below. Real clock, not the overlay's compressed playback.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"target_duration_max_s\">Target Fight Duration Max (s)</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_duration_max_s\" name=\"target_duration_max_s\" value=\"{target_duration_max_s}\">\
+              <p class=\"tunable-hint\">Window upper bound; A scales enemy HP pools (never the per-enemy split) so expected kill time lands near (min+max)/2. Samples WINNING fights only — a wipe never feeds the measure.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_max_step_per_fight\">HP Max Step Per Fight</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"hp_max_step_per_fight\" name=\"hp_max_step_per_fight\" value=\"{hp_max_step_per_fight}\">\
+              <p class=\"tunable-hint\">Max RELATIVE change of A's multiplier per winning fight (0.25 = &plusmn;25%). The oscillation damper.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_multiplier_floor\">HP Multiplier Floor</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"hp_multiplier_floor\" name=\"hp_multiplier_floor\" value=\"{hp_multiplier_floor}\">\
+              <p class=\"tunable-hint\">Floor on A's own multiplier RELATIVE to the organic stage curve — NOT the absolute difficulty floor; the baseline anchors below bind first. Hard floor 0.05 / hard ceiling 1,000,000 regardless.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_multiplier_ceiling\">HP Multiplier Ceiling</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"hp_multiplier_ceiling\" name=\"hp_multiplier_ceiling\" value=\"{hp_multiplier_ceiling}\">\
+              <p class=\"tunable-hint\">Ceiling on A's multiplier (hard-capped at 1,000,000 no matter what).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_relax_after_losses\">HP Relax After (consecutive losses)</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"hp_relax_after_losses\" name=\"hp_relax_after_losses\" value=\"{hp_relax_after_losses}\">\
+              <p class=\"tunable-hint\">Consecutive LOST boss fights before Controller A starts decaying back toward neutral. A samples wins only — correct, but it means a wipe teaches A nothing, so an overshoot has no way back without this. 0 = unset (uses the shipped default); to switch relaxation off set the step below to 0.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_relax_step_per_fight\">HP Relax Step (per lost fight)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"hp_relax_step_per_fight\" name=\"hp_relax_step_per_fight\" value=\"{hp_relax_step_per_fight}\">\
+              <p class=\"tunable-hint\">How far back toward neutral A moves per lost fight once that streak is reached (0.20 = 20%). Never pushes A below neutral 1.0, and never applies while A is already at or under neutral — a losing party is never made harder by this path. <strong>0 disables relaxation entirely.</strong></p>\
+            </div>\
+            <h2>Dynamic Pacing — Controller B (win rate / lethality)</h2>\n            <div class=\"tunable-row\">\
+              <label for=\"target_win_loss_ratio\">Target Win:Loss Ratio</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"target_win_loss_ratio\" name=\"target_win_loss_ratio\" value=\"{target_win_loss_ratio}\">\
+              <p class=\"tunable-hint\">Controller B (damage axis) steers the rolling BOSS win:loss ratio here. Default 2.0 = two wins per loss — exactly neutral stage progression (+1 per win, -2 per loss), so the party only climbs by beating it. Boss outcomes only.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dmg_max_step_per_fight\">Damage Max Step Per Fight</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" id=\"dmg_max_step_per_fight\" name=\"dmg_max_step_per_fight\" value=\"{dmg_max_step_per_fight}\">\
+              <p class=\"tunable-hint\">Max RELATIVE change of B's multiplier per boss fight (0.15 = &plusmn;15%).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dmg_multiplier_floor\">Damage Multiplier Floor</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"dmg_multiplier_floor\" name=\"dmg_multiplier_floor\" value=\"{dmg_multiplier_floor}\">\
+              <p class=\"tunable-hint\">Floor on B's own multiplier relative to the organic curve (default 0.4 — real room in BOTH directions before the baseline binds). Hard floor 0.05 regardless.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"dmg_multiplier_ceiling\">Damage Multiplier Ceiling</label>\
+              <input type=\"number\" step=\"any\" min=\"0.001\" id=\"dmg_multiplier_ceiling\" name=\"dmg_multiplier_ceiling\" value=\"{dmg_multiplier_ceiling}\">\
+              <p class=\"tunable-hint\">Ceiling on B's multiplier (hard-capped at 1,000,000 no matter what).</p>\
+            </div>\
+            <h2>Dynamic Pacing — Baseline Floor &amp; Manual Overrides</h2>\n            <div class=\"tunable-row\">\
+              <label for=\"baseline_stage_anchors\">Baseline Stage Anchors (CSV)</label>\
+              <input type=\"text\" id=\"baseline_stage_anchors\" name=\"baseline_stage_anchors\" value=\"{baseline_stage_anchors_csv}\">\
+              <p class=\"tunable-hint\">Hand-authored difficulty floor, X axis: strictly ascending STAGE anchor points. Linearly interpolated against the value lists below, flat after the last. Malformed = neutral (organic curve is the floor).</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"baseline_hp_anchors\">Baseline HP Anchors (CSV)</label>\
+              <input type=\"text\" id=\"baseline_hp_anchors\" name=\"baseline_hp_anchors\" value=\"{baseline_hp_anchors_csv}\">\
+              <p class=\"tunable-hint\">Minimum enemy HP per anchor, as a FRACTION of the organic stage/level/party formula (1.0 = full curve). Neither controller can ever pull effective difficulty below this. Hand-set by design — NOT derived from live player gear.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"baseline_atk_anchors\">Baseline Damage Anchors (CSV)</label>\
+              <input type=\"text\" id=\"baseline_atk_anchors\" name=\"baseline_atk_anchors\" value=\"{baseline_atk_anchors_csv}\">\
+              <p class=\"tunable-hint\">Same curve for enemy attack. Must have exactly as many values as stage anchors.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"hp_pacing_mult_override\">HP Controller Override: {hp_mult_override_label}</label>\
+              <input type=\"text\" id=\"hp_pacing_mult_override\" name=\"hp_pacing_mult_override\" placeholder=\"leave blank to keep as-is\">\
+              <p class=\"tunable-hint\">Manual override for Controller A's OWN multiplier (the read-out above shows the effective value incl. baseline). Leave blank to change nothing.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"boss_power_mult_override\">Damage Controller Override: {dmg_mult_override_label}</label>\
+              <input type=\"text\" id=\"boss_power_mult_override\" name=\"boss_power_mult_override\" placeholder=\"leave blank to keep as-is\">\
+              <p class=\"tunable-hint\">Manual override for Controller B's own multiplier (e.g. after a bad losing streak leaves it stuck low). Leave blank to change nothing.</p>\
+            </div>\
+            <p class=\"tunable-hint\">Owner doctrine: maximum damage mitigation from damage reduction, applies universally — no character, golem, or enemy may ever be immune to any damage source through DR. Does NOT cover evasion, block, or Intervene (separate mechanics, their own caps) or Thunder Golem absorption/redirect (not damage reduction at all).</p>\
+            <h2>Cost &amp; Safety Rails</h2>\n            <div class=\"tunable-row\">\
+              <label for=\"enemy_hp_pool_hard_cap\">Enemy HP Pool Cap (hit points, summed over all enemies)</label>\
+              <input type=\"number\" step=\"any\" min=\"{enemy_hp_pool_cap_min}\" max=\"{enemy_hp_pool_cap_max}\" required id=\"enemy_hp_pool_hard_cap\" name=\"enemy_hp_pool_hard_cap\" value=\"{enemy_hp_pool_hard_cap}\">\
+              <p class=\"tunable-hint\"><strong>Unit: hit points.</strong> Range 1e15 &ndash; 5e16. Out-of-range is rejected by the form; a POST that bypasses the browser is clamped instead. Ceiling on the TOTAL scaled HP of every enemy in one encounter, applied to Controller A's multiplier before scaling &mdash; <strong>this is what decides whether A's output reaches the fight at all.</strong> Measured 2026-08-30 (anomaly ledger #67): at the 1e15 default it binds on every boss fight, cutting A's honest request of ~186 down to 13.35 and delivering 2.69s fights against the 30&ndash;45s target above. Reaching that window needs roughly 1.4e16. <strong>Raise in small watched steps, never one jump</strong> &mdash; boss HP rises with it AND every time-based boss mechanic the ~2.7s runway has been starving (boss defence ignore at 2%/s, pierce, the Gelatinous Cube's 3s shred window) starts running to completion. Both sides of the fight get harder at once.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"defensive_stat_hard_cap\">Max DR Mitigation</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"defensive_stat_hard_cap\" name=\"defensive_stat_hard_cap\" value=\"{defensive_stat_hard_cap}\">\
+              <p class=\"tunable-hint\">0 to 1 — a landed hit always deals at least (1 − this) of its raw mitigable damage, however stacked a defender's DR sources get. Default 0.95.</p>\
+            </div>\
             <div class=\"tunable-row\">\
               <label for=\"reactive_proc_cap_ms\">Reactive Counter Cap (ms)</label>\
               <input type=\"number\" step=\"1\" min=\"0\" id=\"reactive_proc_cap_ms\" name=\"reactive_proc_cap_ms\" value=\"{reactive_proc_cap_ms}\">\
               <p class=\"tunable-hint\">Minimum time between real counter-attacks for the shared Rogue's Voidstep / Monk's Counterflow / Druid's Wild Fury group (Warrior's Retaliation is uncapped). Default 1000ms = at most 1 real trigger per second.</p>\
             </div>\
-            <h2>Divine Dust</h2>\
             <div class=\"tunable-row\">\
-              <label for=\"divine_dust_drop_chance\">Divine Dust Fight-Drop Chance</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_drop_chance\" name=\"divine_dust_drop_chance\" value=\"{divine_dust_drop_chance}\">\
-              <p class=\"tunable-hint\">0 to 1 — chance per fighting character, per win (boss or basic, same eligibility as sand), of gaining exactly 1 Divine Dust.</p>\
+              <label for=\"fight_summary_batch_size\">Fight Summary Batch Size</label>\
+              <input type=\"number\" step=\"1\" min=\"1\" id=\"fight_summary_batch_size\" name=\"fight_summary_batch_size\" value=\"{fight_summary_batch_size}\">\
+              <p class=\"tunable-hint\">How many fight results (Basic and Boss alike) accumulate into one batched chat summary. 1 = post every fight individually, same as before batching existed. A partial batch always posts after ~5 minutes even if it hasn't reached this count.</p>\
+            </div>\
+            <h2>Top-Layer Mitigation (stage-tied)</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"top_layer_enabled\" value=\"1\"{top_layer_enabled_checked}> Top-layer mitigation enabled</label>\
+            <p class=\"tunable-hint\">A final ABSOLUTE damage reduction on every enemy, applied at the very END of damage resolution — after every other mitigation. NOTHING bypasses it: no armor pen, no ignore-DR, no true-damage exemption. Structurally separate from the normal DR stat and its cap. Scales with STAGE only (never with the HP controller), so gear upgrades still visibly shorten fights while HP-keyed mechanics (Shattering, Ashes to Ashes) stay sane.</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"top_layer_cap_pct\">Top-Layer Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"top_layer_cap_pct\" name=\"top_layer_cap_pct\" value=\"{top_layer_cap_pct}\">\
+              <p class=\"tunable-hint\">Asymptotic ceiling (fraction), clamped to 0.95 no matter what — an unkillable enemy is a worse failure than a long fight. Default 0.60: ~30% at stage 1500, ~41% at stage 3222.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"divine_dust_disenchant_chance\">Divine Dust Disenchant Chance</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_disenchant_chance\" name=\"divine_dust_disenchant_chance\" value=\"{divine_dust_disenchant_chance}\">\
-              <p class=\"tunable-hint\">0 to 1 — chance per Sacred item manually disenchanted of gaining 1 Divine Dust. Non-Sacred disenchants never grant any.</p>\
+              <label for=\"top_layer_half_stage\">Top-Layer Half Stage</label>\
+              <input type=\"number\" step=\"any\" min=\"1\" id=\"top_layer_half_stage\" name=\"top_layer_half_stage\" value=\"{top_layer_half_stage}\">\
+              <p class=\"tunable-hint\">The stage where the layer reaches HALF its cap (same asymptote shape as boss pierce). Lower = ramps in sooner.</p>\
+            </div>\
+            <h2>Pierce</h2>\n            <div class=\"tunable-row\">\
+              <label for=\"pierce_cap\">Boss Pierce Cap</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"pierce_cap\" name=\"pierce_cap\" value=\"{pierce_cap}\">\
+              <p class=\"tunable-hint\">0 to 1 — the asymptotic ceiling a real boss's unavoidable/unmitigable pierce fraction climbs toward as stage grows (never actually reached). 0 = pierce disabled entirely, exactly today's pre-pierce behavior.</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"divine_dust_craft_dust_cost\">Divine Dust Recipe: Dust Cost</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_dust_cost\" name=\"divine_dust_craft_dust_cost\" value=\"{divine_dust_craft_dust_cost}\">\
-              <p class=\"tunable-hint\">Dust cost of the /craft recipe (deliberately cheap relative to veteran holdings — sand is the intended pacing constraint).</p>\
+              <label for=\"pierce_h\">Boss Pierce Half-Stage</label>\
+              <input type=\"number\" step=\"any\" min=\"1\" id=\"pierce_h\" name=\"pierce_h\" value=\"{pierce_h}\">\
+              <p class=\"tunable-hint\">The stage at which pierce reaches HALF of the cap above. Lower = ramps up faster at earlier stages.</p>\
             </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"divine_dust_craft_sand_cost\">Divine Dust Recipe: Sand Cost</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"divine_dust_craft_sand_cost\" name=\"divine_dust_craft_sand_cost\" value=\"{divine_dust_craft_sand_cost}\">\
-              <p class=\"tunable-hint\">Sand cost of the same recipe.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"divine_dust_craft_output\">Divine Dust Recipe: Output</label>\
-              <input type=\"number\" step=\"1\" min=\"1\" id=\"divine_dust_craft_output\" name=\"divine_dust_craft_output\" value=\"{divine_dust_craft_output}\">\
-              <p class=\"tunable-hint\">Divine Dust granted per craft, before the x1/x10/x50 batch multiplier.</p>\
-            </div>\
-            <h2>Crafting Costs</h2>\
-            <div class=\"tunable-row\">\
-              <label for=\"craft_base_cost_mult\">Craft Base Cost Multiplier (x, on the flat per-action fee)</label>\
-              <input type=\"number\" step=\"any\" min=\"{craft_base_cost_mult_min}\" max=\"{craft_base_cost_mult_max}\" required id=\"craft_base_cost_mult\" name=\"craft_base_cost_mult\" value=\"{craft_base_cost_mult}\">\
-              <p class=\"tunable-hint\">{craft_base_cost_mult_min} to {craft_base_cost_mult_max} — multiplies every craft action's flat dust fee (Transmute 250, Krangle 2500, …) and the veil surcharge, before the per-tier surcharge below is added. Shipped 0.1 = the 10x cost cut; 1 restores the pre-cut prices exactly; 10 is ten times those old prices. 0 makes the flat fee free but NOT the craft — the per-tier surcharge still applies. Each fee is rounded UP, so a nonzero fee can never round away to nothing.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"craft_tier_exponent\">Craft Tier Cost Exponent (per-tier surcharge = 3 x tier^exponent, dust)</label>\
-              <input type=\"number\" step=\"any\" min=\"{craft_tier_exponent_min}\" max=\"{craft_tier_exponent_max}\" required id=\"craft_tier_exponent\" name=\"craft_tier_exponent\" value=\"{craft_tier_exponent}\">\
-              <p class=\"tunable-hint\">{craft_tier_exponent_min} to {craft_tier_exponent_max} — 1.0 is the old flat 3 dust per tier; shipped 1.1 makes cost accelerate with tier, slowly (tier 10: 38 instead of 30; tier 100: 476 instead of 300; tier 201: 1025 instead of 603). Below 1 is refused: it would make crafting relatively cheaper the further a player progresses.</p>\
-            </div>\
-            <div class=\"tunable-row\">\
-              <label for=\"craft_tier_bump_mult\">Craft Tier Growth Multiplier (x, on the +3/+2/+1 tiers a craft adds)</label>\
-              <input type=\"number\" step=\"any\" min=\"{craft_tier_bump_mult_min}\" max=\"{craft_tier_bump_mult_max}\" required id=\"craft_tier_bump_mult\" name=\"craft_tier_bump_mult\" value=\"{craft_tier_bump_mult}\">\
-              <p class=\"tunable-hint\">{craft_tier_bump_mult_min} to {craft_tier_bump_mult_max} — every successful craft raises the crafted item's tier (+3 below tier 25, +2 below 50, +1 above), which raises its power, every modifier on it, AND the per-tier surcharge on its next craft. This scales all three bands together. Shipped 1 = unchanged; <strong>0 switches per-craft tier growth off entirely</strong>, which is how to watch the exponent above in isolation. This dial and the exponent act on different things — the exponent prices tier, this decides how fast an item climbs.</p>\
-            </div>\
-            <h2>Experience</h2>\
             <p class=\"tunable-hint\">XP is paid on a <strong>boss-fight win only</strong> &mdash; a filler fight pays none, and a loss pays none. One win is worth <strong>Flat XP + Level % &times; that level&rsquo;s own XP cost</strong>, then &times; catch-up, then &times; the multiplier below. Because it is paid per win, XP is already exactly linear in win rate; the band that gives you is 0&times; to 1.5&times; of the 2:1 baseline, since a win rate cannot exceed 100%.</p>\
-            <div class=\"tunable-row\">\
+            <h2>Experience</h2>\n            <div class=\"tunable-row\">\
               <label for=\"win_xp_flat\">Flat XP per Win</label>\
               <input type=\"number\" step=\"any\" min=\"0\" max=\"{win_xp_flat_max}\" required id=\"win_xp_flat\" name=\"win_xp_flat\" value=\"{win_xp_flat}\">\
               <p class=\"tunable-hint\"><strong>Unit: raw XP.</strong> Range 0 &ndash; {win_xp_flat_max}. Fixed in XP, so its worth <em>in levels</em> shrinks as levels get more expensive &mdash; <strong>this is the dial that sets the day-one burst.</strong> At 12 and a 2:1 win rate, day one is 10 levels.</p>\
@@ -5274,49 +5131,18 @@ fn render_tunables_page(
               <p class=\"tunable-hint\"><strong>Unit: seconds.</strong> Range 0 &ndash; {win_xp_cooldown_secs_max}. Shortest gap between two XP-paying wins for one character. <strong>This is the rampage guard.</strong> Scheduled boss fights are 600s apart so it never binds there; a rampage runs them 60s apart, and without this a rampage would be worth 10&times; the XP and would set the curve instead of the schedule. At the shipped 450 a rampage pays 1.33&times; normal rather than 10&times;. Also covers Force Boss Fight and !nextencounter. <strong>0 removes the throttle</strong> &mdash; every win pays, and a rampage becomes an XP farm.</p>\
             </div>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"win_xp_catchup_enabled\" value=\"1\"{win_xp_catchup_enabled_checked}> XP Catch-Up Enabled</label>\
-            <p class=\"tunable-hint\">Keeps the catch-up multiplier (1&times; to 3&times;, by how far below the group&rsquo;s highest-level character a character is) on the XP grant, so a newer player levels toward the pack. Unchecking makes every winner&rsquo;s XP identical regardless of level.</p>\
+            <p class=\"tunable-hint\">Keeps the catch-up multiplier (1&times; to 3&times;, by how far below the group median a character is) on the XP grant, so a newer player levels toward the pack. Unchecking makes every winner&rsquo;s XP identical regardless of level.</p>\
             <div class=\"tunable\">\
               <label for=\"catchup_full_deficit\">Catch-Up Full-Bonus Deficit</label>\
               <input type=\"number\" step=\"any\" min=\"{catchup_full_deficit_min}\" max=\"{catchup_full_deficit_max}\" required id=\"catchup_full_deficit\" name=\"catchup_full_deficit\" value=\"{catchup_full_deficit}\">\
               <p class=\"tunable-hint\"><strong>Unit: fraction of the leader&rsquo;s level.</strong> Range {catchup_full_deficit_min} &ndash; {catchup_full_deficit_max}. How far below the highest-level character in the fight someone must be to earn the <strong>full 3&times;</strong> catch-up bonus. At the shipped 0.5, a character at half the leader&rsquo;s level or below gets the whole bonus, and it tapers straight down to <strong>1&times; for anyone level with the leader</strong> &mdash; so a bunched roster pays nobody a bonus, which is the point. <strong>Bigger is stingier</strong> (a deeper deficit needed for the same bonus); smaller makes catch-up bite sooner. Applies to dust and drop odds as well as XP. Does not switch catch-up off &mdash; that is the checkbox above, and it only covers XP.</p>\
             </div>\
             <h2>Rampage</h2>\
-            <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
-            <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
-            <h2>Defensive Stat Hard Cap</h2>\
-            <p class=\"tunable-hint\">Owner doctrine: maximum damage mitigation from damage reduction, applies universally — no character, golem, or enemy may ever be immune to any damage source through DR. Does NOT cover evasion, block, or Intervene (separate mechanics, their own caps) or Thunder Golem absorption/redirect (not damage reduction at all).</p>\
-            <div class=\"tunable-row\">\
-              <label for=\"defensive_stat_hard_cap\">Max DR Mitigation</label>\
-              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"defensive_stat_hard_cap\" name=\"defensive_stat_hard_cap\" value=\"{defensive_stat_hard_cap}\">\
-              <p class=\"tunable-hint\">0 to 1 — a landed hit always deals at least (1 − this) of its raw mitigable damage, however stacked a defender's DR sources get. Default 0.95.</p>\
-            </div>\
-            <h2>Live Overlay Broadcast</h2>\
-            <div class=\"tunable-row\">\
+            <h2>Live Overlay Broadcast</h2>\n            <div class=\"tunable-row\">\
               <label for=\"buffsnapshot_dedupe_window_ms\">Buff Snapshot Dedupe Window (ms)</label>\
               <input type=\"number\" step=\"1\" min=\"1\" id=\"buffsnapshot_dedupe_window_ms\" name=\"buffsnapshot_dedupe_window_ms\" value=\"{buffsnapshot_dedupe_window_ms}\">\
               <p class=\"tunable-hint\">Only the newest live buff/debuff snapshot per unit within a window this wide gets broadcast to the overlay — the desktop companion app's live Buffs & Debuffs pane only ever reads the newest one anyway. Wider cuts broadcast volume; narrower gets fresher (but noisier) updates. Default 1000ms.</p>\
-            </div>\
-            <button class=\"btn\" type=\"submit\">Save</button>\
-          </form>\
-        </div>\
-        <div class=\"card\">\
-          <h2>Operator Controls</h2>\
-          <p class=\"muted\">The web equivalent of the mod-only <code>!nextencounter</code> — runs one encounter right now instead of waiting for the timer. Every refusal is reported back with its reason; a refused press never queues a fight to happen later.</p>\
-          <form method=\"post\" action=\"/admin/ops/next-encounter\">\
-            <div class=\"tunable-row\">\
-              <label for=\"ops_boss\">Boss</label>\
-              <select id=\"ops_boss\" name=\"boss\">{boss_options}</select>\
-              <p class=\"tunable-hint\">Random rolls the normal pick. Naming one forces exactly that boss regardless of stage or rotation — the same thing <code>!nextencounter &lt;name&gt;</code> does. Refused while any fight is already in flight, so this can't stack a bonus fight onto the end of one.</p>\
-            </div>\
-            <button class=\"btn\" type=\"submit\">Trigger Encounter Now</button>\
-          </form>\
-        </div>\
-        <div class=\"card\">\
-          <h2>📌 Pinned Fights</h2>\
-          <p class=\"muted\">Mod tool <code>!pinfight</code> copies the most recent coarse-tier and detail-tier fight files here, immune to the normal rolling-window pruning — bug-report evidence that survives past the 3-5 file window until someone deletes it by hand.</p>\
-          {pinned_fights_html}\
-        </div>",
-        boss_options = boss_options,
+            </div>",
         loot_mult = t.loot_mult,
         sand_mult = t.sand_mult,
         wings_drop_chance = t.wings_drop_chance,
@@ -5411,6 +5237,37 @@ fn render_tunables_page(
         enemy_hp_pool_cap_min = crate::adventure::pacing::ENEMY_HP_POOL_CAP_MIN,
         enemy_hp_pool_cap_max = crate::adventure::pacing::ENEMY_HP_POOL_CAP_MAX,
         buffsnapshot_dedupe_window_ms = t.buffsnapshot_dedupe_window_ms,
+    );
+    let ungrouped = ungrouped_tunables_html(&form_fields, &passive_tunables_fields_html(t), t);
+    format!(
+        "{nav}\
+        <div class=\"card\">\
+          <h1>⚙️ Live Tunables</h1>\
+          <p class=\"muted\">Changes apply immediately to the next fight — no rebuild, no restart required.</p>\
+          {banner}\
+          <form method=\"post\" action=\"/admin/tunables/save\">\
+            {form_fields}\
+            {ungrouped}\
+            <button class=\"btn\" type=\"submit\">Save</button>\
+          </form>\
+        </div>\
+        <div class=\"card\">\
+          <h2>Operator Controls</h2>\
+          <p class=\"muted\">The web equivalent of the mod-only <code>!nextencounter</code> — runs one encounter right now instead of waiting for the timer. Every refusal is reported back with its reason; a refused press never queues a fight to happen later.</p>\
+          <form method=\"post\" action=\"/admin/ops/next-encounter\">\
+            <div class=\"tunable-row\">\
+              <label for=\"ops_boss\">Boss</label>\
+              <select id=\"ops_boss\" name=\"boss\">{boss_options}</select>\
+              <p class=\"tunable-hint\">Random rolls the normal pick. Naming one forces exactly that boss regardless of stage or rotation — the same thing <code>!nextencounter &lt;name&gt;</code> does. Refused while any fight is already in flight, so this can't stack a bonus fight onto the end of one.</p>\
+            </div>\
+            <button class=\"btn\" type=\"submit\">Trigger Encounter Now</button>\
+          </form>\
+        </div>\
+        <div class=\"card\">\
+          <h2>📌 Pinned Fights</h2>\
+          <p class=\"muted\">Mod tool <code>!pinfight</code> copies the most recent coarse-tier and detail-tier fight files here, immune to the normal rolling-window pruning — bug-report evidence that survives past the 3-5 file window until someone deletes it by hand.</p>\
+          {pinned_fights_html}\
+        </div>",
     )
 }
 
@@ -5430,6 +5287,264 @@ fn render_tunables_page(
 /// after the links - another live request, so a player's own level/
 /// archetype/dust/sand stay visible while browsing pages that otherwise
 /// show none of that (Bag & Crafting, Passives, Wiki, Character List).
+
+
+/// The 24 passive-dial inputs, as HTML, with no card or form around them.
+/// (2026-09-03)
+///
+/// Extracted so it has TWO callers, and the second one is the point:
+/// `render_admin_passives_page` renders it, and `render_tunables_page`
+/// calls it purely to SCRAPE the field names out, so its Ungrouped section
+/// can tell "filed on the other page" from "filed nowhere at all".
+/// Without that, every field living on the passives page would show up as
+/// ungrouped on the tunables page.
+///
+/// Deriving the exclusion from the real rendering - rather than listing 24
+/// names somewhere - is the same rule the rest of this mechanism follows:
+/// a hand-maintained list stops covering new members and never says so.
+fn passive_tunables_fields_html(t: &LiveTunables) -> String {
+    format!(
+        "\
+            <h2>Overflow Economy (cross-class caps)</h2>\n            <p class=\"tunable-hint\">These five bound the overflow-conversion economy shared by every class — Stone Fist/Granite Skin/Overgrown Reach (Monk), Unbreakable (Warrior), Elusive/Phantom/Duskveil/Lightfoot (Rogue), Shifting Form family (Druid), Aegis Ward (Paladin) — and where Evasion/Block/DR saturate at all. Defaults are exactly today's shipped numbers; lower to nerf, raise to loosen. Read fresh from the fight's own snapshot every fight — no restart needed.</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"overflow_conversion_cap_per_rank\">Conversion Output Cap / Rank</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"overflow_conversion_cap_per_rank\" name=\"overflow_conversion_cap_per_rank\" value=\"{overflow_conversion_cap_per_rank}\">\
+                <p class=\"tunable-hint\">Hard ceiling on any ONE conversion node's own output per invested rank. Default 0.10 = +10% per point (+30% at 3/3). This is the dial for the Monk trio's free damage multiplier: at defaults the saturated trio adds +90%; at 0.05 it adds +45%.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"evasion_overflow_cap\">Evasion Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"evasion_overflow_cap\" name=\"evasion_overflow_cap\" value=\"{evasion_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Evasion saturates (default 0.75); everything past it feeds every conversion channel plus Unbroken's evasion-ignore and Last Bastion's shred.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"block_overflow_cap\">Block Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"block_overflow_cap\" name=\"block_overflow_cap\" value=\"{block_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Block Chance saturates (default 0.75) — feeds Unbreakable's block-to-damage conversion.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"dr_overflow_cap\">DR Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"dr_overflow_cap\" name=\"dr_overflow_cap\" value=\"{dr_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Damage Reduction saturates on the positive side (default 0.75). The −75% floor is structural safety and stays fixed.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"intervene_overflow_cap\">Intervene Overflow Cap</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"intervene_overflow_cap\" name=\"intervene_overflow_cap\" value=\"{intervene_overflow_cap}\">\
+                <p class=\"tunable-hint\">Where Intervene saturates per character (default 0.50) — feeds Aegis Ward/Sanctified Armor conversions and the per-character combine ceiling.</p>\
+              </div>\
+            <h2>Righteous Fire</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank1\">Self-Damage % (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank1\" name=\"rf_self_damage_pct_rank1\" value=\"{rf_self_damage_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — fraction of max HP Righteous Fire burns per second at rank 1/3, before damage reduction and shields. Decoupled from the node's own offensive damage (tune that at /admin/passives instead).</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank2\">Self-Damage % (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank2\" name=\"rf_self_damage_pct_rank2\" value=\"{rf_self_damage_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"rf_self_damage_pct_rank3\">Self-Damage % (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Haloed Steps</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — party more-damage % granted per equipped Divine Damage affix instance at rank 1/3, before the node's own per-rank cap (tune the cap at /admin/passives instead).</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank2\">More Damage per Divine Damage Affix (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank2\" name=\"haloedsteps_per_instance_pct_rank2\" value=\"{haloedsteps_per_instance_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"haloedsteps_per_instance_pct_rank3\">More Damage per Divine Damage Affix (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank3\" name=\"haloedsteps_per_instance_pct_rank3\" value=\"{haloedsteps_per_instance_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Water Golem Shattering</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"shattering_enabled\" value=\"1\"{shattering_enabled_checked}> Shattering Enabled</label>\
+              <p class=\"tunable-hint\">Live kill-switch, unchecked = a complete no-op pending a rework. Doesn't touch invested points or the tree node — flips back on instantly when re-checked.</p>\
+              <p class=\"tunable-hint\">Full formula: targets = splash + the shattering node's own rank value (tune that at /admin/passives — splash needs no separate knob, it's already a real stat); damage = damage % below × the dead enemy's max HP × (1 − the target's damage reduction).</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank1\">Icicle Damage % (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank1\" name=\"shattering_damage_pct_rank1\" value=\"{shattering_damage_pct_rank1}\">\
+                <p class=\"tunable-hint\">0 to 1 — fraction of the dead enemy's max HP each icicle deals at rank 1/3, before the target's own damage reduction. Never scaled by the golem's own crit/increased-damage stack.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank2\">Icicle Damage % (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank2\" name=\"shattering_damage_pct_rank2\" value=\"{shattering_damage_pct_rank2}\">\
+                <p class=\"tunable-hint\">Same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"shattering_damage_pct_rank3\">Icicle Damage % (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"shattering_damage_pct_rank3\" name=\"shattering_damage_pct_rank3\" value=\"{shattering_damage_pct_rank3}\">\
+                <p class=\"tunable-hint\">Same, rank 3/3.</p>\
+              </div>\
+            <h2>Verdant Burst</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"verdantburst_echo_threshold_pct\">Verdant Burst Echo Threshold</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"verdantburst_echo_threshold_pct\" name=\"verdantburst_echo_threshold_pct\" value=\"{verdantburst_echo_threshold_pct}\">\
+                <p class=\"tunable-hint\">Druid's Verdant Burst saves a dying ally when the Druid's own Echo chance (as a fraction — 1.0 = 100%) is at or above this. Deterministic, not a roll.</p>\
+              </div>\
+            <h2>Elementalist</h2>\n            <div class=\"tunable-row\">\
+                <label for=\"thunder_redistribution_pct\">Thunder Golem Redistribution %</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"thunder_redistribution_pct\" name=\"thunder_redistribution_pct\" value=\"{thunder_redistribution_pct}\">\
+                <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
+                <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
+              </div>\
+            <h2>Splash (player ladder)</h2>\n          <p class=\"tunable-hint\">These six govern the <strong>player</strong> splash ladder — how many extra targets a player's splash reaches and at what damage. <strong>Boss splash is a separate roll</strong>, scaled from stage in <code>boss_stats_for</code> and configured on /admin/tunables, not here. If you are looking for how hard bosses splash, this is the wrong group.</p>\n            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_extra_targets\">Base Extra Targets (Player)</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_extra_targets\" name=\"splash_extra_targets\" value=\"{splash_extra_targets}\">\
+                <p class=\"tunable-hint\">How many extra targets a successful roll grants for the player-side base mechanics (a normal attack/heal's own splash). Boss-side bases (Cube, Dragon, default cleave) are their own separate constants, not this field.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_support_floor_targets\">Support Floor Targets</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_support_floor_targets\" name=\"splash_support_floor_targets\" value=\"{splash_support_floor_targets}\">\
+                <p class=\"tunable-hint\">The four SUPPORT sites' floor on a missed roll or 0% splash — a zero-splash character still affects this many targets, never zero.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_overcap_bonus_targets\">Overcap Bonus Targets</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_overcap_bonus_targets\" name=\"splash_overcap_bonus_targets\" value=\"{splash_overcap_bonus_targets}\">\
+                <p class=\"tunable-hint\">Extra targets added on top of a caller's own base once splash exceeds 100% — guaranteed, no roll.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_ladder_step_pct\">Ladder Step (splash %)</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_step_pct\" name=\"splash_ladder_step_pct\" value=\"{splash_ladder_step_pct}\">\
+                <p class=\"tunable-hint\">Every full step of splash % beyond 100% adds another ladder rung (default 1000, i.e. every 1000% splash). 0 disables the ladder entirely.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_ladder_targets_per_step\">Ladder Targets Per Step</label>\
+                <input type=\"number\" step=\"1\" min=\"0\" id=\"splash_ladder_targets_per_step\" name=\"splash_ladder_targets_per_step\" value=\"{splash_ladder_targets_per_step}\">\
+                <p class=\"tunable-hint\">Extra targets granted per ladder rung reached.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"splash_damage_pct\">Splash Damage %</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"splash_damage_pct\" name=\"splash_damage_pct\" value=\"{splash_damage_pct}\">\
+                <p class=\"tunable-hint\">Fraction of the primary hit/heal's own amount each splash target takes (attack splash only — the four support sites apply their own already-full-value effect regardless of this field).</p>\
+              </div>\
+        ",
+        thunder_redistribution_pct = t.thunder_redistribution_pct,
+        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
+        rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
+        rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
+        rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
+        haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
+        haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
+        haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
+        shattering_enabled_checked = if t.shattering_enabled { " checked" } else { "" },
+        shattering_damage_pct_rank1 = t.shattering_damage_pct_rank1,
+        shattering_damage_pct_rank2 = t.shattering_damage_pct_rank2,
+        shattering_damage_pct_rank3 = t.shattering_damage_pct_rank3,
+        verdantburst_echo_threshold_pct = t.verdantburst_echo_threshold_pct,
+        overflow_conversion_cap_per_rank = t.overflow_conversion_cap_per_rank,
+        evasion_overflow_cap = t.evasion_overflow_cap,
+        block_overflow_cap = t.block_overflow_cap,
+        dr_overflow_cap = t.dr_overflow_cap,
+        intervene_overflow_cap = t.intervene_overflow_cap,
+        splash_extra_targets = t.splash_extra_targets,
+        splash_support_floor_targets = t.splash_support_floor_targets,
+        splash_overcap_bonus_targets = t.splash_overcap_bonus_targets,
+        splash_ladder_step_pct = t.splash_ladder_step_pct,
+        splash_ladder_targets_per_step = t.splash_ladder_targets_per_step,
+        splash_damage_pct = t.splash_damage_pct,
+    )
+}
+/// Renders any `LiveTunables` field that the grouped form did NOT render, so
+/// a dial can never silently vanish from the admin page (2026-09-03).
+///
+/// **There is no list of field names anywhere in here, and that is the whole
+/// design.** The two sides of the comparison are both derived:
+///
+/// * what the page rendered - scraped out of `form_html`, the string
+///   `render_tunables_page` has just built, by reading its `name="..."`
+///   attributes;
+/// * what exists - `serde_json::to_value(t)`'s keys, which come straight from
+///   `LiveTunables`' own `Serialize` derive.
+///
+/// So a field added to `LiveTunables` later and filed into no group appears
+/// here **automatically**, visibly, and editable - rather than existing in the
+/// struct with nothing on the page to say so. A hand-maintained assignment
+/// table would have exactly the rot this project has been digging out all
+/// week: it stops covering new members and never announces it.
+///
+/// The cross-page derived test is the other half - it fails CI when a field
+/// renders on NEITHER page. This is the half an operator can see.
+///
+/// `RETIRED` is the one deliberate exclusion, and it is named rather than
+/// silent: see `LiveTunables::dynamic_scaling_mult`'s doc. Re-rendering a
+/// retired dial would re-arm a switch that was deliberately taken out of
+/// service.
+fn ungrouped_tunables_html(form_html: &str, passive_html: &str, t: &LiveTunables) -> String {
+    /// Fields that exist on `LiveTunables` and are deliberately NOT on any
+    /// page. Adding to this list is a decision someone has to write down.
+    const RETIRED: &[&str] = &["dynamic_scaling_mult"];
+
+    // Both strings are RENDERED markup, so they carry real quotes - the
+    // backslashes in the source are Rust's own escaping and are long gone by
+    // the time this sees them.
+    //
+    // BOTH pages count as "rendered", and `passive_html` is the real passives
+    // markup from `passive_tunables_fields_html` rather than a list of names
+    // copied out of it. So a dial moving between the two pages, or a new one
+    // landing on either, needs no edit here. "Ungrouped" means on NEITHER page.
+    let mut rendered: Vec<&str> = Vec::new();
+    for html in [form_html, passive_html] {
+        for piece in html.split("name=\"").skip(1) {
+            if let Some(name) = piece.split('"').next() {
+                rendered.push(name);
+            }
+        }
+    }
+
+    let all = match serde_json::to_value(t) {
+        Ok(serde_json::Value::Object(map)) => map,
+        // A non-object or a serialisation failure is not something to render
+        // a broken section over - the derived test is the hard guard.
+        _ => return String::new(),
+    };
+
+    let mut rows = String::new();
+    let mut missing = 0usize;
+    for (key, value) in all.iter() {
+        if RETIRED.contains(&key.as_str()) || rendered.contains(&key.as_str()) {
+            continue;
+        }
+        missing += 1;
+        let input = match value {
+            serde_json::Value::Bool(b) => {
+                format!("<label class=\"veil-check\"><input type=\"checkbox\" name=\"{key}\" value=\"1\"{}> Enabled</label>", if *b { " checked" } else { "" })
+            }
+            serde_json::Value::Number(n) => {
+                format!("<input type=\"number\" step=\"any\" id=\"{key}\" name=\"{key}\" value=\"{n}\">")
+            }
+            // Arrays (the anchor lists) and anything else round-trip as text
+            // rather than being dropped; the operator can still see the value.
+            other => {
+                let text = match other {
+                    serde_json::Value::String(s) => s.clone(),
+                    v => v.to_string(),
+                };
+                format!("<input type=\"text\" id=\"{key}\" name=\"{key}\" value=\"{}\">", escape_html(&text))
+            }
+        };
+        rows.push_str(&format!("<div class=\"tunable-row\"><label for=\"{key}\">{key}</label>{input}</div>"));
+    }
+
+    if missing == 0 {
+        return String::new();
+    }
+    format!(
+        "<h2>Ungrouped</h2>\
+         <p class=\"tunable-hint\" style=\"color:#e6b34d\">⚠ {missing} tunable{} on <code>LiveTunables</code> {} not been filed into a group on this page. \
+         They are shown here so they stay editable and visible rather than disappearing — but they have no label, no hint and no range, \
+         so file them into a group in <code>render_tunables_page</code> when you get the chance.</p>{rows}",
+        if missing == 1 { "" } else { "s" },
+        if missing == 1 { "has" } else { "have" }
+    )
+}
 fn top_nav(character: Option<&Character>) -> String {
     let stats = character.map_or(String::new(), |c| {
         format!(
