@@ -6852,6 +6852,138 @@ pub(crate) fn roll_divine_dust_disenchant(is_sacred: bool, rng: &mut impl Rng, d
     }
 }
 
+/// The undamped power loop's answer (2026-09-03, Option C). The property
+/// these exist to pin is that the SHIPPED configuration is an exact
+/// no-op, and that the excess - not the tier - is what is measured.
+#[cfg(test)]
+mod gear_tier_excess_tests {
+    use super::*;
+
+    /// A character at `level` with every equipped slot set to `tier`.
+    fn character_at(level: u32, tier: u32) -> Character {
+        let mut c = Character::new("excess-tester".to_string());
+        c.level = level;
+        for slot in EQUIP_SLOTS {
+            if let Some(item) = c.equipped_mut(slot) {
+                item.tier = tier;
+            }
+        }
+        c
+    }
+
+    /// The deciding property of Option C over reading gear tier directly:
+    /// `grow_krangled_items` pins a Krangled item's tier to exactly the
+    /// character's level, and `level_mult` already bills for level. A
+    /// character in that state must contribute NOTHING here, or the
+    /// players who did the sanctioned thing get billed twice.
+    #[test]
+    fn gear_at_or_below_level_is_already_charged_for_and_contributes_no_excess() {
+        assert_eq!(gear_tier_excess(&character_at(500, 500)), 0.0, "tier == level is the Krangled steady state and must be free");
+        assert_eq!(gear_tier_excess(&character_at(500, 1)), 0.0, "tier below level must not go negative and refund difficulty");
+        assert_eq!(gear_tier_excess(&character_at(500, 499)), 0.0);
+    }
+
+    #[test]
+    fn excess_is_the_mean_equipped_tier_above_level() {
+        assert_eq!(gear_tier_excess(&character_at(10, 160)), 150.0);
+        // A character with nothing equipped has no excess, not a negative
+        // one and not a NaN from an empty mean.
+        let mut bare = Character::new("bare".to_string());
+        bare.level = 400;
+        for slot in EQUIP_SLOTS {
+            *bare.equipped_mut(slot) = None;
+        }
+        assert_eq!(gear_tier_excess(&bare), 0.0);
+    }
+
+    /// **The shipped configuration is an exact no-op.** This is the whole
+    /// safety argument for the release: at `boss_gear_tier_weight = 0.0`,
+    /// `boss_stats_for` is generated against precisely the plain party
+    /// average it was generated against before this existed.
+    #[test]
+    fn at_the_shipped_weight_the_effective_level_is_exactly_the_plain_average() {
+        let t = LiveTunables::default();
+        assert_eq!(t.boss_gear_tier_weight, 0.0, "sanity: this test only means anything while the shipped weight is 0");
+        let party = vec![character_at(10, 5000), character_at(20, 1), character_at(30, 30)];
+        let plain = party.iter().map(|c| c.level as f64).sum::<f64>() / party.len() as f64;
+        assert_eq!(effective_avg_level(party.iter(), &t), plain, "the mechanism must be inert until the dial moves");
+    }
+
+    #[test]
+    fn the_weight_adds_the_party_mean_excess_in_effective_levels() {
+        let mut t = LiveTunables::default();
+        // levels 10/20/30 -> plain average 20. Excesses 90/0/0 -> mean 30.
+        let party = vec![character_at(10, 100), character_at(20, 20), character_at(30, 1)];
+        assert_eq!(effective_avg_level(party.iter(), &t), 20.0);
+        t.boss_gear_tier_weight = 1.0;
+        assert_eq!(effective_avg_level(party.iter(), &t), 50.0, "at parity one tier of excess is worth exactly one level");
+        t.boss_gear_tier_weight = 0.5;
+        assert_eq!(effective_avg_level(party.iter(), &t), 35.0);
+    }
+
+    /// An empty roster can never reach production (both call sites bail
+    /// first), but a 0/0 here would put a NaN into `level_mult` and out
+    /// through a float->int cast, which maps to 0 rather than saturating.
+    #[test]
+    fn an_empty_party_yields_zero_rather_than_a_nan() {
+        let t = LiveTunables::default();
+        let empty: Vec<Character> = Vec::new();
+        assert_eq!(effective_avg_level(empty.iter(), &t), 0.0);
+    }
+
+    #[test]
+    fn an_out_of_range_weight_is_sanitised_rather_than_obeyed() {
+        assert_eq!(sanitize_boss_gear_tier_weight(f64::NAN), BOSS_GEAR_TIER_WEIGHT);
+        // Non-finite falls back to the SHIPPED DEFAULT rather than
+        // clamping to the nearest bound - infinity included. Same
+        // discipline as `sanitize_craft_tier_exponent` and
+        // `pacing::sanitize_pool_cap`: a nonsense reading is not a
+        // request for maximum difficulty.
+        assert_eq!(sanitize_boss_gear_tier_weight(f64::INFINITY), BOSS_GEAR_TIER_WEIGHT);
+        assert_eq!(sanitize_boss_gear_tier_weight(f64::NEG_INFINITY), BOSS_GEAR_TIER_WEIGHT);
+        assert_eq!(sanitize_boss_gear_tier_weight(-1.0), BOSS_GEAR_TIER_WEIGHT_MIN, "a negative weight would make crafting REDUCE difficulty");
+        assert_eq!(sanitize_boss_gear_tier_weight(5.0), BOSS_GEAR_TIER_WEIGHT_MAX);
+        assert_eq!(sanitize_boss_gear_tier_weight(0.0), 0.0, "0 is a LEGAL setting here - it is the shipped one");
+        // A non-finite live reading must not poison the effective level.
+        let mut t = LiveTunables::default();
+        t.boss_gear_tier_weight = f64::NAN;
+        assert_eq!(effective_avg_level([character_at(10, 1000)].iter(), &t), 10.0);
+    }
+
+    /// A fresh install and a `Default::default()` must generate the same
+    /// boss. Twin of `craft`'s `default_craft_dials_match_the_shipped_constants`.
+    #[test]
+    fn default_boss_gear_tier_weight_matches_the_shipped_constant() {
+        assert_eq!(LiveTunables::default().boss_gear_tier_weight, BOSS_GEAR_TIER_WEIGHT);
+    }
+
+    /// The admin read-out's numbers. This is the actual deliverable at
+    /// `w = 0`, so its arithmetic is pinned like a mechanic's.
+    #[test]
+    fn the_summary_reports_the_distribution_an_operator_picks_a_weight_from() {
+        let party = vec![
+            character_at(10, 10),  // 0
+            character_at(10, 20),  // 10
+            character_at(10, 110), // 100
+            character_at(10, 40),  // 30
+        ];
+        let s = gear_tier_excess_summary(party.iter());
+        assert_eq!(s.characters, 4);
+        assert_eq!(s.with_excess, 3, "the zero-excess character must be counted but not as carrying excess");
+        assert_eq!(s.mean, 35.0);
+        assert_eq!(s.median, 20.0, "even count: the mean of the two middle values, 10 and 30");
+        assert_eq!(s.max, 100.0);
+
+        let odd = vec![character_at(10, 10), character_at(10, 20), character_at(10, 110)];
+        assert_eq!(gear_tier_excess_summary(odd.iter()).median, 10.0, "odd count: the middle value");
+
+        let empty: Vec<Character> = Vec::new();
+        let s = gear_tier_excess_summary(empty.iter());
+        assert_eq!(s.characters, 0);
+        assert_eq!(s.mean, 0.0, "an empty roster must not divide by zero into the admin page");
+    }
+}
+
 #[cfg(test)]
 mod divine_dust_acquisition_tests {
     use super::*;
