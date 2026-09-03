@@ -1435,18 +1435,50 @@ deployment-root artifact and does not apply either.
 Build **on the box**, from a `git archive` of the exact commit — not from
 a working tree, so nothing uncommitted can reach production:
 
-```sh
-# on the dev machine
-git archive --format=tar <commit> | gzip > src-deploy.tar.gz
-scp src-deploy.tar.gz root@<box>:/root/
+> **THE SOURCE DIRECTORY IS PER-RELEASE. NEVER `/root/deploy-src`.**
+> Added 2026-09-03 after the incident recorded in the journal under
+> "Affix tier curve deployed, and an incident 64 seconds later": that
+> release's build was destroyed mid-flight by a *concurrent* session's
+> `rm -rf /root/deploy-src`, on a box with 280 GB free. The test run
+> failed with missing `.rlib`s and no binary, which reads exactly like a
+> broken commit and cost a rebuild to diagnose. A single fixed path is a
+> shared mutable global between sessions that cannot see each other.
+> Name it after the release and the collision cannot happen; the disk
+> cost is one build tree per release, which is noise on this box.
+>
+> The same incident's *other* half is why the archive is per-release too:
+> a stale `src-deploy.tar.gz` left in `/root/` by an earlier deploy is
+> indistinguishable from yours, and unpacking one is how a tree that
+> predated the merge got built and shipped over master's.
 
-# on the box
-rm -rf /root/deploy-src && mkdir -p /root/deploy-src
-tar xzf /root/src-deploy.tar.gz -C /root/deploy-src
-cd /root/deploy-src
-cargo build --release --workspace > /root/build-deploy.log 2>&1; echo "build exit: $?"
-cargo test  --release --workspace --quiet > /root/test-deploy.log 2>&1; echo "test exit: $?"
+```sh
+# on the dev machine - REL is the release name, the same one you pass to
+# deploy-linux.sh, so the build tree and the deploy record agree.
+REL=<release-name>
+git archive --format=tar <commit> | gzip > src-deploy-$REL.tar.gz
+scp src-deploy-$REL.tar.gz root@<box>:/root/
+
+# on the box - PER-RELEASE path, never the shared /root/deploy-src
+REL=<release-name>
+SRC=/root/deploy-src-$REL
+rm -rf "$SRC" && mkdir -p "$SRC"
+tar xzf /root/src-deploy-$REL.tar.gz -C "$SRC"
+cd "$SRC"
+cargo build --release --workspace > /root/build-$REL.log 2>&1; echo "build exit: $?"
+cargo test  --release --workspace --quiet > /root/test-$REL.log 2>&1; echo "test exit: $?"
 ```
+
+**Confirm the tree is the one you think it is before you build it.** The
+incident's root cause was a binary built from a tree that predated the
+merge it was supposed to contain, and nothing in this procedure would
+have caught it. Check for a symbol the release introduces:
+
+```sh
+grep -rc "<symbol the release adds>" "$SRC/game/src" | grep -v ':0$' | head
+```
+
+Zero hits when you expect some means you unpacked the wrong archive.
+Stop; do not build.
 
 `--workspace` on both, per CLAUDE.md — a plain build misses the game
 binary and a crate-internal test run misses the root-level `tests/*.rs`.
@@ -1469,17 +1501,27 @@ so a dropped connection does not kill a three-minute build.
 > The form that works:
 >
 > ```sh
-> systemd-run --unit=pod-build --collect --quiet \
->   --working-directory=/root/deploy-src \
+> systemd-run --unit=pod-build-$REL --collect --quiet \
+>   --working-directory="$SRC" \
 >   --setenv=PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 >   --setenv=HOME=/root \
->   /bin/bash -c 'cargo build --release --workspace > /root/build-deploy.log 2>&1; echo "build exit: $?" >> /root/build-deploy.log'
+>   --setenv=REL=$REL \
+>   /bin/bash -c 'cargo build --release --workspace > /root/build-$REL.log 2>&1; echo "build exit: $?" >> /root/build-$REL.log'
 > ```
+>
+> **`--setenv=REL=$REL` is load-bearing, for the same reason `PATH` and
+> `HOME` are.** The `bash -c` string is single-quoted so that `$?` survives
+> to the inner shell — which means `$REL` reaches it unexpanded too, and a
+> transient unit inherits nothing, so without that line it expands to
+> EMPTY and the build silently logs to `/root/build-.log`. You then read a
+> stale or absent log and draw a conclusion about the wrong build. The
+> unit name is per-release as well, so two sessions building at once do
+> not collide on `--unit=pod-build`.
 >
 > `--collect` reaps the transient unit when it finishes, so a re-run of the
 > same `--unit` name does not collide with the previous one's leftover
 > failed state. Wait for it with
-> `while systemctl is-active --quiet pod-build; do sleep 10; done`, then read
+> `while systemctl is-active --quiet pod-build-$REL; do sleep 10; done`, then read
 > the `exit:` line out of the log — **the exit code of `systemd-run` itself
 > tells you only that the unit started**, never whether the build passed.
 
@@ -1500,7 +1542,7 @@ Hash both binaries and confirm they differ before going near the swap:
 
 ```sh
 sha256sum /opt/pathofdust/bin/game             # currently live
-sha256sum /root/deploy-src/target/release/game # the candidate
+sha256sum "$SRC"/target/release/game # the candidate
 ```
 
 `deploy-linux.sh` re-checks this and **aborts if the hashes match** — an
@@ -1570,7 +1612,7 @@ Ledger #60 guarantee that a refresh cannot eat player-uploaded sprites.
 #### 4. The swap
 
 ```sh
-/opt/pathofdust/bin/deploy-linux.sh /root/deploy-src <release-name>
+/opt/pathofdust/bin/deploy-linux.sh "$SRC" "$REL"
 ```
 
 which is, in order: hash both → abort if equal → backup (above) →
@@ -1781,7 +1823,7 @@ and nothing else changed:**
 
 ```sh
 for d in templates wiki public_adventure_overlay; do
-  cp -r --preserve=mode,timestamps "/root/deploy-src/$d/." "/var/lib/pathofdust/$d/"
+  cp -r --preserve=mode,timestamps "$SRC/$d/." "/var/lib/pathofdust/$d/"
 done
 chown -R pathofdust:pathofdust /var/lib/pathofdust
 ```
@@ -1827,7 +1869,7 @@ release shipped:
 ```sh
 # 1. the file on the box is now the candidate's file, byte for byte
 sha256sum /var/lib/pathofdust/templates/<changed-file>
-sha256sum /root/deploy-src/templates/<changed-file>        # must match
+sha256sum "$SRC"/templates/<changed-file>        # must match
 
 # 2. the page the server SERVES carries the change
 curl -s -H "Cookie: adv_session=<operator-session>" https://adventure.lokati.net/<affected-page> \

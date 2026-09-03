@@ -65,6 +65,14 @@ CORE_FILES=(
   adventure-sprite-count.json
   patch-notes.json
   adventure-last-fights.json
+  # Player-submitted bug reports, added with /bugs 2026-09-03. Like
+  # MARKER_FILES below, this array is a hand-maintained literal list, and
+  # the drift check further down only covers MARKERS - a core data file
+  # that is missing from here is backed up by nothing and warned about by
+  # nothing. Caught at deploy rather than in the commit that added the
+  # file; without this line every bug a player files would have been
+  # outside the backup set from the first one.
+  adventure-bugreports.json
 )
 
 MARKER_FILES=(

@@ -2355,3 +2355,253 @@ affix-curve note back on top) because it advertised a release that is no
 longer live; the entry is kept at `/root/patch-entry.json` for re-use.
 `feature/player-facing-batch` is rebased onto master `ea5ef88` and
 pushed. NOT merged to master, NOT deployed, awaiting a fresh go.
+
+---
+
+## 2026-09-03 — DEPLOY-CONTROL: SSH hardening, the backup misread, and the catch-up defect
+
+Session with sole authority to merge and deploy today. Three feature
+branches queued; this entry covers the work that came before and
+alongside the first of them.
+
+### SSH was not key-only, and setup's record that it was had never been checked
+
+`sshd -T` reported **`permitrootlogin yes`** and **`passwordauthentication
+yes`** on the internet-facing box, against **1,392 failed auth attempts
+from 39 IPs** in the twelve hours since the previous deploy. The host was
+recorded at setup as key-only root SSH. That was believed and never
+verified — the whole exposure is the gap between a written claim and
+`sshd -T`.
+
+Root has exactly one authorised key (`SHA256:REikbw…`, `pathofdust-deploy`);
+`podbackup` has exactly one (`SHA256:F5lF68…`, `restrict,command=`). Both
+were fingerprint-matched against the Windows box's `id_ed25519` and
+`pod_pull` **before** anything changed, because the only way this strands
+us is if the key we are about to depend on is not the key that is
+installed.
+
+| | before | after |
+|---|---|---|
+| `passwordauthentication` | yes | **no** |
+| `permitrootlogin` | yes | **prohibit-password** |
+
+Changed in `/etc/ssh/sshd_config` lines 124–125 (no drop-ins exist);
+backup at `/etc/ssh/sshd_config.bak-preharden-20260903-052721`.
+
+**The safety construction, which matters more than the change.** Three
+independent layers, because a bad sshd config on a remote box is
+unrecoverable from the same channel that broke it:
+
+1. A second authenticated root session held open across the reload.
+2. A **dead-man auto-revert** armed BEFORE the reload —
+   `systemd-run --on-active=600 --unit=sshd-revert` restoring the backup
+   and reloading. Disarmed only after verification; it never fired.
+3. `ssh.service`'s own `ExecReload` runs `sshd -t` with
+   `ignore_errors=no`, so an invalid config fails the reload instead of
+   applying it. Free, and worth knowing it is there.
+
+`reload` (SIGHUP), not `restart` — existing sessions are not dropped.
+`NRestarts` stayed 0.
+
+Verified after, from the Windows box, on **new** connections:
+
+| test | result |
+|---|---|
+| root, key | **OK** — `sshd -T` reads `permitrootlogin without-password`, `passwordauthentication no` |
+| `podbackup` forced command (`list`) | **OK** |
+| root, password only (`PubkeyAuthentication=no`) | **refused: `Permission denied (publickey)`** — no password method offered at all |
+
+`KbdInteractiveAuthentication no` was already set, which is what makes
+this complete: with it `yes`, PAM can still offer a password prompt and
+`PasswordAuthentication no` is a half-measure. Worth checking both any
+time this comes up again.
+
+### The off-box backup: the reported symptom was a misread, and the defects were real independently
+
+**Both halves matter, so both are recorded.**
+
+**The symptom was a misread.** The report was that this morning's
+catch-up pull died partway through its 13th archive, leaving 12 local
+and no `pull end` line, with `pod-backup-20260902-192437.tar.gz` a
+3,473,408-byte partial. Measured at the time of investigation: the run
+**completed at 10:55:50** — `pull end - fetched 14, pruned 0, held 21,
+newest=pod-backup-20260903-032011.tar.gz age=7.6h` — and that archive is
+**4,448,257 bytes, byte-identical to the remote**, with a valid sidecar.
+The observation was made during a genuine **7m05s stall** (10:48:37 →
+10:55:42) while that file was in flight. A transient was read as a
+failure. Nothing was lost and nothing was unbacked-up.
+
+**The defects were real anyway, and would have bitten on the next killed
+run.** They are properties of the code, not of that run:
+
+1. `pull-linux-backups.ps1`'s three delete-the-partial paths only run
+   *while the script is alive*. A run killed mid-transfer (shutdown,
+   sleep, task terminated) leaves the partial, and the fetch gate was
+   `if (Test-Path $local) { continue }` — **existence alone** — so that
+   partial was never re-fetched, never verified, never removed.
+2. Retention and the 36-hour staleness alarm both read a plain
+   name-sorted `Get-ChildItem`. A partial carrying a recent timestamp
+   sorts newest and holds the age under the limit **indefinitely**. The
+   one alarm built to say "your off-box backups have stopped" is
+   silenced by a broken backup that looks fresh. It could also prune a
+   good archive to keep a broken one.
+
+Fixed: `Test-ArchiveVerified` (sidecar present + 64-hex match against
+`Get-FileHash`), `Get-VerifiedArchives`, an **unconditional sweep before
+the fetch**, and retention / `held N` / staleness all reading the
+verified set only.
+
+**Proven on a genuine killed-run partial, not a hand-made one** — a real
+transfer was killed mid-flight, leaving 4,030,464 of 5,408,653 bytes, a
+zero-byte `.stderr`, and no sidecar. Same fixture, both scripts:
+
+| | old | new |
+|---|---|---|
+| result | `held 7, newest=…031911 age=32h` → **exit 0, alarm silent** | `swept` both, `held 6, newest=…160235 age=43.3h` → **FAILED, exit 1** |
+| partial survives | yes | no |
+
+That fixture is the right shape for this class of bug and should be
+reused: **construct the failure, run the old code, watch it pass.** A fix
+for a quiet failure that is never shown failing is a guess.
+
+The hash is matched by regex rather than `-split` on the first field:
+`Set-Content -Encoding utf8` on PS 5.1 writes a **UTF-8 BOM**, so the
+first whitespace-delimited field carries three invisible bytes and a
+naive comparison never matches. This cost one wrong "20 of 21 archives
+MISMATCH" reading during verification before it was spotted.
+
+After the fix: 20 of 20 remote archives local, **21/21 verified against
+their sidecars** (the 21st is the deliberately renamed
+`…115104-WORLD1-FINAL-STATE` keepsake), newest `pod-backup-20260903-032011`.
+Scheduled task re-run `LastTaskResult=0`.
+
+### FOUND — the transfers intermittently stall for minutes
+
+4m09s and 7m05s stalls observed on single archive transfers today. This
+is the mechanism that made a healthy pull look dead. Not investigated.
+One candidate, untested: Defender real-time protection is on with archive
+scanning and **no exclusion for `C:\pod-backups-linux`**, so every 4.5 MB
+`.tar.gz` is unpacked and scanned as it lands.
+
+### FOUND — catch-up XP degenerates into a flat global multiplier on a bunched roster
+
+**This is the real defect. The `win_xp_mult` dial is a counterweight, not
+a fix**, and it is recorded here so the next person does not read the
+dial as the answer.
+
+`manager.rs:catchup_multiplier` keys the bonus off the group **MEDIAN**.
+When the roster is bunched — the common steady state, and exactly the
+state a working catch-up mechanic produces — **the median equals the
+maximum**, so every character at the top level lands in the `l <= median`
+branch and takes the full **+100%**. Catch-up pays out most generously
+precisely when it should be doing nothing.
+
+Roster at 2026-09-03 02:52Z (t+17.0 h after the World 2 reset):
+
+| level | chars | multiplier | grant per win |
+|---|---|---|---|
+| 11 | 14 | **x2.00** | 37 xp |
+| 9 | 1 | x2.22 | 38 xp |
+| 8 | 1 | x2.33 | 38 xp |
+| 2 | 1 | x3.00 | 39 xp |
+
+The symptom, stated plainly: **a level-11 leader earns within 17% of what
+a level-2 newcomer earns.** The mechanic is not a trailing-player bonus
+in this state; it is a flat 2x global XP multiplier that happens to be
+1.17x steeper at the bottom.
+
+Measured consequence: **14.2 levels/day** across the whole run and
+**13.25 levels/day** in the final 1.53 h window — no meaningful decay,
+against an approved shape of 10 levels on day one settling toward 2/day.
+The pack spent day one's entire allowance in about 14 hours. At x1.00 the
+same roster would sit near 7 levels/day, so this accounts for essentially
+the whole overshoot.
+
+Owner is setting `win_xp_mult` 1.0 → 0.5 on the live page. Not touched by
+this session. The curve shape is untouched by that dial (see the
+2026-09-02 ruling), so the degenerate branch survives it and will
+resurface the moment the roster bunches again at any scale.
+
+### The HP pacing controller was saturated at its ceiling all night
+
+First live measurement of the §5.1 warning that the pacing baselines were
+calibrated against a power curve the affix tier curve removed.
+
+| | at deploy 19:24 | at 04:52 | bound |
+|---|---|---|---|
+| `hp_pacing_mult` | 3.0518 | **6.000** | `hp_multiplier_ceiling` 6.0 — **pinned** |
+| `boss_power_mult` | 0.5121 | 2.2268 | `dmg_multiplier_ceiling` 4.0 — headroom |
+| median win DPS | 409 | 2738 | |
+
+The damage controller was dead on target: boss W/L **1.94:1** against
+`target_win_loss_ratio` 2.0. The HP controller was not: the target
+duration band is **30–45 s** and the median fight was **10.6 s**. At 25%
+per fight it climbed 3.05 → 6.0 in about **four winning fights** — roughly
+ten minutes after the swap — and sat against the stop for the remaining
+nine hours. To reach the 37.5 s midpoint it needed about **21x** and was
+allowed **6x**.
+
+The direction is worth stating because it is the opposite of what was
+expected from a 3–10x affix nerf: **the party was not weaker, it was far
+stronger.** Level gain swamped the nerf entirely.
+
+Owner has raised `hp_multiplier_ceiling` to **50** on the live page.
+Releases landing after that will see the controller move again — it was
+unpinned at 05:20 and had already walked 6.0 → 7.5 by 05:30. **That is
+expected, not a regression**, and anyone reading fight durations across
+this boundary should not attribute the change to their own release.
+
+### FOUND — `adventure-bugreports.json` was ignored by nothing and backed up by nothing
+
+Caught at deploy, in the branch being deployed, **not** in the commit that
+introduced the file. The per-file trap documented in `.gitignore` fired
+again — and in its nastiest form.
+
+`.gitignore` line 151 already carried `bugreports.json`, a leftover from
+the Twitch bot era sitting among `commands.json` and `entrance-themes.json`.
+It **looks** like this file's entry. It is not: a gitignore pattern with no
+slash matches the whole basename, so `bugreports.json` never matched
+`adventure-bugreports.json`. `git check-ignore -v adventure-bugreports.json`
+returns nothing.
+
+The file holds player-submitted free text plus the reporter's account
+name. Without the fix it would have sat untracked-but-committable in the
+deployment root of a repo whose remote is public — the same shape as the
+account-store near-miss of 2026-09-02, one `git add -A` from permanent.
+
+`backup-game-data.sh` was the second half: `CORE_FILES` is a
+hand-maintained literal list and the file was not in it, and the drift
+check that warns about unknown files on disk covers **markers only**. Every
+bug a player filed would have been outside the backup set from the first
+one.
+
+Both fixed in the deploy commit. **The durable lesson, which is not the
+one already written down:** a near-miss ignore entry is worse than no
+entry, because it reads as coverage to anyone who greps for "bugreports".
+When adding a data file, grep the **exact** filename and confirm with
+`git check-ignore -v <name>` — the pattern's presence is not the test, the
+match is.
+
+### §13B now names a per-release source directory
+
+Ordered as part of this release rather than left for the next session to
+rediscover. `/root/deploy-src` was a shared mutable global between
+sessions that cannot see each other; a concurrent `rm -rf` destroyed the
+affix curve release's build mid-flight. Now `/root/deploy-src-$REL`, with
+the archive (`src-deploy-$REL.tar.gz`), the logs (`build-$REL.log`,
+`test-$REL.log`) and the transient build unit (`pod-build-$REL`) all
+per-release.
+
+Two things found while writing it:
+
+- `--setenv=REL=$REL` is **load-bearing** on the `systemd-run` form. The
+  `bash -c` string is single-quoted so `$?` survives to the inner shell,
+  which means `$REL` reaches it unexpanded too — and a transient unit
+  inherits nothing, so without that line it expands to empty and the
+  build logs to `/root/build-.log`. You then read a stale or absent log
+  and draw a conclusion about the wrong build.
+- §13B had **no step that checks the unpacked tree is the one you think
+  it is**, which is the root cause of the concurrent-deploy incident: a
+  tree extracted before the curve merge was built and shipped over
+  master's. Added — grep the source for a symbol the release introduces
+  and stop if it is absent.

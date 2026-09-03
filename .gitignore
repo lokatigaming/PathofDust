@@ -134,6 +134,18 @@ adventure-reforge-cooldown.json
 adventure-accounts.json
 adventure-accounts.json.*
 adventure-sessions.json
+# Player-submitted bug reports (free text + the reporter's account name,
+# taken from their session). Added with /bugs in the player-facing batch,
+# 2026-09-03. Caught at deploy, NOT in the commit that introduced the
+# file - the trap above fired again, and in its nastiest form: line 151
+# already carried `bugreports.json`, a leftover from the Twitch bot, which
+# LOOKS like this file's entry and matches nothing. A gitignore pattern
+# with no slash matches the whole basename, so `bugreports.json` never
+# matched `adventure-bugreports.json`. When you add a data file, grep for
+# the EXACT filename and confirm with `git check-ignore -v <name>`; a
+# near-miss entry reads as coverage and is worse than no entry at all.
+adventure-bugreports.json
+adventure-bugreports.json.*
 adventure-sprite-count.json
 adventure-item-balance.toml
 adventure-live-tunables.toml
