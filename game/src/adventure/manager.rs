@@ -6863,10 +6863,14 @@ mod gear_tier_excess_tests {
     fn character_at(level: u32, tier: u32) -> Character {
         let mut c = Character::new("excess-tester".to_string());
         c.level = level;
-        for slot in EQUIP_SLOTS {
-            if let Some(item) = c.equipped_mut(slot) {
-                item.tier = tier;
-            }
+        // Direct field assignment, not `equipped_mut` - manager.rs is not
+        // on that bypass's allowlist (`guard_tests::BYPASSES`), and there
+        // is no reason a test fixture needs the mutation guard's reach
+        // pinned any wider than combat.rs's own equivalent fixture, which
+        // sets `character.weapon = Some(...)` directly for the same
+        // reason.
+        for item in [&mut c.weapon, &mut c.helm, &mut c.body, &mut c.gloves, &mut c.boots, &mut c.ring1, &mut c.ring2, &mut c.amulet, &mut c.pants].into_iter().flatten() {
+            item.tier = tier;
         }
         c
     }
@@ -6890,9 +6894,13 @@ mod gear_tier_excess_tests {
         // one and not a NaN from an empty mean.
         let mut bare = Character::new("bare".to_string());
         bare.level = 400;
-        for slot in EQUIP_SLOTS {
-            *bare.equipped_mut(slot) = None;
-        }
+        bare.weapon = None;
+        bare.helm = None;
+        bare.body = None;
+        bare.gloves = None;
+        bare.boots = None;
+        // ring1/ring2/amulet/pants are already None on a fresh character
+        // (owner ruling, 2026-09-03: no starter gear in the new slots).
         assert_eq!(gear_tier_excess(&bare), 0.0);
     }
 
