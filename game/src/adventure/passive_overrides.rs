@@ -1406,7 +1406,13 @@ mod passive_override_tests {
         (Archetype::Berserker, "frenzy", [1.0, 2.0, 3.0]),
         (Archetype::Berserker, "bloodscent", [0.0, 0.50, 0.65]),
         (Archetype::Berserker, "bloodrush", [0.0, 1.0, 2.0]),
-        (Archetype::Berserker, "shatter", [1.0, 1.0, 1.0]),
+        // CHANGED 2026-09-04, deliberately, so this row is no longer the
+        // Stage-3 snapshot: it was [1.0, 1.0, 1.0], a flat gate whose
+        // ranks 2 and 3 bought nothing while the copy implied per-rank
+        // scaling. Same treatment `lastrites` got - the row moves with the
+        // shipped value. See `shatter`'s own comment in passive_tree.rs
+        // for why rank 3 is 1.65 rather than a round 2.0.
+        (Archetype::Berserker, "shatter", [1.0, 1.35, 1.65]),
         (Archetype::Berserker, "crush", [0.0, 0.50, 0.65]),
         (Archetype::Berserker, "gloriousdeath", [1.0, 1.0, 2.0]),
         // Rogue
