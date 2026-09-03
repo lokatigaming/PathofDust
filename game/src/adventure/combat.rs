@@ -1064,7 +1064,8 @@ pub(crate) struct CombatSimUnit {
     /// `ArchetypeSkill::on_periodic_tick`.
     next_flicker_at_ms: u32,
     /// Whether this unit has `UniqueAffix::CelestialConversion` equipped
-    /// on ANY of its 5 slots (there's only ever one to check for so far -
+    /// on ANY of its equipped slots (`EQUIP_SLOTS`, nine as of spec §8;
+    /// there is only ever one unique to check for so far -
     /// a plain bool, not a generic list, same "don't build the general
     /// case until there's a second instance" reasoning as `skills` was
     /// before it needed to be one). Always `false` for an enemy/boss/add
@@ -19163,12 +19164,20 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         // real production character's actual stat profile, since the
         // live finding is specifically about a real character (kazesosa)
         // with real gear, not a fresh unequipped one.
+        // Every slot `EQUIP_SLOTS` names, not a hand-written five (widened
+        // 2026-09-04). This fixture listed the original five by field
+        // until the §8 slots had been live for two days, so a
+        // "fully geared" character in this test was wearing five ninths of
+        // a kit. Derived from `EQUIP_SLOTS` so a tenth slot is covered the
+        // day it lands rather than the day someone notices.
+        //
+        // Unlike the golden corpus fixtures, this one carries no
+        // stability constraint - nothing is committed against it, so
+        // widening it is free.
         let mut gear_rng = StdRng::seed_from_u64(42);
-        character.weapon = Some(generate_item(EquipSlot::Weapon, 1000, &mut gear_rng));
-        character.helm = Some(generate_item(EquipSlot::Helm, 1000, &mut gear_rng));
-        character.body = Some(generate_item(EquipSlot::Body, 1000, &mut gear_rng));
-        character.gloves = Some(generate_item(EquipSlot::Gloves, 1000, &mut gear_rng));
-        character.boots = Some(generate_item(EquipSlot::Boots, 1000, &mut gear_rng));
+        for slot in crate::adventure::EQUIP_SLOTS {
+            character.equip(generate_item(slot, 1000, &mut gear_rng));
+        }
         let predicted_owner_max_hp = character.combat_max_hp(&LiveTunables::default()) as f64;
 
         let mut ally = Character::new("ally_a".to_string());
