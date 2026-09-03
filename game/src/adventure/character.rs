@@ -5590,7 +5590,7 @@ mod win_xp_tests {
         // quietly inherit the change.
         let group = [1u32, 5, 10, 20, 40];
         for level in group {
-            let m = crate::adventure::catchup_multiplier(level, &group);
+            let m = crate::adventure::catchup_multiplier(level, &group, crate::adventure::CATCHUP_FULL_DEFICIT);
             assert!((1.0..=3.0).contains(&m), "catchup_multiplier({level}) = {m} is outside the 1.0..3.0 band the XP grant is documented against");
         }
     }

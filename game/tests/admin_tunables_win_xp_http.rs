@@ -41,6 +41,13 @@ const LEVEL_PCT_MAX: f64 = 1.0;
 const MULT_MIN: f64 = 0.0;
 const MULT_MAX: f64 = 100.0;
 const COOLDOWN_SECS_MAX: u64 = 3_600;
+/// Must match `adventure::CATCHUP_FULL_DEFICIT*` (2026-09-03). Spelled
+/// out for the same reason as the four above: the catch-up taper is a
+/// live progression dial, and changing the constant without meaning to
+/// must fail here rather than in the game.
+const SHIPPED_FULL_DEFICIT: f64 = 0.5;
+const FULL_DEFICIT_MIN: f64 = 0.01;
+const FULL_DEFICIT_MAX: f64 = 1.0;
 
 #[tokio::test]
 async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_post() {
@@ -90,6 +97,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
     assert_eq!(fresh.win_xp_mult, SHIPPED_MULT, "the global XP multiplier must ship neutral");
     assert_eq!(fresh.win_xp_cooldown_secs, SHIPPED_COOLDOWN_SECS, "the rampage guard must ship armed");
     assert!(fresh.win_xp_catchup_enabled, "catch-up on XP must ship ON - it predates this feature");
+    assert_eq!(fresh.catchup_full_deficit, SHIPPED_FULL_DEFICIT, "the catch-up taper must ship at the approved half-the-leader's-level threshold");
 
     let admin_page = page(client.clone(), base.clone()).await;
 
@@ -115,6 +123,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
         ("win_xp_level_pct", "0".to_string(), LEVEL_PCT_MAX.to_string(), "fraction of the level", SHIPPED_LEVEL_PCT.to_string()),
         ("win_xp_mult", MULT_MIN.to_string(), MULT_MAX.to_string(), "unit: multiplier", SHIPPED_MULT.to_string()),
         ("win_xp_cooldown_secs", "0".to_string(), COOLDOWN_SECS_MAX.to_string(), "unit: seconds", SHIPPED_COOLDOWN_SECS.to_string()),
+        ("catchup_full_deficit", FULL_DEFICIT_MIN.to_string(), FULL_DEFICIT_MAX.to_string(), "fraction of the leader", SHIPPED_FULL_DEFICIT.to_string()),
     ] {
         let row = row_for(field);
         assert!(row.contains("type=\"number\""), "{field} must be a typed numeric input, not free text: {row}");
@@ -155,7 +164,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
             rendered.push(name);
         }
     }
-    for field in ["win_xp_flat", "win_xp_level_pct", "win_xp_mult", "win_xp_cooldown_secs", "win_xp_catchup_enabled"] {
+    for field in ["win_xp_flat", "win_xp_level_pct", "win_xp_mult", "win_xp_cooldown_secs", "win_xp_catchup_enabled", "catchup_full_deficit"] {
         assert!(rendered.contains(&field), "{field} must be inside the save form, not merely on the page");
     }
 
@@ -174,6 +183,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
             "win_xp_level_pct" => (*name, "0.05"),
             "win_xp_mult" => (*name, "2.5"),
             "win_xp_cooldown_secs" => (*name, "600"),
+            "catchup_full_deficit" => (*name, "0.25"),
             other => (other, filler(other)),
         })
         .collect();
@@ -184,6 +194,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
     assert_eq!(live.win_xp_level_pct, 0.05, "a save must move the level fraction");
     assert_eq!(live.win_xp_mult, 2.5, "a save must move the global multiplier");
     assert_eq!(live.win_xp_cooldown_secs, 600, "a save must move the rampage guard");
+    assert_eq!(live.catchup_full_deficit, 0.25, "a save must move the catch-up taper the multiplier reads");
 
     let admin_page = page(client.clone(), base.clone()).await;
     assert!(admin_page.contains("value=\"20\""), "the saved flat grant must render back, or the operator cannot see the state they set");
@@ -191,7 +202,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
 
     // A restart must not silently revert a progression dial.
     let on_disk = std::fs::read_to_string(scratch.join("adventure-live-tunables.toml")).expect("the win-xp dials must persist to the live tunables file");
-    for expected in ["win_xp_flat = 20.0", "win_xp_level_pct = 0.05", "win_xp_mult = 2.5", "win_xp_cooldown_secs = 600"] {
+    for expected in ["win_xp_flat = 20.0", "win_xp_level_pct = 0.05", "win_xp_mult = 2.5", "win_xp_cooldown_secs = 600", "catchup_full_deficit = 0.25"] {
         assert!(on_disk.contains(expected), "the dials must survive a restart - missing {expected} in: {on_disk}");
     }
 
@@ -222,6 +233,12 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
         ("win_xp_level_pct", vec!["-0.5", "1.5"]),
         ("win_xp_mult", vec!["-1", "101"]),
         ("win_xp_cooldown_secs", vec!["3601"]),
+        // 0 is NOT in range here, unlike on the two dials below. The
+        // taper is a DIVISOR: a 0 would pay the full 3x to everyone
+        // standing even one level below the leader, which is the
+        // flat-global-multiplier defect this field exists to remove,
+        // wearing a different hat. It is rejected, not clamped.
+        ("catchup_full_deficit", vec!["0", "-0.5", "1.5"]),
     ] {
         for attempt in attempts {
             let before = manager.live_tunables();
@@ -236,6 +253,7 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
             assert_eq!(after.win_xp_level_pct, before.win_xp_level_pct, "{field}: a rejected POST must leave the live level fraction untouched");
             assert_eq!(after.win_xp_mult, before.win_xp_mult, "{field}: a rejected POST must leave the live multiplier untouched");
             assert_eq!(after.win_xp_cooldown_secs, before.win_xp_cooldown_secs, "{field}: a rejected POST must leave the live cooldown untouched");
+            assert_eq!(after.catchup_full_deficit, before.catchup_full_deficit, "{field}: a rejected POST must leave the live catch-up taper untouched");
         }
     }
 
@@ -261,9 +279,9 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
     // neither 422 nor collapse these to `f64::default()` == 0.0. On these
     // three fields a 0.0 does not merely drift a number - it stops every
     // XP grant in the game while the page reports success.
-    let numeric = ["win_xp_flat", "win_xp_level_pct", "win_xp_mult", "win_xp_cooldown_secs"];
+    let numeric = ["win_xp_flat", "win_xp_level_pct", "win_xp_mult", "win_xp_cooldown_secs", "catchup_full_deficit"];
     let without: Vec<(&str, &str)> = rendered.iter().filter(|name| !numeric.contains(name)).map(|name| (*name, filler(name))).collect();
-    assert_eq!(without.len(), rendered.len() - numeric.len(), "sanity: exactly the four numeric win-xp fields were dropped from the body");
+    assert_eq!(without.len(), rendered.len() - numeric.len(), "sanity: exactly the five numeric win-xp fields were dropped from the body");
     let saved = client.post(format!("{base}/admin/tunables/save")).header(reqwest::header::COOKIE, "adv_session=admin-token").form(&without).send().await.expect("POST failed");
     assert!(saved.status().is_redirection(), "a body omitting the win-xp fields must still extract - got {}. A 422 here means a field is required rather than defaulted", saved.status());
     let live = manager.live_tunables();
@@ -271,6 +289,10 @@ async fn the_win_xp_dials_render_with_bounds_and_round_trip_through_a_real_form_
     assert_eq!(live.win_xp_level_pct, SHIPPED_LEVEL_PCT, "an omitted level fraction must fall back to the SHIPPED CONSTANT, not to 0.0");
     assert_eq!(live.win_xp_mult, SHIPPED_MULT, "an omitted multiplier must fall back to the SHIPPED CONSTANT, not to 0.0 - a 0 here stops all XP");
     assert_eq!(live.win_xp_cooldown_secs, SHIPPED_COOLDOWN_SECS, "an omitted cooldown must fall back to the SHIPPED CONSTANT, not to 0 - a 0 here disarms the rampage guard");
+    assert_eq!(
+        live.catchup_full_deficit, SHIPPED_FULL_DEFICIT,
+        "an omitted catch-up taper must fall back to the SHIPPED CONSTANT, not to 0.0 - a 0 here is a DIVISOR of zero and would pay the full 3x to the whole pack"
+    );
 
     let _ = std::fs::remove_dir_all(&scratch);
 }

@@ -113,6 +113,30 @@ pub const WIN_XP_MULT_MIN: f64 = 0.0;
 pub const WIN_XP_MULT_MAX: f64 = 100.0;
 pub const WIN_XP_COOLDOWN_SECS_MAX: u64 = 3_600;
 
+/// How far behind the group's LEADER a character must fall to earn the
+/// full catch-up bonus, as a FRACTION OF THE LEADER'S LEVEL (2026-09-03).
+/// See `catchup_multiplier` for the formula this scales and for why the
+/// deficit is relative rather than an absolute number of levels.
+///
+/// At the shipped 0.5, a character sitting at half the leader's level or
+/// below is paid the full +200%; the bonus tapers linearly to +0% for
+/// anyone standing level with the leader. Raise it to make catch-up
+/// stingier (a bigger deficit is needed for the same bonus), lower it to
+/// make catch-up bite sooner.
+pub const CATCHUP_FULL_DEFICIT: f64 = 0.5;
+/// Accepted range for `catchup_full_deficit`, same declare-once rule as
+/// the win-XP band above. The floor is 0.01 rather than 0.0 and this is
+/// the one place in the file where a zero floor would be WRONG rather
+/// than merely cautious: the deficit is a DIVISOR, and 0.0 would pay the
+/// full +200% to every character whose level is even one below the
+/// leader, which is a different (and much worse) degeneracy than the
+/// median one this constant exists to fix. The ceiling of 1.0 is the
+/// largest deficit that can physically occur — a character cannot be
+/// more than 100% below the leader — so above it the knob would simply
+/// stop having any effect.
+pub const CATCHUP_FULL_DEFICIT_MIN: f64 = 0.01;
+pub const CATCHUP_FULL_DEFICIT_MAX: f64 = 1.0;
+
 /// How often the joined roster auto-battles the next enemy.
 pub const ENCOUNTER_INTERVAL: Duration = Duration::from_secs(600);
 
@@ -5378,7 +5402,7 @@ impl AdventureManager {
         // reshuffle who counts as "the group" for this fight's catch-up
         // math. See `catchup_multiplier`.
         let group_levels: Vec<u32> = fighting.values().map(|c| c.level).collect();
-        let catchup: HashMap<String, f64> = fighting.iter().map(|(id, c)| (id.clone(), catchup_multiplier(c.level, &group_levels))).collect();
+        let catchup: HashMap<String, f64> = fighting.iter().map(|(id, c)| (id.clone(), catchup_multiplier(c.level, &group_levels, tunables.catchup_full_deficit))).collect();
 
         // Win XP eligibility, resolved BEFORE the `characters` lock below.
         // The reward loop inside that block holds a `ThreadRng` (not
@@ -6048,7 +6072,7 @@ impl AdventureManager {
         // See run_encounter's identical snapshot - same "pre-fight group,
         // not reshuffled by anything that happens below" reasoning.
         let group_levels: Vec<u32> = fighting.values().map(|c| c.level).collect();
-        let catchup: HashMap<String, f64> = fighting.iter().map(|(id, c)| (id.clone(), catchup_multiplier(c.level, &group_levels))).collect();
+        let catchup: HashMap<String, f64> = fighting.iter().map(|(id, c)| (id.clone(), catchup_multiplier(c.level, &group_levels, tunables.catchup_full_deficit))).collect();
 
         {
             let mut characters = self.characters.lock().await;
@@ -6652,24 +6676,13 @@ pub(crate) fn maybe_drop_divine_dust(character: &mut Character, rng: &mut impl R
     }
 }
 
-/// Median-relative catch-up bonus applied on top of `LOOT_MULT`: a
-/// below-median party member's dust and drop odds scale up, capping at
-/// +200% for whoever's at the group's lowest level, tapering down to
-/// exactly +100% right at the median, then continuing to taper from
-/// +100% at the median down to +0% at the group's highest level - so
-/// the median member still gets a real boost (not just the trailing
-/// half), and only the top of the pack fights at the baseline rate.
-/// Returns a multiplier (1.0-3.0) to multiply dust/drop-weight by
-/// directly, not a raw percentage. A group with no level spread at all
-/// (including a solo fighter, trivially their own min/max) has nothing
-/// to catch up on, so everyone's flat at 1.0 - otherwise soloing would
-/// be a free, repeatable way to always sit "at the median" for a 2x
-/// bonus.
 /// Standard median (average of the two middle values on an even count) -
-/// shared by `catchup_multiplier` (loot/dust catch-up) and
-/// `prioritize_above_median` (enemy target priority). `0.0` on an empty
-/// slice - callers that can actually hit that case guard it themselves
-/// first (see `catchup_multiplier`'s early min/max checks).
+/// enemy target priority (`prioritize_above_median`) reads it. `0.0` on
+/// an empty slice - callers that can actually hit that case guard it
+/// themselves first.
+///
+/// `catchup_multiplier` used to key off this too and no longer does; see
+/// its doc for why the median was the wrong axis for a catch-up bonus.
 pub(crate) fn median_u32(values: &[u32]) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -6680,25 +6693,62 @@ pub(crate) fn median_u32(values: &[u32]) -> f64 {
     if n % 2 == 1 { sorted[n / 2] as f64 } else { (sorted[n / 2 - 1] as f64 + sorted[n / 2] as f64) / 2.0 }
 }
 
-pub(crate) fn catchup_multiplier(level: u32, group_levels: &[u32]) -> f64 {
+/// Leader-relative catch-up bonus applied on top of `LOOT_MULT` and (via
+/// `win_xp_catchup_enabled`) on top of the win-XP grant: a character
+/// standing below the group's HIGHEST level earns more dust, better drop
+/// odds and more XP per win, capping at +200% and tapering linearly to
+/// +0% for anyone level with the leader. Returns a multiplier (1.0-3.0)
+/// to multiply dust/drop-weight/XP by directly, not a raw percentage.
+///
+/// The axis is the character's deficit BELOW THE LEADER, expressed as a
+/// fraction of the leader's level: `(max - level) / max`, divided by
+/// `catchup_full_deficit` and clamped, so a character at or below
+/// `1 - catchup_full_deficit` of the leader's level takes the whole
+/// +200%.
+///
+/// WHY LEADER-RELATIVE, replacing the median this keyed off until
+/// 2026-09-03. The median version paid a hard floor of +100% to every
+/// character at or below the median, and it read no leader level at all
+/// in that branch. On a BUNCHED roster - the ordinary steady state, and
+/// precisely the state a catch-up mechanic exists to produce - the
+/// median EQUALS the maximum, so the entire lead pack fell into that
+/// branch and took the full +100%. Catch-up stopped being a
+/// trailing-player bonus and became a flat 2x global multiplier, working
+/// hardest exactly when it should have been idle. Measured live on
+/// 2026-09-03 with 14 of 17 characters at level 11: every one of those
+/// 14 leaders took x2.00, a level-11 leader earned 37 XP per win against
+/// the level-2 newcomer's 39, and the pack ran at ~14 levels/day against
+/// a designed asymptote of 2.
+///
+/// Keying off the leader makes the degenerate case exact rather than
+/// approximate: every character at `max` has a deficit of exactly zero,
+/// so a fully bunched roster returns exactly 1.0 with no epsilon and no
+/// special case, and the leader is 1.0 at every roster shape there is.
+/// The deficit is RELATIVE rather than an absolute number of levels
+/// because `Character::xp_to_next_level` is quadratic - "ten levels
+/// behind" is a chasm at level 11 and a rounding error at level 200 - so
+/// an absolute gap would need retuning every time the world matured.
+///
+/// A group with no level spread at all (including a solo fighter,
+/// trivially their own min/max) has nothing to catch up on and returns
+/// 1.0 by the same arithmetic, with the explicit early return kept: it
+/// says so at a glance, and it is what stops soloing being a free,
+/// repeatable way to sit at the top of the bonus.
+pub(crate) fn catchup_multiplier(level: u32, group_levels: &[u32], full_deficit: f64) -> f64 {
     let Some(&min) = group_levels.iter().min() else { return 1.0 };
     let Some(&max) = group_levels.iter().max() else { return 1.0 };
     if max <= min {
         return 1.0;
     }
-    let (min, max) = (min as f64, max as f64);
-    let median = median_u32(group_levels);
-    let l = level as f64;
-    let bonus_pct = if l <= median {
-        // median > min is guaranteed here: if median == min, every level
-        // is >= min == median, so l <= median forces l == median too,
-        // never reaching this branch's division.
-        if median > min { 100.0 + 100.0 * (median - l) / (median - min) } else { 100.0 }
-    } else if max > median {
-        100.0 * (max - l) / (max - median)
-    } else {
-        0.0
-    };
+    // `max > min >= 0` and levels start at 1, so `max >= 1` here and the
+    // division below is safe. `full_deficit` is clamped to at least
+    // `CATCHUP_FULL_DEFICIT_MIN` (> 0) by the admin handler, and clamped
+    // again here so a value loaded from a hand-edited tunables file
+    // cannot divide by zero.
+    let max = max as f64;
+    let deficit = (max - level as f64) / max;
+    let full_deficit = full_deficit.clamp(CATCHUP_FULL_DEFICIT_MIN, CATCHUP_FULL_DEFICIT_MAX);
+    let bonus_pct = 200.0 * (deficit / full_deficit).clamp(0.0, 1.0);
     1.0 + bonus_pct.clamp(0.0, 200.0) / 100.0
 }
 
@@ -9771,5 +9821,96 @@ mod stage_gate_tests {
         expected.sort_by_key(|(action, _)| format!("{action:?}"));
         assert_eq!(after, expected, "12 fights must not have added a single craft token - the drop and both pity payouts are gone");
         assert_eq!(character.craft_pity, 0.0, "craft_pity must not accrue either: both advance_pity calls that fed it were removed");
+    }
+}
+
+#[cfg(test)]
+mod catchup_multiplier_tests {
+    use super::*;
+
+    /// The defect this formula replaced, asserted directly as the order
+    /// required. Before 2026-09-03 `catchup_multiplier` keyed off the
+    /// group median, and on a bunched roster the median equals the
+    /// maximum - so every character in the lead pack fell into the
+    /// `l <= median` branch and took the full +100%, turning a
+    /// trailing-player bonus into a flat 2x global multiplier. The live
+    /// roster that exposed it was 14 characters at level 11 against a
+    /// level-9, a level-8 and a level-2.
+    #[test]
+    fn a_bunched_roster_pays_the_pack_nothing() {
+        let mut roster = vec![11u32; 14];
+        roster.extend_from_slice(&[9, 8, 2]);
+        let m = catchup_multiplier(11, &roster, CATCHUP_FULL_DEFICIT);
+        assert!((m - 1.0).abs() < 1e-9, "a character level with the leader must sit at 1.0, not {m} - the median formula paid this exact roster 2.00x");
+
+        // Not a property of THAT roster: no matter how the rest of the
+        // group is arranged, standing at the top means no bonus.
+        for roster in [vec![11u32; 17], vec![11, 11, 11, 1], vec![11, 10], vec![11, 1, 1, 1, 1, 1, 1, 1]] {
+            let m = catchup_multiplier(11, &roster, CATCHUP_FULL_DEFICIT);
+            assert!((m - 1.0).abs() < 1e-9, "the leader must be 1.0 on every roster shape; {roster:?} gave {m}");
+        }
+    }
+
+    /// The other half of the property: a real gap still pays out, and
+    /// pays MORE the further behind the character is.
+    #[test]
+    fn a_real_laggard_is_still_paid() {
+        let mut roster = vec![11u32; 14];
+        roster.extend_from_slice(&[9, 8, 2]);
+
+        // Level 2 against a level-11 leader is a deficit of 9/11 = 0.818,
+        // past the 0.5 full-bonus threshold, so the cap: 3.0.
+        let newcomer = catchup_multiplier(2, &roster, CATCHUP_FULL_DEFICIT);
+        assert!((newcomer - 3.0).abs() < 1e-9, "the level-2 newcomer must take the full 3.0, got {newcomer}");
+
+        // The two mid-table stragglers land strictly between, in order.
+        let nine = catchup_multiplier(9, &roster, CATCHUP_FULL_DEFICIT);
+        let eight = catchup_multiplier(8, &roster, CATCHUP_FULL_DEFICIT);
+        assert!((nine - (1.0 + 2.0 * ((2.0 / 11.0) / 0.5))).abs() < 1e-9, "level 9 of 11: {nine}");
+        assert!((eight - (1.0 + 2.0 * ((3.0 / 11.0) / 0.5))).abs() < 1e-9, "level 8 of 11: {eight}");
+        assert!(newcomer > eight && eight > nine && nine > 1.0, "the bonus must increase monotonically with the deficit: 1.0 < {nine} < {eight} < {newcomer}");
+    }
+
+    /// The knob does what its label says, and cannot be made to divide by
+    /// zero - the handler clamps, and `catchup_multiplier` clamps again
+    /// for a hand-edited tunables file.
+    #[test]
+    fn the_deficit_knob_scales_the_taper_and_survives_a_zero() {
+        let roster = [10u32, 8];
+        // Deficit 2/10 = 0.2. At full_deficit 0.2 that is exactly the cap;
+        // at 0.4 it is half the cap; at 0.8 a quarter.
+        assert!((catchup_multiplier(8, &roster, 0.2) - 3.0).abs() < 1e-9);
+        assert!((catchup_multiplier(8, &roster, 0.4) - 2.0).abs() < 1e-9);
+        assert!((catchup_multiplier(8, &roster, 0.8) - 1.5).abs() < 1e-9);
+        // A 0.0 that slipped past the handler must not become an infinity
+        // or a NaN, and must not pay the cap to a near-leader.
+        let zeroed = catchup_multiplier(8, &roster, 0.0);
+        assert!(zeroed.is_finite() && (1.0..=3.0).contains(&zeroed), "a 0.0 deficit knob must clamp, not divide by zero: {zeroed}");
+        assert!((zeroed - catchup_multiplier(8, &roster, CATCHUP_FULL_DEFICIT_MIN)).abs() < 1e-9, "a 0.0 must clamp to the declared minimum");
+    }
+
+    /// A group with no spread - including a solo fighter, trivially their
+    /// own min and max - has nothing to catch up on. Kept from the median
+    /// formula's own guarantee, for the same reason: otherwise soloing is
+    /// a free, repeatable way to sit at the top of the bonus.
+    #[test]
+    fn no_spread_means_no_bonus() {
+        assert_eq!(catchup_multiplier(7, &[7], CATCHUP_FULL_DEFICIT), 1.0, "a solo fighter");
+        assert_eq!(catchup_multiplier(7, &[7, 7, 7], CATCHUP_FULL_DEFICIT), 1.0, "a perfectly level group");
+        assert_eq!(catchup_multiplier(1, &[], CATCHUP_FULL_DEFICIT), 1.0, "an empty group");
+    }
+
+    /// The band the XP grant is documented against (`win_xp_for_win`'s
+    /// 1.0..3.0) must hold across every level in a group, at both ends of
+    /// the knob's accepted range.
+    #[test]
+    fn the_multiplier_never_leaves_the_documented_band() {
+        let group = [1u32, 5, 10, 20, 40, 200];
+        for full_deficit in [CATCHUP_FULL_DEFICIT_MIN, CATCHUP_FULL_DEFICIT, CATCHUP_FULL_DEFICIT_MAX] {
+            for level in group {
+                let m = catchup_multiplier(level, &group, full_deficit);
+                assert!((1.0..=3.0).contains(&m), "catchup_multiplier({level}, .., {full_deficit}) = {m} left the 1.0..3.0 band");
+            }
+        }
     }
 }
