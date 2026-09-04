@@ -340,9 +340,16 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
 /// have no consumer to migrate. Listed separately so `/admin/passives`
 /// can say the accurate thing rather than promising a batch that would
 /// have nothing to do.
-pub const UNWIRED_NODES: &[&str] = &[
-    "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
-];
+/// **Currently EMPTY, and that is a real state rather than an oversight.**
+/// Its only ever entry was `stillwater` (Monk), which was retired outright
+/// on 2026-09-04 - the node was deleted from the tree and every point
+/// spent on it refunded, so there is no longer an unwired node for
+/// `/admin/passives` to describe. The list and its tests stay because the
+/// classification is still the right one for the next node that lands in
+/// this state; `every_unwired_key_still_exists_in_the_tree` is what forced
+/// this entry to be removed alongside the definition rather than left to
+/// dangle.
+pub const UNWIRED_NODES: &[&str] = &[];
 
 /// Nodes where ONE numeric aspect is still fed by `passive_node_rank`
 /// (structure) even though the node's PRIMARY magnitude IS live-tunable

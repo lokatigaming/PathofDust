@@ -7469,18 +7469,37 @@ mod admin_passives_tests {
         // Searched rather than assumed - Warrior happens to have every
         // one of its 39 nodes implemented, so hardcoding a class here
         // would be testing the wrong thing (and did, first time round).
-        let (archetype, inert) = ALL_ARCHETYPES
-            .iter()
-            .find_map(|&a| {
-                a.passive_nodes()
+        //
+        // **The tree currently contains ZERO `NotYetImplemented` nodes**,
+        // and this used to `.expect()` one. `sacredoverflow` (Paladin) was
+        // the last, and it was retired outright on 2026-09-04 - deleted
+        // from the tree with every point spent on it refunded, rather than
+        // built or reworded. That made this test panic, which the FULL
+        // workspace run caught and the narrow runs could not.
+        //
+        // Kept rather than deleted, and written to hold in BOTH states:
+        // the rendering arm it guards is still live in `render_passives_page`
+        // (`not_yet` -> "No mechanic yet"), so the moment any node enters
+        // that state again this test re-arms itself and checks it. When no
+        // such node exists the absence is asserted explicitly, so a reader
+        // learns the arm is dormant by FACT rather than by silence.
+        let inert = ALL_ARCHETYPES.iter().find_map(|&a| {
+            a.passive_nodes().iter().find(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented)).map(|n| (a, n))
+        });
+        match inert {
+            Some((archetype, node)) => {
+                let html = admin_page(archetype, false);
+                assert!(html.contains(node.key), "{:?}'s inert node {} must still be listed", archetype, node.key);
+                assert!(html.contains("No mechanic yet"), "an inert node must say why it can't be tuned");
+            }
+            None => {
+                let total: usize = ALL_ARCHETYPES
                     .iter()
-                    .find(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented))
-                    .map(|n| (a, n))
-            })
-            .expect("the tree still has at least one unimplemented node somewhere");
-        let html = admin_page(archetype, false);
-        assert!(html.contains(inert.key), "{:?}'s inert node {} must still be listed", archetype, inert.key);
-        assert!(html.contains("No mechanic yet"), "an inert node must say why it can't be tuned");
+                    .map(|a| a.passive_nodes().iter().filter(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented)).count())
+                    .sum();
+                assert_eq!(total, 0, "sanity: the search found none, so the count must agree");
+            }
+        }
     }
 
     #[test]

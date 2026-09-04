@@ -393,14 +393,27 @@ pub(crate) fn migrate_celestial_shard_into_unique_shard(character: &mut Characte
 ///
 /// **NO BALANCE CONSEQUENCE - this migration cannot change any
 /// character's combat output, and a reader auditing migrations for
-/// balance impact can stop at this line.** Both nodes are no-ops today
-/// and always have been: nothing anywhere in `game/src` ever passes
-/// `"stillwater"` to a by-key lookup, and `sacredoverflow` is the tree's
+/// balance impact can stop at this line.** Both nodes were no-ops for
+/// their whole lives: nothing anywhere in `game/src` ever passed
+/// `"stillwater"` to a by-key lookup, and `sacredoverflow` was the tree's
 /// last `PassiveEffect::NotYetImplemented`, whose `magnitude_at_rank` is
 /// a literal `0.0`. Removing their allocations therefore returns points
 /// and changes nothing else. (Found by the 2026-09-03
 /// advertised-vs-actual sweep; retirement ruled by the owner over both
 /// building the mechanics and rewording the copy.)
+///
+/// **Both node DEFINITIONS were deleted from the tree in the same commit
+/// series as this migration, and that pairing is a hard constraint -
+/// neither ships without the other** (owner ruling, 2026-09-04). This
+/// refund is marker-guarded and therefore one-shot, so a definition that
+/// outlived it would let a player spend the returned points straight back
+/// into a node that still does nothing and lose them permanently, with no
+/// second refund. It fails in the direction that hurts most: the player
+/// who trusts the refund and spends it is precisely the one who loses it.
+/// A refund shipping into a tree where the money can be re-lost is worse
+/// than no refund, because it looks like the problem was solved.
+/// `every_retired_key_is_gone_from_every_tree` enforces the pairing so it
+/// cannot be split by a later rebase, cherry-pick or partial deploy.
 ///
 /// **Why removing the entry IS the refund.** There is no separate
 /// "points available" counter to keep in sync: every site that asks how
@@ -1628,26 +1641,35 @@ mod refund_retired_dead_nodes_tests {
         }
     }
 
-    /// A retired key must live in **at most one** tree slot, and only as
-    /// the dead node awaiting replacement.
+    /// **THE PAIRING CONSTRAINT, ENFORCED IN CODE RATHER THAN IN A
+    /// COMMIT MESSAGE: the refund and the deletion ship together.**
     ///
-    /// The retired definitions still exist at this commit - this branch
-    /// ships the refund alone, and the replacements land later under NEW
-    /// keys. What must never happen is a retired key appearing on a
-    /// SECOND node, or on an archetype it never belonged to: either would
-    /// mean an unrefunded allocation resolving somewhere the player never
-    /// chose. Combined with `no_consumer_anywhere_reads_a_retired_node_key`
-    /// above, this is the pair that makes reuse of these keys fail loudly.
+    /// The refund is marker-guarded and therefore one-shot. If a retired
+    /// node definition outlived it, a player could spend refunded points
+    /// straight back into a node that still does nothing and lose them
+    /// permanently, with no second refund - and it fails in the direction
+    /// that hurts most, since the player who trusts the refund and spends
+    /// it is precisely the one who loses it. **A refund that ships into a
+    /// tree where the money can be re-lost is worse than no refund,
+    /// because it looks like the problem was solved** (owner ruling,
+    /// 2026-09-04).
+    ///
+    /// So: every retired key must be absent from EVERY archetype's tree,
+    /// not merely absent from the one it started on. That also makes key
+    /// reuse by a replacement node fail loudly - replacements take NEW
+    /// keys, so an allocation this migration failed to clear resolves to
+    /// nothing rather than onto a mechanic the player never chose.
+    ///
+    /// With `no_consumer_anywhere_reads_a_retired_node_key` above, this is
+    /// the pair that keeps a retired key genuinely dead: no definition,
+    /// and no reader.
     #[test]
-    fn each_retired_key_appears_on_at_most_one_node_and_only_where_it_started() {
+    fn every_retired_key_is_gone_from_every_tree() {
         for key in RETIRED_DEAD_NODE_KEYS {
-            let home = if key == "stillwater" { Archetype::Monk } else { Archetype::Paladin };
             for archetype in ALL_ARCHETYPES {
-                let hits = archetype.passive_nodes().iter().filter(|n| n.key == key).count();
-                let allowed = if archetype == home { 1 } else { 0 };
                 assert!(
-                    hits <= allowed,
-                    "node key {key:?} appears {hits}x on {archetype:?} (at most {allowed} allowed). A replacement node must take a NEW key, so an unrefunded allocation cannot resolve onto a mechanic the player never chose."
+                    !archetype.passive_nodes().iter().any(|n| n.key == key),
+                    "{archetype:?} still defines the retired node key {key:?}. The definition must be deleted in the SAME release as `migrate_refund_retired_dead_nodes` - the refund runs once, so a surviving definition lets a player re-spend refunded points into a node that does nothing and lose them for good. If this is a REPLACEMENT node, give it a new key."
                 );
             }
         }
