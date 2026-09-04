@@ -128,6 +128,13 @@ MARKER_FILES=(
   # the original five slots and every character has those filled, but the
   # marker is the thing keeping it that way.
   adventure-starter-kit-backfill-marker.json
+  # 2026-09-05, retired dead passive nodes (fix/retire-dead-passive-refund).
+  # A GUARD, like the starter-kit one above rather than a record that a
+  # migration ran: while it exists the refund cannot fire again. Restoring
+  # characters without it would re-run the refund - harmless on the current
+  # roster, which holds zero allocations in either retired node, but the
+  # marker is what keeps a second pass from being possible at all.
+  adventure-refund-retired-dead-nodes-marker.json
 )
 
 # Fight-tier sequence counters. THESE ARE COPIED LAST, AFTER the fight
