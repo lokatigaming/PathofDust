@@ -5208,6 +5208,7 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: at `boss_gear_tier_weight = 0.0` the release is an exact
 no-op for players. It becomes announceable the day the weight moves.
 
+
 ## 2026-09-04 — GOLEM-MASTER COPY: a deleted penalty that kept being advertised (branch `fix/golem-master-copy`)
 
 Ordered from `C:\dust-work\orders\d.md` as the ship-first item out of the
@@ -5401,3 +5402,159 @@ where both nodes still render — points refunded, spent straight back into
 a node that still promises something, and never refunded again. **It will
 be refused in that state**, per the ruling. Flagged early so d hears it
 before the branch reaches the front of the queue rather than after.
+## 2026-09-03 — ADMIN-UI-REWORK (branch `feature/admin-ui-rework`)
+
+Both admin pages regrouped, and the 24 passive-specific dials moved onto
+`/admin/passives` where the nodes they tune already live.
+
+### The move could not be presentation-only, and finding that was the report
+
+The approved change — render 24 `LiveTunables` fields on the passives page —
+silently breaks every save of `/admin/tunables`. **22 of the 24 were REQUIRED
+on `TunablesForm`** (only the overflow caps had `#[serde(default)]`), so the
+moment their `<input>`s leave the page, a real browser save posts 22 fewer
+fields than the extractor demands, **422s, and changes nothing**, while the
+page still looks fine.
+
+That is the 2026-08-23 incident from the other direction — the one CLAUDE.md
+names as dangerous. `admin_tunables_splash_http.rs` *would* have caught it,
+which is the durable rule working; but the work had to stop and be re-ruled.
+
+**The fix that was NOT taken, and why it matters.** The obvious answer is
+`Option<T>` so each page posts only what it renders. Followed through, it does
+not stop at 24: the passives page would then be missing the *other* 54, which
+are equally required, so **all 78** would have to become optional — trading a
+loud 422 for a silent preserve on every field the project will ever have. The
+owner caught that my stop-report had understated the cost as "22 fields."
+
+**What shipped instead:** the 24 moved out of `TunablesForm` entirely, onto
+`PassiveTunablesForm` behind `/admin/passives/tunables/save`, all required.
+Both handlers merge their own fields into the current `LiveTunables` and write
+the whole struct — generalising the carry-forward `dynamic_scaling_mult`
+already used. **Zero optional fields, zero hidden inputs, every field required
+on exactly one form, and the 422 tripwire live on both pages.**
+
+Values did not move stores. `PassiveOverrides` is a different file and nothing
+crossed between them.
+
+### FOUND — Ungrouped, and the worked example it got the same day
+
+The catch-all had to answer "which fields are unfiled?" without a
+hand-maintained assignment table, since such a table is exactly the thing that
+stops covering new members and never announces it. It does this by reading
+**its own rendered output**: `render_tunables_page` builds the grouped fields
+first, then `ungrouped_tunables_html` scrapes `name="…"` out of that string and
+diffs it against `serde_json::to_value(t)`'s keys, which come from
+`LiveTunables`' own `Serialize` derive. Neither side is written by hand.
+
+**The worked example arrived within the hour, from my own change.** After the
+24 moved to the passives page, all 24 appeared in Ungrouped on the tunables
+page — correctly, since that page no longer rendered them, but not usefully.
+The fix was not a list of 24 names to exclude: it was extracting
+`passive_tunables_fields_html` so **both** pages' real markup feeds the diff,
+making "ungrouped" mean *on neither page*. A dial moving between the two pages
+now needs no edit to the mechanism at all.
+
+This is why the section exists, stated concretely: **a field that arrives
+unfiled shows up visibly and editable instead of vanishing.** When session d's
+seven `boss_*_half_stage` dials merge, they will land in Ungrouped
+automatically before anyone files them — the rebase announces itself rather
+than being silent.
+
+Proven to fail, not just to pass: `pierce_h`'s input was deliberately removed
+from its group; Ungrouped rendered it and `admin_tunables_coverage_http.rs`
+caught it. Worth knowing that the compiler catches the narrower case first —
+deleting an input while leaving its format arg is "named argument never used"
+— but that only covers fields that already have an arg, which a newly added
+one would not.
+
+### FOUND — a test can be a defect's alibi
+
+`admin_passives_http.rs` asserted `OK` for two *rejected* saves. The page had
+been answering 200 for a refusal, and the test **encoded that rather than the
+intent**, so the defect was protected by its own coverage. Both now assert 400.
+The warn assertion keeps 200 and gained a comment saying the 200 is
+deliberate, so the next reader can tell a decision from an oversight.
+
+`do_save_passive_override` also returned the `?saved=1` *redirect* for an
+unknown node key — actively claiming a success that never happened, the ledger
+`#51` shape again. Now 400, page-level (row-level feedback matches by
+`node_key`, so a key on no row would render the error nowhere).
+
+### FOUND — my own suite total was wrong, and the reparse is what broke
+
+Commit `d0d5d28` reported "817 passed". The command piped cargo through
+`head -25`, truncating the per-suite summary lines, so it counted 25 of 38
+suites. The real figure was **825 passed / 0 failed / 38 suites**, matching
+master exactly. The suite was green either way — the total was an artifact of
+my own filter. Corrected in `74e604d`'s message rather than by amending a
+pushed commit. Direct argument for the standing rule to read totals off
+cargo's own summary line instead of reparsing them.
+
+### Ruling recorded: `dynamic_scaling_mult` needed nothing
+
+It was already fully documented at `tunables.rs:70-80` — retired, read by no
+active path, absent from the admin page, preserved on save. My survey reported
+the field without reporting that it was already documented; the ruling to add
+a comment was answered by pointing at the existing one rather than duplicating
+it. Its date (2026-08-22, the dynamic-pacing release) and the ruling's
+(2026-08-23, when the form-field bug surfaced) are both true about different
+events and neither was edited to match the other.
+
+### The three misfilings, fixed
+
+- `pierce_cap` / `pierce_h` / `fight_summary_batch_size` sat under **Drop Stage
+  Gates** and are none of those things.
+- `boss_count_tier_stages` / `boss_count_cap_mult` sat under **Top-Layer
+  Mitigation** and are boss *count*, not mitigation.
+- `verdantburst_echo_threshold_pct` sat under **Splash** and is a Verdant Burst
+  dial.
+
+The pacing block is now split into Controller A (HP / duration), Controller B
+(win rate / lethality), and Baseline Floor & Manual Overrides. Interleaving
+both controllers' dials in one flat list is how a ceiling stayed pinned
+unnoticed the same morning.
+
+The Splash group on the passives page states in the page itself that its six
+dials are the **player** ladder and that boss splash is a separate roll in
+`boss_stats_for` — the ambiguity is named rather than resolved silently, and a
+test pins the sentence.
+
+### 2026-09-04 — the rebase over items 7 and 8, and which guard actually fired
+
+`feature/admin-ui-rework` rebased from base `e470de6` onto `dcbf9ed`, carrying
+both `boss-secondary-curve` (item 7) and `gear-tier-excess` (item 8). Six
+commits replayed, four of them conflicting, all in `render_tunables_page` —
+expected, since both merged items edit the same function this branch
+restructured.
+
+Nine new dials filed: the seven `boss_*_half_stage` under a new **Boss Secondary
+Curves** group placed immediately after Encounter Shape (both describe the
+organic boss *before* pacing scales it, so they read as a pair);
+`catchup_full_deficit` into **Experience** beside `win_xp_catchup_enabled`; and
+`boss_gear_tier_weight` into **Encounter Shape** rather than beside the
+controllers — it is feed-forward, moving `effective_avg_level` which
+`boss_stats_for` consumes *before* either controller sees an outcome, so filing
+it with A or B would misattribute it the way burying `dynamic_pacing_enabled`
+in Controller A would have.
+
+**FOUND — the Ungrouped assertion did NOT fire, and the reason is worth more
+than if it had.** It was predicted to, and I expected it to. The coverage test
+passed on the first run after the rebase.
+
+Not because the mechanism failed — because **git's conflict markers announced
+the arrival first, and more precisely.** All three of master's new field groups
+landed inside hunks that collided with this branch's regroup, so every one had
+to be looked at and placed *during* conflict resolution. By the time the test
+ran, nothing was unfiled.
+
+That is the guard hierarchy working in the right order, and it clarifies what
+Ungrouped is actually for: it is the net for a field that arrives **without
+touching the structure you rewrote** — added to `LiveTunables` and rendered
+nowhere, or rendered in a region you never edited. A conflicting rebase catches
+its own additions; a clean one would not have, and that is exactly the case
+Ungrouped exists to cover.
+
+Recorded because the prediction was right about the mechanism and wrong about
+which guard would fire first, and manufacturing the predicted failure to match
+the prediction would have been the worse outcome.

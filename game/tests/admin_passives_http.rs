@@ -335,7 +335,17 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
         .send()
         .await
         .expect("POST failed");
-    assert_eq!(rejected.status(), reqwest::StatusCode::OK, "a rejection re-renders the page rather than redirecting away from it");
+    // 400, not 200 (2026-09-03). This assertion previously pinned OK, which
+    // encoded the defect rather than the intent: the page re-renders with the
+    // error inline - it does NOT redirect away - but the request was refused
+    // and nothing was written, and `do_save_tunables` answers 400 to exactly
+    // this class of failure. Re-rendering and the status code are independent
+    // choices; only the status code was wrong.
+    assert_eq!(
+        rejected.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "a rejected save is a refusal - it re-renders inline (not a redirect) AND answers 400, matching /admin/tunables"
+    );
     let rejected_body = rejected.text().await.expect("body");
     assert!(rejected_body.contains("Not saved"), "the rejection must be visible on the page: {}", &rejected_body[..rejected_body.len().min(400)]);
     assert!(rejected_body.contains("Rank 2"), "and must name the field");
@@ -367,12 +377,35 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
         .send()
         .await
         .expect("POST failed");
-    assert_eq!(warned.status(), reqwest::StatusCode::OK);
+    // 200 DELIBERATELY, and it must stay 200 (owner ruling 2026-09-03).
+    // A warn is not a refusal: it is a rendered question the operator has
+    // not answered yet, and the "Save anyway" form below continues from
+    // it. 400 here would mean "you did something wrong" when they have not
+    // yet done anything. Contrast the REJECT path above, which is 400.
+    assert_eq!(warned.status(), reqwest::StatusCode::OK, "a warn is a question, not a refusal - it stays 200");
     let warned_body = warned.text().await.expect("body");
     assert!(warned_body.contains("Not saved yet"), "a borderline value must warn rather than reject");
     assert!(warned_body.contains("Save anyway"), "and must offer an explicit confirm");
     assert!(warned_body.contains("Rank 1") && warned_body.contains("juggernaut"), "naming the field and node");
     assert_eq!(game::adventure::passive_override_for("juggernaut", 1), None, "nothing may be written before the operator confirms");
+
+    // A node key that is not on the class being edited. The page never
+    // generates one, so this only arrives from a hand-crafted POST - but
+    // until 2026-09-03 it returned the SAME `?saved=1` redirect a real
+    // save gets, so a POST that stored nothing reported success. That is
+    // the ledger `#51` shape all over again. It must refuse, visibly.
+    let bad_key = client
+        .post(format!("{base}/admin/passives/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&[("class", "warrior"), ("node_key", "not_a_real_node"), ("r1", "0.1"), ("r2", "0.2"), ("r3", "0.3")])
+        .send()
+        .await
+        .expect("POST failed");
+    assert_eq!(bad_key.status(), reqwest::StatusCode::BAD_REQUEST, "an unknown node key must be refused, never redirected as a save");
+    let bad_key_body = bad_key.text().await.expect("body");
+    assert!(bad_key_body.contains("Not saved"), "the refusal must be visible on the page");
+    assert!(bad_key_body.contains("not_a_real_node"), "and must name the key it rejected");
+    assert_eq!(game::adventure::passive_override_for("not_a_real_node", 1), None, "and must write nothing");
 
     // Confirming persists it - the operator is never blocked from a
     // value the code would genuinely accept.
@@ -395,7 +428,8 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
         .send()
         .await
         .expect("POST failed");
-    assert_eq!(fractional_count.status(), reqwest::StatusCode::OK);
+    // 400 (2026-09-03) - a refusal, same as the Rank 2 rejection above.
+    assert_eq!(fractional_count.status(), reqwest::StatusCode::BAD_REQUEST, "a refused count is a refusal, not a 200");
     let fractional_body = fractional_count.text().await.expect("body");
     assert!(fractional_body.contains("must be a whole number"), "a count must refuse a fraction");
     assert_eq!(game::adventure::passive_override_for("undyingwill", 2), None, "and must not persist it");
