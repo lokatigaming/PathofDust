@@ -6353,3 +6353,101 @@ than dependent on release timing. Raised in the report rather than acted on.
 
 Shatter's approved `[1.0, 1.35, 1.65]` ladder (its own branch — it touches
 nothing this migration touches), Shared Aegis, and Still Water.
+
+## 2026-09-04 — THE DELETION SHIPS WITH THE REFUND (branch `fix/retire-dead-passive-refund`, second commit)
+
+Ruling on the gap I raised and deliberately did not close mid-build. The two node
+definitions come out of the tree **in the same release as the refund migration**.
+
+### The rule, stated so it survives this branch
+
+> **A refund that ships into a tree where the money can be re-lost is worse than
+> no refund, because it looks like the problem was solved.** And it fails in the
+> direction that hurts most: the player who trusts the refund and spends it is
+> precisely the one who loses it.
+
+The refund is marker-guarded and therefore one-shot. A surviving definition means
+a player can spend the returned points straight back into a node that still does
+nothing, with no second refund coming. Deleting the definitions makes that
+**unrepresentable** rather than dependent on how long stage 1 sits before stage 2
+lands — the same shape as the new-keys ruling and as `max(0, tier − level)`.
+
+**The constraint now travels with the code, not with the order file.**
+`every_retired_key_is_gone_from_every_tree` fails if a retired key is defined in
+any archetype's tree, so the pairing cannot be separated by a future rebase,
+cherry-pick or partial deploy. A commit message would only have described it.
+
+### The standing rule from the failed test
+
+Recorded here at the owner's instruction, because it generalises well past the
+node that produced it:
+
+> **"This node does nothing" is never provable from the node. It is only provable
+> from the absence of readers.**
+
+I had asserted `passive_node_magnitude("stillwater") == 0.0`. **The test failed
+and the code was right** — the node declares
+`Special { at_rank_1: 1.0, per_additional_rank: 1.0 }` and returns 3.0 at rank 3.
+The sweep's conclusion held, but for a different reason than I had written down,
+and I would never have found that had I asserted the conclusion instead of the
+mechanism. Rebuilt as an `include_str!` scan across the four consumer files, it
+fails the moment a reader appears — which is exactly when the refund would stop
+being balance-neutral. **A claim about today became a guard on tomorrow.**
+
+### The three things the order asked me to verify rather than assume
+
+1. **Startup ordering — confirmed, no window exists.**
+   `AdventureManager::new` is a *synchronous* fn and calls
+   `run_character_migrations` at `manager.rs:2236`, well before it returns its
+   `Arc<Self>`. `main.rs` then spawns the encounter loops and only afterwards
+   awaits `start_adventure_web_server` (`main.rs:153`). So migrations complete
+   before the web server binds a port *and* before any fight loop starts — there
+   is no instant at which a definition is gone and an allocation has not been
+   refunded.
+2. **`passive_overrides.rs` — one entry, now removed.** `stillwater` was the sole
+   member of `UNWIRED_NODES`, the list that tells `/admin/passives` "an override
+   here would change nothing". `sacredoverflow` was never in that file at all —
+   the list's own doc distinguishes unwired nodes from `NotYetImplemented` ones,
+   which declare no value. The list is now empty, documented as a real state
+   rather than an oversight, and kept because the classification is still right
+   for the next node that lands in it. **Its own test
+   (`every_unwired_key_still_exists_in_the_tree`) is what would have caught a
+   dangling entry** — the guard worked.
+3. **Two visible gaps — checked, and the layout does not care.**
+   `compute_passive_layout` derives `mods_count` by filtering nodes at runtime and
+   already branches on `mods_count > 0.0`, so a Specialization with fewer (or
+   zero) Modifier children just reserves a narrower row. Nothing anywhere asserts
+   a node count: `passive_nodes().len()` appears nowhere in the tree.
+
+### FOUND
+
+- `sacredoverflow` was the tree's last `PassiveEffect::NotYetImplemented`. With it
+  gone **no node in the game uses that variant.** The variant itself is left in
+  place — it is the honest declaration for a future node in that state, and
+  `magnitude_at_rank` still handles it — but a reader should know it currently has
+  no users.
+
+### The full suite earned its keep again, on my own FOUND note
+
+I recorded as a FOUND that `sacredoverflow` was the tree's last
+`PassiveEffect::NotYetImplemented`. I did not follow the thought through to its
+consequence, and the full workspace run did:
+`admin_passives_tests::a_not_yet_implemented_node_is_shown_but_not_editable`
+searched the whole tree for such a node and `.expect()`ed one. Deleting the last
+one made it panic.
+
+**Every narrow run I did was green** — the migration tests, the golden corpus,
+the targeted module. Only `--workspace` saw it, because the test lives in a
+different module from everything I touched. That is the second time in three
+sessions the standing "full suite once before reporting" rule has caught a real
+break that no narrow run could (the first was `guard_tests` on the gear-tier
+fixtures).
+
+**Fixed by making the test hold in both states rather than assume one.** The
+rendering arm it guards (`not_yet` → *"No mechanic yet"*) is still live in
+`render_passives_page`; there is simply no node in that state right now. So it
+now checks the arm when such a node exists and asserts the absence explicitly
+when none does — the test re-arms itself automatically the moment a node enters
+that state again, and a reader learns the arm is dormant by fact rather than by
+silence. Deleting the test would have thrown away a live guard because its
+subject happened to be temporarily empty.

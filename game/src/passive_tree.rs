@@ -474,8 +474,31 @@ pub enum PassiveEffect {
     /// A real, designed mechanic (proc, stacking buff, conditional,
     /// amplify-a-sibling-node, party-wide grant, etc.) with no
     /// implementation yet - see the module doc. Points invested here are
-    /// saved and will activate once a follow-up pass wires in the
-    /// mechanic; they are never lost or refunded automatically.
+    /// saved, and activate if a follow-up pass wires the mechanic in.
+    ///
+    /// **NO NODE IN THE GAME CURRENTLY USES THIS VARIANT. DO NOT DELETE
+    /// IT AS DEAD CODE.** `sacredoverflow` (Paladin) was the last one and
+    /// was retired outright on 2026-09-04 - deleted from the tree with
+    /// every point spent on it refunded by
+    /// `migrations::migrate_refund_retired_dead_nodes`, rather than built
+    /// or reworded. The variant is kept deliberately: it is the honest
+    /// declaration for the next node that lands in this state, and
+    /// removing it would push a future author toward declaring a fake
+    /// magnitude instead, which is the exact defect the 2026-09-03
+    /// advertised-vs-actual sweep existed to find.
+    ///
+    /// A variant with zero users is precisely what a later reader deletes
+    /// as dead code, and the only thing that would object is
+    /// `adventure_web`'s
+    /// `a_not_yet_implemented_node_is_shown_but_not_editable`, which now
+    /// holds in both states and re-arms itself the moment a node enters
+    /// this one. That test is load-bearing for this comment.
+    ///
+    /// Correction, same date: this doc previously said points here "are
+    /// never lost or refunded automatically". That is no longer true - a
+    /// marker-guarded migration refunded them when the node was retired.
+    /// Retirement-with-refund is now an outcome for a node in this state,
+    /// alongside being implemented.
     NotYetImplemented,
 }
 
@@ -1062,12 +1085,26 @@ static MONK_NODES: &[PassiveNode] = &[
     modifier_with_effect("harmonize", "chiburst", "Harmonize", "Chi Burst also grants the healed ally +5% damage reduction per rank for 3s (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("widecircle", "chiburst", "Wide Circle", "Chi Burst heals 1 additional ally per rank (up to all 3 party members at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("unshakable", "serenity", "Unshakable", "Serenity's damage reduction bonus duration is increased by 1s per rank (up to +3s at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
-    // Stillwater - already true unconditionally: Serenity's trigger has
-    // no chance-gate at all today, so it already fires on EVERY evade,
-    // guaranteed, from the first one onward - same "banked toward a later
-    // rank's real payoff" precedent Piercing Shots' own rank 1/2 already
-    // established (see passive_tree.rs's own module doc).
-    modifier_with_effect("stillwater", "serenity", "Stillwater", "Serenity triggers guaranteed on your first evade each fight - rank 2 extends this to your 2nd evade, rank 3 to your 3rd.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // RETIRED 2026-09-04 - "stillwater" (Stillwater) stood here, under
+    // Serenity, and is deliberately NOT replaced in place: this slot
+    // stays empty until its replacement lands under a NEW key.
+    //
+    // It advertised "Serenity triggers guaranteed on your first evade
+    // each fight - rank 2 extends this to your 2nd evade, rank 3 to your
+    // 3rd", and it did nothing at any rank: Serenity's trigger has no
+    // chance-gate at all, so it already fires on EVERY evade from the
+    // first one onward. The node promised to lift a restriction the game
+    // does not impose, which is why there was no honest wording for it
+    // and why it was retired rather than reworded (owner ruling).
+    //
+    // Deleted in the SAME RELEASE as
+    // `migrations::migrate_refund_retired_dead_nodes`, which is a hard
+    // constraint rather than a convenience - see that migration's doc.
+    // The refund is marker-guarded and therefore one-shot, so if the
+    // definition outlived it a player could spend refunded points back
+    // into a node that still does nothing and lose them permanently,
+    // with no second refund. Removing the definition makes that
+    // unrepresentable instead of dependent on release timing.
     modifier_with_effect("unmovable", "serenity", "Unmovable", "Serenity's damage reduction bonus is increased by another 5% per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("graniteskin", "stonefist", "Granite Skin", "A second, independent conversion channel off the same evasion overflow Stone Fist draws from - increased damage at 15% efficiency per rank, capped at +10% increased damage per rank (up to +30% at 3/3, stacking with Stone Fist's own cap for up to +60% total).", OverflowConversion { input: Evasion, output: IncreasedDamage, at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("earthenwill", "stonefist", "Earthen Will", "Stone Fist also converts a portion of overflow into max HP, at 25% efficiency per rank, capped at +10% max HP per rank (up to +30% at 3/3).", OverflowConversion { input: Evasion, output: MaxHpPct, at_rank_1: 0.25, per_additional_rank: 0.25 }),
@@ -1209,12 +1246,25 @@ static PALADIN_NODES: &[PassiveNode] = &[
     modifier_with_effect("eternalvow", "unbreakablefaith", "Eternal Vow", "Unbreakable Faith's heal has a chance to also fully shield you for the same amount - 15% per rank (up to 45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("radiantbarrier", "bulwarkoflight", "Radiant Barrier", "Bulwark of Light's shield also grants +5% damage reduction per rank while active (up to +15% at 3/3) - same mechanism as Cleric's Balanced Faith (any active shield, not specifically a Bulwark-of-Light one).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("graceperiod", "bulwarkoflight", "Grace Period", "Bulwark of Light's cooldown is reduced by another 10% per rank (up to -30% at 3/3), stacking with Divine Shield's own tier-1 reduction.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    // Still NotYetImplemented - shields expire lazily (checked at the next
-    // read site, not an active event - same category of gap Doom's curse
-    // detonation needed real scheduling infrastructure to solve). Building
-    // an equivalent "on shield expiry" event just for this one node is out
-    // of scope for this pass.
-    modifier("sacredoverflow", "bulwarkoflight", "Sacred Overflow", "Unused Bulwark of Light shield value converts to a heal at 50% efficiency per rank (up to 150% at 3/3) when it expires."),
+    // RETIRED 2026-09-04 - "sacredoverflow" (Sacred Overflow) stood here,
+    // under Bulwark of Light, and is deliberately NOT replaced in place:
+    // this slot stays empty until its replacement lands under a NEW key.
+    //
+    // It advertised "Unused Bulwark of Light shield value converts to a
+    // heal at 50% efficiency per rank (up to 150% at 3/3) when it
+    // expires" and delivered 0% at every rank - it was the tree's last
+    // `PassiveEffect::NotYetImplemented`, and with it gone the variant no
+    // longer has a single node using it. It was never built because
+    // shields expire lazily (checked at the next read site rather than
+    // as an active event, the same category of gap Doom's curse
+    // detonation needed real scheduling infrastructure to solve), and
+    // building an "on shield expiry" event for one node was repeatedly
+    // out of scope. Retired rather than built (owner ruling).
+    //
+    // Deleted in the SAME RELEASE as
+    // `migrations::migrate_refund_retired_dead_nodes` - see the note on
+    // the retired Monk slot above for why that pairing is a hard
+    // constraint and not a convenience.
     modifier_with_effect("widerblessing", "consecration", "Wider Blessing", "Consecration's value is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("communion", "consecration", "Communion", "Consecration also grants the party +5% healing power per rank for its duration (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("sharedlight", "consecration", "Shared Light", "Consecration's party shield lasts 2 additional seconds per rank (up to +6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
