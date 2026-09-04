@@ -6081,3 +6081,101 @@ same way `lastrites`'s row did when its values changed deliberately — annotate
 so a reader knows that row is no longer the Stage-3 snapshot. Description
 rewritten to state all three multipliers, since the old wording is exactly what
 made this a finding.
+
+### 2026-09-04 — SHATTER-LADDER deploy record (release `shatter-ladder`)
+
+Queue item 13, from window b. Independent of everything else queued; no
+golden-corpus fixture touched.
+
+| | |
+|---|---|
+| master commit deployed | `12dcd41` |
+| binary before | `f3b160bf…34f590` |
+| binary after | `f7563ea82bad387de434a0e594a872d71957d770f38ae30a0ea39550e994bbbc` |
+| downtime | **0.69 s** |
+| suite on the box | **860 passed / 0 failed, 41 suites** (855 + 5) |
+| slot | `deploy-pre-20260904-195648-shatter-ladder`, `LATEST` repointed |
+
+### What was actually wrong
+
+Shatter was `[1.0, 1.0, 1.0]` — rank 1 did the whole effect and ranks 2
+and 3 changed nothing — while its description said it improved *"by the
+same amount per rank"*.
+
+The aggravating part is not the dead rungs. **Every other flat-ladder node
+in the tree names its dead rung in its own text; this one did not.** So a
+player who spent a second or third point had no way to discover they had
+bought nothing — the node told them the opposite. That is the same class
+as Golem Master two releases ago: a description that costs a decision
+rather than misreporting a number.
+
+Now `[1.0, 1.35, 1.65]`, and **rank 1 is unchanged**, so nobody holding a
+single point is nerfed by this.
+
+### Why 1.65 and not a round 2.0
+
+b sized it against the clamp rather than to a tidy figure, and the
+reasoning is the transferable part: **block is clamped only at the roll,
+and nothing floors the shredded value.** A round 2.0 would have driven the
+target's block below zero in the common case and wasted most of the rank
+against everything except the exact configuration that produced the
+arithmetic.
+
+Measured, against a boss at the 0.75 block cap with Overwhelm 3/3 and
+Bloodlust at its 5-stack cap:
+
+| | block chance | damage through |
+|---|---|---|
+| unshattered | 0.75 | 0.625 |
+| rank 1 (unchanged) | 0.300 | 0.850 |
+| rank 2 | 0.143 | 0.929 |
+| rank 3 | 0.008 | 0.996 |
+
+So the marginal point buys about **+9.3% then +7.3%** damage — and
+**nothing at all against a target that does not block**.
+
+### Verified by effect
+
+Live on `/wiki/passives`, the rendered node description now reads:
+
+> *Overwhelm's damage-reduction shred also applies to the target's block
+> chance — at 100% of the shred at rank 1, **135% at rank 2, 165% at rank
+> 3**.*
+
+Real per-rank values where the old text promised scaling that did not
+exist.
+
+**Extraction note, since it cost two wrong attempts:** the node
+description lives in a `data-tip` attribute that PRECEDES the node name in
+the HTML, so a `grep` anchored forwards from "Shatter" returns the next
+node's tooltip, not this one's. A first pattern matched the heading and
+returned the bare word; a second, `grep -o ".\{0,420\}Shatter</div>"`,
+backtracked catastrophically on a 378 KB page and had to be killed. Parsed
+the attribute properly instead. A verification that returns *something*
+plausible is worse than one that returns nothing.
+
+### Patch notes — written BEFORE the swap this time
+
+Correcting item 10's ordering slip. Prepended into the September 4 block
+(2 sections), pre-edit copy at `/root/patch-notes.pre-shatter-ladder.json`.
+
+Headed *"Shatter's 2nd and 3rd points were buying nothing. Now they buy
+something"*. It says the description was wrong, that **rank 1 is
+completely unchanged**, gives the honest marginal value (+9% then +7%),
+states plainly that Shatter does nothing at any rank against a target
+that does not block — always true, better said than discovered — and
+explains why rank 3 is 165% rather than a round 200%.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `f7563ea8…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,349 B, 200 / 92,403 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines, patch note renders.
