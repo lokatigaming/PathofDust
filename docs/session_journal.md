@@ -5363,3 +5363,48 @@ Ungrouped exists to cover.
 Recorded because the prediction was right about the mechanism and wrong about
 which guard would fire first, and manufacturing the predicted failure to match
 the prediction would have been the worse outcome.
+
+### 2026-09-05 — the admin redesign, and the workflow the page is shaped against
+
+Both admin pages widened and columned; `/admin/passives` sectioned by state.
+Details in the commit; three things belong here.
+
+**FOUND — every per-node row is its own form with its own Save, so a rebalance
+sweep of one class is up to 39 separate POSTs, each a full page reload that
+scrolls back to the top.** The page is shaped for the targeted fix ("Payback is
+too strong, change one number") and actively hostile to the sweep ("walk this
+class and rebalance it") — and the sweep is what a rebalance actually is. Not
+fixed in this pass and not asked for; recorded because it is the reason the page
+felt bad in a way that grouping alone was never going to fix. The one-line grid
+makes it visibly better without touching the plumbing: rank 1 is now a
+comparable column down the class, so "is this node out of line with its
+siblings" is answerable at a glance instead of requiring 39 scrolls.
+
+**FOUND — one boolean was answering two questions, and that is why it survived
+review for weeks.** `PassiveOverrides::has_override` means *"does an entry
+exist"*. The page used it for the "differs from default" badge and the class-nav
+`(n)` count, which ask *"did the numbers move"*. Since
+`do_save_passive_override` inserts unconditionally, saving a row without editing
+it wrote an override equal to the default, and that row then claimed to differ
+forever.
+
+The reason it was not obviously wrong: **`has_override` is the CORRECT predicate
+for Revert** — a no-op override is exactly the entry most worth deleting — so
+every reading of the code found a legitimate use and moved on. The general
+shape: *a predicate serving two questions will be defended by whichever question
+it answers correctly.* Split it, and name each half after its question.
+
+Measured against the World 1 archive rather than asserted: of 34 stored
+overrides, **at least 5 are bit-identical to their compiled defaults**
+(`bulwark`, `juggernaut`, `bloodsac`, `unbreakable`, `doom`) — a lower bound,
+since only 124 of 471 nodes were comparable with the parser used. The display
+fix makes the page honest about them; it does **not** fix R3, which is that they
+are still on disk pinning those nodes away from any future rebalance.
+
+**Corrected two of my own survey figures before building on them.** I reported
+"12 nodes per class, 144 total"; it is **39 per class, 471 total** — the
+counting regex under-matched. And a row-count check returned 78 for a 39-node
+class because `class="passive-row` also matches `passive-row-head` and `grep -c`
+counts lines while the page is emitted as one. Both caught before any conclusion
+rested on them, but the survey figure was wrong by 3.3x and had already been
+reported once.
