@@ -5285,3 +5285,119 @@ made.
   build the real ladder, magnitude pending), `stillwater` + `sacredoverflow`
   (owner ruled: retire and replace, with a refund migration), and the `Leech`
   affix floor (handed to window b).
+
+### 2026-09-04 — GOLEM-MASTER-COPY deploy record (release `golem-master-copy`)
+
+Queue item 10, from window d. Player-facing priority.
+
+| | |
+|---|---|
+| master commit deployed | `ff67799` |
+| binary before | `e3b7d2cb…d01f6d` |
+| binary after | `39054bae5cda11b5d503577630cfb71931edd721bc352caee1eb913e19893b10` |
+| downtime | **0.68 s** |
+| suite on the box | **852 passed / 0 failed, 40 suites** — unchanged from item 8, as a text-only change should be |
+| slot | `deploy-pre-20260904-071524-golem-master-copy`, `LATEST` repointed |
+
+### Why a description was treated as a priority
+
+Golem Master told every Elementalist *"you deal 33% less damage per
+summoned golem, additive (1% of normal damage at 3 golems)"*. That
+penalty was deleted on 2026-08-20. The text stood for two weeks.
+
+**It is not an ordinary stale line, because it inverts a decision made
+BEFORE play.** As written, the node turned a maxed class mechanic into a
+99% self-nerf, so a player who believed it took one rank or none. A wrong
+number in combat gets discovered; a wrong number in a node description
+costs a choice that is never revisited. `wiki/golems.md` already described
+the corrected behaviour, so the game was contradicting itself in two
+places a player could read side by side.
+
+### Proven by consumption, which is what made it safe to ship as text
+
+The branch does not assert the penalty is gone on the strength of a
+comment saying so. All four `passive_node_count("golemmaster")` sites are
+**slot counts** — `combat.rs`'s spawn loop, `manager.rs`'s two
+slot-unlock checks, `adventure_web.rs`'s picker — and no damage scaling
+keyed to golem count exists anywhere in `combat.rs` or `character.rs`.
+
+Verified independently before merging that the `combat.rs` half of the
+diff is comments alone, by filtering the diff for non-comment lines and
+finding none.
+
+### Verified by effect on the rendered page
+
+The check that matters for a copy change is what a player reads. Live on
+`/wiki/passives` (378,503 B, code-generated so it covers every archetype):
+
+- old penalty wording: **0 occurrences**
+- Golem Master now reads: *"Grants the ability to summon 1 golem at rank 1
+  - +1 per additional rank (3 golems at 3/3). Golems are built from your
+  whole build with their base stats at 33% of yours; **your own damage is
+  unaffected by how many you have out**."*
+
+`/passives` could not be used for this: it renders only the logged-in
+character's archetype, and the operator account is a Cleric. **Another
+player's session token was deliberately not borrowed to see an
+Elementalist tree** — `/wiki/passives` is code-generated over all
+archetypes and answered the same question without touching anyone's
+credential.
+
+### A check of mine that would have read as green either way
+
+The tree-identity step printed `penalty text gone : 1`. The label says
+gone; the number means **present**. The string survives at
+`passive_tree.rs:2101` inside a `//` comment quoting the old wording to
+explain the correction, and is absent from the live description — so the
+release was correct and my check was not. A `grep -c` for a string that
+legitimately appears in a comment cannot distinguish the thing from a
+quotation of the thing. The rendered-page check is what actually settled
+it.
+
+### PROCESS SLIP — the patch note was written AFTER the deploy
+
+§13A step 1 requires the patch-notes entry **first**. It was written after
+the binary swap. No consequence: patch notes are runtime data, the entry
+is live and renders, and nothing about the release depended on the order.
+Recorded because the rule exists so the note is not forgotten entirely,
+and an unrecorded near-miss is how it eventually is.
+
+### Patch notes
+
+A new **September 4, 2026** block — the first of the new day, 28 blocks
+total. Pre-edit copy at `/root/patch-notes.pre-golem-master-copy.json`.
+
+Headed *"Golem Master has been lying to you for two weeks, and we are
+sorry"*. It states plainly that **nothing changes mechanically today**,
+that the only change is the description finally being true, and that the
+cost was a decision made on bad information rather than a number anyone
+could have spotted in a fight. It offers to move points for anyone who
+skipped the node because of it.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `39054bae…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,022 B, 200 / 91,118 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines, patch note renders.
+
+### FOUND — item 14's gate is not currently met
+
+Checked ahead rather than at its turn.
+`fix/retire-dead-passive-refund` @ `493d612` does **not** contain the node
+deletions: `passive_tree.rs` is not in its diffstat at all (only
+`migrations.rs`, `WIKI_IMPACT.md` and the journal), and both
+`"stillwater"` and `"sacredoverflow"` are still present in its tree.
+
+As it stands it would ship a one-shot marker-guarded refund into a tree
+where both nodes still render — points refunded, spent straight back into
+a node that still promises something, and never refunded again. **It will
+be refused in that state**, per the ruling. Flagged early so d hears it
+before the branch reaches the front of the queue rather than after.
