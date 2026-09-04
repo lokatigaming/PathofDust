@@ -5940,3 +5940,83 @@ marker-guarded grant runs on a GAMEPLAY path — not whether one exists.
 Construction-time grants disarm themselves on an empty roster. Today the
 answer is a single grant and a single currency; if a second gameplay-time
 grant is ever added, this entry is the thing it invalidates.
+
+### 2026-09-04 — FIVE-SLOT-SWEEP deploy record (release `five-slot-sweep`)
+
+Queue item 12, from window b. Phase 3 of the sweep.
+
+| | |
+|---|---|
+| master commit deployed | `3f6b78c` |
+| binary before | `4c092167…77aaf1` |
+| binary after | `f3b160bf4cd6b8b5668a87c6456c5ae4641fccfcdce436accf2a3951be34f590` |
+| downtime | **0.28 s** |
+| suite on the box | **855 passed / 0 failed, 41 suites** (853 + 2, `slot_coverage_tests`) |
+| slot | `deploy-pre-20260904-194132-five-slot-sweep`, `LATEST` repointed |
+
+### The guard is the deliverable, not the sweep
+
+Replacing the last hardcoded `[weapon, helm, body, gloves, boots]` lists
+with `EQUIP_SLOTS` iteration closes the immediate gap. What stops it
+recurring is this:
+
+```rust
+const _: () = assert!(
+    EQUIP_SLOTS.len() == 9,
+    "EQUIP_SLOTS has changed size. `slot_power_is_affix_equivalent` is a FORK ..."
+);
+```
+
+**A compile-time assertion — not a runtime one and not a test.** That is
+strictly stronger than the guard item 4 added for the same class four
+releases ago: a test guard fails a suite that someone widening the array
+on a feature branch might not run, while this fails the **build**. The
+next person to add a tenth slot cannot compile until they have read the
+message naming what forks on the count.
+
+This class has now cost four separate incidents — the startup backfill
+that granted 72 tier-1 items, `owned_items_mut_unguarded` billing for
+repairs it silently skipped on four slots, and two more the sweep itself
+found. Every one was a hand-maintained membership that a widening constant
+invalidated without a symptom. The progression of the cure across those
+four is worth seeing as a progression: a comment asserting an invariant
+(failed), a marker guarding state (worked, but only for migrations), a
+runtime test assertion (works if run), and now a compile-time assertion
+(cannot be skipped).
+
+### Verified by effect
+
+All nine slots are iterated where the five used to be. Across the live
+roster of 22:
+
+| slot group | equipped |
+|---|---|
+| weapon, helm, body, gloves, boots | **22 / 22** |
+| ring1, ring2, amulet, pants | **21 / 22** |
+
+The one character short on the new four is the one who joined since
+gear-slots shipped — which is the owner's ruling holding exactly as
+specified: new slots start EMPTY and fill from drops, and the startup
+backfill can no longer fill them because item 5's marker closed it.
+
+`/inventory` renders at 270,980 B against 117,343 B when gear-slots first
+landed, which is what nine populated slots across a grown roster looks
+like.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `f3b160bf…` = candidate |
+| 5 | `/characters`, `/passives`, `/inventory` | 200 / 81,348 B, 200 / 92,403 B, 200 / 270,980 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines. No golden-corpus fixture touched
+and no scenario moved, consistent with a change to which slots are
+iterated rather than to what any slot does.
+
+No patch note: no mechanic, cost, chance or timer changed.
