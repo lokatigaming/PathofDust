@@ -92,6 +92,48 @@ pub const WIN_XP_MULT_MIN: f64 = 0.0;
 pub const WIN_XP_MULT_MAX: f64 = 100.0;
 pub const WIN_XP_COOLDOWN_SECS_MAX: u64 = 3_600;
 
+/// How many argon2 passes may run AT ONCE across the whole process
+/// (2026-09-05). Both entry points share this one pool: `do_register`'s
+/// hash and `do_login`'s verify. There are no others - those two are the
+/// only callers of `hash_password_blocking`/`verify_password_blocking`,
+/// which are in turn the only paths to `Argon2::default()` outside tests.
+///
+/// WHAT IT IS FOR. `Argon2::default()` is RFC 9106's second-recommended
+/// parameter set: m = 19 MiB, t = 2, p = 1. `spawn_blocking` (2026-09-02)
+/// moved that cost off the async workers, which stopped it stalling the
+/// reactor - but the blocking pool is not a bound. Tokio's default
+/// `max_blocking_threads` is 512 and this process does not override it,
+/// so concurrent argon2 could demand up to 512 x 19 MiB, around 9.5 GiB,
+/// on a box the existing notes describe as an emulated QEMU vCPU. The
+/// per-username login throttle does not help: registration flooding
+/// varies the username, which is exactly the value that throttle keys on.
+///
+/// WHY 4. It bounds the concurrent argon2 working set at roughly 76 MiB.
+/// Against legitimate load that is generous rather than tight: at the
+/// 100-300 ms per pass the emulated vCPU delivers, 4 permits clear
+/// something like 13-40 sign-ins per second, and the live roster is about
+/// 52 accounts - a full-roster simultaneous login, which does not happen,
+/// would drain in a few seconds and well inside
+/// `PASSWORD_HASH_QUEUE_TIMEOUT`. It is live-tunable precisely because
+/// this argument is a calculation and not a measurement; raise it if real
+/// load ever says so.
+pub const PASSWORD_HASH_PERMITS: u32 = 4;
+/// Accepted range for `password_hash_permits`.
+///
+/// The minimum is 1, NOT 0, and that is the one place in this block where
+/// a zero floor would be actively wrong: 0 permits is not "no limit", it
+/// is "nobody can ever log in or register again", with no error that
+/// explains why. There is no operator intent that 0 expresses - turning
+/// the bound off means raising it, not zeroing it - so it is refused.
+///
+/// The maximum is 64 rather than the blocking pool's 512: 64 x 19 MiB is
+/// already 1.2 GiB of concurrent argon2, far past anything this game's
+/// population can produce, and a ceiling that cannot be fat-fingered into
+/// the exposure the bound exists to remove is worth more than the
+/// headroom.
+pub const PASSWORD_HASH_PERMITS_MIN: u32 = 1;
+pub const PASSWORD_HASH_PERMITS_MAX: u32 = 64;
+
 /// How far behind the group's LEADER a character must fall to earn the
 /// full catch-up bonus, as a FRACTION OF THE LEADER'S LEVEL (2026-09-03).
 /// See `catchup_multiplier` for the formula this scales and for why the
