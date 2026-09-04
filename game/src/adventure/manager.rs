@@ -8033,16 +8033,31 @@ pub(crate) struct GearTierExcessSummary {
     pub mean: f64,
     pub median: f64,
     pub max: f64,
+    /// The live LEVEL distribution, added 2026-09-05 for the archetype
+    /// curve dial. Computed in the same pass because the question that
+    /// dial poses is "where is the population relative to the crossover"
+    /// - the old linear curve and the affix curve cross at about level
+    /// 79, so below it the change is a buff and above it a cut, and the
+    /// operator cannot judge the setting without seeing which side the
+    /// players are on.
+    pub level_min: u32,
+    pub level_median: u32,
+    pub level_max: u32,
 }
 
 /// `GearTierExcessSummary` over an arbitrary character set. Split out from
 /// the manager method so it is testable without a manager.
 pub(crate) fn gear_tier_excess_summary<'a>(characters: impl IntoIterator<Item = &'a Character>) -> GearTierExcessSummary {
-    let mut values: Vec<f64> = characters.into_iter().map(gear_tier_excess).collect();
+    // One pass, two distributions - the excess each character carries and
+    // the level they are at. Collected together rather than in two walks
+    // because both read the same `&Character` and the admin page renders
+    // them side by side.
+    let (mut values, mut levels): (Vec<f64>, Vec<u32>) = characters.into_iter().map(|c| (gear_tier_excess(c), c.level)).unzip();
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    levels.sort_unstable();
     let characters = values.len();
     if characters == 0 {
-        return GearTierExcessSummary { characters: 0, with_excess: 0, mean: 0.0, median: 0.0, max: 0.0 };
+        return GearTierExcessSummary { characters: 0, with_excess: 0, mean: 0.0, median: 0.0, max: 0.0, level_min: 0, level_median: 0, level_max: 0 };
     }
     let with_excess = values.iter().filter(|v| **v > 0.0).count();
     let mean = values.iter().sum::<f64>() / characters as f64;
@@ -8052,7 +8067,8 @@ pub(crate) fn gear_tier_excess_summary<'a>(characters: impl IntoIterator<Item = 
         (values[characters / 2 - 1] + values[characters / 2]) / 2.0
     };
     let max = values[characters - 1];
-    GearTierExcessSummary { characters, with_excess, mean, median, max }
+    let level_median = if characters % 2 == 1 { levels[characters / 2] } else { (levels[characters / 2 - 1] + levels[characters / 2]) / 2 };
+    GearTierExcessSummary { characters, with_excess, mean, median, max, level_min: levels[0], level_median, level_max: levels[characters - 1] }
 }
 
 /// Applies the dynamic-pacing controllers' effective multipliers on top

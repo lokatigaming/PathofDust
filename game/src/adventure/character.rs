@@ -85,6 +85,132 @@ impl Default for Archetype {
     }
 }
 
+/// **How many item affixes a class's signature advantage is worth**
+/// (2026-09-05, owner ruling). Every class's scaling advantage mirrors a
+/// specific affix on the same curve, with a coefficient sized so the
+/// advantage is worth 2-3 affixes rather than the 5-8 it was worth
+/// before. 2.5 is the midpoint of the ruled band.
+///
+/// **Uniform on purpose.** A per-class multiple would rebuild the
+/// arbitrary coefficient table this change exists to remove - nothing
+/// ever documented why Berserker was 8.3x and Paladin 5x. The cost of
+/// uniformity is recorded on `Archetype::bonus_at`: because the old
+/// ratios were uneven, one target compresses them unevenly.
+pub const ARCHETYPE_AFFIX_MULTIPLE: f64 = 2.5;
+
+/// Shipped default for `LiveTunables::archetype_bonus_curve_weight`.
+///
+/// **1.0 - the new curve, live.** Unlike this week's other mechanisms
+/// this does NOT ship as a no-op: the owner has stated the target and
+/// the dial is the walk-back rather than the rollout. That is only
+/// acceptable because `Archetype::bonus_at` is computed on every read
+/// and nothing is stored, so moving this back to 0.0 reverts every
+/// character in the game instantly and completely - no migration, and
+/// none possible.
+pub const ARCHETYPE_BONUS_CURVE_WEIGHT: f64 = 1.0;
+/// 0.0 is exactly the pre-2026-09-05 linear behaviour, and is the
+/// documented way back.
+pub const ARCHETYPE_BONUS_CURVE_WEIGHT_MIN: f64 = 0.0;
+/// 1.0 is the full affix curve. Above it the blend would extrapolate
+/// past the ruled target rather than interpolate toward it.
+pub const ARCHETYPE_BONUS_CURVE_WEIGHT_MAX: f64 = 1.0;
+
+/// Resolves a live curve weight into the usable range - non-finite falls
+/// back to the shipped default, otherwise clamped. Same discipline as
+/// `sanitize_boss_gear_tier_weight`: the form's own min/max is what
+/// reports an out-of-range value to the operator, this is the
+/// defence-in-depth behind a hand-crafted POST.
+pub fn sanitize_archetype_bonus_curve_weight(value: f64) -> f64 {
+    if !value.is_finite() {
+        return ARCHETYPE_BONUS_CURVE_WEIGHT;
+    }
+    value.clamp(ARCHETYPE_BONUS_CURVE_WEIGHT_MIN, ARCHETYPE_BONUS_CURVE_WEIGHT_MAX)
+}
+
+/// The seven mirrored coefficients: `ARCHETYPE_AFFIX_MULTIPLE` times the
+/// matching affix's own `default_per_tier`.
+///
+/// **Written as products of the multiple and the affix coefficient, not
+/// as bare decimals**, and pinned by
+/// `archetype_curve_tests::every_mirrored_coefficient_is_its_affix_times_the_multiple`
+/// so the pairing cannot drift if either side is retuned. Same precedent
+/// as the four §8 slot base powers, which equal their affix's
+/// `default_per_tier` exactly and carry the same "must not be rebalanced
+/// on their own" warning.
+pub const ARCHETYPE_DAMAGE_REDUCTION_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.02;
+pub const ARCHETYPE_EVASION_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.016;
+pub const ARCHETYPE_INCREASED_DAMAGE_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.03;
+pub const ARCHETYPE_CRIT_CHANCE_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.01;
+pub const ARCHETYPE_CRIT_MULTIPLIER_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.025;
+pub const ARCHETYPE_SPLASH_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.03;
+pub const ARCHETYPE_INTERVENE_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.01;
+
+/// **Divine Power** - Cleric's new scaling advantage, mirroring
+/// `Affix::DivineDamage` at the same multiple as everyone else.
+///
+/// **This does NOT compensate the heal-power flattening, and must never
+/// be described as if it does** (owner ruling, stated in the patch note
+/// too). The arithmetic, recorded here so nobody re-derives it hopefully:
+/// the affix is a PROC CHANCE for a **+1%-per-stack** buff over a 4-second
+/// window, so sustainable stacks are about `chance x actions_per_4s`.
+/// Even at a 100% chance and four actions per window that is **four
+/// stacks, +4% healing done**. The flattening it sits beside costs a
+/// Cleric **49% of its healing output at level 19** and more above that.
+/// The gap is structural - no value of `ARCHETYPE_AFFIX_MULTIPLE` closes
+/// two orders of magnitude, because the multiple scales a chance that is
+/// already near its useful ceiling. Compensation is a separate future
+/// change to the Cleric passive tree.
+pub const ARCHETYPE_DIVINE_POWER_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.0225;
+
+/// Warlock's attack speed - **ANCHORED, not mirrored**, and the number is
+/// therefore not a multiple of anything. See `Archetype::bonus_at`'s doc
+/// for why: there is no attack-speed affix, and the nearest quantity
+/// (gloves slot base power) is on the LINEAR track D11 deliberately kept
+/// it on, so treating it as an affix coefficient would import a 10x
+/// multiplier mismatch and cut Warlock ~77% against everyone else's ~25%.
+///
+/// Chosen to reproduce today's value exactly at
+/// `ARCHETYPE_ATTACK_SPEED_ANCHOR_LEVEL` and adopt only the curve's
+/// SHAPE: `0.15 x (1 + 0.10 x 19) / f(19)` = `0.435 / sqrt(19)`. Pinned
+/// by `warlock_is_anchored_not_recoefficiented`, which recomputes it from
+/// the old expression rather than trusting this literal.
+pub const ARCHETYPE_ATTACK_SPEED_PER_UNIT: f64 = 0.09979589711327115;
+/// The level Warlock's anchor is taken at - the live population peak on
+/// the day of the ruling, so the class's *current* players see no change
+/// at all and only their future growth decelerates.
+pub const ARCHETYPE_ATTACK_SPEED_ANCHOR_LEVEL: u32 = 19;
+
+/// Cleric's heal-power contribution: **flat, no level scaling** since
+/// 2026-09-05.
+///
+/// **This is a BASELINE, not a bonus, and the two halves must not be
+/// collapsed.** A Cleric's total heal power is
+/// `combat_heal_power`'s own `base` (0.5, for any Heal-function
+/// archetype) PLUS this 0.5, reaching exactly **1.00 = 100%**. Paladin
+/// reaches the same 1.00 from a different composition - it is a Melee
+/// function, so its `base` is 0.0 and
+/// `ARCHETYPE_PALADIN_HEAL_POWER_FLAT` carries the whole 1.00 alone.
+/// Same reason `BOSS_CRIT_CHANCE_BASE` is named separately from its
+/// ramp's cap: a reader who folds the base into the total gets the wrong
+/// number for one of the two classes.
+///
+/// **Do not "simplify" these into one shared constant.** They are equal
+/// in the total they produce and unequal in what they contribute.
+pub const ARCHETYPE_CLERIC_HEAL_POWER_FLAT: f64 = 0.50;
+/// Paladin's heal-power contribution: flat 100%, carrying the entire
+/// figure because Paladin's `combat_heal_power` base is 0.0. See
+/// `ARCHETYPE_CLERIC_HEAL_POWER_FLAT`.
+///
+/// **Consequence, chosen deliberately and stated so it is not mistaken
+/// for a bug:** at exactly 1.0, `combat_dps = output x (1 - heal_power)`
+/// is **zero**, so Paladin continues to deal no damage at all - it did
+/// not from level 10 under the old scaling either - and it additionally
+/// loses the cadence excess that heal power above 1.0 used to buy
+/// (0.45 -> 0 at level 19, about a 31% action-rate cut). Paladin is a
+/// pure healer whose growth vector is INTERVENE, not healing.
+/// Compensation is a separate future change to its passive tree.
+pub const ARCHETYPE_PALADIN_HEAL_POWER_FLAT: f64 = 1.00;
+
 impl Archetype {
     pub fn combat_function(self) -> CombatFunction {
         match self {
@@ -110,42 +236,128 @@ impl Archetype {
         }
     }
 
+    /// The archetype's one advantage, rendered at the SHIPPED dial
+    /// setting - see `bonus_at`, which is the real implementation and
+    /// what live combat reads.
+    ///
+    /// **This entry point exists so the signature stays what the wiki
+    /// already calls** (`adventure_web/wiki.rs` renders
+    /// `archetype.description(1)`, which reaches here). It resolves the
+    /// curve weight to the compiled `ARCHETYPE_BONUS_CURVE_WEIGHT`
+    /// rather than to the live tunable, which is exactly the wiki's own
+    /// COMPILED-ONLY RULE: a rendered value may resolve only against a
+    /// compiled, stable value, and anything a dial owns is described as
+    /// a mechanic instead. At the shipped `w = 1.0` the two agree
+    /// exactly; if an operator moves the dial, live combat moves and this
+    /// does not.
+    pub fn bonus(self, level: u32) -> ArchetypeBonus {
+        self.bonus_at(level, ARCHETYPE_BONUS_CURVE_WEIGHT)
+    }
+
     /// The archetype's one advantage - everything else defaults to 0.0
     /// (no effect). Consumed by every `Character::combat_*` aggregate
     /// getter (added alongside that stat's summed gear affixes) and by
-    /// `attack_interval_ms`/`combat_max_hp`. First-pass numbers, same
-    /// "will need real tuning" caveat as the rest of this file's balance
-    /// constants.
+    /// `attack_interval_ms`/`combat_max_hp`.
     ///
     /// Every archetype's disadvantage half was removed - each one used to
     /// pair its advantage with a matching downside (e.g. Warrior traded
     /// damage reduction for less damage dealt), but that's gone now,
-    /// leaving pure upside. Still scales up with `level` - +10% of its
-    /// base value per level, so a level 18 character gets 180% more of it
-    /// than level 0 would (a level 18 Rogue's 6% base crit chance becomes
-    /// 6% * (1 + 18*0.10) = 16.8%). `Commoner` has none, so it's the one
+    /// leaving pure upside. `Commoner` has none, so it's the one
     /// archetype level does nothing for here.
-    pub fn bonus(self, level: u32) -> ArchetypeBonus {
+    ///
+    /// # THE 2026-09-05 RULING: EVERY CLASS MIRRORS AN ITEM AFFIX
+    ///
+    /// The advantage used to be `per_unit x (1 + 0.10 x level)` - linear,
+    /// uncapped, and worth **5-8 times** the matching affix's own
+    /// `per_tier`. It is now the affix's own curve at
+    /// `ARCHETYPE_AFFIX_MULTIPLE` (2.5) times its coefficient, with level
+    /// mapping to tier 1:1:
+    ///
+    /// ```text
+    /// advantage = (1-w) x old_per_unit x (1 + 0.10 x L)   +   w x new_per_unit x f(L)
+    /// ```
+    ///
+    /// `f` is `affix::affix_tier_curve` **called directly, not
+    /// reimplemented** - that is what makes "the same equation as item
+    /// affixes" true by construction rather than by a comment that can
+    /// rot. `w` is `LiveTunables::archetype_bonus_curve_weight`, shipped
+    /// at 1.0 (the new curve), and the dial is the entire walk-back:
+    /// nothing here is stored, it is computed on every read, so one dial
+    /// move reverts every character instantly.
+    ///
+    /// ## Three classes are deliberately NOT uniform. Do not "fix" them.
+    ///
+    /// - **Slayer is HELD OUT ENTIRELY** and keeps the old linear
+    ///   expression. Its `life_leech` is `0.001` against the Leech
+    ///   affix's own `0.001` - a ratio of **1.0x** where every other
+    ///   class sits at 5-8x, i.e. the inverse outlier, and a pending
+    ///   coefficient raise on the affix side takes it to 0.1x. Applying
+    ///   the rule would hand Slayer a 2.5x buff now (25x after that
+    ///   lands) - the largest buff in the game, arriving as a side effect
+    ///   of a change advertised as a cut. It is a separate defect that
+    ///   happens to be expressible in the same units, and it is on the
+    ///   board as its own item.
+    /// - **Warlock is ANCHORED, not re-coefficiented.** There is **no
+    ///   attack-speed affix in the game** - the nearest quantity is
+    ///   `EquipSlot::Gloves`'s slot base power (0.009), which is not an
+    ///   affix and which **D11 ratified stays LINEAR** while affixes ride
+    ///   the curve. Its multiplier reaches 100 at tier 100 where `f`
+    ///   reaches 10, so treating it as an affix coefficient would import
+    ///   a 10x multiplier mismatch and cut Warlock ~77% instead of the
+    ///   intended ~25%. Warlock was already worth 1.8-2.5 gloves, i.e.
+    ///   already inside the target band, so
+    ///   `ARCHETYPE_ATTACK_SPEED_PER_UNIT` is chosen to reproduce today's
+    ///   value at the anchor level and adopt only the curve's SHAPE.
+    /// - **Cleric and Paladin heal power do not scale at all** - see
+    ///   `ARCHETYPE_CLERIC_HEAL_POWER_FLAT`.
+    ///
+    /// ## Two consequences recorded so they are findable, not discovered
+    ///
+    /// **The uniform multiple does not produce a uniform cut.** Today's
+    /// ratios span 5x to 8.3x, so one target compresses them unevenly:
+    /// Berserker and Mage lose ~70% of their coefficient against Ranger's
+    /// and Paladin's ~50%, i.e. they are nerfed roughly 1.7x harder. That
+    /// is a relative class rebalance riding inside a consistency change.
+    ///
+    /// **For half the roster the cut removes mostly-wasted headroom.**
+    /// The archetype term ALONE already reached its cap at about level 53
+    /// (Warrior DR, `defensive_stat_hard_cap`), 69 (Monk/Druid evasion)
+    /// and 90 (Paladin intervene), so everything above that was being
+    /// thrown away. The curve therefore genuinely bounds only the four
+    /// UNCAPPED classes - Berserker, Mage, Ranger, Elementalist. At the
+    /// live peak of level 19 nobody is near a cap, so the cut is fully
+    /// felt by everyone right now.
+    pub fn bonus_at(self, level: u32, curve_weight: f64) -> ArchetypeBonus {
+        let w = sanitize_archetype_bonus_curve_weight(curve_weight);
+        // The OLD linear multiplier, kept whole so `w = 0` is bit-for-bit
+        // the pre-2026-09-05 behaviour rather than an approximation of it.
         let mult = 1.0 + level as f64 * 0.10;
+        // The affix curve itself, not a copy of it. Level maps to tier
+        // 1:1 per the ruling.
+        let f = crate::adventure::affix_tier_curve(level);
+        // One blend for every re-parameterised advantage. `new_per_unit`
+        // of 0.0 means "this advantage did not exist before", which is
+        // exactly Divine Power's case from the other side - see below.
+        let blend = |old_per_unit: f64, new_per_unit: f64| (1.0 - w) * old_per_unit * mult + w * new_per_unit * f;
         let mut b = ArchetypeBonus::default();
         match self {
             Archetype::Commoner => {}
             Archetype::Warrior => {
-                b.damage_reduction = 0.15 * mult;
+                b.damage_reduction = blend(0.15, ARCHETYPE_DAMAGE_REDUCTION_PER_UNIT);
             }
             Archetype::Berserker => {
-                b.increased_damage = 0.25 * mult;
+                b.increased_damage = blend(0.25, ARCHETYPE_INCREASED_DAMAGE_PER_UNIT);
             }
             Archetype::Rogue => {
                 // Halved from 0.12 - see affix_base_value's matching
                 // crit-chance cut.
-                b.crit_chance = 0.06 * mult;
+                b.crit_chance = blend(0.06, ARCHETYPE_CRIT_CHANCE_PER_UNIT);
             }
             Archetype::Monk => {
-                b.evasion = 0.12 * mult;
+                b.evasion = blend(0.12, ARCHETYPE_EVASION_PER_UNIT);
             }
             Archetype::Paladin => {
-                b.intervene_pct = 0.05 * mult;
+                b.intervene_pct = blend(0.05, ARCHETYPE_INTERVENE_PER_UNIT);
                 // Innately hybrid, same spirit as Cleric/Druid (2026-08-15
                 // - per a live request, now that Radiant Smite/Holy Fire's
                 // whole kit assumes real heal_power output to work with).
@@ -155,34 +367,66 @@ impl Archetype {
                 // this request touches. Set directly here instead, exactly
                 // like a Heal archetype's own baseline would be, added on
                 // top of `combat_heal_power`'s `base` (which stays 0.0 for
-                // Paladin, a Melee function) - so this alone reaches the
-                // requested 50%.
-                b.heal_power_pct = 0.50 * mult;
+                // Paladin, a Melee function) - so this alone carries the
+                // whole figure.
+                //
+                // FLAT 100% since 2026-09-05, no level scaling. Paladin's
+                // `base` is 0.0, so the archetype term carries the entire
+                // 1.0 on its own - hence
+                // `ARCHETYPE_PALADIN_HEAL_POWER_FLAT` is 1.00 while
+                // Cleric's is 0.50. See that constant's doc.
+                b.heal_power_pct = (1.0 - w) * 0.50 * mult + w * ARCHETYPE_PALADIN_HEAL_POWER_FLAT;
             }
             Archetype::Ranger => {
-                b.splash = 0.15 * mult;
+                b.splash = blend(0.15, ARCHETYPE_SPLASH_PER_UNIT);
             }
             Archetype::Mage => {
                 // Halved from 0.4 - see affix_base_value's matching
                 // crit-multiplier cut.
-                b.crit_multiplier = 0.2 * mult;
+                b.crit_multiplier = blend(0.2, ARCHETYPE_CRIT_MULTIPLIER_PER_UNIT);
             }
             Archetype::Warlock => {
-                b.attack_speed = 0.15 * mult;
+                b.attack_speed = blend(0.15, ARCHETYPE_ATTACK_SPEED_PER_UNIT);
             }
             Archetype::Cleric => {
                 // Doubled from 0.25 (2026-08-15) to compensate for the
                 // Healing Power gear affix's retirement - see
                 // `Character::combat_heal_power`'s doc.
-                b.heal_power_pct = 0.50 * mult;
+                //
+                // FLAT 50% since 2026-09-05, no level scaling. Cleric IS
+                // a Heal-function archetype, so `combat_heal_power`'s own
+                // `base` already contributes 0.5 - this 0.5 is the other
+                // half of the flat 100%, not the whole of it.
+                b.heal_power_pct = (1.0 - w) * 0.50 * mult + w * ARCHETYPE_CLERIC_HEAL_POWER_FLAT;
+                // Divine Power - Cleric's NEW scaling advantage, replacing
+                // healing power as its growth vector (2026-09-05).
+                // `old_per_unit` is 0.0 because the advantage did not
+                // exist before, which makes `w` its on/off switch: at
+                // w = 0 this is exactly zero and Cleric is precisely the
+                // pre-change class. That is what lets the whole package
+                // revert coherently on one dial - heal power blends back
+                // to its scaling form AND Divine Power vanishes together,
+                // so no double-strength Cleric exists at any w.
+                b.divine_damage_pct = blend(0.0, ARCHETYPE_DIVINE_POWER_PER_UNIT);
             }
             Archetype::Druid => {
-                b.evasion = 0.12 * mult;
+                b.evasion = blend(0.12, ARCHETYPE_EVASION_PER_UNIT);
             }
             Archetype::Slayer => {
                 // Self-heal from a slice of damage dealt - see
                 // `Character::combat_life_leech`/`apply_hit`'s leech
                 // handling for the LIFE_LEECH_CAP_PER_SEC ceiling.
+                //
+                // **DELIBERATELY STILL LINEAR - Slayer is held out of the
+                // 2026-09-05 affix-curve ruling entirely** (owner
+                // ruling). Do not "finish the job" by putting this on
+                // `blend`. See `bonus_at`'s doc: at 0.001 against the
+                // Leech affix's own 0.001 this is a 1.0x ratio where
+                // every other class is 5-8x, so the rule would BUFF it
+                // 2.5x now and 25x once the pending affix raise lands -
+                // the largest buff in the game, inside a change
+                // advertised as a cut. Its real problem is a separate
+                // item on the board.
                 b.life_leech_pct = 0.001 * mult;
             }
             Archetype::Elementalist => {
@@ -197,7 +441,7 @@ impl Archetype {
                 // its basic ATTACK as healing-hybrid; all of its
                 // healing is earned through explicit Healing Flames
                 // tree investment instead, wired in a later stage.
-                b.splash = 0.15 * mult;
+                b.splash = blend(0.15, ARCHETYPE_SPLASH_PER_UNIT);
             }
         }
         b
@@ -295,6 +539,21 @@ pub struct ArchetypeBonus {
     /// `apply_hit` and rate-limited by `LIFE_LEECH_CAP_PER_SEC`. 0.0 for
     /// every other archetype and for gear (no matching `Affix` exists).
     pub life_leech_pct: f64,
+    /// **Divine Power** - Cleric's scaling advantage since 2026-09-05,
+    /// and the one archetype advantage that is a brand-new mechanic
+    /// rather than a re-parameterised one. Carries the same quantity
+    /// `Affix::DivineDamage` does and reaches combat through the same
+    /// field, summed with the gear affix at
+    /// `CombatSimUnit::divine_damage_pct`'s construction.
+    ///
+    /// **It is a PROC CHANCE, not a magnitude**, because that is what the
+    /// affix it mirrors is: a chance per action to stack +1% "healing
+    /// done" on the healer for 4s. That matters for expectations - see
+    /// `ARCHETYPE_DIVINE_POWER_PER_UNIT`, which records plainly that this
+    /// does NOT offset the heal-power flattening and was never meant to.
+    ///
+    /// 0.0 for every other archetype.
+    pub divine_damage_pct: f64,
 }
 
 /// Dust cost of every archetype change AFTER a character's first (free)
@@ -2798,7 +3057,7 @@ impl Character {
         // feeds - not given its own multiplicative layer, which would make
         // it worth more than the one affix it is defined to equal.
         let gear_increased =
-            self.archetype.bonus(self.level).max_hp_pct + self.sum_affix(Affix::IncreasedLife) + self.slot_implicit(EquipSlot::Pants);
+            self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).max_hp_pct + self.sum_affix(Affix::IncreasedLife) + self.slot_implicit(EquipSlot::Pants);
         let tree_increased = self.passive_bonus().max_hp_pct + self.passive_overflow_bonus(t).max_hp_pct;
         (base * (1.0 + gear_increased) * (1.0 + tree_increased)).max(1.0).round() as u32
     }
@@ -2856,7 +3115,7 @@ impl Character {
             CombatFunction::Heal => HEAL_BASE_ATTACK_INTERVAL_MS,
         };
         let gloves_bonus = self.gloves.as_ref().map(|i| i.effective_power()).unwrap_or(0.0);
-        let gear_bonus = gloves_bonus + self.archetype.bonus(self.level).attack_speed;
+        let gear_bonus = gloves_bonus + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).attack_speed;
         let tree_bonus = self.passive_bonus().attack_speed + self.passive_overflow_bonus(t).attack_speed;
         let speed_adjusted = (base as f64) / ((1.0 + gear_bonus) * (1.0 + tree_bonus)).max(0.01);
         let heal_excess = (self.combat_heal_power(t) - 1.0).max(0.0);
@@ -2881,7 +3140,7 @@ impl Character {
     /// an "attack speed" stat anywhere else either).
     pub(crate) fn combat_attack_speed_pct(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let gloves_bonus = self.gloves.as_ref().map(|i| i.effective_power()).unwrap_or(0.0);
-        let gear_bonus = gloves_bonus + self.archetype.bonus(self.level).attack_speed;
+        let gear_bonus = gloves_bonus + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).attack_speed;
         let tree_bonus = self.passive_bonus().attack_speed + self.passive_overflow_bonus(t).attack_speed;
         // Onslaught - Overwhelming Force's own converted value also grants
         // attack speed, same live-DR-derived source `combat_increased_damage`'s
@@ -3263,7 +3522,7 @@ impl Character {
     /// threatening. `pub` (unlike most of `Character`'s other
     /// combat-stat getters) so the web dashboard can display it directly.
     pub fn combat_damage_reduction(&self, t: &crate::adventure::LiveTunables) -> f64 {
-        let raw = self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction;
+        let raw = self.sum_affix(Affix::DamageReduction) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).damage_reduction;
         let gear_capped = capped_stat_with_overflow(raw, -0.75, t.dr_overflow_cap).0;
         // Tree side sums BOTH passive_bonus (FlatStat nodes) and
         // passive_overflow_bonus (OverflowConversion nodes) - a gap a
@@ -3302,7 +3561,7 @@ impl Character {
     /// % chance an incoming hit is blocked (halving its damage) - capped
     /// same as the other defensive stats.
     pub fn combat_block_chance(&self, t: &crate::adventure::LiveTunables) -> f64 {
-        let raw = self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance;
+        let raw = self.sum_affix(Affix::BlockChance) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).block_chance;
         let gear_capped = capped_stat_with_overflow(raw, 0.0, t.block_overflow_cap).0;
         let tree_capped = capped_stat_with_overflow(self.passive_bonus().block_chance + self.passive_overflow_bonus(t).block_chance, 0.0, t.block_overflow_cap).0;
         combine_reduction_sources(&[gear_capped, tree_capped])
@@ -3311,7 +3570,7 @@ impl Character {
     /// % chance an incoming hit is avoided entirely - capped same as the
     /// other defensive stats.
     pub fn combat_evasion(&self, t: &crate::adventure::LiveTunables) -> f64 {
-        let raw = self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion;
+        let raw = self.sum_affix(Affix::Evasion) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).evasion;
         let gear_capped = capped_stat_with_overflow(raw, 0.0, t.evasion_overflow_cap).0;
         let tree_capped = capped_stat_with_overflow(self.passive_bonus().evasion + self.passive_overflow_bonus(t).evasion, 0.0, t.evasion_overflow_cap).0;
         combine_reduction_sources(&[gear_capped, tree_capped])
@@ -3332,10 +3591,10 @@ impl Character {
     /// have no other source to multiply against yet, so their overflow
     /// here is still their real total, not a per-source slice.
     pub(crate) fn defensive_overflow(&self, t: &crate::adventure::LiveTunables) -> f64 {
-        let dr_raw = self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction;
-        let block_raw = self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance;
-        let evasion_raw = self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion;
-        let intervene_raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct;
+        let dr_raw = self.sum_affix(Affix::DamageReduction) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).damage_reduction;
+        let block_raw = self.sum_affix(Affix::BlockChance) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).block_chance;
+        let evasion_raw = self.sum_affix(Affix::Evasion) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).evasion;
+        let intervene_raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).intervene_pct;
         capped_stat_with_overflow(dr_raw, -0.75, t.dr_overflow_cap).1
             + capped_stat_with_overflow(block_raw, 0.0, t.block_overflow_cap).1
             + capped_stat_with_overflow(evasion_raw, 0.0, t.evasion_overflow_cap).1
@@ -3358,10 +3617,10 @@ impl Character {
     pub(crate) fn combined_stat_overflow(&self, stat: crate::passive_tree::PassiveStat, tree_bonus: &ArchetypeBonus, t: &crate::adventure::LiveTunables) -> f64 {
         use crate::passive_tree::PassiveStat;
         let (gear_raw, floor, cap) = match stat {
-            PassiveStat::DamageReduction => (self.sum_affix(Affix::DamageReduction) + self.archetype.bonus(self.level).damage_reduction, -0.75, t.dr_overflow_cap),
-            PassiveStat::BlockChance => (self.sum_affix(Affix::BlockChance) + self.archetype.bonus(self.level).block_chance, 0.0, t.block_overflow_cap),
-            PassiveStat::Evasion => (self.sum_affix(Affix::Evasion) + self.archetype.bonus(self.level).evasion, 0.0, t.evasion_overflow_cap),
-            PassiveStat::IntervenePct => (self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct, 0.0, t.intervene_overflow_cap),
+            PassiveStat::DamageReduction => (self.sum_affix(Affix::DamageReduction) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).damage_reduction, -0.75, t.dr_overflow_cap),
+            PassiveStat::BlockChance => (self.sum_affix(Affix::BlockChance) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).block_chance, 0.0, t.block_overflow_cap),
+            PassiveStat::Evasion => (self.sum_affix(Affix::Evasion) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).evasion, 0.0, t.evasion_overflow_cap),
+            PassiveStat::IntervenePct => (self.sum_affix(Affix::Intervene) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).intervene_pct, 0.0, t.intervene_overflow_cap),
             // No other PassiveStat has a defined `overflow_cap` - see its
             // doc - so no `OverflowConversion` node's `input` can ever be
             // anything else. Unreachable in practice, 0.0 is harmless if
@@ -3437,19 +3696,19 @@ impl Character {
     }
 
     pub fn damage_reduction_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::DamageReduction, self.archetype.bonus(self.level).damage_reduction, -0.75, t.dr_overflow_cap)
+        self.capped_stat_breakdown(Affix::DamageReduction, self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).damage_reduction, -0.75, t.dr_overflow_cap)
     }
 
     pub fn block_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::BlockChance, self.archetype.bonus(self.level).block_chance, 0.0, t.block_overflow_cap)
+        self.capped_stat_breakdown(Affix::BlockChance, self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).block_chance, 0.0, t.block_overflow_cap)
     }
 
     pub fn evasion_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::Evasion, self.archetype.bonus(self.level).evasion, 0.0, t.evasion_overflow_cap)
+        self.capped_stat_breakdown(Affix::Evasion, self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).evasion, 0.0, t.evasion_overflow_cap)
     }
 
     pub fn intervene_breakdown(&self, t: &crate::adventure::LiveTunables) -> StatBreakdown {
-        self.capped_stat_breakdown(Affix::Intervene, self.archetype.bonus(self.level).intervene_pct, 0.0, t.intervene_overflow_cap)
+        self.capped_stat_breakdown(Affix::Intervene, self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).intervene_pct, 0.0, t.intervene_overflow_cap)
     }
 
     /// % more damage dealt, multiplicative - not capped like the
@@ -3484,7 +3743,7 @@ impl Character {
             + self.sum_affix(Affix::LightningDamage)
             + self.sum_affix(Affix::DivineDamage)
             + self.sum_affix(Affix::ChaosDamage);
-        let gear_total = self.sum_affix(Affix::IncreasedDamage) + damage_type_bonus + self.archetype.bonus(self.level).increased_damage + self.defensive_overflow(t);
+        let gear_total = self.sum_affix(Affix::IncreasedDamage) + damage_type_bonus + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).increased_damage + self.defensive_overflow(t);
         let tree_total = self.passive_bonus().increased_damage + self.passive_overflow_bonus(t).increased_damage;
         // Every bespoke ("conversion"-shaped, hand-coded `Special`
         // effect rather than a plain `FlatStat`/`OverflowConversion`
@@ -3558,7 +3817,7 @@ impl Character {
         push("Divine Damage", self.sum_affix(Affix::DivineDamage));
         push("Chaos Damage", self.sum_affix(Affix::ChaosDamage));
         push("Gear (Increased Damage)", self.sum_affix(Affix::IncreasedDamage));
-        push("Archetype", self.archetype.bonus(self.level).increased_damage);
+        push("Archetype", self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).increased_damage);
         push("Overflow (from capped defensive stats)", self.defensive_overflow(t));
         push("Passive Tree", self.passive_bonus().increased_damage + self.passive_overflow_bonus(t).increased_damage);
         push("Titan's Grip (compounds separately)", self.titans_grip_increased_damage());
@@ -3598,7 +3857,7 @@ impl Character {
         // `combat_max_hp` sums Pants into `gear_increased`.
         let gear_total = BASE_CRIT_CHANCE
             + self.sum_affix(Affix::CritChance)
-            + self.archetype.bonus(self.level).crit_chance
+            + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).crit_chance
             + self.slot_implicit(EquipSlot::Ring1)
             + self.slot_implicit(EquipSlot::Ring2);
         // Ranger's Deadeye (2026-08-16, moved off its old splash-only
@@ -3621,7 +3880,7 @@ impl Character {
         // §8) - same additive pool, same reasoning as the rings above.
         let gear_total = BASE_CRIT_MULTIPLIER
             + self.sum_affix(Affix::CritMultiplier)
-            + self.archetype.bonus(self.level).crit_multiplier
+            + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).crit_multiplier
             + self.slot_implicit(EquipSlot::Amulet);
         let tree_total = self.passive_bonus().crit_multiplier + self.passive_overflow_bonus(t).crit_multiplier;
         (gear_total * (1.0 + tree_total)).max(1.0)
@@ -3655,7 +3914,7 @@ impl Character {
         // gear. `(1+gear)*(1+tree)-1` instead lets the tree work
         // standalone (0% gear + 30% tree = 30%) while still compounding
         // when both are present (20% gear + 30% tree = 56%, not 50%).
-        let gear_total = self.sum_affix(Affix::Splash) + self.archetype.bonus(self.level).splash;
+        let gear_total = self.sum_affix(Affix::Splash) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).splash;
         let tree_total = self.passive_bonus().splash + self.passive_overflow_bonus(t).splash;
         // Primal Force (Druid only, 2026-08-16 rework - see
         // passive_tree.rs) - its own independent multiplicative layer,
@@ -3689,7 +3948,7 @@ impl Character {
     /// can never redirect more than half of any hit no matter how many
     /// Paladins are stacked").
     pub fn combat_intervene(&self, t: &crate::adventure::LiveTunables) -> f64 {
-        let raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus(self.level).intervene_pct;
+        let raw = self.sum_affix(Affix::Intervene) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).intervene_pct;
         let gear_capped = capped_stat_with_overflow(raw, 0.0, t.intervene_overflow_cap).0;
         let tree_capped = capped_stat_with_overflow(self.passive_bonus().intervene_pct + self.passive_overflow_bonus(t).intervene_pct, 0.0, t.intervene_overflow_cap).0;
         // Wiki audit finding #2 (2026-08-18): each SOURCE was already
@@ -3716,7 +3975,7 @@ impl Character {
         // is nowhere near a guaranteed nonzero floor the way crit
         // chance's 5% is, so `gear*(1+tree)` would nearly zero out a
         // tree-only leech build.
-        let gear_total = self.sum_affix(Affix::Leech) + self.archetype.bonus(self.level).life_leech_pct;
+        let gear_total = self.sum_affix(Affix::Leech) + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).life_leech_pct;
         let tree_total = self.passive_bonus().life_leech_pct + self.passive_overflow_bonus(t).life_leech_pct;
         ((1.0 + gear_total) * (1.0 + tree_total) - 1.0).max(0.0)
     }
@@ -3764,7 +4023,7 @@ impl Character {
         // combat_life_leech - a non-Heal archetype has no baseline here
         // at all (base = 0.0), so `gear*(1+tree)` would zero out any
         // tree-granted healing power for them entirely.
-        let gear_total = base + self.archetype.bonus(self.level).heal_power_pct;
+        let gear_total = base + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).heal_power_pct;
         let tree_total = self.passive_bonus().heal_power_pct + self.passive_overflow_bonus(t).heal_power_pct;
         // Regrowth (Druid only - 2026-08-16 rework, see its own doc in
         // passive_tree.rs) grants its OWN separate multiplicative layer on

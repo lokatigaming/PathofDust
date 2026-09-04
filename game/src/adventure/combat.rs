@@ -11330,7 +11330,7 @@ pub(crate) fn simulate_battle(
                 cold_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::ColdDamage), elemental_focus_per_level, c.passive_node_magnitude("polarflux")) * flamegolem_mult,
                 chaos_damage_pct: c.sum_affix(Affix::ChaosDamage),
                 lightning_damage_pct: elementalist_elemental_damage_pct(c.sum_affix(Affix::LightningDamage), elemental_focus_per_level, c.passive_node_magnitude("overshock")) * flamegolem_mult,
-                divine_damage_pct: c.sum_affix(Affix::DivineDamage),
+                divine_damage_pct: c.sum_affix(Affix::DivineDamage) + c.archetype.bonus_at(c.level, tunables.archetype_bonus_curve_weight).divine_damage_pct,
                 fire_dr_debuff: Vec::new(),
                 cold_evasion_debuff: Vec::new(),
                 chaos_block_debuff: Vec::new(),

@@ -355,6 +355,28 @@ pub struct LiveTunables {
     /// for why this is a per-party term on the ORGANIC curve rather than
     /// a third controller or a raw gear-tier read.
     pub boss_gear_tier_weight: f64,
+    /// **The archetype-advantage curve blend** (2026-09-05). 0.0 is the
+    /// old linear `per_unit x (1 + 0.10 x level)`; 1.0 is the affix curve
+    /// at `ARCHETYPE_AFFIX_MULTIPLE` times the matching affix's own
+    /// coefficient. See `Archetype::bonus_at`.
+    ///
+    /// **Shipped at 1.0, NOT at a no-op** - unlike every other dial added
+    /// this week. The owner stated the target, so this dial is the
+    /// walk-back rather than the rollout. What makes that safe is that
+    /// the value is computed on every read and nothing is stored: moving
+    /// this to 0.0 reverts every character in the game instantly, with no
+    /// migration needed and none possible.
+    ///
+    /// It blends the WHOLE package coherently, including the two
+    /// advantages that have no old value to blend from - Cleric's Divine
+    /// Power scales by `w` from zero, and both heal-power flattenings
+    /// ride the same `w`. So no partial state exists at any setting: at
+    /// w = 0 Cleric has its old scaling heal power and no Divine Power,
+    /// which is exactly the pre-change class.
+    ///
+    /// Bounded to [`ARCHETYPE_BONUS_CURVE_WEIGHT_MIN`,
+    /// `ARCHETYPE_BONUS_CURVE_WEIGHT_MAX`].
+    pub archetype_bonus_curve_weight: f64,
     /// Fight-announcement batching (2026-08-19, a live request to cut
     /// per-fight chat spam) - how many encounter results
     /// (`announce_encounter_result`'s per-fight "party of N heroes..."
@@ -747,6 +769,7 @@ impl Default for LiveTunables {
             // fails if these ever drift apart. 0.0 here is the no-op, not
             // an unset field.
             boss_gear_tier_weight: crate::adventure::BOSS_GEAR_TIER_WEIGHT,
+            archetype_bonus_curve_weight: crate::adventure::ARCHETYPE_BONUS_CURVE_WEIGHT,
             fight_summary_batch_size: 10,
             thunder_redistribution_pct: 0.50,
             thunder_redistribution_window_secs: 2.0,

@@ -3115,6 +3115,16 @@ fn default_boss_gear_tier_weight() -> f64 {
     crate::adventure::BOSS_GEAR_TIER_WEIGHT
 }
 
+/// Serde default for `archetype_bonus_curve_weight`. Resolves to the
+/// SHIPPED CONSTANT, which for this dial is 1.0 rather than the usual
+/// no-op zero - see `LiveTunables::archetype_bonus_curve_weight`. A bare
+/// `#[serde(default)]` here would resolve to 0.0 and silently revert
+/// every archetype in the game to the old linear curve on any save that
+/// omitted the field.
+fn default_archetype_bonus_curve_weight() -> f64 {
+    crate::adventure::ARCHETYPE_BONUS_CURVE_WEIGHT
+}
+
 // Serde defaults for the five win-XP fields (2026-09-02). Each resolves
 // to the SHIPPED CONSTANT, never `f64::default()` == 0.0 - this project
 // has been bitten twice by a form field that silently zeroed, and on
@@ -3260,6 +3270,11 @@ struct TunablesForm {
     /// this one field really is 0.0 - see `default_boss_gear_tier_weight`.
     #[serde(default = "default_boss_gear_tier_weight")]
     boss_gear_tier_weight: f64,
+    /// See `LiveTunables::archetype_bonus_curve_weight`'s doc. The
+    /// `#[serde(default)]` resolves to the SHIPPED CONSTANT (1.0), never
+    /// 0.0 - a zero here would revert every class to the old curve.
+    #[serde(default = "default_archetype_bonus_curve_weight")]
+    archetype_bonus_curve_weight: f64,
     /// See `LiveTunables::fight_summary_batch_size`'s doc.
     fight_summary_batch_size: u32,
     /// See `LiveTunables::reactive_proc_cap_ms`'s doc.
@@ -3708,6 +3723,23 @@ impl TunableViolations {
         }
     }
 
+    /// `boss_gear_tier_weight`'s twin for the archetype curve blend.
+    /// Both 0 and 1 are legal settings here - 1 is the shipped one and 0
+    /// is the documented way back to the old linear curve.
+    fn archetype_bonus_curve_weight(&mut self, field: &str, value: f64) -> f64 {
+        let (min, max) = (crate::adventure::ARCHETYPE_BONUS_CURVE_WEIGHT_MIN, crate::adventure::ARCHETYPE_BONUS_CURVE_WEIGHT_MAX);
+        if !value.is_finite() {
+            self.items.push(format!("{field} must be a number between {} and {}.", trim_float(min), trim_float(max)));
+        } else if value < min || value > max {
+            self.items.push(format!("{field} must be between {} and {} — got {}.", trim_float(min), trim_float(max), trim_float(value)));
+        }
+        if self.clamping {
+            crate::adventure::sanitize_archetype_bonus_curve_weight(value)
+        } else {
+            value
+        }
+    }
+
     /// `craft_base_cost_mult`'s twin for the per-craft tier bump.
     fn craft_tier_bump_mult(&mut self, field: &str, value: f64) -> f64 {
         let (min, max) = (crate::adventure::CRAFT_TIER_BUMP_MULT_MIN, crate::adventure::CRAFT_TIER_BUMP_MULT_MAX);
@@ -3848,6 +3880,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 boss_crit_mult_half_stage: v.boss_half_stage("boss_crit_mult_half_stage", form.boss_crit_mult_half_stage, crate::adventure::BOSS_CRIT_MULT_HALF_STAGE),
                 boss_splash_half_stage: v.boss_half_stage("boss_splash_half_stage", form.boss_splash_half_stage, crate::adventure::BOSS_SPLASH_HALF_STAGE),
                 boss_gear_tier_weight: v.boss_gear_tier_weight("boss_gear_tier_weight", form.boss_gear_tier_weight),
+                archetype_bonus_curve_weight: v.archetype_bonus_curve_weight("archetype_bonus_curve_weight", form.archetype_bonus_curve_weight),
                 fight_summary_batch_size: v.at_least_u32("fight_summary_batch_size", form.fight_summary_batch_size, 1),
                 thunder_redistribution_pct: previous.thunder_redistribution_pct,
                 thunder_redistribution_window_secs: previous.thunder_redistribution_window_secs,
@@ -5049,6 +5082,27 @@ fn render_tunables_page(
             ""
         }
     );
+    // The live LEVEL distribution, beside the archetype-curve dial, because
+    // that dial's whole question is which side of the crossover the
+    // population sits on. The old linear multiplier and the affix curve
+    // cross at about level 79: below it the new curve is HIGHER than the
+    // old one, above it lower. So the same setting is a buff to one
+    // population and a cut to another, and the number that decides which
+    // is simply where the players are.
+    const ARCHETYPE_CURVE_CROSSOVER_LEVEL: u32 = 79;
+    let archetype_level_readout = format!(
+        "Live levels (all {} characters): min {} — median {} — max {}. The old linear curve and the affix curve cross at about level {}: <strong>below it the new curve is higher, above it lower.</strong> {}",
+        gear_excess.characters,
+        gear_excess.level_min,
+        gear_excess.level_median,
+        gear_excess.level_max,
+        ARCHETYPE_CURVE_CROSSOVER_LEVEL,
+        if gear_excess.level_max < ARCHETYPE_CURVE_CROSSOVER_LEVEL {
+            "<strong>Every live character is below the crossover</strong>, so at weight 1 the coefficient cut is what they feel — the deceleration this change exists for does not bind for anyone yet."
+        } else {
+            "Some live characters are past the crossover and are feeling the deceleration, not just the coefficient cut."
+        }
+    );
     // A rejected save echoes the three CSV inputs exactly as typed - they
     // cannot round-trip through the parsed `Vec`s, and a malformed list is
     // precisely the one that has to come back for editing.
@@ -5204,6 +5258,13 @@ fn render_tunables_page(
               <label for=\"boss_gear_tier_weight\">Gear-Tier Weight (effective levels per tier of gear excess)</label>\
               <input type=\"number\" step=\"any\" min=\"{boss_gear_tier_weight_min}\" max=\"{boss_gear_tier_weight_max}\" required id=\"boss_gear_tier_weight\" name=\"boss_gear_tier_weight\" value=\"{boss_gear_tier_weight}\">\
               <p class=\"tunable-hint\">{boss_gear_tier_weight_min} to {boss_gear_tier_weight_max}. Boss HP and ATK scale on the party's average LEVEL; this adds the party's average gear-tier <em>excess</em> — <code>max(0, mean equipped tier − level)</code> — to that level, weighted. 1 charges a tier of excess exactly like a level. <strong>Shipped at 0, and 0 is the intended setting, not an unset field</strong> — every other dial here treats a 0 as a bug, this one's 0 is the no-op. It ships with the read-out above so the weight is chosen from the observed distribution rather than guessed. <strong>Why the EXCESS and not the tier:</strong> Krangled items already sit at exactly the character's level, so raw tier would bill twice the players who did the sanctioned thing; measuring the excess makes that impossible rather than something to tune around. <strong>Why here and not through a controller:</strong> this is a per-party term on the organic curve, so it does not tax a newcomer for a veteran's crafting, and it does not spend Controller B's authority — B's only lever is boss damage, which re-flattens boss evasion, block and damage reduction into their cap. Raising this makes bosses harder for parties carrying crafted gear beyond their level; Controllers A and B will re-equilibrate duration and win rate around it.</p>\
+            </div>\
+            <h2>Archetype Advantages</h2>\
+            <p class=\"tunable-hint\">{archetype_level_readout}</p>\
+            <div class=\"tunable-row\">\
+              <label for=\"archetype_bonus_curve_weight\">Archetype Curve Weight (0 = old linear, 1 = affix curve)</label>\
+              <input type=\"number\" step=\"any\" min=\"{archetype_bonus_curve_weight_min}\" max=\"{archetype_bonus_curve_weight_max}\" required id=\"archetype_bonus_curve_weight\" name=\"archetype_bonus_curve_weight\" value=\"{archetype_bonus_curve_weight}\">\
+              <p class=\"tunable-hint\">{archetype_bonus_curve_weight_min} to {archetype_bonus_curve_weight_max}. Every class's signature advantage now runs on the SAME equation as item affixes &mdash; the affix tier curve, at <strong>2.5&times; the matching affix's own coefficient</strong>, with level mapping to tier 1:1. It used to be a linear <code>per_unit &times; (1 + 0.10 &times; level)</code> worth 5&ndash;8 affixes. <strong>Shipped at 1 (the new curve), which is unusual here &mdash; this dial is the WALK-BACK, not the rollout.</strong> Setting it to 0 restores the old linear curve exactly, for every character, instantly: the value is computed on every read and nothing is stored, so there is no migration in either direction. <strong>This is a nerf at every level for every affected class.</strong> Three classes are deliberately NOT uniform and must stay that way: <em>Slayer</em> is held out entirely (its leech is already worth 1&times; an affix where every other class is 5&ndash;8&times;, so the rule would BUFF it), <em>Warlock</em> is anchored to its level-19 value rather than re-coefficiented (there is no attack-speed affix at all; the nearest quantity is gloves base power, which is deliberately linear), and <em>Cleric and Paladin healing power is now FLAT</em> &mdash; 100% for both, no scaling &mdash; with Cleric gaining <em>Divine Power</em> as its growth vector instead. <strong>Divine Power does not offset the healing cut and was never meant to</strong>: it is a proc chance for a +1%-per-stack buff, worth low single digits, against roughly a 49% healing-output cut at level 19. Compensation for both healers is a separate future change to their passive trees.</p>\
             </div>\
             <p class=\"tunable-hint\">Unlike !rampage (a one-time 50-fight burst), this never runs out — boss fights back-to-back with instant revives between them, until unchecked here.</p>\
             <h2>Boss Secondary Curves</h2>\
@@ -5422,6 +5483,10 @@ fn render_tunables_page(
         dmg_pacing_readout = dmg_pacing_readout,
         gear_excess_readout = gear_excess_readout,
         boss_gear_tier_weight = t.boss_gear_tier_weight,
+        archetype_bonus_curve_weight = t.archetype_bonus_curve_weight,
+        archetype_bonus_curve_weight_min = trim_float(crate::adventure::ARCHETYPE_BONUS_CURVE_WEIGHT_MIN),
+        archetype_bonus_curve_weight_max = trim_float(crate::adventure::ARCHETYPE_BONUS_CURVE_WEIGHT_MAX),
+        archetype_level_readout = archetype_level_readout,
         boss_gear_tier_weight_min = trim_float(crate::adventure::BOSS_GEAR_TIER_WEIGHT_MIN),
         boss_gear_tier_weight_max = trim_float(crate::adventure::BOSS_GEAR_TIER_WEIGHT_MAX),
         dynamic_pacing_enabled_checked = if t.dynamic_pacing_enabled { " checked" } else { "" },
