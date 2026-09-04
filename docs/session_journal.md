@@ -5687,3 +5687,63 @@ refund into a tree where both nodes still render, and the marker would
 have made the loss permanent and invisible. The enforcing test d wrote is
 the thing that makes the gate self-enforcing, and it is the thing that has
 not arrived.
+
+### 2026-09-05 — BRANCH CLOSURE: `fix/small-isolated-defects` (window e), fully superseded
+
+**Closure record, per the no-silent-orphans rule.** The branch is deleted from
+the remote. Every one of its four commits is already on master in **identical
+content**; nothing is discarded and nothing is lost.
+
+| branch commit | subject | already on master as |
+|---|---|---|
+| `3a7d2e7` | Move argon2 off the async runtime (unauthenticated DoS lever) | **`1b2d1e0`** |
+| `8d17af7` | Bind the game's listeners to loopback, not every interface | **`cca3ec7`** |
+| `659c1d9` | Throttle repeated failed logins, per username | **`f424c0a`** |
+| `e9aef0a` | Last Rites: a real charge ladder, honest copy, and its own name in the log | **`ffda7ad`** |
+
+Branch head was `e9aef0a`.
+
+#### `git cherry` was wrong on two of the four, and the reason is the durable part
+
+`git cherry` reported `3a7d2e7` and `8d17af7` as upstream, and `659c1d9` and
+`e9aef0a` as NOT upstream. Both of those last two were false positives.
+
+**Patch-ids hash the diff INCLUDING ITS CONTEXT LINES**, so a change that is
+byte-identical in content still gets a different patch-id when its neighbours
+have moved. On a repo with an append-only file and a rebase-heavy merge queue,
+that makes `git cherry` **under-report what is already merged**. It answers *"is
+this exact diff upstream"*, not *"is this change upstream"* — and those are
+different questions the moment anything around the change has shifted.
+
+How each false positive arose, and how it was resolved:
+
+* **`e9aef0a` (Last Rites).** `combat.rs`, `passive_overrides.rs` and
+  `passive_tree.rs` are byte-identical to master's `ffda7ad`. The `WIKI_IMPACT.md`
+  added lines are identical too — confirmed by taking an md5 of just the added
+  lines from each patch and comparing: they match exactly. Only the hunk header
+  differs, `@@ -505` on master against `@@ -487` on the branch, because
+  `WIKI_IMPACT.md` is append-only and the two branches appended after different
+  neighbouring entries.
+* **`659c1d9` (login throttle).** Its `accounts.rs` change — 230 lines — is
+  byte-identical to master's `f424c0a`, with no difference at all. Only
+  `adventure_web.rs` differs, and only in context: master's `AppState` now also
+  carries the `bugs` field from the bug-reports feature, so the same
+  `login_failures` addition sits among different neighbours.
+
+**The decisive check is attempting the cherry-pick and seeing whether anything
+remains.** Done here: the pick conflicted **only** on the `bugs` field, and once
+that was resolved as a keep-both the working tree was byte-identical to master
+with nothing left to commit. That is a direct proof of redundancy in a way that
+comparing hashes is not.
+
+Worth stating as a method rather than an anecdote: **when a tool says a change is
+not upstream and you have reason to doubt it, apply the change and look at what
+is left.** An empty result is proof; a matching hash is only evidence.
+
+#### A second-order note on `git diff`
+
+While resolving that pick I read `git diff` as empty and briefly concluded the
+content had vanished, when in fact it was **staged** and therefore invisible to
+plain `git diff`. Third time this week that has cost me a step. `git diff
+--cached`, or just `git status`, is the check — and it is the same trap that
+produced a 0-byte backup patch during the hook block on 2026-09-04.
