@@ -4817,6 +4817,7 @@ No patch note: the wiki is documentation, and the release changes no
 mechanic, cost, chance or timer. The one player-visible consequence — that
 the wiki now says what the game actually does — is the wiki's own content.
 
+
 ## 2026-09-03 — BOSS-SECONDARY-CURVE: the freeze is gone, on seven dials (branch `feature/boss-secondary-curve`)
 
 Ordered from `C:\dust-work\orders\d.md`, implementing §10 of
@@ -6268,3 +6269,185 @@ No patch note: at 4 permits and roughly 100 ms per hash that is about 40
 sign-ins per second of headroom, far beyond this game's load, so no player
 will observe the bound. If that proves wrong the warn line names the entry
 point that was turned away.
+## 2026-09-04 — REFUND MIGRATION: retiring two dead passive nodes without stealing the points (branch `fix/retire-dead-passive-refund`)
+
+Stage 1 of the retirement ordered in `C:\dust-work\orders\d.md`. **The refund
+alone, on its own branch, before either replacement node exists**, per the
+sequencing — it is correct regardless of what replaces either slot.
+
+### The standing lesson this whole thread produced
+
+Recorded here because the owner asked for it to be, and because it generalises
+past the node that produced it:
+
+> **Nothing in a "delete the mechanic" change naturally leads you to the sentence
+> that sells it. The sweep caught it only because it started from the
+> player-facing text and worked back toward the code, which is the opposite
+> direction from how the change was made.**
+
+`WIKI_IMPACT.md:202` records the 2026-08-20 golem-penalty removal deleting the
+field, its `resolve_hit` application, its construction from rank, every
+zero-initializer *and* a stale doc — a thorough change that still missed the one
+place a player reads it. **This is the standing reason the advertised-vs-actual
+sweep runs from the text side, and why it should be re-run from that side after
+any mechanic is removed.**
+
+### What shipped
+
+`migrate_refund_retired_dead_nodes` — one row in `CHARACTER_MIGRATIONS`,
+marker-guarded (`adventure-refund-retired-dead-nodes-marker.json`), honouring the
+existing save-then-mark-done-per-migration contract. A refund is precisely the
+migration that must never re-run.
+
+**Refund, not remap** (owner ruling). `migrate_flowlikewater_swap` remaps and was
+right to — that was the same mechanic moving between tiers. This is different
+mechanics arriving, and a player who chose a defensive-uptime node and silently
+received a party-support node would have been wronged in a new way by the fix for
+the old one.
+
+**Removing the entry IS the refund**, and that is the property worth remembering:
+every "points spent" site derives the total by summing the allocation map
+(`manager.rs`'s allocate-time guard plus three `adventure_web.rs` render sites all
+do `passive_allocations.values().sum()`). There is no separate available-points
+counter, so there is nothing that can fall out of sync — the two numbers cannot
+disagree because there is only one number.
+
+**Both trees.** Split Personality can run Monk or Paladin as a *secondary*, so an
+affected allocation can live only in `secondary_passive_allocations`. A migration
+touching one map would silently miss exactly those characters and — being
+marker-guarded — never get a second chance at them. Its own test.
+
+### The test I got wrong first, and what it taught
+
+I wrote `the_retired_nodes_contribute_nothing_even_before_the_refund` asserting
+`passive_node_magnitude("stillwater") == 0.0`. **It failed, and the code was
+right.** `stillwater` DECLARES `Special { at_rank_1: 1.0, .. }`, so its magnitude
+at rank 3 is 3.0 — not zero.
+
+What makes it inert is not a property of the node at all: **it is that no call
+site ever passes its key.** That is a property of the CONSUMERS. The test now
+scans `combat.rs`, `character.rs`, `manager.rs` and `adventure_web.rs` for either
+retired key — the same `include_str!` technique `character.rs`'s `guard_tests`
+uses to pin the mutation-guard bypasses — and fails the moment a consumer
+appears, which is exactly when the refund would stop being balance-neutral.
+
+Worth stating as a general shape: **"this node does nothing" is never provable
+from the node.** It is only provable from the absence of readers.
+
+### FOUND — one thing that needs a ruling before this deploys
+
+**The refund is one-shot, but the dead nodes still render in the tree.** Stage 1
+ships the refund alone; the replacements come later under new keys. In the window
+between them a player sees their refunded points and a Stillwater node that still
+promises something, can spend them straight back into it, and — because the
+marker means the migration never runs again — those points are stranded
+permanently with no second refund.
+
+Not fixed here: the order said the refund ships *alone*, and removing the node
+definitions is a scope call that belongs to the owner, not to me mid-build. The
+cheap closure is to drop both node definitions from the tree in the same release
+as this migration, which makes re-allocation impossible by construction rather
+than dependent on release timing. Raised in the report rather than acted on.
+
+### Deliberately not in this commit
+
+Shatter's approved `[1.0, 1.35, 1.65]` ladder (its own branch — it touches
+nothing this migration touches), Shared Aegis, and Still Water.
+
+## 2026-09-04 — THE DELETION SHIPS WITH THE REFUND (branch `fix/retire-dead-passive-refund`, second commit)
+
+Ruling on the gap I raised and deliberately did not close mid-build. The two node
+definitions come out of the tree **in the same release as the refund migration**.
+
+### The rule, stated so it survives this branch
+
+> **A refund that ships into a tree where the money can be re-lost is worse than
+> no refund, because it looks like the problem was solved.** And it fails in the
+> direction that hurts most: the player who trusts the refund and spends it is
+> precisely the one who loses it.
+
+The refund is marker-guarded and therefore one-shot. A surviving definition means
+a player can spend the returned points straight back into a node that still does
+nothing, with no second refund coming. Deleting the definitions makes that
+**unrepresentable** rather than dependent on how long stage 1 sits before stage 2
+lands — the same shape as the new-keys ruling and as `max(0, tier − level)`.
+
+**The constraint now travels with the code, not with the order file.**
+`every_retired_key_is_gone_from_every_tree` fails if a retired key is defined in
+any archetype's tree, so the pairing cannot be separated by a future rebase,
+cherry-pick or partial deploy. A commit message would only have described it.
+
+### The standing rule from the failed test
+
+Recorded here at the owner's instruction, because it generalises well past the
+node that produced it:
+
+> **"This node does nothing" is never provable from the node. It is only provable
+> from the absence of readers.**
+
+I had asserted `passive_node_magnitude("stillwater") == 0.0`. **The test failed
+and the code was right** — the node declares
+`Special { at_rank_1: 1.0, per_additional_rank: 1.0 }` and returns 3.0 at rank 3.
+The sweep's conclusion held, but for a different reason than I had written down,
+and I would never have found that had I asserted the conclusion instead of the
+mechanism. Rebuilt as an `include_str!` scan across the four consumer files, it
+fails the moment a reader appears — which is exactly when the refund would stop
+being balance-neutral. **A claim about today became a guard on tomorrow.**
+
+### The three things the order asked me to verify rather than assume
+
+1. **Startup ordering — confirmed, no window exists.**
+   `AdventureManager::new` is a *synchronous* fn and calls
+   `run_character_migrations` at `manager.rs:2236`, well before it returns its
+   `Arc<Self>`. `main.rs` then spawns the encounter loops and only afterwards
+   awaits `start_adventure_web_server` (`main.rs:153`). So migrations complete
+   before the web server binds a port *and* before any fight loop starts — there
+   is no instant at which a definition is gone and an allocation has not been
+   refunded.
+2. **`passive_overrides.rs` — one entry, now removed.** `stillwater` was the sole
+   member of `UNWIRED_NODES`, the list that tells `/admin/passives` "an override
+   here would change nothing". `sacredoverflow` was never in that file at all —
+   the list's own doc distinguishes unwired nodes from `NotYetImplemented` ones,
+   which declare no value. The list is now empty, documented as a real state
+   rather than an oversight, and kept because the classification is still right
+   for the next node that lands in it. **Its own test
+   (`every_unwired_key_still_exists_in_the_tree`) is what would have caught a
+   dangling entry** — the guard worked.
+3. **Two visible gaps — checked, and the layout does not care.**
+   `compute_passive_layout` derives `mods_count` by filtering nodes at runtime and
+   already branches on `mods_count > 0.0`, so a Specialization with fewer (or
+   zero) Modifier children just reserves a narrower row. Nothing anywhere asserts
+   a node count: `passive_nodes().len()` appears nowhere in the tree.
+
+### FOUND
+
+- `sacredoverflow` was the tree's last `PassiveEffect::NotYetImplemented`. With it
+  gone **no node in the game uses that variant.** The variant itself is left in
+  place — it is the honest declaration for a future node in that state, and
+  `magnitude_at_rank` still handles it — but a reader should know it currently has
+  no users.
+
+### The full suite earned its keep again, on my own FOUND note
+
+I recorded as a FOUND that `sacredoverflow` was the tree's last
+`PassiveEffect::NotYetImplemented`. I did not follow the thought through to its
+consequence, and the full workspace run did:
+`admin_passives_tests::a_not_yet_implemented_node_is_shown_but_not_editable`
+searched the whole tree for such a node and `.expect()`ed one. Deleting the last
+one made it panic.
+
+**Every narrow run I did was green** — the migration tests, the golden corpus,
+the targeted module. Only `--workspace` saw it, because the test lives in a
+different module from everything I touched. That is the second time in three
+sessions the standing "full suite once before reporting" rule has caught a real
+break that no narrow run could (the first was `guard_tests` on the gear-tier
+fixtures).
+
+**Fixed by making the test hold in both states rather than assume one.** The
+rendering arm it guards (`not_yet` → *"No mechanic yet"*) is still live in
+`render_passives_page`; there is simply no node in that state right now. So it
+now checks the arm when such a node exists and asserts the absence explicitly
+when none does — the test re-arms itself automatically the moment a node enters
+that state again, and a reader learns the arm is dormant by fact rather than by
+silence. Deleting the test would have thrown away a live guard because its
+subject happened to be temporarily empty.
