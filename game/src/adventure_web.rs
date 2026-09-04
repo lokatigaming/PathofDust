@@ -5246,6 +5246,7 @@ fn render_tunables_page(
             </div>\
             <h2>Dynamic Pacing</h2>\n            <p class=\"tunable-hint\">{hp_pacing_readout}</p>\
             <p class=\"tunable-hint\">{dmg_pacing_readout}</p>\
+            <p class=\"tunable-hint\"><strong>Also affects difficulty, but is not a controller:</strong> <a href=\"#boss_gear_tier_weight\">Gear-Tier Weight</a>, under <em>Encounter Shape</em> above. Both controllers below REACT to an outcome — duration for A, win rate for B. Gear-Tier Weight is feed-forward: it moves the party's effective level, which the organic boss curve is built from BEFORE either controller sees a result. If pacing is behaving oddly and neither controller explains it, check that dial.</p>\
             <h2>Dynamic Pacing — Controller A (HP / duration)</h2>\n            <label class=\"veil-check\"><input type=\"checkbox\" name=\"dynamic_pacing_enabled\" value=\"1\"{dynamic_pacing_enabled_checked}> Dynamic pacing enabled (master kill-switch)</label>\
             <p class=\"tunable-hint\">Unchecked = BOTH controllers completely inert (no sampling, no updates); both multipliers freeze where they sit. The stage baseline floor and the top-layer mitigation below are separate systems with their own switches.</p>\
             <div class=\"tunable-row\">\
