@@ -5767,3 +5767,127 @@ Practical consequence worth keeping: a finished but uncommitted change on
 a machine that has lost power twice in a day should be written outside
 the repo before reporting. `git diff --cached > ...patch` — note
 `--cached`, since a staged change produces an empty plain `git diff`.
+
+### 2026-09-04 — STAGE-GATE-SHARD-FLAKE deploy record (release `stage-gate-shard-flake`)
+
+Queue item 11, from window b, with a's `26b49d3` riding along. Closes the
+~2% flake that halted this queue on item 5.
+
+| | |
+|---|---|
+| master commit deployed | `aa7a47b` |
+| binary before | `c90a11cf…b52336` |
+| binary after | `4c092167a2b2fd7f436406b5e6bece6fba936fe9ee825ede2949d7a93677aaf1` |
+| downtime | **0.40 s** |
+| suite on the box | **853 passed / 0 failed, 41 suites** |
+| slot | `deploy-pre-20260904-192539-stage-gate-shard-flake`, `LATEST` repointed |
+
+### The mechanism is worth more than the fix
+
+`craft_tokens` is a **shared bag** that shard currencies also live in, and
+`announce_encounter_result` carries a one-time top-healer `CelestialShard`
+grant whose marker file is **always absent in a fresh scratch dir**. So
+that grant is armed in every disposable-manager test, and fires whenever a
+single Commoner records healing.
+
+**The generalisation, which is the part to carry: every
+disposable-manager test in this codebase runs with all one-time marker
+grants armed**, because the markers live in the scratch dir that was just
+created. That is a property of the harness, not of any one test, and it
+means any test asserting "nothing was granted" is asserting it against a
+manager with every one-shot grant loaded.
+
+b rejected adding `CelestialShard` to the exclusion list as *"the same bug
+with a later expiry date"* and asserted over `ALL_CRAFT_ACTIONS` instead.
+That was the sixth instance of the assertion-encodes-an-ANSWER class; an
+exclusion list would have guaranteed a seventh the next time a currency
+joined the bag.
+
+### The fix carries its own negative control
+
+After asserting the starter set, the helper **forces `UniqueShard` and
+`CelestialShard` into the bag and re-asserts**:
+
+```rust
+let mut forced = character.clone();
+forced.add_craft_token(CraftAction::UniqueShard, 1);
+forced.add_craft_token(CraftAction::CelestialShard, 1);
+// ... every ALL_CRAFT_ACTIONS entry must still read 1
+```
+
+So the test contains the proof that it cannot be broken the way it was
+broken. A fix that only removed the symptom would have looked identical
+on a green run.
+
+### A REVERT AVOIDED — the follow-up commit was cherry-picked, not merged
+
+a pushed `26b49d3` to `feature/admin-ui-rework`, a branch already merged
+at `f5408d6`. **Merging that branch again to collect one line would have
+reverted item 10.**
+
+`git diff 749c8df..origin/feature/admin-ui-rework` reads **−246 lines,
+including `passive_tree.rs −47`** — because a's branch is based on
+`dcbf9ed`, which predates the Golem Master fix. Merging it would have
+silently restored the text telling every Elementalist they deal 1% damage
+at three golems, **with a green suite and no symptom**, an hour after that
+text was corrected and announced in a patch note apologising for it.
+
+Cherry-picked the single commit instead, then verified against the tree:
+item 10's corrected text present, a's line in, all eight dials still
+referenced.
+
+**The general shape, which is this week's recurring one: a pointer
+described by what someone ADDED to it rather than by what it now
+CONTAINS.** "a pushed one line to that branch" is true. "Merge that branch
+to get one line" does not follow, and the gap between them is every commit
+the branch has not caught up on.
+
+### Verified by effect
+
+a's cross-reference renders on `/admin/tunables`, **and its anchor target
+exists**:
+
+| | |
+|---|---|
+| hint line | present |
+| link | `href="#boss_gear_tier_weight"` |
+| target | `id="boss_gear_tier_weight"` |
+
+Checked the target rather than only the link, because a link to a missing
+anchor renders perfectly and goes nowhere — the failure would be invisible
+in exactly the way the line was added to prevent.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `4c092167…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,037 B, 200 / 92,403 B |
+| 6 | anon `/admin/tunables` and `/admin/passives` | **404** both |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: a test-harness fix and one operator-page hint line. Nothing
+player-facing changed.
+
+### Item 14's gate is now genuinely met
+
+`fix/retire-dead-passive-refund` moved to `eb905c7`, adding *"Delete both
+retired node definitions, in the same release as the refund"* plus
+`every_retired_key_is_gone_from_every_tree`.
+
+The two remaining occurrences of the retired keys in `passive_tree.rs` are
+**tombstone comments** — `// RETIRED 2026-09-04 - "stillwater"
+(Stillwater) stood here` — not definitions. Checked *where* rather than
+*how many*, which is the lesson from the Golem Master grep that read `1`
+and meant "present in a comment".
+
+d's design note is the part worth keeping: **removing the entry IS the
+refund.** Every site that asks how many points a character has spent
+derives it by summing the allocation map, so a removed entry returns its
+points automatically and the two numbers cannot disagree — because there
+is only one number.
