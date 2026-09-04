@@ -6179,3 +6179,92 @@ explains why rank 3 is 165% rather than a round 200%.
 | 7 | anon `POST /api/commands/join` | **404** |
 
 Tunnel 200, zero panics or ERROR lines, patch note renders.
+
+### 2026-09-05 — BOUND-PASSWORD-HASHING deploy record (release `bound-password-hashing`)
+
+From window b, taken ahead of the queue: no corpus interaction, and
+`/account/register` is reachable from the internet through the Cloudflare
+tunnel with unbounded argon2 behind it.
+
+| | |
+|---|---|
+| master commit deployed | `1f491e3` |
+| binary before | `f7563ea8…4bbbc` |
+| binary after | `5e56995b1c36c541ebb0883b92f160c8e132a788ac4c40600e26c2d7b6365832` |
+| downtime | **0.92 s** |
+| suite on the box | **865 passed / 0 failed, 42 suites** (860 + 5, new suite) |
+| slot | `deploy-pre-20260904-211654-bound-password-hashing`, `LATEST` repointed |
+
+### The size of the thing, in numbers
+
+Unbounded concurrent argon2 is up to **512 blocking threads × 19 MiB ≈
+9.5 GiB** on a 16 GiB box. Bounded at 4 permits it is **~76 MiB**. That is
+not a tuning improvement; it is the difference between a request pattern
+anyone on the internet can generate and an OOM.
+
+**Both entry points, which is what makes it a fix rather than a
+mitigation.** Registration hashes and login verifies cost the same and
+land on the same blocking pool, so bounding one would have left the
+cheaper-to-reach half open while looking solved. On saturation a request
+is turned away **without hashing**, with a warn line naming which entry
+point — rather than queueing behind the bound, which would convert a
+memory problem into an unbounded queue.
+
+### The floor is the dangerous edge, and it is guarded three ways
+
+Verified against the tree rather than taken from the report, because this
+is the one setting that can lock everybody out:
+
+1. `apply_permit_limit` clamps into `MIN..=MAX`
+2. the form validator range-checks against the same constants
+3. a test asserts `PASSWORD_HASH_PERMITS_MIN == 1` **itself**, with a
+   message naming the consequence
+
+That third one is the good part. **A 0-permit semaphore is not "no limit"
+— it locks every sign-in and registration out of the game with no error
+that explains why.** Guarding only the *values* would let someone lower
+the floor to 0 and ship it; asserting the floor means that fails the
+suite.
+
+Shipped at 4, MIN 1, MAX 64, live tunable.
+
+### Verified by effect, and the limit of that verification
+
+| check | result |
+|---|---|
+| `/account/login` renders | 200 |
+| bad-password login | **401 in 0.0013 s** — refused, and responding |
+| argon2 saturation warnings | **0** |
+| `password_hash_permits` on the live page | **4** |
+
+**What that probe does NOT prove, stated rather than glossed:** 1.3 ms is
+too fast to have run argon2. The username did not exist, so the path
+short-circuits before hashing — exactly as it did for the login-throttle
+probe on 2026-09-03. So this confirms the login path still responds and
+still refuses; it does **not** exercise the semaphore around a real hash.
+
+Doing that on production would need either a real account's correct
+password or registering a throwaway account, and the second writes to
+`adventure-accounts.json`. Neither is worth doing to satisfy a checklist —
+the semaphore's behaviour under contention is covered by the branch's own
+tests, including one that asserts the N+1st hash waits for a permit to
+come back.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `5e56995b…` = candidate |
+| 5 | `/characters` | 200 / 81,350 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: at 4 permits and roughly 100 ms per hash that is about 40
+sign-ins per second of headroom, far beyond this game's load, so no player
+will observe the bound. If that proves wrong the warn line names the entry
+point that was turned away.
