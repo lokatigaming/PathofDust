@@ -171,10 +171,18 @@ pub const ARCHETYPE_DIVINE_POWER_PER_UNIT: f64 = ARCHETYPE_AFFIX_MULTIPLE * 0.02
 ///
 /// Chosen to reproduce today's value exactly at
 /// `ARCHETYPE_ATTACK_SPEED_ANCHOR_LEVEL` and adopt only the curve's
-/// SHAPE: `0.15 x (1 + 0.10 x 19) / f(19)` = `0.435 / sqrt(19)`. Pinned
-/// by `warlock_is_anchored_not_recoefficiented`, which recomputes it from
-/// the old expression rather than trusting this literal.
-pub const ARCHETYPE_ATTACK_SPEED_PER_UNIT: f64 = 0.09979589711327115;
+/// SHAPE: `0.15 x (1 + 0.10 x 19) / f(19)` = `0.435 / sqrt(19)`.
+///
+/// **DERIVED, not a transcribed decimal.** It is computed from the old
+/// expression it anchors to rather than written out, for the same reason
+/// the boss secondary half-stages are written as `cap / slope`: a
+/// hand-rounded literal is exact only until someone reads it back, and a
+/// first attempt at this was already off by 2.3e-7 - enough to fail its
+/// own test. `f64::sqrt` is not const, so this is a fn rather than a
+/// `const`.
+pub fn archetype_attack_speed_per_unit() -> f64 {
+    0.15 * (1.0 + ARCHETYPE_ATTACK_SPEED_ANCHOR_LEVEL as f64 * 0.10) / crate::adventure::affix_tier_curve(ARCHETYPE_ATTACK_SPEED_ANCHOR_LEVEL)
+}
 /// The level Warlock's anchor is taken at - the live population peak on
 /// the day of the ruling, so the class's *current* players see no change
 /// at all and only their future growth decelerates.
@@ -386,7 +394,7 @@ impl Archetype {
                 b.crit_multiplier = blend(0.2, ARCHETYPE_CRIT_MULTIPLIER_PER_UNIT);
             }
             Archetype::Warlock => {
-                b.attack_speed = blend(0.15, ARCHETYPE_ATTACK_SPEED_PER_UNIT);
+                b.attack_speed = blend(0.15, archetype_attack_speed_per_unit());
             }
             Archetype::Cleric => {
                 // Doubled from 0.25 (2026-08-15) to compensate for the
@@ -6277,5 +6285,191 @@ mod new_slot_migration_tests {
             "the bulk iterator reached {reached} of {} equipped items. Every slot it misses is a slot that cannot be repaired, whose Krangled gear stops re-tiering on level-up, and that every item migration skips",
             EQUIP_SLOTS.len()
         );
+    }
+}
+
+/// The 2026-09-05 archetype-affix-curve ruling. These pin the PROPERTIES
+/// the ruling is made of, not the numbers it happens to produce - so a
+/// later retune of an affix coefficient, or of the multiple, either
+/// carries the archetype advantage with it or fails loudly.
+#[cfg(test)]
+mod archetype_curve_tests {
+    use super::*;
+    use crate::adventure::affix::{affix_balance, affix_tier_curve};
+    use crate::adventure::Affix;
+
+    /// Each mirrored class, with the affix it mirrors and the field it
+    /// lands in. Slayer and Warlock are absent on purpose - they are the
+    /// two deliberate non-mirrors and have their own tests below.
+    const MIRRORED: &[(Archetype, Affix, fn(&ArchetypeBonus) -> f64)] = &[
+        (Archetype::Warrior, Affix::DamageReduction, |b| b.damage_reduction),
+        (Archetype::Berserker, Affix::IncreasedDamage, |b| b.increased_damage),
+        (Archetype::Rogue, Affix::CritChance, |b| b.crit_chance),
+        (Archetype::Monk, Affix::Evasion, |b| b.evasion),
+        (Archetype::Druid, Affix::Evasion, |b| b.evasion),
+        (Archetype::Ranger, Affix::Splash, |b| b.splash),
+        (Archetype::Elementalist, Affix::Splash, |b| b.splash),
+        (Archetype::Mage, Affix::CritMultiplier, |b| b.crit_multiplier),
+        (Archetype::Paladin, Affix::Intervene, |b| b.intervene_pct),
+        (Archetype::Cleric, Affix::DivineDamage, |b| b.divine_damage_pct),
+    ];
+
+    /// **The ruling itself, stated as an equality rather than as a set of
+    /// literals.** Every mirrored advantage must equal
+    /// `ARCHETYPE_AFFIX_MULTIPLE x <its affix's per_tier> x f(level)`.
+    /// If someone retunes an affix coefficient and does not carry the
+    /// archetype constant with it, this fails and names the class.
+    #[test]
+    fn every_mirrored_coefficient_is_its_affix_times_the_multiple() {
+        for &(archetype, affix, read) in MIRRORED {
+            let expected_per_unit = ARCHETYPE_AFFIX_MULTIPLE * affix_balance(affix).0;
+            for level in [1u32, 19, 50, 100, 148] {
+                let got = read(&archetype.bonus_at(level, 1.0));
+                let want = expected_per_unit * affix_tier_curve(level);
+                assert!(
+                    (got - want).abs() < 1e-12,
+                    "{archetype:?} at level {level}: advantage is {got}, but {affix:?} per_tier x {ARCHETYPE_AFFIX_MULTIPLE} x f(L) is {want}. Either the archetype constant drifted from the affix it mirrors, or the affix was retuned without carrying the class with it."
+                );
+            }
+        }
+    }
+
+    /// The curve is the affix curve because it is the same function, not
+    /// because a comment says so. This fails if anyone reimplements it.
+    #[test]
+    fn the_curve_is_affix_tier_curve_itself() {
+        let per_unit = ARCHETYPE_AFFIX_MULTIPLE * affix_balance(Affix::Evasion).0;
+        for level in [1u32, 7, 19, 50, 99, 100, 101, 148, 500] {
+            let implied = Archetype::Monk.bonus_at(level, 1.0).evasion / per_unit;
+            assert!((implied - affix_tier_curve(level)).abs() < 1e-12, "level {level}: the archetype curve is no longer affix_tier_curve");
+        }
+    }
+
+    /// **The walk-back must be exact, not approximate.** `w = 0` has to
+    /// reproduce the pre-ruling linear expression bit-for-bit, because it
+    /// is the only revert available - nothing is stored, so there is no
+    /// migration to fall back on if this drifts.
+    #[test]
+    fn weight_zero_is_bit_for_bit_the_old_linear_curve() {
+        for level in [0u32, 1, 19, 50, 100, 148] {
+            let mult = 1.0 + level as f64 * 0.10;
+            let b = |a: Archetype| a.bonus_at(level, 0.0);
+            assert_eq!(b(Archetype::Warrior).damage_reduction, 0.15 * mult);
+            assert_eq!(b(Archetype::Berserker).increased_damage, 0.25 * mult);
+            assert_eq!(b(Archetype::Rogue).crit_chance, 0.06 * mult);
+            assert_eq!(b(Archetype::Monk).evasion, 0.12 * mult);
+            assert_eq!(b(Archetype::Ranger).splash, 0.15 * mult);
+            assert_eq!(b(Archetype::Mage).crit_multiplier, 0.2 * mult);
+            assert_eq!(b(Archetype::Warlock).attack_speed, 0.15 * mult);
+            assert_eq!(b(Archetype::Paladin).intervene_pct, 0.05 * mult);
+            assert_eq!(b(Archetype::Cleric).heal_power_pct, 0.50 * mult);
+            assert_eq!(b(Archetype::Paladin).heal_power_pct, 0.50 * mult);
+            assert_eq!(b(Archetype::Slayer).life_leech_pct, 0.001 * mult);
+            assert_eq!(b(Archetype::Cleric).divine_damage_pct, 0.0, "Divine Power must not exist at w = 0 - that is the pre-change class");
+        }
+    }
+
+    /// **Slayer is held out, and this is the guard against someone
+    /// "finishing the job".** Its advantage must stay the old linear
+    /// expression at EVERY weight, including 1.0.
+    #[test]
+    fn slayer_is_held_out_of_the_ruling_at_every_weight() {
+        for w in [0.0, 0.25, 0.5, 1.0] {
+            for level in [1u32, 19, 50, 148] {
+                let got = Archetype::Slayer.bonus_at(level, w).life_leech_pct;
+                let want = 0.001 * (1.0 + level as f64 * 0.10);
+                assert!(
+                    (got - want).abs() < 1e-15,
+                    "Slayer leech moved at w = {w}, level {level}: {got} vs the old {want}. Slayer is deliberately EXCLUDED - applying the rule would buff it, not cut it. See bonus_at's doc."
+                );
+            }
+        }
+    }
+
+    /// **Warlock is anchored, not re-coefficiented**, and the anchor is
+    /// recomputed here from the old expression rather than trusting the
+    /// stored literal - so if either the anchor level or the old
+    /// coefficient is edited, this catches it.
+    #[test]
+    fn warlock_is_anchored_not_recoefficiented() {
+        let anchor = ARCHETYPE_ATTACK_SPEED_ANCHOR_LEVEL;
+        let old_at_anchor = 0.15 * (1.0 + anchor as f64 * 0.10);
+        let new_at_anchor = Archetype::Warlock.bonus_at(anchor, 1.0).attack_speed;
+        assert!(
+            (new_at_anchor - old_at_anchor).abs() < 1e-9,
+            "Warlock must be unchanged at its anchor level {anchor}: got {new_at_anchor}, old expression gives {old_at_anchor}. It is anchored rather than mirrored because there is no attack-speed affix - see bonus_at's doc."
+        );
+        let old_at_100 = 0.15 * 11.0;
+        assert!(Archetype::Warlock.bonus_at(100, 1.0).attack_speed < old_at_100, "anchoring must still adopt the curve's shape above the anchor");
+    }
+
+    /// **Both healers are FLAT at 100% total, composed differently.**
+    /// This is the pairing the doc warns must not be collapsed: Cleric
+    /// reaches 1.0 as `combat_heal_power`'s 0.5 base plus 0.5 here;
+    /// Paladin is a Melee function with a 0.0 base, so it carries the
+    /// whole 1.0 alone.
+    #[test]
+    fn cleric_and_paladin_heal_power_is_flat_and_totals_one() {
+        for level in [0u32, 1, 19, 50, 100, 148] {
+            let cleric = Archetype::Cleric.bonus_at(level, 1.0).heal_power_pct;
+            let paladin = Archetype::Paladin.bonus_at(level, 1.0).heal_power_pct;
+            assert_eq!(cleric, ARCHETYPE_CLERIC_HEAL_POWER_FLAT, "Cleric heal power must not scale with level");
+            assert_eq!(paladin, ARCHETYPE_PALADIN_HEAL_POWER_FLAT, "Paladin heal power must not scale with level");
+            let cleric_base = if Archetype::Cleric.combat_function() == CombatFunction::Heal { 0.5 } else { 0.0 };
+            let paladin_base = if Archetype::Paladin.combat_function() == CombatFunction::Heal { 0.5 } else { 0.0 };
+            assert_eq!(cleric_base + cleric, 1.0, "Cleric total heal power must be exactly 100%");
+            assert_eq!(paladin_base + paladin, 1.0, "Paladin total heal power must be exactly 100%");
+        }
+    }
+
+    /// Druid is untouched on heal power - it never had an archetype
+    /// contribution, only `combat_heal_power`'s base - but IS affected
+    /// through evasion. Both halves asserted, because the ruling's
+    /// silence on Druid reads as "Druid is out" and it is only out of the
+    /// heal-power half.
+    #[test]
+    fn druid_keeps_its_heal_power_and_still_takes_the_evasion_cut() {
+        for level in [1u32, 19, 148] {
+            assert_eq!(Archetype::Druid.bonus_at(level, 1.0).heal_power_pct, 0.0, "Druid never had an archetype heal-power term and must not gain one");
+            let old = 0.12 * (1.0 + level as f64 * 0.10);
+            assert!(Archetype::Druid.bonus_at(level, 1.0).evasion < old, "Druid evasion must still take the cut at level {level}");
+        }
+    }
+
+    /// A non-finite or out-of-range weight must not reach the blend.
+    #[test]
+    fn an_out_of_range_weight_is_sanitised() {
+        assert_eq!(sanitize_archetype_bonus_curve_weight(f64::NAN), ARCHETYPE_BONUS_CURVE_WEIGHT);
+        assert_eq!(sanitize_archetype_bonus_curve_weight(f64::INFINITY), ARCHETYPE_BONUS_CURVE_WEIGHT);
+        assert_eq!(sanitize_archetype_bonus_curve_weight(-1.0), ARCHETYPE_BONUS_CURVE_WEIGHT_MIN);
+        assert_eq!(sanitize_archetype_bonus_curve_weight(5.0), ARCHETYPE_BONUS_CURVE_WEIGHT_MAX);
+        assert!(Archetype::Monk.bonus_at(19, f64::NAN).evasion.is_finite());
+    }
+
+    /// A fresh install and `Default::default()` must agree, and the
+    /// shipped weight must be the NEW curve - this dial is the one that
+    /// deliberately does not ship as a no-op.
+    #[test]
+    fn the_shipped_weight_is_the_new_curve_not_a_no_op() {
+        assert_eq!(LiveTunables::default().archetype_bonus_curve_weight, ARCHETYPE_BONUS_CURVE_WEIGHT);
+        assert_eq!(ARCHETYPE_BONUS_CURVE_WEIGHT, 1.0, "shipped at the new curve by ruling - if this becomes 0 the release has silently reverted");
+        for a in ALL_ARCHETYPES {
+            assert_eq!(a.bonus(19).evasion, a.bonus_at(19, ARCHETYPE_BONUS_CURVE_WEIGHT).evasion);
+        }
+    }
+
+    /// The cut is real at the live population's level, for every mirrored
+    /// class. Stated as a direction rather than a magnitude so it survives
+    /// a retune of the multiple.
+    #[test]
+    fn the_ruling_is_a_cut_at_the_live_peak_level() {
+        for &(archetype, _, read) in MIRRORED {
+            if archetype == Archetype::Cleric {
+                continue;
+            }
+            let old = read(&archetype.bonus_at(19, 0.0));
+            let new = read(&archetype.bonus_at(19, 1.0));
+            assert!(new < old, "{archetype:?} must be CUT at level 19, not buffed: {old} -> {new}");
+        }
     }
 }

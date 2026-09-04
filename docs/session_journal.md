@@ -6179,3 +6179,95 @@ explains why rank 3 is 165% rather than a round 200%.
 | 7 | anon `POST /api/commands/join` | **404** |
 
 Tunnel 200, zero panics or ERROR lines, patch note renders.
+
+## 2026-09-05 — ARCHETYPE CURVE: every class mirrors an item affix (branch `feature/archetype-affix-curve`)
+
+Built after a report-before-implementing pass whose numbers killed three of the
+twelve arms — which is what that instruction is for. All six questions came back
+ruled; this is the build.
+
+### What shipped
+
+`Archetype::bonus_at(level, w)`. The advantage was
+`per_unit × (1 + 0.10 × level)` — linear, uncapped, worth **5–8×** the matching
+affix's own `per_tier`. It is now that affix's own curve at
+`ARCHETYPE_AFFIX_MULTIPLE` (2.5) times its coefficient, level→tier 1:1, blended
+on `archetype_bonus_curve_weight` and **shipped at w = 1**.
+
+**`affix_tier_curve` is called, not reimplemented.** That is what makes "the same
+equation as item affixes" true by construction rather than by a comment that can
+rot, and a test divides the delivered advantage by its coefficient and asserts the
+quotient *is* `affix_tier_curve(L)`.
+
+### The three deliberate non-uniformities, each with its guard
+
+- **Slayer held out entirely.** Its leech is `0.001` against the Leech affix's own
+  `0.001` — **1.0×**, where every other class is 5–8×. The rule would have *buffed*
+  it 2.5× now and 25× once the pending affix raise lands: the largest buff in the
+  game, arriving inside a change advertised as a cut.
+  `slayer_is_held_out_of_the_ruling_at_every_weight` is the guard against someone
+  later "finishing the job".
+- **Warlock anchored, not re-coefficiented.** There is **no attack-speed affix at
+  all**; the nearest quantity is gloves slot base power, which **D11 ratified stays
+  linear**. Its multiplier reaches 100 at tier 100 where `f` reaches 10, so treating
+  it as an affix coefficient would import a 10× mismatch and cut Warlock ~77%
+  against everyone else's ~25%.
+- **Cleric and Paladin heal power flat at 100%**, composed differently — Cleric as
+  `combat_heal_power`'s 0.5 base plus 0.5 here, Paladin (a Melee function, 0.0 base)
+  carrying the whole 1.0 alone. Named separately and doc-warned against collapsing,
+  the same reason `BOSS_CRIT_CHANCE_BASE` sits outside its ramp.
+
+### A number I got wrong, and the fix that generalises
+
+Warlock's anchor was first written as a transcribed decimal, `0.09979589711327115`.
+Its own test failed: **off by 2.3e-7**, enough to miss the anchor it exists to hit.
+
+Replaced with a function computing `0.15 × (1 + 0.10 × 19) / f(19)` from the old
+expression it anchors to. **A hand-rounded literal is exact only until someone reads
+it back** — the same lesson as writing the boss half-stages as `cap / slope` rather
+than as decimals. Derive the constant from the thing it must equal, and the
+equality cannot drift.
+
+### Divine Power ships, and is documented as NOT compensation
+
+Cleric's new scaling advantage, mirroring the divine damage affix at the same
+multiple. The doc records the arithmetic so nobody re-derives it hopefully: the
+affix is a **proc chance** for a **+1%-per-stack** buff over a 4s window, so
+sustainable stacks ≈ `chance × actions_per_4s`. **Even at a 100% chance and four
+actions per window that is four stacks, +4%** — against a ~49% healing-output cut
+at level 19. No value of the multiple closes two orders of magnitude, because the
+multiple scales a chance already near its useful ceiling. Compensation is a
+separate future change to the Cleric tree.
+
+It blends from `old_per_unit = 0.0`, so `w` is its on/off switch and the package
+reverts coherently: at w = 0 Cleric has its old scaling heal power **and** no
+Divine Power — exactly the pre-change class, with no double-strength state at any
+setting.
+
+### The dial ships at 1, which is unusual here
+
+Every other dial this week shipped as a no-op. This one is the **walk-back, not the
+rollout**, and that is only acceptable because `bonus_at` is computed on every read
+and nothing is stored: w = 0 reverts every character instantly, with no migration
+needed and none possible.
+
+### Corpus: 14 of 17 moved, and the three that did not are the interesting part
+
+**Nothing regenerated.** `slayer_vs_tough_boss_stage3000` did **not** move — a live
+confirmation that the hold-out works, not just that the test passes.
+`mage_vs_cthulhu_stage200` and `ranger_vs_lich_stage3000` also held; the likely
+reason is that the changed stat never bound in those seeded fights (no crit rolled,
+no second splash target alive), but I have **not verified that** and it is worth one
+look before regeneration rather than assuming.
+
+My earlier estimate of "up to 23" was wrong in its denominator — there are **17**
+scenarios, not 23; I had counted `Scenario {` and `name: "` lines together.
+
+### FOUND
+
+- `Archetype::description()` keeps its signature and resolves the weight to the
+  compiled constant rather than the live dial, because `adventure_web/wiki.rs`
+  calls it and the wiki module is another session's workspace. That is the wiki's
+  own **compiled-only rule** applied deliberately, not an oversight: at the shipped
+  w = 1 the two agree exactly, and if an operator moves the dial the class picker
+  will drift from live combat. Worth a ruling if the dial is ever moved.
