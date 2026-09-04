@@ -5519,3 +5519,42 @@ The Splash group on the passives page states in the page itself that its six
 dials are the **player** ladder and that boss splash is a separate roll in
 `boss_stats_for` — the ambiguity is named rather than resolved silently, and a
 test pins the sentence.
+
+### 2026-09-04 — the rebase over items 7 and 8, and which guard actually fired
+
+`feature/admin-ui-rework` rebased from base `e470de6` onto `dcbf9ed`, carrying
+both `boss-secondary-curve` (item 7) and `gear-tier-excess` (item 8). Six
+commits replayed, four of them conflicting, all in `render_tunables_page` —
+expected, since both merged items edit the same function this branch
+restructured.
+
+Nine new dials filed: the seven `boss_*_half_stage` under a new **Boss Secondary
+Curves** group placed immediately after Encounter Shape (both describe the
+organic boss *before* pacing scales it, so they read as a pair);
+`catchup_full_deficit` into **Experience** beside `win_xp_catchup_enabled`; and
+`boss_gear_tier_weight` into **Encounter Shape** rather than beside the
+controllers — it is feed-forward, moving `effective_avg_level` which
+`boss_stats_for` consumes *before* either controller sees an outcome, so filing
+it with A or B would misattribute it the way burying `dynamic_pacing_enabled`
+in Controller A would have.
+
+**FOUND — the Ungrouped assertion did NOT fire, and the reason is worth more
+than if it had.** It was predicted to, and I expected it to. The coverage test
+passed on the first run after the rebase.
+
+Not because the mechanism failed — because **git's conflict markers announced
+the arrival first, and more precisely.** All three of master's new field groups
+landed inside hunks that collided with this branch's regroup, so every one had
+to be looked at and placed *during* conflict resolution. By the time the test
+ran, nothing was unfiled.
+
+That is the guard hierarchy working in the right order, and it clarifies what
+Ungrouped is actually for: it is the net for a field that arrives **without
+touching the structure you rewrote** — added to `LiveTunables` and rendered
+nowhere, or rendered in a region you never edited. A conflicting rebase catches
+its own additions; a clean one would not have, and that is exactly the case
+Ungrouped exists to cover.
+
+Recorded because the prediction was right about the mechanism and wrong about
+which guard would fire first, and manufacturing the predicted failure to match
+the prediction would have been the worse outcome.
