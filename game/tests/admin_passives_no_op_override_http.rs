@@ -124,12 +124,49 @@ async fn a_save_that_changes_nothing_does_not_claim_the_node_differs() {
         .expect("POST failed");
     assert!(changed.status().is_redirection(), "a valid save must redirect, got {}", changed.status());
 
-    let moved = page(client, base).await;
+    let moved = page(client.clone(), base.clone()).await;
     assert!(
         moved.contains("differs from default"),
         "a genuine change MUST still be badged - a predicate that never fires would pass every assertion above while telling a different lie"
     );
     assert!(moved.contains("passive-state-head\">Modified"), "and it must appear under Modified");
 
+    // --- the collapsed "Not tunable yet" section actually renders ---------
+    // An absent section and a broken section look identical in a rendered
+    // page, so this asserts it POSITIVELY on a class that has such a node
+    // rather than inferring it from Warrior, where it is correctly absent.
+    //
+    // Paladin's `sacredoverflow` is the tree's last `NotYetImplemented` node
+    // (`modifier()`, the 4-arg constructor, always produces that effect). If a
+    // later change deletes it and Paladin ends up with no untunable nodes,
+    // this assertion SHOULD fail - the right response is to point it at
+    // whatever class still has one, or to delete it once none do, not to
+    // weaken it into passing on an empty page.
+    let paladin = client
+        .get(format!("{base}/admin/passives?class=paladin"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .send()
+        .await
+        .expect("GET paladin")
+        .text()
+        .await
+        .expect("body");
+    assert!(
+        paladin.contains("Not tunable yet ("),
+        "the collapsed section must RENDER for a class that has untunable nodes - Paladin holds sacredoverflow. An absent section and a broken one are indistinguishable without this"
+    );
+    assert!(paladin.contains("sacredoverflow"), "and the untunable node itself must be listed inside it");
+    assert!(
+        !warrior_has_untunable(&after),
+        "Warrior has no untunable nodes, so its page must NOT render the section - the empty case must stay empty rather than rendering a zero-count header"
+    );
+
     std::fs::remove_dir_all(&scratch).ok();
+}
+
+/// The Warrior page must not render the collapsed section at all when the
+/// class has no untunable nodes — `section()`/the `details` block return an
+/// empty string for a zero count, and a zero-count header would be noise.
+fn warrior_has_untunable(page: &str) -> bool {
+    page.contains("Not tunable yet (")
 }
