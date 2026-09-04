@@ -5558,3 +5558,132 @@ Ungrouped exists to cover.
 Recorded because the prediction was right about the mechanism and wrong about
 which guard would fire first, and manufacturing the predicted failure to match
 the prediction would have been the worse outcome.
+
+### 2026-09-04 — ADMIN-UI-REWORK deploy record (release `admin-ui-rework`)
+
+Queue item 9, from window a. Held deliberately until items 7 and 8 were
+both live so a rebased once over the pair rather than twice.
+
+| | |
+|---|---|
+| master commit deployed | `749c8df` |
+| binary before | `39054bae…893b10` |
+| binary after | `c90a11cfa44d1e1a052f237e0baa533108694239dbbc1ef018c5af94f4b52336` |
+| downtime | **0.26 s** |
+| suite on the box | **853 passed / 0 failed, 41 suites** — matching a's reported figure exactly |
+| slot | `deploy-pre-20260904-075654-admin-ui-rework`, `LATEST` repointed |
+
+Seven commits. The one that matters most is the first: **`/admin/passives`
+was reporting success for saves that did not happen.** The rest is
+structure — `/admin/tunables` regrouped into 12 groups, the passive
+tunables split onto their own form and route, and a cross-page coverage
+test.
+
+### The risk was the eight dials, and they were checked twice
+
+A rewrite of `render_tunables_page` is precisely what drops a field
+without failing a build, and items 7 and 8 had added eight of them the
+same day. a reported extracting master's render blocks verbatim and
+re-inserting them unchanged. **That was confirmed against the tree rather
+than accepted from the report** — before merging, all eight referenced in
+the rebased source, both validators intact, item 8's read-out present —
+and then **again on the live page after deploy**:
+
+| dial | live | expected |
+|---|---|---|
+| `boss_dr_half_stage` | 150 | 150 |
+| `boss_block_half_stage` | 75 | 75 |
+| `boss_evasion_half_stage` | 50 | 50 |
+| `boss_increased_damage_half_stage` | 50 | 50 |
+| `boss_crit_chance_half_stage` | 58.33333333333333 | 58.33 |
+| `boss_crit_mult_half_stage` | 36 | 36 |
+| `boss_splash_half_stage` | 60 | 60 |
+| `boss_gear_tier_weight` | 0 | 0 |
+
+**8 of 8 render with the values they had before the rewrite.** The
+post-deploy repeat found nothing, which is the point of doing it: a check
+that only runs when you suspect something is not a check.
+
+### "Ungrouped" is absent, and that is the SUCCESS case
+
+The new page carries an `Ungrouped` catch-all for any `LiveTunables`
+field not filed into a group. It does not appear on the live page — and
+that was checked rather than flagged, because an absent section looks
+identical to a broken one. `render_ungrouped` opens with:
+
+```rust
+if missing == 0 {
+    return String::new();
+}
+```
+
+So its absence means **zero unfiled tunables**: every field is grouped.
+Had it rendered, it would have carried its own warning banner naming the
+count. The section is a defect *reporter*, so an empty one is the passing
+state.
+
+The coverage test behind it is derived from the struct rather than a
+hand-maintained list — the same discipline CLAUDE.md already requires of
+the form POST tests — and it asserts something sharper than coverage:
+**no field may render on BOTH admin pages**, because two forms that can
+write the same field mean the later save silently reverts the earlier.
+
+### The gear-tier read-out has moved, and it is the data that moved
+
+After item 8 deployed (2026-09-03 19:31) the read-out said *mean 0.1 —
+median 0.0*. It now says:
+
+> *Gear-tier excess (max(0, mean equipped tier − level), all 21
+> characters): mean 1.9 — median 0.0 — **max 15.6** — **5 of 21** carry
+> any excess.*
+
+**The format is unchanged** — confirmed by grepping item 8's own commit
+for `carry any excess` and finding it, which means my earlier reading was
+simply truncated at 80 characters and not a different render. So the
+change is entirely in the data: in roughly twelve hours the mean excess
+went **0.1 → 1.9**, and one character now carries **15.6 tiers** of gear
+above their level.
+
+That is the undamped craft-power loop becoming visible, and it is exactly
+what item 8 shipped the read-out to provide. **Twelve hours ago there was
+no distribution to choose `boss_gear_tier_weight` from; now there is one**,
+and it says the excess is concentrated rather than broad — a median of 0.0
+against a max of 15.6 across 5 of 21 characters.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `c90a11cf…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,022 B, 200 / 91,118 B |
+| 6 | anon `/admin/tunables` **and** the new `/admin/passives` | **404** both |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+The new operator route was added to check 6 rather than assumed to
+inherit the gate — a new admin page is a new place for the gate to be
+missing.
+
+Tunnel 200, zero panics or ERROR lines. Authenticated `/admin/tunables`
+109,337 B and `/admin/passives` 125,470 B.
+
+No patch note: `/admin/*` is operator-only and no player-facing mechanic,
+cost, chance or timer changed.
+
+### FOUND — item 14's gate is still not met on the remote
+
+Re-checked at the start of this session. `fix/retire-dead-passive-refund`
+is still `493d612`, still **one** commit, `passive_tree.rs` still absent
+from its diffstat, both `"stillwater"` and `"sacredoverflow"` still
+present in its tree, and
+`every_retired_key_is_gone_from_every_tree` returning **0** references.
+
+The order describes that work as done. It is not on origin. **Third stale
+branch pointer**, and the one where trusting it would have cost the most:
+merging it as described would have shipped a one-shot marker-guarded
+refund into a tree where both nodes still render, and the marker would
+have made the loss permanent and invisible. The enforcing test d wrote is
+the thing that makes the gate self-enforcing, and it is the thing that has
+not arrived.
