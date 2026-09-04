@@ -2376,6 +2376,36 @@ struct PassiveSaveFeedback {
     pending: Option<(f64, f64, f64, Option<String>)>,
 }
 
+/// Does this node's LIVE value actually differ from its compiled default?
+///
+/// **Not the same question as `PassiveOverrides::has_override`, and conflating
+/// them was a real defect (fixed 2026-09-05).** `has_override` answers "does an
+/// entry exist"; `do_save_passive_override` inserts unconditionally, so saving a
+/// row without changing anything writes an override equal to the default. The
+/// row then rendered the badge **"differs from default"** permanently, and the
+/// class nav's `(n)` count was inflated by every no-op save.
+///
+/// One boolean was serving two questions. `has_override` remains correct for
+/// **Revert** — that asks whether there is an entry to delete, and for a no-op
+/// override there genuinely is. This asks whether the numbers moved, which is
+/// what the badge, the count and the page's state sections claim.
+///
+/// The comparison is exact rather than epsilon-based on purpose: both sides are
+/// computed from the same constants by the same code, so an unmodified node is
+/// bit-identical, and a stored override is either the same stored value or a
+/// different one.
+fn node_differs_from_default(n: &crate::passive_tree::PassiveNode, overrides: &crate::adventure::PassiveOverrides, global_conversion_cap: f64) -> bool {
+    let defaults: Vec<f64> = (1..=3).map(|r| n.magnitude_at_rank_with(r, &crate::adventure::PassiveOverrides::default())).collect();
+    let current: Vec<f64> = (1..=3).map(|r| n.magnitude_at_rank(r)).collect();
+    if current != defaults {
+        return true;
+    }
+    // A per-node conversion cap counts as modified only when it actually
+    // departs from the global it would otherwise follow - an explicit cap
+    // written equal to the global is the same no-op case as above.
+    overrides.conversion_cap_for(n.key).is_some_and(|cap| cap != global_conversion_cap)
+}
+
 fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, saved: bool, t: &LiveTunables, feedback: Option<&PassiveSaveFeedback>, tunable_violations: Option<&[String]>) -> String {
     let nav = top_nav(viewer);
     let overrides = passive_overrides();
@@ -2389,17 +2419,21 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
         .iter()
         .map(|&a| {
             let slug = format!("{a:?}").to_lowercase();
-            let tuned = a.passive_nodes().iter().filter(|n| overrides.has_override(n.key)).count();
+            // Counts nodes whose numbers ACTUALLY moved, not nodes with an
+            // override entry - see `node_differs_from_default`. This count was
+            // inflated by every no-op save until 2026-09-05.
+            let tuned = a.passive_nodes().iter().filter(|n| node_differs_from_default(n, &overrides, t.overflow_conversion_cap_per_rank)).count();
             let marker = if tuned > 0 { format!(" ({tuned})") } else { String::new() };
             let current = if a == archetype { " current" } else { "" };
             format!("<a class=\"passive-class-link{current}\" href=\"/admin/passives?class={slug}\">{a:?}{marker}</a>")
         })
         .collect();
 
-    let rows: String = archetype
-        .passive_nodes()
-        .iter()
-        .map(|n| {
+    // Renders ONE node. Unchanged from before the 2026-09-05 redesign except
+    // for the two-predicate split inside; the sectioning below decides where
+    // its output lands, not what it contains.
+    let render_row = |n: &crate::passive_tree::PassiveNode| -> String {
+        {
             let key = n.key;
             let name = escape_html(n.name);
             let tier = match n.tier {
@@ -2409,7 +2443,13 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             };
             let not_yet = matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented);
             let pending = !crate::adventure::node_is_tunable(key);
-            let overridden = overrides.has_override(key);
+            // TWO questions, deliberately two booleans (2026-09-05).
+            // `has_entry` — is there an override entry to delete? Revert's
+            // question, and `has_override` is the right answer to it.
+            // `differs`  — did the numbers actually move? The badge's question,
+            // and the one the page used to answer with `has_override`.
+            let has_entry = overrides.has_override(key);
+            let differs = node_differs_from_default(n, &overrides, t.overflow_conversion_cap_per_rank);
 
             let defaults: Vec<f64> = (1..=3).map(|r| n.magnitude_at_rank_with(r, &crate::adventure::PassiveOverrides::default())).collect();
             let current: Vec<f64> = (1..=3).map(|r| n.magnitude_at_rank(r)).collect();
@@ -2469,7 +2509,7 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             let range_text = escape_html(&crate::adventure::node_range_text(key));
             let unit_note = format!("<span class=\"passive-unit-note\"><strong>{}</strong> — {range_text}</span>", unit.label());
 
-            let marker = if overridden { "<span class=\"passive-tuned-badge\">differs from default</span>" } else { "" };
+            let marker = if differs { "<span class=\"passive-tuned-badge\">differs from default</span>" } else { "" };
             // Half-tunable nodes (PARTIALLY_TUNABLE_NODES): the input below
             // genuinely works for the node's PRIMARY value, but a secondary
             // aspect still reads node RANK in combat.rs - say so instead of
@@ -2497,7 +2537,9 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             } else {
                 (String::new(), String::new())
             };
-            let revert = if overridden {
+            // `has_entry`, not `differs`: Revert deletes the stored entry, and
+            // a no-op override is exactly the case that most needs deleting.
+            let revert = if has_entry {
                 format!(
                     "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\">\
                        <input type=\"hidden\" name=\"class\" value=\"{slug}\">\
@@ -2574,8 +2616,53 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
                    {row_warning}\
                  </div>",
             )
-        })
-        .collect();
+        }
+    };
+
+    // SECTIONED BY STATE (2026-09-05), not by category. These rows already
+    // carry two categories — the class they belong to and their tier — both
+    // structural and both already on screen, so re-grouping by category would
+    // move furniture without answering a question anyone has. The question an
+    // operator opens this page with is "what have I changed, and what still
+    // needs attention", so that is what the page is ordered by.
+    //
+    // Modified first because it is the working set and the thing a rebalance
+    // must not miss; not-tunable last and collapsed because 27 nodes tree-wide
+    // are reference material that was being charged full row height.
+    let (mut modified_rows, mut default_rows, mut untunable_rows) = (String::new(), String::new(), String::new());
+    let (mut n_modified, mut n_default, mut n_untunable) = (0usize, 0usize, 0usize);
+    for n in archetype.passive_nodes() {
+        let not_yet = matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented);
+        let pending = !crate::adventure::node_is_tunable(n.key);
+        if not_yet || pending {
+            n_untunable += 1;
+            untunable_rows.push_str(&render_row(n));
+        } else if node_differs_from_default(n, &overrides, t.overflow_conversion_cap_per_rank) {
+            n_modified += 1;
+            modified_rows.push_str(&render_row(n));
+        } else {
+            n_default += 1;
+            default_rows.push_str(&render_row(n));
+        }
+    }
+    let section = |title: &str, count: usize, note: &str, body: &str| -> String {
+        if count == 0 {
+            return String::new();
+        }
+        format!("<div class=\"passive-state-head\">{title} <span class=\"count\">{count} — {note}</span></div>{body}")
+    };
+    let rows = format!(
+        "{}{}{}",
+        section("Modified", n_modified, "values differ from the compiled default", &modified_rows),
+        section("At default", n_default, "tunable, currently shipping values", &default_rows),
+        if n_untunable == 0 {
+            String::new()
+        } else {
+            format!(
+                "<details class=\"passive-collapsed\"><summary>Not tunable yet ({n_untunable}) — no mechanic, or numbers still in combat.rs</summary>{untunable_rows}</details>"
+            )
+        }
+    );
 
     // The 24 passive-specific LiveTunables (2026-09-03). Rendered HERE,
     // beside the per-node table they tune, rather than in the world/economy
@@ -2595,11 +2682,11 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
     };
     let passive_fields = passive_tunables_fields_html(t);
     let passive_tunables = format!(
-        "<div class=\"card\">\
+        "<div class=\"card admin-card\">\
           <h1>🎛️ Passive Tunables</h1>\
           <p class=\"muted\">Dials that tune specific passive NODES, live on the next fight. Separate from the per-node values above: those set a node's rank magnitudes, these set the constants the node's behaviour is built from.</p>\
           {tunables_banner}\
-          <form method=\"post\" action=\"/admin/passives/tunables/save\">\
+          <form class=\"tunable-grid\" method=\"post\" action=\"/admin/passives/tunables/save\">\
             {passive_fields}\
             <button class=\"btn\" type=\"submit\">Save Passive Tunables</button>\
           </form>\
@@ -2607,7 +2694,7 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
     );
     format!(
         "{nav}\
-        <div class=\"card\">\
+        <div class=\"card admin-card\">\
           <h1>🎚️ Passive Values</h1>\
           <p class=\"muted\">Retune any passive node's numbers live — no rebuild, no restart, effective on the very next fight. \
           Structure (which nodes exist, their ranks and prerequisites) stays in code and isn't editable here.</p>\
@@ -5509,17 +5596,17 @@ fn render_tunables_page(
     let ungrouped = ungrouped_tunables_html(&form_fields, &passive_tunables_fields_html(t), t);
     format!(
         "{nav}\
-        <div class=\"card\">\
+        <div class=\"card admin-card\">\
           <h1>⚙️ Live Tunables</h1>\
           <p class=\"muted\">Changes apply immediately to the next fight — no rebuild, no restart required.</p>\
           {banner}\
-          <form method=\"post\" action=\"/admin/tunables/save\">\
+          <form class=\"tunable-grid\" method=\"post\" action=\"/admin/tunables/save\">\
             {form_fields}\
             {ungrouped}\
             <button class=\"btn\" type=\"submit\">Save</button>\
           </form>\
         </div>\
-        <div class=\"card\">\
+        <div class=\"card admin-card\">\
           <h2>Operator Controls</h2>\
           <p class=\"muted\">The web equivalent of the mod-only <code>!nextencounter</code> — runs one encounter right now instead of waiting for the timer. Every refusal is reported back with its reason; a refused press never queues a fight to happen later.</p>\
           <form method=\"post\" action=\"/admin/ops/next-encounter\">\
@@ -5531,7 +5618,7 @@ fn render_tunables_page(
             <button class=\"btn\" type=\"submit\">Trigger Encounter Now</button>\
           </form>\
         </div>\
-        <div class=\"card\">\
+        <div class=\"card admin-card\">\
           <h2>📌 Pinned Fights</h2>\
           <p class=\"muted\">Mod tool <code>!pinfight</code> copies the most recent coarse-tier and detail-tier fight files here, immune to the normal rolling-window pruning — bug-report evidence that survives past the 3-5 file window until someone deletes it by hand.</p>\
           {pinned_fights_html}\

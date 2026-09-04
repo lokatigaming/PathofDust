@@ -29,6 +29,24 @@
     border: 1px solid rgba(160, 140, 255, 0.25); border-radius: 12px;
     padding: 24px; backdrop-filter: blur(6px);
   }
+  /* The two admin pages (2026-09-05). `.card`'s 640px is right for a
+     player-facing card on a phone; on /admin/tunables and /admin/passives it
+     left ~51% of a 1320px shell empty while every field ran down one column.
+     Same width the bag, passive-tree and wiki pages already opt into. */
+  .admin-card { max-width: 1320px; }
+  /* Flows a group's numeric fields into as many columns as fit, instead of
+     one per line. Headings, section hints, checkboxes and the submit span the
+     full width so a group still reads as one block. */
+  .tunable-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 2px 28px; align-items: start;
+  }
+  .tunable-grid > h2,
+  .tunable-grid > p,
+  .tunable-grid > ul,
+  .tunable-grid > button,
+  .tunable-grid > .veil-check { grid-column: 1 / -1; }
+  .tunable-grid > h2 { margin-top: 18px; }
   .dashboard-grid {
     display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 16px; width: 100%; max-width: 1320px; align-items: start;
@@ -440,20 +458,48 @@
   }
   .passive-class-link:hover { border-color: rgba(160,140,255,0.5); color: #eae6f5; }
   .passive-class-link.current { background: #7c5cff; border-color: #7c5cff; color: #fff; font-weight: 600; }
+  /* ONE LINE PER NODE (2026-09-05). Was six stacked blocks per row, so a
+     12-node class was a long scroll for 36 numbers and you could never see a
+     node's name and its numbers at the same time. Flex with a FIXED-basis head
+     is what aligns the rank inputs into a column down the class - the actual
+     rebalance question is "is this node's rank 1 out of line with its
+     siblings", and that was unanswerable when every row started at a
+     different vertical offset. No exotic layout: if flex-basis is ignored the
+     row degrades to the old stacked form rather than breaking. */
   .passive-row {
     border: 1px solid rgba(160,140,255,0.18); border-radius: 10px;
-    padding: 12px 14px; margin: 10px 0; background: rgba(255,255,255,0.03);
+    padding: 10px 14px; margin: 6px 0; background: rgba(255,255,255,0.03);
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
   }
   .passive-row.disabled { opacity: 0.55; border-style: dashed; }
-  .passive-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .passive-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 0 0 24rem; }
+  /* Inline notes and the error/warning blocks are the one thing that should
+     break the grid - they take the full width beneath their own row. */
+  .passive-row > .passive-note,
+  .passive-row > .passive-error,
+  .passive-row > .passive-warn,
+  .passive-row > .tunable-hint { flex: 1 1 100%; margin: 2px 0 0; }
   .passive-row-head code { font-size: 0.78rem; color: #8d80b3; }
   .passive-tier { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #766a99; }
   .passive-tuned-badge {
     font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
     background: rgba(255,215,106,0.15); color: #ffd76a; padding: 2px 8px; border-radius: 999px;
   }
-  .passive-default { font-size: 0.8rem; color: #a394c7; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .passive-controls { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .passive-default { font-size: 0.8rem; color: #a394c7; font-variant-numeric: tabular-nums; flex: 0 0 10rem; }
+  .passive-controls { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 0; }
+  /* State sections (2026-09-05). The page's organising question is "what have
+     I changed, and what still needs attention" - not a category, which these
+     rows already carry twice over in their class and tier. */
+  .passive-state-head {
+    display: flex; align-items: baseline; gap: 10px; margin: 22px 0 6px;
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: #b9a9ff;
+  }
+  .passive-state-head .count { color: #766a99; letter-spacing: 0; text-transform: none; font-size: 0.8rem; }
+  .passive-collapsed > summary {
+    cursor: pointer; margin: 22px 0 6px; font-size: 0.78rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: #766a99;
+  }
+  .passive-collapsed > summary:hover { color: #b9a9ff; }
   .passive-edit { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin: 0; }
   .passive-revert { margin: 0; }
   .passive-rank { display: flex; flex-direction: column; gap: 2px; }
