@@ -119,6 +119,24 @@ pub(crate) const AFFIX_JITTER_RANGE: std::ops::Range<f64> = 0.85..1.15;
 /// T^1.43 target), and `roll_range_for_slot` gives them the affix jitter
 /// band. Both follow from the same ruling, so they read the same predicate.
 pub(crate) fn slot_power_is_affix_equivalent(slot: EquipSlot) -> bool {
+    // THIS IS A FORK, AND A NEW SLOT MUST BE PUT ON ONE SIDE OF IT
+    // DELIBERATELY (guard added 2026-09-04).
+    //
+    // Before this assertion, a tenth slot silently answered `false` and
+    // inherited the original five's treatment - a linear tier term and
+    // `POWER_ROLL_RANGE` - with no compiler error and no failing test.
+    // That is worse than a wrong default, because a wrong default
+    // eventually surprises someone whereas a silent one is only ever
+    // found by measuring the game.
+    //
+    // A tenth slot now fails the build here. Decide which side it belongs
+    // on, add it to the `matches!` if it is affix-equivalent, and update
+    // the count. Do not relax this to a runtime check: the whole value is
+    // that it fires before anything ships.
+    const _: () = assert!(
+        EQUIP_SLOTS.len() == 9,
+        "EQUIP_SLOTS has changed size. `slot_power_is_affix_equivalent` is a FORK - it decides whether a slot's base power is one affix's worth (curved tier term, affix jitter band) or a slot power in its own right (linear tier term, POWER_ROLL_RANGE). A new slot answers `false` by default and gets the original five's treatment silently. Put it on a side on purpose, then update this count."
+    );
     matches!(slot, EquipSlot::Ring1 | EquipSlot::Ring2 | EquipSlot::Amulet | EquipSlot::Pants)
 }
 
@@ -1065,7 +1083,7 @@ pub(crate) fn default_base_power_for_slot(slot: EquipSlot) -> f64 {
     match slot {
         // 3x'd (2026-08-16, a live request: "increase the implicit
         // damage contribution of all weapons by 3x across the board") -
-        // weapon `power` is the only one of these 5 that feeds directly
+        // weapon `power` is the only slot coefficient here that feeds directly
         // into `Character::combat_atk` as a flat bonus "same for every
         // [combat] function" (see that fn's doc), i.e. the weapon's own
         // implicit damage contribution independent of its affix rolls -
@@ -1801,5 +1819,51 @@ mod slot_base_power_pairing_tests {
         let ring_10 = compute_power(EquipSlot::Ring1, 10, 1.0);
         let ring_20 = compute_power(EquipSlot::Ring1, 20, 1.0);
         assert!((ring_20 / ring_10 - 2.0f64.sqrt()).abs() < 1e-12, "Ring1's implicit must ride the affix tier curve, not the linear term");
+    }
+}
+
+#[cfg(test)]
+mod slot_coverage_tests {
+    use super::*;
+
+    /// EVERY slot must be classified by the affix-equivalent fork, on one
+    /// side or the other, and the classification must be total.
+    ///
+    /// The point is not the assertion - `matches!` is total by
+    /// construction - it is that this test reads `EQUIP_SLOTS`, so adding
+    /// a tenth slot lands it here automatically alongside the compile-time
+    /// guard in `slot_power_is_affix_equivalent`. The guard forces a
+    /// decision; this records what was decided.
+    #[test]
+    fn every_slot_lands_on_a_declared_side_of_the_affix_equivalent_fork() {
+        let affix_equivalent: Vec<EquipSlot> = EQUIP_SLOTS.into_iter().filter(|&s| slot_power_is_affix_equivalent(s)).collect();
+        let slot_powered: Vec<EquipSlot> = EQUIP_SLOTS.into_iter().filter(|&s| !slot_power_is_affix_equivalent(s)).collect();
+
+        assert_eq!(
+            affix_equivalent,
+            vec![EquipSlot::Ring1, EquipSlot::Ring2, EquipSlot::Amulet, EquipSlot::Pants],
+            "the §8 slots are the affix-equivalent side. If a new slot appears here, that was a deliberate decision and this list should say so"
+        );
+        assert_eq!(
+            slot_powered,
+            vec![EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots],
+            "the original five are the slot-powered side. A NEW slot appearing here is the silent default the compile-time guard exists to prevent - it means someone added a slot without choosing a side"
+        );
+        assert_eq!(affix_equivalent.len() + slot_powered.len(), EQUIP_SLOTS.len(), "the fork must classify every slot");
+    }
+
+    /// The two things the fork actually decides, asserted per slot rather
+    /// than assumed from the predicate - so a future change that moves one
+    /// of them off the shared predicate fails here.
+    #[test]
+    fn the_fork_decides_the_roll_band_for_every_slot_consistently() {
+        for slot in EQUIP_SLOTS {
+            let expected = if slot_power_is_affix_equivalent(slot) { AFFIX_JITTER_RANGE } else { POWER_ROLL_RANGE };
+            assert_eq!(
+                roll_range_for_slot(slot),
+                expected,
+                "{slot:?}'s roll band must follow the affix-equivalent fork - if a slot's band stops tracking the predicate, the two have drifted apart and one of them is lying"
+            );
+        }
     }
 }

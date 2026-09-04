@@ -4681,6 +4681,7 @@ grant observed in 20 minutes" against a live game resolving a fight every
 win-XP had stopped. The check that dissolved it was looking at the
 characters directly rather than re-reading the observer's conclusion —
 they were level 17, which is only reachable by being paid.
+
 ## 2026-09-03 — WIKI-TRUTH-UP (branch `wiki/truth-up`)
 
 Corrected the wiki against the code after several mechanics shipped without
@@ -5891,3 +5892,51 @@ refund.** Every site that asks how many points a character has spent
 derives it by summing the allocation map, so a removed entry returns its
 points automatically and the two numbers cannot disagree — because there
 is only one number.
+
+### 2026-09-04 — STANDING FACT: one-time grants in disposable-manager tests, and a correction to my own claim
+
+Belongs beside the `Character::new` random-affix note — the same disease
+in the other fixture. **This entry corrects the generalisation in the
+2026-09-04 craft-token flake entry**, which said "every one-time
+marker-guarded grant in the codebase is armed in every such test." That
+is too broad, and the accurate version is more useful.
+
+Every disposable test manager builds a FRESH scratch data dir, so every
+marker file is absent and every one-time grant is *nominally* armed. But
+the grants split into two kinds, and only one kind can actually fire.
+
+**Construction-time grants are harmless.** Ten of the eleven
+marker-guarded sites live in `AdventureManager::new` (plus
+`fight_storage`'s own startup migration). They iterate the characters
+loaded from disk — and in a disposable test that file is EMPTY at
+construction. They grant nothing, then write their markers, which
+permanently disarms them before any character has joined. A test cannot
+be bitten by these no matter what it asserts.
+
+**Gameplay-time grants are armed and will fire.** A grant that runs
+during a fight sees characters that exist by then, with its marker still
+absent because construction never wrote it.
+
+**There is exactly one of these today**: the one-time top-healer
+`CraftAction::CelestialShard` award in `announce_encounter_result`
+(`manager.rs`, the only marker check outside the constructor). It fires
+on the first boss fight in which any player records `healing_done > 0`.
+That is why it, and nothing else, produced the craft-token flake.
+
+**The exposure question, answered rather than surveyed.** The only
+gameplay-armed grant writes into `craft_tokens`, so the exposed set is:
+disposable-manager tests that run a fight and then assert over
+`craft_tokens`. That was exactly one test, and it is fixed.
+`divinity_ui_http.rs`'s `inventory.len() == 3` is the only other
+whole-collection assertion on a disposable manager, and it is NOT exposed
+— no gameplay-armed grant touches `inventory`. Everything else in the
+suite that indexes or counts a collection (`migrations.rs`,
+`character.rs`'s craft tests) operates on a bare `Character` with no
+manager at all, so no grant of either kind runs.
+
+**Stated as a check, so it is usable in review:** when a disposable-
+manager test asserts over currency, token or item state, ask whether any
+marker-guarded grant runs on a GAMEPLAY path — not whether one exists.
+Construction-time grants disarm themselves on an empty roster. Today the
+answer is a single grant and a single currency; if a second gameplay-time
+grant is ever added, this entry is the thing it invalidates.
