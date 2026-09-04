@@ -4504,6 +4504,7 @@ attached to `median_u32` (it sat above `median_u32`'s own doc, so rustdoc
 concatenated both onto the median helper and `catchup_multiplier` itself
 rendered undocumented). Repaired while rewriting the function.
 
+
 ### 2026-09-04 — CATCHUP-DEGENERATION deploy record (release `catchup-degeneration`)
 
 Queue item 5. The real fix for the XP overshoot measured on 2026-09-03,
@@ -5687,3 +5688,82 @@ refund into a tree where both nodes still render, and the marker would
 have made the loss permanent and invisible. The enforcing test d wrote is
 the thing that makes the gate self-enforcing, and it is the thing that has
 not arrived.
+### 2026-09-04 — FLAKE: the craft-token test, and a general fact about disposable managers
+
+Branch `fix/stage-gate-shard-flake`.
+`stage_gate_tests::fighting_never_grants_a_craft_token_but_the_starter_set_is_intact`
+failed at roughly 2%. Sixth instance this week of *a literal list
+asserted against a fixture that has a random element in it*.
+
+**Cause.** `craft_tokens` is a shared bag that shard currencies also live
+in. The test compared the whole map against the starter set excluding
+`UniqueShard` — but that was not the only currency that could arrive.
+`announce_encounter_result` carries a one-time top-healer grant of a
+`CraftAction::CelestialShard`, marker-guarded, which fires on the first
+boss fight in which any player records `healing_done > 0`.
+
+**The general fact, which is worth more than the fix:** every disposable
+test manager builds a FRESH scratch data dir, so **every one-time
+marker-guarded grant in the codebase is armed in every such test.** The
+marker files live in the directory the test just created, so they are
+always absent and the grants are always primed. Any disposable-manager
+test asserting over state that a launch grant can touch is exposed to
+this, not just this one. That is the thing to check first the next time a
+manager test flakes.
+
+**Fixed as a property**, stated over `ALL_CRAFT_ACTIONS` — the eight real
+craft actions, which are exactly the starter set — rather than by
+lengthening the exclusion list. A longer list is the same bug with a
+later expiry date: the next currency added to that map reopens it. The
+eight cannot be reopened that way, because a new currency is by
+construction not one of them.
+
+Mutation-checked, and **half the check is permanent**: the helper forces
+both shard currencies into the map and re-asserts, so the test
+demonstrates its own immunity on every run instead of depending on the
+roll. Separately and temporarily, the old assertion was run against a
+forced CelestialShard and failed exactly as reported — reproducing the
+live failure rather than resembling it.
+
+Deliberately **not** validated by repetition. Session c ran 30 isolated
+runs and refused to call them evidence at p ~ 0.002; answering that with
+200 runs would have been the same error at a larger scale.
+
+Suite: **794 passed, 0 failed**, `cargo test --release --workspace
+--quiet -j 4 --target-dir target-flake`.
+
+FOUND — that single test takes ~68 s on its own, because it runs 12 real
+encounters. Pre-existing, not from this change, and it is most of why the
+lib suite's wall clock is what it is.
+
+### 2026-09-04 — The worktree correction, recorded because the wrong model was load-bearing
+
+`C:\dust-work\{a,b,...}` are **git worktrees sharing `C:\PathofDust\.git`**,
+not independent clones. `C:/dust-work/b/.git` is a file whose entire
+contents are `gitdir: C:/PathofDust/.git/worktrees/b`.
+
+This mattered rather than being trivia. Hooks live in the shared
+`.git/hooks` and run for **every** worktree, so a commit/push hook
+installed on 2026-09-03 to protect `C:\PathofDust` refused all five
+worktrees — including the four directories its own refusal message points
+people at. It blocked every window, session c's merge authority included.
+
+The hook's own note read "Verified before installing: nothing automated
+commits from this tree." That verification was sound for the tree it
+considered; it simply did not consider that the hooks directory is shared
+with five worktrees. Fixed by window a with a three-line
+`git rev-parse --show-toplevel` guard.
+
+Two things deliberately not done while blocked, both later ruled correct.
+The hook documents `--no-verify` and its own text names the worktrees as
+the legitimate place to work, so overriding it would have been arguable —
+but silently overriding another session's guard proves it can be ignored,
+which is worse than waiting. Editing the hook directly was also declined:
+it is another window's safety control, and changing it unilaterally is
+the same mistake pointing the other way. Reporting the fix and letting
+its owner apply it was the shape that worked.
+
+Practical consequence worth keeping: a finished but uncommitted change on
+a machine that has lost power twice in a day should be written outside
+the repo before reporting. `git diff --cached > ...patch` — note
+`--cached`, since a staged change produces an empty plain `git diff`.
