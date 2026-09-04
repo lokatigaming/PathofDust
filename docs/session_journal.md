@@ -6451,3 +6451,124 @@ when none does — the test re-arms itself automatically the moment a node enter
 that state again, and a reader learns the arm is dormant by fact rather than by
 silence. Deleting the test would have thrown away a live guard because its
 subject happened to be temporarily empty.
+
+### 2026-09-05 — RETIRE-DEAD-PASSIVE-REFUND deploy record (release `retire-dead-passive-refund`)
+
+Queue item 14, from window d. Both commits together, which is the gate.
+
+| | |
+|---|---|
+| master commit deployed | `e7b005d` |
+| binary before | `5e56995b…365832` |
+| binary after | `5978bc7028bba76b59008ad9147761f3cba3b46b37fda28d1018170d799cf808` |
+| downtime | **0.56 s** |
+| suite on the box | **871 passed / 0 failed, 42 suites** (865 + 6) |
+| slot | `deploy-pre-20260904-213300-retire-dead-passive-refund`, `LATEST` repointed |
+
+### The gate, checked on the tree being merged
+
+Stillwater and Sacred Overflow read 0.0 at every rank while still counting
+against a character's point budget. The refund is one-shot and
+marker-guarded, so shipped alone into a tree where the nodes still render,
+a player sees refunded points, spends them straight back into a node that
+still promises something, and the marker means **they are never refunded
+again** — permanent and invisible, and worse than no refund because it
+looks solved.
+
+Verified on the rebased tree, not on the branch as reported and **not by
+counting**: `grep "stillwater"` and `grep "sacredoverflow"` return **zero
+non-comment lines** in `passive_tree.rs`, leaving two
+`// RETIRED 2026-09-04 … stood here` tombstones. That distinction is the
+Golem Master lesson — the same grep there returned `1` and meant "present
+in a comment".
+
+d made the constraint self-enforcing rather than documented:
+`every_retired_key_is_gone_from_every_tree` fails if any archetype's tree
+still defines a retired key, so the pairing cannot be split by a rebase,
+cherry-pick, revert or partial deploy.
+
+### Verified by effect — and it was a real falsification opportunity
+
+An allocation baseline was captured **before** the swap so the migration's
+effect could be measured rather than asserted:
+
+| | before | after |
+|---|---|---|
+| characters | 22 | 22 |
+| total points allocated | **97** | **97** |
+| characters whose total moved | — | **0** |
+| per-character digest | `6846ad277e04fff8` | `6846ad277e04fff8` |
+
+Marker written (`true`), so the migration ran and is now guarded. Neither
+retired node renders: **0** occurrences of "Stillwater" or "Sacred
+Overflow" on `/wiki/passives`.
+
+**This was the first live test of the census I ran for window d on
+2026-09-04** — zero holders, zero points. Had any allocation total moved,
+that census would have been wrong, and so would the sizing d worked from.
+It came back identical to the byte. A migration that correctly does
+nothing is only distinguishable from one that silently failed if you
+measured beforehand.
+
+d's design note is the elegant part: **removing the entry IS the refund.**
+Every site that asks how many points a character has spent derives it by
+summing the allocation map, so a removed entry returns its points
+automatically and the two numbers cannot disagree — there is only one
+number.
+
+### A new marker, and a gap it exposed
+
+The migration introduces
+`adventure-refund-retired-dead-nodes-marker.json`, registered in the
+table at `migrations.rs:561`. It was **not** listed in
+`backup-game-data.sh`'s `MARKER_FILES` — the same completion the
+starter-kit marker needed on 2026-09-03. Added, with the distinction
+recorded in place: this marker is a **guard**, not a record. While it
+exists the refund cannot fire again.
+
+`.gitignore` already covers it through the `adventure-*-marker.json`
+glob — confirmed with `git check-ignore` rather than inferred from the
+pattern being present, which is the near-miss that caught me on
+`bugreports.json`.
+
+Confirmed by effect: a real `pathofdust-backup.service` run afterwards
+reported **`verdict=clean`, 40 archives, 40 verified, and no
+`MANIFEST DRIFT` line.**
+
+### Two of my own checks that returned misleading numbers
+
+**`refund marker path defined : 0`.** Reads as "the marker is missing". It
+was not — I had grepped for `REFUND_RETIRED_DEAD_NODES`, a constant name
+I guessed, and no such constant exists. The `0` meant *my guess was
+wrong*, not *the thing is absent*. Third instance this session of a bare
+count reading as a verdict: the Golem `1` that meant "in a comment", the
+`penalty text gone : 1` whose label inverted its own number, and this.
+**A bare count is only evidence if you already know what a correct answer
+looks like.**
+
+**The backup script installed from a stale tree.** I installed
+`backup-game-data.sh` from `/root/deploy-src-retire-dead-passive-refund/`,
+which was archived from `e7b005d` — *before* the marker line was committed
+at `18d7ec6`. The verification grep returned `0` and caught it; reinstalled
+by piping the current repo copy. The archive tree is a snapshot, and a
+snapshot taken before an edit does not contain the edit — the same
+stale-artifact class recorded three times already, this time in my own
+deploy step.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `5978bc70…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,355 B, 200 / 92,405 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: on this roster the refund moves nothing and the two removed
+nodes were unreachable dead weight that read 0.0 at every rank. Nothing a
+player can observe changed.
