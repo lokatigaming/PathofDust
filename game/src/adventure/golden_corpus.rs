@@ -209,7 +209,82 @@ fn scenarios() -> Vec<Scenario> {
     vec![
         Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
         Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
+        // **THIS SCENARIO DOES NOT EXERCISE THE MAGE'S OWN ADVANTAGE. Do
+        // not read it holding as evidence that crit multiplier is safe.**
+        // (Measured 2026-09-05, during the archetype-affix-curve pass.)
+        //
+        // The Mage's archetype advantage is CRIT MULTIPLIER, which
+        // multiplies nothing unless a crit lands. This fight is 7 attack
+        // events long at a crit chance of exactly `BASE_CRIT_CHANCE`
+        // (0.05 - the seeded gear rolls no crit chance), and its fixture
+        // records 4 crit rolls, 0 of them successful. `0.95^4 = 81.5%`,
+        // so a zero-crit run is the EXPECTED outcome here, not bad luck.
+        //
+        // It held unchanged through a change that moved this Mage's crit
+        // multiplier from 2.7000 to 2.3125 - and it would hold through
+        // any other crit-multiplier change for the same reason.
+        //
+        // Deliberately NOT modified: changing it would discard a
+        // committed baseline and the historical comparison with it, for
+        // no gain. `mage_crit_companion_stage200` below is the fix - a
+        // sibling that forces a crit deterministically. The general
+        // shape, worth remembering: **a corpus scenario named for a class
+        // is only a regression net for that class if the class's
+        // advantage actually fires in it.**
         Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], party: &[], boss: boss(40_000, 400, 1100) },
+        // The companion to the scenario above, added 2026-09-07 so that
+        // the Mage's crit multiplier is actually covered by the corpus.
+        //
+        // **The crit is GUARANTEED, not likely.** `empoweredbolt` at rank
+        // 2+ sets `CombatSimUnit::empoweredbolt_invested`, and
+        // `simulate_battle`'s force-crit check is
+        // `empoweredbolt_invested && hits_landed_this_fight == 0` - so
+        // the first hit this Mage LANDS crits, with no roll involved. The
+        // probability of a zero-crit run is therefore **0**, and it is 0
+        // for every seed, not for this one. That matters: "I picked a
+        // better seed" would be the same bet with better luck, and would
+        // silently stop holding the day someone regenerated the fixture.
+        //
+        // **Rank 2 and not 3, deliberately.** `empoweredbolt`'s own
+        // per-rank table is `[0.0, 0.0, 0.20]`, so at rank 3 it would add
+        // +20% crit damage of its own and partially mask the archetype
+        // term this scenario exists to watch. At rank 2 the guarantee is
+        // active and its magnitude is 0.0, so the crit damage that lands
+        // is the 2.0 base plus the Mage's archetype crit multiplier and
+        // nothing else.
+        //
+        // Everything else is held identical to its sibling above - same
+        // stage, level, boss kind and hand-authored boss stats - so the
+        // two differ in exactly one variable. The seed differs because
+        // each scenario draws its own gear from it.
+        Scenario {
+            name: "mage_crit_companion_stage200",
+            seed: 23,
+            stage: 200,
+            // ORIGINAL_FIVE_SLOTS, per ruling: this is the companion to the
+            // FIVE-slot scenario above, and that is where the gap is. The
+            // nine-slot ground is already covered -
+            // `mage_nine_slot_vs_cthulhu_stage200` DIVERGED under the
+            // archetype curve while `mage_vs_cthulhu_stage200` held, which
+            // is the observation that turned the coverage gap from an
+            // inference into a measurement.
+            slots: ORIGINAL_FIVE_SLOTS,
+            archetype: Archetype::Mage,
+            level: 25,
+            boss_kind: Some(BossKind::Cthulhu),
+            // `criticalmass` at 4/4 and one point in its parent `arcane` are
+            // here because a Modifier is only REACHABLE behind a 4/4
+            // Specialization (`scenario_allocations_are_reachable`
+            // enforces it) - a fixture built from a state the game could
+            // never produce would be pinning fiction. They also happen to
+            // add crit CHANCE, which is a different stat from the crit
+            // MULTIPLIER this scenario watches, so they make ordinary
+            // crits likelier without masking the term under test.
+            passives: &[("arcane", 1), ("criticalmass", 4), ("empoweredbolt", 2)],
+            golem_slots: &[],
+            party: &[],
+            boss: boss(40_000, 400, 1100),
+        },
         Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
         Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
         Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
