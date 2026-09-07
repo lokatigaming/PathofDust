@@ -210,7 +210,50 @@ fn scenarios() -> Vec<Scenario> {
         Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
         Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
         Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], party: &[], boss: boss(40_000, 400, 1100) },
+        // **THIS SCENARIO DOES NOT EXERCISE DIVINE GRACE.** Its
+        // `passives` list is empty, so `grace` sits at rank 0 and the
+        // Cleric half of the 2026-09-07 healer compensation contributes
+        // nothing here. That is why the compensation moved only two
+        // corpus scenarios, both Paladin ones, despite touching two
+        // classes. `cleric_grace_companion_stage200` below is the fix.
+        //
+        // Same shape as `mage_vs_cthulhu_stage200`, and the third
+        // instance of it this week: **a fixture named for a class is only
+        // a regression net for that class if the class's mechanic
+        // actually fires in it.**
+        //
+        // Deliberately NOT modified - changing it would discard a
+        // committed baseline and the comparison with it, for no gain.
+        // The companion covers the gap instead.
         Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
+        // The companion, added 2026-09-07 so Divine Grace is covered.
+        //
+        // **THE MECHANIC FIRES STRUCTURALLY, NOT BY LUCK.** `grace` at
+        // rank 3 grants heal power PER LEVEL (0.015 x level), so at level
+        // 25 it is `T = 0.375`. Both healers' gear total is exactly 1.0,
+        // so `combat_heal_power` is `1 + 2T` = **1.75** - and everything
+        // above 1.0 is EXCESS, which `attack_interval_ms` applies as a
+        // straight divisor: `speed_adjusted / (1.0 + heal_excess)`. The
+        // interval is therefore 1/1.75 of what it would be without
+        // `grace`, a **43% shorter action cadence**, and every event in
+        // the log carries its own `atMs`.
+        //
+        // **Why that cannot wash out**, which is the question worth
+        // asking after `ranger_vs_lich_stage3000` held: the divisor is
+        // continuous and applied unconditionally, with no branch or
+        // bucket for it to be absorbed by. Splash could hide because the
+        // splash FRACTION only selects a target COUNT, and both values
+        // landed in the same overcap branch and the same ladder step -
+        // an integer either side of the change. There is no such
+        // quantisation here. The only floor is
+        // `attack_interval_ms`'s `.max(50.0)`, which a 1100ms-interval
+        // fight is nowhere near.
+        //
+        // `grace` 3/3 is 3 points against the 7 that level 25 grants, so
+        // the allocation is comfortably legal -
+        // `scenario_allocations_are_reachable` checks it rather than this
+        // comment.
+        Scenario { name: "cleric_grace_companion_stage200", seed: 41, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[("grace", 3)], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
         Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
         Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
         // High stage - exercises the late-stage damage penalty AND boss
