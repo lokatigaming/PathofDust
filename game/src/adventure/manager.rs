@@ -10791,7 +10791,7 @@ mod hideout_warrior_all_tests {
         for slot in EQUIP_SLOTS {
             let mut item = generate_item_at_tier(slot, 80, &mut rng);
             item.affixes = vec![(Affix::CritChance, 0.05)];
-            *character.equipped_mut(slot) = Some(item);
+            character.equip(item);
         }
         for _ in 0..bag {
             let mut item = generate_item_at_tier(EquipSlot::Helm, 80, &mut rng);
