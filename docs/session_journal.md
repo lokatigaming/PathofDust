@@ -6923,3 +6923,90 @@ scenarios, not 23; I had counted `Scenario {` and `name: "` lines together.
   own **compiled-only rule** applied deliberately, not an oversight: at the shipped
   w = 1 the two agree exactly, and if an operator moves the dial the class picker
   will drift from live combat. Worth a ruling if the dial is ever moved.
+
+### 2026-09-07 — HEALER-COMPENSATION deploy record (release `healer-compensation`)
+
+| | |
+|---|---|
+| master commit | `1882fc433c14e1114b362bafcdc9d1a533801e7f` |
+| live binary | `9025f32c7ef10ff6d7ce46138756461285e7559e27652e86473ef2f7f034c668` |
+| previous binary | `5978bc7028bba76b59008ad9147761f3cba3b46b37fda28d1018170d799cf808` (item 14) |
+| rollback slot | `deploy-pre-20260907-183217-healer-compensation` |
+| downtime | **0.23 s** |
+| suite | **900 passed / 0 failed / 42 suites**, `--no-fail-fast`, on the box |
+| seven §13B.5 checks | all pass |
+
+Contents: the corpus window (Echo, Leech, nine-slot scenarios, archetype affix
+curve), plus the golem fixture fix, the Mage crit companion, and the Cleric /
+Paladin healer compensation. The compensation shipped **with** the cut rather
+than after it.
+
+#### The window's stages, each checked against a named set derived BEFORE the run
+
+A control came first: master at `4de6312` ran the corpus clean, so every
+divergence attributed to a merge rather than to prior drift.
+
+Echo diverged exactly its four named scenarios, and was attributed by
+MAGNITUDE, not only by name: `warrior_vs_lich_stage50` moved a probability
+`0.00037723369097563336 -> 0.030178695278050668`, a ratio of **exactly 80.0**,
+which is Echo's `0.000125 -> 0.01` to the digit. Leech diverged exactly one, a
+strict subset of Echo's four. The nine-slot branch diverged **0** and captured
+5 — and that zero is what proved "added, not widened", because eleven existing
+scenario names appear as added lines in its diff, which fits "moved" and
+"modified" equally.
+
+#### Two general rules earned here
+
+**A reason that predicts an unseen case is a different class of evidence from
+one that explains a seen case.** d's explanation for `ranger_vs_lich_stage3000`
+holding predicted a hold regardless of gear slots; `ranger_nine_slot_vs_lich_stage3000`
+then held too, in a fixture that did not exist when the reason was written.
+
+**A scenario named for a class is only a regression net for that class if the
+class's advantage actually fires in it.** `mage_nine_slot_vs_cthulhu_stage200`
+DIVERGED while `mage_vs_cthulhu_stage200` HELD — same class, same boss, same
+stage — which turned the Mage coverage gap from an inference into a
+measurement. The companion fixture added to close it was verified non-hollow:
+its captured baseline records 9 attacks with `isCrit` true exactly once.
+
+#### CATCHING AN INSTRUMENT ERROR DOES NOT INOCULATE YOU AGAINST IT
+
+Diagnosing the golem flake, a Windows-vs-Linux comparison of a regenerated
+fixture returned **1,016 differing lines** — the identical number produced by a
+CRLF artifact hours earlier the same day. Nearly filed as a cross-platform
+simulation divergence, which would have been the serious finding. Re-measured
+with `--strip-trailing-cr`: **0 real differences.** The corpus is
+platform-stable.
+
+The flake itself was neither platform-dependent nor a regression: 8 failures in
+22 runs on the release tree against 9 of 9 passing on the pre-window control.
+d fixed it by removing the entropy (`Character::new` rolling a starter kit from
+an un-seeded `thread_rng`) rather than out-running it, and re-tuning `boss_atk`
+`0.70 -> 0.45`. Verified **30 passes of 30** on the box where it had failed ~40%
+of the time.
+
+#### FOUND — the passive form has no scraped drift guard
+
+`admin_tunables_splash_http.rs` is cited in CLAUDE.md as the fixed shape, and it
+IS — but only for `TunablesForm`. `PassiveTunablesForm` is still tested with a
+hand-maintained superset body. The compensation added three required fields with
+no `#[serde(default)]`; the page renders them; the hand-maintained body did not
+send them, so extraction 422'd and the suite went red at 899/1.
+
+A superset body catches a field you FORGOT TO ADD — which is what fired — but
+can never catch a field the page STOPPED RENDERING, which is the direction that
+silently broke every real browser save on 2026-08-23 while the suite stayed
+green. **`PassiveTunablesForm` currently has no protection in that direction.**
+
+Fixed minimally (three entries) rather than converted, because the passive body
+posts real baseline values and asserts they round-trip, so the drift guard's
+filler values would change what the test verifies. That is a design decision,
+reported rather than made.
+
+#### Patch note
+
+Written before this record. Compensation stated as shipped, not promised; the
+curve change called a nerf in those words; Echo quantified; **Leech deliberately
+not quantified** because gear, class and tree sum under one cap and the felt
+effect is unmeasured; item 14's retirement included with an admission it should
+have been noted on 2026-09-04. Verified in the SERVED page, not only on disk.
