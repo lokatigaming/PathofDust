@@ -6630,3 +6630,123 @@ to it rather than by what it now contains") also stands, and was what
 prompted checking the branch at all. Only the specific mechanism was
 false: the risk of merging a stale branch here is *a conflict resolved
 badly*, not *a silent revert*.
+
+### 2026-09-06 — The all-items Hideout Warrior button, and three guards that failed their own mutation checks
+
+Branch `feature/hideout-warrior-all-items` off `origin/master` `4de6312`.
+Not merged, not deployed.
+
+Divinity's operation bought with dust instead of a Unique Shard: same
+bag-only set, same chain, same skips, one application path branching only
+at the charge. `apply_divinity` now accumulates `report.dust_cost` on
+every run; Divinity discards that field and spends a shard, the new button
+charges it and spends none. **That single discarded field is the entire
+difference between the two buttons**, which is what stops them becoming
+two implementations that merely resemble each other.
+
+#### The fact that made this a stop-and-ask rather than a build
+
+The order described the new button as hitting "all items". The two
+existing sets are NOT the same set, and the difference is a ruling:
+
+* the single-item button targets `all_items` — **equipped + bag**;
+* Divinity targets `self.inventory` — **bag only**, because the chain ends
+  in Krangle and Krangle is irreversible.
+
+A dust-priced all-items button following the single button's set would
+have bulk-Krangled everything a player was WEARING for one click. That was
+not a detail to resolve while building; it was the whole shape of the
+feature, and it was the owner's to decide. Ruled bag-only, and the reason
+is now recorded on `apply_hideout_warrior_all` — **an asymmetry with a
+stated reason is a decision; without one it reads as a bug and somebody
+eventually "fixes" it.**
+
+#### Price: quoted and charged from one function, and the honest gap between them
+
+`craft_dust_cost` is new and is now the single source for what one craft
+action costs. `craft_item_ex`'s inline price expression was REPLACED by a
+call to it, so the bulk quote and every single-item charge read the same
+code rather than agreeing by coincidence.
+
+The quote and the charge are still two numbers, and the distinction is
+worth keeping straight:
+
+* the **quote** (`hideout_warrior_quote`) prices every step as though it
+  will land, walking the tier forward with `craft_tier_bump` as a real run
+  does;
+* the **charge** (`report.dust_cost`) counts only steps that actually
+  landed, at the tier each ran at.
+
+So `charge <= quote`, always. That asymmetry is deliberate in both
+directions: charging the quote would bill for steps that did not happen,
+breaking "it costs what the single button would have cost"; and making the
+quote predict which steps match would be a second implementation of the
+chain's eligibility rules, free to drift from the real one. **The property
+that matters is that a player is never charged more than the number on the
+button**, and that is the one guaranteed.
+
+#### THREE GUARDS FAILED THEIR OWN MUTATION CHECKS TODAY, AND THE PATTERN IS THE POINT
+
+Worth recording together, because they are the same mistake wearing three
+faces.
+
+1. **The semaphore test** (2026-09-05) asserted against a `Semaphore` the
+   test constructed itself. It proved tokio counts correctly and would have
+   passed unchanged if the bound were never applied.
+2. **This feature's set guard**, first draft, inspected `plan_divinity`'s
+   output. Mutating `apply_hideout_warrior_all` to append equipped items to
+   its own copy of the target list — the exact defect this feature has
+   already had once — sailed straight past it. It was testing the shared
+   planner, not the entry point. The price test caught the mutation
+   incidentally by item count, **and a guard that relies on another test
+   noticing is not a guard.** Rewritten to snapshot every equipped item's
+   tier and locked state, run the REAL entry point, and assert both
+   unchanged per slot; it now fails with *"Weapon's EQUIPPED item was
+   modified by the all-items button"*.
+3. **`guard_tests::every_unguarded_item_accessor_is_a_named_exemption`**
+   then caught ME. My new test fixture seeded equipped gear through
+   `equipped_mut(`, a bypass accessor `manager.rs` is not on the allowlist
+   for. Fixed by using `Character::equip` — which turns out to be a plain
+   per-slot overwrite with no displacement — rather than widening a
+   deliberate guard over production code to accommodate a test fixture.
+
+**The durable form: a guard is worth exactly what its mutation check
+proves, and the check has to run the real entry point rather than the
+primitive underneath it.** Two of these were mine and one was somebody
+else's catching mine, which is the argument for mutation-checking every
+guard rather than the ones that feel risky.
+
+#### CORRECTION to `feature/corpus-nine-slot-scenarios`
+
+That branch's `run_scenario` comment says it assigns through
+`equipped_mut` rather than `equip` because *"`equip` has swap-out
+behaviour"*. **It does not** — `equip` is a nine-arm match that overwrites
+the slot, with no displacement into the bag. The code on that branch is
+still correct (the draw sequence is identical either way) but the stated
+reason is wrong. Flagged here rather than edited from this branch; it
+wants fixing on its own.
+
+#### A third variant of the evidence-truncation trap
+
+Reported this branch's suite as having "zero FAILED lines" off a command
+that ended in `head -8`. **The head truncated the stream at eight lines, so
+a later FAILED would have been cut off before I saw it** — the output could
+not have established what I said it did.
+
+That is the third variant this week of the same underlying error, reading a
+SUMMARY of the evidence instead of the evidence:
+
+* a zero exit code that belonged to `grep`, not cargo;
+* a nonzero exit code that also belonged to `grep`;
+* and a filtered stream where the absence of a failure was an artifact of
+  `head`.
+
+**The fix is the same each time: capture the full output to a file, then
+interrogate the file.** Re-run captured 309 lines and 42 result lines, with
+`grep -c FAILED` over the whole file returning 0 — which is a claim the
+evidence actually supports.
+
+Suite: **830 passed, 0 failed** in the lib crate, zero FAILED lines across
+all 42 result lines. Golden corpus ran inside it and matched — **0
+scenarios diverged, nothing regenerated**, and no fixture file was written
+(17 tracked, tree clean).
