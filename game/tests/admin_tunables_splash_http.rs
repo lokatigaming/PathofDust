@@ -291,5 +291,128 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         exact_save.status()
     );
 
+
+    // --- PASSIVE form/struct drift guard (2026-09-08) -------------------
+    //
+    // The guard above covers `TunablesForm`. `PassiveTunablesForm` had no
+    // equivalent, and the asymmetry is not cosmetic:
+    //
+    //   a hand-maintained superset body catches a field you FORGOT TO ADD;
+    //   it can never catch a field the page STOPPED RENDERING.
+    //
+    // The second direction is the one with an incident behind it. On
+    // 2026-08-23 the dynamic-pacing branch dropped an <input> and left the
+    // field required on the struct, so every real browser save 422'd while
+    // this suite stayed green - a superset body keeps posting fields the
+    // page no longer sends. The passive form has carried that hole since
+    // it was split out on 2026-09-03; the healer compensation on
+    // 2026-09-07 exercised only the SAFE direction (three new required
+    // fields the hand list did not send, caught immediately).
+    //
+    // TWO RESPONSIBILITIES, TWO TESTS, deliberately. The body above posts
+    // REAL baseline values and asserts they round-trip; converting it to
+    // filler would have quietly deleted that. This one asserts only that
+    // the field SET extracts - a different question, wanting a different
+    // body.
+    //
+    // Posts back what the page ITSELF rendered rather than a filler
+    // constant: every numeric input here carries its live value, so
+    // echoing it is in-range by construction, with no per-field knowledge
+    // of accepted ranges and no risk of an out-of-range 400 masking the
+    // 422 this is looking for (ledger #69's shape).
+    //
+    // CHECKBOXES ARE NOT ECHOED BY VALUE, and that distinction is
+    // load-bearing rather than pedantic. A checkbox renders `value="1"`
+    // whether or not it is ticked - `checked` is what says it is on, and a
+    // browser posts it ONLY when ticked. Echoing `value="1"` unconditionally
+    // would post `shattering_enabled=1` for an unticked box and silently
+    // TURN SHATTERING ON, making this a state-changing save rather than
+    // the no-op it claims to be. Parsed per `<input>` tag so `type` and
+    // `checked`, which sit before `name` in the markup, are visible.
+    struct RenderedInput<'a> {
+        name: &'a str,
+        value: &'a str,
+        is_checkbox: bool,
+        checked: bool,
+    }
+    let passive_form_html = {
+        let start = passives_page.find("action=\"/admin/passives/tunables/save\"").expect("the passive tunables form must be on /admin/passives");
+        let end = start + passives_page[start..].find("</form>").expect("the passive tunables form must be closed");
+        &passives_page[start..end]
+    };
+    let mut rendered_passive: Vec<RenderedInput> = Vec::new();
+    for chunk in passive_form_html.split("<input").skip(1) {
+        let tag = chunk.split('>').next().unwrap_or(chunk);
+        let Some(name) = tag.split("name=\"").nth(1).and_then(|r| r.split('"').next()) else {
+            continue;
+        };
+        if rendered_passive.iter().any(|i| i.name == name) {
+            continue;
+        }
+        rendered_passive.push(RenderedInput {
+            name,
+            value: tag.split("value=\"").nth(1).and_then(|r| r.split('"').next()).unwrap_or("1"),
+            is_checkbox: tag.contains("type=\"checkbox\""),
+            checked: tag.contains(" checked"),
+        });
+    }
+    assert!(
+        rendered_passive.len() >= 26,
+        "sanity: the passive tunables form renders at least the 26 dials this test knows about, found {}",
+        rendered_passive.len()
+    );
+
+    // The hand-maintained round-trip body and the rendered page must
+    // describe the same set of REQUIRED fields. Without this the two can
+    // drift apart in silence - a field added to the page and left out of
+    // the body, or the reverse - which is the position this form was in
+    // until today.
+    //
+    // Checkboxes are excluded from the first direction ONLY: absent
+    // legitimately means false for them, so a body that omits one is
+    // correct rather than incomplete (the same exception `TunablesForm`
+    // documents for `win_xp_catchup_enabled`).
+    for input in rendered_passive.iter().filter(|i| !i.is_checkbox) {
+        assert!(
+            passive_form.iter().any(|(n, _)| *n == input.name),
+            "{} renders as a REQUIRED input on /admin/passives but is absent from this test's round-trip body. Add it there, or the round-trip stops covering the whole form",
+            input.name
+        );
+    }
+    for (name, _) in &passive_form {
+        assert!(
+            rendered_passive.iter().any(|i| i.name == *name),
+            "{name} is posted by this test's round-trip body but is NOT rendered on /admin/passives. Either the page stopped rendering it - in which case every real browser save is now 422ing and this is the bug - or the field is gone and the body should stop sending it"
+        );
+    }
+
+    // THE GUARD ITSELF. Post exactly what a browser would: every numeric
+    // input with its rendered value, and each checkbox only if it is
+    // actually ticked.
+    let passive_exact: Vec<(&str, &str)> =
+        rendered_passive.iter().filter(|i| !i.is_checkbox || i.checked).map(|i| (i.name, i.value)).collect();
+    let shattering_before = manager.live_tunables().shattering_enabled;
+    let passive_exact_save = client
+        .post(format!("{base}/admin/passives/tunables/save"))
+        .header(reqwest::header::COOKIE, "adv_session=admin-token")
+        .form(&passive_exact)
+        .send()
+        .await
+        .expect("POST failed");
+    assert!(
+        passive_exact_save.status().is_redirection(),
+        "posting exactly the {} fields /admin/passives renders must extract cleanly - got {}. A 422 here means `PassiveTunablesForm` requires a field the form no longer renders (or renders one it does not accept), which is precisely what breaks a real browser save while a superset-body test stays green",
+        passive_exact.len(),
+        passive_exact_save.status()
+    );
+    // And it really was a no-op: echoing the page back must not have
+    // flipped the checkbox in either direction. If this fires, the scrape
+    // is posting a checkbox it should not be (or dropping one it should).
+    assert_eq!(
+        manager.live_tunables().shattering_enabled,
+        shattering_before,
+        "echoing the rendered form back changed shattering_enabled - this guard is supposed to prove the field set extracts, not to alter live state while doing it"
+    );
+
     std::fs::remove_dir_all(&scratch).ok();
 }
