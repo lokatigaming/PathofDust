@@ -1537,6 +1537,40 @@ impl Character {
         plan
     }
 
+    /// What the all-items Hideout Warrior button will cost, quoted BEFORE
+    /// anything is spent (2026-09-06).
+    ///
+    /// Prices every step of `HIDEOUT_WARRIOR_STEPS` for every planned
+    /// item, through the same `craft_dust_cost` the charge goes through,
+    /// walking the tier forward by `craft_tier_bump` between steps exactly
+    /// as a real run does — because each step is charged at the tier the
+    /// item is at when it runs, and the chain raises that tier as it goes.
+    ///
+    /// **This is an UPPER BOUND, and deliberately so.** It prices every
+    /// step as though it will land. A real run skips steps whose
+    /// preconditions do not match, and a skipped step costs nothing, so
+    /// the charge is this or less — never more. Quoting the ceiling is the
+    /// safe direction: a player is never charged more than the number they
+    /// were shown, and the affordability check can never wave through a
+    /// run the character cannot actually pay for.
+    ///
+    /// Deliberately does NOT model which steps will match. That modelling
+    /// would be a second implementation of the chain's eligibility rules,
+    /// living next to the real one and free to drift from it — the exact
+    /// shape of defect this feature's own price is meant to avoid.
+    pub(crate) fn hideout_warrior_quote(&self, plan: &DivinityPlan, tier_bump_mult: f64, base_mult: f64, exponent: f64) -> u64 {
+        let mut total = 0u64;
+        for item_id in &plan.targets {
+            let Some(item) = self.find_item_by_id(item_id) else { continue };
+            let mut tier = item.tier;
+            for action in HIDEOUT_WARRIOR_STEPS {
+                total = total.saturating_add(crate::adventure::craft_dust_cost(action, tier, false, base_mult, exponent));
+                tier += crate::adventure::craft_tier_bump(tier, tier_bump_mult);
+            }
+        }
+        total
+    }
+
     /// Divinity, applying half - runs `HIDEOUT_WARRIOR_STEPS` over every
     /// item `plan` selected, paying no dust and consuming no craft tokens.
     ///
@@ -1563,7 +1597,7 @@ impl Character {
     ///
     /// Pure CPU - no I/O, no locking, no `.await`. The caller holds the
     /// characters lock across the whole run and persists once at the end.
-    pub(crate) fn apply_divinity(&mut self, plan: &DivinityPlan, rng: &mut impl Rng, tier_bump_mult: f64) -> DivinityReport {
+    pub(crate) fn apply_divinity(&mut self, plan: &DivinityPlan, rng: &mut impl Rng, tier_bump_mult: f64, base_mult: f64, exponent: f64) -> DivinityReport {
         let mut report = DivinityReport {
             bag_items: plan.bag_items,
             skipped_krangled: plan.skipped_krangled,
@@ -1574,6 +1608,11 @@ impl Character {
             let mut steps_here = 0usize;
             let mut krangled_here = false;
             for action in HIDEOUT_WARRIOR_STEPS {
+                // The tier BEFORE the step runs - that is the tier
+                // `craft_item_ex` would have priced this step at, and the
+                // step's own tier bump lands after the charge. Read here
+                // rather than after the craft, because `craft` moves it.
+                let tier_before = self.find_item_by_id(item_id).map(|i| i.tier).unwrap_or(0);
                 // Every failure is a skip, hence `if let` rather than a
                 // match with an error arm. There is no InsufficientDust to
                 // stop on - that is the whole feature - and the rest
@@ -1583,6 +1622,11 @@ impl Character {
                 if let Ok(outcome) = self.craft(item_id, action, rng, tier_bump_mult) {
                     steps_here += 1;
                     krangled_here |= outcome.now_locked;
+                    // Priced ONLY for steps that landed, through the same
+                    // function `craft_item_ex` charges through. A skipped
+                    // step costs nothing on the single-item button, so it
+                    // must cost nothing here.
+                    report.dust_cost = report.dust_cost.saturating_add(crate::adventure::craft_dust_cost(action, tier_before, false, base_mult, exponent));
                 }
             }
             if krangled_here {
@@ -4262,7 +4306,7 @@ mod divinity_tests {
     fn a_one_modifier_bag_item_runs_four_steps_and_ends_krangled_and_named() {
         let mut character = bagged_character(1);
         let plan = character.plan_divinity();
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(5), CRAFT_TIER_BUMP_MULT);
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(5), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
 
         assert_eq!(report.steps_applied, 4, "Transmute must be skipped on a 1-modifier item, the other four must land");
         assert_eq!(report.krangled, 1);
@@ -4286,7 +4330,7 @@ mod divinity_tests {
 
         let plan = character.plan_divinity();
         assert_eq!(plan.targets.len(), 3, "only the three bag items may be planned");
-        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(6), CRAFT_TIER_BUMP_MULT);
+        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(6), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
 
         let equipped_after: Vec<Item> = EQUIP_SLOTS.iter().filter_map(|&slot| character.equipped(slot).clone()).collect();
         for (before, after) in equipped_before.iter().zip(equipped_after.iter()) {
@@ -4313,7 +4357,7 @@ mod divinity_tests {
         assert_eq!(plan.skipped_kept, 1);
         assert_eq!(plan.targets.len(), 3, "the other three must still be planned");
 
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(7), CRAFT_TIER_BUMP_MULT);
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(7), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
         assert_eq!(report.skipped_krangled, 1, "the report must carry the skip counts, not just the plan");
         assert_eq!(report.skipped_kept, 1);
         assert_eq!(report.items_changed, 3);
@@ -4336,7 +4380,7 @@ mod divinity_tests {
             vec![(Affix::CritChance, 0.05), (Affix::Evasion, 0.05), (Affix::IncreasedDamage, 0.05), (Affix::CritMultiplier, 0.05)];
 
         let plan = character.plan_divinity();
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(8), CRAFT_TIER_BUMP_MULT);
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(8), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
 
         assert_eq!(report.steps_applied, 0);
         assert_eq!(report.unchanged, 1);
@@ -4357,7 +4401,7 @@ mod divinity_tests {
         let plan = character.plan_divinity();
         assert_eq!(plan.targets.len(), 150);
 
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(9), CRAFT_TIER_BUMP_MULT);
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(9), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
 
         assert_eq!(report.items_changed, 150, "every eligible item must have been worked on");
         assert_eq!(report.krangled, 150, "and every one of them Krangled - Krangle is in the chain by ruling");
@@ -4378,7 +4422,7 @@ mod divinity_tests {
         let mut character = bagged_character(1);
         character.level = 200;
         let plan = character.plan_divinity();
-        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(10), CRAFT_TIER_BUMP_MULT);
+        character.apply_divinity(&plan, &mut StdRng::seed_from_u64(10), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
 
         assert_eq!(character.inventory[0].tier, 201, "level-synced by Krangle, then +1 from that step's own tier bump");
     }
@@ -4393,7 +4437,7 @@ mod divinity_tests {
         assert!(plan.targets.is_empty());
         assert_eq!(plan.bag_items, 0);
 
-        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(11), CRAFT_TIER_BUMP_MULT);
+        let report = character.apply_divinity(&plan, &mut StdRng::seed_from_u64(11), CRAFT_TIER_BUMP_MULT, CRAFT_BASE_COST_MULT, CRAFT_TIER_EXPONENT);
         assert_eq!(report.steps_applied, 0);
         assert_eq!(report.items_changed, 0);
     }

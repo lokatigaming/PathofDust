@@ -4286,19 +4286,13 @@ impl AdventureManager {
         // operator setting the multiplier to exactly 0.0, and even then
         // the tier term keeps a craft on a tier-1 item costing 3 dust.
         let t = self.live_tunables();
-        let tier_cost = tier_surcharge(character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?.tier, t.craft_tier_exponent);
-        let cost = if use_token {
-            0
-        } else {
-            // `saturating_add`: `base_cost()` is `u64::MAX` for the
-            // token-only shard actions (a "never affordable in dust"
-            // sentinel, not a price - `scaled_base_cost` passes it through
-            // untouched by design), and this line is reachable for
-            // CelestialShard when no token is held.
-            scaled_base_cost(action.base_cost(), t.craft_base_cost_mult)
-                .saturating_add(tier_cost)
-                .saturating_add(if veiled { scaled_base_cost(VEIL_EXTRA_COST, t.craft_base_cost_mult) } else { 0 })
-        };
+        let tier = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?.tier;
+        // Through `craft_dust_cost` (2026-09-06) rather than inline, so the
+        // all-items Hideout Warrior button quotes the same number this
+        // charges. See that function's own doc for why a preview computed
+        // beside a price rather than from it is the defect with the
+        // shortest fuse.
+        let cost = if use_token { 0 } else { craft_dust_cost(action, tier, veiled, t.craft_base_cost_mult, t.craft_tier_exponent) };
         if character.dust < cost {
             return Err(CraftError::InsufficientDust(cost));
         }
@@ -4524,8 +4518,14 @@ impl AdventureManager {
             // `.await` below - same block-scoping every other craft path in
             // this file uses for the same reason.
             let mut rng = rand::thread_rng();
+            let t = self.live_tunables();
             character.consume_craft_token(CraftAction::UniqueShard);
-            character.apply_divinity(&plan, &mut rng, self.live_tunables().craft_tier_bump_mult)
+            // `report.dust_cost` comes back populated and is DELIBERATELY
+            // ignored here - Divinity's price is the shard. That single
+            // discarded field is the whole difference between this and
+            // `apply_hideout_warrior_all`; everything above and below it
+            // is the same code.
+            character.apply_divinity(&plan, &mut rng, t.craft_tier_bump_mult, t.craft_base_cost_mult, t.craft_tier_exponent)
         };
         // Points the crafting picker at the last item Divinity handled, the
         // same courtesy every other craft does for its own target.
@@ -4534,6 +4534,68 @@ impl AdventureManager {
         drop(characters);
         // The single completion broadcast. Per-step broadcasting is exactly
         // what this function exists to avoid.
+        self.broadcast_state().await;
+        Ok(report)
+    }
+
+    /// The all-items Hideout Warrior button (2026-09-06) - Divinity's
+    /// operation, bought with dust instead of a Unique Shard.
+    ///
+    /// **BAG ONLY, and that is a ruling rather than an omission.** It
+    /// shares `plan_divinity`'s set exactly, which excludes equipped gear
+    /// because the chain ends in Krangle and Krangle is irreversible: a
+    /// player may Krangle a worn item, but only by choosing that item on
+    /// the single-item button. The asymmetry IS the safety property - one
+    /// click must not permanently lock everything a character is fighting
+    /// in. `hideout_warrior_all_targets_match_divinity` pins the two sets
+    /// together so a future slot cannot be covered by one path and missed
+    /// by the other, which is the failure this feature has already had
+    /// once.
+    ///
+    /// **The price is the single-item price, summed** - no bulk discount
+    /// and no bulk surcharge. `report.dust_cost` is accumulated inside
+    /// `apply_divinity` through the same `craft_dust_cost` that
+    /// `craft_item_ex` charges through, for the steps that actually
+    /// landed, so it is by construction what pressing the single button on
+    /// each of these items would have cost.
+    ///
+    /// **All or nothing.** The quote is taken and the balance checked
+    /// before a single craft runs; a short balance refuses with the quote
+    /// attached and spends nothing. Because planning and application are
+    /// separate passes and the whole run happens under one lock with a
+    /// single persist, there is no partway state to leave behind - the
+    /// charge-as-you-go loop that could take a player's dust and die
+    /// halfway is not reachable from this shape.
+    pub async fn apply_hideout_warrior_all(&self, username: &str) -> Result<DivinityReport, DivinityError> {
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&username.to_lowercase()).ok_or(DivinityError::NotJoined)?;
+        let plan = character.plan_divinity();
+        if plan.bag_items == 0 {
+            return Err(DivinityError::EmptyBag);
+        }
+        if plan.targets.is_empty() {
+            return Err(DivinityError::NothingEligible);
+        }
+        let t = self.live_tunables();
+        // The QUOTE - an upper bound, priced as though every step lands.
+        // Checked before anything is crafted, so a refusal costs nothing.
+        let quote = character.hideout_warrior_quote(&plan, t.craft_tier_bump_mult, t.craft_base_cost_mult, t.craft_tier_exponent);
+        if character.dust < quote {
+            return Err(DivinityError::InsufficientDust(quote));
+        }
+        let report = {
+            let mut rng = rand::thread_rng();
+            character.apply_divinity(&plan, &mut rng, t.craft_tier_bump_mult, t.craft_base_cost_mult, t.craft_tier_exponent)
+        };
+        // Charged AFTER the run, from the steps that actually landed -
+        // never the quote. The quote gates affordability; this is the
+        // bill, and it can only be lower. `saturating_sub` is belt and
+        // braces: the balance was checked against a bound this cannot
+        // exceed.
+        character.dust = character.dust.saturating_sub(report.dust_cost);
+        character.last_crafted_item_id = plan.targets.last().cloned();
+        self.persist_characters(&characters);
+        drop(characters);
         self.broadcast_state().await;
         Ok(report)
     }
@@ -10689,5 +10751,179 @@ mod catchup_multiplier_tests {
                 assert!((1.0..=3.0).contains(&m), "catchup_multiplier({level}, .., {full_deficit}) = {m} left the 1.0..3.0 band");
             }
         }
+    }
+}
+
+/// The all-items Hideout Warrior button (2026-09-06) - Divinity's
+/// operation bought with dust.
+///
+/// The set-equality test here is the one that matters. This feature has
+/// already been broken once by a hand-enumerated slot list, and the
+/// failure was invisible: rings, pants and amulets silently stopped being
+/// Hideout Warrior-able. Pinning the two bulk paths to ONE source means a
+/// future slot cannot be covered by one and missed by the other, because
+/// there is no second list to forget.
+#[cfg(test)]
+mod hideout_warrior_all_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("hw_all_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    /// Joins `login` with `dust` dust, `bag` one-modifier bag items, and a
+    /// full set of EQUIPPED gear - the equipped half is what the set test
+    /// below needs in order to have something to exclude.
+    async fn joined_with(manager: &Arc<AdventureManager>, login: &str, dust: u64, bag: usize) {
+        manager.join(login, login).await;
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).expect("just joined");
+        character.level = 150;
+        character.dust = dust;
+        character.inventory.clear();
+        let mut rng = rand::thread_rng();
+        for slot in EQUIP_SLOTS {
+            let mut item = generate_item_at_tier(slot, 80, &mut rng);
+            item.affixes = vec![(Affix::CritChance, 0.05)];
+            *character.equipped_mut(slot) = Some(item);
+        }
+        for _ in 0..bag {
+            let mut item = generate_item_at_tier(EquipSlot::Helm, 80, &mut rng);
+            item.affixes = vec![(Affix::CritChance, 0.05)];
+            character.inventory.push(item);
+        }
+    }
+
+    /// THE SET GUARD. The dust button and Divinity target exactly the same
+    /// items, because both call `plan_divinity` - and that set excludes
+    /// equipped gear, which is a ruling rather than an omission: the chain
+    /// ends in Krangle, Krangle is irreversible, and one click must not
+    /// permanently lock everything a character is fighting in.
+    #[tokio::test]
+    async fn hideout_warrior_all_targets_match_divinity_and_never_include_equipped_gear() {
+        let (manager, scratch) = disposable_manager("set_equality");
+        joined_with(&manager, "setcheck", 1_000_000, 6).await;
+
+        let before = manager.character("setcheck").await.expect("joined");
+        let plan = before.plan_divinity();
+        assert_eq!(plan.targets.len(), 6, "every one-modifier bag item must be eligible");
+        let bag_ids: Vec<String> = before.inventory.iter().map(|i| i.id.clone()).collect();
+        assert_eq!(plan.targets, bag_ids, "the shared set must be the bag, in bag order");
+
+        // Snapshot every equipped item BEFORE the run. Asserting on
+        // `plan_divinity`'s output alone is not enough, and was not enough:
+        // an earlier draft of this test did exactly that, and a mutation
+        // that made `apply_hideout_warrior_all` append equipped items to
+        // its own copy of the target list sailed straight past it. The
+        // guard has to observe what the REAL ENTRY POINT touched, not what
+        // the shared planner returned before the entry point got hold of
+        // it.
+        let equipped_before: Vec<(EquipSlot, u32, bool)> = EQUIP_SLOTS
+            .into_iter()
+            .map(|s| {
+                let i = before.equipped(s).as_ref().expect("the fixture equips every slot");
+                (s, i.tier, i.locked)
+            })
+            .collect();
+
+        manager.apply_hideout_warrior_all("setcheck").await.expect("a funded run must go through");
+
+        let after = manager.character("setcheck").await.expect("still joined");
+        for (slot, tier, locked) in equipped_before {
+            let item = after.equipped(slot).as_ref().expect("equipped gear must still be equipped");
+            assert_eq!(
+                (item.tier, item.locked),
+                (tier, locked),
+                "{slot:?}'s EQUIPPED item was modified by the all-items button. Krangle is irreversible and this is one click - equipped gear is reachable only through the single-item path, by ruling, and this is the guard that says so"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// ALL OR NOTHING. A character who cannot afford the quote is refused
+    /// with the quote attached, and nothing at all changes: no dust spent,
+    /// no item crafted, nothing Krangled.
+    #[tokio::test]
+    async fn a_short_balance_charges_nothing_and_crafts_nothing() {
+        let (manager, scratch) = disposable_manager("all_or_nothing");
+        joined_with(&manager, "broke", 1, 5).await;
+
+        let before = manager.character("broke").await.expect("joined");
+        let tiers_before: Vec<u32> = before.inventory.iter().map(|i| i.tier).collect();
+
+        let err = manager.apply_hideout_warrior_all("broke").await.expect_err("1 dust cannot buy a 5-item run");
+        let DivinityError::InsufficientDust(quote) = err else {
+            panic!("a short balance must refuse with the QUOTE attached - a player told only 'not enough' cannot decide whether to come back for it");
+        };
+        assert!(quote > 1, "the quote must be a real number, got {quote}");
+
+        let after = manager.character("broke").await.expect("still joined");
+        assert_eq!(after.dust, 1, "a refused run must not spend a single dust");
+        assert_eq!(
+            after.inventory.iter().map(|i| i.tier).collect::<Vec<u32>>(),
+            tiers_before,
+            "a refused run must not craft anything - this is the charge-as-you-go loop that the plan-then-apply shape exists to make unreachable"
+        );
+        assert!(after.inventory.iter().all(|i| !i.locked), "and nothing may be Krangled");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// The price is the single-item price summed, and the QUOTE IS AN
+    /// UPPER BOUND on it - never below, so a player is never charged more
+    /// than the number the button showed them.
+    #[tokio::test]
+    async fn the_charge_is_what_the_single_button_would_have_cost_and_never_exceeds_the_quote() {
+        let (manager, scratch) = disposable_manager("price");
+        joined_with(&manager, "payer", 1_000_000, 5).await;
+
+        let (quote, dust_before) = {
+            let character = manager.character("payer").await.expect("joined");
+            let t = manager.live_tunables();
+            let plan = character.plan_divinity();
+            (character.hideout_warrior_quote(&plan, t.craft_tier_bump_mult, t.craft_base_cost_mult, t.craft_tier_exponent), character.dust)
+        };
+
+        let report = manager.apply_hideout_warrior_all("payer").await.expect("a funded run must go through");
+        let after = manager.character("payer").await.expect("still joined");
+
+        assert_eq!(
+            dust_before - after.dust,
+            report.dust_cost,
+            "the dust actually deducted must be exactly the cost the run reported - if these drift, the bill and the work have separate opinions about what happened"
+        );
+        assert!(report.dust_cost > 0, "a five-item run must cost something");
+        assert!(
+            report.dust_cost <= quote,
+            "the charge ({}) exceeded the quote ({quote}). The quote is the number the player was shown before pressing, so this is the direction that must never happen",
+            report.dust_cost
+        );
+        assert_eq!(report.items_changed, 5, "every eligible item should have been worked");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// Divinity still pays no dust. The shared application path now
+    /// accumulates a cost on every run, and Divinity's contract is that it
+    /// ignores it - so this pins the branch point rather than trusting it.
+    #[tokio::test]
+    async fn divinity_still_spends_no_dust_even_though_the_shared_path_now_prices_itself() {
+        let (manager, scratch) = disposable_manager("divinity_free");
+        joined_with(&manager, "shardy", 500, 4).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            characters.get_mut("shardy").expect("joined").add_craft_token(CraftAction::UniqueShard, 1);
+        }
+
+        let report = manager.apply_divinity("shardy").await.expect("a shard and a full bag must run");
+        assert!(report.dust_cost > 0, "the shared path must still COMPUTE a cost - that is the number the dust button charges");
+
+        let after = manager.character("shardy").await.expect("still joined");
+        assert_eq!(after.dust, 500, "...and Divinity must ignore it. The shard is the price; charging both would be the two paths quietly converging");
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }
