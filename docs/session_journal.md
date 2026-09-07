@@ -6572,3 +6572,61 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: on this roster the refund moves nothing and the two removed
 nodes were unreachable dead weight that read 0.0 at every rank. Nothing a
 player can observe changed.
+
+### 2026-09-05 — CORRECTION: merging `feature/admin-ui-rework` would NOT have reverted item 10
+
+**This corrects the entry "journal: stage-gate-shard-flake deploy record,
+and a revert avoided by cherry-picking" (`4e58cd4`, 2026-09-04) and the
+claim repeated in reports `2026-09-04e` and `2026-09-05b`. The original
+entries stay as written and wrong, per the append-only rule; this is the
+dated correction.**
+
+**What I claimed.** That merging `feature/admin-ui-rework` to collect a's
+one-line follow-up would have reverted item 10's Golem Master fix —
+restoring text telling Elementalists they deal 1% damage at three golems,
+"with a green suite and no symptom", an hour after a patch note apologised
+for it. I cited
+`git diff 749c8df..origin/feature/admin-ui-rework` showing **−246 lines
+including `passive_tree.rs −47`**.
+
+**What is actually true.** Tested empirically today with a real
+`git merge --no-commit` of that branch into current master:
+
+| after a genuine merge attempt | present? |
+|---|---|
+| item 10's `your own damage is unaffected` | **yes** |
+| item 13's Shatter `1.35` | **yes** |
+| item 14's two `// RETIRED` tombstones | **yes** |
+| the password-hash semaphore in `accounts.rs` | **yes** (4 refs) |
+
+**Nothing was reverted.** The merge produces a **conflict in
+`adventure_web.rs`** plus the two append-only docs, and stops for
+resolution. That is real work and real risk if resolved carelessly — it is
+not a silent revert.
+
+**The mistake, named precisely: I read a two-dot `git diff A..B` as a
+preview of a merge.** It is not. `A..B` shows the difference between two
+snapshots, so every commit `A` has that `B` lacks appears as a deletion.
+Any branch behind master shows large negative numbers; that is the normal
+state of a branch, not a hazard. A merge is computed from the **merge
+base** and combines both sides, so master's later commits survive. The
+number I quoted was a true number answering a different question.
+
+**Why this one is worth a full entry rather than a line.** The failure I
+described was *silent* — green suite, no symptom, discovered later. That
+is the most alarming shape a claim can have, and it is the shape I have
+spent this week flagging in other people's work: plausible, specific,
+confidently stated, and wrong. It went into two reports and a commit
+message, and the owner ratified it, before I checked it. **A claim about a
+destructive outcome deserves the same standard as a claim about a passing
+test: run it, do not reason about it.** Reasoning is what produced the
+error; one `git merge --no-commit` against a scratch branch refuted it in
+seconds and could have been run at any point.
+
+**What was still correct.** Cherry-picking a single-line commit was the
+right choice — simpler, no conflict resolution, nothing to get wrong. The
+general lesson about pointers ("a branch described by what someone added
+to it rather than by what it now contains") also stands, and was what
+prompted checking the branch at all. Only the specific mechanism was
+false: the risk of merging a stale branch here is *a conflict resolved
+badly*, not *a silent revert*.
