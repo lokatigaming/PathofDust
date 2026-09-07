@@ -3549,6 +3549,12 @@ struct PassiveTunablesForm {
     rf_self_damage_pct_rank2: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank3`'s doc.
     rf_self_damage_pct_rank3: f64,
+    /// See `LiveTunables::smite_heal_power_per_level_rank1`'s doc.
+    smite_heal_power_per_level_rank1: f64,
+    /// See `LiveTunables::smite_heal_power_per_level_rank2`'s doc.
+    smite_heal_power_per_level_rank2: f64,
+    /// See `LiveTunables::smite_heal_power_per_level_rank3`'s doc.
+    smite_heal_power_per_level_rank3: f64,
     /// See `LiveTunables::haloedsteps_per_instance_pct_rank1`'s doc.
     haloedsteps_per_instance_pct_rank1: f64,
     /// See `LiveTunables::haloedsteps_per_instance_pct_rank2`'s doc.
@@ -3988,6 +3994,9 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 rf_self_damage_pct_rank1: previous.rf_self_damage_pct_rank1,
                 rf_self_damage_pct_rank2: previous.rf_self_damage_pct_rank2,
                 rf_self_damage_pct_rank3: previous.rf_self_damage_pct_rank3,
+                smite_heal_power_per_level_rank1: previous.smite_heal_power_per_level_rank1,
+                smite_heal_power_per_level_rank2: previous.smite_heal_power_per_level_rank2,
+                smite_heal_power_per_level_rank3: previous.smite_heal_power_per_level_rank3,
                 haloedsteps_per_instance_pct_rank1: previous.haloedsteps_per_instance_pct_rank1,
                 haloedsteps_per_instance_pct_rank2: previous.haloedsteps_per_instance_pct_rank2,
                 haloedsteps_per_instance_pct_rank3: previous.haloedsteps_per_instance_pct_rank3,
@@ -4061,6 +4070,9 @@ fn passive_tunables_from_form(form: &PassiveTunablesForm, previous: &LiveTunable
         rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
         rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
         rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
+        smite_heal_power_per_level_rank1: v.clamp("smite_heal_power_per_level_rank1", form.smite_heal_power_per_level_rank1, 0.0, 1.0),
+        smite_heal_power_per_level_rank2: v.clamp("smite_heal_power_per_level_rank2", form.smite_heal_power_per_level_rank2, 0.0, 1.0),
+        smite_heal_power_per_level_rank3: v.clamp("smite_heal_power_per_level_rank3", form.smite_heal_power_per_level_rank3, 0.0, 1.0),
         haloedsteps_per_instance_pct_rank1: v.clamp("haloedsteps_per_instance_pct_rank1", form.haloedsteps_per_instance_pct_rank1, 0.0, 1.0),
         haloedsteps_per_instance_pct_rank2: v.clamp("haloedsteps_per_instance_pct_rank2", form.haloedsteps_per_instance_pct_rank2, 0.0, 1.0),
         haloedsteps_per_instance_pct_rank3: v.clamp("haloedsteps_per_instance_pct_rank3", form.haloedsteps_per_instance_pct_rank3, 0.0, 1.0),
@@ -4885,6 +4897,23 @@ fn passive_tunables_fields_html(t: &LiveTunables) -> String {
                 <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"rf_self_damage_pct_rank3\" name=\"rf_self_damage_pct_rank3\" value=\"{rf_self_damage_pct_rank3}\">\
                 <p class=\"tunable-hint\">Same, rank 3/3.</p>\
               </div>\
+            <h2>Radiant Smite &mdash; Heal Power per Level</h2>\
+            <p class=\"tunable-hint\">Paladin&rsquo;s half of the healer compensation for the archetype affix curve. <strong>This is a SECOND effect on Radiant Smite &mdash; its ally-heal (10/20/30% of max HP) is unchanged and is tuned on <a href=\"/admin/passives?class=paladin\">the passive page</a> as that node&rsquo;s own magnitude.</strong> It lives here because a node carries one magnitude and that slot was already taken. Cleric&rsquo;s equivalent is <em>Divine Grace</em>, whose ladder IS its node magnitude, so it is tuned on the passive page instead &mdash; the two halves are deliberately in different places for that reason. Units are heal power per CHARACTER LEVEL, so 0.015 at rank 3 is 28.5% at level 19 and 150% at level 100; the total from this mechanism caps at 300%. Note it lands in the TREE factor, which for both healers is multiplied against a gear total of 1.0 &mdash; so every point here is worth two points of the excess that drives action cadence.</p>\
+            <div class=\"tunable-row\">\
+                <label for=\"smite_heal_power_per_level_rank1\">Heal Power per Level (Rank 1)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"smite_heal_power_per_level_rank1\" name=\"smite_heal_power_per_level_rank1\" value=\"{smite_heal_power_per_level_rank1}\">\
+                <p class=\"tunable-hint\">Shipped 0.005 &mdash; 0.5% heal power per character level at 1/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"smite_heal_power_per_level_rank2\">Heal Power per Level (Rank 2)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"smite_heal_power_per_level_rank2\" name=\"smite_heal_power_per_level_rank2\" value=\"{smite_heal_power_per_level_rank2}\">\
+                <p class=\"tunable-hint\">Shipped 0.010 &mdash; same, rank 2/3.</p>\
+              </div>\
+              <div class=\"tunable-row\">\
+                <label for=\"smite_heal_power_per_level_rank3\">Heal Power per Level (Rank 3)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"smite_heal_power_per_level_rank3\" name=\"smite_heal_power_per_level_rank3\" value=\"{smite_heal_power_per_level_rank3}\">\
+                <p class=\"tunable-hint\">Shipped 0.015 &mdash; same, rank 3/3.</p>\
+              </div>\
             <h2>Haloed Steps</h2>\n            <div class=\"tunable-row\">\
                 <label for=\"haloedsteps_per_instance_pct_rank1\">More Damage per Divine Damage Affix (Rank 1)</label>\
                 <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"haloedsteps_per_instance_pct_rank1\" name=\"haloedsteps_per_instance_pct_rank1\" value=\"{haloedsteps_per_instance_pct_rank1}\">\
@@ -4970,6 +4999,9 @@ fn passive_tunables_fields_html(t: &LiveTunables) -> String {
         rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
         rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
+        smite_heal_power_per_level_rank1 = t.smite_heal_power_per_level_rank1,
+        smite_heal_power_per_level_rank2 = t.smite_heal_power_per_level_rank2,
+        smite_heal_power_per_level_rank3 = t.smite_heal_power_per_level_rank3,
         haloedsteps_per_instance_pct_rank1 = t.haloedsteps_per_instance_pct_rank1,
         haloedsteps_per_instance_pct_rank2 = t.haloedsteps_per_instance_pct_rank2,
         haloedsteps_per_instance_pct_rank3 = t.haloedsteps_per_instance_pct_rank3,
