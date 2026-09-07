@@ -1,0 +1,475 @@
+{
+  "won": false,
+  "units": [
+    {
+      "id": "rogue_nine_slot_vs_generic_stage50",
+      "displayName": "rogue_nine_slot_vs_generic_stage50",
+      "isBoss": false,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": "rogue",
+      "role": "melee",
+      "maxHp": 240,
+      "thunderIncarnations": []
+    },
+    {
+      "id": "__enemy_0__",
+      "displayName": "Boss",
+      "isBoss": true,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": null,
+      "role": null,
+      "maxHp": 8000,
+      "thunderIncarnations": []
+    }
+  ],
+  "events": [
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "damage": 0,
+      "unmitigatedDamage": 376,
+      "targetHpAfter": 8000,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 5743,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "damage": 0,
+      "unmitigatedDamage": 141,
+      "targetHpAfter": 240,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 5750,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "damage": 0,
+      "unmitigatedDamage": 14,
+      "targetHpAfter": 240,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 5752,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "damage": 118,
+      "unmitigatedDamage": 135,
+      "targetHpAfter": 122,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 5754,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "damage": 12,
+      "unmitigatedDamage": 14,
+      "targetHpAfter": 110,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 5761,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1266,
+      "attacker": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "damage": 281,
+      "unmitigatedDamage": 287,
+      "targetHpAfter": 7719,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 5768,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 2200,
+      "attacker": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "damage": 135,
+      "unmitigatedDamage": 155,
+      "targetHpAfter": 0,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 5778,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 2200,
+      "unit": "rogue_nine_slot_vs_generic_stage50"
+    }
+  ],
+  "rolls": [
+    {
+      "eventId": 5744,
+      "hitId": 5743,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.2374509684984008,
+      "succeeded": true
+    },
+    {
+      "eventId": 5745,
+      "hitId": 5743,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.2374509684984008
+    },
+    {
+      "eventId": 5746,
+      "hitId": 5743,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 2.093815507611725
+    },
+    {
+      "eventId": 5747,
+      "hitId": 5743,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.25024590884604025
+    },
+    {
+      "eventId": 5748,
+      "hitId": 5749,
+      "atMs": 0,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.02885692224207195,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 5751,
+      "hitId": 5750,
+      "atMs": 0,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.048969527085493736
+    },
+    {
+      "eventId": 5753,
+      "hitId": 5752,
+      "atMs": 0,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.048969527085493736
+    },
+    {
+      "eventId": 5755,
+      "hitId": 5754,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.048969527085493736,
+      "succeeded": false
+    },
+    {
+      "eventId": 5756,
+      "hitId": 5754,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 5757,
+      "hitId": 5754,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.048969527085493736
+    },
+    {
+      "eventId": 5758,
+      "hitId": 5754,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 5759,
+      "hitId": 5754,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.12617953342441934
+    },
+    {
+      "eventId": 5760,
+      "hitId": 5754,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 5762,
+      "hitId": 5761,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.048969527085493736,
+      "succeeded": false
+    },
+    {
+      "eventId": 5763,
+      "hitId": 5761,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 5764,
+      "hitId": 5761,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.048969527085493736
+    },
+    {
+      "eventId": 5765,
+      "hitId": 5761,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 5766,
+      "hitId": 5761,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.12617953342441934
+    },
+    {
+      "eventId": 5767,
+      "hitId": 5761,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 5769,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.2374509684984008,
+      "succeeded": false
+    },
+    {
+      "eventId": 5770,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 5771,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "rogue_nine_slot_vs_generic_stage50",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 5772,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.2374509684984008
+    },
+    {
+      "eventId": 5773,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.25024590884604025
+    },
+    {
+      "eventId": 5774,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.006522702082665255,
+      "succeeded": false
+    },
+    {
+      "eventId": 5775,
+      "hitId": 5768,
+      "atMs": 1266,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.008425918731783453,
+      "succeeded": false
+    },
+    {
+      "eventId": 5776,
+      "hitId": 5777,
+      "atMs": 1266,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.02885692224207195,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 5779,
+      "hitId": 5778,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.048969527085493736,
+      "succeeded": false
+    },
+    {
+      "eventId": 5780,
+      "hitId": 5778,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 5781,
+      "hitId": 5778,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.048969527085493736
+    },
+    {
+      "eventId": 5782,
+      "hitId": 5778,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 5783,
+      "hitId": 5778,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.12617953342441934
+    },
+    {
+      "eventId": 5784,
+      "hitId": 5778,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "rogue_nine_slot_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    }
+  ]
+}

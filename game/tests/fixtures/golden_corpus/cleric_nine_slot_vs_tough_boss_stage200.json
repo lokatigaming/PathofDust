@@ -1,0 +1,1528 @@
+{
+  "won": false,
+  "units": [
+    {
+      "id": "cleric_nine_slot_vs_tough_boss_stage200",
+      "displayName": "cleric_nine_slot_vs_tough_boss_stage200",
+      "isBoss": false,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": "cleric",
+      "role": "support",
+      "maxHp": 944,
+      "thunderIncarnations": []
+    },
+    {
+      "id": "__enemy_0__",
+      "displayName": "The Fire Demon",
+      "isBoss": true,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": null,
+      "role": null,
+      "maxHp": 40000,
+      "thunderIncarnations": []
+    }
+  ],
+  "events": [
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 0,
+      "unmitigatedDamage": 492,
+      "targetHpAfter": 944,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 6147,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 517,
+      "unmitigatedDamage": 484,
+      "targetHpAfter": 427,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6151,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 1608,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 517,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 2200,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 851,
+      "unmitigatedDamage": 736,
+      "targetHpAfter": 93,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 6161,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 2680,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 497,
+      "targetHpAfter": 590,
+      "isRevive": false
+    },
+    {
+      "kind": "heal",
+      "atMs": 3216,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 354,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 488,
+      "unmitigatedDamage": 391,
+      "targetHpAfter": 456,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6172,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 3500,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 243,
+      "targetHpAfter": 699,
+      "isRevive": false
+    },
+    {
+      "kind": "heal",
+      "atMs": 3752,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 245,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 4400,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 513,
+      "unmitigatedDamage": 385,
+      "targetHpAfter": 431,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6182,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 4824,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 513,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 5500,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 665,
+      "unmitigatedDamage": 467,
+      "targetHpAfter": 279,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6192,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 5896,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 665,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5896,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5896,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6600,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 638,
+      "unmitigatedDamage": 422,
+      "targetHpAfter": 306,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6202,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 6968,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 638,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6968,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6968,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7700,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 7700,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 713,
+      "unmitigatedDamage": 446,
+      "targetHpAfter": 231,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6212,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 8040,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 644,
+      "targetHpAfter": 875,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8040,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8040,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 8576,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 69,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8576,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8576,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8800,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 8800,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 643,
+      "unmitigatedDamage": 381,
+      "targetHpAfter": 301,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6222,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 9112,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 643,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 9112,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 9112,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 9900,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 850,
+      "unmitigatedDamage": 478,
+      "targetHpAfter": 94,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6232,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 10184,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 850,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 11000,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 791,
+      "unmitigatedDamage": 424,
+      "targetHpAfter": 153,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6242,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 11256,
+      "healer": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "amount": 791,
+      "targetHpAfter": 944,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 12100,
+      "attacker": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "damage": 1446,
+      "unmitigatedDamage": 740,
+      "targetHpAfter": 0,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 6252,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 12100,
+      "unit": "cleric_nine_slot_vs_tough_boss_stage200"
+    }
+  ],
+  "rolls": [
+    {
+      "eventId": 6148,
+      "hitId": 6147,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6149,
+      "hitId": 6147,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6150,
+      "hitId": 6147,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6152,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6153,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6154,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6155,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 6156,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6157,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 6158,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6159,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6160,
+      "hitId": 6151,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.3963406434540246
+    },
+    {
+      "eventId": 6162,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": true
+    },
+    {
+      "eventId": 6163,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6164,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6165,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 6166,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6167,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 6168,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6169,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.5
+    },
+    {
+      "eventId": 6170,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6171,
+      "hitId": 6161,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 3.6425361492124146
+    },
+    {
+      "eventId": 6173,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6174,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6175,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6176,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 6177,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6178,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 6179,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6180,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6181,
+      "hitId": 6172,
+      "atMs": 3300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 1.9376216851772605
+    },
+    {
+      "eventId": 6183,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6184,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6185,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6186,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 6187,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6188,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 6189,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6190,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6191,
+      "hitId": 6182,
+      "atMs": 4400,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 1.9037028775185032
+    },
+    {
+      "eventId": 6193,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6194,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6195,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6196,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 6197,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6198,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 6199,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6200,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6201,
+      "hitId": 6192,
+      "atMs": 5500,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.311978905191525
+    },
+    {
+      "eventId": 6203,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6204,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6205,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6206,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 6207,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6208,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 6209,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6210,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6211,
+      "hitId": 6202,
+      "atMs": 6600,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.089765857373798
+    },
+    {
+      "eventId": 6213,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6214,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6215,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6216,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 6217,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6218,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 6219,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6220,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6221,
+      "hitId": 6212,
+      "atMs": 7700,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.206087536608329
+    },
+    {
+      "eventId": 6223,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6224,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6225,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6226,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.17600000000000002
+    },
+    {
+      "eventId": 6227,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6228,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.17600000000000002
+    },
+    {
+      "eventId": 6229,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6230,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6231,
+      "hitId": 6222,
+      "atMs": 8800,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 1.8837219802690028
+    },
+    {
+      "eventId": 6233,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6234,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6235,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6236,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.198
+    },
+    {
+      "eventId": 6237,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6238,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.198
+    },
+    {
+      "eventId": 6239,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6240,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6241,
+      "hitId": 6232,
+      "atMs": 9900,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.367196244101406
+    },
+    {
+      "eventId": 6243,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 6244,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6245,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6246,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.22
+    },
+    {
+      "eventId": 6247,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6248,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.22
+    },
+    {
+      "eventId": 6249,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6250,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6251,
+      "hitId": 6242,
+      "atMs": 11000,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.097840020679289
+    },
+    {
+      "eventId": 6253,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "probability": 0.15,
+      "succeeded": true
+    },
+    {
+      "eventId": 6254,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6255,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6256,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.242
+    },
+    {
+      "eventId": 6257,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10938121104372567
+    },
+    {
+      "eventId": 6258,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_nine_slot_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.242
+    },
+    {
+      "eventId": 6259,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 6260,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 2.5
+    },
+    {
+      "eventId": 6261,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 6262,
+      "hitId": 6252,
+      "atMs": 12100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_nine_slot_vs_tough_boss_stage200",
+      "magnitude": 3.6624479893498934
+    }
+  ]
+}
