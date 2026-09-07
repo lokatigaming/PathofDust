@@ -72,12 +72,58 @@ struct GoldenSnapshot {
     rolls: Vec<RollEvent>,
 }
 
+/// The five slots every scenario carried until 2026-09-04, and the state
+/// every character in the game starts in: `Character::new` fills exactly
+/// these and leaves the four §8 slots empty until a drop fills them
+/// (owner ruling 2026-09-03).
+///
+/// Seventeen scenarios name this, and that is deliberate coverage rather
+/// than legacy - see `Scenario::slots`.
+const ORIGINAL_FIVE_SLOTS: &[EquipSlot] = &[EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
+
+/// Paladin's crit-passive batch, SHARED by
+/// `paladin_passives_vs_fire_demon_stage500` and its nine-slot twin
+/// (2026-09-04).
+///
+/// Shared rather than duplicated so the two scenarios differ in exactly
+/// one variable - the gear they wear. Two hand-copied lists could drift
+/// apart, and the moment they did the pair would stop being a comparison
+/// and become two unrelated fixtures that happen to look similar.
+const PALADIN_CRIT_PASSIVES: &[(&str, u32)] = &[("smite", 3), ("judgment", 4), ("finaljudgment", 3), ("shield", 3), ("oath", 3)];
+
 struct Scenario {
     name: &'static str,
     seed: u64,
     stage: u32,
     archetype: Archetype,
     level: u32,
+    /// Which equip slots this scenario's LEAD character wears
+    /// (2026-09-04).
+    ///
+    /// Until this field existed, `run_scenario` assigned five slots by
+    /// name and the corpus had **no coverage of the four §8 slots at
+    /// all** - the entire slot expansion never appeared in a single
+    /// regression fixture.
+    ///
+    /// Stated per scenario rather than defaulted, on purpose. A default
+    /// would let the next scenario be added without anyone deciding what
+    /// it wears, which is the same silent-default shape as the fork guard
+    /// in `slot_power_is_affix_equivalent`. Whoever adds a scenario has
+    /// to choose.
+    ///
+    /// **The two values are both real coverage, and neither is the
+    /// obsolete one:**
+    ///
+    /// * `ORIGINAL_FIVE_SLOTS` - what every character in the game starts
+    ///   as. Widening these seventeen to nine would have bought coverage
+    ///   of a state most characters are never in by deleting coverage of
+    ///   the one they all begin in.
+    /// * `&EQUIP_SLOTS` - a fully-kitted character. Derived from the
+    ///   array rather than a frozen literal nine, so a tenth slot lands
+    ///   in these scenarios automatically. **When slot ten arrives they
+    ///   will diverge, and that divergence is the corpus doing its job**
+    ///   rather than a fault to be suppressed.
+    slots: &'static [EquipSlot],
     /// Passive-tree investment, as `(node key, rank)` pairs written
     /// straight into `passive_allocations` (2026-08-20).
     ///
@@ -161,20 +207,20 @@ fn tough_boss(hp: u64, atk: u64, attack_interval_ms: u32) -> BossStats {
 
 fn scenarios() -> Vec<Scenario> {
     vec![
-        Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
-        Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
-        Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], party: &[], boss: boss(40_000, 400, 1100) },
-        Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
-        Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
-        Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
+        Scenario { name: "warrior_vs_lich_stage50", seed: 1, stage: 50, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Warrior, level: 10, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
+        Scenario { name: "rogue_vs_generic_stage50", seed: 2, stage: 50, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
+        Scenario { name: "mage_vs_cthulhu_stage200", seed: 3, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], party: &[], boss: boss(40_000, 400, 1100) },
+        Scenario { name: "cleric_vs_tough_boss_stage200", seed: 4, stage: 200, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
+        Scenario { name: "warlock_vs_dragon_stage500", seed: 5, stage: 500, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Warlock, level: 50, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
+        Scenario { name: "paladin_vs_cube_stage500", seed: 6, stage: 500, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Paladin, level: 50, boss_kind: Some(BossKind::GelatinousCube), passives: &[], golem_slots: &[], party: &[], boss: boss(120_000, 900, 1100) },
         // High stage - exercises the late-stage damage penalty AND boss
         // pierce together (see WIKI_IMPACT.md's pierce entry - both are
         // stage^2/(stage^2+h^2)-shaped ramps, both real at this stage).
-        Scenario { name: "ranger_vs_lich_stage3000", seed: 7, stage: 3000, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(2_000_000, 6_000, 1100) },
-        Scenario { name: "slayer_vs_tough_boss_stage3000", seed: 8, stage: 3000, archetype: Archetype::Slayer, level: 80, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(2_000_000, 6_000, 1100) },
-        Scenario { name: "druid_vs_generic_stage1000", seed: 9, stage: 1000, archetype: Archetype::Druid, level: 60, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
-        Scenario { name: "monk_vs_fire_demon_stage1000", seed: 10, stage: 1000, archetype: Archetype::Monk, level: 60, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
-        Scenario { name: "berserker_vs_lich_stage1000", seed: 11, stage: 1000, archetype: Archetype::Berserker, level: 60, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "ranger_vs_lich_stage3000", seed: 7, stage: 3000, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(2_000_000, 6_000, 1100) },
+        Scenario { name: "slayer_vs_tough_boss_stage3000", seed: 8, stage: 3000, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Slayer, level: 80, boss_kind: Some(BossKind::Dragon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(2_000_000, 6_000, 1100) },
+        Scenario { name: "druid_vs_generic_stage1000", seed: 9, stage: 1000, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Druid, level: 60, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "monk_vs_fire_demon_stage1000", seed: 10, stage: 1000, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Monk, level: 60, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
+        Scenario { name: "berserker_vs_lich_stage1000", seed: 11, stage: 1000, slots: ORIGINAL_FIVE_SLOTS, archetype: Archetype::Berserker, level: 60, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(500_000, 2_000, 1100) },
         // ---- passive-allocating scenarios (2026-08-20) ----
         //
         // The eleven above allocate nothing, so no passive mechanic
@@ -196,6 +242,7 @@ fn scenarios() -> Vec<Scenario> {
         // HashMap-iteration-order rule.
         Scenario {
             name: "elementalist_thunder_golems_vs_dragon_stage1000",
+            slots: ORIGINAL_FIVE_SLOTS,
             seed: 12,
             stage: 1000,
             archetype: Archetype::Elementalist,
@@ -236,12 +283,13 @@ fn scenarios() -> Vec<Scenario> {
         // fixture too, rather than pinning one narrow branch.
         Scenario {
             name: "paladin_passives_vs_fire_demon_stage500",
+            slots: ORIGINAL_FIVE_SLOTS,
             seed: 13,
             stage: 500,
             archetype: Archetype::Paladin,
             level: 64,
             boss_kind: Some(BossKind::FireDemon),
-            passives: &[("smite", 3), ("judgment", 4), ("finaljudgment", 3), ("shield", 3), ("oath", 3)],
+            passives: PALADIN_CRIT_PASSIVES,
             golem_slots: &[],
             party: &[],
             boss: boss(120_000, 900, 1100),
@@ -254,6 +302,7 @@ fn scenarios() -> Vec<Scenario> {
         // deliberately left for a later batch.
         Scenario {
             name: "warlock_passives_vs_dragon_stage1000",
+            slots: ORIGINAL_FIVE_SLOTS,
             seed: 14,
             stage: 1000,
             archetype: Archetype::Warlock,
@@ -282,6 +331,7 @@ fn scenarios() -> Vec<Scenario> {
         // changes threaten them.
         Scenario {
             name: "druid_passives_vs_lich_stage1000",
+            slots: ORIGINAL_FIVE_SLOTS,
             seed: 15,
             stage: 1000,
             archetype: Archetype::Druid,
@@ -329,6 +379,7 @@ fn scenarios() -> Vec<Scenario> {
         // Level 60 gives 16 points, comfortably over the Cleric's 14.
         Scenario {
             name: "party_ally_targeted_passives_stage500",
+            slots: ORIGINAL_FIVE_SLOTS,
             seed: 16,
             stage: 500,
             archetype: Archetype::Warlock,
@@ -373,6 +424,7 @@ fn scenarios() -> Vec<Scenario> {
         // deletes an ordinary boss before its own mechanics can fire.
         Scenario {
             name: "mage_passives_vs_cthulhu_stage1000",
+            slots: ORIGINAL_FIVE_SLOTS,
             seed: 17,
             stage: 1000,
             archetype: Archetype::Mage,
@@ -394,6 +446,68 @@ fn scenarios() -> Vec<Scenario> {
             party: &[],
             boss: tough_boss(4_000_000, 1_600, 1_100),
         },
+        // ---- nine-slot scenarios (2026-09-04) ----
+        //
+        // The seventeen above wear the ORIGINAL FIVE slots, so until this
+        // block existed the corpus had NO coverage of the four §8 slots -
+        // Ring1, Ring2, Amulet and Pants were live in the game for two
+        // days without appearing in a single regression fixture.
+        //
+        // ADDED rather than widening the seventeen, deliberately, for two
+        // reasons. Empty §8 slots are the day-one state of EVERY character
+        // in the game, so those seventeen are the only coverage of it and
+        // widening them would have bought one state by deleting another.
+        // And a NEW scenario cannot diverge - a missing fixture is a
+        // first-capture, not a mismatch - so adding these contributes zero
+        // movement to the regeneration window they land in, instead of
+        // movement that has to be told apart from Echo's and Leech's.
+        //
+        // Chosen by the mechanic each new slot carries, not by taste:
+        // rings are CritChance implicits, the amulet is CritMultiplier,
+        // pants are IncreasedLife.
+        //
+        // Seeds 18-22, continuing the sequence rather than reusing any
+        // above - a shared seed would make two scenarios draw the same
+        // stream and quietly halve what they cover.
+        //
+        // Rings/amulet at low tier on a crit archetype, where a
+        // CritChance implicit reads most clearly. Smallest fixture in the
+        // corpus, so it is also the cheapest to review.
+        Scenario { name: "rogue_nine_slot_vs_generic_stage50", seed: 18, stage: 50, slots: &EQUIP_SLOTS, archetype: Archetype::Rogue, level: 10, boss_kind: None, passives: &[], golem_slots: &[], party: &[], boss: boss(8_000, 150, 1100) },
+        // Mid stage on a NON-crit archetype - the §8 slots must matter to
+        // more than crit builds, and a corpus that only covered them on a
+        // Rogue would not show that.
+        Scenario { name: "mage_nine_slot_vs_cthulhu_stage200", seed: 19, stage: 200, slots: &EQUIP_SLOTS, archetype: Archetype::Mage, level: 25, boss_kind: Some(BossKind::Cthulhu), passives: &[], golem_slots: &[], party: &[], boss: boss(40_000, 400, 1100) },
+        // THE ONE THAT EARNS THE SET. The §8 slots run their base power
+        // through `affix_tier_curve` while the original five stay linear
+        // (see `slot_power_is_affix_equivalent`), and those two paths only
+        // separate meaningfully at high tier. A nine-slot scenario at low
+        // stage would CONTAIN the fork without EXERCISING it.
+        Scenario { name: "ranger_nine_slot_vs_lich_stage3000", seed: 20, stage: 3000, slots: &EQUIP_SLOTS, archetype: Archetype::Ranger, level: 80, boss_kind: Some(BossKind::Lich), passives: &[], golem_slots: &[], party: &[], boss: boss(2_000_000, 6_000, 1100) },
+        // Pants are an IncreasedLife implicit, so a survival-shaped fight
+        // is where the change shows up across the event stream rather than
+        // in one maxHp number at the top of the file.
+        Scenario { name: "cleric_nine_slot_vs_tough_boss_stage200", seed: 21, stage: 200, slots: &EQUIP_SLOTS, archetype: Archetype::Cleric, level: 25, boss_kind: Some(BossKind::FireDemon), passives: &[], golem_slots: &[], party: &[], boss: tough_boss(40_000, 400, 1100) },
+        // The amulet is a CritMultiplier implicit, and crit-multiplier
+        // passives are the thing it could double-count with - so the one
+        // nine-slot scenario carrying passive investment is a crit-passive
+        // one, mirroring `paladin_passives_vs_fire_demon_stage500`.
+        Scenario {
+            name: "paladin_nine_slot_passives_vs_fire_demon_stage500",
+            slots: &EQUIP_SLOTS,
+            seed: 22,
+            stage: 500,
+            archetype: Archetype::Paladin,
+            // Level 64, matching its five-slot twin exactly - the same
+            // allocation must be reachable at the same level, or the pair
+            // differs in two variables instead of one.
+            level: 64,
+            boss_kind: Some(BossKind::FireDemon),
+            passives: PALADIN_CRIT_PASSIVES,
+            golem_slots: &[],
+            party: &[],
+            boss: boss(120_000, 900, 1100),
+        },
     ]
 }
 
@@ -411,11 +525,15 @@ fn run_scenario(s: &Scenario) -> GoldenSnapshot {
     let mut character = Character::new(s.name.to_string());
     character.archetype = s.archetype;
     character.level = s.level;
-    character.weapon = Some(generate_item(EquipSlot::Weapon, s.stage, &mut rng));
-    character.helm = Some(generate_item(EquipSlot::Helm, s.stage, &mut rng));
-    character.body = Some(generate_item(EquipSlot::Body, s.stage, &mut rng));
-    character.gloves = Some(generate_item(EquipSlot::Gloves, s.stage, &mut rng));
-    character.boots = Some(generate_item(EquipSlot::Boots, s.stage, &mut rng));
+    // Assigned through `equipped_mut` rather than `equip` on purpose:
+    // `equip` has swap-out behaviour, and this is a fixture being built
+    // from nothing, not a character changing gear. Direct overwrite keeps
+    // the draw sequence exactly what the five named assignments produced
+    // before this became a loop, which is what keeps the seventeen
+    // pre-2026-09-04 fixtures byte-identical through this change.
+    for &slot in s.slots {
+        *character.equipped_mut(slot) = Some(generate_item(slot, s.stage, &mut rng));
+    }
     // Passive investment (2026-08-20) - see `Scenario::passives`. An
     // empty list leaves the character exactly as every pre-2026-08-20
     // fixture captured it, which is what keeps those eleven fixtures
@@ -659,4 +777,53 @@ fn golden_corpus_matches_committed_fixtures() {
         mismatched.len(),
         mismatched
     );
+}
+
+/// GUARD 1 — a scenario that declares itself nine-slot must actually wear
+/// every slot `EQUIP_SLOTS` names (2026-09-04).
+///
+/// Derived from the array rather than checking for a literal nine, so a
+/// tenth slot lands here automatically. Without this, a scenario could
+/// declare a stale hand-written list and go on looking like §8 coverage
+/// while silently missing whatever was added last - which is the exact
+/// shape of the defect this whole effort has been closing, and it would
+/// be embarrassing to rebuild it inside the fix for it.
+#[test]
+fn nine_slot_scenarios_wear_every_slot_equip_slots_names() {
+    for scenario in scenarios() {
+        if scenario.slots.len() == ORIGINAL_FIVE_SLOTS.len() {
+            continue;
+        }
+        for slot in EQUIP_SLOTS {
+            assert!(
+                scenario.slots.contains(&slot),
+                "{} declares more than the original five slots but does not wear {slot:?}. A nine-slot scenario must derive its list from EQUIP_SLOTS, never restate one - a restated list is how the corpus lost §8 coverage in the first place",
+                scenario.name
+            );
+        }
+    }
+}
+
+/// GUARD 2 — at least one scenario must cover the §8 slots
+/// (2026-09-04).
+///
+/// This is the one that stops the gap silently reopening. Guard 1 checks
+/// that a nine-slot scenario is honest about what it wears; it says
+/// nothing at all if there are no nine-slot scenarios left. **Delete the
+/// last one and the corpus quietly stops covering the four §8 slots while
+/// every remaining test still passes** — which is precisely how the gap
+/// was created the first time, not a hypothetical.
+///
+/// Names the slots rather than counting scenarios: what matters is that
+/// every slot is exercised somewhere in the corpus, not that some
+/// particular number of scenarios exist.
+#[test]
+fn every_equip_slot_is_exercised_by_at_least_one_scenario() {
+    for slot in EQUIP_SLOTS {
+        let covering: Vec<&str> = scenarios().iter().filter(|s| s.slots.contains(&slot)).map(|s| s.name).collect();
+        assert!(
+            !covering.is_empty(),
+            "no golden-corpus scenario equips {slot:?}, so no regression fixture covers it. This is the gap the §8 slots sat in for two days: the corpus looked healthy because every scenario passed, while four slots were absent from all of them"
+        );
+    }
 }
