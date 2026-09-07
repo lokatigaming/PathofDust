@@ -501,6 +501,24 @@ pub struct LiveTunables {
     pub rf_self_damage_pct_rank2: f64,
     /// Same mechanic - rank 3.
     pub rf_self_damage_pct_rank3: f64,
+    /// **Paladin Radiant Smite's heal power PER LEVEL** (2026-09-07,
+    /// the healer tree compensation) - the SECOND numeric aspect on that
+    /// node, in `LiveTunables` rather than in the node's own magnitude
+    /// because that slot already carries Smite's ally-heal percentage.
+    /// Exactly the shape this module's own doc prescribes and the same
+    /// as `rf_self_damage_pct_rank1` above.
+    ///
+    /// `rank1` applies at 1/3, `rank2` at 2/3, `rank3` at 3/3. Defaults
+    /// are the ruled 0.5%/1.0%/1.5% of heal power per character level,
+    /// matching Cleric `grace`'s own converted ladder - see
+    /// `Character::heal_power_per_level_bonus` and
+    /// `HEAL_POWER_PER_LEVEL_RANK1`. The total this mechanism grants is
+    /// capped at `HEAL_POWER_PER_LEVEL_CAP` (300%).
+    pub smite_heal_power_per_level_rank1: f64,
+    /// Same mechanic - rank 2.
+    pub smite_heal_power_per_level_rank2: f64,
+    /// Same mechanic - rank 3.
+    pub smite_heal_power_per_level_rank3: f64,
     /// Cleric's Haloed Steps (2026-08-21 rework) - more-damage granted
     /// per Divine Damage affix instance the Cleric has equipped (see
     /// `Character::count_affix`), picked by the Cleric's own invested
@@ -799,6 +817,9 @@ impl Default for LiveTunables {
             rf_self_damage_pct_rank1: 0.10,
             rf_self_damage_pct_rank2: 0.20,
             rf_self_damage_pct_rank3: 0.30,
+            smite_heal_power_per_level_rank1: crate::adventure::HEAL_POWER_PER_LEVEL_RANK1,
+            smite_heal_power_per_level_rank2: crate::adventure::HEAL_POWER_PER_LEVEL_RANK2,
+            smite_heal_power_per_level_rank3: crate::adventure::HEAL_POWER_PER_LEVEL_RANK3,
             haloedsteps_per_instance_pct_rank1: 0.01,
             haloedsteps_per_instance_pct_rank2: 0.02,
             haloedsteps_per_instance_pct_rank3: 0.03,
