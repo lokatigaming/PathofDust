@@ -251,7 +251,29 @@ pub(crate) fn affix_def(affix: Affix) -> AffixDef {
         // LingeringEffect's own former per-tier coefficient (0.00025 ->
         // 0.000125), matching the 2x value cut every existing item's
         // stored value took in the same migration that renamed it.
-        Echo => AffixDef { name: "echo", label: "echo", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.000125, default_weight: 1.0 },
+        // 0.000125 -> 0.01 (2026-09-03, owner ruling). Echo's coefficient
+        // was never re-derived when the 2026-09-02 affix tier curve
+        // migration landed - it was carried forward unchanged, and the
+        // shared curve crushed it. Not drift: a gap in that migration's
+        // scope. The symptom was an affix worth 0.0125% at tier 1 and
+        // still only 0.243% at tier 1000 - the smallest magnitude in the
+        // pool by an order of magnitude, and indistinguishable from zero
+        // in play.
+        //
+        // A PURE COEFFICIENT CHANGE, deliberately. Echo keeps the same
+        // shared `affix_tier_curve` every other affix uses and gets no
+        // exponent of its own, so its value stays purely multiplicative in
+        // f(T) and `affix_tier_growth_ratio`, `affix_quality_percent` and
+        // `Item::sync_tier_to` all keep working on it exactly as they do
+        // for the other sixteen. Nothing here needs to become per-affix.
+        // The alternative considered and rejected was an additive floor,
+        // which would have broken all three of those.
+        //
+        // 0.01 * f(1) = 1.000000%, 0.01 * f(100) = 10.000000%,
+        // 0.01 * f(1000) = 19.453601% - the owner confirmed the tier-1000
+        // figure is intended. Uniformly 80x the old value at every tier,
+        // which is what "no curve deviation" means arithmetically.
+        Echo => AffixDef { name: "echo", label: "echo", decimals: 2, is_percent: true, eligible_slots: None, default_per_tier: 0.01, default_weight: 1.0 },
         // Deliberately the smallest per-tier value here - Intervene
         // caps at 50% (see Character::combat_intervene) and is meant to
         // take real investment across several tiers/items to approach,
@@ -716,3 +738,79 @@ mod elemental_slot_widen_tests {
     }
 }
 
+
+#[cfg(test)]
+mod echo_coefficient_tests {
+    use super::*;
+
+    /// The 2026-09-03 ruling, pinned as exact numbers rather than as
+    /// "about 1%" and "about 19.5%".
+    ///
+    /// Echo's `per_tier` was never re-derived when the affix tier curve
+    /// landed on 2026-09-02, so the shared curve crushed it: 0.0125% at
+    /// tier 1, and still only 0.243% at tier 1000. These are the corrected
+    /// figures, computed against the same `affix_tier_curve` every other
+    /// affix uses.
+    #[test]
+    fn echo_rolls_one_percent_at_tier_one_and_the_ratified_curve_above_it() {
+        for (tier, expected_pct) in [(1u32, 1.0), (100, 10.0), (1000, 19.453601)] {
+            let got_pct = affix_base_value(Affix::Echo, tier) * 100.0;
+            assert!(
+                (got_pct - expected_pct).abs() < 1e-5,
+                "Echo at tier {tier} must roll {expected_pct}% before jitter, got {got_pct}% - this is the ratified curve, not an approximation"
+            );
+        }
+    }
+
+    /// The change is a COEFFICIENT change, and this is what that means
+    /// arithmetically: the same multiple at every tier. If Echo ever
+    /// acquired a curve of its own this ratio would stop being flat, and
+    /// the three rescale paths below would stop being safe.
+    #[test]
+    fn the_correction_is_uniform_across_every_tier_so_the_curve_shape_is_untouched() {
+        const OLD_PER_TIER: f64 = 0.000125;
+        for tier in [1u32, 10, 50, 100, 300, 1000, 5000] {
+            let old = OLD_PER_TIER * affix_tier_curve(tier);
+            let ratio = affix_base_value(Affix::Echo, tier) / old;
+            assert!(
+                (ratio - 80.0).abs() < 1e-6,
+                "the correction must be a flat 80x at every tier (tier {tier} gave {ratio}x) - a tier-dependent ratio would mean Echo had deviated from the shared curve"
+            );
+        }
+    }
+
+    /// Echo stays purely multiplicative in `f(T)`, which is the property
+    /// `affix_tier_growth_ratio` (Krangle growth, recombine, reforge) and
+    /// `affix_quality_percent` both rest on. Asserted directly on Echo
+    /// rather than assumed from the coefficient being a scalar.
+    #[test]
+    fn echo_still_rescales_as_a_plain_multiple_through_the_growth_ratio() {
+        for (old_tier, new_tier) in [(1u32, 100u32), (1, 1000), (50, 300), (100, 5000)] {
+            let grown = affix_base_value(Affix::Echo, old_tier) * affix_tier_growth_ratio(old_tier, new_tier);
+            let direct = affix_base_value(Affix::Echo, new_tier);
+            assert!(
+                (grown - direct).abs() < 1e-12,
+                "growing an Echo affix from tier {old_tier} to {new_tier} by the shared growth ratio must land exactly on the tier-{new_tier} base ({grown} vs {direct}) - if these ever diverge, Krangle growth, recombine and reforge are all wrong on Echo"
+            );
+        }
+    }
+
+    /// The quality readout recovers jitter as `value / affix_base_value`,
+    /// so a coefficient change must leave a given jitter reading as the
+    /// same quality - the number on screen describes the ROLL, not the
+    /// coefficient.
+    #[test]
+    fn echo_quality_percent_still_reports_the_jitter_and_not_the_coefficient() {
+        for tier in [1u32, 100, 1000] {
+            for jitter in [0.85, 1.0, 1.15] {
+                let value = affix_base_value(Affix::Echo, tier) * jitter;
+                let quality = affix_quality_percent(Affix::Echo, value, tier, false);
+                let expected = (jitter - 0.85) / (1.15 - 0.85) * 100.0;
+                assert!(
+                    (quality - expected).abs() < 1e-6,
+                    "a {jitter} jitter roll on a tier-{tier} Echo must read as {expected}% quality, got {quality}% - quality describes the roll, and must not move when the coefficient does"
+                );
+            }
+        }
+    }
+}
