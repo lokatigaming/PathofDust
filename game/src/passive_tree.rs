@@ -1265,6 +1265,54 @@ static PALADIN_NODES: &[PassiveNode] = &[
     // `migrations::migrate_refund_retired_dead_nodes` - see the note on
     // the retired Monk slot above for why that pairing is a hard
     // constraint and not a convenience.
+    //
+    // ---------------------------------------------------------------
+    // THIS SLOT IS EMPTY ON PURPOSE (owner ruling, 2026-09-07). It is a
+    // DECISION, not a gap. Do not fill it without reading this.
+    // ---------------------------------------------------------------
+    //
+    // A replacement was designed, approved, and then WITHDRAWN before a
+    // line of it was written, because the fit report justifying it was
+    // wrong on the facts. "Shared Aegis" was to grant the lowest-HP ally
+    // a fraction of the Paladin's shield, on the reasoning that this
+    // family never reaches the party. **Both halves of that are false,
+    // and the cast site says so plainly:**
+    //
+    //   - Divine Shield's PRIMARY shield already goes to the lowest-HP
+    //     ally - `min_by_key(|(_, u)| u.hp)` over living non-boss units,
+    //     at the `Divine Shield` cast in `simulate_battle`. Not to the
+    //     Paladin.
+    //   - Party-wide coverage already EXISTS as its own Specialization:
+    //     `consecration`, a sibling of `bulwarkoflight` under the same
+    //     `shield` parent, with its own Modifiers for value
+    //     (`widerblessing`) and party heal power (`communion`).
+    //
+    // So the axis had two nodes on it already, and the proposal would
+    // have handed one ally two shields from a single cast - the full one
+    // and a 25-55% one. Not a designed mechanic; it would have been found
+    // later as an oddity rather than chosen now.
+    //
+    // **The second reason is independent of the first and is why the slot
+    // stays empty rather than getting a different node.** Paladin has
+    // just been cut to flat 100% healing (see
+    // `ARCHETYPE_PALADIN_HEAL_POWER_FLAT`) - zero damage share, and the
+    // cadence excess above 1.0 heal power gone. Its compensation was
+    // ruled to come from its PASSIVE TREE, as a scoped pass. Raw party
+    // survivability arriving through this slot first would be a
+    // compensating buff nobody decided on, and would make that later work
+    // harder to size.
+    //
+    // What the slot genuinely lacks is what the retired node was for:
+    // recovering shield value that expires UNUSED. That was never built
+    // because shields expire lazily - checked at the next read site
+    // rather than fired as an event - so it needs scheduling
+    // infrastructure, the same gap Doom's curse detonation needed solved.
+    //
+    // Two candidates are on the board for the Paladin tree pass, NOT for
+    // building here: a shield that scales with the target's missing HP,
+    // and a shield that persists or refreshes rather than expiring flat.
+    // Both are new axes with no overlap against `bulwarkoflight`,
+    // `radiantbarrier`, `graceperiod` or `consecration`.
     modifier_with_effect("widerblessing", "consecration", "Wider Blessing", "Consecration's value is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("communion", "consecration", "Communion", "Consecration also grants the party +5% healing power per rank for its duration (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("sharedlight", "consecration", "Shared Light", "Consecration's party shield lasts 2 additional seconds per rank (up to +6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
