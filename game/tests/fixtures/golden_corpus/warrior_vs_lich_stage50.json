@@ -118,9 +118,9 @@
       "atMs": 1100,
       "attacker": "__enemy_0__",
       "target": "warrior_vs_lich_stage50",
-      "damage": 109,
+      "damage": 130,
       "unmitigatedDamage": 138,
-      "targetHpAfter": 101,
+      "targetHpAfter": 80,
       "isCrit": false,
       "evaded": false,
       "hitId": 9,
@@ -150,9 +150,9 @@
       "atMs": 2000,
       "attacker": "__enemy_0__-add-0",
       "target": "warrior_vs_lich_stage50",
-      "damage": 23,
+      "damage": 29,
       "unmitigatedDamage": 30,
-      "targetHpAfter": 78,
+      "targetHpAfter": 51,
       "isCrit": false,
       "evaded": false,
       "hitId": 28,
@@ -163,7 +163,7 @@
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "warrior_vs_lich_stage50",
-      "damage": 123,
+      "damage": 144,
       "unmitigatedDamage": 141,
       "targetHpAfter": 0,
       "isCrit": false,
@@ -271,7 +271,7 @@
       "source": "Damage reduction",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.35691097228204893
+      "magnitude": 0.215024855290468
     },
     {
       "eventId": 14,
@@ -431,7 +431,7 @@
       "source": "Damage reduction",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__-add-0",
-      "magnitude": 0.35691097228204893
+      "magnitude": 0.215024855290468
     },
     {
       "eventId": 32,
@@ -483,7 +483,7 @@
       "source": "Damage reduction",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.35691097228204893
+      "magnitude": 0.215024855290468
     },
     {
       "eventId": 38,

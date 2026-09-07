@@ -19,14 +19,14 @@
       "isBoss": false,
       "golemSummonerId": "elementalist_thunder_golems_vs_dragon_stage1000",
       "golemType": "thunder",
-      "thunderNetAbsorbed": 2676,
+      "thunderNetAbsorbed": 2765,
       "archetype": null,
       "role": "melee",
       "maxHp": 4260,
       "thunderIncarnations": [
         {
-          "absorbed": 5351,
-          "redistributed": 2676,
+          "absorbed": 5529,
+          "redistributed": 2765,
           "maxHp": 4260,
           "lifespanMs": 2200
         }
@@ -38,16 +38,16 @@
       "isBoss": false,
       "golemSummonerId": "elementalist_thunder_golems_vs_dragon_stage1000",
       "golemType": "thunder",
-      "thunderNetAbsorbed": 2581,
+      "thunderNetAbsorbed": 3687,
       "archetype": null,
       "role": "melee",
       "maxHp": 4260,
       "thunderIncarnations": [
         {
-          "absorbed": 5161,
-          "redistributed": 2581,
+          "absorbed": 3687,
+          "redistributed": 0,
           "maxHp": 4260,
-          "lifespanMs": 2200
+          "lifespanMs": 3200
         }
       ]
     },
@@ -57,14 +57,14 @@
       "isBoss": false,
       "golemSummonerId": "elementalist_thunder_golems_vs_dragon_stage1000",
       "golemType": "thunder",
-      "thunderNetAbsorbed": 2138,
+      "thunderNetAbsorbed": 2255,
       "archetype": null,
       "role": "melee",
       "maxHp": 4260,
       "thunderIncarnations": [
         {
-          "absorbed": 4276,
-          "redistributed": 2138,
+          "absorbed": 4510,
+          "redistributed": 2255,
           "maxHp": 4260,
           "lifespanMs": 2200
         }
@@ -94,7 +94,7 @@
       "targetHpAfter": 500000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1817,
+      "hitId": 1802,
       "sourceKind": "direct"
     },
     {
@@ -103,11 +103,11 @@
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 1463,
+      "unmitigatedDamage": 1957,
       "targetHpAfter": 500000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1823,
+      "hitId": 1808,
       "sourceKind": "direct"
     },
     {
@@ -116,11 +116,11 @@
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 1571,
+      "unmitigatedDamage": 1703,
       "targetHpAfter": 500000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1829,
+      "hitId": 1814,
       "sourceKind": "direct"
     },
     {
@@ -129,11 +129,11 @@
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 1723,
+      "unmitigatedDamage": 1517,
       "targetHpAfter": 500000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1835,
+      "hitId": 1820,
       "sourceKind": "direct"
     },
     {
@@ -142,11 +142,11 @@
       "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "damage": 0,
-      "unmitigatedDamage": 1878,
+      "unmitigatedDamage": 2035,
       "targetHpAfter": 4260,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1841,
+      "hitId": 1826,
       "sourceKind": "direct"
     },
     {
@@ -155,24 +155,11 @@
       "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "damage": 0,
-      "unmitigatedDamage": 1878,
+      "unmitigatedDamage": 2035,
       "targetHpAfter": 4260,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1842,
-      "sourceKind": "splash"
-    },
-    {
-      "kind": "attack",
-      "atMs": 0,
-      "attacker": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "damage": 0,
-      "unmitigatedDamage": 1878,
-      "targetHpAfter": 4260,
-      "isCrit": false,
-      "evaded": true,
-      "hitId": 1843,
+      "hitId": 1827,
       "sourceKind": "splash"
     },
     {
@@ -181,11 +168,24 @@
       "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "damage": 0,
-      "unmitigatedDamage": 1878,
+      "unmitigatedDamage": 2035,
       "targetHpAfter": 4260,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1844,
+      "hitId": 1828,
+      "sourceKind": "splash"
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "damage": 0,
+      "unmitigatedDamage": 2035,
+      "targetHpAfter": 4260,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 1829,
       "sourceKind": "splash"
     },
     {
@@ -218,12 +218,12 @@
       "atMs": 437,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 3505,
-      "unmitigatedDamage": 4612,
-      "targetHpAfter": 496495,
-      "isCrit": false,
+      "damage": 6785,
+      "unmitigatedDamage": 8928,
+      "targetHpAfter": 493215,
+      "isCrit": true,
       "evaded": false,
-      "hitId": 1845,
+      "hitId": 1830,
       "sourceKind": "direct"
     },
     {
@@ -250,12 +250,12 @@
       "atMs": 437,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
-      "damage": 1123,
-      "unmitigatedDamage": 1463,
-      "targetHpAfter": 495372,
+      "damage": 1307,
+      "unmitigatedDamage": 1703,
+      "targetHpAfter": 491908,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1857,
+      "hitId": 1843,
       "sourceKind": "direct"
     },
     {
@@ -282,12 +282,12 @@
       "atMs": 437,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "damage": 1442,
-      "unmitigatedDamage": 1860,
-      "targetHpAfter": 493930,
+      "damage": 1420,
+      "unmitigatedDamage": 1832,
+      "targetHpAfter": 490488,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1870,
+      "hitId": 1856,
       "sourceKind": "direct"
     },
     {
@@ -314,12 +314,12 @@
       "atMs": 437,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "damage": 1427,
-      "unmitigatedDamage": 1823,
-      "targetHpAfter": 492503,
+      "damage": 1173,
+      "unmitigatedDamage": 1499,
+      "targetHpAfter": 489315,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1883,
+      "hitId": 1869,
       "sourceKind": "direct"
     },
     {
@@ -346,12 +346,12 @@
       "atMs": 874,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 4486,
-      "unmitigatedDamage": 5675,
-      "targetHpAfter": 488017,
+      "damage": 4016,
+      "unmitigatedDamage": 5081,
+      "targetHpAfter": 485299,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1896,
+      "hitId": 1882,
       "sourceKind": "direct"
     },
     {
@@ -378,12 +378,12 @@
       "atMs": 874,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
-      "damage": 1203,
-      "unmitigatedDamage": 1508,
-      "targetHpAfter": 486814,
+      "damage": 1544,
+      "unmitigatedDamage": 1935,
+      "targetHpAfter": 483755,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1909,
+      "hitId": 1895,
       "sourceKind": "direct"
     },
     {
@@ -410,12 +410,12 @@
       "atMs": 874,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "damage": 1509,
-      "unmitigatedDamage": 1872,
-      "targetHpAfter": 485305,
+      "damage": 1554,
+      "unmitigatedDamage": 1930,
+      "targetHpAfter": 482201,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1922,
+      "hitId": 1908,
       "sourceKind": "direct"
     },
     {
@@ -442,12 +442,12 @@
       "atMs": 874,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "damage": 1240,
-      "unmitigatedDamage": 1526,
-      "targetHpAfter": 484065,
+      "damage": 1313,
+      "unmitigatedDamage": 1614,
+      "targetHpAfter": 480888,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1935,
+      "hitId": 1921,
       "sourceKind": "direct"
     },
     {
@@ -466,7 +466,7 @@
       "targetHpAfter": 2507,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1948,
+      "hitId": 1934,
       "sourceKind": "direct"
     },
     {
@@ -538,12 +538,12 @@
       "atMs": 1100,
       "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "damage": 2176,
-      "unmitigatedDamage": 1999,
-      "targetHpAfter": 2084,
+      "damage": 2171,
+      "unmitigatedDamage": 1994,
+      "targetHpAfter": 2089,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1949,
+      "hitId": 1935,
       "sourceKind": "direct"
     },
     {
@@ -569,77 +569,77 @@
       "kind": "attack",
       "atMs": 1100,
       "attacker": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "damage": 1842,
+      "unmitigatedDamage": 1994,
+      "targetHpAfter": 2418,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 1942,
+      "sourceKind": "splash"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1100,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          184.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          8.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          8.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "damage": 1847,
-      "unmitigatedDamage": 1999,
-      "targetHpAfter": 2413,
+      "damage": 1842,
+      "unmitigatedDamage": 1994,
+      "targetHpAfter": 2418,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 1949,
+      "sourceKind": "splash"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1100,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          184.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          8.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          8.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "damage": 1842,
+      "unmitigatedDamage": 1994,
+      "targetHpAfter": 576,
       "isCrit": false,
       "evaded": false,
       "hitId": 1956,
-      "sourceKind": "splash"
-    },
-    {
-      "kind": "buffSnapshot",
-      "atMs": 1100,
-      "unit": "__enemy_0__",
-      "buffs": [
-        [
-          "fire_dr_debuff_stacks",
-          184.0
-        ],
-        [
-          "cold_evasion_debuff_stacks",
-          8.0
-        ],
-        [
-          "lightning_dmg_taken_stacks",
-          8.0
-        ]
-      ]
-    },
-    {
-      "kind": "attack",
-      "atMs": 1100,
-      "attacker": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "damage": 1847,
-      "unmitigatedDamage": 1999,
-      "targetHpAfter": 2413,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 1963,
-      "sourceKind": "splash"
-    },
-    {
-      "kind": "buffSnapshot",
-      "atMs": 1100,
-      "unit": "__enemy_0__",
-      "buffs": [
-        [
-          "fire_dr_debuff_stacks",
-          184.0
-        ],
-        [
-          "cold_evasion_debuff_stacks",
-          8.0
-        ],
-        [
-          "lightning_dmg_taken_stacks",
-          8.0
-        ]
-      ]
-    },
-    {
-      "kind": "attack",
-      "atMs": 1100,
-      "attacker": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "damage": 1847,
-      "unmitigatedDamage": 1999,
-      "targetHpAfter": 566,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 1970,
       "sourceKind": "splash"
     },
     {
@@ -670,7 +670,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          206.0
+          207.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -687,12 +687,12 @@
       "atMs": 1311,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 3754,
-      "unmitigatedDamage": 4574,
-      "targetHpAfter": 480311,
+      "damage": 4175,
+      "unmitigatedDamage": 5087,
+      "targetHpAfter": 476713,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1977,
+      "hitId": 1963,
       "sourceKind": "direct"
     },
     {
@@ -702,7 +702,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          229.0
+          230.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -719,12 +719,12 @@
       "atMs": 1311,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
-      "damage": 1391,
-      "unmitigatedDamage": 1679,
-      "targetHpAfter": 478920,
+      "damage": 1245,
+      "unmitigatedDamage": 1503,
+      "targetHpAfter": 475468,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1990,
+      "hitId": 1976,
       "sourceKind": "direct"
     },
     {
@@ -734,7 +734,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          251.0
+          253.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -751,12 +751,12 @@
       "atMs": 1311,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "damage": 1275,
-      "unmitigatedDamage": 1524,
-      "targetHpAfter": 477645,
+      "damage": 1471,
+      "unmitigatedDamage": 1759,
+      "targetHpAfter": 473997,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2003,
+      "hitId": 1989,
       "sourceKind": "direct"
     },
     {
@@ -766,7 +766,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          274.0
+          276.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -783,12 +783,12 @@
       "atMs": 1311,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "damage": 1639,
-      "unmitigatedDamage": 1943,
-      "targetHpAfter": 476006,
+      "damage": 1295,
+      "unmitigatedDamage": 1535,
+      "targetHpAfter": 472702,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2016,
+      "hitId": 2002,
       "sourceKind": "direct"
     },
     {
@@ -813,7 +813,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          297.0
+          298.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -830,12 +830,12 @@
       "atMs": 1748,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 4399,
-      "unmitigatedDamage": 5167,
-      "targetHpAfter": 471607,
+      "damage": 3933,
+      "unmitigatedDamage": 4621,
+      "targetHpAfter": 468769,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2029,
+      "hitId": 2015,
       "sourceKind": "direct"
     },
     {
@@ -845,7 +845,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          320.0
+          321.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -862,12 +862,12 @@
       "atMs": 1748,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
-      "damage": 1579,
-      "unmitigatedDamage": 1839,
-      "targetHpAfter": 470028,
+      "damage": 1328,
+      "unmitigatedDamage": 1547,
+      "targetHpAfter": 467441,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2042,
+      "hitId": 2028,
       "sourceKind": "direct"
     },
     {
@@ -877,7 +877,7 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          343.0
+          344.0
         ],
         [
           "cold_evasion_debuff_stacks",
@@ -894,12 +894,12 @@
       "atMs": 1748,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "damage": 1620,
-      "unmitigatedDamage": 1870,
-      "targetHpAfter": 468408,
+      "damage": 1268,
+      "unmitigatedDamage": 1463,
+      "targetHpAfter": 466173,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2055,
+      "hitId": 2041,
       "sourceKind": "direct"
     },
     {
@@ -926,12 +926,12 @@
       "atMs": 1748,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "damage": 1444,
-      "unmitigatedDamage": 1652,
-      "targetHpAfter": 466964,
-      "isCrit": false,
+      "damage": 3016,
+      "unmitigatedDamage": 3451,
+      "targetHpAfter": 463157,
+      "isCrit": true,
       "evaded": false,
-      "hitId": 2068,
+      "hitId": 2054,
       "sourceKind": "direct"
     },
     {
@@ -950,7 +950,7 @@
       "targetHpAfter": 2110,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2081,
+      "hitId": 2068,
       "sourceKind": "direct"
     },
     {
@@ -1037,12 +1037,12 @@
       "atMs": 2185,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 5567,
-      "unmitigatedDamage": 6315,
-      "targetHpAfter": 461397,
+      "damage": 4482,
+      "unmitigatedDamage": 5085,
+      "targetHpAfter": 458675,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2082,
+      "hitId": 2069,
       "sourceKind": "direct"
     },
     {
@@ -1069,12 +1069,12 @@
       "atMs": 2185,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
-      "damage": 1588,
-      "unmitigatedDamage": 1785,
-      "targetHpAfter": 459809,
+      "damage": 1391,
+      "unmitigatedDamage": 1564,
+      "targetHpAfter": 457284,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2095,
+      "hitId": 2082,
       "sourceKind": "direct"
     },
     {
@@ -1101,12 +1101,12 @@
       "atMs": 2185,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "damage": 1439,
-      "unmitigatedDamage": 1605,
-      "targetHpAfter": 458370,
+      "damage": 1377,
+      "unmitigatedDamage": 1535,
+      "targetHpAfter": 455907,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2108,
+      "hitId": 2095,
       "sourceKind": "direct"
     },
     {
@@ -1133,12 +1133,12 @@
       "atMs": 2185,
       "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "damage": 1506,
-      "unmitigatedDamage": 1664,
-      "targetHpAfter": 456864,
+      "damage": 1760,
+      "unmitigatedDamage": 1946,
+      "targetHpAfter": 454147,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2121,
+      "hitId": 2108,
       "sourceKind": "direct"
     },
     {
@@ -1165,12 +1165,12 @@
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "damage": 2100,
-      "unmitigatedDamage": 1793,
+      "damage": 2339,
+      "unmitigatedDamage": 1997,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2134,
+      "hitId": 2121,
       "sourceKind": "direct"
     },
     {
@@ -1201,45 +1201,13 @@
       "kind": "attack",
       "atMs": 2200,
       "attacker": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "damage": 1657,
-      "unmitigatedDamage": 1793,
-      "targetHpAfter": 756,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 2141,
-      "sourceKind": "splash"
-    },
-    {
-      "kind": "buffSnapshot",
-      "atMs": 2200,
-      "unit": "__enemy_0__",
-      "buffs": [
-        [
-          "fire_dr_debuff_stacks",
-          458.0
-        ],
-        [
-          "cold_evasion_debuff_stacks",
-          20.0
-        ],
-        [
-          "lightning_dmg_taken_stacks",
-          20.0
-        ]
-      ]
-    },
-    {
-      "kind": "attack",
-      "atMs": 2200,
-      "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "damage": 1657,
-      "unmitigatedDamage": 1793,
+      "damage": 1845,
+      "unmitigatedDamage": 1997,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2148,
+      "hitId": 2128,
       "sourceKind": "splash"
     },
     {
@@ -1271,18 +1239,13 @@
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "damage": 1657,
-      "unmitigatedDamage": 1793,
-      "targetHpAfter": 0,
+      "damage": 1845,
+      "unmitigatedDamage": 1997,
+      "targetHpAfter": 573,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2155,
+      "hitId": 2135,
       "sourceKind": "splash"
-    },
-    {
-      "kind": "defeat",
-      "atMs": 2200,
-      "unit": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1"
     },
     {
       "kind": "skillCast",
@@ -1294,12 +1257,6 @@
       "kind": "skillCast",
       "atMs": 2200,
       "unit": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "skill": "Thunder Golem Redistribution"
-    },
-    {
-      "kind": "skillCast",
-      "atMs": 2200,
-      "unit": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "skill": "Thunder Golem Redistribution"
     },
     {
@@ -1347,12 +1304,44 @@
       "atMs": 2622,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 5687,
-      "unmitigatedDamage": 6236,
-      "targetHpAfter": 451177,
+      "damage": 5927,
+      "unmitigatedDamage": 6499,
+      "targetHpAfter": 448220,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2162,
+      "hitId": 2142,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2622,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          504.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          22.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          22.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 2622,
+      "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "damage": 1656,
+      "unmitigatedDamage": 1800,
+      "targetHpAfter": 446564,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2155,
       "sourceKind": "direct"
     },
     {
@@ -1371,7 +1360,7 @@
       "targetHpAfter": 1713,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2175,
+      "hitId": 2168,
       "sourceKind": "direct"
     },
     {
@@ -1441,15 +1430,15 @@
       "buffs": [
         [
           "fire_dr_debuff_stacks",
-          504.0
+          527.0
         ],
         [
           "cold_evasion_debuff_stacks",
-          22.0
+          23.0
         ],
         [
           "lightning_dmg_taken_stacks",
-          22.0
+          23.0
         ]
       ]
     },
@@ -1458,12 +1447,44 @@
       "atMs": 3059,
       "attacker": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "damage": 4840,
-      "unmitigatedDamage": 5263,
-      "targetHpAfter": 446337,
+      "damage": 5882,
+      "unmitigatedDamage": 6344,
+      "targetHpAfter": 440682,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2176,
+      "hitId": 2169,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3059,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          550.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          24.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          24.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3059,
+      "attacker": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "damage": 1543,
+      "unmitigatedDamage": 1651,
+      "targetHpAfter": 439139,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2182,
       "sourceKind": "direct"
     },
     {
@@ -1471,24 +1492,29 @@
       "atMs": 3200,
       "attacker": "__thunder_redistribution__",
       "target": "elementalist_thunder_golems_vs_dragon_stage1000",
-      "damage": 3697,
-      "unmitigatedDamage": 3697,
+      "damage": 2510,
+      "unmitigatedDamage": 2510,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2189,
+      "hitId": 2195,
       "sourceKind": "environmental"
     },
     {
       "kind": "defeat",
       "atMs": 3200,
       "unit": "elementalist_thunder_golems_vs_dragon_stage1000"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 3200,
+      "unit": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1"
     }
   ],
   "rolls": [
     {
-      "eventId": 1818,
-      "hitId": 1817,
+      "eventId": 1803,
+      "hitId": 1802,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1496,214 +1522,214 @@
       "target": "__enemy_0__",
       "probability": 0.05,
       "succeeded": false
+    },
+    {
+      "eventId": 1804,
+      "hitId": 1802,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1805,
+      "hitId": 1802,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 1.1029094428143313
+    },
+    {
+      "eventId": 1806,
+      "hitId": 1802,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.30000000000000004
+    },
+    {
+      "eventId": 1807,
+      "hitId": 1802,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 1809,
+      "hitId": 1808,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1810,
+      "hitId": 1808,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1811,
+      "hitId": 1808,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": 1.1029094428143313
+    },
+    {
+      "eventId": 1812,
+      "hitId": 1808,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": 0.30000000000000004
+    },
+    {
+      "eventId": 1813,
+      "hitId": 1808,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 1815,
+      "hitId": 1814,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1816,
+      "hitId": 1814,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1817,
+      "hitId": 1814,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 1.1029094428143313
+    },
+    {
+      "eventId": 1818,
+      "hitId": 1814,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.30000000000000004
     },
     {
       "eventId": 1819,
-      "hitId": 1817,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1820,
-      "hitId": 1817,
+      "hitId": 1814,
       "atMs": 0,
       "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "source": "Late-stage damage penalty",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "magnitude": 1.1029094428143313
+      "magnitude": -0.3333333333333333
     },
     {
       "eventId": 1821,
-      "hitId": 1817,
+      "hitId": 1820,
       "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Righteous Fire",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "magnitude": 0.30000000000000004
+      "probability": 0.05,
+      "succeeded": false
     },
     {
       "eventId": 1822,
-      "hitId": 1817,
+      "hitId": 1820,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1823,
+      "hitId": 1820,
       "atMs": 0,
       "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
+      "magnitude": 1.1029094428143313
     },
     {
       "eventId": 1824,
-      "hitId": 1823,
+      "hitId": 1820,
       "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "probability": 0.05,
-      "succeeded": false
+      "magnitude": 0.30000000000000004
     },
     {
       "eventId": 1825,
-      "hitId": 1823,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1826,
-      "hitId": 1823,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": 1.1029094428143313
-    },
-    {
-      "eventId": 1827,
-      "hitId": 1823,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Righteous Fire",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": 0.30000000000000004
-    },
-    {
-      "eventId": 1828,
-      "hitId": 1823,
+      "hitId": 1820,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1830,
-      "hitId": 1829,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.05,
-      "succeeded": false
     },
     {
       "eventId": 1831,
-      "hitId": 1829,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1832,
-      "hitId": 1829,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": 1.1029094428143313
-    },
-    {
-      "eventId": 1833,
-      "hitId": 1829,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Righteous Fire",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": 0.30000000000000004
-    },
-    {
-      "eventId": 1834,
-      "hitId": 1829,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1836,
-      "hitId": 1835,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "probability": 0.05,
-      "succeeded": false
-    },
-    {
-      "eventId": 1837,
-      "hitId": 1835,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1838,
-      "hitId": 1835,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": 1.1029094428143313
-    },
-    {
-      "eventId": 1839,
-      "hitId": 1835,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Righteous Fire",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": 0.30000000000000004
-    },
-    {
-      "eventId": 1840,
-      "hitId": 1835,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1846,
-      "hitId": 1845,
+      "hitId": 1830,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
       "probability": 0.05,
-      "succeeded": false
+      "succeeded": true
     },
     {
-      "eventId": 1847,
-      "hitId": 1845,
+      "eventId": 1832,
+      "hitId": 1830,
       "atMs": 437,
       "category": "evasion",
       "source": "Evasion",
@@ -1713,8 +1739,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1848,
-      "hitId": 1845,
+      "eventId": 1833,
+      "hitId": 1830,
       "atMs": 437,
       "category": "block",
       "source": "Block chance",
@@ -1724,8 +1750,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1849,
-      "hitId": 1845,
+      "eventId": 1834,
+      "hitId": 1830,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance",
@@ -1734,8 +1760,18 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1850,
-      "hitId": 1845,
+      "eventId": 1835,
+      "hitId": 1830,
+      "atMs": 437,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 2.591363655879756
+    },
+    {
+      "eventId": 1836,
+      "hitId": 1830,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1744,8 +1780,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1851,
-      "hitId": 1845,
+      "eventId": 1837,
+      "hitId": 1830,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -1754,8 +1790,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1852,
-      "hitId": 1845,
+      "eventId": 1838,
+      "hitId": 1830,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1764,8 +1800,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1853,
-      "hitId": 1845,
+      "eventId": 1839,
+      "hitId": 1830,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -1775,8 +1811,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1854,
-      "hitId": 1845,
+      "eventId": 1840,
+      "hitId": 1830,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1786,8 +1822,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1855,
-      "hitId": 1845,
+      "eventId": 1841,
+      "hitId": 1830,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1797,8 +1833,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1856,
-      "hitId": 1845,
+      "eventId": 1842,
+      "hitId": 1830,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -1808,8 +1844,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1858,
-      "hitId": 1857,
+      "eventId": 1844,
+      "hitId": 1843,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1819,8 +1855,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1859,
-      "hitId": 1857,
+      "eventId": 1845,
+      "hitId": 1843,
       "atMs": 437,
       "category": "evasion",
       "source": "Evasion",
@@ -1830,8 +1866,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1860,
-      "hitId": 1857,
+      "eventId": 1846,
+      "hitId": 1843,
       "atMs": 437,
       "category": "block",
       "source": "Block chance",
@@ -1841,8 +1877,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1861,
-      "hitId": 1857,
+      "eventId": 1847,
+      "hitId": 1843,
       "atMs": 437,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -1851,8 +1887,8 @@
       "magnitude": -0.01
     },
     {
-      "eventId": 1862,
-      "hitId": 1857,
+      "eventId": 1848,
+      "hitId": 1843,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance",
@@ -1861,8 +1897,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1863,
-      "hitId": 1857,
+      "eventId": 1849,
+      "hitId": 1843,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1871,8 +1907,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1864,
-      "hitId": 1857,
+      "eventId": 1850,
+      "hitId": 1843,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -1881,8 +1917,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1865,
-      "hitId": 1857,
+      "eventId": 1851,
+      "hitId": 1843,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1891,8 +1927,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1866,
-      "hitId": 1857,
+      "eventId": 1852,
+      "hitId": 1843,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -1902,8 +1938,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1867,
-      "hitId": 1857,
+      "eventId": 1853,
+      "hitId": 1843,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1913,8 +1949,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1868,
-      "hitId": 1857,
+      "eventId": 1854,
+      "hitId": 1843,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1924,8 +1960,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1869,
-      "hitId": 1857,
+      "eventId": 1855,
+      "hitId": 1843,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -1935,8 +1971,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1871,
-      "hitId": 1870,
+      "eventId": 1857,
+      "hitId": 1856,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1946,8 +1982,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1872,
-      "hitId": 1870,
+      "eventId": 1858,
+      "hitId": 1856,
       "atMs": 437,
       "category": "evasion",
       "source": "Evasion",
@@ -1957,8 +1993,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1873,
-      "hitId": 1870,
+      "eventId": 1859,
+      "hitId": 1856,
       "atMs": 437,
       "category": "block",
       "source": "Block chance",
@@ -1968,8 +2004,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1874,
-      "hitId": 1870,
+      "eventId": 1860,
+      "hitId": 1856,
       "atMs": 437,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -1978,8 +2014,8 @@
       "magnitude": -0.02
     },
     {
-      "eventId": 1875,
-      "hitId": 1870,
+      "eventId": 1861,
+      "hitId": 1856,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance",
@@ -1988,8 +2024,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1876,
-      "hitId": 1870,
+      "eventId": 1862,
+      "hitId": 1856,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1998,8 +2034,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1877,
-      "hitId": 1870,
+      "eventId": 1863,
+      "hitId": 1856,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -2008,8 +2044,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1878,
-      "hitId": 1870,
+      "eventId": 1864,
+      "hitId": 1856,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2018,8 +2054,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1879,
-      "hitId": 1870,
+      "eventId": 1865,
+      "hitId": 1856,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -2029,8 +2065,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1880,
-      "hitId": 1870,
+      "eventId": 1866,
+      "hitId": 1856,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -2040,8 +2076,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1881,
-      "hitId": 1870,
+      "eventId": 1867,
+      "hitId": 1856,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -2051,8 +2087,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1882,
-      "hitId": 1870,
+      "eventId": 1868,
+      "hitId": 1856,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -2062,8 +2098,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1884,
-      "hitId": 1883,
+      "eventId": 1870,
+      "hitId": 1869,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2073,8 +2109,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1885,
-      "hitId": 1883,
+      "eventId": 1871,
+      "hitId": 1869,
       "atMs": 437,
       "category": "evasion",
       "source": "Evasion",
@@ -2084,8 +2120,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1886,
-      "hitId": 1883,
+      "eventId": 1872,
+      "hitId": 1869,
       "atMs": 437,
       "category": "block",
       "source": "Block chance",
@@ -2095,8 +2131,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1887,
-      "hitId": 1883,
+      "eventId": 1873,
+      "hitId": 1869,
       "atMs": 437,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -2105,8 +2141,8 @@
       "magnitude": -0.03
     },
     {
-      "eventId": 1888,
-      "hitId": 1883,
+      "eventId": 1874,
+      "hitId": 1869,
       "atMs": 437,
       "category": "crit",
       "source": "Crit chance",
@@ -2115,8 +2151,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1889,
-      "hitId": 1883,
+      "eventId": 1875,
+      "hitId": 1869,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2125,8 +2161,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1890,
-      "hitId": 1883,
+      "eventId": 1876,
+      "hitId": 1869,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -2135,8 +2171,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1891,
-      "hitId": 1883,
+      "eventId": 1877,
+      "hitId": 1869,
       "atMs": 437,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2145,8 +2181,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1892,
-      "hitId": 1883,
+      "eventId": 1878,
+      "hitId": 1869,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -2156,8 +2192,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1893,
-      "hitId": 1883,
+      "eventId": 1879,
+      "hitId": 1869,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -2167,8 +2203,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1894,
-      "hitId": 1883,
+      "eventId": 1880,
+      "hitId": 1869,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -2178,8 +2214,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1895,
-      "hitId": 1883,
+      "eventId": 1881,
+      "hitId": 1869,
       "atMs": 437,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -2189,8 +2225,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1897,
-      "hitId": 1896,
+      "eventId": 1883,
+      "hitId": 1882,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2200,8 +2236,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1898,
-      "hitId": 1896,
+      "eventId": 1884,
+      "hitId": 1882,
       "atMs": 874,
       "category": "evasion",
       "source": "Evasion",
@@ -2211,8 +2247,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1899,
-      "hitId": 1896,
+      "eventId": 1885,
+      "hitId": 1882,
       "atMs": 874,
       "category": "block",
       "source": "Block chance",
@@ -2222,8 +2258,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1900,
-      "hitId": 1896,
+      "eventId": 1886,
+      "hitId": 1882,
       "atMs": 874,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -2232,8 +2268,8 @@
       "magnitude": -0.04
     },
     {
-      "eventId": 1901,
-      "hitId": 1896,
+      "eventId": 1887,
+      "hitId": 1882,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance",
@@ -2242,8 +2278,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1902,
-      "hitId": 1896,
+      "eventId": 1888,
+      "hitId": 1882,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2252,8 +2288,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1903,
-      "hitId": 1896,
+      "eventId": 1889,
+      "hitId": 1882,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -2262,8 +2298,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1904,
-      "hitId": 1896,
+      "eventId": 1890,
+      "hitId": 1882,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2272,8 +2308,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1905,
-      "hitId": 1896,
+      "eventId": 1891,
+      "hitId": 1882,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -2283,8 +2319,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1906,
-      "hitId": 1896,
+      "eventId": 1892,
+      "hitId": 1882,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -2294,8 +2330,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1907,
-      "hitId": 1896,
+      "eventId": 1893,
+      "hitId": 1882,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -2305,8 +2341,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1908,
-      "hitId": 1896,
+      "eventId": 1894,
+      "hitId": 1882,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -2316,8 +2352,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1910,
-      "hitId": 1909,
+      "eventId": 1896,
+      "hitId": 1895,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2327,8 +2363,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1911,
-      "hitId": 1909,
+      "eventId": 1897,
+      "hitId": 1895,
       "atMs": 874,
       "category": "evasion",
       "source": "Evasion",
@@ -2338,8 +2374,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1912,
-      "hitId": 1909,
+      "eventId": 1898,
+      "hitId": 1895,
       "atMs": 874,
       "category": "block",
       "source": "Block chance",
@@ -2349,8 +2385,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1913,
-      "hitId": 1909,
+      "eventId": 1899,
+      "hitId": 1895,
       "atMs": 874,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -2359,8 +2395,8 @@
       "magnitude": -0.05
     },
     {
-      "eventId": 1914,
-      "hitId": 1909,
+      "eventId": 1900,
+      "hitId": 1895,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance",
@@ -2369,8 +2405,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1915,
-      "hitId": 1909,
+      "eventId": 1901,
+      "hitId": 1895,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2379,8 +2415,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1916,
-      "hitId": 1909,
+      "eventId": 1902,
+      "hitId": 1895,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -2389,8 +2425,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1917,
-      "hitId": 1909,
+      "eventId": 1903,
+      "hitId": 1895,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2399,8 +2435,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1918,
-      "hitId": 1909,
+      "eventId": 1904,
+      "hitId": 1895,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -2410,8 +2446,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1919,
-      "hitId": 1909,
+      "eventId": 1905,
+      "hitId": 1895,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -2421,8 +2457,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1920,
-      "hitId": 1909,
+      "eventId": 1906,
+      "hitId": 1895,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -2432,8 +2468,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1921,
-      "hitId": 1909,
+      "eventId": 1907,
+      "hitId": 1895,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -2443,8 +2479,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1923,
-      "hitId": 1922,
+      "eventId": 1909,
+      "hitId": 1908,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2454,8 +2490,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1924,
-      "hitId": 1922,
+      "eventId": 1910,
+      "hitId": 1908,
       "atMs": 874,
       "category": "evasion",
       "source": "Evasion",
@@ -2465,8 +2501,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1925,
-      "hitId": 1922,
+      "eventId": 1911,
+      "hitId": 1908,
       "atMs": 874,
       "category": "block",
       "source": "Block chance",
@@ -2476,8 +2512,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1926,
-      "hitId": 1922,
+      "eventId": 1912,
+      "hitId": 1908,
       "atMs": 874,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -2486,8 +2522,8 @@
       "magnitude": -0.06
     },
     {
-      "eventId": 1927,
-      "hitId": 1922,
+      "eventId": 1913,
+      "hitId": 1908,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance",
@@ -2496,8 +2532,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1928,
-      "hitId": 1922,
+      "eventId": 1914,
+      "hitId": 1908,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2506,8 +2542,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1929,
-      "hitId": 1922,
+      "eventId": 1915,
+      "hitId": 1908,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -2516,8 +2552,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1930,
-      "hitId": 1922,
+      "eventId": 1916,
+      "hitId": 1908,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2526,8 +2562,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1931,
-      "hitId": 1922,
+      "eventId": 1917,
+      "hitId": 1908,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -2537,8 +2573,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1932,
-      "hitId": 1922,
+      "eventId": 1918,
+      "hitId": 1908,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -2548,8 +2584,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1933,
-      "hitId": 1922,
+      "eventId": 1919,
+      "hitId": 1908,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -2559,8 +2595,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1934,
-      "hitId": 1922,
+      "eventId": 1920,
+      "hitId": 1908,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -2570,8 +2606,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1936,
-      "hitId": 1935,
+      "eventId": 1922,
+      "hitId": 1921,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2581,8 +2617,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1937,
-      "hitId": 1935,
+      "eventId": 1923,
+      "hitId": 1921,
       "atMs": 874,
       "category": "evasion",
       "source": "Evasion",
@@ -2592,8 +2628,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1938,
-      "hitId": 1935,
+      "eventId": 1924,
+      "hitId": 1921,
       "atMs": 874,
       "category": "block",
       "source": "Block chance",
@@ -2603,8 +2639,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1939,
-      "hitId": 1935,
+      "eventId": 1925,
+      "hitId": 1921,
       "atMs": 874,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -2613,8 +2649,8 @@
       "magnitude": -0.07
     },
     {
-      "eventId": 1940,
-      "hitId": 1935,
+      "eventId": 1926,
+      "hitId": 1921,
       "atMs": 874,
       "category": "crit",
       "source": "Crit chance",
@@ -2623,8 +2659,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1941,
-      "hitId": 1935,
+      "eventId": 1927,
+      "hitId": 1921,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -2633,8 +2669,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1942,
-      "hitId": 1935,
+      "eventId": 1928,
+      "hitId": 1921,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -2643,8 +2679,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1943,
-      "hitId": 1935,
+      "eventId": 1929,
+      "hitId": 1921,
       "atMs": 874,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -2653,8 +2689,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1944,
-      "hitId": 1935,
+      "eventId": 1930,
+      "hitId": 1921,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -2664,8 +2700,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1945,
-      "hitId": 1935,
+      "eventId": 1931,
+      "hitId": 1921,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -2675,8 +2711,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1946,
-      "hitId": 1935,
+      "eventId": 1932,
+      "hitId": 1921,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -2686,8 +2722,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1947,
-      "hitId": 1935,
+      "eventId": 1933,
+      "hitId": 1921,
       "atMs": 874,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -2697,12 +2733,136 @@
       "succeeded": true
     },
     {
+      "eventId": 1936,
+      "hitId": 1935,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1937,
+      "hitId": 1935,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1938,
+      "hitId": 1935,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1939,
+      "hitId": 1935,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "magnitude": 0.08456644085404444
+    },
+    {
+      "eventId": 1940,
+      "hitId": 1935,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1941,
+      "hitId": 1935,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "magnitude": 199.42335665914666
+    },
+    {
+      "eventId": 1943,
+      "hitId": 1942,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1944,
+      "hitId": 1942,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1945,
+      "hitId": 1942,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1946,
+      "hitId": 1942,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.08456644085404444
+    },
+    {
+      "eventId": 1947,
+      "hitId": 1942,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1948,
+      "hitId": 1942,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "magnitude": 199.42335665914666
+    },
+    {
       "eventId": 1950,
       "hitId": 1949,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 0.0,
       "succeeded": false
@@ -2713,7 +2873,7 @@
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 0.0,
       "succeeded": false
@@ -2724,7 +2884,7 @@
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": -0.022000000000000002
     },
@@ -2734,7 +2894,7 @@
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": 0.08456644085404444
     },
@@ -2744,7 +2904,7 @@
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": -0.022000000000000002
     },
@@ -2755,8 +2915,8 @@
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "magnitude": 199.88877460356855
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "magnitude": 199.42335665914666
     },
     {
       "eventId": 1957,
@@ -2818,135 +2978,11 @@
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "magnitude": 199.88877460356855
+      "magnitude": 199.42335665914666
     },
     {
       "eventId": 1964,
       "hitId": 1963,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1965,
-      "hitId": 1963,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1966,
-      "hitId": 1963,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1967,
-      "hitId": 1963,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": 0.08456644085404444
-    },
-    {
-      "eventId": 1968,
-      "hitId": 1963,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1969,
-      "hitId": 1963,
-      "atMs": 1100,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "magnitude": 199.88877460356855
-    },
-    {
-      "eventId": 1971,
-      "hitId": 1970,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1972,
-      "hitId": 1970,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1973,
-      "hitId": 1970,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1974,
-      "hitId": 1970,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": 0.08456644085404444
-    },
-    {
-      "eventId": 1975,
-      "hitId": 1970,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1976,
-      "hitId": 1970,
-      "atMs": 1100,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "magnitude": 199.88877460356855
-    },
-    {
-      "eventId": 1978,
-      "hitId": 1977,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -2956,8 +2992,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1979,
-      "hitId": 1977,
+      "eventId": 1965,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "evasion",
       "source": "Evasion",
@@ -2967,8 +3003,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1980,
-      "hitId": 1977,
+      "eventId": 1966,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "block",
       "source": "Block chance",
@@ -2978,8 +3014,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1981,
-      "hitId": 1977,
+      "eventId": 1967,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -2988,8 +3024,8 @@
       "magnitude": -0.08
     },
     {
-      "eventId": 1982,
-      "hitId": 1977,
+      "eventId": 1968,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance",
@@ -2998,8 +3034,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1983,
-      "hitId": 1977,
+      "eventId": 1969,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3008,8 +3044,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1984,
-      "hitId": 1977,
+      "eventId": 1970,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3018,8 +3054,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1985,
-      "hitId": 1977,
+      "eventId": 1971,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3028,8 +3064,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1986,
-      "hitId": 1977,
+      "eventId": 1972,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3039,8 +3075,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1987,
-      "hitId": 1977,
+      "eventId": 1973,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3050,8 +3086,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1988,
-      "hitId": 1977,
+      "eventId": 1974,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3061,8 +3097,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1989,
-      "hitId": 1977,
+      "eventId": 1975,
+      "hitId": 1963,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3072,8 +3108,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1991,
-      "hitId": 1990,
+      "eventId": 1977,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -3083,8 +3119,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1992,
-      "hitId": 1990,
+      "eventId": 1978,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "evasion",
       "source": "Evasion",
@@ -3094,8 +3130,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1993,
-      "hitId": 1990,
+      "eventId": 1979,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "block",
       "source": "Block chance",
@@ -3105,8 +3141,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1994,
-      "hitId": 1990,
+      "eventId": 1980,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3115,8 +3151,8 @@
       "magnitude": -0.09
     },
     {
-      "eventId": 1995,
-      "hitId": 1990,
+      "eventId": 1981,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance",
@@ -3125,8 +3161,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1996,
-      "hitId": 1990,
+      "eventId": 1982,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3135,8 +3171,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 1997,
-      "hitId": 1990,
+      "eventId": 1983,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3145,8 +3181,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 1998,
-      "hitId": 1990,
+      "eventId": 1984,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3155,8 +3191,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1999,
-      "hitId": 1990,
+      "eventId": 1985,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3166,8 +3202,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2000,
-      "hitId": 1990,
+      "eventId": 1986,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3177,8 +3213,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2001,
-      "hitId": 1990,
+      "eventId": 1987,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3188,8 +3224,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2002,
-      "hitId": 1990,
+      "eventId": 1988,
+      "hitId": 1976,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3199,8 +3235,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2004,
-      "hitId": 2003,
+      "eventId": 1990,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -3210,8 +3246,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2005,
-      "hitId": 2003,
+      "eventId": 1991,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "evasion",
       "source": "Evasion",
@@ -3221,8 +3257,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2006,
-      "hitId": 2003,
+      "eventId": 1992,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "block",
       "source": "Block chance",
@@ -3232,8 +3268,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2007,
-      "hitId": 2003,
+      "eventId": 1993,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3242,8 +3278,8 @@
       "magnitude": -0.1
     },
     {
-      "eventId": 2008,
-      "hitId": 2003,
+      "eventId": 1994,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance",
@@ -3252,8 +3288,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2009,
-      "hitId": 2003,
+      "eventId": 1995,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3262,8 +3298,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2010,
-      "hitId": 2003,
+      "eventId": 1996,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3272,8 +3308,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2011,
-      "hitId": 2003,
+      "eventId": 1997,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3282,8 +3318,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2012,
-      "hitId": 2003,
+      "eventId": 1998,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3293,8 +3329,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2013,
-      "hitId": 2003,
+      "eventId": 1999,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3304,8 +3340,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2014,
-      "hitId": 2003,
+      "eventId": 2000,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3315,8 +3351,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2015,
-      "hitId": 2003,
+      "eventId": 2001,
+      "hitId": 1989,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3326,8 +3362,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2017,
-      "hitId": 2016,
+      "eventId": 2003,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -3337,8 +3373,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2018,
-      "hitId": 2016,
+      "eventId": 2004,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "evasion",
       "source": "Evasion",
@@ -3348,8 +3384,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2019,
-      "hitId": 2016,
+      "eventId": 2005,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "block",
       "source": "Block chance",
@@ -3359,8 +3395,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2020,
-      "hitId": 2016,
+      "eventId": 2006,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3369,8 +3405,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 2021,
-      "hitId": 2016,
+      "eventId": 2007,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "crit",
       "source": "Crit chance",
@@ -3379,8 +3415,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2022,
-      "hitId": 2016,
+      "eventId": 2008,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3389,8 +3425,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2023,
-      "hitId": 2016,
+      "eventId": 2009,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3399,8 +3435,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2024,
-      "hitId": 2016,
+      "eventId": 2010,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3409,8 +3445,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2025,
-      "hitId": 2016,
+      "eventId": 2011,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3420,8 +3456,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2026,
-      "hitId": 2016,
+      "eventId": 2012,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3431,8 +3467,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2027,
-      "hitId": 2016,
+      "eventId": 2013,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3442,8 +3478,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2028,
-      "hitId": 2016,
+      "eventId": 2014,
+      "hitId": 2002,
       "atMs": 1311,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3453,8 +3489,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2030,
-      "hitId": 2029,
+      "eventId": 2016,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -3464,8 +3500,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2031,
-      "hitId": 2029,
+      "eventId": 2017,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "evasion",
       "source": "Evasion",
@@ -3475,8 +3511,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2032,
-      "hitId": 2029,
+      "eventId": 2018,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "block",
       "source": "Block chance",
@@ -3486,8 +3522,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2033,
-      "hitId": 2029,
+      "eventId": 2019,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3496,8 +3532,8 @@
       "magnitude": -0.12
     },
     {
-      "eventId": 2034,
-      "hitId": 2029,
+      "eventId": 2020,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance",
@@ -3506,8 +3542,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2035,
-      "hitId": 2029,
+      "eventId": 2021,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3516,8 +3552,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2036,
-      "hitId": 2029,
+      "eventId": 2022,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3526,8 +3562,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2037,
-      "hitId": 2029,
+      "eventId": 2023,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3536,8 +3572,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2038,
-      "hitId": 2029,
+      "eventId": 2024,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3547,8 +3583,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2039,
-      "hitId": 2029,
+      "eventId": 2025,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3558,8 +3594,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2040,
-      "hitId": 2029,
+      "eventId": 2026,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3569,8 +3605,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2041,
-      "hitId": 2029,
+      "eventId": 2027,
+      "hitId": 2015,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3580,8 +3616,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2043,
-      "hitId": 2042,
+      "eventId": 2029,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -3591,8 +3627,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2044,
-      "hitId": 2042,
+      "eventId": 2030,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "evasion",
       "source": "Evasion",
@@ -3602,8 +3638,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2045,
-      "hitId": 2042,
+      "eventId": 2031,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "block",
       "source": "Block chance",
@@ -3613,8 +3649,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2046,
-      "hitId": 2042,
+      "eventId": 2032,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3623,8 +3659,8 @@
       "magnitude": -0.13
     },
     {
-      "eventId": 2047,
-      "hitId": 2042,
+      "eventId": 2033,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance",
@@ -3633,8 +3669,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2048,
-      "hitId": 2042,
+      "eventId": 2034,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3643,8 +3679,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2049,
-      "hitId": 2042,
+      "eventId": 2035,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3653,8 +3689,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2050,
-      "hitId": 2042,
+      "eventId": 2036,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3663,8 +3699,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2051,
-      "hitId": 2042,
+      "eventId": 2037,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3674,8 +3710,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2052,
-      "hitId": 2042,
+      "eventId": 2038,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3685,8 +3721,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2053,
-      "hitId": 2042,
+      "eventId": 2039,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3696,8 +3732,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2054,
-      "hitId": 2042,
+      "eventId": 2040,
+      "hitId": 2028,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3707,8 +3743,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2056,
-      "hitId": 2055,
+      "eventId": 2042,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -3718,8 +3754,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2057,
-      "hitId": 2055,
+      "eventId": 2043,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "evasion",
       "source": "Evasion",
@@ -3729,8 +3765,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2058,
-      "hitId": 2055,
+      "eventId": 2044,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "block",
       "source": "Block chance",
@@ -3740,8 +3776,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2059,
-      "hitId": 2055,
+      "eventId": 2045,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3750,8 +3786,8 @@
       "magnitude": -0.14
     },
     {
-      "eventId": 2060,
-      "hitId": 2055,
+      "eventId": 2046,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance",
@@ -3760,8 +3796,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2061,
-      "hitId": 2055,
+      "eventId": 2047,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3770,8 +3806,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2062,
-      "hitId": 2055,
+      "eventId": 2048,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3780,8 +3816,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2063,
-      "hitId": 2055,
+      "eventId": 2049,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3790,8 +3826,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2064,
-      "hitId": 2055,
+      "eventId": 2050,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3801,8 +3837,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2065,
-      "hitId": 2055,
+      "eventId": 2051,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3812,8 +3848,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2066,
-      "hitId": 2055,
+      "eventId": 2052,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3823,8 +3859,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2067,
-      "hitId": 2055,
+      "eventId": 2053,
+      "hitId": 2041,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -3834,19 +3870,19 @@
       "succeeded": true
     },
     {
-      "eventId": 2069,
-      "hitId": 2068,
+      "eventId": 2055,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "probability": 0.05,
-      "succeeded": false
+      "succeeded": true
     },
     {
-      "eventId": 2070,
-      "hitId": 2068,
+      "eventId": 2056,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "evasion",
       "source": "Evasion",
@@ -3856,8 +3892,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2071,
-      "hitId": 2068,
+      "eventId": 2057,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "block",
       "source": "Block chance",
@@ -3867,8 +3903,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2072,
-      "hitId": 2068,
+      "eventId": 2058,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -3877,8 +3913,8 @@
       "magnitude": -0.15
     },
     {
-      "eventId": 2073,
-      "hitId": 2068,
+      "eventId": 2059,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "crit",
       "source": "Crit chance",
@@ -3887,8 +3923,18 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2074,
-      "hitId": 2068,
+      "eventId": 2060,
+      "hitId": 2054,
+      "atMs": 1748,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "magnitude": 2.591363655879756
+    },
+    {
+      "eventId": 2061,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -3897,8 +3943,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2075,
-      "hitId": 2068,
+      "eventId": 2062,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -3907,8 +3953,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2076,
-      "hitId": 2068,
+      "eventId": 2063,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -3917,8 +3963,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2077,
-      "hitId": 2068,
+      "eventId": 2064,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -3928,8 +3974,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2078,
-      "hitId": 2068,
+      "eventId": 2065,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -3939,8 +3985,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2079,
-      "hitId": 2068,
+      "eventId": 2066,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -3950,12 +3996,139 @@
       "succeeded": false
     },
     {
-      "eventId": 2080,
-      "hitId": 2068,
+      "eventId": 2067,
+      "hitId": 2054,
       "atMs": 1748,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2070,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 2071,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2072,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2073,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.16
+    },
+    {
+      "eventId": 2074,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 2075,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 1.1029094428143313
+    },
+    {
+      "eventId": 2076,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.30000000000000004
+    },
+    {
+      "eventId": 2077,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 2078,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2079,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2080,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.02715104007781525,
+      "succeeded": false
+    },
+    {
+      "eventId": 2081,
+      "hitId": 2069,
+      "atMs": 2185,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -3966,7 +4139,7 @@
       "atMs": 2185,
       "category": "crit",
       "source": "Crit chance remainder",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 0.05,
       "succeeded": false
@@ -3978,7 +4151,7 @@
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
-      "target": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "probability": 0.0,
       "succeeded": false
     },
@@ -3989,7 +4162,7 @@
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
-      "target": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "probability": 0.0,
       "succeeded": false
     },
@@ -3999,9 +4172,9 @@
       "atMs": 2185,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
-      "magnitude": -0.16
+      "magnitude": -0.17
     },
     {
       "eventId": 2087,
@@ -4009,7 +4182,7 @@
       "atMs": 2185,
       "category": "crit",
       "source": "Crit chance",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": 0.05
     },
@@ -4019,7 +4192,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": 1.1029094428143313
     },
@@ -4029,7 +4202,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Righteous Fire",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": 0.30000000000000004
     },
@@ -4039,7 +4212,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "magnitude": -0.3333333333333333
     },
@@ -4049,7 +4222,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Fire proc",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4060,7 +4233,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Cold proc",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4071,7 +4244,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Chaos proc",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 0.02715104007781525,
       "succeeded": false
@@ -4082,7 +4255,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Lightning proc",
-      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4093,7 +4266,7 @@
       "atMs": 2185,
       "category": "crit",
       "source": "Crit chance remainder",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 0.05,
       "succeeded": false
@@ -4105,7 +4278,7 @@
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "probability": 0.0,
       "succeeded": false
     },
@@ -4116,7 +4289,7 @@
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "probability": 0.0,
       "succeeded": false
     },
@@ -4126,9 +4299,9 @@
       "atMs": 2185,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "magnitude": -0.17
+      "magnitude": -0.18
     },
     {
       "eventId": 2100,
@@ -4136,7 +4309,7 @@
       "atMs": 2185,
       "category": "crit",
       "source": "Crit chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "magnitude": 0.05
     },
@@ -4146,7 +4319,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "magnitude": 1.1029094428143313
     },
@@ -4156,7 +4329,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Righteous Fire",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "magnitude": 0.30000000000000004
     },
@@ -4166,7 +4339,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "magnitude": -0.3333333333333333
     },
@@ -4176,7 +4349,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Fire proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4187,7 +4360,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Cold proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4198,7 +4371,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Chaos proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 0.02715104007781525,
       "succeeded": false
@@ -4209,7 +4382,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Lightning proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4220,7 +4393,7 @@
       "atMs": 2185,
       "category": "crit",
       "source": "Crit chance remainder",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "probability": 0.05,
       "succeeded": false
@@ -4232,7 +4405,7 @@
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "probability": 0.0,
       "succeeded": false
     },
@@ -4243,7 +4416,7 @@
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "probability": 0.0,
       "succeeded": false
     },
@@ -4253,9 +4426,9 @@
       "atMs": 2185,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "magnitude": -0.18
+      "magnitude": -0.19
     },
     {
       "eventId": 2113,
@@ -4263,7 +4436,7 @@
       "atMs": 2185,
       "category": "crit",
       "source": "Crit chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "magnitude": 0.05
     },
@@ -4273,7 +4446,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "magnitude": 1.1029094428143313
     },
@@ -4283,7 +4456,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Righteous Fire",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "magnitude": 0.30000000000000004
     },
@@ -4293,7 +4466,7 @@
       "atMs": 2185,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "magnitude": -0.3333333333333333
     },
@@ -4303,7 +4476,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Fire proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4314,7 +4487,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Cold proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4325,7 +4498,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Chaos proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "probability": 0.02715104007781525,
       "succeeded": false
@@ -4336,7 +4509,7 @@
       "atMs": 2185,
       "category": "elementalProc",
       "source": "Lightning proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
@@ -4344,381 +4517,192 @@
     {
       "eventId": 2122,
       "hitId": 2121,
-      "atMs": 2185,
-      "category": "crit",
-      "source": "Crit chance remainder",
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
       "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "probability": 0.05,
+      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 2123,
       "hitId": 2121,
-      "atMs": 2185,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
       "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 2124,
       "hitId": 2121,
-      "atMs": 2185,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "probability": 0.0,
-      "succeeded": false
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
     },
     {
       "eventId": 2125,
       "hitId": 2121,
-      "atMs": 2185,
+      "atMs": 2200,
       "category": "mitigation",
-      "source": "Lightning damage-taken stack",
+      "source": "Damage reduction",
       "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "magnitude": -0.19
+      "magnitude": 0.08456644085404444
     },
     {
       "eventId": 2126,
       "hitId": 2121,
-      "atMs": 2185,
-      "category": "crit",
-      "source": "Crit chance",
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
       "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
       "target": "__enemy_0__",
-      "magnitude": 0.05
+      "magnitude": -0.044000000000000004
     },
     {
       "eventId": 2127,
       "hitId": 2121,
-      "atMs": 2185,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": 1.1029094428143313
-    },
-    {
-      "eventId": 2128,
-      "hitId": 2121,
-      "atMs": 2185,
-      "category": "increasedDamage",
-      "source": "Righteous Fire",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": 0.30000000000000004
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "magnitude": 199.73158925721228
     },
     {
       "eventId": 2129,
-      "hitId": 2121,
-      "atMs": 2185,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 2130,
-      "hitId": 2121,
-      "atMs": 2185,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "probability": 1.0,
-      "succeeded": true
-    },
-    {
-      "eventId": 2131,
-      "hitId": 2121,
-      "atMs": 2185,
-      "category": "elementalProc",
-      "source": "Cold proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "probability": 1.0,
-      "succeeded": true
-    },
-    {
-      "eventId": 2132,
-      "hitId": 2121,
-      "atMs": 2185,
-      "category": "elementalProc",
-      "source": "Chaos proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "probability": 0.02715104007781525,
-      "succeeded": false
-    },
-    {
-      "eventId": 2133,
-      "hitId": 2121,
-      "atMs": 2185,
-      "category": "elementalProc",
-      "source": "Lightning proc",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "target": "__enemy_0__",
-      "probability": 1.0,
-      "succeeded": true
-    },
-    {
-      "eventId": 2135,
-      "hitId": 2134,
+      "hitId": 2128,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
       "target": "__enemy_0__",
       "probability": 0.0,
       "succeeded": false
     },
     {
-      "eventId": 2136,
-      "hitId": 2134,
+      "eventId": 2130,
+      "hitId": 2128,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2131,
+      "hitId": 2128,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 2132,
+      "hitId": 2128,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": 0.08456644085404444
+    },
+    {
+      "eventId": 2133,
+      "hitId": 2128,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 2134,
+      "hitId": 2128,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
+      "magnitude": 199.73158925721228
+    },
+    {
+      "eventId": 2136,
+      "hitId": 2135,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 2137,
-      "hitId": 2134,
+      "hitId": 2135,
       "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
+      "probability": 0.0,
+      "succeeded": false
     },
     {
       "eventId": 2138,
-      "hitId": 2134,
+      "hitId": 2135,
       "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "magnitude": 0.08456644085404444
+      "magnitude": -0.044000000000000004
     },
     {
       "eventId": 2139,
-      "hitId": 2134,
+      "hitId": 2135,
       "atMs": 2200,
       "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
+      "source": "Damage reduction",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
+      "magnitude": 0.08456644085404444
     },
     {
       "eventId": 2140,
-      "hitId": 2134,
+      "hitId": 2135,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 2141,
+      "hitId": 2135,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_2",
-      "magnitude": 179.31267134925747
-    },
-    {
-      "eventId": 2142,
-      "hitId": 2141,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "magnitude": 199.73158925721228
     },
     {
       "eventId": 2143,
-      "hitId": 2141,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 2144,
-      "hitId": 2141,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 2145,
-      "hitId": 2141,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": 0.08456644085404444
-    },
-    {
-      "eventId": 2146,
-      "hitId": 2141,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 2147,
-      "hitId": 2141,
-      "atMs": 2200,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "magnitude": 179.31267134925747
-    },
-    {
-      "eventId": 2149,
-      "hitId": 2148,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 2150,
-      "hitId": 2148,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 2151,
-      "hitId": 2148,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 2152,
-      "hitId": 2148,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": 0.08456644085404444
-    },
-    {
-      "eventId": 2153,
-      "hitId": 2148,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 2154,
-      "hitId": 2148,
-      "atMs": 2200,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_0",
-      "magnitude": 179.31267134925747
-    },
-    {
-      "eventId": 2156,
-      "hitId": 2155,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 2157,
-      "hitId": 2155,
-      "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 2158,
-      "hitId": 2155,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 2159,
-      "hitId": 2155,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": 0.08456644085404444
-    },
-    {
-      "eventId": 2160,
-      "hitId": 2155,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "target": "__enemy_0__",
-      "magnitude": -0.044000000000000004
-    },
-    {
-      "eventId": 2161,
-      "hitId": 2155,
-      "atMs": 2200,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
-      "magnitude": 179.31267134925747
-    },
-    {
-      "eventId": 2163,
-      "hitId": 2162,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -4728,8 +4712,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2164,
-      "hitId": 2162,
+      "eventId": 2144,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "evasion",
       "source": "Evasion",
@@ -4739,8 +4723,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2165,
-      "hitId": 2162,
+      "eventId": 2145,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "block",
       "source": "Block chance",
@@ -4750,8 +4734,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2166,
-      "hitId": 2162,
+      "eventId": 2146,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
@@ -4760,8 +4744,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 2167,
-      "hitId": 2162,
+      "eventId": 2147,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "crit",
       "source": "Crit chance",
@@ -4770,8 +4754,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2168,
-      "hitId": 2162,
+      "eventId": 2148,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -4780,8 +4764,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2169,
-      "hitId": 2162,
+      "eventId": 2149,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -4790,8 +4774,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2170,
-      "hitId": 2162,
+      "eventId": 2150,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -4800,8 +4784,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2171,
-      "hitId": 2162,
+      "eventId": 2151,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -4811,8 +4795,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2172,
-      "hitId": 2162,
+      "eventId": 2152,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -4822,8 +4806,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2173,
-      "hitId": 2162,
+      "eventId": 2153,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -4833,8 +4817,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2174,
-      "hitId": 2162,
+      "eventId": 2154,
+      "hitId": 2142,
       "atMs": 2622,
       "category": "elementalProc",
       "source": "Lightning proc",
@@ -4844,8 +4828,135 @@
       "succeeded": true
     },
     {
-      "eventId": 2177,
-      "hitId": 2176,
+      "eventId": 2156,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 2157,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2158,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2159,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.21
+    },
+    {
+      "eventId": 2160,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 2161,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 1.1029094428143313
+    },
+    {
+      "eventId": 2162,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.30000000000000004
+    },
+    {
+      "eventId": 2163,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 2164,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2165,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2166,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.02715104007781525,
+      "succeeded": false
+    },
+    {
+      "eventId": 2167,
+      "hitId": 2155,
+      "atMs": 2622,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2170,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -4855,8 +4966,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2178,
-      "hitId": 2176,
+      "eventId": 2171,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "evasion",
       "source": "Evasion",
@@ -4866,8 +4977,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2179,
-      "hitId": 2176,
+      "eventId": 2172,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "block",
       "source": "Block chance",
@@ -4877,18 +4988,18 @@
       "succeeded": false
     },
     {
-      "eventId": 2180,
-      "hitId": 2176,
+      "eventId": 2173,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "mitigation",
       "source": "Lightning damage-taken stack",
       "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
       "target": "__enemy_0__",
-      "magnitude": -0.21
+      "magnitude": -0.22
     },
     {
-      "eventId": 2181,
-      "hitId": 2176,
+      "eventId": 2174,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "crit",
       "source": "Crit chance",
@@ -4897,8 +5008,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 2182,
-      "hitId": 2176,
+      "eventId": 2175,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -4907,8 +5018,8 @@
       "magnitude": 1.1029094428143313
     },
     {
-      "eventId": 2183,
-      "hitId": 2176,
+      "eventId": 2176,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "increasedDamage",
       "source": "Righteous Fire",
@@ -4917,8 +5028,8 @@
       "magnitude": 0.30000000000000004
     },
     {
-      "eventId": 2184,
-      "hitId": 2176,
+      "eventId": 2177,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -4927,8 +5038,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 2185,
-      "hitId": 2176,
+      "eventId": 2178,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -4938,8 +5049,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2186,
-      "hitId": 2176,
+      "eventId": 2179,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -4949,8 +5060,8 @@
       "succeeded": true
     },
     {
-      "eventId": 2187,
-      "hitId": 2176,
+      "eventId": 2180,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -4960,12 +5071,139 @@
       "succeeded": false
     },
     {
-      "eventId": 2188,
-      "hitId": 2176,
+      "eventId": 2181,
+      "hitId": 2169,
       "atMs": 3059,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2183,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 2184,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2185,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2186,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "mitigation",
+      "source": "Lightning damage-taken stack",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.23
+    },
+    {
+      "eventId": 2187,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 2188,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 1.1029094428143313
+    },
+    {
+      "eventId": 2189,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "increasedDamage",
+      "source": "Righteous Fire",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.30000000000000004
+    },
+    {
+      "eventId": 2190,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 2191,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2192,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 1.0,
+      "succeeded": true
+    },
+    {
+      "eventId": 2193,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.02715104007781525,
+      "succeeded": false
+    },
+    {
+      "eventId": 2194,
+      "hitId": 2182,
+      "atMs": 3059,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true

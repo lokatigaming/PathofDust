@@ -45,9 +45,9 @@
       "atMs": 1100,
       "attacker": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "damage": 347,
-      "unmitigatedDamage": 383,
-      "targetHpAfter": 349,
+      "damage": 190,
+      "unmitigatedDamage": 408,
+      "targetHpAfter": 506,
       "isCrit": false,
       "evaded": false,
       "hitId": 118,
@@ -55,10 +55,10 @@
     },
     {
       "kind": "heal",
-      "atMs": 1140,
+      "atMs": 1283,
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
-      "amount": 347,
+      "amount": 190,
       "targetHpAfter": 696,
       "isRevive": false
     },
@@ -67,20 +67,20 @@
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "damage": 440,
-      "unmitigatedDamage": 448,
-      "targetHpAfter": 256,
+      "damage": 399,
+      "unmitigatedDamage": 407,
+      "targetHpAfter": 297,
       "isCrit": false,
       "evaded": false,
-      "hitId": 128,
+      "hitId": 129,
       "sourceKind": "direct"
     },
     {
       "kind": "heal",
-      "atMs": 2280,
+      "atMs": 2566,
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
-      "amount": 440,
+      "amount": 399,
       "targetHpAfter": 696,
       "isRevive": false
     },
@@ -89,215 +89,170 @@
       "atMs": 3300,
       "attacker": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "damage": 423,
-      "unmitigatedDamage": 400,
-      "targetHpAfter": 273,
+      "damage": 486,
+      "unmitigatedDamage": 460,
+      "targetHpAfter": 210,
       "isCrit": false,
       "evaded": false,
-      "hitId": 138,
+      "hitId": 139,
       "sourceKind": "direct"
     },
     {
       "kind": "heal",
-      "atMs": 3420,
+      "atMs": 3500,
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
-      "amount": 423,
+      "amount": 328,
+      "targetHpAfter": 538,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3500,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3500,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 3849,
+      "healer": "cleric_vs_tough_boss_stage200",
+      "target": "cleric_vs_tough_boss_stage200",
+      "amount": 158,
       "targetHpAfter": 696,
       "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3849,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3849,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4400,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
       "atMs": 4400,
       "attacker": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "damage": 291,
-      "unmitigatedDamage": 472,
-      "targetHpAfter": 405,
+      "damage": 530,
+      "unmitigatedDamage": 468,
+      "targetHpAfter": 166,
       "isCrit": false,
       "evaded": false,
-      "hitId": 148,
+      "hitId": 149,
       "sourceKind": "direct"
     },
     {
       "kind": "heal",
-      "atMs": 4560,
+      "atMs": 5132,
       "healer": "cleric_vs_tough_boss_stage200",
       "target": "cleric_vs_tough_boss_stage200",
-      "amount": 291,
+      "amount": 530,
       "targetHpAfter": 696,
       "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5132,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "fire_dr_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5132,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "fire_dr_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5500,
+      "unit": "cleric_vs_tough_boss_stage200",
+      "buffs": [
+        [
+          "fire_dr_buff_stacks",
+          1.0
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
       "atMs": 5500,
       "attacker": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "damage": 535,
-      "unmitigatedDamage": 443,
-      "targetHpAfter": 161,
-      "isCrit": false,
+      "damage": 1048,
+      "unmitigatedDamage": 874,
+      "targetHpAfter": 0,
+      "isCrit": true,
       "evaded": false,
       "hitId": 159,
       "sourceKind": "direct"
     },
     {
-      "kind": "heal",
-      "atMs": 5700,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 535,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 6600,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 642,
-      "unmitigatedDamage": 501,
-      "targetHpAfter": 54,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 169,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 6840,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 642,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 7700,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 537,
-      "unmitigatedDamage": 395,
-      "targetHpAfter": 159,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 179,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 7980,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 537,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 8800,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 551,
-      "unmitigatedDamage": 385,
-      "targetHpAfter": 145,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 189,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 9120,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 551,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 9900,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 619,
-      "unmitigatedDamage": 411,
-      "targetHpAfter": 77,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 199,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 10260,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 619,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 11000,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 670,
-      "unmitigatedDamage": 423,
-      "targetHpAfter": 26,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 209,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 11400,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 670,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 12100,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 645,
-      "unmitigatedDamage": 389,
-      "targetHpAfter": 51,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 219,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 12540,
-      "healer": "cleric_vs_tough_boss_stage200",
-      "target": "cleric_vs_tough_boss_stage200",
-      "amount": 645,
-      "targetHpAfter": 696,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 13200,
-      "attacker": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "damage": 710,
-      "unmitigatedDamage": 410,
-      "targetHpAfter": 0,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 229,
-      "sourceKind": "direct"
-    },
-    {
       "kind": "defeat",
-      "atMs": 13200,
+      "atMs": 5500,
       "unit": "cleric_vs_tough_boss_stage200"
     }
   ],
@@ -364,7 +319,7 @@
       "actor": "cleric_vs_tough_boss_stage200",
       "target": "__enemy_0__",
       "probability": 0.11634246963719541,
-      "succeeded": false
+      "succeeded": true
     },
     {
       "eventId": 122,
@@ -381,13 +336,23 @@
       "hitId": 118,
       "atMs": 1100,
       "category": "mitigation",
+      "source": "Block reduction (Second Skin)",
+      "actor": "cleric_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.5
+    },
+    {
+      "eventId": 124,
+      "hitId": 118,
+      "atMs": 1100,
+      "category": "mitigation",
       "source": "Damage reduction",
       "actor": "cleric_vs_tough_boss_stage200",
       "target": "__enemy_0__",
       "magnitude": 0.2451494779982878
     },
     {
-      "eventId": 124,
+      "eventId": 125,
       "hitId": 118,
       "atMs": 1100,
       "category": "mitigation",
@@ -397,7 +362,7 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 125,
+      "eventId": 126,
       "hitId": 118,
       "atMs": 1100,
       "category": "crit",
@@ -405,63 +370,63 @@
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
       "magnitude": 0.15
-    },
-    {
-      "eventId": 126,
-      "hitId": 118,
-      "atMs": 1100,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
     },
     {
       "eventId": 127,
       "hitId": 118,
       "atMs": 1100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_vs_tough_boss_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 128,
+      "hitId": 118,
+      "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 1.8936197855463224
+      "magnitude": 2.01914554205506
     },
     {
-      "eventId": 129,
-      "hitId": 128,
+      "eventId": 130,
+      "hitId": 129,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
       "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 130,
-      "hitId": 128,
-      "atMs": 2200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 131,
-      "hitId": 128,
+      "hitId": 129,
       "atMs": 2200,
-      "category": "block",
-      "source": "Block chance",
+      "category": "evasion",
+      "source": "Evasion",
       "actor": "cleric_vs_tough_boss_stage200",
       "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
+      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 132,
-      "hitId": 128,
+      "hitId": 129,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.11634246963719541,
+      "succeeded": false
+    },
+    {
+      "eventId": 133,
+      "hitId": 129,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -470,8 +435,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 133,
-      "hitId": 128,
+      "eventId": 134,
+      "hitId": 129,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -480,8 +445,8 @@
       "magnitude": 0.2451494779982878
     },
     {
-      "eventId": 134,
-      "hitId": 128,
+      "eventId": 135,
+      "hitId": 129,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -490,8 +455,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 135,
-      "hitId": 128,
+      "eventId": 136,
+      "hitId": 129,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance",
@@ -500,8 +465,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 136,
-      "hitId": 128,
+      "eventId": 137,
+      "hitId": 129,
       "atMs": 2200,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -510,40 +475,40 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 137,
-      "hitId": 128,
+      "eventId": 138,
+      "hitId": 129,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.2188264237107624
+      "magnitude": 2.0123791430021796
     },
     {
-      "eventId": 139,
-      "hitId": 138,
+      "eventId": 140,
+      "hitId": 139,
       "atMs": 3300,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
       "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 140,
-      "hitId": 138,
-      "atMs": 3300,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 141,
-      "hitId": 138,
+      "hitId": 139,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_vs_tough_boss_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 142,
+      "hitId": 139,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -553,8 +518,8 @@
       "succeeded": false
     },
     {
-      "eventId": 142,
-      "hitId": 138,
+      "eventId": 143,
+      "hitId": 139,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -563,8 +528,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 143,
-      "hitId": 138,
+      "eventId": 144,
+      "hitId": 139,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -573,8 +538,8 @@
       "magnitude": 0.2451494779982878
     },
     {
-      "eventId": 144,
-      "hitId": 138,
+      "eventId": 145,
+      "hitId": 139,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -583,8 +548,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 145,
-      "hitId": 138,
+      "eventId": 146,
+      "hitId": 139,
       "atMs": 3300,
       "category": "crit",
       "source": "Crit chance",
@@ -593,8 +558,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 146,
-      "hitId": 138,
+      "eventId": 147,
+      "hitId": 139,
       "atMs": 3300,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -603,18 +568,18 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 147,
-      "hitId": 138,
+      "eventId": 148,
+      "hitId": 139,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 1.981543438493244
+      "magnitude": 2.2762656969490536
     },
     {
-      "eventId": 149,
-      "hitId": 148,
+      "eventId": 150,
+      "hitId": 149,
       "atMs": 4400,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -624,8 +589,8 @@
       "succeeded": false
     },
     {
-      "eventId": 150,
-      "hitId": 148,
+      "eventId": 151,
+      "hitId": 149,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -635,19 +600,19 @@
       "succeeded": false
     },
     {
-      "eventId": 151,
-      "hitId": 148,
+      "eventId": 152,
+      "hitId": 149,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
       "actor": "cleric_vs_tough_boss_stage200",
       "target": "__enemy_0__",
       "probability": 0.11634246963719541,
-      "succeeded": true
+      "succeeded": false
     },
     {
-      "eventId": 152,
-      "hitId": 148,
+      "eventId": 153,
+      "hitId": 149,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -656,18 +621,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 153,
-      "hitId": 148,
-      "atMs": 4400,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.5
-    },
-    {
       "eventId": 154,
-      "hitId": 148,
+      "hitId": 149,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -677,7 +632,7 @@
     },
     {
       "eventId": 155,
-      "hitId": 148,
+      "hitId": 149,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -687,7 +642,7 @@
     },
     {
       "eventId": 156,
-      "hitId": 148,
+      "hitId": 149,
       "atMs": 4400,
       "category": "crit",
       "source": "Crit chance",
@@ -697,7 +652,7 @@
     },
     {
       "eventId": 157,
-      "hitId": 148,
+      "hitId": 149,
       "atMs": 4400,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -707,13 +662,13 @@
     },
     {
       "eventId": 158,
-      "hitId": 148,
+      "hitId": 149,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.334277041414234
+      "magnitude": 2.318749059292157
     },
     {
       "eventId": 160,
@@ -724,7 +679,7 @@
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
       "probability": 0.15,
-      "succeeded": false
+      "succeeded": true
     },
     {
       "eventId": 161,
@@ -766,7 +721,7 @@
       "source": "Damage reduction",
       "actor": "cleric_vs_tough_boss_stage200",
       "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
+      "magnitude": 0.2551494779982878
     },
     {
       "eventId": 165,
@@ -792,6 +747,16 @@
       "eventId": 167,
       "hitId": 159,
       "atMs": 5500,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "__enemy_0__",
+      "target": "cleric_vs_tough_boss_stage200",
+      "magnitude": 2.5
+    },
+    {
+      "eventId": 168,
+      "hitId": 159,
+      "atMs": 5500,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "__enemy_0__",
@@ -799,665 +764,14 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 168,
+      "eventId": 169,
       "hitId": 159,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.19457287339138
-    },
-    {
-      "eventId": 170,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 171,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 172,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 173,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.132
-    },
-    {
-      "eventId": 174,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 175,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.132
-    },
-    {
-      "eventId": 176,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 177,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 178,
-      "hitId": 169,
-      "atMs": 6600,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.4783074414942017
-    },
-    {
-      "eventId": 180,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 181,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 182,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 183,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.154
-    },
-    {
-      "eventId": 184,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 185,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.154
-    },
-    {
-      "eventId": 186,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 187,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 188,
-      "hitId": 179,
-      "atMs": 7700,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 1.9575091311984516
-    },
-    {
-      "eventId": 190,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 191,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 192,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 193,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.17600000000000002
-    },
-    {
-      "eventId": 194,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 195,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.17600000000000002
-    },
-    {
-      "eventId": 196,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 197,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 198,
-      "hitId": 189,
-      "atMs": 8800,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 1.9038113103556766
-    },
-    {
-      "eventId": 200,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 201,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 202,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 203,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.198
-    },
-    {
-      "eventId": 204,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 205,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.198
-    },
-    {
-      "eventId": 206,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 207,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 208,
-      "hitId": 199,
-      "atMs": 9900,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.0323363921805817
-    },
-    {
-      "eventId": 210,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 211,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 212,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 213,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.22
-    },
-    {
-      "eventId": 214,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 215,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.22
-    },
-    {
-      "eventId": 216,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 217,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 218,
-      "hitId": 209,
-      "atMs": 11000,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.094715053712782
-    },
-    {
-      "eventId": 220,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 221,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 222,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 223,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.242
-    },
-    {
-      "eventId": 224,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 225,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.242
-    },
-    {
-      "eventId": 226,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 227,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 228,
-      "hitId": 219,
-      "atMs": 12100,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 1.9257331143581615
-    },
-    {
-      "eventId": 230,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 231,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 232,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "probability": 0.11634246963719541,
-      "succeeded": false
-    },
-    {
-      "eventId": 233,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.264
-    },
-    {
-      "eventId": 234,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": 0.2451494779982878
-    },
-    {
-      "eventId": 235,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "cleric_vs_tough_boss_stage200",
-      "target": "__enemy_0__",
-      "magnitude": -0.264
-    },
-    {
-      "eventId": 236,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 237,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 238,
-      "hitId": 229,
-      "atMs": 13200,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "cleric_vs_tough_boss_stage200",
-      "magnitude": 2.0300937667348093
+      "magnitude": 4.325436060656028
     }
   ]
 }

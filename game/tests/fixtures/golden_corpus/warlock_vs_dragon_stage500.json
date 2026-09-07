@@ -37,7 +37,7 @@
       "targetHpAfter": 120000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 239,
+      "hitId": 170,
       "sourceKind": "direct"
     },
     {
@@ -50,7 +50,7 @@
       "targetHpAfter": 1568,
       "isCrit": false,
       "evaded": true,
-      "hitId": 246,
+      "hitId": 177,
       "sourceKind": "direct"
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "kind": "attack",
-      "atMs": 465,
+      "atMs": 498,
       "attacker": "warlock_vs_dragon_stage500",
       "target": "__enemy_0__",
       "damage": 1647,
@@ -69,12 +69,12 @@
       "targetHpAfter": 118353,
       "isCrit": false,
       "evaded": false,
-      "hitId": 247,
+      "hitId": 178,
       "sourceKind": "direct"
     },
     {
       "kind": "attack",
-      "atMs": 930,
+      "atMs": 996,
       "attacker": "warlock_vs_dragon_stage500",
       "target": "__enemy_0__",
       "damage": 1550,
@@ -82,7 +82,7 @@
       "targetHpAfter": 116803,
       "isCrit": false,
       "evaded": false,
-      "hitId": 259,
+      "hitId": 190,
       "sourceKind": "direct"
     },
     {
@@ -95,7 +95,7 @@
       "targetHpAfter": 520,
       "isCrit": false,
       "evaded": false,
-      "hitId": 271,
+      "hitId": 202,
       "sourceKind": "direct"
     },
     {
@@ -106,7 +106,7 @@
     },
     {
       "kind": "attack",
-      "atMs": 1395,
+      "atMs": 1494,
       "attacker": "warlock_vs_dragon_stage500",
       "target": "__enemy_0__",
       "damage": 2305,
@@ -114,12 +114,12 @@
       "targetHpAfter": 114498,
       "isCrit": true,
       "evaded": false,
-      "hitId": 277,
+      "hitId": 208,
       "sourceKind": "direct"
     },
     {
       "kind": "attack",
-      "atMs": 1395,
+      "atMs": 1494,
       "attacker": "warlock_vs_dragon_stage500",
       "target": "__enemy_0__",
       "damage": 1537,
@@ -127,20 +127,20 @@
       "targetHpAfter": 112961,
       "isCrit": false,
       "evaded": false,
-      "hitId": 290,
+      "hitId": 221,
       "sourceKind": "echo"
     },
     {
       "kind": "attack",
-      "atMs": 1860,
+      "atMs": 1992,
       "attacker": "warlock_vs_dragon_stage500",
       "target": "__enemy_0__",
-      "damage": 1777,
-      "unmitigatedDamage": 2091,
-      "targetHpAfter": 111184,
+      "damage": 1792,
+      "unmitigatedDamage": 2108,
+      "targetHpAfter": 111169,
       "isCrit": false,
       "evaded": false,
-      "hitId": 300,
+      "hitId": 231,
       "sourceKind": "direct"
     },
     {
@@ -153,7 +153,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 312,
+      "hitId": 243,
       "sourceKind": "direct"
     },
     {
@@ -170,8 +170,8 @@
   ],
   "rolls": [
     {
-      "eventId": 240,
-      "hitId": 239,
+      "eventId": 171,
+      "hitId": 170,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -181,8 +181,8 @@
       "succeeded": false
     },
     {
-      "eventId": 241,
-      "hitId": 239,
+      "eventId": 172,
+      "hitId": 170,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -191,8 +191,8 @@
       "magnitude": 0.13559992801461604
     },
     {
-      "eventId": 242,
-      "hitId": 239,
+      "eventId": 173,
+      "hitId": 170,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -201,8 +201,8 @@
       "magnitude": 0.6342729492967083
     },
     {
-      "eventId": 243,
-      "hitId": 239,
+      "eventId": 174,
+      "hitId": 170,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -211,8 +211,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 244,
-      "hitId": 245,
+      "eventId": 175,
+      "hitId": 176,
       "atMs": 0,
       "category": "echo",
       "source": "Echo",
@@ -223,9 +223,9 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 248,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 179,
+      "hitId": 178,
+      "atMs": 498,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "warlock_vs_dragon_stage500",
@@ -234,9 +234,9 @@
       "succeeded": false
     },
     {
-      "eventId": 249,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 180,
+      "hitId": 178,
+      "atMs": 498,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -245,9 +245,9 @@
       "succeeded": false
     },
     {
-      "eventId": 250,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 181,
+      "hitId": 178,
+      "atMs": 498,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -256,9 +256,9 @@
       "succeeded": false
     },
     {
-      "eventId": 251,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 182,
+      "hitId": 178,
+      "atMs": 498,
       "category": "crit",
       "source": "Crit chance",
       "actor": "warlock_vs_dragon_stage500",
@@ -266,9 +266,9 @@
       "magnitude": 0.13559992801461604
     },
     {
-      "eventId": 252,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 183,
+      "hitId": 178,
+      "atMs": 498,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "warlock_vs_dragon_stage500",
@@ -276,9 +276,9 @@
       "magnitude": 0.6342729492967083
     },
     {
-      "eventId": 253,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 184,
+      "hitId": 178,
+      "atMs": 498,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warlock_vs_dragon_stage500",
@@ -286,9 +286,9 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 254,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 185,
+      "hitId": 178,
+      "atMs": 498,
       "category": "elementalProc",
       "source": "Chaos proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -297,9 +297,9 @@
       "succeeded": false
     },
     {
-      "eventId": 255,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 186,
+      "hitId": 178,
+      "atMs": 498,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -308,9 +308,9 @@
       "succeeded": false
     },
     {
-      "eventId": 256,
-      "hitId": 247,
-      "atMs": 465,
+      "eventId": 187,
+      "hitId": 178,
+      "atMs": 498,
       "category": "elementalProc",
       "source": "Divine proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -319,9 +319,9 @@
       "succeeded": false
     },
     {
-      "eventId": 257,
-      "hitId": 258,
-      "atMs": 465,
+      "eventId": 188,
+      "hitId": 189,
+      "atMs": 498,
       "category": "echo",
       "source": "Echo",
       "actor": "warlock_vs_dragon_stage500",
@@ -331,9 +331,9 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 260,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 191,
+      "hitId": 190,
+      "atMs": 996,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "warlock_vs_dragon_stage500",
@@ -342,9 +342,9 @@
       "succeeded": false
     },
     {
-      "eventId": 261,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 192,
+      "hitId": 190,
+      "atMs": 996,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -353,9 +353,9 @@
       "succeeded": false
     },
     {
-      "eventId": 262,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 193,
+      "hitId": 190,
+      "atMs": 996,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -364,9 +364,9 @@
       "succeeded": false
     },
     {
-      "eventId": 263,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 194,
+      "hitId": 190,
+      "atMs": 996,
       "category": "crit",
       "source": "Crit chance",
       "actor": "warlock_vs_dragon_stage500",
@@ -374,9 +374,9 @@
       "magnitude": 0.13559992801461604
     },
     {
-      "eventId": 264,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 195,
+      "hitId": 190,
+      "atMs": 996,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "warlock_vs_dragon_stage500",
@@ -384,9 +384,9 @@
       "magnitude": 0.6342729492967083
     },
     {
-      "eventId": 265,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 196,
+      "hitId": 190,
+      "atMs": 996,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warlock_vs_dragon_stage500",
@@ -394,9 +394,9 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 266,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 197,
+      "hitId": 190,
+      "atMs": 996,
       "category": "elementalProc",
       "source": "Chaos proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -405,9 +405,9 @@
       "succeeded": false
     },
     {
-      "eventId": 267,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 198,
+      "hitId": 190,
+      "atMs": 996,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -416,9 +416,9 @@
       "succeeded": false
     },
     {
-      "eventId": 268,
-      "hitId": 259,
-      "atMs": 930,
+      "eventId": 199,
+      "hitId": 190,
+      "atMs": 996,
       "category": "elementalProc",
       "source": "Divine proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -427,9 +427,9 @@
       "succeeded": false
     },
     {
-      "eventId": 269,
-      "hitId": 270,
-      "atMs": 930,
+      "eventId": 200,
+      "hitId": 201,
+      "atMs": 996,
       "category": "echo",
       "source": "Echo",
       "actor": "warlock_vs_dragon_stage500",
@@ -439,8 +439,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 272,
-      "hitId": 271,
+      "eventId": 203,
+      "hitId": 202,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -450,8 +450,8 @@
       "succeeded": false
     },
     {
-      "eventId": 273,
-      "hitId": 271,
+      "eventId": 204,
+      "hitId": 202,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -461,8 +461,8 @@
       "succeeded": false
     },
     {
-      "eventId": 274,
-      "hitId": 271,
+      "eventId": 205,
+      "hitId": 202,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -471,8 +471,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 275,
-      "hitId": 271,
+      "eventId": 206,
+      "hitId": 202,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -481,8 +481,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 276,
-      "hitId": 271,
+      "eventId": 207,
+      "hitId": 202,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -491,9 +491,9 @@
       "magnitude": 25.824445234262175
     },
     {
-      "eventId": 278,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 209,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "warlock_vs_dragon_stage500",
@@ -502,9 +502,9 @@
       "succeeded": true
     },
     {
-      "eventId": 279,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 210,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -513,9 +513,9 @@
       "succeeded": false
     },
     {
-      "eventId": 280,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 211,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -524,9 +524,9 @@
       "succeeded": false
     },
     {
-      "eventId": 281,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 212,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "crit",
       "source": "Crit chance",
       "actor": "warlock_vs_dragon_stage500",
@@ -534,9 +534,9 @@
       "magnitude": 0.13559992801461604
     },
     {
-      "eventId": 282,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 213,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "crit",
       "source": "Crit multiplier",
       "actor": "warlock_vs_dragon_stage500",
@@ -544,9 +544,9 @@
       "magnitude": 2.0
     },
     {
-      "eventId": 283,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 214,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "warlock_vs_dragon_stage500",
@@ -554,9 +554,9 @@
       "magnitude": 0.6342729492967083
     },
     {
-      "eventId": 284,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 215,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warlock_vs_dragon_stage500",
@@ -564,9 +564,9 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 285,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 216,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "elementalProc",
       "source": "Chaos proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -575,9 +575,9 @@
       "succeeded": false
     },
     {
-      "eventId": 286,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 217,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -586,9 +586,9 @@
       "succeeded": false
     },
     {
-      "eventId": 287,
-      "hitId": 277,
-      "atMs": 1395,
+      "eventId": 218,
+      "hitId": 208,
+      "atMs": 1494,
       "category": "elementalProc",
       "source": "Divine proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -597,9 +597,9 @@
       "succeeded": false
     },
     {
-      "eventId": 288,
-      "hitId": 289,
-      "atMs": 1395,
+      "eventId": 219,
+      "hitId": 220,
+      "atMs": 1494,
       "category": "echo",
       "source": "Echo",
       "actor": "warlock_vs_dragon_stage500",
@@ -609,9 +609,9 @@
       "magnitude": 1.0
     },
     {
-      "eventId": 291,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 222,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "warlock_vs_dragon_stage500",
@@ -620,9 +620,9 @@
       "succeeded": false
     },
     {
-      "eventId": 292,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 223,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -631,9 +631,9 @@
       "succeeded": false
     },
     {
-      "eventId": 293,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 224,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -642,9 +642,9 @@
       "succeeded": false
     },
     {
-      "eventId": 294,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 225,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "crit",
       "source": "Crit chance",
       "actor": "warlock_vs_dragon_stage500",
@@ -652,9 +652,9 @@
       "magnitude": 0.13559992801461604
     },
     {
-      "eventId": 295,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 226,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "warlock_vs_dragon_stage500",
@@ -662,9 +662,9 @@
       "magnitude": 0.6342729492967083
     },
     {
-      "eventId": 296,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 227,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warlock_vs_dragon_stage500",
@@ -672,9 +672,9 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 297,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 228,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "elementalProc",
       "source": "Chaos proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -683,9 +683,9 @@
       "succeeded": false
     },
     {
-      "eventId": 298,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 229,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -694,9 +694,9 @@
       "succeeded": false
     },
     {
-      "eventId": 299,
-      "hitId": 290,
-      "atMs": 1395,
+      "eventId": 230,
+      "hitId": 221,
+      "atMs": 1494,
       "category": "elementalProc",
       "source": "Divine proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -705,9 +705,9 @@
       "succeeded": false
     },
     {
-      "eventId": 301,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 232,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "warlock_vs_dragon_stage500",
@@ -716,9 +716,9 @@
       "succeeded": false
     },
     {
-      "eventId": 302,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 233,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -727,9 +727,9 @@
       "succeeded": false
     },
     {
-      "eventId": 303,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 234,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -738,9 +738,9 @@
       "succeeded": false
     },
     {
-      "eventId": 304,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 235,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "crit",
       "source": "Crit chance",
       "actor": "warlock_vs_dragon_stage500",
@@ -748,9 +748,9 @@
       "magnitude": 0.13559992801461604
     },
     {
-      "eventId": 305,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 236,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "warlock_vs_dragon_stage500",
@@ -758,9 +758,9 @@
       "magnitude": 0.6342729492967083
     },
     {
-      "eventId": 306,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 237,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "warlock_vs_dragon_stage500",
@@ -768,9 +768,9 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 307,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 238,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "elementalProc",
       "source": "Chaos proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -779,9 +779,9 @@
       "succeeded": false
     },
     {
-      "eventId": 308,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 239,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "elementalProc",
       "source": "Lightning proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -790,9 +790,9 @@
       "succeeded": false
     },
     {
-      "eventId": 309,
-      "hitId": 300,
-      "atMs": 1860,
+      "eventId": 240,
+      "hitId": 231,
+      "atMs": 1992,
       "category": "elementalProc",
       "source": "Divine proc",
       "actor": "warlock_vs_dragon_stage500",
@@ -801,9 +801,9 @@
       "succeeded": false
     },
     {
-      "eventId": 310,
-      "hitId": 311,
-      "atMs": 1860,
+      "eventId": 241,
+      "hitId": 242,
+      "atMs": 1992,
       "category": "echo",
       "source": "Echo",
       "actor": "warlock_vs_dragon_stage500",
@@ -813,8 +813,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 313,
-      "hitId": 312,
+      "eventId": 244,
+      "hitId": 243,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -824,8 +824,8 @@
       "succeeded": false
     },
     {
-      "eventId": 314,
-      "hitId": 312,
+      "eventId": 245,
+      "hitId": 243,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -835,8 +835,8 @@
       "succeeded": true
     },
     {
-      "eventId": 315,
-      "hitId": 312,
+      "eventId": 246,
+      "hitId": 243,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -845,8 +845,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 316,
-      "hitId": 312,
+      "eventId": 247,
+      "hitId": 243,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -855,8 +855,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 317,
-      "hitId": 312,
+      "eventId": 248,
+      "hitId": 243,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -865,8 +865,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 318,
-      "hitId": 312,
+      "eventId": 249,
+      "hitId": 243,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",

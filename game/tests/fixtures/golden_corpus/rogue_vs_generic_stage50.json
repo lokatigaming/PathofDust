@@ -107,7 +107,7 @@
       "source": "Crit chance remainder",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.16999999999999998,
+      "probability": 0.1290569415042095,
       "succeeded": false
     },
     {
@@ -118,7 +118,7 @@
       "source": "Crit chance",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.16999999999999998
+      "magnitude": 0.1290569415042095
     },
     {
       "eventId": 43,
@@ -200,7 +200,7 @@
       "source": "Crit chance remainder",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.16999999999999998,
+      "probability": 0.1290569415042095,
       "succeeded": false
     },
     {
@@ -233,7 +233,7 @@
       "source": "Crit chance",
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.16999999999999998
+      "magnitude": 0.1290569415042095
     },
     {
       "eventId": 57,

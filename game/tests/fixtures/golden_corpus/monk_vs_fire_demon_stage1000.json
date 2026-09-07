@@ -33,11 +33,11 @@
       "attacker": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 2360,
+      "unmitigatedDamage": 2204,
       "targetHpAfter": 500000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1690,
+      "hitId": 1675,
       "sourceKind": "direct"
     },
     {
@@ -50,7 +50,7 @@
       "targetHpAfter": 4787,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1695,
+      "hitId": 1680,
       "sourceKind": "direct"
     },
     {
@@ -69,12 +69,12 @@
       "atMs": 512,
       "attacker": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "damage": 1689,
-      "unmitigatedDamage": 2222,
-      "targetHpAfter": 498311,
+      "damage": 1577,
+      "unmitigatedDamage": 2075,
+      "targetHpAfter": 498423,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1697,
+      "hitId": 1682,
       "sourceKind": "direct"
     },
     {
@@ -93,12 +93,12 @@
       "atMs": 1024,
       "attacker": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "damage": 1775,
-      "unmitigatedDamage": 2335,
-      "targetHpAfter": 496536,
+      "damage": 1658,
+      "unmitigatedDamage": 2181,
+      "targetHpAfter": 496765,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1705,
+      "hitId": 1690,
       "sourceKind": "direct"
     },
     {
@@ -122,7 +122,7 @@
       "targetHpAfter": 2147,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1713,
+      "hitId": 1698,
       "sourceKind": "direct"
     },
     {
@@ -141,12 +141,12 @@
       "atMs": 1536,
       "attacker": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "damage": 1892,
-      "unmitigatedDamage": 2490,
-      "targetHpAfter": 494644,
+      "damage": 1767,
+      "unmitigatedDamage": 2325,
+      "targetHpAfter": 494998,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1720,
+      "hitId": 1705,
       "sourceKind": "direct"
     },
     {
@@ -165,12 +165,12 @@
       "atMs": 2048,
       "attacker": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "damage": 2890,
-      "unmitigatedDamage": 3803,
-      "targetHpAfter": 491754,
+      "damage": 2700,
+      "unmitigatedDamage": 3552,
+      "targetHpAfter": 492298,
       "isCrit": true,
       "evaded": false,
-      "hitId": 1728,
+      "hitId": 1713,
       "sourceKind": "direct"
     },
     {
@@ -194,7 +194,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1737,
+      "hitId": 1722,
       "sourceKind": "direct"
     },
     {
@@ -205,9 +205,134 @@
   ],
   "rolls": [
     {
+      "eventId": 1676,
+      "hitId": 1675,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1677,
+      "hitId": 1675,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1678,
+      "hitId": 1675,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.27242395596958957
+    },
+    {
+      "eventId": 1679,
+      "hitId": 1675,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 1681,
+      "hitId": 1680,
+      "atMs": 0,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3098386676965934
+    },
+    {
+      "eventId": 1683,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1684,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "monk_vs_fire_demon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1685,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "monk_vs_fire_demon_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1686,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1687,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.27242395596958957
+    },
+    {
+      "eventId": 1688,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 1689,
+      "hitId": 1682,
+      "atMs": 512,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.027242395596958957,
+      "succeeded": true
+    },
+    {
       "eventId": 1691,
       "hitId": 1690,
-      "atMs": 0,
+      "atMs": 1024,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -218,58 +343,7 @@
     {
       "eventId": 1692,
       "hitId": 1690,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1693,
-      "hitId": 1690,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.36242395596958943
-    },
-    {
-      "eventId": 1694,
-      "hitId": 1690,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1696,
-      "hitId": 1695,
-      "atMs": 0,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1698,
-      "hitId": 1697,
-      "atMs": 512,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.05,
-      "succeeded": false
-    },
-    {
-      "eventId": 1699,
-      "hitId": 1697,
-      "atMs": 512,
+      "atMs": 1024,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -278,9 +352,9 @@
       "succeeded": false
     },
     {
-      "eventId": 1700,
-      "hitId": 1697,
-      "atMs": 512,
+      "eventId": 1693,
+      "hitId": 1690,
+      "atMs": 1024,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -289,9 +363,9 @@
       "succeeded": false
     },
     {
-      "eventId": 1701,
-      "hitId": 1697,
-      "atMs": 512,
+      "eventId": 1694,
+      "hitId": 1690,
+      "atMs": 1024,
       "category": "crit",
       "source": "Crit chance",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -299,19 +373,19 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1702,
-      "hitId": 1697,
-      "atMs": 512,
+      "eventId": 1695,
+      "hitId": 1690,
+      "atMs": 1024,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "magnitude": 0.36242395596958943
+      "magnitude": 0.27242395596958957
     },
     {
-      "eventId": 1703,
-      "hitId": 1697,
-      "atMs": 512,
+      "eventId": 1696,
+      "hitId": 1690,
+      "atMs": 1024,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -319,20 +393,82 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1704,
-      "hitId": 1697,
-      "atMs": 512,
+      "eventId": 1697,
+      "hitId": 1690,
+      "atMs": 1024,
       "category": "elementalProc",
       "source": "Fire proc",
       "actor": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
       "probability": 0.027242395596958957,
-      "succeeded": true
+      "succeeded": false
+    },
+    {
+      "eventId": 1699,
+      "hitId": 1698,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.2878386676965934,
+      "succeeded": false
+    },
+    {
+      "eventId": 1700,
+      "hitId": 1698,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1701,
+      "hitId": 1698,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3098386676965934
+    },
+    {
+      "eventId": 1702,
+      "hitId": 1698,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1703,
+      "hitId": 1698,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "monk_vs_fire_demon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 1704,
+      "hitId": 1698,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "monk_vs_fire_demon_stage1000",
+      "magnitude": 223.70285255450537
     },
     {
       "eventId": 1706,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -343,7 +479,7 @@
     {
       "eventId": 1707,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -354,7 +490,7 @@
     {
       "eventId": 1708,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -365,7 +501,7 @@
     {
       "eventId": 1709,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "crit",
       "source": "Crit chance",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -375,17 +511,17 @@
     {
       "eventId": 1710,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "magnitude": 0.36242395596958943
+      "magnitude": 0.27242395596958957
     },
     {
       "eventId": 1711,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -395,7 +531,7 @@
     {
       "eventId": 1712,
       "hitId": 1705,
-      "atMs": 1024,
+      "atMs": 1536,
       "category": "elementalProc",
       "source": "Fire proc",
       "actor": "monk_vs_fire_demon_stage1000",
@@ -406,142 +542,6 @@
     {
       "eventId": 1714,
       "hitId": 1713,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.728,
-      "succeeded": false
-    },
-    {
-      "eventId": 1715,
-      "hitId": 1713,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1716,
-      "hitId": 1713,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.75
-    },
-    {
-      "eventId": 1717,
-      "hitId": 1713,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1718,
-      "hitId": 1713,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 1719,
-      "hitId": 1713,
-      "atMs": 1100,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "monk_vs_fire_demon_stage1000",
-      "magnitude": 223.70285255450537
-    },
-    {
-      "eventId": 1721,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.05,
-      "succeeded": false
-    },
-    {
-      "eventId": 1722,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "monk_vs_fire_demon_stage1000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1723,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "monk_vs_fire_demon_stage1000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1724,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1725,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.36242395596958943
-    },
-    {
-      "eventId": 1726,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1727,
-      "hitId": 1720,
-      "atMs": 1536,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "monk_vs_fire_demon_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.027242395596958957,
-      "succeeded": false
-    },
-    {
-      "eventId": 1729,
-      "hitId": 1728,
       "atMs": 2048,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -551,8 +551,8 @@
       "succeeded": true
     },
     {
-      "eventId": 1730,
-      "hitId": 1728,
+      "eventId": 1715,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "evasion",
       "source": "Evasion",
@@ -562,8 +562,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1731,
-      "hitId": 1728,
+      "eventId": 1716,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "block",
       "source": "Block chance",
@@ -573,8 +573,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1732,
-      "hitId": 1728,
+      "eventId": 1717,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "crit",
       "source": "Crit chance",
@@ -583,8 +583,8 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1733,
-      "hitId": 1728,
+      "eventId": 1718,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "crit",
       "source": "Crit multiplier",
@@ -593,18 +593,18 @@
       "magnitude": 2.2714646629210167
     },
     {
-      "eventId": 1734,
-      "hitId": 1728,
+      "eventId": 1719,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "magnitude": 0.36242395596958943
+      "magnitude": 0.27242395596958957
     },
     {
-      "eventId": 1735,
-      "hitId": 1728,
+      "eventId": 1720,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -613,8 +613,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1736,
-      "hitId": 1728,
+      "eventId": 1721,
+      "hitId": 1713,
       "atMs": 2048,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -624,19 +624,19 @@
       "succeeded": false
     },
     {
-      "eventId": 1738,
-      "hitId": 1737,
+      "eventId": 1723,
+      "hitId": 1722,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
       "actor": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "probability": 0.706,
+      "probability": 0.2658386676965934,
       "succeeded": false
     },
     {
-      "eventId": 1739,
-      "hitId": 1737,
+      "eventId": 1724,
+      "hitId": 1722,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -646,18 +646,18 @@
       "succeeded": false
     },
     {
-      "eventId": 1740,
-      "hitId": 1737,
+      "eventId": 1725,
+      "hitId": 1722,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
       "actor": "monk_vs_fire_demon_stage1000",
       "target": "__enemy_0__",
-      "magnitude": 0.75
+      "magnitude": 0.3098386676965934
     },
     {
-      "eventId": 1741,
-      "hitId": 1737,
+      "eventId": 1726,
+      "hitId": 1722,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -666,8 +666,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1742,
-      "hitId": 1737,
+      "eventId": 1727,
+      "hitId": 1722,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -676,8 +676,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1743,
-      "hitId": 1737,
+      "eventId": 1728,
+      "hitId": 1722,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",

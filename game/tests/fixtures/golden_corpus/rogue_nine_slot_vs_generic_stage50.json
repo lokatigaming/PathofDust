@@ -37,7 +37,7 @@
       "targetHpAfter": 8000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 5743,
+      "hitId": 4479,
       "sourceKind": "direct"
     },
     {
@@ -50,7 +50,7 @@
       "targetHpAfter": 240,
       "isCrit": false,
       "evaded": true,
-      "hitId": 5750,
+      "hitId": 4486,
       "sourceKind": "direct"
     },
     {
@@ -63,7 +63,7 @@
       "targetHpAfter": 240,
       "isCrit": false,
       "evaded": true,
-      "hitId": 5752,
+      "hitId": 4488,
       "sourceKind": "direct"
     },
     {
@@ -76,7 +76,7 @@
       "targetHpAfter": 122,
       "isCrit": false,
       "evaded": false,
-      "hitId": 5754,
+      "hitId": 4490,
       "sourceKind": "direct"
     },
     {
@@ -89,7 +89,7 @@
       "targetHpAfter": 110,
       "isCrit": false,
       "evaded": false,
-      "hitId": 5761,
+      "hitId": 4497,
       "sourceKind": "direct"
     },
     {
@@ -102,7 +102,7 @@
       "targetHpAfter": 7719,
       "isCrit": false,
       "evaded": false,
-      "hitId": 5768,
+      "hitId": 4504,
       "sourceKind": "direct"
     },
     {
@@ -115,7 +115,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 5778,
+      "hitId": 4514,
       "sourceKind": "direct"
     },
     {
@@ -126,29 +126,29 @@
   ],
   "rolls": [
     {
-      "eventId": 5744,
-      "hitId": 5743,
+      "eventId": 4480,
+      "hitId": 4479,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "rogue_nine_slot_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.2374509684984008,
+      "probability": 0.1965079100026103,
       "succeeded": true
     },
     {
-      "eventId": 5745,
-      "hitId": 5743,
+      "eventId": 4481,
+      "hitId": 4479,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
       "actor": "rogue_nine_slot_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.2374509684984008
+      "magnitude": 0.1965079100026103
     },
     {
-      "eventId": 5746,
-      "hitId": 5743,
+      "eventId": 4482,
+      "hitId": 4479,
       "atMs": 0,
       "category": "crit",
       "source": "Crit multiplier",
@@ -157,8 +157,8 @@
       "magnitude": 2.093815507611725
     },
     {
-      "eventId": 5747,
-      "hitId": 5743,
+      "eventId": 4483,
+      "hitId": 4479,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -167,8 +167,8 @@
       "magnitude": 0.25024590884604025
     },
     {
-      "eventId": 5748,
-      "hitId": 5749,
+      "eventId": 4484,
+      "hitId": 4485,
       "atMs": 0,
       "category": "echo",
       "source": "Echo",
@@ -179,8 +179,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 5751,
-      "hitId": 5750,
+      "eventId": 4487,
+      "hitId": 4486,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -189,8 +189,8 @@
       "magnitude": 0.048969527085493736
     },
     {
-      "eventId": 5753,
-      "hitId": 5752,
+      "eventId": 4489,
+      "hitId": 4488,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -199,8 +199,8 @@
       "magnitude": 0.048969527085493736
     },
     {
-      "eventId": 5755,
-      "hitId": 5754,
+      "eventId": 4491,
+      "hitId": 4490,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -210,8 +210,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5756,
-      "hitId": 5754,
+      "eventId": 4492,
+      "hitId": 4490,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -221,8 +221,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5757,
-      "hitId": 5754,
+      "eventId": 4493,
+      "hitId": 4490,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -231,8 +231,8 @@
       "magnitude": 0.048969527085493736
     },
     {
-      "eventId": 5758,
-      "hitId": 5754,
+      "eventId": 4494,
+      "hitId": 4490,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -241,8 +241,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 5759,
-      "hitId": 5754,
+      "eventId": 4495,
+      "hitId": 4490,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -251,8 +251,8 @@
       "magnitude": 0.12617953342441934
     },
     {
-      "eventId": 5760,
-      "hitId": 5754,
+      "eventId": 4496,
+      "hitId": 4490,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -261,8 +261,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 5762,
-      "hitId": 5761,
+      "eventId": 4498,
+      "hitId": 4497,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -272,8 +272,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5763,
-      "hitId": 5761,
+      "eventId": 4499,
+      "hitId": 4497,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -283,8 +283,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5764,
-      "hitId": 5761,
+      "eventId": 4500,
+      "hitId": 4497,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -293,8 +293,8 @@
       "magnitude": 0.048969527085493736
     },
     {
-      "eventId": 5765,
-      "hitId": 5761,
+      "eventId": 4501,
+      "hitId": 4497,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -303,8 +303,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 5766,
-      "hitId": 5761,
+      "eventId": 4502,
+      "hitId": 4497,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -313,8 +313,8 @@
       "magnitude": 0.12617953342441934
     },
     {
-      "eventId": 5767,
-      "hitId": 5761,
+      "eventId": 4503,
+      "hitId": 4497,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -323,19 +323,19 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 5769,
-      "hitId": 5768,
+      "eventId": 4505,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "rogue_nine_slot_vs_generic_stage50",
       "target": "__enemy_0__",
-      "probability": 0.2374509684984008,
+      "probability": 0.1965079100026103,
       "succeeded": false
     },
     {
-      "eventId": 5770,
-      "hitId": 5768,
+      "eventId": 4506,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "evasion",
       "source": "Evasion",
@@ -345,8 +345,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5771,
-      "hitId": 5768,
+      "eventId": 4507,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "block",
       "source": "Block chance",
@@ -356,18 +356,18 @@
       "succeeded": false
     },
     {
-      "eventId": 5772,
-      "hitId": 5768,
+      "eventId": 4508,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "crit",
       "source": "Crit chance",
       "actor": "rogue_nine_slot_vs_generic_stage50",
       "target": "__enemy_0__",
-      "magnitude": 0.2374509684984008
+      "magnitude": 0.1965079100026103
     },
     {
-      "eventId": 5773,
-      "hitId": 5768,
+      "eventId": 4509,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -376,8 +376,8 @@
       "magnitude": 0.25024590884604025
     },
     {
-      "eventId": 5774,
-      "hitId": 5768,
+      "eventId": 4510,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -387,8 +387,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5775,
-      "hitId": 5768,
+      "eventId": 4511,
+      "hitId": 4504,
       "atMs": 1266,
       "category": "elementalProc",
       "source": "Divine proc",
@@ -398,8 +398,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5776,
-      "hitId": 5777,
+      "eventId": 4512,
+      "hitId": 4513,
       "atMs": 1266,
       "category": "echo",
       "source": "Echo",
@@ -410,8 +410,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 5779,
-      "hitId": 5778,
+      "eventId": 4515,
+      "hitId": 4514,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -421,8 +421,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5780,
-      "hitId": 5778,
+      "eventId": 4516,
+      "hitId": 4514,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -432,8 +432,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5781,
-      "hitId": 5778,
+      "eventId": 4517,
+      "hitId": 4514,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -442,8 +442,8 @@
       "magnitude": 0.048969527085493736
     },
     {
-      "eventId": 5782,
-      "hitId": 5778,
+      "eventId": 4518,
+      "hitId": 4514,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -452,8 +452,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 5783,
-      "hitId": 5778,
+      "eventId": 4519,
+      "hitId": 4514,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -462,8 +462,8 @@
       "magnitude": 0.12617953342441934
     },
     {
-      "eventId": 5784,
-      "hitId": 5778,
+      "eventId": 4520,
+      "hitId": 4514,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",

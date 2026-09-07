@@ -33,11 +33,11 @@
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
       "damage": 0,
-      "unmitigatedDamage": 569,
+      "unmitigatedDamage": 669,
       "targetHpAfter": 2257,
       "isCrit": false,
       "evaded": true,
-      "hitId": 308,
+      "hitId": 250,
       "sourceKind": "direct"
     },
     {
@@ -46,11 +46,11 @@
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
       "damage": 0,
-      "unmitigatedDamage": 244,
+      "unmitigatedDamage": 144,
       "targetHpAfter": 2257,
       "isCrit": false,
       "evaded": true,
-      "hitId": 310,
+      "hitId": 252,
       "sourceKind": "direct"
     },
     {
@@ -58,12 +58,12 @@
       "atMs": 1100,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 345,
-      "unmitigatedDamage": 663,
-      "targetHpAfter": 1912,
+      "damage": 372,
+      "unmitigatedDamage": 715,
+      "targetHpAfter": 1885,
       "isCrit": false,
       "evaded": false,
-      "hitId": 312,
+      "hitId": 254,
       "sourceKind": "direct"
     },
     {
@@ -71,57 +71,123 @@
       "atMs": 1100,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 162,
-      "unmitigatedDamage": 284,
-      "targetHpAfter": 1750,
+      "damage": 167,
+      "unmitigatedDamage": 153,
+      "targetHpAfter": 1718,
       "isCrit": false,
       "evaded": false,
-      "hitId": 321,
+      "hitId": 263,
       "sourceKind": "direct"
     },
     {
       "kind": "heal",
-      "atMs": 1185,
+      "atMs": 1422,
       "healer": "paladin_vs_cube_stage500",
       "target": "paladin_vs_cube_stage500",
-      "amount": 507,
+      "amount": 539,
       "targetHpAfter": 2257,
       "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1422,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 1422,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2200,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 839,
-      "unmitigatedDamage": 656,
-      "targetHpAfter": 1418,
+      "damage": 987,
+      "unmitigatedDamage": 771,
+      "targetHpAfter": 1270,
       "isCrit": false,
       "evaded": false,
-      "hitId": 331,
+      "hitId": 272,
       "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2200,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 207,
-      "unmitigatedDamage": 281,
-      "targetHpAfter": 1211,
+      "damage": 229,
+      "unmitigatedDamage": 166,
+      "targetHpAfter": 1041,
       "isCrit": false,
       "evaded": false,
-      "hitId": 340,
+      "hitId": 281,
       "sourceKind": "direct"
     },
     {
       "kind": "heal",
-      "atMs": 2370,
+      "atMs": 2844,
       "healer": "paladin_vs_cube_stage500",
       "target": "paladin_vs_cube_stage500",
-      "amount": 1046,
+      "amount": 1216,
       "targetHpAfter": 2257,
       "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2844,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2844,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "skillCast",
@@ -130,29 +196,51 @@
       "skill": "Gelatinous Cube Capture"
     },
     {
-      "kind": "attack",
+      "kind": "buffSnapshot",
       "atMs": 3300,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 1122,
-      "unmitigatedDamage": 702,
-      "targetHpAfter": 1135,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 350,
-      "sourceKind": "direct"
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
       "atMs": 3300,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 278,
-      "unmitigatedDamage": 301,
-      "targetHpAfter": 857,
+      "damage": 1203,
+      "unmitigatedDamage": 752,
+      "targetHpAfter": 1054,
       "isCrit": false,
       "evaded": false,
-      "hitId": 359,
+      "hitId": 290,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "paladin_vs_cube_stage500",
+      "damage": 150,
+      "unmitigatedDamage": 161,
+      "targetHpAfter": 904,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 299,
       "sourceKind": "direct"
     },
     {
@@ -160,174 +248,103 @@
       "atMs": 3500,
       "healer": "paladin_vs_cube_stage500",
       "target": "paladin_vs_cube_stage500",
-      "amount": 1400,
+      "amount": 1353,
       "targetHpAfter": 2257,
       "isRevive": false
     },
     {
-      "kind": "attack",
-      "atMs": 4400,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 1000,
-      "unmitigatedDamage": 546,
-      "targetHpAfter": 1257,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 369,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 4400,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 236,
-      "unmitigatedDamage": 234,
-      "targetHpAfter": 1021,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 378,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 5500,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 17,
-      "unmitigatedDamage": 576,
-      "targetHpAfter": 1004,
-      "isCrit": false,
-      "evaded": true,
-      "hitId": 388,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 5500,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 271,
-      "unmitigatedDamage": 247,
-      "targetHpAfter": 733,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 393,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 6000,
-      "healer": "paladin_vs_cube_stage500",
-      "target": "paladin_vs_cube_stage500",
-      "amount": 1524,
-      "targetHpAfter": 2257,
-      "isRevive": false
-    },
-    {
-      "kind": "skillCast",
-      "atMs": 6000,
+      "kind": "buffSnapshot",
+      "atMs": 3500,
       "unit": "paladin_vs_cube_stage500",
-      "skill": "Gelatinous Cube Capture"
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3500,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4400,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
-      "atMs": 6600,
+      "atMs": 4400,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 807,
-      "unmitigatedDamage": 681,
-      "targetHpAfter": 1450,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 403,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 6600,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 605,
-      "unmitigatedDamage": 292,
+      "damage": 1412,
+      "unmitigatedDamage": 771,
       "targetHpAfter": 845,
       "isCrit": false,
       "evaded": false,
-      "hitId": 413,
+      "hitId": 309,
       "sourceKind": "direct"
     },
     {
-      "kind": "heal",
-      "atMs": 7000,
-      "healer": "paladin_vs_cube_stage500",
-      "target": "paladin_vs_cube_stage500",
-      "amount": 1412,
-      "targetHpAfter": 2257,
-      "isRevive": false
+      "kind": "buffSnapshot",
+      "atMs": 4400,
+      "unit": "paladin_vs_cube_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
     },
     {
       "kind": "attack",
-      "atMs": 7700,
+      "atMs": 4400,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 1511,
-      "unmitigatedDamage": 689,
-      "targetHpAfter": 746,
+      "damage": 167,
+      "unmitigatedDamage": 166,
+      "targetHpAfter": 678,
       "isCrit": false,
       "evaded": false,
-      "hitId": 422,
+      "hitId": 318,
       "sourceKind": "direct"
     },
     {
       "kind": "attack",
-      "atMs": 7700,
+      "atMs": 5500,
       "attacker": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "damage": 648,
-      "unmitigatedDamage": 295,
-      "targetHpAfter": 98,
-      "isCrit": false,
-      "evaded": false,
-      "hitId": 431,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 8800,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 20,
-      "unmitigatedDamage": 682,
-      "targetHpAfter": 78,
-      "isCrit": false,
-      "evaded": true,
-      "hitId": 440,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 8800,
-      "attacker": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "damage": 401,
-      "unmitigatedDamage": 292,
+      "damage": 1466,
+      "unmitigatedDamage": 751,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 445,
+      "hitId": 328,
       "sourceKind": "direct"
     },
     {
       "kind": "defeat",
-      "atMs": 8800,
+      "atMs": 5500,
       "unit": "paladin_vs_cube_stage500"
     }
   ],
   "rolls": [
     {
-      "eventId": 309,
-      "hitId": 308,
+      "eventId": 251,
+      "hitId": 250,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -336,8 +353,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 311,
-      "hitId": 310,
+      "eventId": 253,
+      "hitId": 252,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -346,8 +363,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 313,
-      "hitId": 312,
+      "eventId": 255,
+      "hitId": 254,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -357,8 +374,8 @@
       "succeeded": false
     },
     {
-      "eventId": 314,
-      "hitId": 312,
+      "eventId": 256,
+      "hitId": 254,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -368,8 +385,8 @@
       "succeeded": true
     },
     {
-      "eventId": 315,
-      "hitId": 312,
+      "eventId": 257,
+      "hitId": 254,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -378,8 +395,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 316,
-      "hitId": 312,
+      "eventId": 258,
+      "hitId": 254,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -388,8 +405,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 317,
-      "hitId": 312,
+      "eventId": 259,
+      "hitId": 254,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -398,8 +415,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 318,
-      "hitId": 312,
+      "eventId": 260,
+      "hitId": 254,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -408,8 +425,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 319,
-      "hitId": 312,
+      "eventId": 261,
+      "hitId": 254,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -418,18 +435,18 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 320,
-      "hitId": 312,
+      "eventId": 262,
+      "hitId": 254,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 19.513872607780108
+      "magnitude": 21.019960482910896
     },
     {
-      "eventId": 322,
-      "hitId": 321,
+      "eventId": 264,
+      "hitId": 263,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -439,19 +456,19 @@
       "succeeded": false
     },
     {
-      "eventId": 323,
-      "hitId": 321,
+      "eventId": 265,
+      "hitId": 263,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
       "actor": "paladin_vs_cube_stage500",
       "target": "__enemy_0__",
       "probability": 0.4146087068064006,
-      "succeeded": true
+      "succeeded": false
     },
     {
-      "eventId": 324,
-      "hitId": 321,
+      "eventId": 266,
+      "hitId": 263,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -460,8 +477,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 325,
-      "hitId": 321,
+      "eventId": 267,
+      "hitId": 263,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -470,18 +487,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 326,
-      "hitId": 321,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.5
-    },
-    {
-      "eventId": 327,
-      "hitId": 321,
+      "eventId": 268,
+      "hitId": 263,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -490,8 +497,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 328,
-      "hitId": 321,
+      "eventId": 269,
+      "hitId": 263,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -500,8 +507,8 @@
       "magnitude": -0.1
     },
     {
-      "eventId": 329,
-      "hitId": 321,
+      "eventId": 270,
+      "hitId": 263,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -510,18 +517,18 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 330,
-      "hitId": 321,
+      "eventId": 271,
+      "hitId": 263,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 8.363088260477191
+      "magnitude": 4.513768169833138
     },
     {
-      "eventId": 332,
-      "hitId": 331,
+      "eventId": 273,
+      "hitId": 272,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -531,8 +538,8 @@
       "succeeded": false
     },
     {
-      "eventId": 333,
-      "hitId": 331,
+      "eventId": 274,
+      "hitId": 272,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -542,8 +549,8 @@
       "succeeded": false
     },
     {
-      "eventId": 334,
-      "hitId": 331,
+      "eventId": 275,
+      "hitId": 272,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -552,8 +559,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 335,
-      "hitId": 331,
+      "eventId": 276,
+      "hitId": 272,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -562,8 +569,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 336,
-      "hitId": 331,
+      "eventId": 277,
+      "hitId": 272,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -572,8 +579,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 337,
-      "hitId": 331,
+      "eventId": 278,
+      "hitId": 272,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -582,8 +589,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 338,
-      "hitId": 331,
+      "eventId": 279,
+      "hitId": 272,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -592,18 +599,18 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 339,
-      "hitId": 331,
+      "eventId": 280,
+      "hitId": 272,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 19.285961422396433
+      "magnitude": 22.691008162541912
     },
     {
-      "eventId": 341,
-      "hitId": 340,
+      "eventId": 282,
+      "hitId": 281,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -613,19 +620,19 @@
       "succeeded": false
     },
     {
-      "eventId": 342,
-      "hitId": 340,
+      "eventId": 283,
+      "hitId": 281,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
       "actor": "paladin_vs_cube_stage500",
       "target": "__enemy_0__",
       "probability": 0.39260870680640064,
-      "succeeded": true
+      "succeeded": false
     },
     {
-      "eventId": 343,
-      "hitId": 340,
+      "eventId": 284,
+      "hitId": 281,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -634,8 +641,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 344,
-      "hitId": 340,
+      "eventId": 285,
+      "hitId": 281,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -644,18 +651,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 345,
-      "hitId": 340,
-      "atMs": 2200,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.5
-    },
-    {
-      "eventId": 346,
-      "hitId": 340,
+      "eventId": 286,
+      "hitId": 281,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -664,8 +661,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 347,
-      "hitId": 340,
+      "eventId": 287,
+      "hitId": 281,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -674,8 +671,8 @@
       "magnitude": -0.30000000000000004
     },
     {
-      "eventId": 348,
-      "hitId": 340,
+      "eventId": 288,
+      "hitId": 281,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -684,18 +681,18 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 349,
-      "hitId": 340,
+      "eventId": 289,
+      "hitId": 281,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 8.265412038169902
+      "magnitude": 4.872604326196238
     },
     {
-      "eventId": 351,
-      "hitId": 350,
+      "eventId": 291,
+      "hitId": 290,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -705,8 +702,8 @@
       "succeeded": false
     },
     {
-      "eventId": 352,
-      "hitId": 350,
+      "eventId": 292,
+      "hitId": 290,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -716,8 +713,8 @@
       "succeeded": false
     },
     {
-      "eventId": 353,
-      "hitId": 350,
+      "eventId": 293,
+      "hitId": 290,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -726,8 +723,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 354,
-      "hitId": 350,
+      "eventId": 294,
+      "hitId": 290,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -736,8 +733,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 355,
-      "hitId": 350,
+      "eventId": 295,
+      "hitId": 290,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -746,8 +743,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 356,
-      "hitId": 350,
+      "eventId": 296,
+      "hitId": 290,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -756,8 +753,8 @@
       "magnitude": -0.4
     },
     {
-      "eventId": 357,
-      "hitId": 350,
+      "eventId": 297,
+      "hitId": 290,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -766,18 +763,18 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 358,
-      "hitId": 350,
+      "eventId": 298,
+      "hitId": 290,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 20.632924901301354
+      "magnitude": 22.117107598290918
     },
     {
-      "eventId": 360,
-      "hitId": 359,
+      "eventId": 300,
+      "hitId": 299,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -787,8 +784,8 @@
       "succeeded": false
     },
     {
-      "eventId": 361,
-      "hitId": 359,
+      "eventId": 301,
+      "hitId": 299,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -798,8 +795,8 @@
       "succeeded": true
     },
     {
-      "eventId": 362,
-      "hitId": 359,
+      "eventId": 302,
+      "hitId": 299,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -808,8 +805,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 363,
-      "hitId": 359,
+      "eventId": 303,
+      "hitId": 299,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -818,8 +815,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 364,
-      "hitId": 359,
+      "eventId": 304,
+      "hitId": 299,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -828,8 +825,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 365,
-      "hitId": 359,
+      "eventId": 305,
+      "hitId": 299,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -838,8 +835,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 366,
-      "hitId": 359,
+      "eventId": 306,
+      "hitId": 299,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -848,8 +845,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 367,
-      "hitId": 359,
+      "eventId": 307,
+      "hitId": 299,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -858,18 +855,18 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 368,
-      "hitId": 359,
+      "eventId": 308,
+      "hitId": 299,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 8.842682100557724
+      "magnitude": 4.7493665065213895
     },
     {
-      "eventId": 370,
-      "hitId": 369,
+      "eventId": 310,
+      "hitId": 309,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -879,8 +876,8 @@
       "succeeded": false
     },
     {
-      "eventId": 371,
-      "hitId": 369,
+      "eventId": 311,
+      "hitId": 309,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -890,8 +887,8 @@
       "succeeded": false
     },
     {
-      "eventId": 372,
-      "hitId": 369,
+      "eventId": 312,
+      "hitId": 309,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -900,8 +897,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 373,
-      "hitId": 369,
+      "eventId": 313,
+      "hitId": 309,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -910,8 +907,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 374,
-      "hitId": 369,
+      "eventId": 314,
+      "hitId": 309,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -920,8 +917,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 375,
-      "hitId": 369,
+      "eventId": 315,
+      "hitId": 309,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -930,8 +927,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 376,
-      "hitId": 369,
+      "eventId": 316,
+      "hitId": 309,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -940,18 +937,18 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 377,
-      "hitId": 369,
+      "eventId": 317,
+      "hitId": 309,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 16.062215280230948
+      "magnitude": 22.680932709323955
     },
     {
-      "eventId": 379,
-      "hitId": 378,
+      "eventId": 319,
+      "hitId": 318,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -961,8 +958,8 @@
       "succeeded": false
     },
     {
-      "eventId": 380,
-      "hitId": 378,
+      "eventId": 320,
+      "hitId": 318,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -972,8 +969,8 @@
       "succeeded": true
     },
     {
-      "eventId": 381,
-      "hitId": 378,
+      "eventId": 321,
+      "hitId": 318,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -982,8 +979,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 382,
-      "hitId": 378,
+      "eventId": 322,
+      "hitId": 318,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -992,8 +989,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 383,
-      "hitId": 378,
+      "eventId": 323,
+      "hitId": 318,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -1002,8 +999,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 384,
-      "hitId": 378,
+      "eventId": 324,
+      "hitId": 318,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1012,8 +1009,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 385,
-      "hitId": 378,
+      "eventId": 325,
+      "hitId": 318,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -1022,8 +1019,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 386,
-      "hitId": 378,
+      "eventId": 326,
+      "hitId": 318,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1032,59 +1029,18 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 387,
-      "hitId": 378,
+      "eventId": 327,
+      "hitId": 318,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 6.883806548670407
+      "magnitude": 4.870440751242383
     },
     {
-      "eventId": 389,
-      "hitId": 388,
-      "atMs": 5500,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": true
-    },
-    {
-      "eventId": 390,
-      "hitId": 388,
-      "atMs": 5500,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 391,
-      "hitId": 388,
-      "atMs": 5500,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.11
-    },
-    {
-      "eventId": 392,
-      "hitId": 388,
-      "atMs": 5500,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 16.94887070465893
-    },
-    {
-      "eventId": 394,
-      "hitId": 393,
+      "eventId": 329,
+      "hitId": 328,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1094,19 +1050,19 @@
       "succeeded": false
     },
     {
-      "eventId": 395,
-      "hitId": 393,
+      "eventId": 330,
+      "hitId": 328,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
       "actor": "paladin_vs_cube_stage500",
       "target": "__enemy_0__",
       "probability": 0.32660870680640064,
-      "succeeded": true
+      "succeeded": false
     },
     {
-      "eventId": 396,
-      "hitId": 393,
+      "eventId": 331,
+      "hitId": 328,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1115,8 +1071,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 397,
-      "hitId": 393,
+      "eventId": 332,
+      "hitId": 328,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1125,18 +1081,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 398,
-      "hitId": 393,
-      "atMs": 5500,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.5
-    },
-    {
-      "eventId": 399,
-      "hitId": 393,
+      "eventId": 333,
+      "hitId": 328,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1145,8 +1091,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 400,
-      "hitId": 393,
+      "eventId": 334,
+      "hitId": 328,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -1155,8 +1101,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 401,
-      "hitId": 393,
+      "eventId": 335,
+      "hitId": 328,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1165,485 +1111,14 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 402,
-      "hitId": 393,
+      "eventId": 336,
+      "hitId": 328,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_vs_cube_stage500",
-      "magnitude": 7.263801730568114
-    },
-    {
-      "eventId": 404,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": false
-    },
-    {
-      "eventId": 405,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.3046087068064006,
-      "succeeded": true
-    },
-    {
-      "eventId": 406,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 407,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.132
-    },
-    {
-      "eventId": 408,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.5
-    },
-    {
-      "eventId": 409,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.17482249757815205
-    },
-    {
-      "eventId": 410,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Gelatinous Cube shred",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": -0.5
-    },
-    {
-      "eventId": 411,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.132
-    },
-    {
-      "eventId": 412,
-      "hitId": 403,
-      "atMs": 6600,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 20.025140185706707
-    },
-    {
-      "eventId": 414,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": false
-    },
-    {
-      "eventId": 415,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.3046087068064006,
-      "succeeded": false
-    },
-    {
-      "eventId": 416,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 417,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.132
-    },
-    {
-      "eventId": 418,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.17482249757815205
-    },
-    {
-      "eventId": 419,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Gelatinous Cube shred",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": -0.5
-    },
-    {
-      "eventId": 420,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.132
-    },
-    {
-      "eventId": 421,
-      "hitId": 413,
-      "atMs": 6600,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 8.582202936731449
-    },
-    {
-      "eventId": 423,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": false
-    },
-    {
-      "eventId": 424,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.2826087068064006,
-      "succeeded": false
-    },
-    {
-      "eventId": 425,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 426,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.154
-    },
-    {
-      "eventId": 427,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.17482249757815205
-    },
-    {
-      "eventId": 428,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Gelatinous Cube shred",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": -0.5
-    },
-    {
-      "eventId": 429,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.154
-    },
-    {
-      "eventId": 430,
-      "hitId": 422,
-      "atMs": 7700,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 20.274948165846926
-    },
-    {
-      "eventId": 432,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": false
-    },
-    {
-      "eventId": 433,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.2826087068064006,
-      "succeeded": false
-    },
-    {
-      "eventId": 434,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 435,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.154
-    },
-    {
-      "eventId": 436,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.17482249757815205
-    },
-    {
-      "eventId": 437,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Gelatinous Cube shred",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": -0.5
-    },
-    {
-      "eventId": 438,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.154
-    },
-    {
-      "eventId": 439,
-      "hitId": 431,
-      "atMs": 7700,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 8.689263499648684
-    },
-    {
-      "eventId": 441,
-      "hitId": 440,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": true
-    },
-    {
-      "eventId": 442,
-      "hitId": 440,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 443,
-      "hitId": 440,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.17600000000000002
-    },
-    {
-      "eventId": 444,
-      "hitId": 440,
-      "atMs": 8800,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 20.070030312047642
-    },
-    {
-      "eventId": 446,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.1512011981878827,
-      "succeeded": false
-    },
-    {
-      "eventId": 447,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "probability": 0.2606087068064006,
-      "succeeded": true
-    },
-    {
-      "eventId": 448,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.1512011981878827
-    },
-    {
-      "eventId": 449,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.17600000000000002
-    },
-    {
-      "eventId": 450,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.5
-    },
-    {
-      "eventId": 451,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": 0.17482249757815205
-    },
-    {
-      "eventId": 452,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "mitigation",
-      "source": "Gelatinous Cube shred",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": -0.5
-    },
-    {
-      "eventId": 453,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "paladin_vs_cube_stage500",
-      "target": "__enemy_0__",
-      "magnitude": -0.17600000000000002
-    },
-    {
-      "eventId": 454,
-      "hitId": 445,
-      "atMs": 8800,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "paladin_vs_cube_stage500",
-      "magnitude": 8.601441562306134
+      "magnitude": 22.09030461625923
     }
   ]
 }

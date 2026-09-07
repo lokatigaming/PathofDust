@@ -93,11 +93,11 @@
       "attacker": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
       "damage": 0,
-      "unmitigatedDamage": 5271,
+      "unmitigatedDamage": 3030,
       "targetHpAfter": 500000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1744,
+      "hitId": 1729,
       "sourceKind": "direct"
     },
     {
@@ -110,7 +110,7 @@
       "targetHpAfter": 5415,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1749,
+      "hitId": 1734,
       "sourceKind": "direct"
     },
     {
@@ -123,7 +123,7 @@
       "targetHpAfter": 5415,
       "isCrit": false,
       "evaded": true,
-      "hitId": 1750,
+      "hitId": 1735,
       "sourceKind": "direct"
     },
     {
@@ -131,12 +131,12 @@
       "atMs": 539,
       "attacker": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
-      "damage": 3585,
-      "unmitigatedDamage": 4717,
-      "targetHpAfter": 496415,
+      "damage": 2061,
+      "unmitigatedDamage": 2712,
+      "targetHpAfter": 497939,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1751,
+      "hitId": 1736,
       "sourceKind": "direct"
     },
     {
@@ -144,12 +144,12 @@
       "atMs": 1078,
       "attacker": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
-      "damage": 3474,
-      "unmitigatedDamage": 4571,
-      "targetHpAfter": 492941,
+      "damage": 1997,
+      "unmitigatedDamage": 2628,
+      "targetHpAfter": 495942,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1758,
+      "hitId": 1743,
       "sourceKind": "direct"
     },
     {
@@ -162,7 +162,7 @@
       "targetHpAfter": 3113,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1765,
+      "hitId": 1750,
       "sourceKind": "direct"
     },
     {
@@ -175,7 +175,7 @@
       "targetHpAfter": 2807,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1771,
+      "hitId": 1756,
       "sourceKind": "direct"
     },
     {
@@ -183,12 +183,12 @@
       "atMs": 1617,
       "attacker": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
-      "damage": 3298,
-      "unmitigatedDamage": 4339,
-      "targetHpAfter": 489643,
+      "damage": 1896,
+      "unmitigatedDamage": 2495,
+      "targetHpAfter": 494046,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1777,
+      "hitId": 1762,
       "sourceKind": "direct"
     },
     {
@@ -207,7 +207,7 @@
       "targetHpAfter": 2382,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1784,
+      "hitId": 1769,
       "sourceKind": "direct"
     },
     {
@@ -220,7 +220,7 @@
       "targetHpAfter": 2325,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1788,
+      "hitId": 1773,
       "sourceKind": "direct"
     },
     {
@@ -228,12 +228,12 @@
       "atMs": 2156,
       "attacker": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__-add-3",
-      "damage": 3543,
-      "unmitigatedDamage": 4662,
-      "targetHpAfter": 46457,
+      "damage": 2037,
+      "unmitigatedDamage": 2680,
+      "targetHpAfter": 47963,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1792,
+      "hitId": 1777,
       "sourceKind": "direct"
     },
     {
@@ -246,7 +246,7 @@
       "targetHpAfter": 394,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1799,
+      "hitId": 1784,
       "sourceKind": "direct"
     },
     {
@@ -259,7 +259,7 @@
       "targetHpAfter": 137,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1805,
+      "hitId": 1790,
       "sourceKind": "direct"
     },
     {
@@ -272,7 +272,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 1811,
+      "hitId": 1796,
       "sourceKind": "direct"
     },
     {
@@ -283,20 +283,146 @@
   ],
   "rolls": [
     {
-      "eventId": 1745,
-      "hitId": 1744,
+      "eventId": 1730,
+      "hitId": 1729,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
       "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1731,
+      "hitId": 1729,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1732,
+      "hitId": 1729,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.5809475019311126
+    },
+    {
+      "eventId": 1733,
+      "hitId": 1729,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 1737,
+      "hitId": 1736,
+      "atMs": 539,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1738,
+      "hitId": 1736,
+      "atMs": 539,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "berserker_vs_lich_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1739,
+      "hitId": 1736,
+      "atMs": 539,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "berserker_vs_lich_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1740,
+      "hitId": 1736,
+      "atMs": 539,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.05
+    },
+    {
+      "eventId": 1741,
+      "hitId": 1736,
+      "atMs": 539,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.5809475019311126
+    },
+    {
+      "eventId": 1742,
+      "hitId": 1736,
+      "atMs": 539,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 1744,
+      "hitId": 1743,
+      "atMs": 1078,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.05,
+      "succeeded": false
+    },
+    {
+      "eventId": 1745,
+      "hitId": 1743,
+      "atMs": 1078,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "berserker_vs_lich_stage1000",
+      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1746,
-      "hitId": 1744,
-      "atMs": 0,
+      "hitId": 1743,
+      "atMs": 1078,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "berserker_vs_lich_stage1000",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1747,
+      "hitId": 1743,
+      "atMs": 1078,
       "category": "crit",
       "source": "Crit chance",
       "actor": "berserker_vs_lich_stage1000",
@@ -304,19 +430,19 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1747,
-      "hitId": 1744,
-      "atMs": 0,
+      "eventId": 1748,
+      "hitId": 1743,
+      "atMs": 1078,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
-      "magnitude": 1.75
+      "magnitude": 0.5809475019311126
     },
     {
-      "eventId": 1748,
-      "hitId": 1744,
-      "atMs": 0,
+      "eventId": 1749,
+      "hitId": 1743,
+      "atMs": 1078,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "berserker_vs_lich_stage1000",
@@ -324,156 +450,30 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1752,
-      "hitId": 1751,
-      "atMs": 539,
-      "category": "crit",
-      "source": "Crit chance remainder",
+      "eventId": 1751,
+      "hitId": 1750,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
       "actor": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
-      "probability": 0.05,
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 1752,
+      "hitId": 1750,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "berserker_vs_lich_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
       "succeeded": false
     },
     {
       "eventId": 1753,
-      "hitId": 1751,
-      "atMs": 539,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "berserker_vs_lich_stage1000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1754,
-      "hitId": 1751,
-      "atMs": 539,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "berserker_vs_lich_stage1000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1755,
-      "hitId": 1751,
-      "atMs": 539,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1756,
-      "hitId": 1751,
-      "atMs": 539,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 1.75
-    },
-    {
-      "eventId": 1757,
-      "hitId": 1751,
-      "atMs": 539,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1759,
-      "hitId": 1758,
-      "atMs": 1078,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.05,
-      "succeeded": false
-    },
-    {
-      "eventId": 1760,
-      "hitId": 1758,
-      "atMs": 1078,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "berserker_vs_lich_stage1000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1761,
-      "hitId": 1758,
-      "atMs": 1078,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "berserker_vs_lich_stage1000",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1762,
-      "hitId": 1758,
-      "atMs": 1078,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.05
-    },
-    {
-      "eventId": 1763,
-      "hitId": 1758,
-      "atMs": 1078,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 1.75
-    },
-    {
-      "eventId": 1764,
-      "hitId": 1758,
-      "atMs": 1078,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 1766,
-      "hitId": 1765,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1767,
-      "hitId": 1765,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "berserker_vs_lich_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 1768,
-      "hitId": 1765,
+      "hitId": 1750,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -482,8 +482,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1769,
-      "hitId": 1765,
+      "eventId": 1754,
+      "hitId": 1750,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -492,8 +492,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1770,
-      "hitId": 1765,
+      "eventId": 1755,
+      "hitId": 1750,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -502,8 +502,8 @@
       "magnitude": 195.0552237021021
     },
     {
-      "eventId": 1772,
-      "hitId": 1771,
+      "eventId": 1757,
+      "hitId": 1756,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -513,8 +513,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1773,
-      "hitId": 1771,
+      "eventId": 1758,
+      "hitId": 1756,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -524,8 +524,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1774,
-      "hitId": 1771,
+      "eventId": 1759,
+      "hitId": 1756,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -534,8 +534,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1775,
-      "hitId": 1771,
+      "eventId": 1760,
+      "hitId": 1756,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -544,8 +544,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 1776,
-      "hitId": 1771,
+      "eventId": 1761,
+      "hitId": 1756,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -554,8 +554,8 @@
       "magnitude": 25.926593655273496
     },
     {
-      "eventId": 1778,
-      "hitId": 1777,
+      "eventId": 1763,
+      "hitId": 1762,
       "atMs": 1617,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -565,8 +565,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1779,
-      "hitId": 1777,
+      "eventId": 1764,
+      "hitId": 1762,
       "atMs": 1617,
       "category": "evasion",
       "source": "Evasion",
@@ -576,8 +576,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1780,
-      "hitId": 1777,
+      "eventId": 1765,
+      "hitId": 1762,
       "atMs": 1617,
       "category": "block",
       "source": "Block chance",
@@ -587,8 +587,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1781,
-      "hitId": 1777,
+      "eventId": 1766,
+      "hitId": 1762,
       "atMs": 1617,
       "category": "crit",
       "source": "Crit chance",
@@ -597,18 +597,18 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1782,
-      "hitId": 1777,
+      "eventId": 1767,
+      "hitId": 1762,
       "atMs": 1617,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__",
-      "magnitude": 1.75
+      "magnitude": 0.5809475019311126
     },
     {
-      "eventId": 1783,
-      "hitId": 1777,
+      "eventId": 1768,
+      "hitId": 1762,
       "atMs": 1617,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -617,8 +617,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1785,
-      "hitId": 1784,
+      "eventId": 1770,
+      "hitId": 1769,
       "atMs": 2000,
       "category": "evasion",
       "source": "Evasion",
@@ -628,8 +628,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1786,
-      "hitId": 1784,
+      "eventId": 1771,
+      "hitId": 1769,
       "atMs": 2000,
       "category": "block",
       "source": "Block chance",
@@ -639,8 +639,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1787,
-      "hitId": 1784,
+      "eventId": 1772,
+      "hitId": 1769,
       "atMs": 2000,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -649,8 +649,8 @@
       "magnitude": 36.055782423513676
     },
     {
-      "eventId": 1789,
-      "hitId": 1788,
+      "eventId": 1774,
+      "hitId": 1773,
       "atMs": 2000,
       "category": "evasion",
       "source": "Evasion",
@@ -660,8 +660,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1790,
-      "hitId": 1788,
+      "eventId": 1775,
+      "hitId": 1773,
       "atMs": 2000,
       "category": "block",
       "source": "Block chance",
@@ -671,8 +671,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1791,
-      "hitId": 1788,
+      "eventId": 1776,
+      "hitId": 1773,
       "atMs": 2000,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -681,8 +681,8 @@
       "magnitude": 4.7925074862135935
     },
     {
-      "eventId": 1793,
-      "hitId": 1792,
+      "eventId": 1778,
+      "hitId": 1777,
       "atMs": 2156,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -692,8 +692,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1794,
-      "hitId": 1792,
+      "eventId": 1779,
+      "hitId": 1777,
       "atMs": 2156,
       "category": "evasion",
       "source": "Evasion",
@@ -703,8 +703,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1795,
-      "hitId": 1792,
+      "eventId": 1780,
+      "hitId": 1777,
       "atMs": 2156,
       "category": "block",
       "source": "Block chance",
@@ -714,8 +714,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1796,
-      "hitId": 1792,
+      "eventId": 1781,
+      "hitId": 1777,
       "atMs": 2156,
       "category": "crit",
       "source": "Crit chance",
@@ -724,18 +724,18 @@
       "magnitude": 0.05
     },
     {
-      "eventId": 1797,
-      "hitId": 1792,
+      "eventId": 1782,
+      "hitId": 1777,
       "atMs": 2156,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "berserker_vs_lich_stage1000",
       "target": "__enemy_0__-add-3",
-      "magnitude": 1.75
+      "magnitude": 0.5809475019311126
     },
     {
-      "eventId": 1798,
-      "hitId": 1792,
+      "eventId": 1783,
+      "hitId": 1777,
       "atMs": 2156,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -744,8 +744,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 1800,
-      "hitId": 1799,
+      "eventId": 1785,
+      "hitId": 1784,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -755,8 +755,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1801,
-      "hitId": 1799,
+      "eventId": 1786,
+      "hitId": 1784,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -766,8 +766,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1802,
-      "hitId": 1799,
+      "eventId": 1787,
+      "hitId": 1784,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -776,8 +776,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1803,
-      "hitId": 1799,
+      "eventId": 1788,
+      "hitId": 1784,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -786,8 +786,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1804,
-      "hitId": 1799,
+      "eventId": 1789,
+      "hitId": 1784,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -796,8 +796,8 @@
       "magnitude": 152.04856234759208
     },
     {
-      "eventId": 1806,
-      "hitId": 1805,
+      "eventId": 1791,
+      "hitId": 1790,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -807,8 +807,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1807,
-      "hitId": 1805,
+      "eventId": 1792,
+      "hitId": 1790,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -818,8 +818,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1808,
-      "hitId": 1805,
+      "eventId": 1793,
+      "hitId": 1790,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -828,8 +828,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1809,
-      "hitId": 1805,
+      "eventId": 1794,
+      "hitId": 1790,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -838,8 +838,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 1810,
-      "hitId": 1805,
+      "eventId": 1795,
+      "hitId": 1790,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -848,8 +848,8 @@
       "magnitude": 20.210180568530212
     },
     {
-      "eventId": 1812,
-      "hitId": 1811,
+      "eventId": 1797,
+      "hitId": 1796,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -859,8 +859,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1813,
-      "hitId": 1811,
+      "eventId": 1798,
+      "hitId": 1796,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -870,8 +870,8 @@
       "succeeded": false
     },
     {
-      "eventId": 1814,
-      "hitId": 1811,
+      "eventId": 1799,
+      "hitId": 1796,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -880,8 +880,8 @@
       "magnitude": -0.004
     },
     {
-      "eventId": 1815,
-      "hitId": 1811,
+      "eventId": 1800,
+      "hitId": 1796,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -890,8 +890,8 @@
       "magnitude": -0.004
     },
     {
-      "eventId": 1816,
-      "hitId": 1811,
+      "eventId": 1801,
+      "hitId": 1796,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
