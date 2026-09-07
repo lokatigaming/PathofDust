@@ -37,7 +37,7 @@
       "targetHpAfter": 4000000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 5569,
+      "hitId": 5586,
       "sourceKind": "direct"
     },
     {
@@ -50,7 +50,7 @@
       "targetHpAfter": 3333,
       "isCrit": false,
       "evaded": true,
-      "hitId": 5580,
+      "hitId": 5597,
       "sourceKind": "direct"
     },
     {
@@ -63,43 +63,17 @@
       "targetHpAfter": 4000000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 5585,
+      "hitId": 5602,
       "sourceKind": "direct"
     },
     {
       "kind": "attack",
-      "atMs": 632,
+      "atMs": 316,
       "attacker": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
-      "damage": 2890,
-      "unmitigatedDamage": 5069,
-      "targetHpAfter": 3997110,
-      "isCrit": true,
-      "evaded": false,
-      "hitId": 5610,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 632,
-      "attacker": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "damage": 2890,
-      "unmitigatedDamage": 10138,
-      "targetHpAfter": 3994220,
-      "isCrit": true,
-      "evaded": false,
-      "hitId": 5597,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "attack",
-      "atMs": 948,
-      "attacker": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "damage": 4466,
-      "unmitigatedDamage": 7834,
-      "targetHpAfter": 3989754,
+      "damage": 1179,
+      "unmitigatedDamage": 4137,
+      "targetHpAfter": 3998821,
       "isCrit": true,
       "evaded": false,
       "hitId": 5626,
@@ -107,24 +81,76 @@
     },
     {
       "kind": "attack",
-      "atMs": 1100,
-      "attacker": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "damage": 2157,
-      "unmitigatedDamage": 1828,
-      "targetHpAfter": 1176,
+      "atMs": 316,
+      "attacker": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "damage": 317,
+      "unmitigatedDamage": 1112,
+      "targetHpAfter": 3998504,
       "isCrit": false,
       "evaded": false,
       "hitId": 5640,
       "sourceKind": "direct"
     },
     {
+      "kind": "attack",
+      "atMs": 316,
+      "attacker": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "damage": 4716,
+      "unmitigatedDamage": 8274,
+      "targetHpAfter": 3993788,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 5614,
+      "sourceKind": "echo"
+    },
+    {
+      "kind": "attack",
+      "atMs": 632,
+      "attacker": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "damage": 4466,
+      "unmitigatedDamage": 7834,
+      "targetHpAfter": 3989322,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 5652,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 948,
+      "attacker": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "damage": 1468,
+      "unmitigatedDamage": 2577,
+      "targetHpAfter": 3987854,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 5666,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "damage": 1981,
+      "unmitigatedDamage": 1678,
+      "targetHpAfter": 1352,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 5678,
+      "sourceKind": "direct"
+    },
+    {
       "kind": "heal",
       "atMs": 1264,
       "healer": "mage_passives_vs_cthulhu_stage1000",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 15,
-      "targetHpAfter": 1191,
+      "amount": 16,
+      "targetHpAfter": 1368,
       "isRevive": false
     },
     {
@@ -132,12 +158,12 @@
       "atMs": 1264,
       "attacker": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
-      "damage": 1261,
-      "unmitigatedDamage": 2212,
-      "targetHpAfter": 3988493,
+      "damage": 1325,
+      "unmitigatedDamage": 2324,
+      "targetHpAfter": 3986529,
       "isCrit": false,
       "evaded": false,
-      "hitId": 5649,
+      "hitId": 5687,
       "sourceKind": "direct"
     },
     {
@@ -145,8 +171,8 @@
       "atMs": 1580,
       "healer": "mage_passives_vs_cthulhu_stage1000",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 18,
-      "targetHpAfter": 1209,
+      "amount": 36,
+      "targetHpAfter": 1404,
       "isRevive": false
     },
     {
@@ -154,56 +180,47 @@
       "atMs": 1580,
       "attacker": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
-      "damage": 1502,
-      "unmitigatedDamage": 2634,
-      "targetHpAfter": 3986991,
+      "damage": 2919,
+      "unmitigatedDamage": 5121,
+      "targetHpAfter": 3983610,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 5710,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 1580,
+      "healer": "mage_passives_vs_cthulhu_stage1000",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "amount": 71,
+      "targetHpAfter": 1475,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 1580,
+      "attacker": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "damage": 5838,
+      "unmitigatedDamage": 10241,
+      "targetHpAfter": 3977772,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 5699,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1896,
+      "attacker": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "damage": 0,
+      "unmitigatedDamage": 2886,
+      "targetHpAfter": 3977772,
       "isCrit": false,
-      "evaded": false,
-      "hitId": 5661,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 1896,
-      "healer": "mage_passives_vs_cthulhu_stage1000",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 39,
-      "targetHpAfter": 1248,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 1896,
-      "attacker": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "damage": 3197,
-      "unmitigatedDamage": 5610,
-      "targetHpAfter": 3983794,
-      "isCrit": true,
-      "evaded": false,
-      "hitId": 5684,
-      "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 1896,
-      "healer": "mage_passives_vs_cthulhu_stage1000",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 78,
-      "targetHpAfter": 1326,
-      "isRevive": false
-    },
-    {
-      "kind": "attack",
-      "atMs": 1896,
-      "attacker": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "damage": 6395,
-      "unmitigatedDamage": 11219,
-      "targetHpAfter": 3977399,
-      "isCrit": true,
-      "evaded": false,
-      "hitId": 5673,
+      "evaded": true,
+      "hitId": 5725,
       "sourceKind": "direct"
     },
     {
@@ -211,12 +228,12 @@
       "atMs": 2200,
       "attacker": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "damage": 2373,
-      "unmitigatedDamage": 1869,
+      "damage": 2307,
+      "unmitigatedDamage": 1817,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 5699,
+      "hitId": 5734,
       "sourceKind": "direct"
     },
     {
@@ -227,165 +244,20 @@
   ],
   "rolls": [
     {
-      "eventId": 5570,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": false
-    },
-    {
-      "eventId": 5571,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 5572,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.18452804996117889
-    },
-    {
-      "eventId": 5573,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 6.118708330549594
-    },
-    {
-      "eventId": 5574,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Empowered Bolt",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2
-    },
-    {
-      "eventId": 5575,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Arcane Instability",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.12
-    },
-    {
-      "eventId": 5576,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2513557470008927
-    },
-    {
-      "eventId": 5577,
-      "hitId": 5569,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 5578,
-      "hitId": 5579,
-      "atMs": 0,
-      "category": "echo",
-      "source": "Echo",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
-      "succeeded": false,
-      "magnitude": 0.0
-    },
-    {
-      "eventId": 5581,
-      "hitId": 5580,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15,
-      "succeeded": true
-    },
-    {
-      "eventId": 5582,
-      "hitId": 5580,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 5583,
-      "hitId": 5580,
-      "atMs": 0,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 2.5
-    },
-    {
-      "eventId": 5584,
-      "hitId": 5580,
-      "atMs": 0,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 5586,
-      "hitId": 5585,
-      "atMs": 316,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": false
-    },
-    {
       "eventId": 5587,
-      "hitId": 5585,
-      "atMs": 316,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15000000000000002,
-      "succeeded": true
+      "hitId": 5586,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": false
     },
     {
       "eventId": 5588,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -394,8 +266,8 @@
     },
     {
       "eventId": 5589,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -404,8 +276,8 @@
     },
     {
       "eventId": 5590,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "crit",
       "source": "Crit multiplier",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -414,8 +286,8 @@
     },
     {
       "eventId": 5591,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "crit",
       "source": "Empowered Bolt",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -424,8 +296,8 @@
     },
     {
       "eventId": 5592,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "crit",
       "source": "Arcane Instability",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -434,8 +306,8 @@
     },
     {
       "eventId": 5593,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -444,8 +316,8 @@
     },
     {
       "eventId": 5594,
-      "hitId": 5585,
-      "atMs": 316,
+      "hitId": 5586,
+      "atMs": 0,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -455,142 +327,60 @@
     {
       "eventId": 5595,
       "hitId": 5596,
-      "atMs": 316,
+      "atMs": 0,
       "category": "echo",
       "source": "Echo",
       "actor": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
+      "probability": 0.13535223900698976,
       "succeeded": false,
       "magnitude": 0.0
     },
     {
       "eventId": 5598,
       "hitId": 5597,
-      "atMs": 632,
+      "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": false
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15,
+      "succeeded": true
     },
     {
       "eventId": 5599,
       "hitId": 5597,
-      "atMs": 632,
-      "category": "evasion",
-      "source": "Evasion",
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
       "actor": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
+      "magnitude": 0.15
     },
     {
       "eventId": 5600,
       "hitId": 5597,
-      "atMs": 632,
-      "category": "block",
-      "source": "Block chance",
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit multiplier",
       "actor": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.2,
-      "succeeded": true
+      "magnitude": 2.5
     },
     {
       "eventId": 5601,
       "hitId": 5597,
-      "atMs": 632,
-      "category": "evasion",
-      "source": "Evasion",
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
       "actor": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 5602,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "mitigation",
-      "source": "Block reduction (Second Skin)",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.5
+      "magnitude": 0.1
     },
     {
       "eventId": 5603,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 5604,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.18452804996117889
-    },
-    {
-      "eventId": 5605,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 6.118708330549594
-    },
-    {
-      "eventId": 5606,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "crit",
-      "source": "Empowered Bolt",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2
-    },
-    {
-      "eventId": 5607,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "crit",
-      "source": "Arcane Instability",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.12
-    },
-    {
-      "eventId": 5608,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2513557470008927
-    },
-    {
-      "eventId": 5609,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 5611,
-      "hitId": 5610,
-      "atMs": 632,
+      "hitId": 5602,
+      "atMs": 316,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -599,9 +389,113 @@
       "succeeded": false
     },
     {
+      "eventId": 5604,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": true
+    },
+    {
+      "eventId": 5605,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5606,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5607,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 6.118708330549594
+    },
+    {
+      "eventId": 5608,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Empowered Bolt",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2
+    },
+    {
+      "eventId": 5609,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Arcane Instability",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.12
+    },
+    {
+      "eventId": 5610,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5611,
+      "hitId": 5602,
+      "atMs": 316,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
       "eventId": 5612,
-      "hitId": 5610,
-      "atMs": 632,
+      "hitId": 5613,
+      "atMs": 316,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.13535223900698976,
+      "succeeded": true,
+      "magnitude": 1.0
+    },
+    {
+      "eventId": 5615,
+      "hitId": 5614,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": false
+    },
+    {
+      "eventId": 5616,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -610,9 +504,9 @@
       "succeeded": false
     },
     {
-      "eventId": 5613,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5617,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
@@ -621,9 +515,9 @@
       "succeeded": false
     },
     {
-      "eventId": 5614,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5618,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -631,9 +525,9 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 5615,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5619,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "mitigation",
       "source": "Damage reduction",
       "actor": "__enemy_0__",
@@ -641,9 +535,9 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 5616,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5620,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "crit",
       "source": "Crit chance",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -651,9 +545,9 @@
       "magnitude": 0.18452804996117889
     },
     {
-      "eventId": 5617,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5621,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "crit",
       "source": "Crit multiplier",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -661,9 +555,9 @@
       "magnitude": 6.118708330549594
     },
     {
-      "eventId": 5618,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5622,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "crit",
       "source": "Empowered Bolt",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -671,9 +565,9 @@
       "magnitude": 0.2
     },
     {
-      "eventId": 5619,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5623,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "crit",
       "source": "Arcane Instability",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -681,9 +575,9 @@
       "magnitude": 0.12
     },
     {
-      "eventId": 5620,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5624,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -691,9 +585,9 @@
       "magnitude": 0.2513557470008927
     },
     {
-      "eventId": 5621,
-      "hitId": 5610,
-      "atMs": 632,
+      "eventId": 5625,
+      "hitId": 5614,
+      "atMs": 316,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -701,54 +595,20 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 5622,
-      "hitId": 5610,
-      "atMs": 632,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.025135574700089276,
-      "succeeded": false
-    },
-    {
-      "eventId": 5623,
-      "hitId": 5597,
-      "atMs": 632,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.025135574700089276,
-      "succeeded": false
-    },
-    {
-      "eventId": 5624,
-      "hitId": 5625,
-      "atMs": 632,
-      "category": "echo",
-      "source": "Echo",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
-      "succeeded": false,
-      "magnitude": 0.0
-    },
-    {
       "eventId": 5627,
       "hitId": 5626,
-      "atMs": 948,
+      "atMs": 316,
       "category": "crit",
       "source": "Crit chance remainder",
       "actor": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
       "probability": 0.18452804996117889,
-      "succeeded": true
+      "succeeded": false
     },
     {
       "eventId": 5628,
       "hitId": 5626,
-      "atMs": 948,
+      "atMs": 316,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -759,18 +619,18 @@
     {
       "eventId": 5629,
       "hitId": 5626,
-      "atMs": 948,
+      "atMs": 316,
       "category": "block",
       "source": "Block chance",
       "actor": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
       "probability": 0.2,
-      "succeeded": false
+      "succeeded": true
     },
     {
       "eventId": 5630,
       "hitId": 5626,
-      "atMs": 948,
+      "atMs": 316,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -780,6 +640,381 @@
     {
       "eventId": 5631,
       "hitId": 5626,
+      "atMs": 316,
+      "category": "mitigation",
+      "source": "Block reduction (Second Skin)",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.5
+    },
+    {
+      "eventId": 5632,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 5633,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5634,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 6.118708330549594
+    },
+    {
+      "eventId": 5635,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Empowered Bolt",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2
+    },
+    {
+      "eventId": 5636,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Arcane Instability",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.12
+    },
+    {
+      "eventId": 5637,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5638,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 5639,
+      "hitId": 5626,
+      "atMs": 316,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.025135574700089276,
+      "succeeded": false
+    },
+    {
+      "eventId": 5641,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": false
+    },
+    {
+      "eventId": 5642,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 5643,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.2,
+      "succeeded": true
+    },
+    {
+      "eventId": 5644,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5645,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "mitigation",
+      "source": "Block reduction (Second Skin)",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.5
+    },
+    {
+      "eventId": 5646,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 5647,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5648,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5649,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 5650,
+      "hitId": 5640,
+      "atMs": 316,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.025135574700089276,
+      "succeeded": false
+    },
+    {
+      "eventId": 5651,
+      "hitId": 5614,
+      "atMs": 316,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.025135574700089276,
+      "succeeded": false
+    },
+    {
+      "eventId": 5653,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": true
+    },
+    {
+      "eventId": 5654,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 5655,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 5656,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5657,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 5658,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5659,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 6.118708330549594
+    },
+    {
+      "eventId": 5660,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "crit",
+      "source": "Arcane Instability",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.12
+    },
+    {
+      "eventId": 5661,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5662,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 5663,
+      "hitId": 5652,
+      "atMs": 632,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.025135574700089276,
+      "succeeded": false
+    },
+    {
+      "eventId": 5664,
+      "hitId": 5665,
+      "atMs": 632,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.13535223900698976,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 5667,
+      "hitId": 5666,
+      "atMs": 948,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": false
+    },
+    {
+      "eventId": 5668,
+      "hitId": 5666,
+      "atMs": 948,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 5669,
+      "hitId": 5666,
+      "atMs": 948,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 5670,
+      "hitId": 5666,
+      "atMs": 948,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5671,
+      "hitId": 5666,
       "atMs": 948,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -788,8 +1023,8 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 5632,
-      "hitId": 5626,
+      "eventId": 5672,
+      "hitId": 5666,
       "atMs": 948,
       "category": "crit",
       "source": "Crit chance",
@@ -798,28 +1033,8 @@
       "magnitude": 0.18452804996117889
     },
     {
-      "eventId": 5633,
-      "hitId": 5626,
-      "atMs": 948,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 6.118708330549594
-    },
-    {
-      "eventId": 5634,
-      "hitId": 5626,
-      "atMs": 948,
-      "category": "crit",
-      "source": "Arcane Instability",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.12
-    },
-    {
-      "eventId": 5635,
-      "hitId": 5626,
+      "eventId": 5673,
+      "hitId": 5666,
       "atMs": 948,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -828,8 +1043,8 @@
       "magnitude": 0.2513557470008927
     },
     {
-      "eventId": 5636,
-      "hitId": 5626,
+      "eventId": 5674,
+      "hitId": 5666,
       "atMs": 948,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -838,8 +1053,8 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 5637,
-      "hitId": 5626,
+      "eventId": 5675,
+      "hitId": 5666,
       "atMs": 948,
       "category": "elementalProc",
       "source": "Fire proc",
@@ -849,20 +1064,20 @@
       "succeeded": false
     },
     {
-      "eventId": 5638,
-      "hitId": 5639,
+      "eventId": 5676,
+      "hitId": 5677,
       "atMs": 948,
       "category": "echo",
       "source": "Echo",
       "actor": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
+      "probability": 0.13535223900698976,
       "succeeded": false,
       "magnitude": 0.0
     },
     {
-      "eventId": 5641,
-      "hitId": 5640,
+      "eventId": 5679,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -872,8 +1087,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5642,
-      "hitId": 5640,
+      "eventId": 5680,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -883,8 +1098,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5643,
-      "hitId": 5640,
+      "eventId": 5681,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -894,8 +1109,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5644,
-      "hitId": 5640,
+      "eventId": 5682,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -904,8 +1119,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 5645,
-      "hitId": 5640,
+      "eventId": 5683,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -914,8 +1129,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 5646,
-      "hitId": 5640,
+      "eventId": 5684,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "crit",
       "source": "Crit chance",
@@ -924,8 +1139,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 5647,
-      "hitId": 5640,
+      "eventId": 5685,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -934,367 +1149,52 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 5648,
-      "hitId": 5640,
+      "eventId": 5686,
+      "hitId": 5678,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 182.78366146146953
-    },
-    {
-      "eventId": 5650,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": false
-    },
-    {
-      "eventId": 5651,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 5652,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.2,
-      "succeeded": false
-    },
-    {
-      "eventId": 5653,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 5654,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 5655,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.18452804996117889
-    },
-    {
-      "eventId": 5656,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2513557470008927
-    },
-    {
-      "eventId": 5657,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 5658,
-      "hitId": 5649,
-      "atMs": 1264,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.025135574700089276,
-      "succeeded": false
-    },
-    {
-      "eventId": 5659,
-      "hitId": 5660,
-      "atMs": 1264,
-      "category": "echo",
-      "source": "Echo",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
-      "succeeded": false,
-      "magnitude": 0.0
-    },
-    {
-      "eventId": 5662,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": false
-    },
-    {
-      "eventId": 5663,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 5664,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.2,
-      "succeeded": false
-    },
-    {
-      "eventId": 5665,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 5666,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 5667,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.18452804996117889
-    },
-    {
-      "eventId": 5668,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2513557470008927
-    },
-    {
-      "eventId": 5669,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 5670,
-      "hitId": 5661,
-      "atMs": 1580,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.025135574700089276,
-      "succeeded": false
-    },
-    {
-      "eventId": 5671,
-      "hitId": 5672,
-      "atMs": 1580,
-      "category": "echo",
-      "source": "Echo",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
-      "succeeded": false,
-      "magnitude": 0.0
-    },
-    {
-      "eventId": 5674,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": true
-    },
-    {
-      "eventId": 5675,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 5676,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.2,
-      "succeeded": false
-    },
-    {
-      "eventId": 5677,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 5678,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 5679,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.18452804996117889
-    },
-    {
-      "eventId": 5680,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 6.118708330549594
-    },
-    {
-      "eventId": 5681,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Arcane Instability",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.12
-    },
-    {
-      "eventId": 5682,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.2513557470008927
-    },
-    {
-      "eventId": 5683,
-      "hitId": 5673,
-      "atMs": 1896,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": -0.3333333333333333
-    },
-    {
-      "eventId": 5685,
-      "hitId": 5684,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.18452804996117889,
-      "succeeded": true
-    },
-    {
-      "eventId": 5686,
-      "hitId": 5684,
-      "atMs": 1896,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 5687,
-      "hitId": 5684,
-      "atMs": 1896,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "probability": 0.2,
-      "succeeded": false
+      "magnitude": 167.84226992187146
     },
     {
       "eventId": 5688,
-      "hitId": 5684,
-      "atMs": 1896,
+      "hitId": 5687,
+      "atMs": 1264,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": false
+    },
+    {
+      "eventId": 5689,
+      "hitId": 5687,
+      "atMs": 1264,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 5690,
+      "hitId": 5687,
+      "atMs": 1264,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 5691,
+      "hitId": 5687,
+      "atMs": 1264,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -1302,9 +1202,9 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 5689,
-      "hitId": 5684,
-      "atMs": 1896,
+      "eventId": 5692,
+      "hitId": 5687,
+      "atMs": 1264,
       "category": "mitigation",
       "source": "Damage reduction",
       "actor": "__enemy_0__",
@@ -1312,9 +1212,9 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 5690,
-      "hitId": 5684,
-      "atMs": 1896,
+      "eventId": 5693,
+      "hitId": 5687,
+      "atMs": 1264,
       "category": "crit",
       "source": "Crit chance",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -1322,29 +1222,9 @@
       "magnitude": 0.18452804996117889
     },
     {
-      "eventId": 5691,
-      "hitId": 5684,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Crit multiplier",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 6.118708330549594
-    },
-    {
-      "eventId": 5692,
-      "hitId": 5684,
-      "atMs": 1896,
-      "category": "crit",
-      "source": "Arcane Instability",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "magnitude": 0.12
-    },
-    {
-      "eventId": 5693,
-      "hitId": 5684,
-      "atMs": 1896,
+      "eventId": 5694,
+      "hitId": 5687,
+      "atMs": 1264,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -1352,9 +1232,9 @@
       "magnitude": 0.2513557470008927
     },
     {
-      "eventId": 5694,
-      "hitId": 5684,
-      "atMs": 1896,
+      "eventId": 5695,
+      "hitId": 5687,
+      "atMs": 1264,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -1362,20 +1242,9 @@
       "magnitude": -0.3333333333333333
     },
     {
-      "eventId": 5695,
-      "hitId": 5684,
-      "atMs": 1896,
-      "category": "elementalProc",
-      "source": "Fire proc",
-      "actor": "mage_passives_vs_cthulhu_stage1000",
-      "target": "__enemy_0__",
-      "probability": 0.025135574700089276,
-      "succeeded": false
-    },
-    {
       "eventId": 5696,
-      "hitId": 5673,
-      "atMs": 1896,
+      "hitId": 5687,
+      "atMs": 1264,
       "category": "elementalProc",
       "source": "Fire proc",
       "actor": "mage_passives_vs_cthulhu_stage1000",
@@ -1386,18 +1255,332 @@
     {
       "eventId": 5697,
       "hitId": 5698,
-      "atMs": 1896,
+      "atMs": 1264,
       "category": "echo",
       "source": "Echo",
       "actor": "mage_passives_vs_cthulhu_stage1000",
       "target": "__enemy_0__",
-      "probability": 0.0016919029875873718,
+      "probability": 0.13535223900698976,
       "succeeded": false,
       "magnitude": 0.0
     },
     {
       "eventId": 5700,
       "hitId": 5699,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": true
+    },
+    {
+      "eventId": 5701,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 5702,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 5703,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5704,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 5705,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5706,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 6.118708330549594
+    },
+    {
+      "eventId": 5707,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Arcane Instability",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.12
+    },
+    {
+      "eventId": 5708,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5709,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 5711,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": true
+    },
+    {
+      "eventId": 5712,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 5713,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 5714,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5715,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 5716,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5717,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 6.118708330549594
+    },
+    {
+      "eventId": 5718,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "crit",
+      "source": "Arcane Instability",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.12
+    },
+    {
+      "eventId": 5719,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5720,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 5721,
+      "hitId": 5710,
+      "atMs": 1580,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.025135574700089276,
+      "succeeded": false
+    },
+    {
+      "eventId": 5722,
+      "hitId": 5699,
+      "atMs": 1580,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.025135574700089276,
+      "succeeded": false
+    },
+    {
+      "eventId": 5723,
+      "hitId": 5724,
+      "atMs": 1580,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.13535223900698976,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 5726,
+      "hitId": 5725,
+      "atMs": 1896,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.18452804996117889,
+      "succeeded": false
+    },
+    {
+      "eventId": 5727,
+      "hitId": 5725,
+      "atMs": 1896,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "probability": 0.15000000000000002,
+      "succeeded": true
+    },
+    {
+      "eventId": 5728,
+      "hitId": 5725,
+      "atMs": 1896,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_passives_vs_cthulhu_stage1000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 5729,
+      "hitId": 5725,
+      "atMs": 1896,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.18452804996117889
+    },
+    {
+      "eventId": 5730,
+      "hitId": 5725,
+      "atMs": 1896,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.2513557470008927
+    },
+    {
+      "eventId": 5731,
+      "hitId": 5725,
+      "atMs": 1896,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.3333333333333333
+    },
+    {
+      "eventId": 5732,
+      "hitId": 5733,
+      "atMs": 1896,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "mage_passives_vs_cthulhu_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.13535223900698976,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 5735,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1407,8 +1590,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5701,
-      "hitId": 5699,
+      "eventId": 5736,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -1418,8 +1601,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5702,
-      "hitId": 5699,
+      "eventId": 5737,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -1429,8 +1612,8 @@
       "succeeded": false
     },
     {
-      "eventId": 5703,
-      "hitId": 5699,
+      "eventId": 5738,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1439,8 +1622,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 5704,
-      "hitId": 5699,
+      "eventId": 5739,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1449,8 +1632,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 5705,
-      "hitId": 5699,
+      "eventId": 5740,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance",
@@ -1459,8 +1642,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 5706,
-      "hitId": 5699,
+      "eventId": 5741,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1469,14 +1652,14 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 5707,
-      "hitId": 5699,
+      "eventId": 5742,
+      "hitId": 5734,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "magnitude": 186.88204907750367
+      "magnitude": 181.68878466979103
     }
   ]
 }

@@ -227,7 +227,7 @@
       "source": "Echo",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.00037723369097563336,
+      "probability": 0.030178695278050668,
       "succeeded": false,
       "magnitude": 0.0
     },
@@ -397,7 +397,7 @@
       "source": "Echo",
       "actor": "warrior_vs_lich_stage50",
       "target": "__enemy_0__",
-      "probability": 0.00037723369097563336,
+      "probability": 0.030178695278050668,
       "succeeded": false,
       "magnitude": 0.0
     },
