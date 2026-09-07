@@ -6750,3 +6750,127 @@ Suite: **830 passed, 0 failed** in the lib crate, zero FAILED lines across
 all 42 result lines. Golden corpus ran inside it and matched — **0
 scenarios diverged, nothing regenerated**, and no fixture file was written
 (17 tracked, tree clean).
+
+### 2026-09-06 — Craft prices become stated relationships, and the class closes
+
+Branch `feature/craft-price-rules`, **stacked on
+`feature/hideout-warrior-all-items`**. The stacking is forced rather than
+chosen: the all-items button only exists on that branch, and the ruling
+was that all three Hideout Warrior actions land in the price table in this
+pass rather than as a follow-up. **c must merge the Hideout Warrior branch
+first.**
+
+#### What was actually wrong, and it was not carelessness
+
+The 2026-09-02 cost cut multiplied every ordinary action's flat fee by
+`craft_base_cost_mult` and gave the per-tier surcharge an exponent. Five
+prices did not follow: panel Reforge's `30 * tier`, Recombine's veiled
+`500 + 500/modifier`, the dashboard Reforge Now's flat `1000`, Polishing's
+sand cost, and the Divine Dust apply cost.
+
+Four of those were **spotted at the time**, written into WIKI_IMPACT with
+their numbers and the words *"flagged for a follow-up ruling rather than
+silently shipped"* — and then that follow-up sat unscheduled for four
+days. The fifth (Reforge Now) was not spotted at all.
+
+**That is a different failure from Echo's, and it wants a different fix.**
+Echo was a value nobody noticed. This was a ruling nobody scheduled. The
+record did its job; what failed was the follow-up. And the reason a
+follow-up was needed AT ALL is the structural part: **a price declared in
+one place and charged in another cannot propagate, so somebody has to
+remember it.**
+
+#### The fix: the relationship is the thing written down
+
+`PriceRule` states how a price is derived - `Standard { base }`,
+`MultipleOfStandard { times, base }`, `PerCountedUnit { flat, times, base }`,
+`ChainSummedOverSet`, `Exception { currency, reason }`, `TokenOnly`. A
+future move of `craft_base_cost_mult` now carries every dependent price
+with it, and the only prices left behind are the ones that said out loud
+that they wanted to be.
+
+`price` is a **required field** on `CraftActionDef`, so a new
+`CraftAction` cannot be added without stating a rule — that half is
+enforced by the compiler, not a test, which is the stronger form.
+`COMPOSITE_PRICES` covers the operations that are not a single action and
+so get no help from it at all: there is no enum for a `match` to be
+exhaustive over, which is exactly why they need a named list and a test
+that walks it.
+
+#### The agreement test is what closes the class
+
+> what an action DECLARES and what `craft_item_ex` CHARGES must be the
+> same number, at every tier.
+
+The compiler cannot give this. A future action can declare
+`Standard { base: 500 }`, hardcode its own number at the charge site, and
+everything compiles and every other test passes. **That is precisely how
+all five of these drifted: the declaration and the charge lived apart and
+only one of them moved.**
+
+Mutation-checked by changing Chancing's declared base from 800 to 900
+while leaving its charge alone → *"Chancing DECLARES 93 dust at tier 1 but
+is CHARGED 83. The declaration and the charge have drifted apart."*
+
+#### The prices, all moving down at live tiers
+
+| tier | panel Reforge | Reforge Now | Recombine veiled, 4 mods |
+|---|---|---|---|
+| 3 | 90 → 85 | 1000 → **34** | 2500 → **1094** |
+| 20 | 600 → 435 | 1000 → 174 | 2500 → 1374 |
+| 35 | 1050 → 780 | 1000 → 312 | 2500 → 1650 |
+
+Reforge Now is priced off the **highest eligible equipped tier**. It picks
+its slot at random inside `reforge_equipped_item`, so no per-item tier is
+knowable before the roll; the highest is the one choice that is
+deterministic, quotable before the press, and cannot charge less than the
+item it lands on is worth. Flagged as a judgement call rather than a
+derivation.
+
+Polishing and the Divine Dust apply are unchanged and are now declared
+exceptions with written reasons. `dust_at` returns `None` for them, so
+there is no dust number a caller can accidentally use — the exception is
+enforced by the type rather than by everyone remembering.
+
+#### A test of mine was wrong, and the wrong version is the instructive one
+
+The recombine test first asserted that the price-to-Scour ratio stayed
+within half of its low-tier value. It **failed** at 4.9x against 30.4x.
+
+The rule was right and the test was not. That ratio *cannot* hold flat:
+both prices carry a flat term, and this rule's flat term is four Krangles'
+worth, so it washes out with tier on both sides at different rates.
+"The ratio must not move" is the intuitive assertion here and it is the
+wrong one.
+
+The property actually worth pinning is that the price never decays toward
+parity — which is what the old flat price did, at 69x a Scour at tier 3
+and **0.42x** at tier 1000. A price that starts as the most expensive
+thing in the game and ends up cheaper than the cheapest action in it is
+not badly tuned, it is pointing the wrong way. Rewritten to assert >= 3x
+at every tier, and the reasoning left in the test so the next person does
+not re-derive the wrong assertion.
+
+Suite: **837 passed, 0 failed** in the lib crate, zero FAILED lines across
+all 42 result lines of a fully captured run. Golden corpus matched — 0
+scenarios diverged, nothing regenerated, 17 fixtures, tree clean.
+
+#### Patch note draft — NOT written to the box
+
+> **Crafting prices: three big drops**
+> - When crafting costs were cut on 2026-09-02, three prices were missed
+>   and stayed where they were. They have now been brought in line, and
+>   **every one of them goes down.**
+> - **Reforge Now** (the dashboard button, random slot) was a flat 1,000
+>   dust no matter what your gear was worth. It now scales with your gear
+>   — at current tiers that is **1,000 → 34–312 dust**, the single biggest
+>   drop.
+> - **Veiled Recombine** was a flat 500 + 500 per modifier. It now scales
+>   too — a 4-modifier veiled recombine goes **2,500 → about 1,100–1,650**
+>   at current tiers.
+> - **Reforge** in the crafting panel was 30 dust per tier. It is now
+>   about **6–28% cheaper** across the tiers people are actually at.
+> - Polishing and applying Divine Dust are **unchanged** — they are paid
+>   in sand and Divine Dust, which have their own economies.
+> - Nothing else about crafting changed: same odds, same outcomes, same
+>   modifiers. Only what it costs.
