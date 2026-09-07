@@ -149,8 +149,8 @@
       "atMs": 1264,
       "healer": "mage_passives_vs_cthulhu_stage1000",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 16,
-      "targetHpAfter": 1368,
+      "amount": 161,
+      "targetHpAfter": 1513,
       "isRevive": false
     },
     {
@@ -171,8 +171,8 @@
       "atMs": 1580,
       "healer": "mage_passives_vs_cthulhu_stage1000",
       "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 36,
-      "targetHpAfter": 1404,
+      "amount": 292,
+      "targetHpAfter": 1805,
       "isRevive": false
     },
     {
@@ -187,15 +187,6 @@
       "evaded": false,
       "hitId": 5710,
       "sourceKind": "direct"
-    },
-    {
-      "kind": "heal",
-      "atMs": 1580,
-      "healer": "mage_passives_vs_cthulhu_stage1000",
-      "target": "mage_passives_vs_cthulhu_stage1000",
-      "amount": 71,
-      "targetHpAfter": 1475,
-      "isRevive": false
     },
     {
       "kind": "attack",
