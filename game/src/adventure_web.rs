@@ -2867,13 +2867,57 @@ async fn do_save_passive_override(State(state): State<AppState>, headers: Header
     }
 
     let mut overrides = passive_overrides();
-    overrides.nodes.insert(form.node_key.clone(), vec![form.r1, form.r2, form.r3]);
-    match cap_value {
-        Some(cap) => {
-            overrides.conversion_caps.insert(form.node_key.clone(), cap);
-        }
-        None => {
-            overrides.conversion_caps.remove(&form.node_key);
+
+    // R3, code half (2026-09-05). A save whose three values equal the node's
+    // COMPILED defaults, and which sets no explicit conversion cap, REMOVES the
+    // entry instead of writing one.
+    //
+    // Until now this inserted unconditionally, so opening a row and pressing
+    // Save without editing anything wrote an override identical to the default.
+    // That entry is invisible in every way that matters — the values are the
+    // same today — right up until the compiled default is rebalanced, at which
+    // point the node silently keeps the old number because a stored override
+    // wins. A World 2 rebalance would miss exactly the nodes someone had
+    // looked at and left alone.
+    //
+    // Measured, not assumed: of 34 stored overrides in the World 1 archive, at
+    // least 5 were bit-identical to their compiled defaults (`bulwark`,
+    // `juggernaut`, `bloodsac`, `unbreakable`, `doom`) — a lower bound. The
+    // live World 2 file does not exist yet, which means nobody has saved a
+    // passive row since the reset, so this ships before the first one is
+    // written rather than after.
+    //
+    // Removal rather than "skip the insert", and it reuses `revert()` — the
+    // same call the Revert button makes — because a PREVIOUS save may have left
+    // a genuine override on this node. Typing the defaults back in is the
+    // operator undoing their own edit, and it must clear the entry, not leave
+    // the old one standing.
+    //
+    // A cap makes it not a no-op: an explicit per-node conversion cap is a
+    // stored decision of its own even when the three magnitudes are untouched,
+    // so `cap_value.is_some()` always takes the writing path.
+    let compiled_defaults: Option<Vec<f64>> = form
+        .class
+        .passive_nodes()
+        .iter()
+        .find(|n| n.key == form.node_key)
+        .map(|n| (1..=3).map(|r| n.magnitude_at_rank_with(r, &crate::adventure::PassiveOverrides::default())).collect());
+    // `find` cannot miss — the unknown-key branch above already returned 400 —
+    // but this stays total rather than unwrapping, and an unexpected `None`
+    // falls through to the old insert behaviour rather than dropping the save.
+    let is_no_op = cap_value.is_none() && compiled_defaults.as_deref() == Some(&[form.r1, form.r2, form.r3][..]);
+
+    if is_no_op {
+        overrides.revert(&form.node_key);
+    } else {
+        overrides.nodes.insert(form.node_key.clone(), vec![form.r1, form.r2, form.r3]);
+        match cap_value {
+            Some(cap) => {
+                overrides.conversion_caps.insert(form.node_key.clone(), cap);
+            }
+            None => {
+                overrides.conversion_caps.remove(&form.node_key);
+            }
         }
     }
     if let Err(err) = crate::adventure::save_passive_overrides(overrides) {
