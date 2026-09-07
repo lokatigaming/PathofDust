@@ -1479,6 +1479,30 @@ impl Character {
         }
     }
 
+    /// Is this `change_model` request asking for the sprite already
+    /// equipped? (2026-09-07)
+    ///
+    /// `change_model` had no no-op guard: re-picking the sprite you
+    /// already have ran the full charge path and spent a banked
+    /// `free_model_changes` token, or `MODEL_CHANGE_COST` dust. That is
+    /// masked today only because `MODEL_CHANGES_FREE_FOR_ALL` is `true`,
+    /// and that flag documents itself as TEMPORARY - the day it flips
+    /// back, this becomes a live charge for changing nothing.
+    ///
+    /// Compared WITHOUT case, because a sprite name is a case-insensitive
+    /// identity everywhere else: `is_valid_custom_sprite` resolves
+    /// `custom/Sitch89` and `custom/sitch89` to the same file on purpose
+    /// (see `custom_sprite_case.rs`). An exact comparison would charge a
+    /// player for "changing" between two spellings of one sprite - the
+    /// same case bug in a new place.
+    ///
+    /// `None` (never chosen) is never a no-op: the character is riding
+    /// the hash default, so picking anything is a real change even if the
+    /// name happens to match what that default already renders.
+    pub(crate) fn model_already_equipped(&self, requested: &str) -> bool {
+        self.model.as_deref().is_some_and(|current| current.eq_ignore_ascii_case(requested))
+    }
+
     /// Slot accessor by `EquipSlot` - used by the loot roll (which picks a
     /// random slot generically) instead of a 5-way match at every call
     /// site, and by the web dashboard (adventure_web.rs) to render each slot.
@@ -5517,6 +5541,53 @@ pub enum ChangeModelError {
     InvalidChoice,
     /// Not enough dust — carries the cost that was needed.
     InsufficientDust(u64),
+}
+
+/// The no-op guard on `change_model` (2026-09-07).
+///
+/// Covers the PREDICATE only. It does not prove `change_model` calls it -
+/// no test in this workspace constructs an `AdventureManager`, and
+/// `paths.rs` documents its `DATA_DIR` `OnceLock` as inherently flaky in
+/// this crate's single-process test binary, so building that harness is
+/// its own piece of work rather than a rider on a three-line fix. Stated
+/// here rather than left for a reader to discover.
+#[cfg(test)]
+mod model_noop_guard_tests {
+    use super::*;
+
+    fn with_model(model: Option<&str>) -> Character {
+        let mut character = Character::new("someone".to_string());
+        character.model = model.map(str::to_string);
+        character
+    }
+
+    #[test]
+    fn re_picking_the_same_sprite_is_a_no_op() {
+        assert!(with_model(Some("knight")).model_already_equipped("knight"), "the sprite you already wear must not be a change - it is what sends the request down the charge path");
+    }
+
+    #[test]
+    fn a_different_sprite_is_a_real_change() {
+        assert!(!with_model(Some("knight")).model_already_equipped("wizard"), "a different sprite must still be charged for, or the guard has eaten the feature");
+        assert!(!with_model(Some("custom/Sitch89")).model_already_equipped("custom/Sitch89_2"), "and a near-miss name is a different sprite, not the same one");
+    }
+
+    #[test]
+    fn never_having_chosen_is_never_a_no_op() {
+        // Riding the hash default. Even if the name matches what that
+        // default already renders, storing the pick is a real change -
+        // `effective_sprite` treats `None` and `Some(x)` differently.
+        assert!(!with_model(None).model_already_equipped("knight"), "a character who has never picked must always be able to pick");
+    }
+
+    #[test]
+    fn case_is_not_a_change() {
+        // The whole point: `custom/Sitch89` and `custom/sitch89` resolve
+        // to one file (`custom_sprite_case.rs`), so treating them as
+        // different would charge for a spelling.
+        assert!(with_model(Some("custom/Sitch89")).model_already_equipped("custom/sitch89"), "same sprite, different spelling - must not be a charge");
+        assert!(with_model(Some("custom/sitch89")).model_already_equipped("custom/SITCH89"), "and in the other direction too");
+    }
 }
 
 /// Stage A of the Memories build (docs/memories_spec.md) - the

@@ -3831,6 +3831,17 @@ impl AdventureManager {
         }
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&id).ok_or(ChangeModelError::NotJoined)?;
+        // Re-picking the sprite you already have is not a change and must
+        // not reach the charge path below (2026-09-07) - see
+        // `model_already_equipped`. Returns `Ok` rather than an error
+        // because nothing went wrong and the caller
+        // (`adventure_web::do_change_model`) discards the result anyway:
+        // the player asked to look like X and does look like X. Returning
+        // early also skips the persist and the broadcast, both of which
+        // would be writing a value identical to the stored one.
+        if character.model_already_equipped(&model) {
+            return Ok(());
+        }
         if MODEL_CHANGES_FREE_FOR_ALL {
             // Neither dust nor a banked token spent - see the flag's doc.
         } else if character.free_model_changes > 0 {
