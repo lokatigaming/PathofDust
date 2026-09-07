@@ -104,15 +104,25 @@ fn the_two_defects_the_manifest_closed_stay_closed() {
     assert!(custom_sprite_is_owned_by("sitch89", "Sitch89_2"), "Sitch89_2 must be selectable by sitch89 - an underscore suffix is not a reason to orphan a sprite");
     assert!(custom_sprite_is_owned_by("sitch89", "Sitch89"), "and the plain name must still work, whatever its case on disk");
 
-    // `kmartbikes12.gif` was selectable by TWO people. `strip_prefix("kmartbikes1")`
-    // left `"2"`, all digits, so the gate accepted it. This is the
-    // authorisation check that exists specifically to stop one player equipping
-    // another's named sprite, and it FAILED OPEN whenever one login was a
-    // digit-extension of another. Both logins have sprites in this directory,
-    // so it was reachable rather than theoretical.
-    assert!(!custom_sprite_is_owned_by("kmartbikes1", "kmartbikes12"), "kmartbikes1 must NOT be able to equip kmartbikes12's sprite - this is the fail-open the manifest closed");
-    assert!(custom_sprite_is_owned_by("kmartbikes12", "kmartbikes12"), "but its real owner must still be able to");
-    assert!(custom_sprite_is_owned_by("kmartbikes3", "kmartbikes3"), "and the other kmartbikes sprite must still belong to its own owner");
+    // CORRECTED 2026-09-07. This first asserted that `kmartbikes1` must NOT
+    // reach `kmartbikes12`, on the belief that a player of that name existed
+    // and the old gate had been failing open into their sprite.
+    //
+    // **There is no player `kmartbikes12`.** World 1's roster holds exactly one
+    // kmart login, `kmartbikes1`, and that account had `custom/kmartbikes12`
+    // equipped — legitimately, because "login followed by digits" made it their
+    // SECOND sprite. The original assertion would have taken a sprite away from
+    // the only person who has ever used it, and the test would have guarded the
+    // theft.
+    //
+    // The manifest still fixes the underlying ambiguity: ownership is now
+    // stated, so if a `kmartbikes12` ever registers, `kmartbikes12.gif` does not
+    // silently become theirs — and it does not silently stop being
+    // `kmartbikes1`'s either. That is the property worth having, and it is not
+    // the same as "kmartbikes1 is locked out".
+    assert!(custom_sprite_is_owned_by("kmartbikes1", "kmartbikes12"), "kmartbikes12 is kmartbikes1's second sprite - the only kmart account there has ever been, and the one that had it equipped");
+    assert!(custom_sprite_is_owned_by("kmartbikes1", "kmartbikes3"), "and kmartbikes3 is theirs on the same evidence - under the old rule it needed a login `kmartbikes3` or `kmartbikes`, so it was selectable by nobody");
+    assert!(!custom_sprite_is_owned_by("kmartbikes12", "kmartbikes12"), "a login that has never existed must not own it - ownership is stated now, not inferred from the name");
 
     // No entry means rejected. This is the ruling that makes the manifest
     // meaningful: a name-matching fallback would reinstate the ambiguity.

@@ -38,10 +38,29 @@
 
 [sprites]
 "kibukah" = "kibukah"
-"kmartbikes3" = "kmartbikes3"
-# Owned by kmartbikes12, NOT kmartbikes1. Under the old prefix rule both
-# passed; this line is the whole reason the manifest exists.
-"kmartbikes12" = "kmartbikes12"
+# CORRECTED 2026-09-07, and the correction matters more than the original.
+#
+# These two first read `kmartbikes3 = "kmartbikes3"` and
+# `kmartbikes12 = "kmartbikes12"`, on the assumption that a sprite named
+# `kmartbikes12` belonged to a player of that name and that `kmartbikes1`
+# reaching it was the old gate failing open.
+#
+# THERE IS NO PLAYER `kmartbikes12`. World 1's roster holds exactly one kmart
+# login — `kmartbikes1` — and that account had `custom/kmartbikes12` equipped,
+# legitimately: under the old "login followed by digits" rule, `kmartbikes1`
+# plus `2` was simply THEIR SECOND SPRITE. Writing the first version took that
+# sprite away from the only person who has ever used it.
+#
+# The error is the one this file exists to prevent: a second owner inferred
+# from a filename. Committed while building the cure for exactly that.
+#
+# `kmartbikes3` is assigned to the same login on the same evidence — it is the
+# only kmart account that exists. Note it was unselectable by ANYBODY under the
+# old rule (it needs a login `kmartbikes3` or `kmartbikes`, neither of which
+# exists), so it was a second orphan alongside `Sitch89_2` and the survey
+# missed it. If it turns out to belong to someone else, change this one line.
+"kmartbikes3" = "kmartbikes1"
+"kmartbikes12" = "kmartbikes1"
 "lokati_gaming" = "lokati_gaming"
 "lokati_gaming2" = "lokati_gaming"
 "lokati_gaming3" = "lokati_gaming"
