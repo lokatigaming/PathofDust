@@ -474,8 +474,31 @@ pub enum PassiveEffect {
     /// A real, designed mechanic (proc, stacking buff, conditional,
     /// amplify-a-sibling-node, party-wide grant, etc.) with no
     /// implementation yet - see the module doc. Points invested here are
-    /// saved and will activate once a follow-up pass wires in the
-    /// mechanic; they are never lost or refunded automatically.
+    /// saved, and activate if a follow-up pass wires the mechanic in.
+    ///
+    /// **NO NODE IN THE GAME CURRENTLY USES THIS VARIANT. DO NOT DELETE
+    /// IT AS DEAD CODE.** `sacredoverflow` (Paladin) was the last one and
+    /// was retired outright on 2026-09-04 - deleted from the tree with
+    /// every point spent on it refunded by
+    /// `migrations::migrate_refund_retired_dead_nodes`, rather than built
+    /// or reworded. The variant is kept deliberately: it is the honest
+    /// declaration for the next node that lands in this state, and
+    /// removing it would push a future author toward declaring a fake
+    /// magnitude instead, which is the exact defect the 2026-09-03
+    /// advertised-vs-actual sweep existed to find.
+    ///
+    /// A variant with zero users is precisely what a later reader deletes
+    /// as dead code, and the only thing that would object is
+    /// `adventure_web`'s
+    /// `a_not_yet_implemented_node_is_shown_but_not_editable`, which now
+    /// holds in both states and re-arms itself the moment a node enters
+    /// this one. That test is load-bearing for this comment.
+    ///
+    /// Correction, same date: this doc previously said points here "are
+    /// never lost or refunded automatically". That is no longer true - a
+    /// marker-guarded migration refunded them when the node was retired.
+    /// Retirement-with-refund is now an outcome for a node in this state,
+    /// alongside being implemented.
     NotYetImplemented,
 }
 
@@ -787,7 +810,52 @@ static BERSERKER_NODES: &[PassiveNode] = &[
     // Migrated 2026-08-27 (Stage 3): the block-chance shred was a
     // hardcoded 1.0 behind an invested check; the declared 1/1/1 table IS
     // that value - a FRACTION of Overwhelm's own shred that carries over.
-    modifier_with_effect("shatter", "overwhelm", "Shatter", "Overwhelm's damage reduction shred also applies to block chance, by the same amount per rank.", SpecialPerRank { values: &[1.0, 1.0, 1.0] }),
+    // A REAL LADDER since 2026-09-04 (advertised-vs-actual sweep). It was
+    // `[1.0, 1.0, 1.0]` - a flat on/off gate whose ranks 2 and 3 bought
+    // exactly nothing - while the copy said "by the same amount per rank",
+    // which reads as per-rank scaling. Every OTHER flat-ladder node in the
+    // tree names its dead rung in its own text; this one did not.
+    //
+    // WHY 1.65 AND NOT A ROUND 2.0. The multiplier scales Overwhelm's live
+    // shred (`stack_shred_bonus`) and is SUBTRACTED from the defender's
+    // block chance in `resolve_hit`. Block is clamped only at the roll
+    // (`.clamp(0.0, 1.0)`); the `.max(pre_boss_block.min(0.25))` just below
+    // the subtraction belongs to the BOSS's own defense-ignore and runs
+    // AFTER this, so it cannot hold block up against Shatter. There is
+    // therefore no relative floor here and block can be driven to zero.
+    //
+    // At the Berserker's own end state - Overwhelm 3/3 (0.09/stack),
+    // Bloodlust at its 5-stack cap, boss block pinned at BOSS_DEFENSE_CAP
+    // 0.75 - the shred is 0.45, so block reaches zero at a multiplier of
+    // 0.75/0.45 = 1.667. ANY rank-3 value at or above that is fully
+    // absorbed by the clamp in exactly the configuration a maxed Berserker
+    // plays in, which is the same defect wearing a new number. 1.65 is the
+    // largest value provably not absorbed: it leaves block at 0.008 rather
+    // than 0. Below full stacks the saturation point is much higher (2.78x
+    // at 3 stacks, 5.0x at Overwhelm 1/3), so a value sized to the narrow
+    // case stays meaningful everywhere else.
+    //
+    // Rank 1 is deliberately unchanged at 1.0: anyone holding one point
+    // keeps exactly what they had. The ladder goes up from 1.0, never down
+    // to it - a silent nerf to existing allocations is not an acceptable
+    // way to fix our own copy (owner ruling).
+    //
+    // Effect on damage through a blocking target, where a block halves the
+    // hit so damage scales as (1 - block/2): 0.625 unshattered, 0.850 at
+    // rank 1, 0.929 at rank 2, 0.996 at rank 3 - so the marginal point
+    // buys +9.3% then +7.3%, and nothing at all against a target that does
+    // not block.
+    //
+    // `SpecialPerRank`, not `Special`: the deltas are 0.35 then 0.30, so
+    // the ladder is not linear and cannot be expressed as
+    // `at_rank_1 + per_additional_rank`.
+    modifier_with_effect(
+        "shatter",
+        "overwhelm",
+        "Shatter",
+        "Overwhelm's damage-reduction shred also applies to the target's block chance - at 100% of the shred at rank 1, 135% at rank 2, 165% at rank 3.",
+        SpecialPerRank { values: &[1.0, 1.35, 1.65] },
+    ),
     modifier_with_effect("exposed", "overwhelm", "Exposed", "Overwhelm's effect lingers 1 additional second per rank after Bloodlust falls off (up to +3s at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     // Migrated 2026-08-27 (Stage 3): real ladder 0 / 0.50 / 0.65 (a
     // FRACTION of damage reduction) lived in combat.rs; the old linear
@@ -1017,25 +1085,50 @@ static MONK_NODES: &[PassiveNode] = &[
     modifier_with_effect("harmonize", "chiburst", "Harmonize", "Chi Burst also grants the healed ally +5% damage reduction per rank for 3s (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("widecircle", "chiburst", "Wide Circle", "Chi Burst heals 1 additional ally per rank (up to all 3 party members at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
     modifier_with_effect("unshakable", "serenity", "Unshakable", "Serenity's damage reduction bonus duration is increased by 1s per rank (up to +3s at 3/3).", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
-    // Stillwater - already true unconditionally: Serenity's trigger has
-    // no chance-gate at all today, so it already fires on EVERY evade,
-    // guaranteed, from the first one onward - same "banked toward a later
-    // rank's real payoff" precedent Piercing Shots' own rank 1/2 already
-    // established (see passive_tree.rs's own module doc).
-    modifier_with_effect("stillwater", "serenity", "Stillwater", "Serenity triggers guaranteed on your first evade each fight - rank 2 extends this to your 2nd evade, rank 3 to your 3rd.", Special { at_rank_1: 1.0, per_additional_rank: 1.0 }),
+    // RETIRED 2026-09-04 - "stillwater" (Stillwater) stood here, under
+    // Serenity, and is deliberately NOT replaced in place: this slot
+    // stays empty until its replacement lands under a NEW key.
+    //
+    // It advertised "Serenity triggers guaranteed on your first evade
+    // each fight - rank 2 extends this to your 2nd evade, rank 3 to your
+    // 3rd", and it did nothing at any rank: Serenity's trigger has no
+    // chance-gate at all, so it already fires on EVERY evade from the
+    // first one onward. The node promised to lift a restriction the game
+    // does not impose, which is why there was no honest wording for it
+    // and why it was retired rather than reworded (owner ruling).
+    //
+    // Deleted in the SAME RELEASE as
+    // `migrations::migrate_refund_retired_dead_nodes`, which is a hard
+    // constraint rather than a convenience - see that migration's doc.
+    // The refund is marker-guarded and therefore one-shot, so if the
+    // definition outlived it a player could spend refunded points back
+    // into a node that still does nothing and lose them permanently,
+    // with no second refund. Removing the definition makes that
+    // unrepresentable instead of dependent on release timing.
     modifier_with_effect("unmovable", "serenity", "Unmovable", "Serenity's damage reduction bonus is increased by another 5% per rank (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("graniteskin", "stonefist", "Granite Skin", "A second, independent conversion channel off the same evasion overflow Stone Fist draws from - increased damage at 15% efficiency per rank, capped at +10% increased damage per rank (up to +30% at 3/3, stacking with Stone Fist's own cap for up to +60% total).", OverflowConversion { input: Evasion, output: IncreasedDamage, at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("earthenwill", "stonefist", "Earthen Will", "Stone Fist also converts a portion of overflow into max HP, at 25% efficiency per rank, capped at +10% max HP per rank (up to +30% at 3/3).", OverflowConversion { input: Evasion, output: MaxHpPct, at_rank_1: 0.25, per_additional_rank: 0.25 }),
     modifier_with_effect("counterflow", "stonefist", "Counterflow", "An evaded hit has a chance to trigger a free counter-attack - 10% per rank (up to 30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    // All 3 of these still NotYetImplemented - a genuine text/code mismatch
-    // (flagged rather than silently papered over): they describe Unbroken
-    // as "+evasion per 20% missing HP", but a live design call (see the
-    // module doc's 13th-pass entry) redesigned Unbroken ENTIRELY into an
-    // evasion-IGNORE-on-attack mechanic instead
-    // (`combat_unbroken_ignore_evasion_pct`) - these 3 modifiers are
-    // leftover text from before that redesign and no longer amplify
-    // anything their current parent actually does. Needs a live design
-    // decision (new text, or a replacement mechanic) before implementing.
+    // RESOLVED - this comment is kept, corrected, rather than deleted,
+    // because the history explains the names. It used to read "All 3 of
+    // these still NotYetImplemented - a genuine text/code mismatch": they
+    // once described Unbroken as "+evasion per 20% missing HP", and a
+    // live design call (see the module doc's 13th-pass entry) redesigned
+    // Unbroken ENTIRELY into an evasion-IGNORE-on-attack mechanic
+    // (`combat_unbroken_ignore_evasion_pct`), orphaning all three.
+    //
+    // **That mismatch is closed as of 2026-09-03 (verified by the
+    // advertised-vs-actual sweep).** All three now carry declared
+    // per-rank values, live consumers, and copy that matches:
+    // `unbroken` at character.rs's `combat_unbroken_ignore_evasion_pct`,
+    // `lastbastion` at its `..._dr_pct` twin, and `risingdefiance`
+    // through the shared overflow-conversion cap list. Nothing here is
+    // `NotYetImplemented` any more. `sacredoverflow` (Paladin) WAS the
+    // last node in the whole tree that still was, and it was retired
+    // outright on 2026-09-04 - see its own headstone further down this
+    // file - so the tree now holds ZERO `NotYetImplemented` nodes. The
+    // variant is kept because the rendering and gating arms that read it
+    // are still live; it simply has no users today.
     // Renamed "Crippling Grip" (2026-08-17) - see risingdefiance's own
     // comment above for why the old text is orphaned by Unbroken's
     // redesign. NOT an `OverflowConversion` like Overgrown Reach/Earthen
@@ -1157,12 +1250,25 @@ static PALADIN_NODES: &[PassiveNode] = &[
     modifier_with_effect("eternalvow", "unbreakablefaith", "Eternal Vow", "Unbreakable Faith's heal has a chance to also fully shield you for the same amount - 15% per rank (up to 45% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
     modifier_with_effect("radiantbarrier", "bulwarkoflight", "Radiant Barrier", "Bulwark of Light's shield also grants +5% damage reduction per rank while active (up to +15% at 3/3) - same mechanism as Cleric's Balanced Faith (any active shield, not specifically a Bulwark-of-Light one).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("graceperiod", "bulwarkoflight", "Grace Period", "Bulwark of Light's cooldown is reduced by another 10% per rank (up to -30% at 3/3), stacking with Divine Shield's own tier-1 reduction.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
-    // Still NotYetImplemented - shields expire lazily (checked at the next
-    // read site, not an active event - same category of gap Doom's curse
-    // detonation needed real scheduling infrastructure to solve). Building
-    // an equivalent "on shield expiry" event just for this one node is out
-    // of scope for this pass.
-    modifier("sacredoverflow", "bulwarkoflight", "Sacred Overflow", "Unused Bulwark of Light shield value converts to a heal at 50% efficiency per rank (up to 150% at 3/3) when it expires."),
+    // RETIRED 2026-09-04 - "sacredoverflow" (Sacred Overflow) stood here,
+    // under Bulwark of Light, and is deliberately NOT replaced in place:
+    // this slot stays empty until its replacement lands under a NEW key.
+    //
+    // It advertised "Unused Bulwark of Light shield value converts to a
+    // heal at 50% efficiency per rank (up to 150% at 3/3) when it
+    // expires" and delivered 0% at every rank - it was the tree's last
+    // `PassiveEffect::NotYetImplemented`, and with it gone the variant no
+    // longer has a single node using it. It was never built because
+    // shields expire lazily (checked at the next read site rather than
+    // as an active event, the same category of gap Doom's curse
+    // detonation needed real scheduling infrastructure to solve), and
+    // building an "on shield expiry" event for one node was repeatedly
+    // out of scope. Retired rather than built (owner ruling).
+    //
+    // Deleted in the SAME RELEASE as
+    // `migrations::migrate_refund_retired_dead_nodes` - see the note on
+    // the retired Monk slot above for why that pairing is a hard
+    // constraint and not a convenience.
     modifier_with_effect("widerblessing", "consecration", "Wider Blessing", "Consecration's value is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("communion", "consecration", "Communion", "Consecration also grants the party +5% healing power per rank for its duration (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("sharedlight", "consecration", "Shared Light", "Consecration's party shield lasts 2 additional seconds per rank (up to +6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
@@ -2084,11 +2190,31 @@ static ELEMENTALIST_NODES: &[PassiveNode] = &[
     skill(
         "golemmaster",
         "Golem Master",
-        "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems have 33% of your stats; you deal 33% less damage per summoned golem, additive (1% of normal damage at 3 golems).",
+        "Grants the ability to summon 1 golem at rank 1 - +1 per additional rank (3 golems at 3/3). Golems are built from your whole build with their base stats at 33% of yours; your own damage is unaffected by how many you have out.",
         // A COUNT (1/2/3) - read via `passive_node_count` at every call
         // site since the 2026-08-25 drift batch (spawn, slot-unlock
         // validation and the admin-page picker all read the same count
         // now; it equals the rank at every default rank).
+        //
+        // DESCRIPTION CORRECTED 2026-09-03 (advertised-vs-actual sweep).
+        // It said "you deal 33% less damage per summoned golem, additive
+        // (1% of normal damage at 3 golems)". That penalty was deleted on
+        // 2026-08-20 - see the two statements of it in combat.rs
+        // ("the golem summon damage penalty was removed entirely" at the
+        // golem-spawn pass, and "The penalty no longer exists" on
+        // `golem_per_hit_tracks_the_owner...`). Proven by consumption
+        // rather than by comment: all four
+        // `passive_node_count("golemmaster")` sites (combat.rs's spawn
+        // loop, manager.rs's two slot-unlock checks, adventure_web.rs's
+        // picker) are SLOT COUNTS, and no damage scaling keyed to golem
+        // count exists anywhere in combat.rs or character.rs.
+        //
+        // It mattered more than a normal stale line because it inverted
+        // the allocation decision BEFORE play: as written the node turned
+        // a maxed class mechanic into a 99% self-nerf, so a player who
+        // believed it took one rank or none. wiki/golems.md already
+        // described the corrected behaviour ("Everything else you have
+        // inherits at FULL value"), so the game contradicted itself.
         PassiveEffect::Special { at_rank_1: 1.0, per_additional_rank: 1.0 },
     ),
     spec(
@@ -2725,5 +2851,105 @@ mod tree_shape_tests {
 
     fn node_by_key(archetype: Archetype, key: &str) -> &'static PassiveNode {
         archetype.passive_nodes().iter().find(|n| n.key == key).unwrap_or_else(|| panic!("no node with key {key:?}"))
+    }
+}
+
+/// Shatter's ladder (2026-09-04). What these pin is the reason the values
+/// are what they are: rank 1 is untouched, and no rank is spent against
+/// the block clamp.
+#[cfg(test)]
+mod shatter_ladder_tests {
+    use super::*;
+
+    /// The reference configuration the ladder was sized against: the
+    /// Berserker's own end state. Overwhelm 3/3 is 0.09 of damage
+    /// reduction shred per Bloodlust stack, Bloodlust caps at 5 stacks,
+    /// and a boss's block chance is pinned at `BOSS_DEFENSE_CAP` 0.75.
+    const OVERWHELM_SHRED_PER_STACK_AT_3_3: f64 = 0.09;
+    const BLOODLUST_MAX_STACKS: f64 = 5.0;
+    const BOSS_BLOCK_AT_CAP: f64 = 0.75;
+
+    fn shatter() -> &'static PassiveNode {
+        Archetype::Berserker.passive_nodes().iter().find(|n| n.key == "shatter").expect("the Berserker tree must still carry shatter")
+    }
+
+    /// Constraint 1 of the owner's ruling: anyone already holding one
+    /// point keeps exactly what they had. The ladder goes UP from 1.0,
+    /// never down to it.
+    #[test]
+    fn rank_1_is_never_nerfed_and_the_ladder_only_rises() {
+        let n = shatter();
+        assert_eq!(n.magnitude_at_rank(1), 1.0, "rank 1 must stay at 100% of Overwhelm's shred - changing it is a silent nerf to existing allocations");
+        assert!(n.magnitude_at_rank(2) > n.magnitude_at_rank(1), "rank 2 must buy something - a flat rung is the defect this ladder replaces");
+        assert!(n.magnitude_at_rank(3) > n.magnitude_at_rank(2), "rank 3 must buy something");
+    }
+
+    /// Constraint 2, and the whole reason rank 3 is 1.65 rather than a
+    /// round 2.0. Block is clamped at the roll and there is no relative
+    /// floor protecting the defender from Shatter, so block reaches zero
+    /// at `0.75 / 0.45` = 1.667. Any rank at or above that is fully
+    /// absorbed by the clamp in exactly the configuration a maxed
+    /// Berserker plays in - a ladder scaling into a cap is the same
+    /// defect wearing a new number.
+    #[test]
+    fn no_rank_is_absorbed_by_the_block_clamp() {
+        let shred = OVERWHELM_SHRED_PER_STACK_AT_3_3 * BLOODLUST_MAX_STACKS;
+        let saturation = BOSS_BLOCK_AT_CAP / shred;
+        assert!((saturation - 1.6666).abs() < 0.001, "sanity: saturation is 0.75/0.45, got {saturation}");
+        let n = shatter();
+        for rank in 1..=n.max_rank {
+            let mult = n.magnitude_at_rank(rank);
+            let remaining_block = BOSS_BLOCK_AT_CAP - shred * mult;
+            assert!(
+                remaining_block > 0.0,
+                "rank {rank} ({mult}x) drives block to {remaining_block} - at or past the {saturation}x saturation point, so the rank is spent against the clamp rather than on the player"
+            );
+        }
+    }
+
+    /// The marginal point has to be worth taking. A block halves the hit,
+    /// so damage through a target scales as `1 - block/2`; this pins that
+    /// each rank moves that number by a real amount rather than a
+    /// rounding artefact.
+    #[test]
+    fn each_rank_meaningfully_moves_damage_through_a_blocking_target() {
+        let shred = OVERWHELM_SHRED_PER_STACK_AT_3_3 * BLOODLUST_MAX_STACKS;
+        let n = shatter();
+        let damage_mult = |mult: f64| {
+            let block = (BOSS_BLOCK_AT_CAP - shred * mult).max(0.0);
+            1.0 - block / 2.0
+        };
+        let unshattered = damage_mult(0.0);
+        let r1 = damage_mult(n.magnitude_at_rank(1));
+        let r2 = damage_mult(n.magnitude_at_rank(2));
+        let r3 = damage_mult(n.magnitude_at_rank(3));
+        assert!((unshattered - 0.625).abs() < 0.001, "sanity: 0.75 block halves damage to 0.625, got {unshattered}");
+        // Each step must be worth at least a few percent of the previous,
+        // or the point is not worth spending.
+        assert!(r1 / unshattered > 1.30, "rank 1 must be a large jump, got {:.3}x", r1 / unshattered);
+        assert!(r2 / r1 > 1.05, "rank 2 must buy a real gain over rank 1, got {:.3}x", r2 / r1);
+        assert!(r3 / r2 > 1.05, "rank 3 must buy a real gain over rank 2, got {:.3}x", r3 / r2);
+    }
+
+    /// The ladder is non-linear (deltas 0.35 then 0.30), so it cannot be
+    /// expressed as `Special { at_rank_1, per_additional_rank }` and must
+    /// stay a `SpecialPerRank`. This fails if someone "simplifies" it.
+    #[test]
+    fn the_ladder_is_non_linear_and_must_stay_a_per_rank_table() {
+        let n = shatter();
+        let d1 = n.magnitude_at_rank(2) - n.magnitude_at_rank(1);
+        let d2 = n.magnitude_at_rank(3) - n.magnitude_at_rank(2);
+        assert!((d1 - d2).abs() > 1e-9, "the ladder became linear ({d1} then {d2}); if that is deliberate say so, but a linear table hides that rank 3 was sized against the clamp");
+    }
+
+    /// The copy must state the multipliers, because "by the same amount
+    /// per rank" is exactly the wording that made this a finding.
+    #[test]
+    fn the_description_states_the_real_multipliers() {
+        let d = shatter().description;
+        for needle in ["100%", "135%", "165%"] {
+            assert!(d.contains(needle), "Shatter's description must state its actual multipliers - missing {needle:?}: {d}");
+        }
+        assert!(!d.contains("by the same amount per rank"), "the wording that implied per-rank scaling while the ladder was flat must not come back");
     }
 }

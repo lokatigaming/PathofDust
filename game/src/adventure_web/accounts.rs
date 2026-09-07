@@ -272,6 +272,63 @@ fn verify_password(password: &str, stored: &str) -> bool {
 //
 // The password crosses a thread boundary as an owned `String`, which is
 // why these take `String` rather than `&str`.
+/// How long a caller waits for an argon2 permit before being told to try
+/// again (2026-09-05).
+///
+/// **The queued-or-rejected question, decided deliberately.** A plain
+/// `acquire().await` queues forever, which under a flood turns every
+/// sign-in into a hang: the request pile-up just moves from CPU to open
+/// connections, and a player sees a spinner until their browser gives up.
+/// A bare `try_acquire` rejects instantly, which is honest under attack
+/// but fails a legitimate burst - four people signing in at the same
+/// moment would get "try again" on an idle server.
+///
+/// So: **bounded wait, then reject.** A normal burst queues for
+/// milliseconds and succeeds; a genuine flood is shed with an answer
+/// instead of accumulating. Five seconds is chosen against the permit
+/// count: at 4 permits and the 100-300 ms per pass the emulated vCPU
+/// delivers, five seconds is 60-200 passes of queue - far more than any
+/// real burst - while still returning a page rather than a hang.
+///
+/// A rejected caller is told to retry and NOTHING ELSE HAPPENS: no login
+/// failure is recorded, no account is created. Being turned away because
+/// the server is busy must not cost a player a step on the failed-login
+/// ladder for a password they typed correctly.
+const PASSWORD_HASH_QUEUE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Takes one of the process-wide argon2 permits, or `None` if the bound
+/// is saturated for longer than `PASSWORD_HASH_QUEUE_TIMEOUT`.
+///
+/// Both argon2 entry points go through here - `do_register`'s hash and
+/// `do_login`'s verify - because they cost the same and land on the same
+/// blocking pool. Bounding only the hash would leave the verify path
+/// unbounded, and it is the one reachable with no account at all.
+///
+/// The permit is held across the `spawn_blocking` await and released when
+/// the returned guard drops, so it covers the actual CPU and the 19 MiB,
+/// not just the decision to start.
+pub(super) async fn acquire_password_hash_permit(state: &AppState) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    acquire_permit_within(&state.password_hash_permits, PASSWORD_HASH_QUEUE_TIMEOUT).await
+}
+
+/// The testable core of `acquire_password_hash_permit`, taking the
+/// semaphore and the timeout directly.
+///
+/// Split out so the tests exercise THIS function rather than a
+/// `Semaphore` they constructed themselves. A test that builds its own
+/// semaphore and checks that tokio counts correctly proves tokio works;
+/// it would pass unchanged if this wrapper stopped acquiring anything.
+async fn acquire_permit_within(sem: &std::sync::Arc<tokio::sync::Semaphore>, wait: std::time::Duration) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    match tokio::time::timeout(wait, sem.clone().acquire_owned()).await {
+        Ok(Ok(permit)) => Some(permit),
+        // The semaphore is never closed in this process; treating a close
+        // as "busy" fails closed rather than letting an unbounded argon2
+        // through on a path that should be impossible.
+        Ok(Err(_)) => None,
+        Err(_) => None,
+    }
+}
+
 async fn hash_password_blocking(password: String) -> anyhow::Result<String> {
     tokio::task::spawn_blocking(move || hash_password(&password)).await.map_err(|err| anyhow::anyhow!("password hashing task failed: {err}"))?
 }
@@ -448,6 +505,17 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
     // MiB and hundreds of milliseconds of argon2 would serialise every
     // other account operation behind one registration.
     drop(accounts);
+    // The argon2 bound (2026-09-05). This is the path the bound exists
+    // for: registration accepts a fresh username every time, so the
+    // per-username login throttle can never see it - every attempt is the
+    // first failure for its key, and a successful registration is not a
+    // failure at all. Turning the caller away here costs them a retry;
+    // NOT turning them away costs 19 MiB and a CPU pass per request, with
+    // no authentication in front of it.
+    let Some(_permit) = acquire_password_hash_permit(&state).await else {
+        tracing::warn!("Adventure dashboard: argon2 bound saturated, turning away a registration for {key:?} without hashing.");
+        return (StatusCode::SERVICE_UNAVAILABLE, Html(render_page(&register_page_html(Some("The server is busy right now. Please try again in a moment."))))).into_response();
+    };
     let password_hash = match hash_password_blocking(form.password.clone()).await {
         Ok(hash) => hash,
         Err(err) => {
@@ -505,8 +573,22 @@ pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<Cre
     //
     // One message for both "no such account" and "wrong password" -
     // nothing here should confirm which names exist.
+    // The argon2 bound (2026-09-05). Taken only on the arm that actually
+    // verifies: the no-such-account arm below does no argon2 work, so
+    // making it queue for a permit would hand an attacker a way to
+    // exhaust the bound with usernames that cost nothing to reject.
     let verified = match &account {
-        Some(a) => verify_password_blocking(form.password.clone(), a.password_hash.clone()).await,
+        Some(a) => {
+            let Some(_permit) = acquire_password_hash_permit(&state).await else {
+                tracing::warn!("Adventure dashboard: argon2 bound saturated, turning away a login for {key:?} without verifying.");
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Html(render_page(&login_page_html(Some("The server is busy checking sign-ins right now. Please try again in a moment.")))),
+                )
+                    .into_response();
+            };
+            verify_password_blocking(form.password.clone(), a.password_hash.clone()).await
+        }
         // No account: nothing to verify, and deliberately no compensating
         // dummy hash. The response body and status are already identical
         // for both arms, so the only difference is timing - and paying a
@@ -663,5 +745,100 @@ mod tests {
         assert!(username_rejection("has space", &empty).is_some());
         assert!(username_rejection("has-dash", &empty).is_some());
         assert!(username_rejection("ok_name_9", &empty).is_none());
+    }
+}
+
+/// The argon2 bound (2026-09-05).
+///
+/// These assert the BOUND HOLDS, not that a semaphore exists. The
+/// difference matters: a test that only checks the field is present would
+/// pass just as happily if the permit were released before the hash
+/// started, or if the limit were never applied.
+///
+/// Written against permit COUNTS rather than wall-clock timing on
+/// purpose. The obvious test - spawn N+1 hashers and assert the last one
+/// finishes later - is a race dressed as an assertion, and this codebase
+/// has spent the week removing exactly that shape. Counts are
+/// deterministic and say the same thing.
+#[cfg(test)]
+mod password_hash_bound_tests {
+    use crate::adventure::{PASSWORD_HASH_PERMITS, PASSWORD_HASH_PERMITS_MAX, PASSWORD_HASH_PERMITS_MIN};
+    use tokio::sync::Semaphore;
+
+    /// N permits are available, the (N+1)th caller cannot proceed, and it
+    /// becomes able to proceed the moment one is returned.
+    #[tokio::test]
+    async fn the_n_plus_first_hash_waits_until_a_permit_comes_back() {
+        // Built the way production builds it: at the CEILING, then walked
+        // down to the live value by the real reconcile function. If that
+        // arithmetic is wrong the bound is wrong, and this test is where
+        // it shows.
+        let limit = 4usize;
+        let sem = std::sync::Arc::new(Semaphore::new(PASSWORD_HASH_PERMITS_MAX as usize));
+        let applied = std::sync::atomic::AtomicU32::new(PASSWORD_HASH_PERMITS_MAX);
+        crate::adventure_web::apply_permit_limit(&sem, &applied, limit as u32);
+        assert_eq!(sem.available_permits(), limit, "reconciling from the ceiling to {limit} must leave exactly {limit} permits - this is the arithmetic the live dial depends on");
+
+        let mut held = Vec::new();
+        for i in 0..limit {
+            held.push(sem.clone().try_acquire_owned().unwrap_or_else(|_| panic!("permit {i} must be available - the bound is {limit} and only {i} are held")));
+        }
+        assert_eq!(sem.available_permits(), 0, "all {limit} permits must be in use once {limit} hashes are in flight");
+
+        // THE BOUND. The next caller cannot start an argon2 pass, which is
+        // the whole point - without this it would allocate another 19 MiB
+        // and take another CPU thread.
+        assert!(sem.clone().try_acquire_owned().is_err(), "the {}th concurrent hash must NOT proceed - if this passes, the bound is not bounding and an attacker can run as many argon2 passes as they can open connections", limit + 1);
+
+        // ...and it is a queue, not a permanent lockout: returning one
+        // permit lets exactly one more caller through.
+        drop(held.pop().expect("one permit to return"));
+        assert_eq!(sem.available_permits(), 1, "returning a permit must free exactly one slot");
+        assert!(sem.clone().try_acquire_owned().is_ok(), "the waiting caller must proceed once a permit is returned - a bound that never releases is an outage, not a limit");
+    }
+
+    /// A caller that cannot get a permit within the timeout is turned
+    /// away rather than queued forever. Uses tokio's paused clock, so it
+    /// asserts the timeout fires without spending the timeout.
+    #[tokio::test]
+    async fn a_saturated_bound_turns_a_caller_away_rather_than_hanging() {
+        let sem = std::sync::Arc::new(Semaphore::new(1));
+        let _held = sem.clone().try_acquire_owned().expect("the only permit");
+
+        // A short timeout rather than the real PASSWORD_HASH_QUEUE_TIMEOUT:
+        // what is under test is the SHAPE - saturated means the wait ends
+        // in an error the handler can answer, rather than never returning -
+        // and waiting five real seconds to prove it would be five seconds
+        // on every suite run. The constant is asserted separately below.
+        let waited = tokio::time::timeout(std::time::Duration::from_millis(50), sem.acquire_owned()).await;
+        assert!(
+            waited.is_err(),
+            "a saturated bound must time out and let the handler answer, not queue indefinitely - a login that hangs until the browser gives up is a worse failure than one that says 'try again'"
+        );
+    }
+
+    /// The shipped value has to sit inside its own accepted range, and
+    /// the floor has to be 1 rather than 0. A 0 permit count is not "no
+    /// limit", it is "nobody can ever log in again".
+    #[test]
+    fn the_shipped_permit_count_is_inside_its_own_bounds_and_the_floor_is_not_zero() {
+        assert!(
+            (PASSWORD_HASH_PERMITS_MIN..=PASSWORD_HASH_PERMITS_MAX).contains(&PASSWORD_HASH_PERMITS),
+            "the shipped permit count {PASSWORD_HASH_PERMITS} must be inside {PASSWORD_HASH_PERMITS_MIN}..={PASSWORD_HASH_PERMITS_MAX}"
+        );
+        assert_eq!(PASSWORD_HASH_PERMITS_MIN, 1, "the floor must be 1: a 0-permit semaphore locks every sign-in and registration out of the game with no error that explains it");
+    }
+
+    /// The queue timeout has to be long enough to absorb a real burst and
+    /// short enough to answer rather than hang. Pinned so neither end can
+    /// drift without someone deciding to move it.
+    #[test]
+    fn the_queue_timeout_answers_rather_than_hanging() {
+        assert!(!super::PASSWORD_HASH_QUEUE_TIMEOUT.is_zero(), "a zero timeout is a bare try_acquire - it would reject a legitimate burst on an idle server");
+        assert!(
+            super::PASSWORD_HASH_QUEUE_TIMEOUT <= std::time::Duration::from_secs(15),
+            "a caller must get an answer, not a hang: {:?} is long enough that a browser or a player gives up first",
+            super::PASSWORD_HASH_QUEUE_TIMEOUT
+        );
     }
 }

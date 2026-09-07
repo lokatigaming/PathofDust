@@ -87,6 +87,22 @@ struct AppState {
     /// rare and announced), and writing a file on every failed password
     /// would hand an unauthenticated caller a disk-write primitive.
     login_failures: Arc<Mutex<HashMap<String, accounts::LoginFailure>>>,
+    /// The process-wide bound on concurrent argon2 (2026-09-05) - see
+    /// `accounts::acquire_password_hash_permit` and
+    /// `adventure::PASSWORD_HASH_PERMITS`.
+    ///
+    /// Created with `PASSWORD_HASH_PERMITS_MAX` permits and then reduced
+    /// to the live tunable's value, rather than created at that value,
+    /// because a `Semaphore`'s capacity can be lowered by forgetting
+    /// permits but never raised above what it was built with. Building at
+    /// the ceiling is what makes the dial work in BOTH directions at
+    /// runtime.
+    password_hash_permits: Arc<tokio::sync::Semaphore>,
+    /// The permit count currently applied to `password_hash_permits`, so
+    /// a save can compute the delta to add or forget. Written only at
+    /// construction and from the tunables save handler, never from a
+    /// request path.
+    password_hash_permits_applied: Arc<std::sync::atomic::AtomicU32>,
 }
 
 fn now_secs() -> u64 {
@@ -128,6 +144,58 @@ fn sprite_label(name: &str) -> String {
         .join(" ")
 }
 
+/// Reconciles the argon2 semaphore to `desired` permits (2026-09-05).
+///
+/// A `Semaphore` can be shrunk by forgetting permits and grown by adding
+/// them, but never grown past the capacity it was built with - so the
+/// semaphore is built at `PASSWORD_HASH_PERMITS_MAX` and this walks it
+/// down to the live value, and back up again if the dial is raised.
+///
+/// Called from exactly two places, both outside any request path: server
+/// construction, and the tunables save handler. Keeping it off the hot
+/// path is why the applied count can be a plain atomic rather than
+/// needing a lock - two concurrent saves are the only writers, and the
+/// admin form is one operator.
+///
+/// Clamped here as well as in the handler. The handler protects the value
+/// an operator can type; this protects the value that reaches the
+/// semaphore, including one loaded from a hand-edited tunables file that
+/// never passed through a form at all.
+fn apply_password_hash_permit_limit(state: &AppState, desired: u32) {
+    apply_permit_limit(&state.password_hash_permits, &state.password_hash_permits_applied, desired);
+}
+
+/// The testable core of `apply_password_hash_permit_limit`, taking the
+/// semaphore and its applied-count directly rather than an `AppState`.
+///
+/// Split out for the same reason as `acquire_permit_within`: the tests
+/// must exercise THIS arithmetic - the add/forget deltas that make the
+/// dial work in both directions - and not a semaphore they sized
+/// themselves.
+pub(crate) fn apply_permit_limit(sem: &tokio::sync::Semaphore, applied_count: &std::sync::atomic::AtomicU32, desired: u32) {
+    use std::sync::atomic::Ordering;
+    let desired = desired.clamp(crate::adventure::PASSWORD_HASH_PERMITS_MIN, crate::adventure::PASSWORD_HASH_PERMITS_MAX);
+    let applied = applied_count.swap(desired, Ordering::SeqCst);
+    match desired.cmp(&applied) {
+        std::cmp::Ordering::Greater => sem.add_permits((desired - applied) as usize),
+        std::cmp::Ordering::Less => {
+            // `forget_permits` returns how many it actually removed, which
+            // can be fewer than asked when permits are currently held. The
+            // shortfall is not lost: the holders' permits are still
+            // outstanding, and returning them to a semaphore whose applied
+            // count has already been lowered simply leaves it above target
+            // until the next save. Logged rather than retried, because
+            // spinning here would block a save behind an argon2 pass.
+            let forgotten = sem.forget_permits((applied - desired) as usize);
+            let wanted = (applied - desired) as usize;
+            if forgotten < wanted {
+                tracing::warn!("password hash permits: lowered to {desired}, but only {forgotten} of {wanted} permits could be reclaimed immediately - the rest are in flight and the effective limit settles on the next save");
+            }
+        }
+        std::cmp::Ordering::Equal => {}
+    }
+}
+
 pub async fn start_adventure_web_server(
     port: u16,
     adventure: Arc<AdventureManager>,
@@ -155,7 +223,13 @@ pub async fn start_adventure_web_server(
         // dir gets its own file rather than sharing production's.
         bugs: BugReportManager::new(crate::adventure::data_path(BUG_REPORTS_PATH)),
         login_failures: Arc::new(Mutex::new(HashMap::new())),
+        password_hash_permits: Arc::new(tokio::sync::Semaphore::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX as usize)),
+        password_hash_permits_applied: Arc::new(std::sync::atomic::AtomicU32::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX)),
     };
+    // Bring the semaphore down from its ceiling to whatever the live
+    // tunable says, BEFORE the router starts serving. Built at the max so
+    // the dial can go up again later; see the field's own doc.
+    apply_password_hash_permit_limit(&state, state.adventure.live_tunables().password_hash_permits);
 
     let app = axum::Router::<AppState>::new()
         .route("/", get(index))
@@ -3267,6 +3341,15 @@ fn default_win_xp_cooldown_secs() -> u64 {
     crate::adventure::WIN_XP_COOLDOWN_SECS
 }
 
+// Serde default for the argon2 bound (2026-09-05). Same rule as the five
+// above, and the zero here is the worst kind: `password_hash_permits` is
+// a SEMAPHORE SIZE, so an omitted field collapsing to 0 would not loosen
+// the bound, it would close it - nobody could log in or register again,
+// with no error explaining why and the page still reporting "Saved".
+fn default_password_hash_permits() -> u32 {
+    crate::adventure::PASSWORD_HASH_PERMITS
+}
+
 // Serde default for the catch-up taper (2026-09-03). Same rule as the
 // five above, and here the zero is the worst one yet: `catchup_full_deficit`
 // is a DIVISOR, so a silently-omitted field resolving to 0.0 would pay the
@@ -3451,6 +3534,11 @@ struct TunablesForm {
     /// nothing else can produce the absent state.
     #[serde(default)]
     win_xp_catchup_enabled: Option<String>,
+    /// See `LiveTunables::password_hash_permits`. Shipped-constant
+    /// default - see `default_password_hash_permits` for why a 0 here is
+    /// worse than a wrong number.
+    #[serde(default = "default_password_hash_permits")]
+    password_hash_permits: u32,
     /// See `LiveTunables::catchup_full_deficit`'s doc. Shipped-constant
     /// default, same reasoning as `win_xp_flat` above - and see
     /// `default_catchup_full_deficit` for why a zero here is worse than
@@ -3959,6 +4047,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 // `hp_relax_after_losses` below.
                 win_xp_cooldown_secs: v.at_most_u64("win_xp_cooldown_secs", form.win_xp_cooldown_secs, crate::adventure::WIN_XP_COOLDOWN_SECS_MAX),
                 win_xp_catchup_enabled: form.win_xp_catchup_enabled.is_some(),
+                password_hash_permits: v.range_u32("password_hash_permits", form.password_hash_permits, crate::adventure::PASSWORD_HASH_PERMITS_MIN, crate::adventure::PASSWORD_HASH_PERMITS_MAX),
                 catchup_full_deficit: v.clamp(
                     "catchup_full_deficit",
                     form.catchup_full_deficit,
@@ -4145,6 +4234,11 @@ async fn do_save_tunables(State(state): State<AppState>, headers: HeaderMap, For
     // path rather than deleting it.
     let mut clamping = TunableViolations { items: Vec::new(), clamping: true };
     let tunables = tunables_from_form(&form, &previous, &mut clamping);
+    // The argon2 bound is a semaphore, not a number read per request, so
+    // saving the tunable is not enough on its own - the permit count has to
+    // be reconciled or the dial would silently do nothing until a restart.
+    // Done from the value that was actually saved, after clamping.
+    apply_password_hash_permit_limit(&state, tunables.password_hash_permits);
     if let Err(err) = state.adventure.save_live_tunables(tunables) {
         tracing::error!("Failed to persist live tunables: {err}");
     }
@@ -4259,10 +4353,11 @@ fn render_patch_notes(entries: &[PatchNoteEntry], character: Option<&Character>)
     format!("{header}{dated_entries}")
 }
 
-/// Aggregate secondary stats across all 5 equipped items PLUS the
-/// archetype's own bonus (see Character::combat_*/Affix/Archetype) - the
-/// breakdown a viewer can't get from !character alone, since that
-/// reply's already long. Shared between the owner's own dashboard (see
+/// Aggregate secondary stats across every equipped item (`EQUIP_SLOTS`,
+/// nine as of spec §8) PLUS the archetype's own bonus (see
+/// Character::combat_*/Affix/Archetype) - the breakdown a viewer can't
+/// get from !character alone, since that reply is already long. Shared
+/// between the owner's own dashboard (see
 /// `render_dashboard`) and the read-only character-list detail view (see
 /// `render_character_detail`) - same numbers either way, nothing here
 /// depends on who's looking. Every attack action now splits between
@@ -5530,6 +5625,7 @@ fn render_tunables_page(
               <p class=\"tunable-hint\"><strong>Unit: seconds.</strong> Range 0 &ndash; {win_xp_cooldown_secs_max}. Shortest gap between two XP-paying wins for one character. <strong>This is the rampage guard.</strong> Scheduled boss fights are 600s apart so it never binds there; a rampage runs them 60s apart, and without this a rampage would be worth 10&times; the XP and would set the curve instead of the schedule. At the shipped 450 a rampage pays 1.33&times; normal rather than 10&times;. Also covers Force Boss Fight and !nextencounter. <strong>0 removes the throttle</strong> &mdash; every win pays, and a rampage becomes an XP farm.</p>\
             </div>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"win_xp_catchup_enabled\" value=\"1\"{win_xp_catchup_enabled_checked}> XP Catch-Up Enabled</label>\
+            <h2>Account Security</h2>\n            <div class=\"tunable-row\">\n              <label for=\"password_hash_permits\">Concurrent Password Hashes</label>\n              <input type=\"number\" step=\"1\" min=\"{password_hash_permits_min}\" max=\"{password_hash_permits_max}\" required id=\"password_hash_permits\" name=\"password_hash_permits\" value=\"{password_hash_permits}\">\n              <p class=\"tunable-hint\"><strong>Unit: simultaneous password checks.</strong> Range {password_hash_permits_min} &ndash; {password_hash_permits_max}, shipped {password_hash_permits_default}. Caps how many sign-ins and registrations can be doing password work AT THE SAME TIME across the whole server. Each one costs about 19&nbsp;MB and a chunk of CPU, so this is what stops an unauthenticated flood of registrations from eating the box. Anyone over the limit waits up to 5 seconds and is then told to try again &mdash; they are not rejected outright, and a busy server never counts against a player&rsquo;s failed-login attempts. <strong>Raise it only if real players are being told to try again</strong>; the shipped 4 clears roughly 13&ndash;40 sign-ins a second, well past this roster&rsquo;s needs. <strong>0 is refused</strong>: it would not remove the limit, it would lock everyone out.</p>\n            </div>\n            \
             <p class=\"tunable-hint\">Keeps the catch-up multiplier (1&times; to 3&times;, by how far below the group median a character is) on the XP grant, so a newer player levels toward the pack. Unchecking makes every winner&rsquo;s XP identical regardless of level.</p>\
             <div class=\"tunable\">\
               <label for=\"catchup_full_deficit\">Catch-Up Full-Bonus Deficit</label>\
@@ -5626,6 +5722,10 @@ fn render_tunables_page(
         catchup_full_deficit = t.catchup_full_deficit,
         catchup_full_deficit_min = crate::adventure::CATCHUP_FULL_DEFICIT_MIN,
         catchup_full_deficit_max = crate::adventure::CATCHUP_FULL_DEFICIT_MAX,
+        password_hash_permits = t.password_hash_permits,
+        password_hash_permits_min = crate::adventure::PASSWORD_HASH_PERMITS_MIN,
+        password_hash_permits_max = crate::adventure::PASSWORD_HASH_PERMITS_MAX,
+        password_hash_permits_default = crate::adventure::PASSWORD_HASH_PERMITS,
         win_xp_flat_max = crate::adventure::WIN_XP_FLAT_MAX,
         win_xp_level_pct_max = crate::adventure::WIN_XP_LEVEL_PCT_MAX,
         win_xp_mult_min = crate::adventure::WIN_XP_MULT_MIN,
@@ -7098,7 +7198,8 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
 /// live request - the flat unsorted list made otherwise-identical-looking
 /// pieces hard to tell apart once a character owned more than a handful):
 /// every currently-equipped item first under an "Equipped" `<optgroup>`
-/// (order: Weapon, Helm, Body, Gloves, Boots), THEN every remaining item
+/// (in `DISPLAY_SLOTS` order, which covers every slot `EQUIP_SLOTS`
+/// names - nine as of spec §8), THEN every remaining item
 /// grouped into its own per-slot `<optgroup>` in that same order. `c` is
 /// only used to determine which of `items` are equipped right now (via
 /// `Character::equipped`, matched by id) - `render_equip_picker` passes
@@ -8144,18 +8245,37 @@ mod admin_passives_tests {
         // Searched rather than assumed - Warrior happens to have every
         // one of its 39 nodes implemented, so hardcoding a class here
         // would be testing the wrong thing (and did, first time round).
-        let (archetype, inert) = ALL_ARCHETYPES
-            .iter()
-            .find_map(|&a| {
-                a.passive_nodes()
+        //
+        // **The tree currently contains ZERO `NotYetImplemented` nodes**,
+        // and this used to `.expect()` one. `sacredoverflow` (Paladin) was
+        // the last, and it was retired outright on 2026-09-04 - deleted
+        // from the tree with every point spent on it refunded, rather than
+        // built or reworded. That made this test panic, which the FULL
+        // workspace run caught and the narrow runs could not.
+        //
+        // Kept rather than deleted, and written to hold in BOTH states:
+        // the rendering arm it guards is still live in `render_passives_page`
+        // (`not_yet` -> "No mechanic yet"), so the moment any node enters
+        // that state again this test re-arms itself and checks it. When no
+        // such node exists the absence is asserted explicitly, so a reader
+        // learns the arm is dormant by FACT rather than by silence.
+        let inert = ALL_ARCHETYPES.iter().find_map(|&a| {
+            a.passive_nodes().iter().find(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented)).map(|n| (a, n))
+        });
+        match inert {
+            Some((archetype, node)) => {
+                let html = admin_page(archetype, false);
+                assert!(html.contains(node.key), "{:?}'s inert node {} must still be listed", archetype, node.key);
+                assert!(html.contains("No mechanic yet"), "an inert node must say why it can't be tuned");
+            }
+            None => {
+                let total: usize = ALL_ARCHETYPES
                     .iter()
-                    .find(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented))
-                    .map(|n| (a, n))
-            })
-            .expect("the tree still has at least one unimplemented node somewhere");
-        let html = admin_page(archetype, false);
-        assert!(html.contains(inert.key), "{:?}'s inert node {} must still be listed", archetype, inert.key);
-        assert!(html.contains("No mechanic yet"), "an inert node must say why it can't be tuned");
+                    .map(|a| a.passive_nodes().iter().filter(|n| matches!(n.effect, crate::passive_tree::PassiveEffect::NotYetImplemented)).count())
+                    .sum();
+                assert_eq!(total, 0, "sanity: the search found none, so the count must agree");
+            }
+        }
     }
 
     #[test]

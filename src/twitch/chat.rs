@@ -46,10 +46,11 @@ impl ChatClient {
         // twitch-irc send call itself reports success either way - it
         // only knows the local write succeeded, not what Twitch's server
         // did with it after). This is a backstop against every caller,
-        // present and future, not just !character's own reply (see
-        // Character::gear_summary's doc for that specific fix) - better a
+        // present and future, not just !character's own reply - better a
         // visibly-trimmed message than a perfectly-formed one nobody
-        // ever sees.
+        // ever sees. (The per-reply fix that went with this lived in
+        // `Character::gear_summary`, deleted 2026-09-04 once Twitch's
+        // removal left it with no callers - see the note where it was.)
         const TWITCH_MAX_MESSAGE_LEN: usize = 500;
         let len = full.chars().count();
         if len > TWITCH_MAX_MESSAGE_LEN {

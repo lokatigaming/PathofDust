@@ -149,24 +149,71 @@ async fn no_op_overrides_are_neither_written_nor_claimed() {
 
     // --- the collapsed "Not tunable yet" section actually renders ---------
     // An absent section and a broken section look identical in a rendered page,
-    // so this asserts it POSITIVELY on a class that has such a node rather than
-    // inferring it from Warrior, where it is correctly absent.
+    // so this asserts it POSITIVELY on a class that actually has such a node.
     //
-    // Paladin's `sacredoverflow` is the tree's last `NotYetImplemented` node
-    // (`modifier()`, the 4-arg constructor, always produces that effect). If a
-    // later change deletes it and Paladin ends up with none, this SHOULD fail -
-    // re-point it at whatever class still has one, or delete it once none do.
-    // Do not weaken it into passing on an empty page.
-    let paladin = page(client.clone(), base.clone(), "paladin").await;
-    assert!(
-        paladin.contains("Not tunable yet ("),
-        "the collapsed section must RENDER for a class that has untunable nodes - Paladin holds sacredoverflow"
-    );
-    assert!(paladin.contains("sacredoverflow"), "and the untunable node itself must be listed inside it");
-    assert!(
-        !legacy_page.contains("Not tunable yet ("),
-        "Warrior has no untunable nodes, so its page must NOT render the section - the empty case stays empty rather than emitting a zero-count header"
-    );
+    // SEARCHED, not hardcoded (2026-09-07). This named Paladin's
+    // `sacredoverflow` until item 14 deleted that node outright, at which point
+    // this assertion failed — correctly, and exactly as its own comment had
+    // predicted it would. Hardcoding a class here means the test's subject can
+    // be removed by an unrelated change in another window, and neither side can
+    // see the other coming: the deletion predates this assertion existing, and
+    // this branch predates the deletion.
+    //
+    // Written to hold in BOTH states, the shape
+    // `a_not_yet_implemented_node_is_shown_but_not_editable` already uses in
+    // adventure_web.rs. The section's own bucket is `not_yet || pending`, so the
+    // search matches that predicate rather than only `NotYetImplemented` — a
+    // class with a pending-migration node renders the section just the same, and
+    // testing a narrower condition than the code uses is how this drifts again.
+    //
+    // When no such node exists anywhere, the absence is asserted explicitly, so
+    // a reader learns the arm is dormant by FACT rather than by silence — and it
+    // re-arms itself the moment any node enters either state.
+    let untunable_class = game::adventure::ALL_ARCHETYPES.iter().find_map(|&a| {
+        a.passive_nodes()
+            .iter()
+            .find(|n| matches!(n.effect, game::passive_tree::PassiveEffect::NotYetImplemented) || !game::adventure::node_is_tunable(n.key))
+            .map(|n| (a, n.key))
+    });
+
+    match untunable_class {
+        Some((archetype, node_key)) => {
+            let slug: &'static str = Box::leak(format!("{archetype:?}").to_lowercase().into_boxed_str());
+            let with_untunable = page(client.clone(), base.clone(), slug).await;
+            assert!(
+                with_untunable.contains("Not tunable yet ("),
+                "{archetype:?} has untunable node {node_key}, so its page MUST render the collapsed section - an absent section and a broken one are indistinguishable without this"
+            );
+            assert!(with_untunable.contains(node_key), "and {node_key} must be listed inside it");
+        }
+        None => {
+            let total: usize = game::adventure::ALL_ARCHETYPES
+                .iter()
+                .map(|a| {
+                    a.passive_nodes()
+                        .iter()
+                        .filter(|n| matches!(n.effect, game::passive_tree::PassiveEffect::NotYetImplemented) || !game::adventure::node_is_tunable(n.key))
+                        .count()
+                })
+                .sum();
+            assert_eq!(total, 0, "sanity: the search found no untunable node, so the count must agree");
+        }
+    }
+
+    // The empty case must stay empty rather than emitting a zero-count header.
+    // Warrior is checked directly because `legacy_page` IS a Warrior page, and
+    // Warrior's own untunable count is asserted here rather than assumed.
+    let warrior_untunable = game::adventure::Archetype::Warrior
+        .passive_nodes()
+        .iter()
+        .filter(|n| matches!(n.effect, game::passive_tree::PassiveEffect::NotYetImplemented) || !game::adventure::node_is_tunable(n.key))
+        .count();
+    if warrior_untunable == 0 {
+        assert!(
+            !legacy_page.contains("Not tunable yet ("),
+            "Warrior has no untunable nodes, so its page must NOT render the section"
+        );
+    }
 
     std::fs::remove_dir_all(&scratch).ok();
 }

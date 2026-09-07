@@ -92,6 +92,48 @@ pub const WIN_XP_MULT_MIN: f64 = 0.0;
 pub const WIN_XP_MULT_MAX: f64 = 100.0;
 pub const WIN_XP_COOLDOWN_SECS_MAX: u64 = 3_600;
 
+/// How many argon2 passes may run AT ONCE across the whole process
+/// (2026-09-05). Both entry points share this one pool: `do_register`'s
+/// hash and `do_login`'s verify. There are no others - those two are the
+/// only callers of `hash_password_blocking`/`verify_password_blocking`,
+/// which are in turn the only paths to `Argon2::default()` outside tests.
+///
+/// WHAT IT IS FOR. `Argon2::default()` is RFC 9106's second-recommended
+/// parameter set: m = 19 MiB, t = 2, p = 1. `spawn_blocking` (2026-09-02)
+/// moved that cost off the async workers, which stopped it stalling the
+/// reactor - but the blocking pool is not a bound. Tokio's default
+/// `max_blocking_threads` is 512 and this process does not override it,
+/// so concurrent argon2 could demand up to 512 x 19 MiB, around 9.5 GiB,
+/// on a box the existing notes describe as an emulated QEMU vCPU. The
+/// per-username login throttle does not help: registration flooding
+/// varies the username, which is exactly the value that throttle keys on.
+///
+/// WHY 4. It bounds the concurrent argon2 working set at roughly 76 MiB.
+/// Against legitimate load that is generous rather than tight: at the
+/// 100-300 ms per pass the emulated vCPU delivers, 4 permits clear
+/// something like 13-40 sign-ins per second, and the live roster is about
+/// 52 accounts - a full-roster simultaneous login, which does not happen,
+/// would drain in a few seconds and well inside
+/// `PASSWORD_HASH_QUEUE_TIMEOUT`. It is live-tunable precisely because
+/// this argument is a calculation and not a measurement; raise it if real
+/// load ever says so.
+pub const PASSWORD_HASH_PERMITS: u32 = 4;
+/// Accepted range for `password_hash_permits`.
+///
+/// The minimum is 1, NOT 0, and that is the one place in this block where
+/// a zero floor would be actively wrong: 0 permits is not "no limit", it
+/// is "nobody can ever log in or register again", with no error that
+/// explains why. There is no operator intent that 0 expresses - turning
+/// the bound off means raising it, not zeroing it - so it is refused.
+///
+/// The maximum is 64 rather than the blocking pool's 512: 64 x 19 MiB is
+/// already 1.2 GiB of concurrent argon2, far past anything this game's
+/// population can produce, and a ceiling that cannot be fat-fingered into
+/// the exposure the bound exists to remove is worth more than the
+/// headroom.
+pub const PASSWORD_HASH_PERMITS_MIN: u32 = 1;
+pub const PASSWORD_HASH_PERMITS_MAX: u32 = 64;
+
 /// How far behind the group's LEADER a character must fall to earn the
 /// full catch-up bonus, as a FRACTION OF THE LEADER'S LEVEL (2026-09-03).
 /// See `catchup_multiplier` for the formula this scales and for why the
@@ -10383,15 +10425,59 @@ mod stage_gate_tests {
 
         let characters = manager.characters.lock().await;
         let character = characters.get("gated").expect("joined");
-        // Unique Shards are deliberately still droppable (owner ruling) and
-        // are stored in this same map, so they are excluded rather than
-        // asserted against - see `maybe_drop_unique_shard`.
-        let mut after: Vec<(CraftAction, u32)> = character.craft_tokens.iter().copied().filter(|(action, _)| *action != CraftAction::UniqueShard).collect();
-        after.sort_by_key(|(action, _)| format!("{action:?}"));
-        let mut expected = starting.clone();
-        expected.sort_by_key(|(action, _)| format!("{action:?}"));
-        assert_eq!(after, expected, "12 fights must not have added a single craft token - the drop and both pity payouts are gone");
+        assert_starter_set_untouched_by_fighting(character);
         assert_eq!(character.craft_pity, 0.0, "craft_pity must not accrue either: both advance_pity calls that fed it were removed");
+    }
+
+    /// THE PROPERTY THIS TEST IS ACTUALLY ABOUT: fighting adds no CRAFT
+    /// TOKEN. Stated over `ALL_CRAFT_ACTIONS` - the eight real craft
+    /// actions, which are exactly the starter set - rather than by
+    /// subtracting known currencies from the map.
+    ///
+    /// It used to be a literal exclusion list: everything in
+    /// `craft_tokens` except `UniqueShard`, compared against the starter
+    /// set. That was flaky at roughly 2%, because `craft_tokens` is a
+    /// shared bag that SHARD CURRENCIES also live in, and `UniqueShard`
+    /// was not the only one that could land during the fights.
+    ///
+    /// The other one, and it is worth naming so nobody hunts it twice:
+    /// `announce_encounter_result` carries a one-time top-healer grant of
+    /// a `CraftAction::CelestialShard`, guarded by a marker file. Every
+    /// disposable test manager builds a FRESH scratch data dir, so that
+    /// marker is always absent and the grant is always armed - it then
+    /// fires on the first boss fight in which any player recorded
+    /// `healing_done > 0`, which for a single Commoner is occasional
+    /// rather than never. That is the entire random element.
+    ///
+    /// Fixed as a property rather than by lengthening the exclusion list,
+    /// because a longer list is the same bug with a later expiry date:
+    /// the next currency added to this map would reopen it. Asserting
+    /// only over `ALL_CRAFT_ACTIONS` cannot be reopened that way - a new
+    /// currency is by construction not one of the eight.
+    ///
+    /// The two explicit grants below are the mutation check, kept
+    /// permanently rather than run once: they force both shard currencies
+    /// into the map and prove the assertion still holds, so this test
+    /// demonstrates its own immunity instead of depending on the roll.
+    fn assert_starter_set_untouched_by_fighting(character: &Character) {
+        for &action in &ALL_CRAFT_ACTIONS {
+            let held = character.craft_tokens.iter().find(|(a, _)| *a == action).map(|(_, n)| *n).unwrap_or(0);
+            assert_eq!(
+                held, 1,
+                "12 fights must not have added a single craft token - {action:?} is at {held}, not the starter set's 1. The drop and both pity payouts are gone, so any change here is a real regression"
+            );
+        }
+
+        let mut forced = character.clone();
+        forced.add_craft_token(CraftAction::UniqueShard, 1);
+        forced.add_craft_token(CraftAction::CelestialShard, 1);
+        for &action in &ALL_CRAFT_ACTIONS {
+            let held = forced.craft_tokens.iter().find(|(a, _)| *a == action).map(|(_, n)| *n).unwrap_or(0);
+            assert_eq!(
+                held, 1,
+                "a shard landing in craft_tokens must not disturb the starter-set assertion - {action:?} read as {held} once shards were present. If this fails the property has been rewritten as a token-list comparison again, and the 2% flake is back"
+            );
+        }
     }
 }
 

@@ -277,6 +277,16 @@ pub struct LiveTunables {
     /// Whether `catchup_multiplier` still applies to the XP grant (step 2
     /// of the order of operations). See `manager::WIN_XP_CATCHUP_ENABLED`.
     pub win_xp_catchup_enabled: bool,
+    /// How many argon2 passes may run at once across the whole process
+    /// (2026-09-05) - shared by `do_register`'s hash and `do_login`'s
+    /// verify, which are the only two argon2 entry points there are.
+    ///
+    /// Live-tunable so the bound can be raised or lowered without a
+    /// release when real load is observed. See
+    /// `manager::PASSWORD_HASH_PERMITS` for why the shipped value is 4 and
+    /// what it costs a legitimate burst, and `PASSWORD_HASH_PERMITS_MIN`
+    /// for why 0 is refused rather than treated as "unlimited".
+    pub password_hash_permits: u32,
     /// How far below the group's LEADER a character must fall to earn the
     /// full +200% catch-up bonus, as a fraction of the leader's level
     /// (2026-09-03). Scales the taper in `catchup_multiplier`, which
@@ -729,6 +739,7 @@ impl Default for LiveTunables {
             win_xp_mult: WIN_XP_MULT,
             win_xp_cooldown_secs: WIN_XP_COOLDOWN_SECS,
             win_xp_catchup_enabled: WIN_XP_CATCHUP_ENABLED,
+            password_hash_permits: PASSWORD_HASH_PERMITS,
             catchup_full_deficit: CATCHUP_FULL_DEFICIT,
             pierce_cap: 0.5,
             pierce_h: 2000.0,

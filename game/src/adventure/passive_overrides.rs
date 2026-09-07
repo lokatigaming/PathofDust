@@ -340,9 +340,16 @@ pub const INTEGER_COUNT_NODES: &[&str] = &[
 /// have no consumer to migrate. Listed separately so `/admin/passives`
 /// can say the accurate thing rather than promising a batch that would
 /// have nothing to do.
-pub const UNWIRED_NODES: &[&str] = &[
-    "stillwater",  // monk - "Serenity triggers guaranteed on your first evade each fight"
-];
+/// **Currently EMPTY, and that is a real state rather than an oversight.**
+/// Its only ever entry was `stillwater` (Monk), which was retired outright
+/// on 2026-09-04 - the node was deleted from the tree and every point
+/// spent on it refunded, so there is no longer an unwired node for
+/// `/admin/passives` to describe. The list and its tests stay because the
+/// classification is still the right one for the next node that lands in
+/// this state; `every_unwired_key_still_exists_in_the_tree` is what forced
+/// this entry to be removed alongside the definition rather than left to
+/// dangle.
+pub const UNWIRED_NODES: &[&str] = &[];
 
 /// Nodes where ONE numeric aspect is still fed by `passive_node_rank`
 /// (structure) even though the node's PRIMARY magnitude IS live-tunable
@@ -1406,7 +1413,13 @@ mod passive_override_tests {
         (Archetype::Berserker, "frenzy", [1.0, 2.0, 3.0]),
         (Archetype::Berserker, "bloodscent", [0.0, 0.50, 0.65]),
         (Archetype::Berserker, "bloodrush", [0.0, 1.0, 2.0]),
-        (Archetype::Berserker, "shatter", [1.0, 1.0, 1.0]),
+        // CHANGED 2026-09-04, deliberately, so this row is no longer the
+        // Stage-3 snapshot: it was [1.0, 1.0, 1.0], a flat gate whose
+        // ranks 2 and 3 bought nothing while the copy implied per-rank
+        // scaling. Same treatment `lastrites` got - the row moves with the
+        // shipped value. See `shatter`'s own comment in passive_tree.rs
+        // for why rank 3 is 1.65 rather than a round 2.0.
+        (Archetype::Berserker, "shatter", [1.0, 1.35, 1.65]),
         (Archetype::Berserker, "crush", [0.0, 0.50, 0.65]),
         (Archetype::Berserker, "gloriousdeath", [1.0, 1.0, 2.0]),
         // Rogue

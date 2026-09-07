@@ -367,7 +367,7 @@ Shipped once already — three nodes ran wrong for ~20 minutes on 2026-08-27. An
 
 ## 7. Open rulings
 
-- **`lastrites`** advertises a 33/66/100% chance that is never rolled — the check is a charge count. Either the description is wrong or the mechanic was never built.
+- ~~**`lastrites`** advertises a 33/66/100% chance that is never rolled — the check is a charge count. Either the description is wrong or the mechanic was never built.~~ **CLOSED 2026-09-03** (found still listed here by the advertised-vs-actual sweep). Resolved by `ffda7ad`, "Last Rites: a real charge ladder, honest copy, and its own name in the log": the values are now `[1.0, 1.0, 2.0]` — matching `undying`, the Slayer's other death-save node — and the description at `passive_tree.rs` states the real mechanic with no chance wording. The entry is struck rather than deleted so a reader arriving from an old citation lands on what was written and on its disposal. **The general lesson, since this board sent a session chasing a closed item: a ruling being made does not close its board entry, and nothing else does it automatically.**
 
 - **Craft-driven power has nothing opposing it** (2026-09-02, from the tier-source audit; **needs an owner ruling, deliberately not patched**). `boss_stats_for` ([manager.rs:7395](../game/src/adventure/manager.rs#L7395)) scales boss HP and damage on **world stage** (+15%/stage) and **average character level** (+15%/level). It does not read gear tier at all. Every other growth vector a player has is therefore self-damping — climbing stages makes bosses harder, gaining levels makes bosses harder — but **item tier is not**, and item tier is the one a player controls directly.
 

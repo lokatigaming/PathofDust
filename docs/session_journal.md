@@ -4344,6 +4344,7 @@ recorded earlier.
 file, log, listing or cached result, establish when it was produced and
 whether anything has happened since. If you cannot tell, treat it as
 unknown rather than as evidence.
+
 ### 2026-09-03 — CATCHUP-FIX: catch-up keys off the leader, not the median
 
 Branch `fix/catchup-degeneration` off `origin/master` (`0c4dffa`). Fixes
@@ -4502,6 +4503,7 @@ FOUND — the doc block describing `catchup_multiplier` was physically
 attached to `median_u32` (it sat above `median_u32`'s own doc, so rustdoc
 concatenated both onto the median helper and `catchup_multiplier` itself
 rendered undocumented). Repaired while rewriting the function.
+
 
 ### 2026-09-04 — CATCHUP-DEGENERATION deploy record (release `catchup-degeneration`)
 
@@ -4679,6 +4681,7 @@ grant observed in 20 minutes" against a live game resolving a fight every
 win-XP had stopped. The check that dissolved it was looking at the
 characters directly rather than re-reading the observer's conclusion —
 they were level 17, which is only reachable by being paid.
+
 ## 2026-09-03 — WIKI-TRUTH-UP (branch `wiki/truth-up`)
 
 Corrected the wiki against the code after several mechanics shipped without
@@ -4813,6 +4816,8 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: the wiki is documentation, and the release changes no
 mechanic, cost, chance or timer. The one player-visible consequence — that
 the wiki now says what the game actually does — is the wiki's own content.
+
+
 ## 2026-09-03 — BOSS-SECONDARY-CURVE: the freeze is gone, on seven dials (branch `feature/boss-secondary-curve`)
 
 Ordered from `C:\dust-work\orders\d.md`, implementing §10 of
@@ -5207,6 +5212,200 @@ Tunnel 200, zero panics or ERROR lines.
 No patch note: at `boss_gear_tier_weight = 0.0` the release is an exact
 no-op for players. It becomes announceable the day the weight moves.
 
+
+## 2026-09-04 — GOLEM-MASTER COPY: a deleted penalty that kept being advertised (branch `fix/golem-master-copy`)
+
+Ordered from `C:\dust-work\orders\d.md` as the ship-first item out of the
+advertised-vs-actual sweep
+(`C:\dust-work\reports\ADVERTISED-VS-ACTUAL-SWEEP-2026-09-03.md`).
+**Text only — no code changed, and no behaviour with it.**
+
+### What was wrong
+
+Golem Master told every Elementalist: *"you deal 33% less damage per summoned
+golem, additive (1% of normal damage at 3 golems)."* The penalty was deleted on
+2026-08-20. `combat.rs` says so twice — *"the golem summon damage penalty was
+removed entirely"* at the golem-spawn pass, and *"The penalty no longer
+exists"* on the inheritance-ratio test — and `WIKI_IMPACT.md:202` records the
+removal of *"the field itself, its `resolve_hit` application, its construction
+from `golemmaster` rank, every zero-initializer, and the stale doc referencing
+it."*
+
+**It missed the node description**, which is the one place a player actually
+reads it.
+
+Proven by consumption rather than by comment, which is what makes this safe to
+call: all four `passive_node_count("golemmaster")` sites — combat.rs's spawn
+loop, manager.rs's two slot-unlock checks, adventure_web.rs's picker — are
+**slot counts**, and no damage scaling keyed to golem count exists anywhere in
+`combat.rs` or `character.rs`.
+
+### Why it shipped ahead of the rest of the sweep
+
+The gap is 100×: the copy claims 1% of normal damage at 3/3, the code delivers
+100%. But the size is not the argument — the direction is.
+
+> **Echo under-delivered silently, and a player had to notice an absence. This
+> one changed the allocation decision before play began.** As written the node
+> converted a maxed class mechanic into a 99% self-nerf, so a reader who
+> believed it took one rank or none and never got far enough to find out.
+
+The game also contradicted itself: `wiki/golems.md` already described the
+corrected behaviour (*"Everything else you have inherits at FULL value"*), so a
+player reading both was told two different things — and **the wiki was the half
+telling the truth.** Nothing on `wiki/truth-up` covers this; the defect was in
+the Rust.
+
+### The class, stated because it will happen again
+
+A removal pass deleted the mechanic, its field, its call site, its
+zero-initializers and one doc — and the copy survived because copy is not
+reachable from the code being deleted. **Nothing in a "delete the mechanic"
+change naturally leads you to the sentence that sells it.** The one thing that
+did catch it was a sweep that started from the player-facing text and worked
+back toward the code, which is the opposite direction from how the change was
+made.
+
+### Also corrected in the same commit, none of it player-facing
+
+- `combat.rs`'s golem test fixture still explained itself with the removed
+  penalty's arithmetic ("99% golem-summon-damage penalty at 3 golems, by
+  design"). Corrected rather than deleted: the fixture's reasoning only reads
+  as sound if you know what it was built against.
+- `passive_tree.rs`'s "All 3 of these still NotYetImplemented" comment over
+  `unbroken`/`lastbastion`/`risingdefiance`. All three now carry declared
+  values, live consumers and matching copy — the mismatch it describes is
+  closed. Kept and corrected, because the history explains the names.
+  `sacredoverflow` is now the last `NotYetImplemented` node in the tree.
+- `docs/world2_build_plan.md` §7 still listed **`lastrites`** under Open
+  rulings; `ffda7ad` closed it. Struck through rather than deleted so an old
+  citation still lands on what was written. **The general lesson, recorded
+  there: a ruling being made does not close its board entry, and nothing else
+  does it automatically.** This board sent a session chasing a closed item.
+
+### FOUND
+
+- Nothing new. Three findings from the same sweep are held for rulings and are
+  deliberately NOT in this commit: `shatter`'s dead ranks 2-3 (owner ruled:
+  build the real ladder, magnitude pending), `stillwater` + `sacredoverflow`
+  (owner ruled: retire and replace, with a refund migration), and the `Leech`
+  affix floor (handed to window b).
+
+### 2026-09-04 — GOLEM-MASTER-COPY deploy record (release `golem-master-copy`)
+
+Queue item 10, from window d. Player-facing priority.
+
+| | |
+|---|---|
+| master commit deployed | `ff67799` |
+| binary before | `e3b7d2cb…d01f6d` |
+| binary after | `39054bae5cda11b5d503577630cfb71931edd721bc352caee1eb913e19893b10` |
+| downtime | **0.68 s** |
+| suite on the box | **852 passed / 0 failed, 40 suites** — unchanged from item 8, as a text-only change should be |
+| slot | `deploy-pre-20260904-071524-golem-master-copy`, `LATEST` repointed |
+
+### Why a description was treated as a priority
+
+Golem Master told every Elementalist *"you deal 33% less damage per
+summoned golem, additive (1% of normal damage at 3 golems)"*. That
+penalty was deleted on 2026-08-20. The text stood for two weeks.
+
+**It is not an ordinary stale line, because it inverts a decision made
+BEFORE play.** As written, the node turned a maxed class mechanic into a
+99% self-nerf, so a player who believed it took one rank or none. A wrong
+number in combat gets discovered; a wrong number in a node description
+costs a choice that is never revisited. `wiki/golems.md` already described
+the corrected behaviour, so the game was contradicting itself in two
+places a player could read side by side.
+
+### Proven by consumption, which is what made it safe to ship as text
+
+The branch does not assert the penalty is gone on the strength of a
+comment saying so. All four `passive_node_count("golemmaster")` sites are
+**slot counts** — `combat.rs`'s spawn loop, `manager.rs`'s two
+slot-unlock checks, `adventure_web.rs`'s picker — and no damage scaling
+keyed to golem count exists anywhere in `combat.rs` or `character.rs`.
+
+Verified independently before merging that the `combat.rs` half of the
+diff is comments alone, by filtering the diff for non-comment lines and
+finding none.
+
+### Verified by effect on the rendered page
+
+The check that matters for a copy change is what a player reads. Live on
+`/wiki/passives` (378,503 B, code-generated so it covers every archetype):
+
+- old penalty wording: **0 occurrences**
+- Golem Master now reads: *"Grants the ability to summon 1 golem at rank 1
+  - +1 per additional rank (3 golems at 3/3). Golems are built from your
+  whole build with their base stats at 33% of yours; **your own damage is
+  unaffected by how many you have out**."*
+
+`/passives` could not be used for this: it renders only the logged-in
+character's archetype, and the operator account is a Cleric. **Another
+player's session token was deliberately not borrowed to see an
+Elementalist tree** — `/wiki/passives` is code-generated over all
+archetypes and answered the same question without touching anyone's
+credential.
+
+### A check of mine that would have read as green either way
+
+The tree-identity step printed `penalty text gone : 1`. The label says
+gone; the number means **present**. The string survives at
+`passive_tree.rs:2101` inside a `//` comment quoting the old wording to
+explain the correction, and is absent from the live description — so the
+release was correct and my check was not. A `grep -c` for a string that
+legitimately appears in a comment cannot distinguish the thing from a
+quotation of the thing. The rendered-page check is what actually settled
+it.
+
+### PROCESS SLIP — the patch note was written AFTER the deploy
+
+§13A step 1 requires the patch-notes entry **first**. It was written after
+the binary swap. No consequence: patch notes are runtime data, the entry
+is live and renders, and nothing about the release depended on the order.
+Recorded because the rule exists so the note is not forgotten entirely,
+and an unrecorded near-miss is how it eventually is.
+
+### Patch notes
+
+A new **September 4, 2026** block — the first of the new day, 28 blocks
+total. Pre-edit copy at `/root/patch-notes.pre-golem-master-copy.json`.
+
+Headed *"Golem Master has been lying to you for two weeks, and we are
+sorry"*. It states plainly that **nothing changes mechanically today**,
+that the only change is the description finally being true, and that the
+cost was a decision made on bad information rather than a number anyone
+could have spotted in a fight. It offers to move points for anyone who
+skipped the node because of it.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `39054bae…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,022 B, 200 / 91,118 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines, patch note renders.
+
+### FOUND — item 14's gate is not currently met
+
+Checked ahead rather than at its turn.
+`fix/retire-dead-passive-refund` @ `493d612` does **not** contain the node
+deletions: `passive_tree.rs` is not in its diffstat at all (only
+`migrations.rs`, `WIKI_IMPACT.md` and the journal), and both
+`"stillwater"` and `"sacredoverflow"` are still present in its tree.
+
+As it stands it would ship a one-shot marker-guarded refund into a tree
+where both nodes still render — points refunded, spent straight back into
+a node that still promises something, and never refunded again. **It will
+be refused in that state**, per the ruling. Flagged early so d hears it
+before the branch reaches the front of the queue rather than after.
 ## 2026-09-03 — ADMIN-UI-REWORK (branch `feature/admin-ui-rework`)
 
 Both admin pages regrouped, and the 24 passive-specific dials moved onto
@@ -5408,3 +5607,1070 @@ class because `class="passive-row` also matches `passive-row-head` and `grep -c`
 counts lines while the page is emitted as one. Both caught before any conclusion
 rested on them, but the survey figure was wrong by 3.3x and had already been
 reported once.
+### 2026-09-04 — ADMIN-UI-REWORK deploy record (release `admin-ui-rework`)
+
+Queue item 9, from window a. Held deliberately until items 7 and 8 were
+both live so a rebased once over the pair rather than twice.
+
+| | |
+|---|---|
+| master commit deployed | `749c8df` |
+| binary before | `39054bae…893b10` |
+| binary after | `c90a11cfa44d1e1a052f237e0baa533108694239dbbc1ef018c5af94f4b52336` |
+| downtime | **0.26 s** |
+| suite on the box | **853 passed / 0 failed, 41 suites** — matching a's reported figure exactly |
+| slot | `deploy-pre-20260904-075654-admin-ui-rework`, `LATEST` repointed |
+
+Seven commits. The one that matters most is the first: **`/admin/passives`
+was reporting success for saves that did not happen.** The rest is
+structure — `/admin/tunables` regrouped into 12 groups, the passive
+tunables split onto their own form and route, and a cross-page coverage
+test.
+
+### The risk was the eight dials, and they were checked twice
+
+A rewrite of `render_tunables_page` is precisely what drops a field
+without failing a build, and items 7 and 8 had added eight of them the
+same day. a reported extracting master's render blocks verbatim and
+re-inserting them unchanged. **That was confirmed against the tree rather
+than accepted from the report** — before merging, all eight referenced in
+the rebased source, both validators intact, item 8's read-out present —
+and then **again on the live page after deploy**:
+
+| dial | live | expected |
+|---|---|---|
+| `boss_dr_half_stage` | 150 | 150 |
+| `boss_block_half_stage` | 75 | 75 |
+| `boss_evasion_half_stage` | 50 | 50 |
+| `boss_increased_damage_half_stage` | 50 | 50 |
+| `boss_crit_chance_half_stage` | 58.33333333333333 | 58.33 |
+| `boss_crit_mult_half_stage` | 36 | 36 |
+| `boss_splash_half_stage` | 60 | 60 |
+| `boss_gear_tier_weight` | 0 | 0 |
+
+**8 of 8 render with the values they had before the rewrite.** The
+post-deploy repeat found nothing, which is the point of doing it: a check
+that only runs when you suspect something is not a check.
+
+### "Ungrouped" is absent, and that is the SUCCESS case
+
+The new page carries an `Ungrouped` catch-all for any `LiveTunables`
+field not filed into a group. It does not appear on the live page — and
+that was checked rather than flagged, because an absent section looks
+identical to a broken one. `render_ungrouped` opens with:
+
+```rust
+if missing == 0 {
+    return String::new();
+}
+```
+
+So its absence means **zero unfiled tunables**: every field is grouped.
+Had it rendered, it would have carried its own warning banner naming the
+count. The section is a defect *reporter*, so an empty one is the passing
+state.
+
+The coverage test behind it is derived from the struct rather than a
+hand-maintained list — the same discipline CLAUDE.md already requires of
+the form POST tests — and it asserts something sharper than coverage:
+**no field may render on BOTH admin pages**, because two forms that can
+write the same field mean the later save silently reverts the earlier.
+
+### The gear-tier read-out has moved, and it is the data that moved
+
+After item 8 deployed (2026-09-03 19:31) the read-out said *mean 0.1 —
+median 0.0*. It now says:
+
+> *Gear-tier excess (max(0, mean equipped tier − level), all 21
+> characters): mean 1.9 — median 0.0 — **max 15.6** — **5 of 21** carry
+> any excess.*
+
+**The format is unchanged** — confirmed by grepping item 8's own commit
+for `carry any excess` and finding it, which means my earlier reading was
+simply truncated at 80 characters and not a different render. So the
+change is entirely in the data: in roughly twelve hours the mean excess
+went **0.1 → 1.9**, and one character now carries **15.6 tiers** of gear
+above their level.
+
+That is the undamped craft-power loop becoming visible, and it is exactly
+what item 8 shipped the read-out to provide. **Twelve hours ago there was
+no distribution to choose `boss_gear_tier_weight` from; now there is one**,
+and it says the excess is concentrated rather than broad — a median of 0.0
+against a max of 15.6 across 5 of 21 characters.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `c90a11cf…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,022 B, 200 / 91,118 B |
+| 6 | anon `/admin/tunables` **and** the new `/admin/passives` | **404** both |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+The new operator route was added to check 6 rather than assumed to
+inherit the gate — a new admin page is a new place for the gate to be
+missing.
+
+Tunnel 200, zero panics or ERROR lines. Authenticated `/admin/tunables`
+109,337 B and `/admin/passives` 125,470 B.
+
+No patch note: `/admin/*` is operator-only and no player-facing mechanic,
+cost, chance or timer changed.
+
+### FOUND — item 14's gate is still not met on the remote
+
+Re-checked at the start of this session. `fix/retire-dead-passive-refund`
+is still `493d612`, still **one** commit, `passive_tree.rs` still absent
+from its diffstat, both `"stillwater"` and `"sacredoverflow"` still
+present in its tree, and
+`every_retired_key_is_gone_from_every_tree` returning **0** references.
+
+The order describes that work as done. It is not on origin. **Third stale
+branch pointer**, and the one where trusting it would have cost the most:
+merging it as described would have shipped a one-shot marker-guarded
+refund into a tree where both nodes still render, and the marker would
+have made the loss permanent and invisible. The enforcing test d wrote is
+the thing that makes the gate self-enforcing, and it is the thing that has
+not arrived.
+### 2026-09-04 — FLAKE: the craft-token test, and a general fact about disposable managers
+
+Branch `fix/stage-gate-shard-flake`.
+`stage_gate_tests::fighting_never_grants_a_craft_token_but_the_starter_set_is_intact`
+failed at roughly 2%. Sixth instance this week of *a literal list
+asserted against a fixture that has a random element in it*.
+
+**Cause.** `craft_tokens` is a shared bag that shard currencies also live
+in. The test compared the whole map against the starter set excluding
+`UniqueShard` — but that was not the only currency that could arrive.
+`announce_encounter_result` carries a one-time top-healer grant of a
+`CraftAction::CelestialShard`, marker-guarded, which fires on the first
+boss fight in which any player records `healing_done > 0`.
+
+**The general fact, which is worth more than the fix:** every disposable
+test manager builds a FRESH scratch data dir, so **every one-time
+marker-guarded grant in the codebase is armed in every such test.** The
+marker files live in the directory the test just created, so they are
+always absent and the grants are always primed. Any disposable-manager
+test asserting over state that a launch grant can touch is exposed to
+this, not just this one. That is the thing to check first the next time a
+manager test flakes.
+
+**Fixed as a property**, stated over `ALL_CRAFT_ACTIONS` — the eight real
+craft actions, which are exactly the starter set — rather than by
+lengthening the exclusion list. A longer list is the same bug with a
+later expiry date: the next currency added to that map reopens it. The
+eight cannot be reopened that way, because a new currency is by
+construction not one of them.
+
+Mutation-checked, and **half the check is permanent**: the helper forces
+both shard currencies into the map and re-asserts, so the test
+demonstrates its own immunity on every run instead of depending on the
+roll. Separately and temporarily, the old assertion was run against a
+forced CelestialShard and failed exactly as reported — reproducing the
+live failure rather than resembling it.
+
+Deliberately **not** validated by repetition. Session c ran 30 isolated
+runs and refused to call them evidence at p ~ 0.002; answering that with
+200 runs would have been the same error at a larger scale.
+
+Suite: **794 passed, 0 failed**, `cargo test --release --workspace
+--quiet -j 4 --target-dir target-flake`.
+
+FOUND — that single test takes ~68 s on its own, because it runs 12 real
+encounters. Pre-existing, not from this change, and it is most of why the
+lib suite's wall clock is what it is.
+
+### 2026-09-04 — The worktree correction, recorded because the wrong model was load-bearing
+
+`C:\dust-work\{a,b,...}` are **git worktrees sharing `C:\PathofDust\.git`**,
+not independent clones. `C:/dust-work/b/.git` is a file whose entire
+contents are `gitdir: C:/PathofDust/.git/worktrees/b`.
+
+This mattered rather than being trivia. Hooks live in the shared
+`.git/hooks` and run for **every** worktree, so a commit/push hook
+installed on 2026-09-03 to protect `C:\PathofDust` refused all five
+worktrees — including the four directories its own refusal message points
+people at. It blocked every window, session c's merge authority included.
+
+The hook's own note read "Verified before installing: nothing automated
+commits from this tree." That verification was sound for the tree it
+considered; it simply did not consider that the hooks directory is shared
+with five worktrees. Fixed by window a with a three-line
+`git rev-parse --show-toplevel` guard.
+
+Two things deliberately not done while blocked, both later ruled correct.
+The hook documents `--no-verify` and its own text names the worktrees as
+the legitimate place to work, so overriding it would have been arguable —
+but silently overriding another session's guard proves it can be ignored,
+which is worse than waiting. Editing the hook directly was also declined:
+it is another window's safety control, and changing it unilaterally is
+the same mistake pointing the other way. Reporting the fix and letting
+its owner apply it was the shape that worked.
+
+Practical consequence worth keeping: a finished but uncommitted change on
+a machine that has lost power twice in a day should be written outside
+the repo before reporting. `git diff --cached > ...patch` — note
+`--cached`, since a staged change produces an empty plain `git diff`.
+
+### 2026-09-04 — STAGE-GATE-SHARD-FLAKE deploy record (release `stage-gate-shard-flake`)
+
+Queue item 11, from window b, with a's `26b49d3` riding along. Closes the
+~2% flake that halted this queue on item 5.
+
+| | |
+|---|---|
+| master commit deployed | `aa7a47b` |
+| binary before | `c90a11cf…b52336` |
+| binary after | `4c092167a2b2fd7f436406b5e6bece6fba936fe9ee825ede2949d7a93677aaf1` |
+| downtime | **0.40 s** |
+| suite on the box | **853 passed / 0 failed, 41 suites** |
+| slot | `deploy-pre-20260904-192539-stage-gate-shard-flake`, `LATEST` repointed |
+
+### The mechanism is worth more than the fix
+
+`craft_tokens` is a **shared bag** that shard currencies also live in, and
+`announce_encounter_result` carries a one-time top-healer `CelestialShard`
+grant whose marker file is **always absent in a fresh scratch dir**. So
+that grant is armed in every disposable-manager test, and fires whenever a
+single Commoner records healing.
+
+**The generalisation, which is the part to carry: every
+disposable-manager test in this codebase runs with all one-time marker
+grants armed**, because the markers live in the scratch dir that was just
+created. That is a property of the harness, not of any one test, and it
+means any test asserting "nothing was granted" is asserting it against a
+manager with every one-shot grant loaded.
+
+b rejected adding `CelestialShard` to the exclusion list as *"the same bug
+with a later expiry date"* and asserted over `ALL_CRAFT_ACTIONS` instead.
+That was the sixth instance of the assertion-encodes-an-ANSWER class; an
+exclusion list would have guaranteed a seventh the next time a currency
+joined the bag.
+
+### The fix carries its own negative control
+
+After asserting the starter set, the helper **forces `UniqueShard` and
+`CelestialShard` into the bag and re-asserts**:
+
+```rust
+let mut forced = character.clone();
+forced.add_craft_token(CraftAction::UniqueShard, 1);
+forced.add_craft_token(CraftAction::CelestialShard, 1);
+// ... every ALL_CRAFT_ACTIONS entry must still read 1
+```
+
+So the test contains the proof that it cannot be broken the way it was
+broken. A fix that only removed the symptom would have looked identical
+on a green run.
+
+### A REVERT AVOIDED — the follow-up commit was cherry-picked, not merged
+
+a pushed `26b49d3` to `feature/admin-ui-rework`, a branch already merged
+at `f5408d6`. **Merging that branch again to collect one line would have
+reverted item 10.**
+
+`git diff 749c8df..origin/feature/admin-ui-rework` reads **−246 lines,
+including `passive_tree.rs −47`** — because a's branch is based on
+`dcbf9ed`, which predates the Golem Master fix. Merging it would have
+silently restored the text telling every Elementalist they deal 1% damage
+at three golems, **with a green suite and no symptom**, an hour after that
+text was corrected and announced in a patch note apologising for it.
+
+Cherry-picked the single commit instead, then verified against the tree:
+item 10's corrected text present, a's line in, all eight dials still
+referenced.
+
+**The general shape, which is this week's recurring one: a pointer
+described by what someone ADDED to it rather than by what it now
+CONTAINS.** "a pushed one line to that branch" is true. "Merge that branch
+to get one line" does not follow, and the gap between them is every commit
+the branch has not caught up on.
+
+### Verified by effect
+
+a's cross-reference renders on `/admin/tunables`, **and its anchor target
+exists**:
+
+| | |
+|---|---|
+| hint line | present |
+| link | `href="#boss_gear_tier_weight"` |
+| target | `id="boss_gear_tier_weight"` |
+
+Checked the target rather than only the link, because a link to a missing
+anchor renders perfectly and goes nowhere — the failure would be invisible
+in exactly the way the line was added to prevent.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **21 = 21** |
+| 4 | live sha256 | `4c092167…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,037 B, 200 / 92,403 B |
+| 6 | anon `/admin/tunables` and `/admin/passives` | **404** both |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: a test-harness fix and one operator-page hint line. Nothing
+player-facing changed.
+
+### Item 14's gate is now genuinely met
+
+`fix/retire-dead-passive-refund` moved to `eb905c7`, adding *"Delete both
+retired node definitions, in the same release as the refund"* plus
+`every_retired_key_is_gone_from_every_tree`.
+
+The two remaining occurrences of the retired keys in `passive_tree.rs` are
+**tombstone comments** — `// RETIRED 2026-09-04 - "stillwater"
+(Stillwater) stood here` — not definitions. Checked *where* rather than
+*how many*, which is the lesson from the Golem Master grep that read `1`
+and meant "present in a comment".
+
+d's design note is the part worth keeping: **removing the entry IS the
+refund.** Every site that asks how many points a character has spent
+derives it by summing the allocation map, so a removed entry returns its
+points automatically and the two numbers cannot disagree — because there
+is only one number.
+
+### 2026-09-04 — STANDING FACT: one-time grants in disposable-manager tests, and a correction to my own claim
+
+Belongs beside the `Character::new` random-affix note — the same disease
+in the other fixture. **This entry corrects the generalisation in the
+2026-09-04 craft-token flake entry**, which said "every one-time
+marker-guarded grant in the codebase is armed in every such test." That
+is too broad, and the accurate version is more useful.
+
+Every disposable test manager builds a FRESH scratch data dir, so every
+marker file is absent and every one-time grant is *nominally* armed. But
+the grants split into two kinds, and only one kind can actually fire.
+
+**Construction-time grants are harmless.** Ten of the eleven
+marker-guarded sites live in `AdventureManager::new` (plus
+`fight_storage`'s own startup migration). They iterate the characters
+loaded from disk — and in a disposable test that file is EMPTY at
+construction. They grant nothing, then write their markers, which
+permanently disarms them before any character has joined. A test cannot
+be bitten by these no matter what it asserts.
+
+**Gameplay-time grants are armed and will fire.** A grant that runs
+during a fight sees characters that exist by then, with its marker still
+absent because construction never wrote it.
+
+**There is exactly one of these today**: the one-time top-healer
+`CraftAction::CelestialShard` award in `announce_encounter_result`
+(`manager.rs`, the only marker check outside the constructor). It fires
+on the first boss fight in which any player records `healing_done > 0`.
+That is why it, and nothing else, produced the craft-token flake.
+
+**The exposure question, answered rather than surveyed.** The only
+gameplay-armed grant writes into `craft_tokens`, so the exposed set is:
+disposable-manager tests that run a fight and then assert over
+`craft_tokens`. That was exactly one test, and it is fixed.
+`divinity_ui_http.rs`'s `inventory.len() == 3` is the only other
+whole-collection assertion on a disposable manager, and it is NOT exposed
+— no gameplay-armed grant touches `inventory`. Everything else in the
+suite that indexes or counts a collection (`migrations.rs`,
+`character.rs`'s craft tests) operates on a bare `Character` with no
+manager at all, so no grant of either kind runs.
+
+**Stated as a check, so it is usable in review:** when a disposable-
+manager test asserts over currency, token or item state, ask whether any
+marker-guarded grant runs on a GAMEPLAY path — not whether one exists.
+Construction-time grants disarm themselves on an empty roster. Today the
+answer is a single grant and a single currency; if a second gameplay-time
+grant is ever added, this entry is the thing it invalidates.
+
+### 2026-09-04 — FIVE-SLOT-SWEEP deploy record (release `five-slot-sweep`)
+
+Queue item 12, from window b. Phase 3 of the sweep.
+
+| | |
+|---|---|
+| master commit deployed | `3f6b78c` |
+| binary before | `4c092167…77aaf1` |
+| binary after | `f3b160bf4cd6b8b5668a87c6456c5ae4641fccfcdce436accf2a3951be34f590` |
+| downtime | **0.28 s** |
+| suite on the box | **855 passed / 0 failed, 41 suites** (853 + 2, `slot_coverage_tests`) |
+| slot | `deploy-pre-20260904-194132-five-slot-sweep`, `LATEST` repointed |
+
+### The guard is the deliverable, not the sweep
+
+Replacing the last hardcoded `[weapon, helm, body, gloves, boots]` lists
+with `EQUIP_SLOTS` iteration closes the immediate gap. What stops it
+recurring is this:
+
+```rust
+const _: () = assert!(
+    EQUIP_SLOTS.len() == 9,
+    "EQUIP_SLOTS has changed size. `slot_power_is_affix_equivalent` is a FORK ..."
+);
+```
+
+**A compile-time assertion — not a runtime one and not a test.** That is
+strictly stronger than the guard item 4 added for the same class four
+releases ago: a test guard fails a suite that someone widening the array
+on a feature branch might not run, while this fails the **build**. The
+next person to add a tenth slot cannot compile until they have read the
+message naming what forks on the count.
+
+This class has now cost four separate incidents — the startup backfill
+that granted 72 tier-1 items, `owned_items_mut_unguarded` billing for
+repairs it silently skipped on four slots, and two more the sweep itself
+found. Every one was a hand-maintained membership that a widening constant
+invalidated without a symptom. The progression of the cure across those
+four is worth seeing as a progression: a comment asserting an invariant
+(failed), a marker guarding state (worked, but only for migrations), a
+runtime test assertion (works if run), and now a compile-time assertion
+(cannot be skipped).
+
+### Verified by effect
+
+All nine slots are iterated where the five used to be. Across the live
+roster of 22:
+
+| slot group | equipped |
+|---|---|
+| weapon, helm, body, gloves, boots | **22 / 22** |
+| ring1, ring2, amulet, pants | **21 / 22** |
+
+The one character short on the new four is the one who joined since
+gear-slots shipped — which is the owner's ruling holding exactly as
+specified: new slots start EMPTY and fill from drops, and the startup
+backfill can no longer fill them because item 5's marker closed it.
+
+`/inventory` renders at 270,980 B against 117,343 B when gear-slots first
+landed, which is what nine populated slots across a grown roster looks
+like.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `f3b160bf…` = candidate |
+| 5 | `/characters`, `/passives`, `/inventory` | 200 / 81,348 B, 200 / 92,403 B, 200 / 270,980 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines. No golden-corpus fixture touched
+and no scenario moved, consistent with a change to which slots are
+iterated rather than to what any slot does.
+
+No patch note: no mechanic, cost, chance or timer changed.
+
+## 2026-09-04 — SHATTER: a real ladder, sized against the clamp rather than to a round number (branch `fix/shatter-ladder`)
+
+Approved at `[1.0, 1.35, 1.65]` from the advertised-vs-actual sweep. Its own
+branch — it touches nothing the refund migration touches, so the deploy queue
+can order the two freely.
+
+### What was wrong
+
+`SpecialPerRank { values: &[1.0, 1.0, 1.0] }` — a flat on/off gate whose second
+and third points bought exactly nothing — under copy that read *"by the same
+amount per rank"*, i.e. as per-rank scaling. Every other flat-ladder node in the
+tree names its dead rung in its own text (*"unlocked at rank 2"*, *"once per
+fight at rank 1, twice at rank 3"*). This was the one that did not.
+
+### The number, and why it is not round
+
+The multiplier scales Overwhelm's live shred and is subtracted from the
+defender's block chance. **There is no relative floor protecting the defender
+from it**: block is clamped only at the roll, and the
+`.max(pre_boss_block.min(0.25))` sitting just below the subtraction belongs to
+the *boss's own* defense-ignore and runs after Shatter has already applied. So
+block can be driven to zero.
+
+At the Berserker's end state — Overwhelm 3/3 (0.09/stack), Bloodlust at its
+5-stack cap, boss block pinned at `BOSS_DEFENSE_CAP` — the shred is 0.45, so
+block reaches zero at **0.75 / 0.45 = 1.667**.
+
+**Any rank-3 value at or above 1.667 is fully absorbed by the clamp in exactly
+the configuration a maxed Berserker plays in — a ladder scaling into a cap is the
+same defect wearing a new number.** 1.65 is the largest value provably not
+absorbed; it leaves block at 0.008 rather than 0. A round 2.0 would have spent a
+third of the top rung on nothing.
+
+Rank 1 stays 1.0 by ruling: the ladder goes up from it, never down to it. A
+silent nerf to existing allocations is not an acceptable way to fix our own copy.
+
+| rank | mult | boss block 0.75 → | damage mult (1 − block/2) | vs previous |
+|---|---|---|---|---|
+| — | — | 0.750 | 0.625 | — |
+| 1 | 1.00 | 0.300 | 0.850 | +36.0% |
+| 2 | 1.35 | 0.143 | 0.929 | +9.3% |
+| 3 | 1.65 | 0.008 | 0.996 | +7.3% |
+
+### The general shape worth keeping
+
+**Solve for where the clamp bites, then sit just under it.** The sweep's original
+finding was a ladder absorbed by a cap; the fix is only a fix if the new ladder
+is not. That is a property to test, not to eyeball — `no_rank_is_absorbed_by_the_block_clamp`
+recomputes the saturation point from the constants and asserts every rank lands
+strictly below it, so the test still holds if Overwhelm, the stack cap or
+`BOSS_DEFENSE_CAP` ever move.
+
+### Also
+
+`passive_overrides.rs`'s Stage-3 shipped-values table moved with the node, the
+same way `lastrites`'s row did when its values changed deliberately — annotated
+so a reader knows that row is no longer the Stage-3 snapshot. Description
+rewritten to state all three multipliers, since the old wording is exactly what
+made this a finding.
+
+### 2026-09-04 — SHATTER-LADDER deploy record (release `shatter-ladder`)
+
+Queue item 13, from window b. Independent of everything else queued; no
+golden-corpus fixture touched.
+
+| | |
+|---|---|
+| master commit deployed | `12dcd41` |
+| binary before | `f3b160bf…34f590` |
+| binary after | `f7563ea82bad387de434a0e594a872d71957d770f38ae30a0ea39550e994bbbc` |
+| downtime | **0.69 s** |
+| suite on the box | **860 passed / 0 failed, 41 suites** (855 + 5) |
+| slot | `deploy-pre-20260904-195648-shatter-ladder`, `LATEST` repointed |
+
+### What was actually wrong
+
+Shatter was `[1.0, 1.0, 1.0]` — rank 1 did the whole effect and ranks 2
+and 3 changed nothing — while its description said it improved *"by the
+same amount per rank"*.
+
+The aggravating part is not the dead rungs. **Every other flat-ladder node
+in the tree names its dead rung in its own text; this one did not.** So a
+player who spent a second or third point had no way to discover they had
+bought nothing — the node told them the opposite. That is the same class
+as Golem Master two releases ago: a description that costs a decision
+rather than misreporting a number.
+
+Now `[1.0, 1.35, 1.65]`, and **rank 1 is unchanged**, so nobody holding a
+single point is nerfed by this.
+
+### Why 1.65 and not a round 2.0
+
+b sized it against the clamp rather than to a tidy figure, and the
+reasoning is the transferable part: **block is clamped only at the roll,
+and nothing floors the shredded value.** A round 2.0 would have driven the
+target's block below zero in the common case and wasted most of the rank
+against everything except the exact configuration that produced the
+arithmetic.
+
+Measured, against a boss at the 0.75 block cap with Overwhelm 3/3 and
+Bloodlust at its 5-stack cap:
+
+| | block chance | damage through |
+|---|---|---|
+| unshattered | 0.75 | 0.625 |
+| rank 1 (unchanged) | 0.300 | 0.850 |
+| rank 2 | 0.143 | 0.929 |
+| rank 3 | 0.008 | 0.996 |
+
+So the marginal point buys about **+9.3% then +7.3%** damage — and
+**nothing at all against a target that does not block**.
+
+### Verified by effect
+
+Live on `/wiki/passives`, the rendered node description now reads:
+
+> *Overwhelm's damage-reduction shred also applies to the target's block
+> chance — at 100% of the shred at rank 1, **135% at rank 2, 165% at rank
+> 3**.*
+
+Real per-rank values where the old text promised scaling that did not
+exist.
+
+**Extraction note, since it cost two wrong attempts:** the node
+description lives in a `data-tip` attribute that PRECEDES the node name in
+the HTML, so a `grep` anchored forwards from "Shatter" returns the next
+node's tooltip, not this one's. A first pattern matched the heading and
+returned the bare word; a second, `grep -o ".\{0,420\}Shatter</div>"`,
+backtracked catastrophically on a 378 KB page and had to be killed. Parsed
+the attribute properly instead. A verification that returns *something*
+plausible is worse than one that returns nothing.
+
+### Patch notes — written BEFORE the swap this time
+
+Correcting item 10's ordering slip. Prepended into the September 4 block
+(2 sections), pre-edit copy at `/root/patch-notes.pre-shatter-ladder.json`.
+
+Headed *"Shatter's 2nd and 3rd points were buying nothing. Now they buy
+something"*. It says the description was wrong, that **rank 1 is
+completely unchanged**, gives the honest marginal value (+9% then +7%),
+states plainly that Shatter does nothing at any rank against a target
+that does not block — always true, better said than discovered — and
+explains why rank 3 is 165% rather than a round 200%.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `f7563ea8…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,349 B, 200 / 92,403 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines, patch note renders.
+
+### 2026-09-05 — BOUND-PASSWORD-HASHING deploy record (release `bound-password-hashing`)
+
+From window b, taken ahead of the queue: no corpus interaction, and
+`/account/register` is reachable from the internet through the Cloudflare
+tunnel with unbounded argon2 behind it.
+
+| | |
+|---|---|
+| master commit deployed | `1f491e3` |
+| binary before | `f7563ea8…4bbbc` |
+| binary after | `5e56995b1c36c541ebb0883b92f160c8e132a788ac4c40600e26c2d7b6365832` |
+| downtime | **0.92 s** |
+| suite on the box | **865 passed / 0 failed, 42 suites** (860 + 5, new suite) |
+| slot | `deploy-pre-20260904-211654-bound-password-hashing`, `LATEST` repointed |
+
+### The size of the thing, in numbers
+
+Unbounded concurrent argon2 is up to **512 blocking threads × 19 MiB ≈
+9.5 GiB** on a 16 GiB box. Bounded at 4 permits it is **~76 MiB**. That is
+not a tuning improvement; it is the difference between a request pattern
+anyone on the internet can generate and an OOM.
+
+**Both entry points, which is what makes it a fix rather than a
+mitigation.** Registration hashes and login verifies cost the same and
+land on the same blocking pool, so bounding one would have left the
+cheaper-to-reach half open while looking solved. On saturation a request
+is turned away **without hashing**, with a warn line naming which entry
+point — rather than queueing behind the bound, which would convert a
+memory problem into an unbounded queue.
+
+### The floor is the dangerous edge, and it is guarded three ways
+
+Verified against the tree rather than taken from the report, because this
+is the one setting that can lock everybody out:
+
+1. `apply_permit_limit` clamps into `MIN..=MAX`
+2. the form validator range-checks against the same constants
+3. a test asserts `PASSWORD_HASH_PERMITS_MIN == 1` **itself**, with a
+   message naming the consequence
+
+That third one is the good part. **A 0-permit semaphore is not "no limit"
+— it locks every sign-in and registration out of the game with no error
+that explains why.** Guarding only the *values* would let someone lower
+the floor to 0 and ship it; asserting the floor means that fails the
+suite.
+
+Shipped at 4, MIN 1, MAX 64, live tunable.
+
+### Verified by effect, and the limit of that verification
+
+| check | result |
+|---|---|
+| `/account/login` renders | 200 |
+| bad-password login | **401 in 0.0013 s** — refused, and responding |
+| argon2 saturation warnings | **0** |
+| `password_hash_permits` on the live page | **4** |
+
+**What that probe does NOT prove, stated rather than glossed:** 1.3 ms is
+too fast to have run argon2. The username did not exist, so the path
+short-circuits before hashing — exactly as it did for the login-throttle
+probe on 2026-09-03. So this confirms the login path still responds and
+still refuses; it does **not** exercise the semaphore around a real hash.
+
+Doing that on production would need either a real account's correct
+password or registering a throwaway account, and the second writes to
+`adventure-accounts.json`. Neither is worth doing to satisfy a checklist —
+the semaphore's behaviour under contention is covered by the branch's own
+tests, including one that asserts the N+1st hash waits for a permit to
+come back.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `5e56995b…` = candidate |
+| 5 | `/characters` | 200 / 81,350 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: at 4 permits and roughly 100 ms per hash that is about 40
+sign-ins per second of headroom, far beyond this game's load, so no player
+will observe the bound. If that proves wrong the warn line names the entry
+point that was turned away.
+## 2026-09-04 — REFUND MIGRATION: retiring two dead passive nodes without stealing the points (branch `fix/retire-dead-passive-refund`)
+
+Stage 1 of the retirement ordered in `C:\dust-work\orders\d.md`. **The refund
+alone, on its own branch, before either replacement node exists**, per the
+sequencing — it is correct regardless of what replaces either slot.
+
+### The standing lesson this whole thread produced
+
+Recorded here because the owner asked for it to be, and because it generalises
+past the node that produced it:
+
+> **Nothing in a "delete the mechanic" change naturally leads you to the sentence
+> that sells it. The sweep caught it only because it started from the
+> player-facing text and worked back toward the code, which is the opposite
+> direction from how the change was made.**
+
+`WIKI_IMPACT.md:202` records the 2026-08-20 golem-penalty removal deleting the
+field, its `resolve_hit` application, its construction from rank, every
+zero-initializer *and* a stale doc — a thorough change that still missed the one
+place a player reads it. **This is the standing reason the advertised-vs-actual
+sweep runs from the text side, and why it should be re-run from that side after
+any mechanic is removed.**
+
+### What shipped
+
+`migrate_refund_retired_dead_nodes` — one row in `CHARACTER_MIGRATIONS`,
+marker-guarded (`adventure-refund-retired-dead-nodes-marker.json`), honouring the
+existing save-then-mark-done-per-migration contract. A refund is precisely the
+migration that must never re-run.
+
+**Refund, not remap** (owner ruling). `migrate_flowlikewater_swap` remaps and was
+right to — that was the same mechanic moving between tiers. This is different
+mechanics arriving, and a player who chose a defensive-uptime node and silently
+received a party-support node would have been wronged in a new way by the fix for
+the old one.
+
+**Removing the entry IS the refund**, and that is the property worth remembering:
+every "points spent" site derives the total by summing the allocation map
+(`manager.rs`'s allocate-time guard plus three `adventure_web.rs` render sites all
+do `passive_allocations.values().sum()`). There is no separate available-points
+counter, so there is nothing that can fall out of sync — the two numbers cannot
+disagree because there is only one number.
+
+**Both trees.** Split Personality can run Monk or Paladin as a *secondary*, so an
+affected allocation can live only in `secondary_passive_allocations`. A migration
+touching one map would silently miss exactly those characters and — being
+marker-guarded — never get a second chance at them. Its own test.
+
+### The test I got wrong first, and what it taught
+
+I wrote `the_retired_nodes_contribute_nothing_even_before_the_refund` asserting
+`passive_node_magnitude("stillwater") == 0.0`. **It failed, and the code was
+right.** `stillwater` DECLARES `Special { at_rank_1: 1.0, .. }`, so its magnitude
+at rank 3 is 3.0 — not zero.
+
+What makes it inert is not a property of the node at all: **it is that no call
+site ever passes its key.** That is a property of the CONSUMERS. The test now
+scans `combat.rs`, `character.rs`, `manager.rs` and `adventure_web.rs` for either
+retired key — the same `include_str!` technique `character.rs`'s `guard_tests`
+uses to pin the mutation-guard bypasses — and fails the moment a consumer
+appears, which is exactly when the refund would stop being balance-neutral.
+
+Worth stating as a general shape: **"this node does nothing" is never provable
+from the node.** It is only provable from the absence of readers.
+
+### FOUND — one thing that needs a ruling before this deploys
+
+**The refund is one-shot, but the dead nodes still render in the tree.** Stage 1
+ships the refund alone; the replacements come later under new keys. In the window
+between them a player sees their refunded points and a Stillwater node that still
+promises something, can spend them straight back into it, and — because the
+marker means the migration never runs again — those points are stranded
+permanently with no second refund.
+
+Not fixed here: the order said the refund ships *alone*, and removing the node
+definitions is a scope call that belongs to the owner, not to me mid-build. The
+cheap closure is to drop both node definitions from the tree in the same release
+as this migration, which makes re-allocation impossible by construction rather
+than dependent on release timing. Raised in the report rather than acted on.
+
+### Deliberately not in this commit
+
+Shatter's approved `[1.0, 1.35, 1.65]` ladder (its own branch — it touches
+nothing this migration touches), Shared Aegis, and Still Water.
+
+## 2026-09-04 — THE DELETION SHIPS WITH THE REFUND (branch `fix/retire-dead-passive-refund`, second commit)
+
+Ruling on the gap I raised and deliberately did not close mid-build. The two node
+definitions come out of the tree **in the same release as the refund migration**.
+
+### The rule, stated so it survives this branch
+
+> **A refund that ships into a tree where the money can be re-lost is worse than
+> no refund, because it looks like the problem was solved.** And it fails in the
+> direction that hurts most: the player who trusts the refund and spends it is
+> precisely the one who loses it.
+
+The refund is marker-guarded and therefore one-shot. A surviving definition means
+a player can spend the returned points straight back into a node that still does
+nothing, with no second refund coming. Deleting the definitions makes that
+**unrepresentable** rather than dependent on how long stage 1 sits before stage 2
+lands — the same shape as the new-keys ruling and as `max(0, tier − level)`.
+
+**The constraint now travels with the code, not with the order file.**
+`every_retired_key_is_gone_from_every_tree` fails if a retired key is defined in
+any archetype's tree, so the pairing cannot be separated by a future rebase,
+cherry-pick or partial deploy. A commit message would only have described it.
+
+### The standing rule from the failed test
+
+Recorded here at the owner's instruction, because it generalises well past the
+node that produced it:
+
+> **"This node does nothing" is never provable from the node. It is only provable
+> from the absence of readers.**
+
+I had asserted `passive_node_magnitude("stillwater") == 0.0`. **The test failed
+and the code was right** — the node declares
+`Special { at_rank_1: 1.0, per_additional_rank: 1.0 }` and returns 3.0 at rank 3.
+The sweep's conclusion held, but for a different reason than I had written down,
+and I would never have found that had I asserted the conclusion instead of the
+mechanism. Rebuilt as an `include_str!` scan across the four consumer files, it
+fails the moment a reader appears — which is exactly when the refund would stop
+being balance-neutral. **A claim about today became a guard on tomorrow.**
+
+### The three things the order asked me to verify rather than assume
+
+1. **Startup ordering — confirmed, no window exists.**
+   `AdventureManager::new` is a *synchronous* fn and calls
+   `run_character_migrations` at `manager.rs:2236`, well before it returns its
+   `Arc<Self>`. `main.rs` then spawns the encounter loops and only afterwards
+   awaits `start_adventure_web_server` (`main.rs:153`). So migrations complete
+   before the web server binds a port *and* before any fight loop starts — there
+   is no instant at which a definition is gone and an allocation has not been
+   refunded.
+2. **`passive_overrides.rs` — one entry, now removed.** `stillwater` was the sole
+   member of `UNWIRED_NODES`, the list that tells `/admin/passives` "an override
+   here would change nothing". `sacredoverflow` was never in that file at all —
+   the list's own doc distinguishes unwired nodes from `NotYetImplemented` ones,
+   which declare no value. The list is now empty, documented as a real state
+   rather than an oversight, and kept because the classification is still right
+   for the next node that lands in it. **Its own test
+   (`every_unwired_key_still_exists_in_the_tree`) is what would have caught a
+   dangling entry** — the guard worked.
+3. **Two visible gaps — checked, and the layout does not care.**
+   `compute_passive_layout` derives `mods_count` by filtering nodes at runtime and
+   already branches on `mods_count > 0.0`, so a Specialization with fewer (or
+   zero) Modifier children just reserves a narrower row. Nothing anywhere asserts
+   a node count: `passive_nodes().len()` appears nowhere in the tree.
+
+### FOUND
+
+- `sacredoverflow` was the tree's last `PassiveEffect::NotYetImplemented`. With it
+  gone **no node in the game uses that variant.** The variant itself is left in
+  place — it is the honest declaration for a future node in that state, and
+  `magnitude_at_rank` still handles it — but a reader should know it currently has
+  no users.
+
+### The full suite earned its keep again, on my own FOUND note
+
+I recorded as a FOUND that `sacredoverflow` was the tree's last
+`PassiveEffect::NotYetImplemented`. I did not follow the thought through to its
+consequence, and the full workspace run did:
+`admin_passives_tests::a_not_yet_implemented_node_is_shown_but_not_editable`
+searched the whole tree for such a node and `.expect()`ed one. Deleting the last
+one made it panic.
+
+**Every narrow run I did was green** — the migration tests, the golden corpus,
+the targeted module. Only `--workspace` saw it, because the test lives in a
+different module from everything I touched. That is the second time in three
+sessions the standing "full suite once before reporting" rule has caught a real
+break that no narrow run could (the first was `guard_tests` on the gear-tier
+fixtures).
+
+**Fixed by making the test hold in both states rather than assume one.** The
+rendering arm it guards (`not_yet` → *"No mechanic yet"*) is still live in
+`render_passives_page`; there is simply no node in that state right now. So it
+now checks the arm when such a node exists and asserts the absence explicitly
+when none does — the test re-arms itself automatically the moment a node enters
+that state again, and a reader learns the arm is dormant by fact rather than by
+silence. Deleting the test would have thrown away a live guard because its
+subject happened to be temporarily empty.
+
+### 2026-09-05 — RETIRE-DEAD-PASSIVE-REFUND deploy record (release `retire-dead-passive-refund`)
+
+Queue item 14, from window d. Both commits together, which is the gate.
+
+| | |
+|---|---|
+| master commit deployed | `e7b005d` |
+| binary before | `5e56995b…365832` |
+| binary after | `5978bc7028bba76b59008ad9147761f3cba3b46b37fda28d1018170d799cf808` |
+| downtime | **0.56 s** |
+| suite on the box | **871 passed / 0 failed, 42 suites** (865 + 6) |
+| slot | `deploy-pre-20260904-213300-retire-dead-passive-refund`, `LATEST` repointed |
+
+### The gate, checked on the tree being merged
+
+Stillwater and Sacred Overflow read 0.0 at every rank while still counting
+against a character's point budget. The refund is one-shot and
+marker-guarded, so shipped alone into a tree where the nodes still render,
+a player sees refunded points, spends them straight back into a node that
+still promises something, and the marker means **they are never refunded
+again** — permanent and invisible, and worse than no refund because it
+looks solved.
+
+Verified on the rebased tree, not on the branch as reported and **not by
+counting**: `grep "stillwater"` and `grep "sacredoverflow"` return **zero
+non-comment lines** in `passive_tree.rs`, leaving two
+`// RETIRED 2026-09-04 … stood here` tombstones. That distinction is the
+Golem Master lesson — the same grep there returned `1` and meant "present
+in a comment".
+
+d made the constraint self-enforcing rather than documented:
+`every_retired_key_is_gone_from_every_tree` fails if any archetype's tree
+still defines a retired key, so the pairing cannot be split by a rebase,
+cherry-pick, revert or partial deploy.
+
+### Verified by effect — and it was a real falsification opportunity
+
+An allocation baseline was captured **before** the swap so the migration's
+effect could be measured rather than asserted:
+
+| | before | after |
+|---|---|---|
+| characters | 22 | 22 |
+| total points allocated | **97** | **97** |
+| characters whose total moved | — | **0** |
+| per-character digest | `6846ad277e04fff8` | `6846ad277e04fff8` |
+
+Marker written (`true`), so the migration ran and is now guarded. Neither
+retired node renders: **0** occurrences of "Stillwater" or "Sacred
+Overflow" on `/wiki/passives`.
+
+**This was the first live test of the census I ran for window d on
+2026-09-04** — zero holders, zero points. Had any allocation total moved,
+that census would have been wrong, and so would the sizing d worked from.
+It came back identical to the byte. A migration that correctly does
+nothing is only distinguishable from one that silently failed if you
+measured beforehand.
+
+d's design note is the elegant part: **removing the entry IS the refund.**
+Every site that asks how many points a character has spent derives it by
+summing the allocation map, so a removed entry returns its points
+automatically and the two numbers cannot disagree — there is only one
+number.
+
+### A new marker, and a gap it exposed
+
+The migration introduces
+`adventure-refund-retired-dead-nodes-marker.json`, registered in the
+table at `migrations.rs:561`. It was **not** listed in
+`backup-game-data.sh`'s `MARKER_FILES` — the same completion the
+starter-kit marker needed on 2026-09-03. Added, with the distinction
+recorded in place: this marker is a **guard**, not a record. While it
+exists the refund cannot fire again.
+
+`.gitignore` already covers it through the `adventure-*-marker.json`
+glob — confirmed with `git check-ignore` rather than inferred from the
+pattern being present, which is the near-miss that caught me on
+`bugreports.json`.
+
+Confirmed by effect: a real `pathofdust-backup.service` run afterwards
+reported **`verdict=clean`, 40 archives, 40 verified, and no
+`MANIFEST DRIFT` line.**
+
+### Two of my own checks that returned misleading numbers
+
+**`refund marker path defined : 0`.** Reads as "the marker is missing". It
+was not — I had grepped for `REFUND_RETIRED_DEAD_NODES`, a constant name
+I guessed, and no such constant exists. The `0` meant *my guess was
+wrong*, not *the thing is absent*. Third instance this session of a bare
+count reading as a verdict: the Golem `1` that meant "in a comment", the
+`penalty text gone : 1` whose label inverted its own number, and this.
+**A bare count is only evidence if you already know what a correct answer
+looks like.**
+
+**The backup script installed from a stale tree.** I installed
+`backup-game-data.sh` from `/root/deploy-src-retire-dead-passive-refund/`,
+which was archived from `e7b005d` — *before* the marker line was committed
+at `18d7ec6`. The verification grep returned `0` and caught it; reinstalled
+by piping the current repo copy. The archive tree is a snapshot, and a
+snapshot taken before an edit does not contain the edit — the same
+stale-artifact class recorded three times already, this time in my own
+deploy step.
+
+### §13B.5, all seven
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0` |
+| 3 | loaded vs file | **22 = 22** |
+| 4 | live sha256 | `5978bc70…` = candidate |
+| 5 | `/characters`, `/passives` | 200 / 81,355 B, 200 / 92,405 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon `POST /api/commands/join` | **404** |
+
+Tunnel 200, zero panics or ERROR lines.
+
+No patch note: on this roster the refund moves nothing and the two removed
+nodes were unreachable dead weight that read 0.0 at every rank. Nothing a
+player can observe changed.
+
+### 2026-09-05 — CORRECTION: merging `feature/admin-ui-rework` would NOT have reverted item 10
+
+**This corrects the entry "journal: stage-gate-shard-flake deploy record,
+and a revert avoided by cherry-picking" (`4e58cd4`, 2026-09-04) and the
+claim repeated in reports `2026-09-04e` and `2026-09-05b`. The original
+entries stay as written and wrong, per the append-only rule; this is the
+dated correction.**
+
+**What I claimed.** That merging `feature/admin-ui-rework` to collect a's
+one-line follow-up would have reverted item 10's Golem Master fix —
+restoring text telling Elementalists they deal 1% damage at three golems,
+"with a green suite and no symptom", an hour after a patch note apologised
+for it. I cited
+`git diff 749c8df..origin/feature/admin-ui-rework` showing **−246 lines
+including `passive_tree.rs −47`**.
+
+**What is actually true.** Tested empirically today with a real
+`git merge --no-commit` of that branch into current master:
+
+| after a genuine merge attempt | present? |
+|---|---|
+| item 10's `your own damage is unaffected` | **yes** |
+| item 13's Shatter `1.35` | **yes** |
+| item 14's two `// RETIRED` tombstones | **yes** |
+| the password-hash semaphore in `accounts.rs` | **yes** (4 refs) |
+
+**Nothing was reverted.** The merge produces a **conflict in
+`adventure_web.rs`** plus the two append-only docs, and stops for
+resolution. That is real work and real risk if resolved carelessly — it is
+not a silent revert.
+
+**The mistake, named precisely: I read a two-dot `git diff A..B` as a
+preview of a merge.** It is not. `A..B` shows the difference between two
+snapshots, so every commit `A` has that `B` lacks appears as a deletion.
+Any branch behind master shows large negative numbers; that is the normal
+state of a branch, not a hazard. A merge is computed from the **merge
+base** and combines both sides, so master's later commits survive. The
+number I quoted was a true number answering a different question.
+
+**Why this one is worth a full entry rather than a line.** The failure I
+described was *silent* — green suite, no symptom, discovered later. That
+is the most alarming shape a claim can have, and it is the shape I have
+spent this week flagging in other people's work: plausible, specific,
+confidently stated, and wrong. It went into two reports and a commit
+message, and the owner ratified it, before I checked it. **A claim about a
+destructive outcome deserves the same standard as a claim about a passing
+test: run it, do not reason about it.** Reasoning is what produced the
+error; one `git merge --no-commit` against a scratch branch refuted it in
+seconds and could have been run at any point.
+
+**What was still correct.** Cherry-picking a single-line commit was the
+right choice — simpler, no conflict resolution, nothing to get wrong. The
+general lesson about pointers ("a branch described by what someone added
+to it rather than by what it now contains") also stands, and was what
+prompted checking the branch at all. Only the specific mechanism was
+false: the risk of merging a stale branch here is *a conflict resolved
+badly*, not *a silent revert*.
