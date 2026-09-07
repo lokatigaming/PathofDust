@@ -150,6 +150,15 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
         ("splash_ladder_step_pct", "250".to_string()),
         ("splash_ladder_targets_per_step", "3".to_string()),
         ("splash_damage_pct", "0.42".to_string()),
+        // Added 2026-09-07 with the healer compensation: `PassiveTunablesForm`
+        // gained these three and they carry no `#[serde(default)]`, so a body
+        // missing them extracts as 422. This list is hand-maintained, which is
+        // why the omission surfaced here rather than in the drift guard below -
+        // see the note in the report: the passive form still has no scraped
+        // guard, so it can catch a FORGOTTEN field but not a DROPPED one.
+        ("smite_heal_power_per_level_rank1", baseline.smite_heal_power_per_level_rank1.to_string()),
+        ("smite_heal_power_per_level_rank2", baseline.smite_heal_power_per_level_rank2.to_string()),
+        ("smite_heal_power_per_level_rank3", baseline.smite_heal_power_per_level_rank3.to_string()),
     ];
     let passive_refs: Vec<(&str, &str)> = passive_form.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let passive_save = client

@@ -19226,24 +19226,66 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         // one-shottable for longer within that same window.
         character.passive_allocations.insert("growing".to_string(), 1);
         character.golem_slot_types = vec![GolemType::Thunder];
-        let owner_pre_buff_max_hp = character.combat_max_hp(&LiveTunables::default()) as f64;
 
         let mut ally = Character::new("healer".to_string());
         ally.archetype = Archetype::Cleric;
         ally.level = 100;
         ally.passive_allocations.insert("resilience".to_string(), 3);
+        // BOTH characters are stripped to bare slots (2026-09-07).
+        // `Character::new` rolls a tier-1 starter kit from an UN-SEEDED
+        // `rand::thread_rng()`, which was this fixture's only source of
+        // run-to-run variance - and once the archetype affix curve
+        // narrowed the margin below (see `boss_atk`), that variance
+        // started deciding whether the fight reached a reform at all.
+        // Measured on the release tree BEFORE this change: **8 failures
+        // in 15 runs.** The gear was never what the test was about, so
+        // removing it removes the coin-flip rather than re-rolling it.
+        // Only the original five slots need clearing - the four §8 slots
+        // start empty by ruling.
+        for c in [&mut character, &mut ally] {
+            c.weapon = None;
+            c.helm = None;
+            c.body = None;
+            c.gloves = None;
+            c.boots = None;
+        }
+        let owner_pre_buff_max_hp = character.combat_max_hp(&LiveTunables::default()) as f64;
         let party_max_hp_pct = 0.10; // Blessed Resilience at 3/3: 4% + 2*3% = 10%
 
         let mut characters: HashMap<String, Character> = HashMap::new();
         characters.insert("elementalist".to_string(), character);
         characters.insert("healer".to_string(), ally);
 
-        // 70% of the owner's own (pre-buff, so a lower bound) max_hp -
-        // comfortably above the golem's spawn max_hp (33%*1.10 = ~36.3%
-        // of owner_hp) and several reforms' worth of growing rank 1's
-        // gentle growth past that, while staying under 100% of owner_hp
-        // so a leaked hit during a reform gap can't one-shot the owner.
-        let boss_atk = (owner_pre_buff_max_hp * 0.70).round() as u64;
+        // 45% of the owner's own (pre-buff, so a lower bound) max_hp -
+        // above the golem's spawn max_hp (33%*1.10 = ~36.3% of owner_hp)
+        // so the very first hit still one-shots it and a reform is
+        // reached immediately, while leaving the party enough headroom to
+        // survive the hits that LEAK during a reform gap (a known,
+        // accepted Thunder Golem weakness - see `is_protected_golem`).
+        //
+        // WAS 0.70, RETUNED 2026-09-07. 0.70 was sized for "several
+        // reforms' worth" of `growing` rank 1 keeping the golem
+        // one-shottable, and that sizing assumed the party could out-heal
+        // the leaked hits between reforms. **The archetype affix curve
+        // removed that assumption**: this fixture's healer is a level-100
+        // Cleric, whose heal power went flat at 100% and whose action
+        // cadence therefore fell from 6.00x to 1.00x - an ~83% cut to its
+        // healing output at this level. Two leaked hits at 0.70 exceed a
+        // buffed player's max hp, so the party began wiping before a
+        // reform was reached and the fight ended early.
+        //
+        // At 0.45 a leaked hit is survivable twice over, so the fight
+        // lasts; the golem is still one-shot on spawn, and once `growing`
+        // has pushed it past 0.45 it simply takes two hits instead of
+        // one, which slows reforms without stopping them. The test reads
+        // the reform count back off the event log rather than assuming
+        // it, so a slower cadence changes nothing it asserts.
+        //
+        // The product was never wrong here - the fixture stopped
+        // reliably producing the situation it exists to observe, which
+        // its own `reform_count >= 1` guard correctly refused to pass
+        // vacuously.
+        let boss_atk = (owner_pre_buff_max_hp * 0.45).round() as u64;
         let boss_stats = BossStats { hp: 500_000_000, atk: boss_atk, attack_interval_ms: 1_200, ..Default::default() };
         let tunables = LiveTunables::default();
         let mut rng = StdRng::seed_from_u64(4242);

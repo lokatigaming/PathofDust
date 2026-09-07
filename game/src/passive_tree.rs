@@ -1203,7 +1203,27 @@ static MONK_NODES: &[PassiveNode] = &[
 static PALADIN_NODES: &[PassiveNode] = &[
     skill("oath", "Guardian's Oath", "Increases intervene by 4% at rank 1 - +3% per rank (10% at 3/3).", FlatStat { stat: IntervenePct, at_rank_1: 0.04, per_additional_rank: 0.03 }),
     skill("shield", "Divine Shield", "Every 8s, shields your lowest-HP ally for a flat 10% of your max HP. Each rank instead reduces the cooldown by 15% - up to -45% at 3/3 (~4.4s).", Special { at_rank_1: 0.15, per_additional_rank: 0.15 }),
-    skill("smite", "Radiant Smite", "Every hit also heals up to 2 nearby allies (more with Splash) for 10% of your max HP at rank 1 - +10% per rank (30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
+    // GAINED heal power per level 2026-09-07, as the Paladin half of the
+    // healer tree compensation (owner ruling) - **in addition to what it
+    // already does, which is untouched.** Its ally-heal magnitude below
+    // is unchanged at 10/20/30% of max HP; nothing was dropped or
+    // weakened to make room.
+    //
+    // The heal-power rate could not live in this node's magnitude
+    // because that slot already carries the ally heal, so it lives in
+    // `LiveTunables::smite_heal_power_per_level_rank1/2/3` - the exact
+    // shape `LiveTunables`' own doc prescribes for a second numeric
+    // aspect (same as `rf_self_damage_pct_rank1/2/3`), and the reason it
+    // stays live-tunable rather than becoming a bare constant. See
+    // `Character::heal_power_per_level_bonus`.
+    //
+    // Why THIS node: the Paladin tree had **no `HealPowerPct` node at
+    // all**, so its ~31% cadence loss was unreachable by any allocation
+    // (2026-09-07 survey). `smite` is the branch whose theme already
+    // carries healing, which is what settled the placement question -
+    // and putting it here made the compensation a change to an existing
+    // node rather than a new one.
+    skill("smite", "Radiant Smite", "Every hit also heals up to 2 nearby allies (more with Splash) for 10% of your max HP at rank 1 - +10% per rank (30% at 3/3). Also increases your healing power by 0.5% per character level at rank 1, 1% per level at rank 2, and 1.5% per level at rank 3, capped at 300% from this source.", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     spec("aegisward", "oath", "Aegis Ward", "Intervene overflow past the 50% cap converts to damage reduction at 50% efficiency per rank, capped at +10% damage reduction per rank (up to +30% at 3/3). Counts your COMBINED gear + tree intervene, not tree investment alone - gear alone can easily push you past 50%.", OverflowConversion { input: IntervenePct, output: DamageReduction, at_rank_1: 0.5, per_additional_rank: 0.25 }),
     spec("vowofprotection", "oath", "Vow of Protection", "Guardian's Oath also grants the whole party +3% damage reduction per rank (up to +9% at 3/3).", Special { at_rank_1: 0.03, per_additional_rank: 0.03 }),
     spec("unbreakablefaith", "oath", "Unbreakable Faith", "Damage redirected by intervene heals you for 5% of the redirected amount per rank (up to 15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
@@ -1308,11 +1328,25 @@ static PALADIN_NODES: &[PassiveNode] = &[
     // rather than fired as an event - so it needs scheduling
     // infrastructure, the same gap Doom's curse detonation needed solved.
     //
-    // Two candidates are on the board for the Paladin tree pass, NOT for
-    // building here: a shield that scales with the target's missing HP,
-    // and a shield that persists or refreshes rather than expiring flat.
-    // Both are new axes with no overlap against `bulwarkoflight`,
-    // `radiantbarrier`, `graceperiod` or `consecration`.
+    // Two candidates are on the board, NOT for building here: a shield
+    // that scales with the target's missing HP, and a shield that
+    // persists or refreshes rather than expiring flat. Both are new axes
+    // with no overlap against `bulwarkoflight`, `radiantbarrier`,
+    // `graceperiod` or `consecration`.
+    //
+    // **UPDATE 2026-09-07 - THE PALADIN TREE PASS HAPPENED AND LANDED
+    // ELSEWHERE. This slot is no longer reserved for it.** The pass
+    // needed a heal-power lever, because the survey found the Paladin
+    // tree had **no `HealPowerPct` node anywhere**, leaving its ~31%
+    // cadence loss unreachable by any allocation. It went onto `smite`
+    // (Radiant Smite) instead of here, for two reasons: `smite` is the
+    // branch whose theme already carries healing, and putting it there
+    // made the compensation a change to an EXISTING node rather than a
+    // new one - which the "prefer raising a value over adding a node"
+    // preference wanted and which this slot could not have offered.
+    //
+    // So this slot is now simply empty with no work pending against it.
+    // The two candidates above stay on the board as candidates.
     modifier_with_effect("widerblessing", "consecration", "Wider Blessing", "Consecration's value is increased by another 10% per rank (up to +30% at 3/3).", Special { at_rank_1: 0.10, per_additional_rank: 0.10 }),
     modifier_with_effect("communion", "consecration", "Communion", "Consecration also grants the party +5% healing power per rank for its duration (up to +15% at 3/3).", Special { at_rank_1: 0.05, per_additional_rank: 0.05 }),
     modifier_with_effect("sharedlight", "consecration", "Shared Light", "Consecration's party shield lasts 2 additional seconds per rank (up to +6s at 3/3).", Special { at_rank_1: 2.0, per_additional_rank: 2.0 }),
@@ -1711,7 +1745,23 @@ static WARLOCK_NODES: &[PassiveNode] = &[
 // Cleric node is implemented.
 // ---------------------------------------------------------------------
 static CLERIC_NODES: &[PassiveNode] = &[
-    skill("grace", "Divine Grace", "Increases healing power by 20% at rank 1 - +16% per rank (52% at 3/3).", FlatStat { stat: HealPowerPct, at_rank_1: 0.20, per_additional_rank: 0.16 }),
+    // CONVERTED 2026-09-07 from a flat `FlatStat { HealPowerPct }` of
+    // 20%/36%/52% to heal power PER LEVEL, as the Cleric half of the
+    // healer tree compensation (owner ruling). Its magnitude is now the
+    // per-level RATE - see `Character::heal_power_per_level_bonus` and
+    // `HEAL_POWER_PER_LEVEL_RANK1`.
+    //
+    // Why CONVERTED rather than raised: what the archetype curve took
+    // from Cleric was a level-SCALING term - heal power was
+    // `0.50 x (1 + 0.10 x level)` and is now flat - so a flat replacement
+    // would have matched at one level and diverged at every other. This
+    // scales the same way the loss did.
+    //
+    // Its siblings `radiantlight` and `luminous` are UNCHANGED and remain
+    // flat independent stacks; their own descriptions already say they
+    // are a separate stack rather than a multiplier on this node, so they
+    // stay accurate.
+    skill("grace", "Divine Grace", "Increases healing power by 0.5% per character level at rank 1, 1% per level at rank 2, and 1.5% per level at rank 3 - so 28.5% at level 19 and 150% at level 100, capped at 300% from this source.", SpecialPerRank { values: &[0.005, 0.010, 0.015] }),
     skill("prayer", "Prayer of Mending", "Your heals have a chance to also chain to another hurt ally for 50% of the primary heal's value (Merciful Touch scales this further; without it, 50% is the flat baseline) - 15% chance at rank 1, +10% per rank (35% at 3/3).", Special { at_rank_1: 0.15, per_additional_rank: 0.10 }),
     skill("resilience", "Blessed Resilience", "Grants the WHOLE party (yourself included) +4% max HP at rank 1 - +3% per rank (10% at 3/3).", Special { at_rank_1: 0.04, per_additional_rank: 0.03 }),
     spec("radiantlight", "grace", "Radiant Light", "Divine Grace's bonus is increased by another 16% per rank (up to +48% at 3/3) - a second, independent stack of healing power, not a multiplier on Divine Grace's own.", FlatStat { stat: HealPowerPct, at_rank_1: 0.16, per_additional_rank: 0.16 }),

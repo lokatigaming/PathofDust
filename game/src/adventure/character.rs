@@ -219,6 +219,60 @@ pub const ARCHETYPE_CLERIC_HEAL_POWER_FLAT: f64 = 0.50;
 /// Compensation is a separate future change to its passive tree.
 pub const ARCHETYPE_PALADIN_HEAL_POWER_FLAT: f64 = 1.00;
 
+/// **Heal power per LEVEL** - the compensation for the two healers the
+/// 2026-09-05 archetype curve cut (owner ruling, 2026-09-07). Cleric's
+/// `grace` was converted to it; Paladin's `smite` gained it **in addition
+/// to** what that node already does.
+///
+/// `0.5% / 1.0% / 1.5%` of heal power per character level at ranks 1/2/3,
+/// so a rank-3 node is worth `0.015 x level` of TREE heal power.
+///
+/// **Why per-level at all**: what the curve took from both classes was
+/// not a flat amount but a level-SCALING one - heal power used to be
+/// `0.50 x (1 + 0.10 x level)` and is now flat. A flat replacement would
+/// have restored the level-19 number and diverged again immediately, so
+/// the replacement scales the same way the loss did.
+pub const HEAL_POWER_PER_LEVEL_RANK1: f64 = 0.005;
+pub const HEAL_POWER_PER_LEVEL_RANK2: f64 = 0.010;
+pub const HEAL_POWER_PER_LEVEL_RANK3: f64 = 0.015;
+
+/// The ceiling on the heal power this mechanism grants - **300%**, per
+/// the ruling's "capping at 300% healing power".
+///
+/// **WHAT IT CAPS, STATED BECAUSE THE TWO READINGS DIVERGE AND ONE OF
+/// THEM BITES EARLY.** This caps the SUM of what the per-level nodes
+/// grant, not the resulting `combat_heal_power`. Reasons, in order:
+///
+/// 1. It is the reading the ruling's own arithmetic describes: at
+///    1.5%/level a rank-3 node reaches 3.00 at **level 200**, which is
+///    the far-future ceiling the ruling calls it. Under the other
+///    reading - capping `combat_heal_power` itself at 3.0 - a Cleric with
+///    `grace` 3/3 hits the cap at **level 67**, because its heal power is
+///    `1 + 2T` (see `combat_heal_power`). That is inside a season, not
+///    far future, and it would silently cancel most of the compensation
+///    it is part of.
+/// 2. Capping `combat_heal_power` globally would also cap DRUID, whose
+///    healing comes from `regrowth`/`bloomingfield` and has nothing to do
+///    with this ruling. A cap on this mechanism's own grant cannot reach
+///    a class the mechanism does not touch.
+///
+/// If the other reading is wanted it is a one-line move - apply the
+/// `.min()` to the final expression in `combat_heal_power` instead of to
+/// `heal_power_per_level_bonus`'s return - but it should be ruled
+/// deliberately, because of (1).
+pub const HEAL_POWER_PER_LEVEL_CAP: f64 = 3.00;
+
+/// The per-rank rate for a node that grants heal power per level, given
+/// its rank. Rank 0 (unallocated) grants nothing.
+pub fn heal_power_per_level_rate(rank: u32) -> f64 {
+    match rank {
+        0 => 0.0,
+        1 => HEAL_POWER_PER_LEVEL_RANK1,
+        2 => HEAL_POWER_PER_LEVEL_RANK2,
+        3.. => HEAL_POWER_PER_LEVEL_RANK3,
+    }
+}
+
 impl Archetype {
     pub fn combat_function(self) -> CombatFunction {
         match self {
@@ -4049,6 +4103,47 @@ impl Character {
     /// own magnitudes DOUBLED in the same pass, per the live design call
     /// that a healer's own build (archetype + tree) should absorb the
     /// lost gear lever rather than leaving Cleric/Druid strictly weaker.
+    /// The heal power this character's per-level nodes grant - Cleric's
+    /// `grace` and Paladin's `smite` (2026-09-07, the healer tree
+    /// compensation). See `HEAL_POWER_PER_LEVEL_RANK1`.
+    ///
+    /// **The two nodes carry their rate in DIFFERENT places, and that is
+    /// the codebase's own convention rather than an inconsistency.**
+    /// `LiveTunables`' doc states it: a node's own per-rank magnitude
+    /// carries its PRIMARY value - the one thing the node is really about
+    /// - and any ADDITIONAL numeric aspect gets named per-rank fields in
+    /// `LiveTunables` instead, never a bare constant.
+    ///
+    /// - `grace` was CONVERTED to this, so per-level heal power IS what
+    ///   the node is about now. Its rate is its own node magnitude and is
+    ///   tunable through `/admin/passives` like any other node value.
+    /// - `smite` gained it **in addition to** its existing ally-heal
+    ///   (10/20/30% of max HP), whose magnitude slot is already spoken
+    ///   for. Its rate therefore lives in
+    ///   `LiveTunables::smite_heal_power_per_level_rank1/2/3`, the same
+    ///   shape as `rf_self_damage_pct_rank1/2/3`. **Smite's existing
+    ///   effect is untouched** - the ruling said "in addition to what it
+    ///   already does" and nothing was dropped or weakened to make room.
+    ///
+    /// The cap applies to the SUM, which only matters for a Split
+    /// Personality character holding both trees - see
+    /// `HEAL_POWER_PER_LEVEL_CAP` for which of the two readings of "300%"
+    /// this is and why.
+    pub(crate) fn heal_power_per_level_bonus(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        let level = self.level as f64;
+        // `grace`'s rate is its node magnitude, so an admin override
+        // reaches it for free.
+        let grace = self.passive_node_magnitude("grace") * level;
+        let smite_rate = match self.passive_node_rank("smite") {
+            0 => 0.0,
+            1 => t.smite_heal_power_per_level_rank1,
+            2 => t.smite_heal_power_per_level_rank2,
+            3.. => t.smite_heal_power_per_level_rank3,
+        };
+        let smite = smite_rate * level;
+        (grace + smite).clamp(0.0, HEAL_POWER_PER_LEVEL_CAP)
+    }
+
     pub fn combat_heal_power(&self, t: &crate::adventure::LiveTunables) -> f64 {
         let base = if self.archetype.combat_function() == CombatFunction::Heal { 0.5 } else { 0.0 };
         // Same "let the tree work standalone" shape as combat_splash/
@@ -4056,7 +4151,12 @@ impl Character {
         // at all (base = 0.0), so `gear*(1+tree)` would zero out any
         // tree-granted healing power for them entirely.
         let gear_total = base + self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).heal_power_pct;
-        let tree_total = self.passive_bonus().heal_power_pct + self.passive_overflow_bonus(t).heal_power_pct;
+        // `heal_power_per_level_bonus` is summed into the TREE total
+        // rather than the gear total on purpose: it comes from passive
+        // nodes, and the tree total is the factor a healer's own
+        // investment is meant to multiply against. That placement is also
+        // what makes it worth double - see its own doc.
+        let tree_total = self.passive_bonus().heal_power_pct + self.passive_overflow_bonus(t).heal_power_pct + self.heal_power_per_level_bonus(t);
         // Regrowth (Druid only - 2026-08-16 rework, see its own doc in
         // passive_tree.rs) grants its OWN separate multiplicative layer on
         // top of everything else, same "bespoke Special-shaped bonus gets
@@ -6541,6 +6641,122 @@ mod archetype_curve_tests {
             let old = read(&archetype.bonus_at(19, 0.0));
             let new = read(&archetype.bonus_at(19, 1.0));
             assert!(new < old, "{archetype:?} must be CUT at level 19, not buffed: {old} -> {new}");
+        }
+    }
+}
+
+/// The 2026-09-07 healer tree compensation. These pin the two things the
+/// ruling is made of - that the grant scales per LEVEL, and that Smite
+/// keeps what it already did - rather than the numbers it produces.
+#[cfg(test)]
+mod healer_compensation_tests {
+    use super::*;
+
+    fn healer(archetype: Archetype, level: u32, node: &str, rank: u32) -> Character {
+        let mut c = Character::new("h".to_string());
+        c.archetype = archetype;
+        c.level = level;
+        if rank > 0 {
+            c.passive_allocations.insert(node.to_string(), rank);
+        }
+        c
+    }
+
+    #[test]
+    fn the_rate_ladder_is_the_ruled_one_and_rank_zero_grants_nothing() {
+        assert_eq!(heal_power_per_level_rate(0), 0.0);
+        assert_eq!(heal_power_per_level_rate(1), HEAL_POWER_PER_LEVEL_RANK1);
+        assert_eq!(heal_power_per_level_rate(2), HEAL_POWER_PER_LEVEL_RANK2);
+        assert_eq!(heal_power_per_level_rate(3), HEAL_POWER_PER_LEVEL_RANK3);
+        assert_eq!((HEAL_POWER_PER_LEVEL_RANK1, HEAL_POWER_PER_LEVEL_RANK2, HEAL_POWER_PER_LEVEL_RANK3), (0.005, 0.010, 0.015));
+    }
+
+    /// **The mechanism is per LEVEL, not flat** - which is the whole
+    /// reason `grace` was converted rather than raised. Doubling the
+    /// level must double the grant.
+    #[test]
+    fn the_grant_scales_with_level_for_both_nodes() {
+        let t = LiveTunables::default();
+        for (archetype, node) in [(Archetype::Cleric, "grace"), (Archetype::Paladin, "smite")] {
+            let at_50 = healer(archetype, 50, node, 3).heal_power_per_level_bonus(&t);
+            let at_100 = healer(archetype, 100, node, 3).heal_power_per_level_bonus(&t);
+            assert!((at_50 - 0.015 * 50.0).abs() < 1e-12, "{node} at level 50 should grant 0.015*50, got {at_50}");
+            assert!((at_100 - 2.0 * at_50).abs() < 1e-12, "{node}: doubling level must double the grant - a flat replacement is what this converted AWAY from");
+        }
+    }
+
+    /// **Radiant Smite keeps what it already does.** The ruling said "in
+    /// addition to", and its ally-heal magnitude lives in the same slot
+    /// the rate could not use - so this is the guard against a future
+    /// session freeing that slot by dropping the ally heal.
+    #[test]
+    fn smite_still_grants_its_ally_heal_alongside_the_new_heal_power() {
+        let t = LiveTunables::default();
+        let p = healer(Archetype::Paladin, 50, "smite", 3);
+        assert!((p.passive_node_magnitude("smite") - 0.30).abs() < 1e-9, "Smite's ally-heal must still be 10/20/30% of max HP - nothing may be dropped to make room for the heal power");
+        assert!(p.heal_power_per_level_bonus(&t) > 0.0, "and it must ALSO grant heal power per level");
+    }
+
+    /// `grace`'s rate is its own node magnitude, so an admin override
+    /// reaches it. Smite's is a LiveTunable because its magnitude slot is
+    /// taken. Both paths must actually move the number.
+    #[test]
+    fn both_rates_are_live_tunable_through_their_own_mechanism() {
+        let mut t = LiveTunables::default();
+        assert_eq!(t.smite_heal_power_per_level_rank3, HEAL_POWER_PER_LEVEL_RANK3, "the tunable default must equal the shipped constant");
+        let before = healer(Archetype::Paladin, 100, "smite", 3).heal_power_per_level_bonus(&t);
+        t.smite_heal_power_per_level_rank3 = 0.001;
+        let after = healer(Archetype::Paladin, 100, "smite", 3).heal_power_per_level_bonus(&t);
+        assert!(after < before, "the Smite tunable must reach the grant");
+        // grace's rate IS its node magnitude.
+        assert_eq!(Archetype::Cleric.passive_nodes().iter().find(|n| n.key == "grace").expect("grace").magnitude_at_rank(3), HEAL_POWER_PER_LEVEL_RANK3);
+    }
+
+    /// The 300% cap applies to what this MECHANISM grants, not to the
+    /// resulting heal power - see `HEAL_POWER_PER_LEVEL_CAP` for why, and
+    /// for what the other reading would have cost. At 1.5%/level the cap
+    /// is reached at level 200, which is the far-future ceiling the
+    /// ruling describes.
+    #[test]
+    fn the_cap_binds_at_level_two_hundred_and_not_before() {
+        let t = LiveTunables::default();
+        let just_under = healer(Archetype::Cleric, 199, "grace", 3).heal_power_per_level_bonus(&t);
+        let at_cap = healer(Archetype::Cleric, 200, "grace", 3).heal_power_per_level_bonus(&t);
+        let past = healer(Archetype::Cleric, 4000, "grace", 3).heal_power_per_level_bonus(&t);
+        assert!(just_under < HEAL_POWER_PER_LEVEL_CAP, "the cap must not bind before level 200 - got {just_under} at 199");
+        assert_eq!(at_cap, HEAL_POWER_PER_LEVEL_CAP);
+        assert_eq!(past, HEAL_POWER_PER_LEVEL_CAP, "and must hold above it");
+    }
+
+    /// A class with neither node must be untouched - Druid in particular,
+    /// whose healing comes from `regrowth`/`bloomingfield` and has nothing
+    /// to do with this ruling. This is the guard the "cap the resulting
+    /// heal power" reading would have broken.
+    #[test]
+    fn a_class_with_neither_node_is_untouched() {
+        let t = LiveTunables::default();
+        for archetype in [Archetype::Druid, Archetype::Warrior, Archetype::Mage] {
+            let c = healer(archetype, 100, "grace", 0);
+            assert_eq!(c.heal_power_per_level_bonus(&t), 0.0, "{archetype:?} has neither node and must gain nothing");
+        }
+    }
+
+    /// The grant lands in the TREE factor, which for both healers is
+    /// multiplied against a gear total of exactly 1.0 - so it is worth
+    /// DOUBLE in excess, which is the fact that decides whether the
+    /// compensation lands. Pinned because it is easy to lose by moving
+    /// the term into the gear total.
+    #[test]
+    fn the_grant_is_worth_double_because_it_lands_in_the_tree_factor() {
+        let t = LiveTunables::default();
+        for (archetype, node) in [(Archetype::Cleric, "grace"), (Archetype::Paladin, "smite")] {
+            let c = healer(archetype, 100, node, 3);
+            let grant = c.heal_power_per_level_bonus(&t);
+            let heal_power = c.combat_heal_power(&t);
+            assert!(
+                (heal_power - (1.0 + 2.0 * grant)).abs() < 1e-9,
+                "{archetype:?}: heal power must be 1 + 2*grant (gear total is exactly 1.0 for both healers) - got {heal_power} against a grant of {grant}"
+            );
         }
     }
 }
