@@ -25,29 +25,54 @@
 //! `custom/kibukah` name the same file, and before this fix they disagreed
 //! on Linux.
 
-use game::adventure::{custom_sprite_is_owned_by, is_valid_custom_sprite, CUSTOM_SPRITE_DIR};
+use game::adventure::{custom_sprite_is_owned_by, is_valid_custom_sprite, CUSTOM_SPRITE_DIR, CUSTOM_SPRITE_MANIFEST, PUBLIC_SPRITE_OWNER};
 
 fn anchor_cwd_at_workspace_root() {
     std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
 }
 
 /// Every real `.png`/`.gif` in the drop-in directory, as `(stem, owner)`.
+///
+/// **The owner is read from the manifest, not derived from the filename
+/// (2026-09-07).** This used to compute `owner = stem.to_lowercase()`, which
+/// held only while a sprite's name WAS its owner's login. That is the exact
+/// assumption the ownership manifest abolished — `Sitch89_2` is owned by
+/// `sitch89`, `lokati_gaming2` by `lokati_gaming` — so deriving the owner from
+/// the stem now yields a login that owns nothing, and the gate correctly
+/// rejects it.
+///
+/// The test's subject is unchanged: hold the owner constant, vary the MODEL's
+/// case. Only the way the owner is obtained had to move.
+///
+/// `*` (public pool) entries are skipped — selectable by every login, so they
+/// cannot exercise a per-owner gate. There are none today.
 fn sprites_on_disk() -> Vec<(String, String)> {
+    let Ok(text) = std::fs::read_to_string(CUSTOM_SPRITE_MANIFEST) else {
+        return Vec::new();
+    };
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        sprites: std::collections::HashMap<String, String>,
+    }
+    let Ok(parsed) = toml::from_str::<Manifest>(&text) else {
+        return Vec::new();
+    };
     let Ok(entries) = std::fs::read_dir(CUSTOM_SPRITE_DIR) else {
         return Vec::new();
     };
+    let owners: std::collections::HashMap<String, String> = parsed.sprites.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_ascii_lowercase())).collect();
     entries
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
             let is_sprite = path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("gif"));
+            if !is_sprite {
+                return None;
+            }
             let stem = path.file_stem().and_then(|stem| stem.to_str())?.to_string();
-            // `owner_id` is always the lowercased character key, so the
-            // ownership gate is held constant and only the MODEL's case
-            // varies - precisely the axis the old probe was blind to.
-            is_sprite.then(|| (stem.to_ascii_lowercase(), stem))
+            let owner = owners.get(&stem.to_ascii_lowercase())?;
+            (owner != PUBLIC_SPRITE_OWNER).then(|| (stem, owner.clone()))
         })
-        .map(|(owner, stem)| (stem, owner))
         .collect()
 }
 
@@ -84,6 +109,13 @@ fn a_name_with_no_file_is_rejected_in_every_case() {
 /// and now the file probe does too.
 #[test]
 fn the_ownership_gate_ignores_case_but_still_gates() {
+    // Needed since 2026-09-07: the gate reads the ownership manifest, so it is
+    // CWD-dependent where it used to be pure string matching. `is_valid_custom_sprite`
+    // already listed the sprite directory, so the AUTH PATH was always
+    // CWD-dependent - but `custom_sprite_is_owned_by` on its own was not, and
+    // now is. Stated rather than silently patched, because it is a real
+    // consequence of moving ownership out of the filename and into a file.
+    anchor_cwd_at_workspace_root();
     assert!(custom_sprite_is_owned_by("sitch89", "Sitch89"), "an owner must match their own sprite whatever case it is stored in");
     assert!(custom_sprite_is_owned_by("sitch89", "sitch89"));
     assert!(!custom_sprite_is_owned_by("sitch89", "Kibukah"), "ignoring case must not turn into matching someone else's sprite");

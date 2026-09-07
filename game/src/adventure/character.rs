@@ -1106,33 +1106,68 @@ pub const CUSTOM_SPRITE_DIR: &str = "public_adventure_overlay/sprites/custom";
 /// folder (path separators, `..`) rather than trusting it's a plain
 /// filename.
 ///
-/// The reserved custom-sprite filename PREFIX (case-insensitive) that
-/// bypasses the per-player name gate below - anyone can select
-/// `custom/public.png`, `custom/public1.gif`, `custom/public2.png`, etc.
-/// (this prefix, optionally followed by nothing but digits), same as the
-/// curated `ALL_SPRITES`.
-pub const PUBLIC_CUSTOM_SPRITE_PREFIX: &str = "public";
+/// The ownership manifest, beside the sprites it describes.
+///
+/// Read on every check rather than cached, so dropping a sprite in and adding
+/// its line takes effect with no restart - the same live drop-in property
+/// `CUSTOM_SPRITE_DIR` has always had, and the same per-call cost
+/// `custom_sprite_file_exists` already pays by listing the directory.
+pub const CUSTOM_SPRITE_MANIFEST: &str = "public_adventure_overlay/sprites/custom/owners.toml";
 
-/// Whether `name_lower` (already-lowercased) belongs to `prefix` - an
-/// exact match, OR `prefix` followed by nothing but digits, so one
-/// player/the public pool can have more than one sprite: "kibukah",
-/// "kibukah2", "kibukah3" - same numbered-suffix convention
-/// `PUBLIC_CUSTOM_SPRITE_PREFIX`'s own doc describes (2026-08-16 follow-
-/// up - a live report that "lokati_gaming2" wasn't being recognized as a
-/// second sprite for "lokati_gaming").
-pub(crate) fn custom_sprite_name_matches(name_lower: &str, prefix: &str) -> bool {
-    name_lower.strip_prefix(prefix.to_ascii_lowercase().as_str()).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+/// The manifest value meaning "anyone may select this", replacing the old
+/// reserved `public` filename prefix. Not a valid login, so it cannot collide
+/// with one: public is now an ordinary entry with a distinguished value rather
+/// than a name convention.
+pub const PUBLIC_SPRITE_OWNER: &str = "*";
+
+/// Every `stem -> owner` pair in the manifest, both sides lowercased.
+///
+/// A missing or unparseable manifest yields an EMPTY map, which rejects every
+/// custom sprite rather than falling back to name matching. That is the
+/// conservative direction on purpose: the failure is "nobody can equip a custom
+/// sprite", which is visible and complained about immediately, rather than
+/// "everybody can equip everybody's", which is silent.
+fn custom_sprite_owners() -> std::collections::HashMap<String, String> {
+    let Ok(text) = std::fs::read_to_string(CUSTOM_SPRITE_MANIFEST) else {
+        return std::collections::HashMap::new();
+    };
+    #[derive(serde::Deserialize, Default)]
+    struct Manifest {
+        #[serde(default)]
+        sprites: std::collections::HashMap<String, String>,
+    }
+    let parsed: Manifest = toml::from_str(&text).unwrap_or_default();
+    parsed.sprites.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_ascii_lowercase())).collect()
 }
 
 /// Whether custom-sprite filename `name` (bare, no `custom/` prefix, no
-/// extension) is one `owner_id` is allowed to pick - either it's named
-/// after them (see `custom_sprite_name_matches`), or it's in the
-/// reserved public pool. Shared by `is_valid_custom_sprite` (submit-time
-/// validation) and `render_model_picker`'s own listing (adventure_web.rs)
-/// so the two can't drift apart.
+/// extension) is one `owner_id` is allowed to pick. Shared by
+/// `is_valid_custom_sprite` (submit-time validation) and
+/// `render_model_picker`'s own listing (adventure_web.rs) so the two cannot
+/// drift apart.
+///
+/// **Manifest-driven since 2026-09-07, and the signature is deliberately
+/// unchanged** so every caller - including the authorisation check in
+/// `is_valid_custom_sprite`, which is what stops a hand-crafted POST equipping
+/// someone else's sprite - keeps its behaviour without being touched.
+///
+/// It replaced a filename convention that accepted "<login> optionally followed
+/// by digits", which was wrong in both directions at once:
+///
+/// * `Sitch89_2.gif` was selectable by **nobody** - `_2` is not digits, so a
+///   real file on the box could never be equipped.
+/// * `kmartbikes12.gif` was selectable by **two people** - `strip_prefix` left
+///   `"2"` for owner `kmartbikes1`, so the authorisation check FAILED OPEN
+///   whenever one login was a digit-extension of another.
+///
+/// A sprite with no manifest entry is rejected outright. There is no
+/// name-matching fallback, because a fallback reinstates exactly the ambiguity
+/// the manifest removes - it would be the same bug reached by a longer path.
 pub fn custom_sprite_is_owned_by(owner_id: &str, name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    custom_sprite_name_matches(&lower, owner_id) || custom_sprite_name_matches(&lower, PUBLIC_CUSTOM_SPRITE_PREFIX)
+    let Some(owner) = custom_sprite_owners().get(&name.to_ascii_lowercase()).cloned() else {
+        return false;
+    };
+    owner == PUBLIC_SPRITE_OWNER || owner == owner_id.to_ascii_lowercase()
 }
 
 /// Also name-gated to `owner_id` (2026-08-16, a live request: a custom
