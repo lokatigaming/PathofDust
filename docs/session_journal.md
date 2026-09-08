@@ -7231,3 +7231,155 @@ their users under the new manifest. No live player loses a sprite.
 Correction to the order's account, not affecting the ruling: there is no kmart
 login on the World 2 roster at all (22 accounts, 22 characters, zero). The
 `kmartbikes1` story is World 1; World 2 reset on 2026-09-02.
+### 2026-09-08 — `maxHp` on the summary tier, and the one field the golem rollup must not touch
+
+Branch `feat/summary-tier-max-hp` off `origin/master` `15d6672`. Field first, by
+owner ruling, because it changes no behaviour and every day it trails the Slayer
+coefficient is a day of measurement not collected.
+
+#### Why the measurement could not be made
+
+The leech-saturation question needs damage-per-second against the player's own HP
+pool, because the cap is `LIFE_LEECH_CAP_PER_SEC` **of the leecher's own max hp**.
+The coarse tier carries `maxHp` and retains `COARSE_FIGHTS_CAPACITY` = **5**
+fights — of which exactly one was a winning boss fight, so session c's run of my
+query produced n=1: twenty characters in a single stage-59 fight, median 0.19,
+max 9.31, seven of the twenty dealing literally zero damage to the boss. Not an
+answer, and c was right to refuse to read one off it.
+
+The summary tier retains **200** fights, ~33 of them winning boss fights, and
+already carried `damageDealt`, `realDurationMs`, `stage`, `won` and per-player
+`archetype`. **It lacked exactly one field.** No new tier, no new file, no raised
+capacity — five coarse files are already 5.5 MB, one of them 2.3 MB, so raising
+`COARSE_FIGHTS_CAPACITY` would have bought the same thing for orders of magnitude
+more disk.
+
+#### Recorded, not recomputed
+
+`full_player_fight_stats` already receives `&[CombatUnitInfo]` and seeds its map
+from it, so `max_hp: u.max_hp` is the whole change — the same value the coarse
+tier writes, from the sim itself. Recomputing it from character state would have
+been a second implementation of "what was their HP pool", which is the exact
+class of thing this week has been spent removing.
+
+#### THE FINDING: `max_hp` is a pool, not a tally
+
+The golem-attribution merge pass folds every golem's row into its owner's and
+drops it — `damage_dealt`, `damage_taken`, `healing_done`, `hits`, `crits`,
+`evaded`, `dot_ticks`, `dot_damage`. All eight are **tallies**: a golem's
+contribution genuinely is its owner's contribution, so summing is right.
+
+`max_hp` is not a tally. It is the owner's own HP pool, and it is the
+**denominator of the ratio the field was added for**. A golem's HP raises nobody's
+leech ceiling. Summing it would inflate the denominator and make an Elementalist
+running three golems read as unsaturated when they are not.
+
+**The failure would have been silent.** The number stays entirely plausible —
+1330 is a believable HP pool — and only the conclusion drawn from it is wrong.
+Nothing in the fight record would look off; the measurement would just quietly
+answer the wrong question for exactly the builds most likely to be near the cap.
+
+So a field-by-field pass now has one field conspicuously absent, which is an
+invitation to "complete" it. The comment saying why is not decoration, and the
+test is what makes the comment enforceable: the helpers are `player` = 1000 and
+`golem` = 330, so a summed implementation reads 1330 (or 1660 with two golems)
+and there is no value both answers share.
+
+Mutation-checked by adding `owner.max_hp += golem_stats.max_hp;` to the pass:
+**25 passed, 1 failed**, and the one was
+`a_golems_max_hp_is_never_folded_into_its_owners_pool`. Nothing else in the module
+noticed, which is the point — no existing test covered this, and none would have.
+
+#### The denominator is `real_duration_ms`
+
+Owner ruling, recorded in the field's own doc rather than left in an order: the
+simulated fight length, not `display_duration_ms`, which is stretched or
+compressed for the overlay (`MIN_DISPLAY_MS` and the display window above it). A
+rate computed against the display figure is on a made-up clock. Putting it at the
+point of contact means the next session forming the ratio reads it where they are
+already looking.
+
+#### `0` means unrecorded, never "a player with no HP"
+
+`#[serde(default)]`, so the ~200 summaries already on disk deserialize rather than
+failing — but they read back `0`, and a ratio must **skip** those rows, not divide
+by them. Stated in the doc and pinned by a test that deserializes a pre-field
+record.
+
+#### FOUND
+
+Wire safety was checked, not assumed. `replay_bundle/writer-output.v1.json` is
+byte-pinned and embeds a whole `FightSummarySnapshot` — but its `"players"` is
+`[]`, an empty array, so no per-player field can move it. Checking the one fixture
+that pins bytes before adding a serialised field is the check that gets skipped.
+
+Correction to my own fit report: I wrote that every existing `PlayerFightStats`
+construction uses `..Default::default()`. Three of four do. The `player_stats`
+helper in `fight_summary_tests` lists every field explicitly and failed to compile
+until `max_hp: 0` was added. The claim was checked by grepping for the type name
+and reading the call sites, and one of them was read too quickly.
+
+**`maxHp` accumulates only from the deploy forward.** On day one the tier holds no
+record carrying it; ~33 winning boss fights is the steady state. The better leech
+answer arrives some days after this ships, not with it.
+
+### 2026-09-08 — SUMMARY-MAXHP deploy record (release `summary-maxhp`)
+
+| | |
+|---|---|
+| master commit | `78e18732430db165e61687ddc1c7eb2128fc266c` |
+| live binary | `4a245c0255602eea1cf9133cdf862b4b0f07599fdbc8a1496a531c175179ea31` |
+| previous | `e2cfdece22c4ba5576bda30701e7dd95afafd9831d872c4603fde3a1351a0024` |
+| rollback slot | `deploy-pre-20260908-101901-summary-maxhp` |
+| downtime | **0.35 s** |
+| suite | **903 passed / 0 failed / 43 result-lines**, `--no-fail-fast`, on the box |
+| seven §13B.5 checks | all pass |
+
+Shipped alone rather than grouped with the all-items button, because its whole
+value is starting to accumulate immediately: the field only appears on records
+written from the deploy forward, so every hour of delay is an hour of data that
+does not exist later.
+
+#### VERIFIED BY EFFECT, WITH THE BASELINE CAPTURED FIRST
+
+| | before | after |
+|---|---|---|
+| summary files | 200 | 201 |
+| carrying `maxHp` | **0** | new record does |
+
+`fight-0000003565.json`, the first summary written after the deploy, carries
+`maxHp` on every player record: `{"id": "xayse", ..., "maxHp": 195,
+"damageDealt": 461, ...}`. Counting the zero BEFORE is what makes that a
+measurement rather than an observation — the same shape as item 14's
+do-nothing migration.
+
+#### TWO CLAIMS, KEPT SEPARATE
+
+**The field writes** — proven by the new record above.
+
+**The 200 existing files still parse** — a different property, and the one that
+breaks silently. Adding a serialised field to a record type with 200 files
+already on disk is exactly where a deploy dies quietly. b's test names that
+property directly, `max_hp_round_trips_through_a_summary_and_older_records_read_as_zero`,
+rather than only round-tripping the new field. Same shape as release 16's
+`#[serde(default)]` trap, arriving on the storage side instead of the form side.
+
+#### b's FINDING, WORTH KEEPING: `max_hp` is a pool, not a tally
+
+The per-owner rollup sums damage, healing, hits and crits — quantities that add.
+`max_hp` sits in the same struct and is the owner's own HP pool, so folding a
+golem's into its owner's would inflate it by the number of summoned golems.
+Guarded by `a_golems_max_hp_is_never_folded_into_its_owners_pool`, which b
+mutation-checked by actually adding the bad line and confirming the test fails.
+A guard that has never been seen to fail is a guess.
+
+Suite delta attributable to exactly those two tests: 901 -> 903, 2 new
+`#[test]`, no new suite.
+
+#### The result-line count is now printed on every run, not only failing ones
+
+The standing instruction makes `--no-fail-fast` mandatory where a test
+legitimately fails, with the result-line count proving the suite ran. Adopted it
+in the harness generally: 828/6 and 903/43 look identical in shape, and only the
+line count separates a complete run from one that stopped at the first failing
+binary.
