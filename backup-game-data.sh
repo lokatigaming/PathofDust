@@ -56,7 +56,6 @@ CORE_FILES=(
   adventure-characters.json
   adventure-world.json
   adventure-reforge-cooldown.json
-  adventure-rampage-state.json
   adventure-sessions.json
   adventure-accounts.json
   adventure-live-tunables.toml

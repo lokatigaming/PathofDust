@@ -7627,3 +7627,142 @@ scenarios diverged, nothing regenerated, 17 fixtures, tree clean.
 >   in sand and Divine Dust, which have their own economies.
 > - Nothing else about crafting changed: same odds, same outcomes, same
 >   modifiers. Only what it costs.
+
+## 2026-09-08 — THE PULL ALARM, AND THE RAMPAGE COUNTDOWN (branch `fix/rampage-countdown-removal`, plus a live ops script)
+
+### FIRST, A CORRECTION I OWE
+
+My model-change survey said *"There is no no-op guard. Not on master, and
+not on a's branch."* **It is on `feature/store-classification`** -
+`Character::selection_already_equipped`, called in `change_model` at
+:3954 before the charge, account-scoped so it survives a season reset.
+
+I checked two branches and wrote a conclusion about all of them. That is
+**absence from where you looked is not absence** - my own rule, the
+fourth window it has caught this week and the first time it caught me.
+The operational conclusion held for a different reason: the guard is on a
+branch that is not merged, so the flip would still bill players today.
+**A right answer from a wrong premise is still a wrong premise.**
+
+### THE PULL ALARM — the alarm was wired to the success path of the thing it watched
+
+`C:\pod-backup-pull\pull-linux-backups.ps1`. b found the off-box pull two
+days stale and silent after a transient `list` failure at 10:36.
+
+The defect worth naming is the fourth of b's four causes:
+
+> **The staleness check sat behind every `exit 1` in the script.** A run
+> that died at `list` never reached it, so the one mechanism built to
+> notice "we have stopped receiving archives" was skipped precisely when
+> we had stopped receiving archives.
+
+Fixed by making failures COUNT rather than THROW. Nothing exits early any
+more: `$failures` accumulates, the run does whatever it still can, the
+staleness block always executes, and one exit code at the bottom reflects
+the total. A run that cannot reach the server now still reports how old
+the newest archive is - the only number that says whether we are covered.
+
+Also: one retry on `list` (a deploy window is seconds; not waiting them
+cost a day), per-archive failures `continue` instead of aborting the
+whole run, and an explicit "no verified archives at all" alarm which is
+the loudest form of the same question.
+
+**THE TIMEZONE FIX DELIBERATELY CHANGES NOTHING BY DEFAULT.** The name is
+stamped by `date +%Y%m%d-%H%M%S` on the Linux box - that box's LOCAL
+time, no zone in the name - and was parsed as Windows-local. The two
+possible errors are not symmetric: reading a UTC stamp as local
+OVERSTATES age and fires the alarm early (safe); reading a local stamp as
+UTC UNDERSTATES it and fires late or never (not safe). So `-SnapshotZone`
+defaults to the old behaviour and the assumption is now visible instead
+of accidental. `-SnapshotZone Utc` removes the ~8 h overstatement once
+someone runs `timedatectl` on the box. **Safe-by-accident became
+safe-by-decision, and the decision is written down.**
+
+**Verified by making it fail on purpose, six ways, against a synthetic
+tree** - and, more usefully, by running the PRE-FIX COPY against the
+identical tree:
+
+  before: `FAILED: could not list remote archives` -> exit. No age line,
+          no alarm, three-day-old backups unmentioned.
+  after:  same failure, one retry, then `held 3, newest=... age=93.3h`
+          and `ALARM: newest snapshot is 93.3h old (limit 36)`.
+
+Plus: empty directory -> "no verified archives present at all"; `Utc`
+zone -> 85.4h against Local's 93.3h, exactly the +08:00 offset;
+retention still prunes; a healthy run still exits 0.
+
+### THE ONE THING I DID NOT BUILD, AND WHY
+
+The order said *"A failure has to reach someone. Whatever the bot's
+watchdog or the game's own alerting already uses - reuse it. Do not
+invent a new channel for one script."*
+
+**There is nothing to reuse.** Every ops script's entire alerting is a
+log line plus a non-zero exit, and
+`docs/ops_backup_and_watchdog.md:190` states that as the design: *"Exit
+code 1 means a degraded run - it will show as `LastTaskResult=1`."* That
+is exactly the surface the order calls a number in a GUI nobody opens.
+
+So the instruction's own guard applies: nothing exists to reuse, and
+inventing a channel for one script was ruled out. **The alarm is now
+RAISED reliably and still has to be COLLECTED by something.** That gap is
+named in the script's own tail comment rather than papered over, and
+choosing the collector is a decision, not a fix I should have picked
+alone.
+
+### THE BOT BACKUP TASK — PREPARED, NOT REGISTERED
+
+`bot/backup-bot-data.ps1` exists only on unmerged branches and no
+scheduled task exists, so the bot's hand-curated commands, months of
+per-user themes and playlists, and the tip histories have no backup at
+all today. The registration command is in this session's report, ready
+the moment `feature/bot-into-subdirectory` lands.
+
+**One thing changed while preparing it:** register with `-BackupRoot
+'C:\pod-backups\bot'` rather than taking the default. The default
+resolves to `<parent of SourceDir>\bot-backups` = `C:\PathofDust\bot-backups`,
+INSIDE the checkout - so deleting or re-cloning the checkout takes the
+backups with it. The game's root deliberately sits at
+`C:\pod-backups\PathofDust`, outside. One argument at registration, no
+script change, and it matches the convention that already exists.
+
+### THE COUNTDOWN REMOVAL, as ruled
+
+The finite `!rampage` countdown is gone: `start_rampage`,
+`rampage_remaining`, `RAMPAGE_STATE_PATH`, `persist_rampage_remaining`,
+`RAMPAGE_ENCOUNTER_COUNT`, `announce_rampage_complete`,
+`RAMPAGE_COMPLETE_MESSAGE`, `rampage_complete_tx` and
+`subscribe_rampage_complete`, plus the load site, both backup allow-list
+entries, and one now-dead assertion in the absent-files test (four load
+sites became three).
+
+**Every trap from the survey's §6 is intact, and each retirement comment
+says which trap it is next to:**
+
+  * `rampage_notify` KEPT - its live consumer is `save_live_tunables`,
+    which fires it so ticking Permanent Rampage takes effect at once.
+    Deleting it with the countdown would have silently stopped the
+    checkbox working.
+  * `RAMPAGE_MIN_INTERVAL_MS` KEPT - `PLAYBACK_CADENCE_CEILING_MS` is
+    derived from it and bounds the fight-display length of EVERY fight in
+    the game, rampage or not.
+  * the Warrior passive keyed `"rampage"` UNTOUCHED - different mechanic,
+    same five letters, and a word-sweep would have deleted an allocatable
+    node players hold points in.
+  * `permanent_rampage`, `rampage_active`, `spawn_rampage_loop` all live.
+
+`rampage_active()` is now a single term and stays a function anyway: ~20
+call sites read it, and the `||` it used to carry is exactly the kind of
+thing that comes back if the 3-vote trigger returns as a dashboard
+widget.
+
+**A deletion, not a migration**, established before removing anything:
+the state was one bare `u32` in its own file read with `unwrap_or(0)`, no
+character field and no world field, so nothing deserialises differently
+and any copy still on a box is inert.
+
+WIKI_IMPACT line appended, and it is mostly a warning about what NOT to
+change: `wiki/dashboard.md:36`'s "rampage completion" should go, because
+that announcement has been unreachable since 2026-09-02 and is now
+deleted - but `wiki/getting-started.md:95-101` describes Permanent
+Rampage as live and is CORRECT.

@@ -288,7 +288,11 @@ pub(crate) fn format_gear_crit(event: &super::GearCritEvent) -> String {
     )
 }
 
-pub(crate) const RAMPAGE_COMPLETE_MESSAGE: &str = "🔥 Rampage complete! Things have settled back down... for now.";
+// RETIRED 2026-09-08 - `RAMPAGE_COMPLETE_MESSAGE` stood here. It fired
+// only when a finite `!rampage` countdown reached 0 naturally, so it went
+// with the countdown. Permanent Rampage has no "complete" - an admin
+// unticking the box is a manual stop, which this message never announced
+// even before the removal.
 
 pub(crate) fn format_unique_shard_win(event: &super::UniqueShardEvent) -> String {
     format!("💎 {} just found a rare Unique Shard!", event.display_name)

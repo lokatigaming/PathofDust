@@ -315,10 +315,16 @@ struct PendingFightBatch {
     first_fight_at: Option<Instant>,
 }
 
-/// !rampage (mod tool, 2026-08-16) - how many boss encounters one
-/// invocation queues up, per the exact request ("turns all encounters
-/// into boss encounters for the next 50 encounters").
-pub const RAMPAGE_ENCOUNTER_COUNT: u32 = 50;
+/// RETIRED 2026-09-08 - `RAMPAGE_ENCOUNTER_COUNT` (50) stood here, the
+/// length of one `!rampage` invocation's countdown. The countdown itself
+/// is gone; see `spawn_rampage_loop`'s doc for what survives and why.
+///
+/// `RAMPAGE_MIN_INTERVAL_MS` below is NOT part of that removal and must
+/// not be swept along with it - it is Permanent Rampage's live cadence
+/// AND, more importantly, the source of `PLAYBACK_CADENCE_CEILING_MS`,
+/// which bounds the fight-display length of every fight in the game,
+/// rampage or not.
+///
 /// The floor on how long `spawn_rampage_loop` waits between encounters -
 /// per the exact request ("makes the timer between fights 1 minute (or
 /// delays if the current fight is taking longer than 1 minute)"). The
@@ -359,16 +365,21 @@ pub const FIGHT_GATE_MARGIN_MS: u64 = 5_000;
 /// binds inside Controller A's operating range turns the top of A's
 /// window into work no player can see.
 pub const PLAYBACK_CADENCE_CEILING_MS: u32 = (RAMPAGE_MIN_INTERVAL_MS - OVERLAY_CHARGE_MS - OVERLAY_RESOLVE_MS - FIGHT_GATE_MARGIN_MS) as u32;
-/// !rampage persistence (2026-08-17, a live request: "if a rampage was
-/// active when the bot went down the bot should remember the rampage and
-/// come back up where it left off") - unlike `forced_boss_count`, which
-/// stays deliberately in-memory-only,
-/// `rampage_remaining` is now mirrored to this file on every change (see
-/// `persist_rampage_remaining`) and reloaded at `AdventureManager::new`,
-/// so a crash/restart mid-rampage resumes the countdown instead of
-/// silently losing it. Permanent Rampage doesn't need this - it already
-/// persists via `LiveTunables`/`adventure-live-tunables.toml`.
-pub(crate) const RAMPAGE_STATE_PATH: &str = "adventure-rampage-state.json";
+// RETIRED 2026-09-08 - `RAMPAGE_STATE_PATH`
+// ("adventure-rampage-state.json") stood here. It persisted
+// `rampage_remaining` so a restart mid-`!rampage` resumed the countdown.
+//
+// A DELETION, NOT A MIGRATION, and the distinction was checked before
+// removing it: the file held one bare `u32` in its own file, read once
+// with `load_json_fail_loud(...).unwrap_or(0)`. No character field, no
+// world field - `grep -c rampage game/src/adventure/character.rs` returns
+// 0, and the world struct carries none. So nothing deserialises
+// differently after this; the file is simply never opened again. Any copy
+// still on a box is inert.
+//
+// Dropped from both backup allow-lists in the same change
+// (`backup-game-data.ps1`, `backup-game-data.sh`) so neither reports a
+// file that can no longer exist.
 
 /// Flavor names for the basic-enemy encounter's "an assortment of
 /// enemies" - purely cosmetic (chat wording), doesn't affect stats. The
@@ -2021,15 +2032,11 @@ pub struct AdventureManager {
     /// main.rs's only current subscriber turns this into a chat
     /// announcement.
     gear_crit_tx: broadcast::Sender<GearCritEvent>,
-    /// Fires when a FINITE `!rampage`/vote-triggered countdown reaches 0
-    /// naturally (2026-08-17, a live request: "there should also be an
-    /// announcement when a rampage is complete") - main.rs's only
-    /// subscriber turns this into a chat announcement, same pattern as
-    /// `gear_crit_tx`. Deliberately does NOT fire when Permanent Rampage
-    /// is toggled off by an admin - that's a manual stop, not a
-    /// completion (see `spawn_rampage_loop`'s decrement branch, which is
-    /// the only place this ever sends).
-    rampage_complete_tx: broadcast::Sender<()>,
+    // RETIRED 2026-09-08 - `rampage_complete_tx` stood here, firing when
+    // a finite `!rampage` countdown reached 0. Dead on BOTH ends before
+    // this removal: nothing could send (the only sender sat behind the
+    // countdown) and nothing subscribed (`subscribe_rampage_complete` had
+    // zero callers). A broadcast channel with no producer and no consumer.
     /// Fires on a Unique Shard win from the normal ongoing random drop
     /// roll (see `UniqueShardEvent`/`maybe_drop_unique_shard`) - main.rs's
     /// only current subscriber turns this into a chat announcement, same
@@ -2105,18 +2112,15 @@ pub struct AdventureManager {
     /// Deliberately NOT taken by the bot's `/api/*` handlers - those keep
     /// their exact existing behavior.
     operator_action_gate: Mutex<()>,
-    /// !rampage (mod tool, 2026-08-16) - how many more encounters should
-    /// be forced to be BOSS fights, counting down by 1 on every encounter
-    /// (regardless of source) while active - see `spawn_rampage_loop`/
-    /// `start_rampage`. Mirrored to `RAMPAGE_STATE_PATH` on every change
-    /// (2026-08-17, see `persist_rampage_remaining`) and reloaded at
-    /// startup - UNLIKE `forced_boss_count`, this one DOES survive a
-    /// restart now, per a live request.
-    rampage_remaining: Mutex<u32>,
-    /// Wakes `spawn_rampage_loop` out of its idle wait the instant
-    /// `start_rampage` sets `rampage_remaining` above 0 - without this the
-    /// loop would only notice on its own next poll, adding up to a whole
-    /// extra `RAMPAGE_INTERVAL` of delay before the first rampage fight.
+    /// Wakes `spawn_rampage_loop` out of its idle wait.
+    ///
+    /// KEPT WHEN THE `!rampage` COUNTDOWN WAS REMOVED (2026-09-08), and
+    /// it is the trap in that removal. It used to exist for
+    /// `start_rampage`, but its live consumer is `save_live_tunables`,
+    /// which fires it on every save so that ticking **Permanent Rampage**
+    /// on the admin page takes effect immediately instead of whenever the
+    /// loop next happens to wake. Delete this with the countdown and the
+    /// checkbox silently stops working.
     rampage_notify: Notify,
     /// Live drop-rate/boss-difficulty dials, editable with no recompile AND
     /// no restart via the admin-only `/admin/tunables` web page - see
@@ -2568,10 +2572,8 @@ impl AdventureManager {
         let (encounter_tx, _rx) = broadcast::channel(16);
         let (state_tx, _rx) = broadcast::channel(16);
         let (gear_crit_tx, _rx) = broadcast::channel(16);
-        let (rampage_complete_tx, _rx) = broadcast::channel(16);
         let (unique_shard_tx, _rx) = broadcast::channel(16);
         let (announcements_tx, _rx) = broadcast::channel(16);
-        let rampage_remaining: u32 = crate::state::load_json_fail_loud(data_path(RAMPAGE_STATE_PATH)).unwrap_or(0);
         Arc::new(Self {
             characters: Mutex::new(characters),
             characters_path,
@@ -2585,7 +2587,6 @@ impl AdventureManager {
             encounter_tx,
             state_tx,
             gear_crit_tx,
-            rampage_complete_tx,
             unique_shard_tx,
             announcements_tx,
             announcement_feed: std::sync::Mutex::new(std::collections::VecDeque::new()),
@@ -2593,7 +2594,6 @@ impl AdventureManager {
             pending_passive_previews: Mutex::new(HashMap::new()),
             forced_boss_count: Mutex::new(0),
             operator_action_gate: Mutex::new(()),
-            rampage_remaining: Mutex::new(rampage_remaining),
             rampage_notify: Notify::new(),
             live_tunables: std::sync::RwLock::new(load_live_tunables()),
             pending_fight_batch: Mutex::new(PendingFightBatch::default()),
@@ -2615,14 +2615,14 @@ impl AdventureManager {
         save_live_tunables_file(&tunables)?;
         *self.live_tunables.write().expect("live_tunables lock poisoned") = tunables;
         // Permanent Rampage (see `spawn_rampage_loop`'s doc) - if that loop
-        // is currently idle-waiting on `rampage_notify` (no `!rampage`
-        // countdown in progress and this toggle was previously off), it
+        // is currently idle-waiting on `rampage_notify` (this
+        // toggle was previously off), it
         // needs an explicit wake to notice a save that just turned it on.
         // Harmless to fire unconditionally on every save (whether this
         // particular save touched the toggle or not, and whether the loop
         // is currently waiting or not) - `Notify::notify_one` just stores
         // one permit for whenever it next waits if nobody's waiting yet,
-        // which the loop's own `permanent`/`rampage_remaining` check
+        // which the loop's own `permanent` check
         // immediately falls back through as a harmless extra wake.
         self.rampage_notify.notify_one();
         Ok(())
@@ -2701,10 +2701,6 @@ impl AdventureManager {
 
     pub fn subscribe_gear_crits(&self) -> broadcast::Receiver<GearCritEvent> {
         self.gear_crit_tx.subscribe()
-    }
-
-    pub fn subscribe_rampage_complete(&self) -> broadcast::Receiver<()> {
-        self.rampage_complete_tx.subscribe()
     }
 
     pub fn subscribe_unique_shard_wins(&self) -> broadcast::Receiver<UniqueShardEvent> {
@@ -2918,12 +2914,8 @@ impl AdventureManager {
     /// recombine funnel through); rampage-complete and unique-shard-win
     /// don't have an equivalent existing hook, so these thin wrappers
     /// ARE that hook - call them from each scattered send site instead
-    /// of raw `rampage_complete_tx.send(())`/`unique_shard_tx.send(...)`.
-    fn announce_rampage_complete(&self) {
-        let _ = self.rampage_complete_tx.send(());
-        self.announce(RAMPAGE_COMPLETE_MESSAGE.to_string());
-    }
-
+    /// of raw `unique_shard_tx.send(...)`. The rampage-complete twin was
+    /// retired with the `!rampage` countdown (2026-09-08).
     fn announce_unique_shard_win(&self, display_name: String) {
         let event = UniqueShardEvent { display_name };
         self.announce(format_unique_shard_win(&event));
@@ -5201,8 +5193,7 @@ impl AdventureManager {
     }
 
     /// !rampage (mod tool, 2026-08-16) - runs forever, idle until
-    /// `start_rampage` sets `rampage_remaining` above 0 and wakes it via
-    /// `rampage_notify`, OR the admin page's Permanent Rampage toggle
+    /// the admin page's Permanent Rampage toggle
     /// (`LiveTunables::permanent_rampage`) is on. While active it's the
     /// SOLE driver of encounters (`spawn_encounter_loop`/
     /// `spawn_basic_encounter_loop` both sit out - see their own guards) -
@@ -5216,45 +5207,30 @@ impl AdventureManager {
     /// `run_encounter`'s own downed-revive delay already uses. Called
     /// once from main.rs, alongside the other two encounter loops.
     ///
-    /// `rampage_remaining` is loaded from `RAMPAGE_STATE_PATH` at
-    /// `AdventureManager::new` (2026-08-17) - a restart mid-rampage comes
-    /// back up with the same count still loaded, and since a nonzero value
-    /// makes the outer idle-wait skip entirely (see the loop body), this
-    /// loop just resumes firing immediately rather than needing any
-    /// special "was a rampage in progress" bootstrap logic.
+    /// THE FINITE `!rampage` COUNTDOWN WAS REMOVED 2026-09-08 and this
+    /// loop kept, which is the whole shape of that change. There were
+    /// always TWO producers - `start_rampage`'s 50-encounter countdown
+    /// and this toggle - and only the first one died when the bot's
+    /// `!rampage` command was deleted in the decoupling. `pacing.rs`
+    /// names Permanent Rampage as the expected steady state in
+    /// production, and the dynamic-pacing constants are sized against
+    /// its ~60 s cadence, so this loop is live infrastructure rather
+    /// than a leftover.
     ///
-    /// Permanent Rampage (2026-08-16) never touches `rampage_remaining`
-    /// at all while active - it's read fresh from `live_tunables()` on
-    /// every iteration instead, so toggling it off mid-fight just falls
-    /// straight back to whatever `rampage_remaining` happens to be (0
-    /// unless a `!rampage` countdown is ALSO independently in progress)
-    /// rather than needing its own separate counter. Turning it ON while
-    /// this loop is idle-waiting on `rampage_notify` still needs a wake -
-    /// see `do_save_tunables`, which fires one on every save.
+    /// Turning the toggle ON while this loop is idle-waiting still needs
+    /// a wake - see `save_live_tunables`, which fires `rampage_notify` on
+    /// every save. That is now the ONLY reason `rampage_notify` exists,
+    /// and deleting it as part of the countdown would have stopped the
+    /// checkbox taking effect until something else happened to wake the
+    /// loop.
     pub fn spawn_rampage_loop(self: Arc<Self>) {
         tokio::spawn(async move {
             loop {
-                let permanent = self.live_tunables().permanent_rampage;
-                if !permanent && *self.rampage_remaining.lock().await == 0 {
+                if !self.live_tunables().permanent_rampage {
                     self.rampage_notify.notified().await;
                 }
-                loop {
-                    let permanent = self.live_tunables().permanent_rampage;
-                    if !permanent && *self.rampage_remaining.lock().await == 0 {
-                        break;
-                    }
+                while self.live_tunables().permanent_rampage {
                     let duration_ms = self.run_encounter(None).await;
-                    if !permanent {
-                        let new_remaining = {
-                            let mut remaining = self.rampage_remaining.lock().await;
-                            *remaining = remaining.saturating_sub(1);
-                            *remaining
-                        };
-                        self.persist_rampage_remaining(new_remaining);
-                        if new_remaining == 0 {
-                            self.announce_rampage_complete();
-                        }
-                    }
                     let playback_ms = OVERLAY_CHARGE_MS + duration_ms.unwrap_or(0) as u64 + OVERLAY_RESOLVE_MS;
                     let wait = Duration::from_millis(playback_ms).max(RAMPAGE_MIN_INTERVAL);
                     tokio::time::sleep(wait).await;
@@ -5263,39 +5239,44 @@ impl AdventureManager {
         });
     }
 
-    /// Whether ANY form of rampage is currently active - either the
-    /// finite `!rampage` countdown (`rampage_remaining`) or the admin
-    /// page's Permanent Rampage toggle (`LiveTunables::permanent_rampage`,
-    /// see its own doc). Every site that used to check
-    /// `rampage_remaining > 0` directly now goes through this instead, so
-    /// Permanent Rampage gets the exact same "boss fights only, instant
-    /// revives, filler loops sit out" treatment `!rampage` already has,
-    /// for free.
+    /// Whether rampage is currently active - i.e. whether the admin
+    /// page's Permanent Rampage toggle (`LiveTunables::permanent_rampage`)
+    /// is on. Every site that needs "boss fights only, instant revives,
+    /// filler loops sit out" goes through this.
+    ///
+    /// Still a function rather than an inlined field read, and still
+    /// `async`, after the countdown's removal (2026-09-08) left it with a
+    /// single term: ~20 call sites read it, the `||` it used to carry is
+    /// exactly the kind of thing that comes back (a dashboard vote widget
+    /// re-commissioning the countdown is on the board), and collapsing it
+    /// would spread `live_tunables().permanent_rampage` across every one
+    /// of those sites for no gain.
     pub(crate) async fn rampage_active(&self) -> bool {
-        self.live_tunables().permanent_rampage || *self.rampage_remaining.lock().await > 0
+        self.live_tunables().permanent_rampage
     }
 
-    /// !rampage (mod tool, 2026-08-16) - queues `RAMPAGE_ENCOUNTER_COUNT`
-    /// forced boss encounters and wakes `spawn_rampage_loop` to start
-    /// running them immediately. Calling this again while a rampage is
-    /// already in progress just resets the remaining count back to
-    /// `RAMPAGE_ENCOUNTER_COUNT` (extends it, doesn't stack on top).
-    pub async fn start_rampage(&self) {
-        *self.rampage_remaining.lock().await = RAMPAGE_ENCOUNTER_COUNT;
-        self.persist_rampage_remaining(RAMPAGE_ENCOUNTER_COUNT);
-        self.rampage_notify.notify_one();
-    }
-
-    /// Mirrors `rampage_remaining` to `RAMPAGE_STATE_PATH` so a restart can
-    /// resume the countdown instead of losing it - called from both
-    /// `start_rampage` and `spawn_rampage_loop`'s own decrement, the only
-    /// two places that ever change the value.
-    fn persist_rampage_remaining(&self, value: u32) {
-        if let Err(err) = crate::state::save_json(data_path(RAMPAGE_STATE_PATH), &value) {
-            tracing::error!("Failed to persist rampage state to {RAMPAGE_STATE_PATH}: {err}");
-        }
-    }
-
+    // RETIRED 2026-09-08 - `start_rampage` and `persist_rampage_remaining`
+    // stood here, with `RAMPAGE_ENCOUNTER_COUNT` and `RAMPAGE_STATE_PATH`.
+    //
+    // `start_rampage` had had NO CALLERS since `chore/bot-decoupling`
+    // deleted the bot's `!rampage` command (2026-09-02). That audit
+    // recorded the consequence at the time - "Rampages can no longer be
+    // triggered or voted for. `spawn_rampage_loop` still runs its own
+    // schedule" - so this is the second half of a change that was always
+    // going to have one.
+    //
+    // THE WRITE PATH WAS CHECKED, NOT JUST THE ENTRY POINT. The decrement
+    // that also wrote the state file sat behind `if !permanent`, and with
+    // the toggle off the inner loop was only entered when
+    // `rampage_remaining > 0`, which only `start_rampage` could cause.
+    // Unreachable in both directions, which is why no
+    // `adventure-rampage-state.json` exists to migrate.
+    //
+    // WHAT PLAYERS LOST is the 3-vote trigger, not the mechanic: an
+    // operator can still start a rampage from `/admin/tunables`. If the
+    // vote comes back as a dashboard feature, this is the machinery it
+    // would call, and reinstating it is a smaller job than the survey
+    // that established it was safe to remove.
     /// The web operator control behind `/admin/ops/next-encounter`
     /// (2026-08-28) - the same action `!nextencounter` performs, with the
     /// two refusals a button needs and a chat command does not.
@@ -9548,7 +9529,7 @@ mod unique_shard_tests {
 /// incident this guards: a BOM'd adventure-characters.json parsed as
 /// `None`, booted as an empty roster, and autosave wiped every character
 /// to disk within ~9 seconds - only a backup saved it. Now: absent files
-/// still default cleanly at all four load sites (fresh installs stay
+/// still default cleanly at all three load sites (fresh installs stay
 /// legal), but a file that exists and fails to parse refuses to start.
 ///
 /// Same scratch-dir discipline as memory_manager_tests above: ABSOLUTE
@@ -9567,19 +9548,19 @@ mod fail_loud_loading_tests {
         scratch
     }
 
-    /// The ABSENT half of the contract, exercised at every one of the four
+    /// The ABSENT half of the contract, exercised at every one of the three
     /// load sites in `AdventureManager::new`: no files at all must boot as
     /// a clean fresh install (empty roster, default world, empty cooldown
-    /// map, rampage counter zero) - never a panic.
+    /// map) - never a panic. Was FOUR sites until 2026-09-08; the
+    /// rampage-state file went with the `!rampage` countdown.
     #[tokio::test]
-    async fn absent_files_default_cleanly_at_all_four_load_sites() {
+    async fn absent_files_default_cleanly_at_all_three_load_sites() {
         let scratch = scratch_dir("absent_defaults");
         let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
 
         assert_eq!(manager.characters.lock().await.len(), 0, "no characters file = fresh install, empty roster");
         assert_eq!(manager.world.lock().await.stage, 0, "no world file = WorldState::default");
         assert!(manager.reforge_cooldown.lock().await.is_empty(), "no reforge-cooldown file = empty map");
-        assert_eq!(*manager.rampage_remaining.lock().await, 0, "no rampage-state file = zero");
 
         std::fs::remove_dir_all(&scratch).ok();
     }
