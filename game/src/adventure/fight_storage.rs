@@ -351,8 +351,8 @@ const STORAGE_MIGRATION_MARKER_PATH: &str = "adventure-fights-storage-migration-
 /// `.bak` - the 340MB becomes reclaimable but nothing is destroyed
 /// outright. Marker-gated, same fire-once shape as every other
 /// migration in this codebase (see `migrations.rs`).
-pub(crate) fn run_storage_migration() {
-    if crate::state::load_json::<bool>(data_path(STORAGE_MIGRATION_MARKER_PATH)).is_some() {
+pub(crate) fn run_storage_migration(characters_path: &std::path::Path) {
+    if crate::state::load_json::<bool>(marker_path(characters_path, STORAGE_MIGRATION_MARKER_PATH)).is_some() {
         return;
     }
     if let Some(old_log) = crate::state::load_json::<Vec<LastFightSnapshot>>(data_path(LAST_FIGHTS_LOG_PATH)) {
@@ -367,7 +367,7 @@ pub(crate) fn run_storage_migration() {
             tracing::error!("Fight storage migration: failed to rename {} to {}: {err}", old_log_path.display(), backup_path.display());
         }
     }
-    if let Err(err) = crate::state::save_json(data_path(STORAGE_MIGRATION_MARKER_PATH), &true) {
+    if let Err(err) = crate::state::save_json(marker_path(characters_path, STORAGE_MIGRATION_MARKER_PATH), &true) {
         tracing::error!("Failed to persist fight storage migration marker to {STORAGE_MIGRATION_MARKER_PATH}: {err}");
     }
 }

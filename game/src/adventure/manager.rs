@@ -2194,7 +2194,7 @@ impl AdventureManager {
         {
             const STARTER_KIT_BACKFILL_MARKER_PATH: &str = "adventure-starter-kit-backfill-marker.json";
             const STARTER_KIT_BACKFILL_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
-            if crate::state::load_json::<bool>(data_path(STARTER_KIT_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, STARTER_KIT_BACKFILL_MARKER_PATH)).is_none() {
                 let mut rng = rand::thread_rng();
                 let mut changed = false;
                 for character in characters.values_mut() {
@@ -2214,7 +2214,7 @@ impl AdventureManager {
                 // point. A marker only written on a change would leave the
                 // guard unarmed on exactly the installs where the loop was
                 // a no-op, which is every install that matters here.
-                if let Err(err) = crate::state::save_json(data_path(STARTER_KIT_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, STARTER_KIT_BACKFILL_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist starter-kit backfill marker to {STARTER_KIT_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2242,7 +2242,7 @@ impl AdventureManager {
         // here.
         {
             const CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH: &str = "adventure-crit-reforge-equipped-backfill-marker.json";
-            if crate::state::load_json::<bool>(data_path(CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH)).is_none() {
                 let mut rng = rand::thread_rng();
                 let mut changed = false;
                 for character in characters.values_mut() {
@@ -2266,7 +2266,7 @@ impl AdventureManager {
                         tracing::error!("Failed to persist crit-reforge equipped backfill to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist crit-reforge equipped backfill marker to {CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2286,7 +2286,7 @@ impl AdventureManager {
         // grant twice).
         {
             const CRAFT_TOKEN_BACKFILL_MARKER_PATH: &str = "adventure-craft-token-backfill-marker.json";
-            if crate::state::load_json::<bool>(data_path(CRAFT_TOKEN_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_MARKER_PATH)).is_none() {
                 for character in characters.values_mut() {
                     for &action in &ALL_CRAFT_ACTIONS {
                         character.add_craft_token(action, 1);
@@ -2295,7 +2295,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist craft token backfill to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(CRAFT_TOKEN_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist craft token backfill marker to {CRAFT_TOKEN_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2311,7 +2311,7 @@ impl AdventureManager {
         // original backfill.
         {
             const CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH: &str = "adventure-craft-token-backfill-v2-marker.json";
-            if crate::state::load_json::<bool>(data_path(CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH)).is_none() {
                 for character in characters.values_mut() {
                     character.add_craft_token(CraftAction::Annulment, 1);
                     character.add_craft_token(CraftAction::Chancing, 1);
@@ -2319,7 +2319,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist craft token backfill v2 to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist craft token backfill v2 marker to {CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH}: {err}");
                 }
             }
@@ -2336,7 +2336,7 @@ impl AdventureManager {
         // every restart.
         {
             const PITY_LAUNCH_MARKER_PATH: &str = "adventure-pity-launch-marker.json";
-            if crate::state::load_json::<bool>(data_path(PITY_LAUNCH_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, PITY_LAUNCH_MARKER_PATH)).is_none() {
                 for character in characters.values_mut() {
                     character.item_pity = PITY_THRESHOLD;
                     character.craft_pity = PITY_THRESHOLD;
@@ -2344,7 +2344,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist pity launch grant to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(PITY_LAUNCH_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, PITY_LAUNCH_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist pity launch marker to {PITY_LAUNCH_MARKER_PATH}: {err}");
                 }
             }
@@ -2356,14 +2356,14 @@ impl AdventureManager {
         // same guarded-by-marker, fire-once shape as the pity grant above.
         {
             const WINGS_LAUNCH_GRANT_MARKER_PATH: &str = "adventure-wings-launch-grant-marker.json";
-            if crate::state::load_json::<bool>(data_path(WINGS_LAUNCH_GRANT_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, WINGS_LAUNCH_GRANT_MARKER_PATH)).is_none() {
                 if let Some(character) = characters.get_mut("lokati_gaming") {
                     character.owns_wings = true;
                     if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                         tracing::error!("Failed to persist wings launch grant to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(WINGS_LAUNCH_GRANT_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, WINGS_LAUNCH_GRANT_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist wings launch grant marker to {WINGS_LAUNCH_GRANT_MARKER_PATH}: {err}");
                 }
             }
@@ -2387,7 +2387,7 @@ impl AdventureManager {
         // writing this): Warrior's "overwhelm" and Slayer's "frenzy".
         {
             const PASSIVE_KEY_RENAME_MARKER_PATH: &str = "adventure-passive-key-rename-marker.json";
-            if crate::state::load_json::<bool>(data_path(PASSIVE_KEY_RENAME_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, PASSIVE_KEY_RENAME_MARKER_PATH)).is_none() {
                 for character in characters.values_mut() {
                     let renames: &[(&str, &str)] = match character.archetype {
                         Archetype::Warrior => &[("overwhelm", "overwhelmingforce")],
@@ -2403,7 +2403,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist passive key rename to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(PASSIVE_KEY_RENAME_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, PASSIVE_KEY_RENAME_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist passive key rename marker to {PASSIVE_KEY_RENAME_MARKER_PATH}: {err}");
                 }
             }
@@ -2428,7 +2428,7 @@ impl AdventureManager {
         // other one-off grant here.
         {
             const KIBUKAH_COMPENSATION_MARKER_PATH: &str = "adventure-kibukah-compensation-marker.json";
-            if crate::state::load_json::<bool>(data_path(KIBUKAH_COMPENSATION_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, KIBUKAH_COMPENSATION_MARKER_PATH)).is_none() {
                 if let Some(character) = characters.get_mut("kibukah") {
                     let stage = crate::state::load_json::<WorldState>(&world_path).unwrap_or_default().stage;
                     let mut rng = rand::thread_rng();
@@ -2443,7 +2443,7 @@ impl AdventureManager {
                         tracing::error!("Failed to persist kibukah compensation grant to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(KIBUKAH_COMPENSATION_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, KIBUKAH_COMPENSATION_MARKER_PATH), &true) {
                     tracing::error!("Failed to persist kibukah compensation marker to {KIBUKAH_COMPENSATION_MARKER_PATH}: {err}");
                 }
             }
@@ -2463,7 +2463,7 @@ impl AdventureManager {
         // same pool size.
         {
             const SPRITE_COUNT_MARKER_PATH: &str = "adventure-sprite-count.json";
-            let last_known_sprite_count: usize = crate::state::load_json(data_path(SPRITE_COUNT_MARKER_PATH)).unwrap_or(0);
+            let last_known_sprite_count: usize = crate::state::load_json(marker_path(&characters_path, SPRITE_COUNT_MARKER_PATH)).unwrap_or(0);
             // Compared with `!=`, not just `>` - a bad sprite batch can
             // get pulled and replaced with a differently-sized one (see
             // "sprites 2.png" -> "sprites 3.png"), which can shrink the
@@ -2488,7 +2488,7 @@ impl AdventureManager {
                         }
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(SPRITE_COUNT_MARKER_PATH), &ALL_SPRITES.len()) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, SPRITE_COUNT_MARKER_PATH), &ALL_SPRITES.len()) {
                     tracing::error!("Failed to persist sprite count marker to {SPRITE_COUNT_MARKER_PATH}: {err}");
                 }
             }
@@ -2498,7 +2498,7 @@ impl AdventureManager {
         // `run_storage_migration`'s own doc. Independent of `characters`,
         // so it doesn't need to sit inside any of the character-mutating
         // blocks above.
-        run_storage_migration();
+        run_storage_migration(&characters_path);
 
         let mut world: WorldState = crate::state::load_json_fail_loud(&world_path).unwrap_or_default();
         // `highest_stage` backfill (2026-09-02). The live world file
@@ -2737,12 +2737,12 @@ impl AdventureManager {
             // next character load merges it into UniqueShard anyway (see
             // `migrate_celestial_shard_into_unique_shard`).
             const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
-            if crate::state::load_json::<bool>(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&self.characters_path, CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
                 if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
                     if self.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
                         self.announce(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name));
                     }
-                    if let Err(err) = crate::state::save_json(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH), &true) {
+                    if let Err(err) = crate::state::save_json(marker_path(&self.characters_path, CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH), &true) {
                         tracing::error!("Failed to persist celestial shard first award marker: {err}");
                     }
                 }
@@ -2753,8 +2753,8 @@ impl AdventureManager {
             // (marker path, the token to grant, the name shown in chat).
             const ITEM_LAUNCH_GIVEAWAYS: &[(&str, CraftAction, &str)] =
                 &[("adventure-unique-shard-first-award-marker.json", CraftAction::UniqueShard, "Unique Shard")];
-            for &(marker_path, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
-                if crate::state::load_json::<bool>(data_path(marker_path)).is_some() {
+            for &(marker_name, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
+                if crate::state::load_json::<bool>(marker_path(&self.characters_path, marker_name)).is_some() {
                     continue;
                 }
                 let top3_by = |amount: fn(&PlayerFightStats) -> u64| -> Vec<String> {
@@ -2782,7 +2782,7 @@ impl AdventureManager {
                 if self.grant_craft_token(&winner_id, action, 1).await {
                     self.announce(format!("🎁 {display} was randomly drawn from that fight's top performers and has been awarded a {item_label}!"));
                 }
-                if let Err(err) = crate::state::save_json(data_path(marker_path), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&self.characters_path, marker_name), &true) {
                     tracing::error!("Failed to persist {item_label} launch giveaway marker: {err}");
                 }
             }
@@ -10716,5 +10716,101 @@ mod catchup_multiplier_tests {
                 assert!((1.0..=3.0).contains(&m), "catchup_multiplier({level}, .., {full_deficit}) = {m} left the 1.0..3.0 band");
             }
         }
+    }
+}
+
+/// WIRING for the `change_model` no-op guard (2026-09-08).
+///
+/// The guard's PREDICATE is unit-tested in `character.rs`
+/// (`model_noop_guard_tests`). This module tests the other half - that
+/// `change_model` actually calls it - by driving the real public seam,
+/// the same reason `a_filler_fight_feeds_neither_controller` and the
+/// Fix-2 relaxation test drive real fights through theirs: so the
+/// plumbing cannot silently rot.
+///
+/// **This corrects a claim I made and the owner repeated.** I reported
+/// that "no test in this workspace constructs an `AdventureManager`" and
+/// used it to justify leaving the wiring untested. It was false - 19
+/// in-crate call sites and 41 across 30 files in `game/tests` do exactly
+/// that, behind nine helpers. The observation was true of the file I was
+/// reading and I stated it about the workspace. **Absence from where you
+/// looked is not absence.**
+///
+/// WHICH BRANCH IS WIRED-TESTED, AND WHICH IS NOT. This covers the
+/// curated `ALL_SPRITES` branch only. The custom-sprite branch reaches
+/// `custom_sprite_file_exists` -> `CUSTOM_SPRITE_DIR`, a bare
+/// CWD-relative constant, which would make this test's result depend on
+/// the process's working directory. That constant is consistent with how
+/// `adventure_web.rs` resolves the same tree - it is a static-asset
+/// directory rather than data - so it is deliberately NOT parameterised
+/// here. The custom branch's ownership and case rules have their own
+/// coverage in `custom_sprite_case.rs` and `custom_sprite_manifest.rs`;
+/// what is untested is specifically the no-op guard against a CUSTOM
+/// sprite name.
+///
+/// Note what this asserts and why it is not the obvious thing: it cannot
+/// check that dust or a banked token went unspent, because
+/// `MODEL_CHANGES_FREE_FOR_ALL` is `true` and neither is spent on ANY
+/// path today. The guard's other observable effect is that it returns
+/// before `persist_characters`, so the characters file is the witness.
+#[cfg(test)]
+mod change_model_wiring_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("change_model_wiring_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    #[tokio::test]
+    async fn re_picking_the_same_sprite_never_reaches_the_charge_path() {
+        let (manager, scratch) = disposable_manager("noop");
+        manager.join("picky", "picky").await;
+
+        let first = ALL_SPRITES[0];
+        manager.change_model("picky", first.to_string()).await.expect("a curated sprite must be selectable");
+        assert_eq!(manager.characters.lock().await.get("picky").expect("just joined").model.as_deref(), Some(first), "sanity: the first pick must actually take, or nothing below means anything");
+
+        // The characters file is the witness. Deleting it means only a
+        // real `persist_characters` can bring it back.
+        let characters_file = scratch.join("adventure-characters.json");
+        std::fs::remove_file(&characters_file).expect("the first change must have persisted a file to delete");
+
+        manager.change_model("picky", first.to_string()).await.expect("re-picking what you already wear must succeed, not error");
+        assert!(
+            !characters_file.exists(),
+            "change_model must return BEFORE persist_characters when nothing changed - a rewritten file proves it ran the full path, which is the path that spends a banked token or {MODEL_CHANGE_COST} dust once MODEL_CHANGES_FREE_FOR_ALL flips back to false"
+        );
+
+        // The other arm, so this cannot pass with change_model broken
+        // outright: a genuinely different sprite still persists.
+        let second = ALL_SPRITES[1];
+        manager.change_model("picky", second.to_string()).await.expect("a different sprite must be a real change");
+        assert!(characters_file.exists(), "a REAL change must still persist - without this arm the test above would pass even if change_model did nothing at all");
+        assert_eq!(manager.characters.lock().await.get("picky").expect("still joined").model.as_deref(), Some(second), "and the new sprite must be the one stored");
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// Markers must follow the characters file into the scratch
+    /// directory, not land in the process's working directory
+    /// (2026-09-08). This is the isolation `marker_path` exists to
+    /// provide, asserted through a real manager rather than by reading
+    /// the helper.
+    #[tokio::test]
+    async fn a_disposable_manager_keeps_its_markers_to_itself() {
+        let (_manager, scratch) = disposable_manager("markers");
+
+        let starter_kit = scratch.join("adventure-starter-kit-backfill-marker.json");
+        assert!(
+            starter_kit.exists(),
+            "the startup backfill marker must be written BESIDE this manager's characters file. If it is missing here it went to the process CWD, where it persists BETWEEN RUNS and silently marks every later manager's startup migrations as already done"
+        );
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }

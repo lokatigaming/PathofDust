@@ -56,6 +56,42 @@ pub fn data_path(filename: &str) -> PathBuf {
     DATA_DIR.get_or_init(PathBuf::new).join(filename)
 }
 
+/// A one-time migration marker, resolved BESIDE the characters file the
+/// manager was handed rather than through the global `data_path`
+/// (2026-09-08).
+///
+/// THE DEFECT THIS FIXES. Markers resolved through `data_path` with
+/// `DATA_DIR` unset land in the process's CWD. An in-crate
+/// `disposable_manager` isolates its characters/world/cooldown files by
+/// absolute scratch path but had no way to isolate its MARKER namespace,
+/// so every such manager wrote its markers into the repo working
+/// directory instead - 58 stray entries across two directories in this
+/// checkout when it was found, gitignored and therefore invisible.
+///
+/// It is a correctness bug rather than untidiness because **markers
+/// persist between runs**. Once the suite has run once on a machine,
+/// every later in-crate `AdventureManager::new` boots with every startup
+/// migration already marked done. A test of a startup backfill passes on
+/// a clean checkout and behaves differently on a machine that has run the
+/// suite before - history-dependent, not merely order-dependent - and it
+/// fails in the silent direction, because the backfill is SKIPPED and
+/// nothing errors.
+///
+/// WHY THE PARENT OF THE CHARACTERS PATH IS THE RIGHT ANCHOR. That path
+/// has already been through `data_path` by the time a manager holds it,
+/// so in production its parent IS the data directory and markers land
+/// byte-identically where they land today. In an in-crate test it is an
+/// absolute scratch path, so markers follow the characters file into the
+/// scratch directory - with no `set_data_dir` call and no `OnceLock`
+/// involvement, which is what keeps this usable from a test binary that
+/// shares its process with the whole suite.
+///
+/// A path with no parent falls back to the bare name, which is exactly
+/// what `data_path` with an unset `DATA_DIR` would have produced.
+pub fn marker_path(characters_path: &std::path::Path, filename: &str) -> PathBuf {
+    characters_path.parent().map_or_else(|| PathBuf::from(filename), |dir| dir.join(filename))
+}
+
 // No automated `#[cfg(test)]` coverage in this file, deliberately - a
 // real functional check of `set_data_dir` (call it, then confirm
 // `data_path` redirects) was tried here and then removed: this crate's
