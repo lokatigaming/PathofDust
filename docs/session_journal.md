@@ -7154,3 +7154,80 @@ lines of a fully captured 309-line run. Golden corpus matched — nothing
 regenerated, tree clean.
 
 Test-only change, no player-facing behaviour, so no WIKI_IMPACT line.
+
+### 2026-09-08 — ADMIN-LAYOUT deploy record (release `admin-layout`)
+
+| | |
+|---|---|
+| master commit | `d9183a9aa29e3918cbc393bf5f65f7f02ed109b2` |
+| live binary | `e2cfdece22c4ba5576bda30701e7dd95afafd9831d872c4603fde3a1351a0024` |
+| previous | `9025f32c7ef10ff6d7ce46138756461285e7559e27652e86473ef2f7f034c668` |
+| rollback slot | `deploy-pre-20260908-082358-admin-layout` |
+| downtime | **0.24 s** |
+| suite | **901 passed / 0 failed / 43 suites**, `--no-fail-fast`, on the box |
+| seven §13B.5 checks | all pass |
+
+Three merges in one release: the cleric grace companion (last of the corpus
+work), b's passive-form drift guard, and item 15's admin page rewrite. Grouped
+because the first two change no runtime behaviour at all, so deploying them
+alone would spend a release and a patch note on a binary that behaves
+identically.
+
+#### THE ORDER OF THE MERGES WAS THE POINT
+
+The drift guard was merged BEFORE the page rewrite, which makes the rewrite the
+guard's first real exercise. If the rewrite had renamed or dropped a rendered
+input, the guard's scraped body would fail extraction instead of shipping green
+— which is exactly the 422 that went red in release 16, and exactly the
+direction a hand-maintained superset body can never catch.
+
+#### VERIFIED ON THE LIVE REWRITTEN PAGE, NOT IN SOURCE
+
+A page rewrite is where a rendered field goes missing without failing a build,
+and this rewrite landed on top of a branch that had just ADDED fields to that
+page. Fetched both admin pages as the operator and counted what actually
+rendered: **smite dials 3, archetype curve dial 1, boss dials 13, splash dials 6,
+38 distinct inputs on the passives page.** The compensation's dials survived.
+
+#### AN UNCHANGED SUITE TOTAL NEEDS THE SAME SCRUTINY AS A MOVED ONE
+
+Items 1+2 left the total at exactly 900. Confirmed that was correct rather than
+assumed: `#[test]` attribute counts are 900 at both commits, **0 new `#[test]`**,
+and 7 assertion lines added to the drift-guard file — b's guard is a second block
+inside an existing test function. Item 3 then moved it 900 → 901 / 42 → 43
+suites, attributable to exactly one new test FILE (a's R3 test) carrying exactly
+one `#[test]`.
+
+#### CATCHING AN INSTRUMENT ERROR STILL DOES NOT INOCULATE YOU
+
+A box-side tree-identity grep reported `smite inputs rendered : 0` where the
+local one said `3`, on an archive whose hash matched at both ends. That reads as
+the rewrite having dropped the compensation's brand-new dials — the single most
+likely real defect in this release. **It was my own nested ssh quoting mangling
+the pattern.** Re-run with sane quoting: 3.
+
+Sixth bare count this week to read as a defect, and the second where the
+instrument was mine. The habit that keeps catching it: when a count disagrees
+with something already established, check the instrument before believing the
+number.
+
+#### FOUND — an order premise that is wrong, recorded so it does not persist
+
+The order states that `feature/store-classification`'s no-op guard "is already
+merged into master via `939ec8f`". `939ec8f` is *"Merge remote-tracking branch
+'origin/master' INTO feature/store-classification"* — the opposite direction. It
+is not an ancestor of master, and master contains no store-classification code.
+Nothing is blocked (that branch is not ready), but left standing the belief
+would have a later session skip merging a's work as already done.
+
+#### The sprite-manifest hazard, cleared ahead of its turn
+
+Re-ran the live check against `bef24bd` rather than reusing the `861c1a4`
+result. Box `custom/` and manifest agree 14/14 in both directions. Better than
+the file comparison: the two sprites ACTUALLY EQUIPPED on live — `custom/kibukah`
+and `custom/Sitch89`, found in the character `model` field — are both owned by
+their users under the new manifest. No live player loses a sprite.
+
+Correction to the order's account, not affecting the ruling: there is no kmart
+login on the World 2 roster at all (22 accounts, 22 characters, zero). The
+`kmartbikes1` story is World 1; World 2 reset on 2026-09-02.
