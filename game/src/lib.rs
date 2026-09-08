@@ -18,5 +18,6 @@
 pub mod adventure;
 pub mod adventure_overlay_server;
 pub mod adventure_web;
+pub mod logging;
 pub mod passive_tree;
 pub mod state;

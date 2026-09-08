@@ -7383,3 +7383,146 @@ legitimately fails, with the result-line count proving the suite ran. Adopted it
 in the harness generally: 828/6 and 903/43 look identical in shape, and only the
 line count separates a complete run from one that stopped at the first failing
 binary.
+
+## 2026-09-08 — THE GAME'S LOG SINK GETS THE SAME RETENTION POLICY (branch `feature/game-log-retention`)
+
+Cut from master (`3a3253c`, which had moved past the `4cb054f` the order
+named). The game crate is untouched by both bot branches, so this does
+not queue behind them.
+
+`bot/src/logging.rs` is the template. Four things were not carbon copies.
+
+### 1. WHERE IT ACTUALLY LANDS, established before touching anything
+
+A retention policy pointed at the wrong directory prunes nothing and
+looks fine, so this was derived rather than assumed:
+
+  * the unit sets `WorkingDirectory=/var/lib/pathofdust`
+    (`docs/linux_staging.md:126`)
+  * it sets exactly THREE `Environment=` lines - `OPERATOR_LOGIN`,
+    `ADVENTURE_WEB_PORT`, `ADVENTURE_OVERLAY_SERVER_PORT` - and
+    **`GAME_DATA_DIR` is not among them** (:155-157; :48 says so in
+    words)
+  * so `data_path` joins onto its EMPTY default base and
+    `data_path("logs")` is the bare relative path `logs`
+
+**=> `/var/lib/pathofdust/logs/game.log.<YYYY-MM-DD>`**
+
+**Cross-checked independently of that arithmetic**, because a chain of
+three documents agreeing with each other is still one source: the unit
+runs `ProtectSystem=strict` with `ReadWritePaths=/var/lib/pathofdust`, so
+if the logs resolved anywhere else the process could not have written
+them at all. The files existing is itself evidence of the path.
+
+### THE UNIT FILE ALREADY SAID JOURNALD DOES NOT COVER IT
+
+`docs/linux_staging.md:137-140`, in the service definition's own comment:
+
+> journald is the log of record. The binary ALSO writes logs/game.log via
+> its tracing_appender layer (main.rs) - that is in the code, not
+> configurable here, and lands under WorkingDirectory like every other
+> data file.
+
+The separation was written down **at the moment the unit was authored**,
+and nobody carried it one step further to "therefore nothing prunes it".
+Three later sessions then recorded the opposite as the mitigation. The
+fact was never missing; the inference was.
+
+### 2. THE NUMBER, ARGUED FOR THIS PROCESS RATHER THAN INHERITED
+
+**Its own constant, deliberately equal to the bot's rather than shared
+with it.** The two processes have different log profiles and different
+uptime, so a future measurement must be able to move one without moving
+the other. A shared constant would force the next person to choose
+between changing both and changing neither.
+
+**The order's premise - "the game is a busier process than the bot" - is
+true of requests and false of logging.** Emission sites:
+
+  game  18 info / 19 warn / 58 error = 95
+  bot   49 info / 43 warn / 35 error = 128
+
+and site counts understate it, because what matters is which sites sit in
+a hot path. **The game has none.** Every `info!` in the crate is startup
+(`"loaded N characters"`, the two server-started lines), a one-time
+migration, a balance-file override, or a rare operator/player action
+(`!pinfight`, a Unique Shard apply, a login). There is no per-fight and no
+per-request logging at all, and the crate's dominant category is
+`error!`, which only fires when something is already wrong. A healthy day
+is small; an unhealthy day is exactly the one worth keeping.
+
+**The wall-clock window is SHORTER here for the same number, which is the
+right direction.** `rolling::daily` writes a file only on a day something
+is logged. The bot runs when the stream is on, so its 30 files span more
+than 30 calendar days; the game runs continuously under `Restart=always`,
+so its 30 files are 30 days almost exactly. The always-on process gets
+the tighter bound from the identical constant.
+
+**30 rather than fewer** because the game's diagnostic unit is the
+RELEASE and c deploys roughly daily - a month of files is a month of
+releases, which matches how far back the anomaly ledger actually cites.
+Fewer would put "this started a few releases ago" outside the window.
+
+Stated rather than implied, same as the bot: this bounds FILES, not
+BYTES. The emission sites above are counted from source, not sampled from
+production. Growth was UNBOUNDED and is now BOUNDED, which is the defect.
+
+### 3. THE RESTART GUARANTEE, WHICH BINDS HARDER HERE THAN ON THE BOT
+
+The bot's case was a crash-restart. The game's is a DEPLOY, and c deploys
+roughly daily, so the frequent path is not a crash at all. **A deploy that
+pruned the current day's log would destroy the evidence of whatever went
+wrong in the release before it** - precisely the log a rollback decision
+is made from.
+
+It cannot: `prune_old_logs` sorts ascending by creation time and deletes
+from the FRONT, keeping the newest `max_files - 1`, and today's file is
+either the newest that exists or does not exist yet. Pinned by
+`todays_log_survives_a_restart_or_deploy_that_prunes`.
+
+### PLATFORM NOTE - the ranking path differs from the bot's and both are correct
+
+The bot's twin was verified on Windows, where `metadata.created()` is a
+real birth time. This one runs on Linux in production, where `statx` may
+or may not report a btime depending on the filesystem. Both of
+`prune_old_logs`'s ranking paths order these correctly: with a btime the
+creation timestamps ascend with write order, and without one
+`parse_date_from_filename` reads the `YYYY-MM-DD` suffix and orders by
+that. The test seeds in ascending date AND ascending creation order so
+the two agree - which is also what a real rotation produces.
+
+### 4. FILENAMES UNCHANGED, for the reason that is a failure mode
+
+`game.log.<date>`, byte for byte, so the files already on the box are
+adopted by the policy. `prune_old_logs` filters on the prefix, so a
+builder emitting a different name would leave every existing file
+permanently invisible to a policy that reported success - a working
+pruner that eats nothing. Same shape as the `-IncludeEnv` bug in the
+bot's backup script; third time this week that this exact failure
+signature has been caught before shipping.
+
+### A nuance worth recording about the disk-growth finding
+
+`docs/linux_deploy.md:176` says `/var/lib/pathofdust` went 40 MB -> 7.0 GB
+and then **plateaued**. That is a statement about the FIGHT TIERS, which
+prune themselves via `fight_storage.rs`'s capacities. **Logs sit in the
+same directory underneath that plateau and did not participate in it** -
+so "plateaued" was true and still left an unbounded component inside the
+number.
+
+### Verified
+
+Four tests, same shape as the bot's: six seeded with max 3 -> four oldest
+gone; today's file created last with max 2 -> survives, content intact; an
+incident-notes file in the log directory survives; the shipped
+configuration writes `game.log.<YYYY-MM-DD>`.
+
+Full workspace suite as one `--workspace --no-fail-fast` invocation.
+
+**THIS ONE DEPLOYS.** It is a live production binary, so c takes it with
+a release. The resolved path is in this entry and in the report so it can
+be verified on the box afterwards: `/var/lib/pathofdust/logs/` should stop
+at 30 `game.log.*` files.
+
+No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
+crafting rule or command name changed.
