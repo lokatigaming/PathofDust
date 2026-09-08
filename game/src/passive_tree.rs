@@ -1123,8 +1123,12 @@ static MONK_NODES: &[PassiveNode] = &[
     // `unbroken` at character.rs's `combat_unbroken_ignore_evasion_pct`,
     // `lastbastion` at its `..._dr_pct` twin, and `risingdefiance`
     // through the shared overflow-conversion cap list. Nothing here is
-    // `NotYetImplemented` any more; `sacredoverflow` (Paladin) is the
-    // last node in the whole tree that still is.
+    // `NotYetImplemented` any more. `sacredoverflow` (Paladin) WAS the
+    // last node in the whole tree that still was, and it was retired
+    // outright on 2026-09-04 - see its own headstone further down this
+    // file - so the tree now holds ZERO `NotYetImplemented` nodes. The
+    // variant is kept because the rendering and gating arms that read it
+    // are still live; it simply has no users today.
     // Renamed "Crippling Grip" (2026-08-17) - see risingdefiance's own
     // comment above for why the old text is orphaned by Unbroken's
     // redesign. NOT an `OverflowConversion` like Overgrown Reach/Earthen

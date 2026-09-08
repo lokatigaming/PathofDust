@@ -1,0 +1,1574 @@
+{
+  "won": false,
+  "units": [
+    {
+      "id": "cleric_grace_companion_stage200",
+      "displayName": "cleric_grace_companion_stage200",
+      "isBoss": false,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": "cleric",
+      "role": "support",
+      "maxHp": 605,
+      "thunderIncarnations": []
+    },
+    {
+      "id": "__enemy_0__",
+      "displayName": "The Fire Demon",
+      "isBoss": true,
+      "golemSummonerId": null,
+      "golemType": null,
+      "thunderNetAbsorbed": 0,
+      "archetype": null,
+      "role": null,
+      "maxHp": 40000,
+      "thunderIncarnations": []
+    }
+  ],
+  "events": [
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 0,
+      "unmitigatedDamage": 469,
+      "targetHpAfter": 605,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 232,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 0,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 0,
+      "unmitigatedDamage": 37,
+      "targetHpAfter": 605,
+      "isCrit": false,
+      "evaded": true,
+      "hitId": 236,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 366,
+      "unmitigatedDamage": 406,
+      "targetHpAfter": 239,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 240,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 1100,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 28,
+      "unmitigatedDamage": 32,
+      "targetHpAfter": 211,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 250,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 1386,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 394,
+      "targetHpAfter": 605,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 2200,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 395,
+      "unmitigatedDamage": 406,
+      "targetHpAfter": 210,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 260,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 2200,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 31,
+      "unmitigatedDamage": 32,
+      "targetHpAfter": 179,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 270,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 2772,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 400,
+      "targetHpAfter": 579,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2772,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 2772,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 409,
+      "unmitigatedDamage": 390,
+      "targetHpAfter": 170,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 280,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 32,
+      "unmitigatedDamage": 30,
+      "targetHpAfter": 138,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 290,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 3465,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 365,
+      "targetHpAfter": 503,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3465,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3465,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 3500,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 102,
+      "targetHpAfter": 605,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3500,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3500,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4400,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 4400,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 397,
+      "unmitigatedDamage": 353,
+      "targetHpAfter": 208,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 300,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4400,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 4400,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 31,
+      "unmitigatedDamage": 27,
+      "targetHpAfter": 177,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 310,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 4851,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 428,
+      "targetHpAfter": 605,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4851,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 4851,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5500,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 5500,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 526,
+      "unmitigatedDamage": 438,
+      "targetHpAfter": 79,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 320,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5500,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 5500,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 41,
+      "unmitigatedDamage": 34,
+      "targetHpAfter": 38,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 330,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 5544,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 519,
+      "targetHpAfter": 557,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5544,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5544,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 6237,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 48,
+      "targetHpAfter": 605,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6237,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6237,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6600,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 778,
+      "unmitigatedDamage": 611,
+      "targetHpAfter": 0,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 340,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 6600,
+      "unit": "cleric_grace_companion_stage200"
+    }
+  ],
+  "rolls": [
+    {
+      "eventId": 233,
+      "hitId": 232,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 234,
+      "hitId": 232,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 235,
+      "hitId": 232,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 237,
+      "hitId": 236,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 238,
+      "hitId": 236,
+      "atMs": 0,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 239,
+      "hitId": 236,
+      "atMs": 0,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 241,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 242,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 243,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 244,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 245,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 246,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 247,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 248,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 249,
+      "hitId": 240,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 2.011603716240657
+    },
+    {
+      "eventId": 251,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 252,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 253,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 254,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 255,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 256,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 257,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 258,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 259,
+      "hitId": 250,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1565848433043975
+    },
+    {
+      "eventId": 261,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 262,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 263,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 264,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 265,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 266,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 267,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 268,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 269,
+      "hitId": 260,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 2.007551647154186
+    },
+    {
+      "eventId": 271,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 272,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 273,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 274,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 275,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 276,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 277,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 278,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 279,
+      "hitId": 270,
+      "atMs": 2200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1562694270035421
+    },
+    {
+      "eventId": 281,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 282,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 283,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 284,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 285,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 286,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 287,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 288,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 289,
+      "hitId": 280,
+      "atMs": 3300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 1.9304266509166155
+    },
+    {
+      "eventId": 291,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 292,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 293,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 294,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 295,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 296,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 297,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 298,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 299,
+      "hitId": 290,
+      "atMs": 3300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15026595556768624
+    },
+    {
+      "eventId": 301,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 302,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 303,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 304,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 305,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 306,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 307,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 308,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 309,
+      "hitId": 300,
+      "atMs": 4400,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 1.7487250731028232
+    },
+    {
+      "eventId": 311,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 312,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 313,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 314,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 315,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 316,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.08800000000000001
+    },
+    {
+      "eventId": 317,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 318,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 319,
+      "hitId": 310,
+      "atMs": 4400,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.13612215932172095
+    },
+    {
+      "eventId": 321,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 322,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 323,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 324,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 325,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 326,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 327,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 328,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 329,
+      "hitId": 320,
+      "atMs": 5500,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 2.170551675596203
+    },
+    {
+      "eventId": 331,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 332,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 333,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 334,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 335,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 336,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 337,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 338,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 339,
+      "hitId": 330,
+      "atMs": 5500,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1689574796782032
+    },
+    {
+      "eventId": 341,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": true
+    },
+    {
+      "eventId": 342,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 343,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 344,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 345,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 346,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 347,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 348,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 2.5
+    },
+    {
+      "eventId": 349,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 350,
+      "hitId": 340,
+      "atMs": 6600,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 3.0245795842154517
+    }
+  ]
+}
