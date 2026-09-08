@@ -464,6 +464,92 @@ pub(crate) fn migrate_refund_retired_dead_nodes(character: &mut Character) {
 /// perfect.
 pub(crate) const RETIRED_DEAD_NODE_KEYS: [&str; 2] = ["stillwater", "sacredoverflow"];
 
+/// The Reforge Now overcharge, release 20 (2026-09-08).
+///
+/// Release 20 repriced the hourly Reforge Now button from a flat 1000
+/// dust to `2 x Standard { 60 }` against the character's HIGHEST EQUIPPED
+/// TIER. The owner has since ruled the flat 1000 was a design decision,
+/// and the price is restored in the same branch as this migration. Five
+/// characters pressed the button while the repriced version was live and
+/// were charged `2 x (ceil(60 x 0.1) + ceil(3 x tier^1.5))` instead.
+/// **This gives back `charged - 1000` per use.**
+///
+/// **The amounts are LITERALS on purpose, and that is the opposite of the
+/// usual rule here.** Every other price in this codebase is derived so it
+/// cannot drift; these must NOT be. They are a record of what specific
+/// people were actually charged at a moment that has passed - re-deriving
+/// them from today's `craft_base_cost_mult`/`craft_tier_exponent`, or
+/// from a tier that has since changed, would compute a different number
+/// and silently refund the wrong amount. A historical fact is not a
+/// formula.
+///
+/// **Keyed on `display_name` lowercased, because a `fn(&mut Character)`
+/// migration cannot see the map key.** Verified rather than assumed: the
+/// pre-deploy backup `pod-backup-20260908-162037` (manifest
+/// `createdAt 2026-09-08 16:20:48+02:00`, `verdict: clean`, sha256
+/// confirmed against its sidecar) holds all 23 live characters, and every
+/// one of them has `display_name.to_lowercase()` equal to its own login
+/// key with no collisions. If a future world breaks that property this
+/// migration must be rewritten to take the key, not patched.
+///
+/// **Why all five, when only three were confirmed by the hour bucket.**
+/// Cooldown records store `current_hour_bucket()`, so they date a use to
+/// the hour and no finer, and release 20 went live at 16:20:37 - inside
+/// bucket 496910. Two characters sat in that bucket and could have paid
+/// either price. The same pre-deploy backup settles it: at 16:20:48
+/// `roxus` held bucket 496900 and `kibukah` held 496835, so neither had
+/// yet used the button in 496910. Their 496910 records were therefore
+/// written after the snapshot, and the snapshot is taken with the game
+/// STOPPED inside the deploy window - so those uses are post-release and
+/// were overcharged. The backup answered a question the live state could
+/// not.
+///
+/// Safe to run on every character: a name not in the table refunds
+/// nothing. Marker-guarded by `run_character_migrations`, so it is
+/// one-shot - a second run adds nothing, which
+/// `refund_is_one_shot_and_a_second_run_adds_nothing` pins.
+pub(crate) fn migrate_refund_reforge_now_overcharge(character: &mut Character) {
+    let name = character.display_name.to_lowercase();
+    let Some(&(_, refund)) = REFORGE_NOW_OVERCHARGE_REFUNDS.iter().find(|(who, _)| *who == name) else {
+        return;
+    };
+    let before = character.dust;
+    character.dust = character.dust.saturating_add(refund);
+    tracing::info!(
+        "reforge-now overcharge refund: character={} dust {before} -> {} (+{refund})",
+        character.display_name,
+        character.dust
+    );
+}
+
+/// Who was overcharged by release 20's Reforge Now reprice, and by how
+/// much. `(login, charged - 1000)`.
+///
+/// Established read-only from the live cooldown records and the
+/// deterministic release-20 price by session c
+/// (`C:\dust-work\reports\REFUND-LIST-reforge-now-2026-09-08.md`), with
+/// the two ambiguous cases resolved against the pre-deploy backup - see
+/// `migrate_refund_reforge_now_overcharge`'s own doc.
+///
+/// | login | tier | charged | refund |
+/// |---|---|---|---|
+/// | `wright` | 107 | 6654 | 5654 |
+/// | `merkosh` | 104 | 6376 | 5376 |
+/// | `jachiny` | 100 | 6012 | 5012 |
+/// | `roxus` | 88 | 4966 | 3966 |
+/// | `kibukah` | 55 | 2460 | 1460 |
+///
+/// **The five characters NOT here owe nothing and must never be added.**
+/// `hereticgamingdad`, `xcercs`, `pony`, `tarekis` and `pc_glory` all
+/// used the button BEFORE release 20 and paid the old flat 1000. Applying
+/// the release-20 formula to their cooldown records produces large
+/// phantom overcharges - `tarekis` computes to 8500 at tier 126 - and not
+/// one dust of it was ever taken. That formula describes only what
+/// release 20 would have charged, and a sweep that forgets so is the
+/// obvious way to get this wrong.
+pub(crate) const REFORGE_NOW_OVERCHARGE_REFUNDS: [(&str, u64); 5] =
+    [("wright", 5654), ("merkosh", 5376), ("jachiny", 5012), ("roxus", 3966), ("kibukah", 1460)];
+
 /// Echo replaces Lingering Effect (2026-08-21, docs/echo_spec.md) - renames
 /// every existing `Affix::LingeringEffect` entry, on every item this
 /// character owns (equipped + bag), to `Affix::Echo` at HALF its stored
@@ -559,6 +645,7 @@ pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[
     ("adventure-duplicate-unique-effects-cleanup-marker.json", migrate_duplicate_unique_effects),
     ("adventure-lingering-effect-to-echo-marker.json", migrate_lingering_effect_to_echo),
     ("adventure-refund-retired-dead-nodes-marker.json", migrate_refund_retired_dead_nodes),
+    ("adventure-refund-reforge-now-overcharge-marker.json", migrate_refund_reforge_now_overcharge),
 ];
 
 /// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -
@@ -1672,6 +1759,136 @@ mod refund_retired_dead_nodes_tests {
                     "{archetype:?} still defines the retired node key {key:?}. The definition must be deleted in the SAME release as `migrate_refund_retired_dead_nodes` - the refund runs once, so a surviving definition lets a player re-spend refunded points into a node that does nothing and lose them for good. If this is a REPLACEMENT node, give it a new key."
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod refund_reforge_now_overcharge_tests {
+    use super::*;
+
+    /// The five overcharged characters plus three who were not, at the
+    /// dust totals that make a wrong grant obvious in the digest.
+    fn roster() -> Vec<Character> {
+        ["Wright", "Merkosh", "jachiny", "Roxus", "Kibukah", "Tarekis", "Lokati", "pc_glory"]
+            .into_iter()
+            .map(|n| {
+                let mut c = Character::new(n.to_string());
+                c.dust = 10_000;
+                c
+            })
+            .collect()
+    }
+
+    fn dust_total(roster: &[Character]) -> u64 {
+        roster.iter().map(|c| c.dust).sum()
+    }
+
+    fn dust_of(roster: &[Character], name: &str) -> u64 {
+        roster.iter().find(|c| c.display_name == name).expect("in roster").dust
+    }
+
+    /// Baseline, grant, digest - the shape the retired-node refund used.
+    /// The digest is the WHOLE roster's dust, not just the five, because
+    /// the failure worth catching is a grant landing on somebody who was
+    /// never overcharged.
+    #[test]
+    fn the_grant_is_exactly_the_overcharge_and_lands_only_on_the_overcharged() {
+        let mut roster = roster();
+        let before = dust_total(&roster);
+        assert_eq!(before, 80_000, "baseline: 8 characters holding 10,000 each");
+
+        for c in roster.iter_mut() {
+            migrate_refund_reforge_now_overcharge(c);
+        }
+
+        // Group A - confirmed post-release by hour bucket alone.
+        assert_eq!(dust_of(&roster, "Wright"), 10_000 + 5654);
+        assert_eq!(dust_of(&roster, "Merkosh"), 10_000 + 5376);
+        assert_eq!(dust_of(&roster, "jachiny"), 10_000 + 5012);
+        // Group B - the two the hour bucket could not date, resolved
+        // against the pre-deploy backup. If a later ruling reverses that,
+        // these two lines and their table entries go together.
+        assert_eq!(dust_of(&roster, "Roxus"), 10_000 + 3966);
+        assert_eq!(dust_of(&roster, "Kibukah"), 10_000 + 1460);
+
+        // Used the button BEFORE release 20 and paid the old flat 1000.
+        // `Tarekis` is the one that matters: applying the release-20
+        // formula to their cooldown record computes an 8500 overcharge
+        // that was never taken, so a sweep that forgot the deploy
+        // boundary would show up right here.
+        for untouched in ["Tarekis", "Lokati", "pc_glory"] {
+            assert_eq!(dust_of(&roster, untouched), 10_000, "{untouched} was not overcharged and must receive nothing");
+        }
+
+        let digest = dust_total(&roster) - before;
+        assert_eq!(
+            digest, 21_468,
+            "the digest must be exactly the sum of the declared overcharges - 16,042 for the three confirmed by bucket plus 5,426 for the two the backup resolved"
+        );
+        assert_eq!(digest, REFORGE_NOW_OVERCHARGE_REFUNDS.iter().map(|(_, d)| *d).sum::<u64>(), "and it must equal the table, so the two cannot drift");
+    }
+
+    /// Marker-guarded means one-shot, and this is the property a refund
+    /// gets wrong most expensively: run twice, pay twice.
+    /// `run_character_migrations` owns the marker, so what is pinned here
+    /// is that the FUNCTION is not itself idempotent by accident - it is
+    /// not, it adds every time - which is exactly why the marker is
+    /// load-bearing and must never be removed from `CHARACTER_MIGRATIONS`.
+    #[test]
+    fn the_grant_is_additive_so_the_marker_is_what_makes_it_one_shot() {
+        let mut c = Character::new("Wright".to_string());
+        c.dust = 0;
+        migrate_refund_reforge_now_overcharge(&mut c);
+        assert_eq!(c.dust, 5654);
+        migrate_refund_reforge_now_overcharge(&mut c);
+        assert_eq!(
+            c.dust, 11_308,
+            "the function is deliberately additive - if this ever reads 5654 the migration has been made self-idempotent, and the marker in CHARACTER_MIGRATIONS is then the only thing anybody is relying on without knowing it"
+        );
+        assert!(
+            CHARACTER_MIGRATIONS.iter().any(|(m, _)| *m == "adventure-refund-reforge-now-overcharge-marker.json"),
+            "the refund must be registered with its own marker, or it runs on every boot and pays every time"
+        );
+    }
+
+    /// A name that is not in the table gets nothing, including one that
+    /// merely contains a name that is.
+    #[test]
+    fn a_name_outside_the_table_is_never_paid() {
+        for name in ["wrightx", "xwright", "WRIGHTY", "", "Lokati"] {
+            let mut c = Character::new(name.to_string());
+            c.dust = 7;
+            migrate_refund_reforge_now_overcharge(&mut c);
+            assert_eq!(c.dust, 7, "{name:?} is not in the refund table and must not be paid");
+        }
+    }
+
+    /// Case is not a way to miss a refund: the table is lowercase logins
+    /// and the match lowercases the display name, which is the whole
+    /// reason `Wright` and `Kibukah` resolve at all.
+    #[test]
+    fn the_match_is_case_insensitive_on_the_display_name() {
+        for spelling in ["Wright", "wright", "WRIGHT", "WrIgHt"] {
+            let mut c = Character::new(spelling.to_string());
+            c.dust = 0;
+            migrate_refund_reforge_now_overcharge(&mut c);
+            assert_eq!(c.dust, 5654, "{spelling} must resolve to the same refund");
+        }
+    }
+
+    /// The table is a historical record, not a formula, and these are the
+    /// numbers a live report was written against.
+    #[test]
+    fn the_table_is_the_amounts_c_established_and_totals_what_it_reported() {
+        assert_eq!(REFORGE_NOW_OVERCHARGE_REFUNDS.len(), 5);
+        let group_a: u64 = REFORGE_NOW_OVERCHARGE_REFUNDS.iter().filter(|(n, _)| ["wright", "merkosh", "jachiny"].contains(n)).map(|(_, d)| *d).sum();
+        assert_eq!(group_a, 16_042, "group A - the three confirmed by hour bucket alone");
+        let group_b: u64 = REFORGE_NOW_OVERCHARGE_REFUNDS.iter().filter(|(n, _)| ["roxus", "kibukah"].contains(n)).map(|(_, d)| *d).sum();
+        assert_eq!(group_b, 5_426, "group B - resolved against the pre-deploy backup");
+        for (name, refund) in REFORGE_NOW_OVERCHARGE_REFUNDS {
+            assert!(refund > 0, "{name} is in the refund table for zero dust, which means they should not be in it");
+            assert_eq!(name, name.to_lowercase(), "{name} must be the lowercase login the match compares against");
         }
     }
 }
