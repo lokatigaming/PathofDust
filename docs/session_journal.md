@@ -7010,3 +7010,100 @@ curve change called a nerf in those words; Echo quantified; **Leech deliberately
 not quantified** because gear, class and tree sum under one cap and the felt
 effect is unmeasured; item 14's retirement included with an admission it should
 have been noted on 2026-09-04. Verified in the SERVED page, not only on disk.
+
+### 2026-09-08 — Slayer's leech to 9×, and a hold-out that outlived its own argument
+
+Branch `feat/slayer-leech-9x` off `origin/master` `15d6672`. `0.001` → `0.009`
+on `Archetype::Slayer`'s `life_leech_pct`, a bare literal alongside its ten
+sibling coefficients (owner ruling: making one class's number tunable while ten
+sit as literals trades one friction for a worse one).
+
+#### What actually happened to this class
+
+Nothing about Slayer was ever rebalanced. On **2026-09-04** my own coefficient
+sweep corrected `Leech.default_per_tier` 0.001 → 0.01 on the AFFIX. The archetype
+coefficient did not move with it, so the free-with-the-class version fell from
+*within a factor of two of one gear affix* to about *one tenth* of one. A number
+Slayer was measured against moved out from under it, silently, in a change
+advertised as being about affixes.
+
+`0.009` is half a Leech affix. It restores the pre-2026-09-04 relationship rather
+than inventing a new one.
+
+#### Why 9× and not 17×, on evidence rather than caution
+
+A full affix (~0.017) was on the table and was declined, and the reason is not
+"be conservative":
+
+**9× behaves identically with and without `endlessthirst`; 17× does not.** At
+0.9–2.6% the leech sits far below `LIFE_LEECH_CAP_PER_SEC` (20% of max HP/sec) at
+any DPS in the observed distribution, so every Slayer collects the full value
+whether or not they have invested in the passive. 17× would pay out fully for an
+`endlessthirst` 3/3 build and be substantially cap-absorbed for one without it —
+**widening the gap between builds instead of fixing the class**, and doing it on
+data that cannot currently support the choice.
+
+It is also the reversible direction. 9× → 17× later is a one-line change with a
+stated reason. Walking a shipped buff back is not.
+
+#### The measurement that could not be made, and why it stayed unmade
+
+Session c ran my saturation query exactly as written and it returned **n = 1** —
+`COARSE_FIGHTS_CAPACITY` is 5, and exactly one retained fight was a winning boss
+fight. Twenty characters in a single stage-59 fight: median 0.19, mean 1.72, max
+9.31, with seven of the twenty dealing literally zero damage to the boss, so the
+median rests on non-combatants (1.48 across the 13 who actually damaged it).
+
+c refused to pick a row off that, which was right. But the distribution shows the
+exact thing I warned about: **a median of 0.19 and a maximum of 9.31 are the same
+distribution.** Four of twenty at or above 4.5, a fifth at 4.17, the top at more
+than double the saturation threshold. The ruling was deliberately taken on the
+anchor that does not depend on the answer.
+
+#### The hold-out is about the SHAPE, and it stands
+
+Both comment blocks argued the hold-out from "0.001 against the Leech affix's own
+0.001 — a 1.0× ratio" and "a *pending* affix raise". **The raise had landed four
+days earlier.** An argument that cites a number the code no longer holds is
+exactly how a hold-out survives past its reason, which is the whole story of this
+coefficient — so rewriting them was part of the commit, not a tidy-up.
+
+`slayer_is_held_out_of_the_ruling_at_every_weight` **stays**, with its literal
+updated and its doc saying why it is not obsolete: it guards that `w` does nothing
+here, so Slayer never rides the affix curve. A session tidying it away as "already
+changed" would delete the guard proving the hold-out still holds.
+
+#### Corpus divergence — one scenario, and the win flag did NOT move
+
+`slayer_vs_tough_boss_stage3000` is the only fixture with a Slayer (grepped, not
+read off names), L80 where `mult = 9.0`, so leech goes 0.9% → 8.1%. It diverged.
+**Regenerated nothing** — a capture is c's, at merge.
+
+Probed with a throwaway test rather than by deleting the fixture, so the numbers
+below are measured:
+
+| leaf | old | new | ratio |
+|---|---|---|---|
+| `events[11].amount` | 19 | 171 | 9.00× |
+| `events[13].amount` | 18 | 166 | 9.22× |
+| `events[16].amount` | 9 | 81 | 9.00× |
+| `events[19].amount` | 19 | 172 | 9.05× |
+
+Four leech heals and the four `targetHpAfter` values they move — **eight gameplay
+leaves, and nothing else.** Event count identical at 25; the fight took the same
+shape. The remaining ~25 differing leaves are 1-ULP drift on
+`0.20921834854734825` in the roll log, which the corpus's own `approx_eq`
+tolerance is documented to accept and which is not what failed it.
+
+**`won` is `false` before and `false` after.** Worth stating plainly because a
+9× buff to a survival stat reads as though it should flip an outcome: at stage
+3000 against a 2,000,000-HP boss it does not come close. And 171 against a
+1,675/sec cap (20% of an 8,375 pool) confirms the coefficient multiplied cleanly
+with **no cap absorption at all** at the most extreme level in the corpus — which
+is the 9×-vs-17× argument holding up in the one place it could have been checked.
+
+#### FOUND
+
+The cap itself is now a live balance lever nobody has looked at — if 4 in 20 are
+saturating, `LIFE_LEECH_CAP_PER_SEC` is doing real work. Owner has it as its own
+board item; not this branch.
