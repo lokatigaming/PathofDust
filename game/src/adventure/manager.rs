@@ -1256,6 +1256,37 @@ pub struct PlayerFightStats {
     /// this field existed still deserialize, as `None`.
     #[serde(default)]
     pub archetype: Option<Archetype>,
+    /// This player's own max HP for the fight, taken straight from
+    /// `CombatUnitInfo::max_hp` - the SAME value the coarse tier already
+    /// records, not a recomputation from character state. A second
+    /// implementation of "what was their HP pool" is exactly the thing
+    /// that drifts.
+    ///
+    /// Added 2026-09-08 so a leech-saturation ratio can be formed from
+    /// THIS tier. Life leech is capped at `LIFE_LEECH_CAP_PER_SEC` of the
+    /// leecher's own max hp per second (see `apply_hit`'s leech
+    /// handling), so "is this build saturating" is that cap times
+    /// `max_hp` against `damage_dealt` per second - and until now the only
+    /// tier carrying max HP was the coarse one, which retains
+    /// `COARSE_FIGHTS_CAPACITY` (5) fights. This tier retains 200.
+    ///
+    /// **The denominator is `FightSummarySnapshot::real_duration_ms`, NOT
+    /// `display_duration_ms`** (owner ruling, 2026-09-08): the display
+    /// figure is stretched/compressed for the overlay (see
+    /// `MIN_DISPLAY_MS`), so a rate computed against it is on a made-up
+    /// clock.
+    ///
+    /// **Deliberately NOT summed by the golem-attribution merge below**,
+    /// unlike every other field on this struct - see that pass's own
+    /// comment for why.
+    ///
+    /// `#[serde(default)]` (via the derived `Default` above) so fight
+    /// records already on disk deserialize as `0`. **`0` means "written
+    /// before this field existed", never "a player with no HP"** - every
+    /// record predating the deploy reads that way, so a ratio must SKIP
+    /// those rows rather than divide by them.
+    #[serde(default)]
+    pub max_hp: u64,
     /// Every source (`AttackSourceKind::Direct`/`Splash`/`Dot`/`Reflect`/
     /// `CurseShare`, plus `Heal`/`Shield`) - unlike `hits`/`crits`/
     /// `evaded` below, this was never restricted to real swings, and
@@ -1324,7 +1355,16 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
         .map(|u| {
             (
                 u.id.clone(),
-                PlayerFightStats { id: u.id.clone(), display_name: u.display_name.clone(), archetype: u.archetype, ..Default::default() },
+                PlayerFightStats {
+                    id: u.id.clone(),
+                    display_name: u.display_name.clone(),
+                    archetype: u.archetype,
+                    // Recorded, not derived - `CombatUnitInfo::max_hp` is
+                    // what the sim itself ended the fight holding, the
+                    // same source the coarse tier writes.
+                    max_hp: u.max_hp,
+                    ..Default::default()
+                },
             )
         })
         .collect();
@@ -1406,6 +1446,19 @@ pub(crate) fn full_player_fight_stats(units: &[CombatUnitInfo], events: &[Combat
             owner.evaded += golem_stats.evaded;
             owner.dot_ticks += golem_stats.dot_ticks;
             owner.dot_damage += golem_stats.dot_damage;
+            // `max_hp` IS ABSENT ON PURPOSE - do not "finish" this list.
+            //
+            // Every field above is a TALLY: the golem's contribution is
+            // genuinely the owner's contribution, so summing is right.
+            // `max_hp` is not a tally, it is the owner's own HP POOL, and
+            // it is the DENOMINATOR of the leech-saturation ratio this
+            // field was added for (see `PlayerFightStats::max_hp`). Life
+            // leech is capped against the leecher's OWN max hp - a golem's
+            // HP raises nobody's ceiling - so folding a golem's pool in
+            // here would inflate the denominator and make an Elementalist
+            // running three golems look unsaturated when they are not.
+            // The bug would be silent: the number stays plausible and only
+            // the conclusion drawn from it is wrong.
         }
     }
     stats.into_values().collect()
@@ -7315,6 +7368,7 @@ mod fight_summary_tests {
             id: id.to_string(),
             display_name: id.to_string(),
             archetype: None,
+            max_hp: 0,
             damage_dealt,
             damage_taken,
             healing_done,
@@ -7518,6 +7572,70 @@ mod fight_summary_tests {
         let someone = stats.iter().find(|s| s.id == "someone_else").unwrap();
         assert_eq!(lokati.damage_dealt, 50);
         assert_eq!(someone.damage_dealt, 999);
+    }
+
+    /// **`max_hp` is a POOL, not a tally, and the golem rollup must leave
+    /// it alone** (2026-09-08). Every other field in that merge pass is
+    /// summed into the owner's row, which is right for a contribution and
+    /// wrong for an HP pool: life leech is capped against the leecher's
+    /// OWN max hp, so a golem's HP raises nobody's ceiling. Summing it
+    /// would inflate the denominator of the leech-saturation ratio this
+    /// field exists to serve and make a golem build read as unsaturated
+    /// when it is not - a failure that looks entirely plausible in the
+    /// data, which is why it is pinned here rather than left to the
+    /// comment.
+    ///
+    /// The helpers make the arithmetic unambiguous: `player` is 1000,
+    /// `golem` is 330, so a summed implementation reads 1330 and there is
+    /// no value both answers share.
+    #[test]
+    fn a_golems_max_hp_is_never_folded_into_its_owners_pool() {
+        let units = vec![
+            player("lokati_gaming"),
+            golem("__golem_lokati_gaming_0", "lokati_gaming"),
+            golem("__golem_lokati_gaming_1", "lokati_gaming"),
+            boss("__enemy_0"),
+        ];
+        let events = vec![attack(0, "__golem_lokati_gaming_0", "__enemy_0", 50, 50, false, false)];
+        let stats = full_player_fight_stats(&units, &events);
+        let owner = stats.iter().find(|s| s.id == "lokati_gaming").expect("the owner must still have a row");
+        assert_eq!(
+            owner.max_hp, 1000,
+            "max_hp must stay the owner's own pool - 1330 (or 1660 with both golems) means the merge pass started summing it, and every saturation ratio computed from this tier is then wrong in the safe-looking direction"
+        );
+        assert_eq!(owner.damage_dealt, 50, "the tally fields must still roll up - this test must not pass by the rollup being broken entirely");
+        assert!(stats.iter().all(|s| !s.id.starts_with("__golem")), "golem rows are still dropped");
+    }
+
+    /// The wire contract for the new field, in both directions
+    /// (2026-09-08): it survives a save/load of the tier that carries it,
+    /// and a record written before it existed reads back as `0` rather
+    /// than failing to deserialize. That `0` is why the field's own doc
+    /// says a ratio must SKIP those rows - "no HP" is not a state a real
+    /// player was ever in.
+    #[test]
+    fn max_hp_round_trips_through_a_summary_and_older_records_read_as_zero() {
+        let units = vec![player("lokati_gaming"), boss("__enemy_0")];
+        let snapshot = FightSummarySnapshot {
+            players: full_player_fight_stats(&units, &[attack(0, "lokati_gaming", "__enemy_0", 400, 400, false, false)]),
+            real_duration_ms: 20_000,
+            ..Default::default()
+        };
+        let encoded = serde_json::to_string(&snapshot).expect("a summary must serialize");
+        assert!(encoded.contains("\"maxHp\":1000"), "the field must reach disk under its camelCase name, or no query can read it: {encoded}");
+        let decoded: FightSummarySnapshot = serde_json::from_str(&encoded).expect("a summary must round-trip");
+        assert_eq!(decoded.players[0].max_hp, 1000);
+        // The ratio the field was added for, formed end to end from what
+        // the tier actually persists - 400 damage over 20s against a 1000
+        // pool is 0.02 max-hp-per-second of DPS.
+        let dps_in_pools = decoded.players[0].damage_dealt as f64 / (decoded.real_duration_ms as f64 / 1000.0) / decoded.players[0].max_hp as f64;
+        assert!((dps_in_pools - 0.02).abs() < 1e-12, "got {dps_in_pools}");
+
+        let old_record: PlayerFightStats =
+            serde_json::from_str(r#"{"id":"a","displayName":"a","damageDealt":7,"damageTaken":0,"healingDone":0,"hits":1,"crits":0,"evaded":0}"#)
+                .expect("a record written before this field existed must still deserialize");
+        assert_eq!(old_record.max_hp, 0, "missing must read as 0, and callers must treat 0 as 'unrecorded', never as a real pool");
+        assert_eq!(old_record.damage_dealt, 7, "the rest of the old record must survive unchanged");
     }
 
     /// Rankings built off the rolled-up output (the same shape
