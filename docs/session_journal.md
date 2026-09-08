@@ -7307,3 +7307,140 @@ from the old directory.
 
 No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
 crafting rule or command name changed.
+
+## 2026-09-08 — THE LOG SINK GETS A RETENTION POLICY (branch `feature/bot-log-retention`)
+
+Cut from `feature/bot-into-subdirectory` rather than master, because the
+policy lives in the bot crate and the bot crate is only at `bot/` there.
+
+### What the sink actually did, read rather than inferred
+
+`tracing_appender::rolling::daily("logs", "bot.log")`. It rotates daily
+and **deletes nothing, ever** — there is no retention parameter on that
+constructor at all. `logs/` reached several GB once already; the sink was
+disabled outright on 2026-08-17 and re-enabled after a ONE-TIME MANUAL
+CLEANUP, which is not a policy, it is the same incident waiting on the
+same interval.
+
+### THE MITIGATION EVERYONE WAS WAITING FOR WOULD NOT HAVE WORKED
+
+Three sessions, including two of mine, recorded that this resolves "at
+the Linux move where journald owns rotation". **It does not.** journald
+owns a process's STDOUT. It has nothing to do with a file appender that
+opens its own files and writes around the supervisor entirely.
+
+The proof is already in production: `game/src/main.rs:86` builds the
+IDENTICAL unpruned appender, and the game has been on Linux under systemd
+since release 16, writing `data_path("logs")` with journald running and
+pruning exactly nothing. The platform was never the variable.
+
+So the answer to "is a Windows-side pruner throwaway work given the
+Linux move" is that the question had a false premise on both halves: it
+is not a pruner and it is not Windows-side.
+
+### The fix is a configuration change to the sink that already exists
+
+`tracing-appender` grew the policy since this code was written. 0.2.5 —
+already the pinned version, no dependency change —
+has `RollingFileAppender::builder().max_log_files(n)`, and
+`Inner::prune_old_logs` runs both at construction and on every rotation.
+
+So `bot/src/logging.rs` configures the existing appender instead of
+adding a second mechanism beside it. That is what satisfies "it travels
+with `bot/`" **by construction rather than by discipline**: there is no
+path to keep in step, no scheduled task to register, and it behaves
+identically on Windows and Linux, so it survives the bot's own eventual
+move without an edit.
+
+**Filenames are unchanged, and that is load-bearing.** `rolling::daily`
+is `RollingFileAppender::new(DAILY, dir, prefix)`, and `join_date`
+formats `(DAILY, Some(prefix), None)` as `"{prefix}.{date}"`. The builder
+sets the same rotation and prefix and no suffix, so it produces
+`bot.log.YYYY-MM-DD` byte for byte. **Existing files are adopted by the
+policy rather than orphaned beside it** — and the orphaned case is the
+one that looks like success, because `prune_old_logs` filters on the
+prefix and would simply never see them.
+
+### The number: 30, and what it does not claim
+
+Matches the daily tier of both backup scripts, so there is ONE retention
+horizon to remember rather than a separately-optimal second one.
+
+**The count is per ACTIVE day, not per calendar day** — `rolling::daily`
+creates a file only when something is logged. A bot that runs three days
+a week reaches 30 files in about ten calendar weeks; one that runs daily
+reaches it in a month. That is the right direction on both ends: the
+quiet install keeps a longer window because its days are scarcer. A
+calendar-age rule would have given it less history for the same disk.
+
+**Stated rather than implied: this bounds files, not bytes, and no
+session has measured a real day's volume** — the live box is not this
+window's to read. The honest claim is that growth was UNBOUNDED and is
+now BOUNDED, which is the actual defect. One constant to change if a
+day's volume ever makes 30 too many.
+
+### It cannot delete the log being written, and the reason is the library's
+
+`prune_old_logs` sorts ascending by creation timestamp and deletes from
+the FRONT, keeping the newest `max_files - 1` "because we will create
+another log file". Today's file is either the newest that exists or does
+not exist yet, so it is never inside the deleted prefix. That holds at
+construction too, which is the case that matters: the watchdog exists to
+restart the bot, every restart builds a fresh appender, and **a restart
+that pruned today's file would destroy the evidence of the crash that
+caused the restart** — the exact log anyone would go looking for.
+
+Pinned by `todays_log_survives_a_restart_that_prunes` rather than left to
+this paragraph.
+
+### Verified by real runs against synthetic aged trees
+
+Four tests, the same shape as the backup script's verification: files
+seeded in ascending creation order ON PURPOSE, because the pruner ranks
+by filesystem creation time and falls back to the name only when metadata
+is unreadable — seeding in the wrong order would test a ranking that
+never occurs.
+
+  * six seeded, max 3 -> four oldest gone, two newest kept
+  * today's file created last, max 2 -> survives, content intact
+  * `crash-dump-keep-me.txt` and `notes.md` in the log directory -> both
+    survive; the prefix filter means the pruner can only ever eat its own
+  * the shipped configuration writes `bot.log.<YYYY-MM-DD>`
+
+The pruning test deliberately does not use `MAX_LOG_FILES`: seeding 30+
+files to exercise the shipped constant proves the same thing slower, and
+would silently stop testing anything if someone lowered the constant
+below the seed count.
+
+### FOUND — THE GAME HAS THE IDENTICAL DEFECT, LIVE ON LINUX TODAY
+
+`game/src/main.rs:86` is the same `rolling::daily` call with the same
+absence of retention, writing to `data_path("logs")` on the production
+box right now. It is NOT covered by the Linux backup (that script stages
+an explicit `CORE_FILES` allow-list, so logs are neither backed up nor
+inflating the archives) and it is NOT covered by journald, for the reason
+above.
+
+**Not fixed here — the order scoped this to the bot, and the game is a
+live production binary whose change belongs to a session that can deploy
+it.** The fix is the same three lines; `bot/src/logging.rs` is the
+template. Needs an order.
+
+### Also, the two stale lines the order offered
+
+REFACTOR_PLAN section 10's parenthesised reason ("root `Cargo.toml` is
+both the workspace definition and its own package") expired with the
+virtual manifest. **Annotated with a dated note rather than rewritten** —
+it is a dated record of that release, `--workspace` remains correct and
+required either way, and the note says the REASON is historical, not the
+COMMAND.
+
+The root `.env.example` documented one of the game's five keys. Now all
+five: `ADVENTURE_WEB_PORT` and `ADVENTURE_OVERLAY_SERVER_PORT` with their
+defaults and the source line, `GAME_DATA_DIR` commented out with the
+warning that production runs it UNSET and that changing it on a live
+deployment strands the existing data, and `OPERATOR_BOOTSTRAP` commented
+out with what it is for and the instruction to remove it after use.
+
+No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
+crafting rule or command name changed.

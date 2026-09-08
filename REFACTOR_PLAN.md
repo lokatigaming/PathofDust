@@ -984,6 +984,14 @@ proven, not before.
     and its own package), silently skipping `game`'s binary. `/target-bake`
     added to `.gitignore` (wasn't covered by the existing `/target`
     pattern).
+    **Note (2026-09-08): the parenthesised reason above expired when the
+    bot moved into `bot/`.** The root `Cargo.toml` is now a VIRTUAL
+    manifest owning no package, so a plain `cargo build --release` from
+    the root builds every member and no longer skips anything. The
+    instruction is left standing and unrewritten because this is a dated
+    record of that release, because `--workspace` remains correct and
+    explicit either way, and because CLAUDE.md still requires it — this
+    note says the *reason* is now historical, not that the *command* is.
   - `.env` now has a real `ADVENTURE_API_SECRET` (both binaries read the
     same file, so `game.exe` will see it once it starts) - generated via
     `/dev/urandom` after a first attempt using a PowerShell RNG API that
