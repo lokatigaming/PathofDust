@@ -1519,18 +1519,43 @@ impl Character {
     /// character's stable lowercased map key (NOT `display_name`, which
     /// isn't guaranteed stable/unique) - same id `CharacterView`/
     /// `AdventureManager` address them by everywhere else.
-    pub fn effective_sprite(&self, id: &str) -> String {
-        match self.model.as_deref() {
-            Some(chosen) if ALL_SPRITES.contains(&chosen) => chosen.to_string(),
+    /// PRECEDENCE, stated because the value now lives in two places
+    /// (2026-09-08). `selected` is the ACCOUNT-scoped selection from
+    /// `Store::SpriteSelections` and it WINS. `self.model` is the
+    /// world-scoped copy and is only consulted when there is no account
+    /// selection at all.
+    ///
+    /// **If the two disagree, the account store is right.** It is the
+    /// authority because it is the one that survives a season reset;
+    /// `model` is kept in sync by `change_model` and is retained as the
+    /// migration's source and as the fallback for a character whose
+    /// login has no entry yet. A stale `model` therefore cannot change
+    /// what a player looks like - it can only answer when the authority
+    /// is silent.
+    ///
+    /// Ordering note that is easy to get backwards: the account
+    /// selection is checked FIRST and, if it is present but no longer
+    /// valid (file deleted, ownership revoked), this falls through to
+    /// `model` and then to the hash default rather than stopping. That
+    /// keeps a revoked custom sprite from pinning a player to a broken
+    /// image, which is the same reason the custom branch re-validates on
+    /// every call instead of trusting the stored value.
+    pub fn effective_sprite(&self, id: &str, selected: Option<&str>) -> String {
+        for candidate in [selected, self.model.as_deref()].into_iter().flatten() {
+            if ALL_SPRITES.contains(&candidate) {
+                return candidate.to_string();
+            }
             // Custom drop-in sprite (see `CUSTOM_SPRITE_DIR`) - re-checked
             // against disk (AND against `id` for ownership - see
             // `is_valid_custom_sprite`'s doc) on every call rather than
             // trusted from the stored value alone, so a file removed
             // after being chosen falls back to the stable hash-default
             // instead of a broken image forever.
-            Some(chosen) if is_valid_custom_sprite(id, chosen) => chosen.to_string(),
-            _ => sprite_for_character(id).to_string(),
+            if is_valid_custom_sprite(id, candidate) {
+                return candidate.to_string();
+            }
         }
+        sprite_for_character(id).to_string()
     }
 
     /// Is this `change_model` request asking for the sprite already
@@ -1553,8 +1578,8 @@ impl Character {
     /// `None` (never chosen) is never a no-op: the character is riding
     /// the hash default, so picking anything is a real change even if the
     /// name happens to match what that default already renders.
-    pub(crate) fn model_already_equipped(&self, requested: &str) -> bool {
-        self.model.as_deref().is_some_and(|current| current.eq_ignore_ascii_case(requested))
+    pub(crate) fn selection_already_equipped(&self, selected: Option<&str>, requested: &str) -> bool {
+        selected.or(self.model.as_deref()).is_some_and(|current| current.eq_ignore_ascii_case(requested))
     }
 
     /// Slot accessor by `EquipSlot` - used by the loot roll (which picks a
@@ -5663,13 +5688,13 @@ mod model_noop_guard_tests {
 
     #[test]
     fn re_picking_the_same_sprite_is_a_no_op() {
-        assert!(with_model(Some("knight")).model_already_equipped("knight"), "the sprite you already wear must not be a change - it is what sends the request down the charge path");
+        assert!(with_model(Some("knight")).selection_already_equipped(None, "knight"), "the sprite you already wear must not be a change - it is what sends the request down the charge path");
     }
 
     #[test]
     fn a_different_sprite_is_a_real_change() {
-        assert!(!with_model(Some("knight")).model_already_equipped("wizard"), "a different sprite must still be charged for, or the guard has eaten the feature");
-        assert!(!with_model(Some("custom/Sitch89")).model_already_equipped("custom/Sitch89_2"), "and a near-miss name is a different sprite, not the same one");
+        assert!(!with_model(Some("knight")).selection_already_equipped(None, "wizard"), "a different sprite must still be charged for, or the guard has eaten the feature");
+        assert!(!with_model(Some("custom/Sitch89")).selection_already_equipped(None, "custom/Sitch89_2"), "and a near-miss name is a different sprite, not the same one");
     }
 
     #[test]
@@ -5677,7 +5702,7 @@ mod model_noop_guard_tests {
         // Riding the hash default. Even if the name matches what that
         // default already renders, storing the pick is a real change -
         // `effective_sprite` treats `None` and `Some(x)` differently.
-        assert!(!with_model(None).model_already_equipped("knight"), "a character who has never picked must always be able to pick");
+        assert!(!with_model(None).selection_already_equipped(None, "knight"), "a character who has never picked must always be able to pick");
     }
 
     #[test]
@@ -5685,8 +5710,8 @@ mod model_noop_guard_tests {
         // The whole point: `custom/Sitch89` and `custom/sitch89` resolve
         // to one file (`custom_sprite_case.rs`), so treating them as
         // different would charge for a spelling.
-        assert!(with_model(Some("custom/Sitch89")).model_already_equipped("custom/sitch89"), "same sprite, different spelling - must not be a charge");
-        assert!(with_model(Some("custom/sitch89")).model_already_equipped("custom/SITCH89"), "and in the other direction too");
+        assert!(with_model(Some("custom/Sitch89")).selection_already_equipped(None, "custom/sitch89"), "same sprite, different spelling - must not be a charge");
+        assert!(with_model(Some("custom/sitch89")).selection_already_equipped(None, "custom/SITCH89"), "and in the other direction too");
     }
 }
 

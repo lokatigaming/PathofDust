@@ -165,6 +165,7 @@ pub enum Store {
     WingsGiveawayMarker,
     WingsLaunchGrantMarker,
     Accounts,
+    SpriteSelections,
     LiveTunables,
     ItemBalance,
     PassiveOverrides,
@@ -228,6 +229,7 @@ impl Store {
     Store::WingsGiveawayMarker,
     Store::WingsLaunchGrantMarker,
     Store::Accounts,
+    Store::SpriteSelections,
     Store::LiveTunables,
     Store::ItemBalance,
     Store::PassiveOverrides,
@@ -294,6 +296,7 @@ impl Store {
             Store::WingsGiveawayMarker => "adventure-wings-giveaway-marker.json",
             Store::WingsLaunchGrantMarker => "adventure-wings-launch-grant-marker.json",
             Store::Accounts => "adventure-accounts.json",
+            Store::SpriteSelections => "adventure-sprite-selections.json",
             Store::LiveTunables => "adventure-live-tunables.toml",
             Store::ItemBalance => "adventure-item-balance.toml",
             Store::PassiveOverrides => "adventure-passive-overrides.toml",
@@ -354,6 +357,7 @@ impl Store {
             Store::WingsGiveawayMarker => StoreScope::World,
             Store::WingsLaunchGrantMarker => StoreScope::World,
             Store::Accounts => StoreScope::Account,
+            Store::SpriteSelections => StoreScope::Account,
             Store::LiveTunables => StoreScope::Config,
             Store::ItemBalance => StoreScope::Config,
             Store::PassiveOverrides => StoreScope::Config,
@@ -416,6 +420,7 @@ impl Store {
             Store::WingsGiveawayMarker => StoreKind::File,
             Store::WingsLaunchGrantMarker => StoreKind::File,
             Store::Accounts => StoreKind::File,
+            Store::SpriteSelections => StoreKind::File,
             Store::LiveTunables => StoreKind::File,
             Store::ItemBalance => StoreKind::File,
             Store::PassiveOverrides => StoreKind::File,
@@ -477,6 +482,7 @@ impl Store {
             Store::WingsGiveawayMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::WingsLaunchGrantMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::Accounts => "logins and password hashes - who you are, as opposed to what you did last season. Survived previous resets only by NOT being named in the runbook; declared here so it survives by decision",
+            Store::SpriteSelections => "which sprite each login has chosen, keyed by the same lowercased login the character map uses - ACCOUNT-scoped on purpose, because a season reset destroys characters and the sprite you picked is identity rather than progress",
             Store::LiveTunables => "operator-set live tunables - configuration, not player state",
             Store::ItemBalance => "item balance table - configuration, not player state",
             Store::PassiveOverrides => "passive node overrides - configuration, not player state",
@@ -571,7 +577,7 @@ mod tests {
     fn all_lists_every_variant_exactly_once() {
         assert_eq!(
             Store::ALL.len(),
-            54,
+            55,
             "ALL must list every variant of `Store` exactly once. If you added a store, add it here too and bump this number; if this fires without you touching the enum, something removed an entry."
         );
     }

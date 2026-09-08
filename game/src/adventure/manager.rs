@@ -1976,6 +1976,13 @@ pub struct PassivePreview {
 pub struct AdventureManager {
     characters: Mutex<HashMap<String, Character>>,
     characters_path: PathBuf,
+    /// Sprite selections, keyed by lowercased login - the ACCOUNT-scoped
+    /// authority for what a player looks like. See
+    /// `Store::SpriteSelections`: this survives a season reset where
+    /// `Character::model` does not, which is the whole point of it
+    /// existing separately.
+    sprite_selections: Mutex<HashMap<String, String>>,
+    sprite_selections_path: PathBuf,
     world: Mutex<WorldState>,
     world_path: PathBuf,
     /// Lowercased character id -> the last time a BOSS WIN actually paid
@@ -2553,6 +2560,44 @@ impl AdventureManager {
         // blocks above.
         run_storage_migration(&characters_path);
 
+        // Sprite selections move to their own ACCOUNT-scoped store
+        // (2026-09-08). `Character::model` is world-scoped - it lives in
+        // the characters file, which a season reset destroys - so every
+        // player silently lost the sprite they picked and fell back to
+        // the hash default with no error and no notice. The selection is
+        // identity rather than progress, so it now lives in a store the
+        // reset keeps (see `Store::SpriteSelections`).
+        //
+        // IDEMPOTENT BY INSPECTION, not by its marker. The destination's
+        // own entry is the record: a login already present here is left
+        // alone, so re-running this can never overwrite a newer choice
+        // with an older one. That property is REQUIRED rather than
+        // tidy, because markers are world-scoped - the marker is
+        // destroyed by the very reset this store survives, so after the
+        // first reset this migration WILL run again against a fresh
+        // roster. Marker-gating is an optimisation on top; it is not the
+        // record.
+        let sprite_selections_path = sibling_store_path(&characters_path, Store::SpriteSelections);
+        let mut sprite_selections: HashMap<String, String> = crate::state::load_json(&sprite_selections_path).unwrap_or_default();
+        {
+            let mut copied = 0usize;
+            for (id, character) in characters.iter() {
+                let Some(model) = character.model.as_deref() else { continue };
+                if sprite_selections.contains_key(id) {
+                    continue;
+                }
+                sprite_selections.insert(id.clone(), model.to_string());
+                copied += 1;
+            }
+            if copied > 0 {
+                if let Err(err) = crate::state::save_json(&sprite_selections_path, &sprite_selections) {
+                    tracing::error!("Failed to persist sprite selections to {}: {err}", sprite_selections_path.display());
+                } else {
+                    tracing::info!("Sprite selections: carried {copied} character model(s) into the account-scoped store at {}", sprite_selections_path.display());
+                }
+            }
+        }
+
         let mut world: WorldState = crate::state::load_json_fail_loud(&world_path).unwrap_or_default();
         // `highest_stage` backfill (2026-09-02). The live world file
         // predates the field, so serde hands back 0 for it while `stage`
@@ -2575,6 +2620,8 @@ impl AdventureManager {
         Arc::new(Self {
             characters: Mutex::new(characters),
             characters_path,
+            sprite_selections: Mutex::new(sprite_selections),
+            sprite_selections_path,
             world: Mutex::new(world),
             world_path,
             last_win_xp: Mutex::new(HashMap::new()),
@@ -2936,6 +2983,7 @@ impl AdventureManager {
         let stage = self.world.lock().await.stage;
         let characters = self.characters.lock().await;
         let downed_until = self.downed_until.lock().await;
+        let selections = self.sprite_selections.lock().await;
         let now = SystemTime::now();
         let characters = characters
             .iter()
@@ -2954,7 +3002,7 @@ impl AdventureManager {
                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map(|d| d.as_millis() as u64),
                 retreated: c.retreated_since.is_some(),
-                model: c.effective_sprite(id),
+                model: c.effective_sprite(id, selections.get(id).map(String::as_str)),
                 flying: c.owns_wings && c.flying,
             })
             .collect();
@@ -3892,7 +3940,16 @@ impl AdventureManager {
         // the player asked to look like X and does look like X. Returning
         // early also skips the persist and the broadcast, both of which
         // would be writing a value identical to the stored one.
-        if character.model_already_equipped(&model) {
+        //
+        // Checked against the ACCOUNT-scoped selection first, not just
+        // `character.model` (2026-09-08). The two are kept in sync
+        // below, but after a season reset the character is fresh - its
+        // `model` is `None` while the surviving selection is what the
+        // player can actually see. Guarding on `model` alone would
+        // charge them for re-picking the sprite they are already
+        // wearing, which is exactly the case this guard exists for.
+        let mut selections = self.sprite_selections.lock().await;
+        if character.selection_already_equipped(selections.get(&id).map(String::as_str), &model) {
             return Ok(());
         }
         if MODEL_CHANGES_FREE_FOR_ALL {
@@ -3905,11 +3962,29 @@ impl AdventureManager {
             }
             character.dust -= MODEL_CHANGE_COST;
         }
+        // Both, deliberately. The account store is the AUTHORITY that
+        // `effective_sprite` reads first and the one a reset keeps;
+        // `character.model` is kept in step so nothing still reading it
+        // goes stale, and so the two can never disagree through this
+        // path. See `effective_sprite` for what happens if they ever do.
+        selections.insert(id.clone(), model.clone());
         character.model = Some(model);
         self.persist_characters(&characters);
+        if let Err(err) = crate::state::save_json(&self.sprite_selections_path, &*selections) {
+            tracing::error!("Failed to persist sprite selections to {}: {err}", self.sprite_selections_path.display());
+        }
+        drop(selections);
         drop(characters);
         self.broadcast_state().await;
         Ok(())
+    }
+
+    /// A snapshot of the account-scoped sprite selections, for callers
+    /// that need to resolve sprites for many characters at once (a
+    /// roster page, the broadcast state) without holding the lock across
+    /// the whole render.
+    pub async fn sprite_selections_snapshot(&self) -> HashMap<String, String> {
+        self.sprite_selections.lock().await.clone()
     }
 
     /// Web dashboard: buys the "Wings of Flight" cosmetic MTX outright
@@ -10930,5 +11005,160 @@ mod change_model_wiring_tests {
             "the startup backfill marker must be written BESIDE this manager's characters file. If it is missing here it went to the process CWD, where it persists BETWEEN RUNS and silently marks every later manager's startup migrations as already done"
         );
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+}
+
+/// Stage 4/5: the sprite selection survives a season reset (2026-09-08).
+///
+/// The defect these exist for: `Character::model` lives in the characters
+/// file, which is world-scoped, so a reset destroyed every player's
+/// sprite choice and dropped them back to the hash default with no error
+/// and no notice. The selection is identity rather than progress, so it
+/// now lives in `Store::SpriteSelections`, which the reset keeps.
+#[cfg(test)]
+mod sprite_selection_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn scratch(label: &str) -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("sprite_selection_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn manager_in(dir: &std::path::Path) -> Arc<AdventureManager> {
+        AdventureManager::new(dir.join("adventure-characters.json"), dir.join("adventure-world.json"), dir.join("adventure-reforge-cooldown.json"))
+    }
+
+    /// Removes exactly what `game reset` removes - the world-scoped
+    /// stores - and nothing else. Driven off the classification itself
+    /// rather than a hand-listed set, so if a store is ever reclassified
+    /// these tests follow it instead of quietly testing the old shape.
+    fn wipe_world_scoped(dir: &std::path::Path) {
+        for store in crate::adventure::stores::world_scoped() {
+            let path = dir.join(store.name());
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+
+    /// THE POINT OF THE WHOLE EXERCISE. Pick a sprite, wipe exactly what
+    /// a season reset wipes, and the player still looks like themselves.
+    #[tokio::test]
+    async fn a_sprite_survives_the_reset_that_destroys_the_character() {
+        let dir = scratch("survives");
+        let chosen = ALL_SPRITES[3];
+        {
+            let manager = manager_in(&dir);
+            manager.join("keeper", "keeper").await;
+            manager.change_model("keeper", chosen.to_string()).await.expect("a curated sprite must be selectable");
+        }
+
+        wipe_world_scoped(&dir);
+        assert!(!dir.join("adventure-characters.json").exists(), "sanity: the reset must actually have removed the roster, or this test proves nothing");
+        assert!(dir.join("adventure-sprite-selections.json").exists(), "the selection store is Account-scoped and must NOT be in the world-scoped delete list");
+
+        let manager = manager_in(&dir);
+        manager.join("keeper", "keeper").await;
+        let characters = manager.characters.lock().await;
+        let character = characters.get("keeper").expect("re-joined on the fresh world");
+        assert_eq!(character.model, None, "sanity: the fresh character genuinely has no world-scoped model - so what follows can only have come from the account store");
+
+        let selections = manager.sprite_selections.lock().await;
+        assert_eq!(
+            character.effective_sprite("keeper", selections.get("keeper").map(String::as_str)),
+            chosen,
+            "the sprite must survive a season reset - this is the defect the whole store classification was built to close"
+        );
+    }
+
+    /// The migration carries an existing `model` into the account store,
+    /// and is IDEMPOTENT BY INSPECTION rather than by its marker: a login
+    /// already present is left alone, so a re-run can never overwrite a
+    /// newer choice with an older one. That property is required, not
+    /// tidy - markers are world-scoped, so the marker is destroyed by the
+    /// very reset the store survives, and this WILL run again.
+    #[tokio::test]
+    async fn the_migration_carries_model_across_and_never_overwrites_a_newer_choice() {
+        let dir = scratch("migrate");
+        let old = ALL_SPRITES[5];
+        let newer = ALL_SPRITES[6];
+
+        // A character saved before the store existed: `model` set, and no
+        // selections file at all.
+        {
+            let manager = manager_in(&dir);
+            manager.join("legacy", "legacy").await;
+            let mut characters = manager.characters.lock().await;
+            characters.get_mut("legacy").expect("joined").model = Some(old.to_string());
+            manager.persist_characters(&characters);
+        }
+        let _ = std::fs::remove_file(dir.join("adventure-sprite-selections.json"));
+
+        // First boot: the migration carries it across.
+        {
+            let manager = manager_in(&dir);
+            assert_eq!(manager.sprite_selections.lock().await.get("legacy").map(String::as_str), Some(old), "the migration must carry an existing model into the account store");
+        }
+
+        // The player then picks something new, and the migration runs
+        // AGAIN - as it will after every reset, its marker being gone.
+        {
+            let manager = manager_in(&dir);
+            manager.change_model("legacy", newer.to_string()).await.expect("a curated sprite must be selectable");
+        }
+        {
+            let manager = manager_in(&dir);
+            assert_eq!(
+                manager.sprite_selections.lock().await.get("legacy").map(String::as_str),
+                Some(newer),
+                "a re-run must NOT overwrite the newer choice with the stale model - the destination entry is the record, which is what idempotent-by-inspection means here"
+            );
+        }
+    }
+
+    /// Precedence, asserted rather than left to a doc comment: when the
+    /// two disagree, the account store wins.
+    #[tokio::test]
+    async fn the_account_store_wins_when_the_two_disagree() {
+        let dir = scratch("precedence");
+        let manager = manager_in(&dir);
+        manager.join("split", "split").await;
+
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut("split").expect("joined");
+        character.model = Some(ALL_SPRITES[1].to_string());
+        assert_eq!(character.effective_sprite("split", Some(ALL_SPRITES[2])), ALL_SPRITES[2], "the account-scoped selection is the authority - a stale world-scoped model must not win");
+        assert_eq!(character.effective_sprite("split", None), ALL_SPRITES[1], "and with no account selection, the model is still consulted rather than dropping to the hash default");
+    }
+
+    /// Re-picking after a reset must not charge. The character is fresh
+    /// so `model` is `None`, but the surviving selection is what the
+    /// player can see - guarding on `model` alone would bill them for
+    /// re-picking the sprite they are already wearing.
+    #[tokio::test]
+    async fn re_picking_after_a_reset_is_still_a_no_op() {
+        let dir = scratch("noop_after_reset");
+        let chosen = ALL_SPRITES[7];
+        {
+            let manager = manager_in(&dir);
+            manager.join("again", "again").await;
+            manager.change_model("again", chosen.to_string()).await.expect("selectable");
+        }
+        wipe_world_scoped(&dir);
+
+        let manager = manager_in(&dir);
+        manager.join("again", "again").await;
+        assert_eq!(manager.characters.lock().await.get("again").expect("joined").model, None, "sanity: fresh character, no world-scoped model");
+
+        let characters_file = dir.join("adventure-characters.json");
+        std::fs::remove_file(&characters_file).expect("join must have persisted a file to delete");
+        manager.change_model("again", chosen.to_string()).await.expect("re-picking what you already wear must succeed");
+        assert!(
+            !characters_file.exists(),
+            "re-picking the surviving selection must return before the charge path and before the persist - otherwise a reset silently bills every player for continuing to look the same"
+        );
     }
 }

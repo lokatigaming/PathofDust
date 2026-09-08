@@ -88,6 +88,20 @@ pub fn normalize_caller_path(path: &std::path::Path) -> PathBuf {
     DATA_DIR.get_or_init(PathBuf::new).join(path)
 }
 
+/// A store belonging to ONE manager's data set, resolved beside the
+/// characters file it was handed rather than through the global
+/// `data_path`.
+///
+/// **Use this for anything an `AdventureManager` owns and writes.** A
+/// store resolved through `data_path` lands in the process CWD when
+/// `DATA_DIR` is unset, which is how 58 stray gitignored files ended up
+/// in this checkout. `marker_path` below records that defect in full; it
+/// applies to every manager-owned store, not only to markers, which is
+/// why this generalisation exists rather than a second copy of it.
+pub fn sibling_store_path(characters_path: &std::path::Path, store: Store) -> PathBuf {
+    characters_path.parent().map_or_else(|| PathBuf::from(store.name()), |dir| dir.join(store.name()))
+}
+
 /// A one-time migration marker, resolved BESIDE the characters file the
 /// manager was handed rather than through the global `data_path`
 /// (2026-09-08).
@@ -121,7 +135,7 @@ pub fn normalize_caller_path(path: &std::path::Path) -> PathBuf {
 /// A path with no parent falls back to the bare name, which is exactly
 /// what `data_path` with an unset `DATA_DIR` would have produced.
 pub fn marker_path(characters_path: &std::path::Path, marker: Store) -> PathBuf {
-    characters_path.parent().map_or_else(|| PathBuf::from(marker.name()), |dir| dir.join(marker.name()))
+    sibling_store_path(characters_path, marker)
 }
 
 // No automated `#[cfg(test)]` coverage in this file, deliberately - a

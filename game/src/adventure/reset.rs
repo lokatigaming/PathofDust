@@ -28,7 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::stores::{store_named, Store, StoreKind, StoreScope};
+use super::stores::{store_named, StoreKind, StoreScope};
 
 /// The exact token that turns a dry run into a deletion.
 ///
