@@ -36,7 +36,7 @@ use tokio::sync::Mutex;
 
 use crate::adventure::{
     affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
-    AutoDisenchantTier, BossKind, BugReportManager, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
+    AutoDisenchantTier, BossKind, BugReportManager, ChangeModelError, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
     SubmitOutcome, VeilChosenOutcome,
@@ -477,6 +477,23 @@ struct IndexParams {
     /// tier, so `crafted`/`tier` can't describe it. Reuses `change` for the
     /// whole-run summary (`divinity_summary_text`).
     divinity_run: Option<String>,
+    /// Set by `do_change_model` when the sprite change came back `Err` -
+    /// see `render_model_error_popup`.
+    ///
+    /// The same silent-failure shape `craft_failed` above exists to fix,
+    /// in a handler nobody had caught yet: `do_change_model` discarded
+    /// its `Result` entirely, so a refusal reloaded the page with the
+    /// sprite unchanged and nothing said. Its own comment argued the
+    /// updated sprite "is confirmation enough" - true only while the
+    /// action cannot fail.
+    ///
+    /// It can barely fail while `MODEL_CHANGES_FREE_FOR_ALL` is `true`,
+    /// since nothing is charged and `InsufficientDust` is unreachable on
+    /// the normal path. The day that flag flips back - it documents
+    /// itself as TEMPORARY - a refusal for want of dust becomes an
+    /// ordinary outcome, and a crafted POST, a stale page, or dust spent
+    /// in another tab between render and submit reaches it even today.
+    model_failed: Option<String>,
 }
 
 async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<IndexParams>) -> Html<String> {
@@ -486,7 +503,13 @@ async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params):
         Some((login, display_name)) => {
             let character = state.adventure.character(&login).await;
             let (used_this_hour, next_reset_ms) = state.adventure.reforge_status(&login).await;
-            let popup = if params.reforged.is_some() { render_reforge_popup(&params) } else { String::new() };
+            let popup = if params.reforged.is_some() {
+                render_reforge_popup(&params)
+            } else if params.model_failed.is_some() {
+                render_model_error_popup(&params)
+            } else {
+                String::new()
+            };
             format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables(), &state.adventure.recent_announcements()))
         }
     };
@@ -656,6 +679,32 @@ fn render_divinity_popup(params: &IndexParams) -> String {
             <p>Your bag has been remade.</p>\
             <p class=\"modal-tier\">{change}</p>\
             <button class=\"btn\" onclick=\"document.getElementById('divinity-modal').remove(); history.replaceState(null, '', '/inventory'); document.getElementById('crafting-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">Nice!</button>\
+          </div>\
+        </div>"
+    )
+}
+
+/// The sprite-change refusal popup (2026-09-08).
+///
+/// Deliberately the same shape as `render_craft_error_popup` directly
+/// above rather than a new one: same backdrop, same icon, same
+/// self-dismissing OK that cleans the URL and scrolls the card it is
+/// about back into view. `do_change_model` had the identical
+/// silent-failure defect `do_craft` was fixed for - a live report there
+/// read as "the game did nothing" - so it gets the identical remedy.
+///
+/// Scrolls to `#model-card`, the way the craft one scrolls to
+/// `#crafting-card`, because the player's next move is at the control
+/// that refused them.
+fn render_model_error_popup(params: &IndexParams) -> String {
+    let reason = escape_html(params.model_failed.as_deref().unwrap_or("Something went wrong."));
+    format!(
+        "<div class=\"modal-backdrop\" id=\"model-error-modal\">\
+          <div class=\"modal\">\
+            <div class=\"modal-icon\">⚠️</div>\
+            <h2>Sprite Not Changed</h2>\
+            <p>{reason}</p>\
+            <button class=\"btn\" onclick=\"document.getElementById('model-error-modal').remove(); history.replaceState(null, '', '/'); document.getElementById('model-card')?.scrollIntoView({{behavior: 'smooth', block: 'start'}});\">OK</button>\
           </div>\
         </div>"
     )
@@ -1205,14 +1254,36 @@ async fn do_delete_memory(State(state): State<AppState>, headers: HeaderMap, For
     Redirect::to("/passives")
 }
 
-/// Silent (no popup) same as every other web-only action here - the
+/// SUCCESS is silent, the same as every other web-only action here - the
 /// updated avatar/sprite on the next page load (and live on the OBS
 /// overlay - see `AdventureManager::change_model`) is confirmation enough.
+///
+/// FAILURE is not (2026-09-08). This used to be `let _ = ...`, and its
+/// comment claimed the updated sprite was confirmation enough full stop
+/// - which holds only while the action cannot fail. A refusal reloaded
+/// the dashboard with the sprite unchanged and no explanation, which is
+/// indistinguishable from the game ignoring the click.
+///
+/// That is the exact defect `do_craft` was fixed for - its own doc
+/// records the live report, "the game did nothing" - so this reuses that
+/// remedy rather than inventing one: redirect carrying the reason, popup
+/// on arrival (`render_model_error_popup`, sibling of
+/// `render_craft_error_popup`).
+///
+/// It matters most once `MODEL_CHANGES_FREE_FOR_ALL` flips back, when
+/// `InsufficientDust` becomes an ordinary outcome rather than an
+/// unreachable one. The picker disables its button when the player
+/// cannot afford the change, so the ordinary path stays quiet - but a
+/// disabled button is a rendering-time opinion, and a stale page, a
+/// second tab that spent the dust, or a hand-crafted POST all outlive it.
 async fn do_change_model(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<ModelForm>) -> impl IntoResponse {
-    if let Some((login, _)) = current_session(&headers, &state).await {
-        let _ = state.adventure.change_model(&login, form.model).await;
+    let Some((login, _)) = current_session(&headers, &state).await else {
+        return Redirect::to("/");
+    };
+    match state.adventure.change_model(&login, form.model).await {
+        Ok(()) => Redirect::to("/"),
+        Err(err) => Redirect::to(&model_error_popup_url(&change_model_error_text(err))),
     }
-    Redirect::to("/")
 }
 
 /// Silent (no popup) same as every other web-only action here - a
@@ -1530,6 +1601,32 @@ fn divine_dust_craft_error_text(err: DivineDustCraftError) -> String {
 /// Query string for `render_craft_error_popup`.
 fn craft_error_popup_url(reason: &str) -> String {
     format!("/inventory?craft_failed={}", urlencoding::encode(reason))
+}
+
+/// Why a sprite change was refused, in the player's words.
+///
+/// Mirrors `craft_error_text` above - one arm per variant, no catch-all,
+/// so a new `ChangeModelError` cannot silently inherit someone else's
+/// wording.
+fn change_model_error_text(err: ChangeModelError) -> String {
+    match err {
+        ChangeModelError::NotJoined => "You haven't joined the adventure yet.".to_string(),
+        // Not reachable from the picker, which only renders sprites this
+        // player may equip - so this is a stale page, a hand-crafted
+        // POST, or a custom sprite whose file or manifest entry went away
+        // between render and submit. Worded for the last of those,
+        // because it is the one a real player can hit without doing
+        // anything odd.
+        ChangeModelError::InvalidChoice => "That sprite isn't available to you — it may have been removed since the page loaded. Reload and pick again.".to_string(),
+        ChangeModelError::InsufficientDust(cost) => format!("Not enough dust — changing your sprite needs {cost}."),
+    }
+}
+
+/// Query string for `render_model_error_popup`. The sprite picker lives
+/// on the dashboard, so this lands on `/` where `craft_error_popup_url`
+/// lands on `/inventory`.
+fn model_error_popup_url(reason: &str) -> String {
+    format!("/?model_failed={}", urlencoding::encode(reason))
 }
 
 /// Handles every button in the unified Crafting card - the six currency
@@ -7055,12 +7152,25 @@ fn render_passive_tree_readonly(login: &str, c: &Character, viewer: Option<&Char
 /// `ALL_SPRITES` entry, styled as a clickable card via `.model-option`/
 /// the page's `<script>`, since a plain `<select>` couldn't show a
 /// preview image per option) rather than the archetype picker's plain
-/// dropdown. Free while `c.model` is still `None` (never explicitly
-/// chosen); `MODEL_CHANGE_COST` dust every time after - same
-/// free-once-then-paid shape as `render_archetype_picker`. Submitting
-/// without changing the selection is harmless (server-side `change_model`
-/// still charges for it if not free, same as re-picking the same
-/// archetype would) - the picker doesn't try to detect/block a no-op pick.
+/// dropdown.
+///
+/// COST, corrected 2026-09-08. This said *"free while `c.model` is still
+/// `None` (never explicitly chosen)"*. **There is no such check.** The
+/// button is free when `MODEL_CHANGES_FREE_FOR_ALL` is set, or when the
+/// character has a banked `free_model_changes` token; otherwise it costs
+/// `MODEL_CHANGE_COST` dust and is disabled when they cannot afford it.
+///
+/// The old wording described the right OUTCOME for a new character by
+/// accident: `STARTING_FREE_MODEL_CHANGES` is 1, so their first change
+/// is free because of the token, not because their `model` is `None`.
+/// The two rules come apart as soon as a growth grant hands a token to
+/// someone who has already picked - the old wording says they pay, the
+/// code says they do not.
+///
+/// Submitting without changing the selection is harmless (server-side
+/// `change_model` still charges for it if not free, same as re-picking
+/// the same archetype would) - the picker doesn't try to detect/block a
+/// no-op pick.
 fn render_model_picker(c: &Character, login: &str) -> String {
     let current_sprite = c.effective_sprite(login);
     let current_line = if MODEL_CHANGES_FREE_FOR_ALL {
@@ -7121,7 +7231,7 @@ fn render_model_picker(c: &Character, login: &str) -> String {
     let (button_label, disabled) =
         if free { ("Choose (Free)".to_string(), "") } else { (format!("Change ({MODEL_CHANGE_COST} dust)"), if c.dust < MODEL_CHANGE_COST { " disabled" } else { "" }) };
     format!(
-        "<div class=\"card\"><h2>Character Model</h2>\
+        "<div class=\"card\" id=\"model-card\"><h2>Character Model</h2>\
           {current_line}\
           <details class=\"model-picker-details\">\
             <summary>Change sprite</summary>\
@@ -8582,5 +8692,84 @@ mod display_slots_tests {
                 assert!(!line.contains("+0."), "{slot:?} at T=50 must not render as a rounded-to-nothing fraction, got {line:?}");
             }
         }
+    }
+}
+
+/// Surfacing a refused sprite change (2026-09-08).
+///
+/// `do_change_model` discarded its `Result`, so a refusal reloaded the
+/// dashboard with the sprite unchanged and nothing said - the same
+/// silent-failure shape `do_craft` was fixed for after a live report
+/// read as "the game did nothing".
+///
+/// The wiring is proven over real HTTP in
+/// `tests/change_model_failure_http.rs`, which can only reach
+/// `InvalidChoice`: while `MODEL_CHANGES_FREE_FOR_ALL` is `true` nothing
+/// is charged, so `InsufficientDust` is unreachable through the route.
+/// These cover the arm that test cannot, which is precisely the arm that
+/// becomes ordinary the day the flag flips back.
+#[cfg(test)]
+mod change_model_error_tests {
+    use super::*;
+
+    #[test]
+    fn every_refusal_reason_says_something_a_player_can_act_on() {
+        // The one that becomes ordinary after the flip, and the reason
+        // this text exists at all. It must carry the actual price rather
+        // than a vague "not enough" - the player needs to know how short
+        // they are, and the number comes from the same constant the
+        // charge path reads.
+        let dust = change_model_error_text(ChangeModelError::InsufficientDust(MODEL_CHANGE_COST));
+        assert!(dust.contains(&MODEL_CHANGE_COST.to_string()), "the refusal must quote the real cost, got: {dust}");
+
+        // Reachable today through a stale page or a crafted POST.
+        let invalid = change_model_error_text(ChangeModelError::InvalidChoice);
+        assert!(invalid.to_lowercase().contains("reload"), "an unavailable sprite must tell the player what to do next, got: {invalid}");
+
+        let not_joined = change_model_error_text(ChangeModelError::NotJoined);
+        assert!(not_joined.to_lowercase().contains("join"), "got: {not_joined}");
+
+        // None of them may be empty or identical - an arm that silently
+        // shares another's wording tells the player the wrong thing.
+        for text in [&dust, &invalid, &not_joined] {
+            assert!(!text.is_empty(), "no refusal may be blank - a blank popup is the silence this fix removes");
+        }
+        assert_ne!(dust, invalid);
+        assert_ne!(dust, not_joined);
+        assert_ne!(invalid, not_joined);
+    }
+
+    /// The reason travels in a query string, so it must survive being put
+    /// in one. An em dash and an apostrophe both appear in the real
+    /// messages above.
+    #[test]
+    fn the_reason_is_url_encoded_into_the_popup_link() {
+        let url = model_error_popup_url("Not enough dust — you haven't got 1000.");
+        assert!(url.starts_with("/?model_failed="), "the popup lands on the dashboard, where the picker is - got: {url}");
+        assert!(!url.contains(' '), "an unencoded space would truncate the reason at the first word: {url}");
+        assert!(!url.contains('—'), "the em dash must be percent-encoded: {url}");
+        assert!(!url.contains('\''), "the apostrophe must be percent-encoded: {url}");
+    }
+
+    /// The popup renders the reason it was given, escaped, and offers the
+    /// way out. Mirrors what `render_craft_error_popup` promises.
+    #[test]
+    fn the_popup_shows_the_reason_and_a_way_back_to_the_picker() {
+        let params = IndexParams { model_failed: Some("Not enough dust — this needs 1000.".to_string()), ..Default::default() };
+        let html = render_model_error_popup(&params);
+        assert!(html.contains("Not enough dust"), "the popup must state the reason, not just that something failed");
+        assert!(html.contains("model-error-modal"), "and must be dismissible by its own id");
+        assert!(html.contains("model-card"), "and must scroll back to the control that refused, the way the craft popup returns to the crafting card");
+    }
+
+    /// A reason containing HTML must not become HTML. The text is
+    /// server-authored today, but it arrives through a query parameter
+    /// the player controls entirely.
+    #[test]
+    fn a_crafted_reason_cannot_inject_markup() {
+        let params = IndexParams { model_failed: Some("<img src=x onerror=alert(1)>".to_string()), ..Default::default() };
+        let html = render_model_error_popup(&params);
+        assert!(!html.contains("<img"), "the reason is attacker-supplied - it arrives in the URL - and must be escaped, got: {html}");
+        assert!(html.contains("&lt;img"), "and should still be visible as text so the player sees what was rejected");
     }
 }

@@ -2514,6 +2514,30 @@ impl AdventureManager {
         // already covers everyone's very first grant) so this only ever
         // fires on a REAL increase, never on a normal restart at the
         // same pool size.
+        //
+        // CUSTOM SPRITES ARE DELIBERATELY NOT COUNTED (decided
+        // 2026-09-08 - recorded here so the next reader does not file it
+        // as a bug). They are scanned off disk rather than listed in
+        // `ALL_SPRITES`, so dropping one in grants nobody anything, and
+        // that is correct rather than an oversight:
+        //
+        // A custom sprite is selectable by exactly ONE login, by design -
+        // see `is_valid_custom_sprite`, which name-gates it to its owner
+        // on a live 2026-08-16 request ("a custom sprite is understood to
+        // be made FOR a specific player"). This grant exists to
+        // compensate for the SHARED pool growing, where everyone gains an
+        // option they might now prefer. Adding `kibukah.png` grows
+        // exactly kibukah's options, so handing every character on the
+        // roster a free change for it would be paying everybody for
+        // something only one player can use.
+        //
+        // The case that WOULD change this answer is a PUBLIC custom
+        // sprite (`PUBLIC_CUSTOM_SPRITE_PREFIX`), which any login may
+        // equip and is therefore a genuine pool increase. There are none
+        // today. If public custom sprites ever ship in numbers, this
+        // condition should count them - and only them, not the per-owner
+        // ones. Compensating an individual owner when THEIR sprite lands
+        // is a different, narrower grant than this one, and is not built.
         {
             const SPRITE_COUNT_MARKER_PATH: &str = "adventure-sprite-count.json";
             let last_known_sprite_count: usize = crate::state::load_json(data_path(SPRITE_COUNT_MARKER_PATH)).unwrap_or(0);
