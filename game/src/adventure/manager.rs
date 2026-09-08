@@ -3392,11 +3392,34 @@ impl AdventureManager {
     pub async fn reforge_random_gear_for_dust(&self, username: &str) -> Option<ReforgeOutcome> {
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase())?;
-        if character.dust < WEB_REFORGE_DUST_COST {
+        // Through the DECLARED rule (2026-09-06), not the flat 1000 that
+        // the 2026-09-02 cost cut never reached. At tier 3 that flat price
+        // was 27.8x a Scour and at tier 35 it was 5.7x - a price that got
+        // relatively cheaper every tier, which is the inversion this table
+        // exists to stop.
+        //
+        // Priced off the HIGHEST eligible equipped tier. This action picks
+        // its slot at random INSIDE `reforge_equipped_item`, so no
+        // per-item tier is knowable before the roll; the highest is the
+        // one choice that is deterministic, quotable before the press, and
+        // cannot charge less than the item it lands on is worth. Charged
+        // as quoted - one number, computed once.
+        let t = self.live_tunables();
+        let top_tier = EQUIP_SLOTS
+            .into_iter()
+            .filter_map(|slot| character.equipped(slot).as_ref())
+            .filter(|i| i.mutation_block().is_none())
+            .map(|i| i.tier)
+            .max()
+            .unwrap_or(1);
+        let cost = composite_price("reforge_now")
+            .dust_at(top_tier, 1, t.craft_base_cost_mult, t.craft_tier_exponent)
+            .expect("reforge_now declares MultipleOfStandard, which is dust-denominated");
+        if character.dust < cost {
             return None;
         }
         let outcome = Self::reforge_equipped_item(character)?;
-        character.dust -= WEB_REFORGE_DUST_COST;
+        character.dust -= cost;
         let display_name = character.display_name.clone();
         self.persist_characters(&characters);
         drop(characters);
@@ -4030,7 +4053,31 @@ impl AdventureManager {
         // veiled formula was a real live bug (a 3-modifier veiled
         // recombine charged 2500 instead of the intended 2000 -
         // VEIL_EXTRA_COST + 500/modifier, nothing else).
-        let cost = if has_free || !veiled { 0 } else { VEIL_EXTRA_COST + 500 * pool_affix_count };
+        // Through the DECLARED rule (2026-09-06). Was the unscaled
+        // `VEIL_EXTRA_COST + 500 * modifiers`, flat in tier - explicitly
+        // left out of the 2026-09-02 cost cut and never re-derived after
+        // it, which made it 69x a Scour at tier 3 and 0.42x at tier 1000.
+        // A price that starts as the most expensive thing in the game and
+        // ends up cheaper than the cheapest action is inverted, not tuned.
+        //
+        // Now one Krangle per modifier carried over: a veiled recombine
+        // guarantees EVERY modifier transfers and keeps the better quality
+        // roll, so it is priced in the most expensive standard action
+        // rather than the cheapest. Tier comes from the RESULT's tier, the
+        // item the player ends up holding.
+        let cost = if has_free || !veiled {
+            0
+        } else {
+            let t = self.live_tunables();
+            let result_tier = character
+                .find_item_by_id(item_id_a)
+                .zip(character.find_item_by_id(item_id_b))
+                .map(|(a, b)| (a.tier + b.tier) / 2 + 1)
+                .unwrap_or(1);
+            composite_price("recombine_veiled")
+                .dust_at(result_tier, pool_affix_count, t.craft_base_cost_mult, t.craft_tier_exponent)
+                .expect("recombine_veiled declares PerCountedUnit, which is dust-denominated")
+        };
         if character.dust < cost {
             return Err(RecombineError::InsufficientDust(cost));
         }
@@ -4192,7 +4239,15 @@ impl AdventureManager {
         }
         if action == CraftAction::Reforge {
             let item = character.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
-            let cost = item.tier as u64 * PANEL_REFORGE_DUST_PER_TIER;
+            // Through the DECLARED rule (2026-09-06), not a literal. Was
+            // `tier * PANEL_REFORGE_DUST_PER_TIER` - a flat 30/tier that
+            // the 2026-09-02 cost cut did not reach, because nothing
+            // connected it to the formula every other action moved with.
+            let t = self.live_tunables();
+            let cost = craft_action_def(CraftAction::Reforge)
+                .price
+                .dust_at(item.tier, 1, t.craft_base_cost_mult, t.craft_tier_exponent)
+                .expect("Reforge declares MultipleOfStandard, which is dust-denominated");
             if character.dust < cost {
                 return Err(CraftError::InsufficientDust(cost));
             }

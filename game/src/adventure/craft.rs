@@ -402,28 +402,35 @@ pub(crate) struct CraftActionDef {
     required_affix_count: Option<usize>,
     is_veilable: bool,
     default_cost: u64,
+    /// How this action's price is DERIVED (2026-09-06). A required field
+    /// on purpose: a new `CraftAction` cannot be added without stating a
+    /// rule, because this is a struct literal and the compiler will not
+    /// let it be omitted. That is the half of the guard the compiler can
+    /// enforce; `the_declared_price_and_the_charged_price_agree` enforces
+    /// the other half.
+    pub(crate) price: PriceRule,
 }
 
 pub(crate) fn craft_action_def(action: CraftAction) -> CraftActionDef {
     use CraftAction::*;
     match action {
-        Transmute => CraftActionDef { label: "Transmute", required_affix_count: Some(0), is_veilable: true, default_cost: 250 },
-        Scour => CraftActionDef { label: "Scour", required_affix_count: None, is_veilable: false, default_cost: 250 },
-        Augment => CraftActionDef { label: "Augment", required_affix_count: Some(1), is_veilable: true, default_cost: 500 },
-        Regal => CraftActionDef { label: "Regal", required_affix_count: Some(2), is_veilable: true, default_cost: 750 },
-        Exalt => CraftActionDef { label: "Exalt", required_affix_count: Some(3), is_veilable: true, default_cost: 1250 },
-        Krangle => CraftActionDef { label: "Krangle", required_affix_count: None, is_veilable: true, default_cost: 2500 },
+        Transmute => CraftActionDef { label: "Transmute", required_affix_count: Some(0), is_veilable: true, default_cost: 250 , price: PriceRule::Standard { base: 250 } },
+        Scour => CraftActionDef { label: "Scour", required_affix_count: None, is_veilable: false, default_cost: 250 , price: PriceRule::Standard { base: 250 } },
+        Augment => CraftActionDef { label: "Augment", required_affix_count: Some(1), is_veilable: true, default_cost: 500 , price: PriceRule::Standard { base: 500 } },
+        Regal => CraftActionDef { label: "Regal", required_affix_count: Some(2), is_veilable: true, default_cost: 750 , price: PriceRule::Standard { base: 750 } },
+        Exalt => CraftActionDef { label: "Exalt", required_affix_count: Some(3), is_veilable: true, default_cost: 1250 , price: PriceRule::Standard { base: 1250 } },
+        Krangle => CraftActionDef { label: "Krangle", required_affix_count: None, is_veilable: true, default_cost: 2500 , price: PriceRule::Standard { base: 2500 } },
         // `required_affix_count: None` - both need "at least 1 existing
         // modifier," not an exact count, same reason Scour uses `None` and
         // does its own manual empty-check (see `annul_random_affix`/
         // `chance_all_affixes`).
-        Annulment => CraftActionDef { label: "Annulment Orb", required_affix_count: None, is_veilable: true, default_cost: 1000 },
-        Chancing => CraftActionDef { label: "Chancing", required_affix_count: None, is_veilable: true, default_cost: 800 },
+        Annulment => CraftActionDef { label: "Annulment Orb", required_affix_count: None, is_veilable: true, default_cost: 1000 , price: PriceRule::Standard { base: 1000 } },
+        Chancing => CraftActionDef { label: "Chancing", required_affix_count: None, is_veilable: true, default_cost: 800 , price: PriceRule::Standard { base: 800 } },
         // Retired (see the enum variant's own doc) - this arm only still
         // matters for `Character::craft_inner`'s defensive legacy branch;
         // never reachable via the UI (no button can show it - see
         // `craft_token_count`-gated visibility).
-        CelestialShard => CraftActionDef { label: "Celestial Shard", required_affix_count: None, is_veilable: false, default_cost: u64::MAX },
+        CelestialShard => CraftActionDef { label: "Celestial Shard", required_affix_count: None, is_veilable: false, default_cost: u64::MAX , price: PriceRule::TokenOnly },
         // Never affordable in dust alone (see `AdventureManager::
         // craft_item_ex`'s own dedicated UniqueShard branch, which bypasses
         // this generic token/veil/dust machinery entirely, same shape as
@@ -431,18 +438,18 @@ pub(crate) fn craft_action_def(action: CraftAction) -> CraftActionDef {
         // ONLY goes through with the actual token. `is_veilable: false`
         // here is moot for the same reason it is for Polishing/Reforge/
         // DivineDust - the picker is unconditional, not gated by this flag.
-        UniqueShard => CraftActionDef { label: "Unique Shard", required_affix_count: None, is_veilable: false, default_cost: u64::MAX },
+        UniqueShard => CraftActionDef { label: "Unique Shard", required_affix_count: None, is_veilable: false, default_cost: u64::MAX , price: PriceRule::TokenOnly },
         // Not dust-denominated at all - see Polishing's own doc on the
         // enum. Never actually read (craft_item branches around it
         // before this could matter).
-        Polishing => CraftActionDef { label: "Polishing", required_affix_count: None, is_veilable: false, default_cost: 0 },
+        Polishing => CraftActionDef { label: "Polishing", required_affix_count: None, is_veilable: false, default_cost: 0 , price: PriceRule::Exception { currency: PriceCurrency::Sand, reason: "Priced in SAND, not dust, and by the item's quality rather than its tier: ceil(quality_percent / 10), capped at 12 for a Perfect item. Sand has its own income rate and its own sinks, so tying this to the dust curve would couple two economies that are deliberately separate - 'cheap relative to dust' is not a test that means anything here." } },
         // Priced at `30 * tier` instead - see Reforge's own doc on the
         // enum. Never actually read, same reason as Polishing above.
-        Reforge => CraftActionDef { label: "Reforge", required_affix_count: None, is_veilable: false, default_cost: 0 },
+        Reforge => CraftActionDef { label: "Reforge", required_affix_count: None, is_veilable: false, default_cost: 0 , price: PriceRule::MultipleOfStandard { times: 5, base: 60 } },
         // Priced at `2 * item.tier` DIVINE DUST instead - see DivineDust's
         // own doc on the enum. Never actually read, same reason as
         // Polishing/Reforge above.
-        DivineDust => CraftActionDef { label: "Divine Dust", required_affix_count: None, is_veilable: false, default_cost: 0 },
+        DivineDust => CraftActionDef { label: "Divine Dust", required_affix_count: None, is_veilable: false, default_cost: 0 , price: PriceRule::Exception { currency: PriceCurrency::DivineDust, reason: "Priced in DIVINE DUST at 2 x the item's tier, not in dust. Divine Dust is a scarce, separately-gated currency with its own drop stage, and this price is already linear in tier, so it does not decay in relative terms the way a flat dust price does. Left on its own curve deliberately." } },
     }
 }
 
@@ -1029,5 +1036,329 @@ mod cost_curve_tests {
         assert_eq!(sanitize_craft_tier_bump_mult(-1.0), CRAFT_TIER_BUMP_MULT_MIN);
         assert_eq!(sanitize_craft_tier_bump_mult(99.0), CRAFT_TIER_BUMP_MULT_MAX);
         assert_eq!(craft_tier_bump(1, f64::NAN), craft_tier_bump(1, CRAFT_TIER_BUMP_MULT));
+    }
+}
+
+// ---------------------------------------------------------------------
+// PRICE RULES (2026-09-06) - every price is a stated relationship
+// ---------------------------------------------------------------------
+//
+// WHY THIS EXISTS. The 2026-09-02 cost cut multiplied every ordinary
+// action's flat fee by `craft_base_cost_mult` and gave the per-tier
+// surcharge an exponent. Five prices did not follow, because they were
+// written as literals in their own charge sites with nothing linking them
+// to the formula: panel Reforge's `30 * tier`, Recombine's veiled
+// `500 + 500/modifier`, the dashboard Reforge Now's flat 1000, Polishing's
+// sand cost and the Divine Dust apply cost. Four of those were spotted at
+// the time and written down for a follow-up ruling; that follow-up then
+// sat unscheduled for four days, and the fifth was not spotted at all.
+//
+// The failure was not carelessness. It was that a price stated in one
+// place and charged in another CANNOT propagate, so the follow-up has to
+// be remembered by a person. This makes the relationship the thing that
+// is written down: a future change to `craft_base_cost_mult` moves the
+// base and every dependent price follows on its own, and the only prices
+// left behind are the ones that said out loud that they wanted to be.
+//
+// The compiler enforces the half it can - `price` is a required field on
+// `CraftActionDef`, so a new `CraftAction` cannot be added without stating
+// a rule. `the_declared_price_and_the_charged_price_agree` enforces the
+// half it cannot: that the rule a thing DECLARES is the price it actually
+// CHARGES. That is the drift these five prices died of.
+
+/// What a price is denominated in, for the rules that deliberately sit
+/// outside the dust curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriceCurrency {
+    Sand,
+    DivineDust,
+}
+
+/// How one action's price is derived. Never a literal.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PriceRule {
+    /// The standard formula: `ceil(base * craft_base_cost_mult)` plus the
+    /// per-tier surcharge. What every ordinary crafting currency costs.
+    Standard { base: u64 },
+    /// A stated multiple of a standard price - `times x Standard { base }`.
+    ///
+    /// The multiple is the relationship, and it is what a future cost
+    /// change propagates through. Panel Reforge is `5 x Standard { 60 }`
+    /// because it was already 4.8-6.0x a Scour across the live tier band;
+    /// pinning the ratio it already had beats inventing a new number.
+    MultipleOfStandard { times: u64, base: u64 },
+    /// A flat component plus `times x Standard { base }` for each counted
+    /// unit - Recombine's per-modifier price, where the unit is one
+    /// modifier carried over.
+    PerCountedUnit { flat: u64, times: u64, base: u64 },
+    /// The Hideout Warrior chain's per-item cost, summed over whatever set
+    /// the caller targets. Not a price of its own: the chain's steps are
+    /// each `Standard`, so this rule says "no bulk modifier" rather than
+    /// naming a number.
+    ChainSummedOverSet,
+    /// Deliberately NOT on the dust curve. The reason is required, because
+    /// an exception without a stated reason is a literal wearing a hat -
+    /// indistinguishable, six months later, from a price nobody linked up.
+    Exception { currency: PriceCurrency, reason: &'static str },
+    /// Not purchasable with dust at any price - the shard-only actions,
+    /// whose `u64::MAX` is a sentinel rather than a number.
+    TokenOnly,
+}
+
+impl PriceRule {
+    /// The dust this rule charges for one application at `tier`, or `None`
+    /// for the rules that are not dust-denominated.
+    ///
+    /// `units` is the counted quantity for `PerCountedUnit` and is ignored
+    /// by every other rule. `ChainSummedOverSet` returns `None`: its price
+    /// depends on which of the chain's steps actually land, which is
+    /// knowable only by running it - see
+    /// `Character::hideout_warrior_quote`.
+    pub fn dust_at(self, tier: u32, units: u64, base_mult: f64, exponent: f64) -> Option<u64> {
+        match self {
+            PriceRule::Standard { base } => Some(standard_price(base, tier, base_mult, exponent)),
+            PriceRule::MultipleOfStandard { times, base } => Some(times.saturating_mul(standard_price(base, tier, base_mult, exponent))),
+            PriceRule::PerCountedUnit { flat, times, base } => Some(
+                scaled_base_cost(flat, base_mult).saturating_add(units.saturating_mul(times).saturating_mul(standard_price(base, tier, base_mult, exponent))),
+            ),
+            PriceRule::ChainSummedOverSet | PriceRule::Exception { .. } | PriceRule::TokenOnly => None,
+        }
+    }
+}
+
+/// The standard formula, named so `PriceRule` reads as arithmetic over it
+/// rather than repeating it: `ceil(base x mult)` plus the tier surcharge,
+/// each term rounded on its own and then summed.
+pub fn standard_price(base: u64, tier: u32, base_mult: f64, exponent: f64) -> u64 {
+    scaled_base_cost(base, base_mult).saturating_add(tier_surcharge(tier, exponent))
+}
+
+/// Prices that are not a single `CraftAction` - the composite operations,
+/// which have exactly the same drift problem and none of the compiler's
+/// help, since there is no enum for a `match` to be exhaustive over.
+///
+/// Named in one table so the agreement test can walk them, and so "which
+/// operations have a stated price" is a question with a list for an answer
+/// rather than a grep.
+pub const COMPOSITE_PRICES: &[(&str, PriceRule)] = &[
+    // The dashboard's random-slot reforge. 2 x Standard { 60 } against
+    // panel Reforge's 5 x, so the panel version - which lets you CHOOSE
+    // the item and has no cooldown - costs 2.5x the random one. Not 9x
+    // (one per equip slot): a random reforge that lands somewhere you were
+    // not aiming still upgrades that slot, and this button is already
+    // hard-limited to once per hour, so its dust price is not what bounds
+    // its use. The 2.5x charges for targeting and for the absent cooldown.
+    ("reforge_now", PriceRule::MultipleOfStandard { times: 2, base: 60 }),
+    // Veiled recombine, per modifier carried over. One Krangle per
+    // modifier: a veiled recombine guarantees EVERY modifier transfers and
+    // keeps the better quality roll, the strongest per-modifier guarantee
+    // in the crafting system, so the unit it is priced in is the most
+    // expensive standard action rather than the cheapest.
+    ("recombine_veiled", PriceRule::PerCountedUnit { flat: VEIL_EXTRA_COST, times: 1, base: 2500 }),
+    // All three Hideout Warrior buttons: the single-item one, Divinity,
+    // and the all-items dust one. Same chain, same rule, different
+    // payment - Divinity substitutes a Unique Shard for the dust, which is
+    // why it is listed here rather than as TokenOnly: its PRICE rule is
+    // the chain, and the shard is how that price is settled.
+    ("hideout_warrior_single", PriceRule::ChainSummedOverSet),
+    ("hideout_warrior_all", PriceRule::ChainSummedOverSet),
+    ("divinity", PriceRule::ChainSummedOverSet),
+];
+
+/// Looks up a composite operation's declared price rule by name.
+///
+/// Panics on an unknown name, deliberately: every caller passes a literal
+/// that must appear in `COMPOSITE_PRICES`, and a silent `None` here would
+/// let a charge site quietly stop reading its own declared rule - which is
+/// the exact drift this table exists to prevent. A missing entry is a
+/// programming error, not a runtime condition.
+pub fn composite_price(name: &str) -> PriceRule {
+    COMPOSITE_PRICES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, rule)| *rule)
+        .unwrap_or_else(|| panic!("composite operation {name:?} charges a price but declares no rule in COMPOSITE_PRICES - add one rather than pricing it inline"))
+}
+
+/// The price table (2026-09-06) - every price is a stated relationship,
+/// and the relationship a thing DECLARES is the price it CHARGES.
+///
+/// The second half is the one that matters. Five prices drifted out of the
+/// 2026-09-02 cost cut not because anyone was careless but because a price
+/// declared in one place and charged in another cannot propagate: the
+/// declaration and the charge lived apart, and only one of them moved.
+/// `the_declared_price_and_the_charged_price_agree` is what makes that
+/// impossible to repeat quietly.
+#[cfg(test)]
+mod price_rule_tests {
+    use super::*;
+
+    const MULT: f64 = CRAFT_BASE_COST_MULT;
+    const EXP: f64 = CRAFT_TIER_EXPONENT;
+    /// Tier 3 is a live dropped item at stage 10; 35 is roughly the top of
+    /// the live band; 201 and 1000 are ahead of the game, included so a
+    /// rule that only misbehaves at scale still fails here.
+    const TIERS: [u32; 6] = [1, 3, 20, 35, 201, 1000];
+
+    /// Every `CraftAction` states a rule. The compiler already enforces
+    /// this - `price` is a required struct field - so this asserts the
+    /// part it cannot: that a rule is not a placeholder.
+    #[test]
+    fn every_craft_action_states_a_price_rule_and_every_exception_states_a_reason() {
+        for action in ALL_CRAFT_ACTIONS.iter().copied().chain([CraftAction::Polishing, CraftAction::Reforge, CraftAction::DivineDust, CraftAction::CelestialShard, CraftAction::UniqueShard]) {
+            match craft_action_def(action).price {
+                PriceRule::Exception { reason, .. } => assert!(
+                    !reason.trim().is_empty(),
+                    "{action:?} is declared an exception to the dust curve with no reason. An exception without a stated reason is a literal wearing a hat - six months from now it is indistinguishable from a price nobody linked up, which is how this table came to be needed"
+                ),
+                PriceRule::Standard { base } | PriceRule::MultipleOfStandard { base, .. } | PriceRule::PerCountedUnit { base, .. } => {
+                    assert!(base > 0, "{action:?} derives its price from a zero base, which makes the relationship meaningless")
+                }
+                PriceRule::ChainSummedOverSet | PriceRule::TokenOnly => {}
+            }
+        }
+    }
+
+    /// Same, for the operations that are not a single `CraftAction` and so
+    /// get no help from the compiler at all - there is no enum for a
+    /// `match` to be exhaustive over, which is exactly why they need a
+    /// named list and a test that walks it.
+    #[test]
+    fn every_composite_operation_states_a_price_rule() {
+        for &(name, rule) in COMPOSITE_PRICES {
+            assert!(!name.trim().is_empty(), "a composite price entry with no name cannot be looked up");
+            if let PriceRule::Exception { reason, .. } = rule {
+                assert!(!reason.trim().is_empty(), "{name} is an exception with no stated reason");
+            }
+            // The lookup every charge site uses must actually find it -
+            // a rule in the table that `composite_price` cannot resolve is
+            // a rule nothing reads.
+            assert_eq!(composite_price(name), rule, "{name} does not resolve to its own entry");
+        }
+    }
+
+    /// THE AGREEMENT TEST. What each action DECLARES and what
+    /// `craft_item_ex` CHARGES must be the same number, at every tier.
+    ///
+    /// This is the guard the compiler cannot give: a future action can
+    /// declare `Standard { base: 500 }` and then hardcode its own number
+    /// at the charge site, and everything would compile and every other
+    /// test would pass. That is precisely how panel Reforge, Recombine,
+    /// Reforge Now, Polishing and the Divine Dust apply drifted out of a
+    /// cost change that moved everything around them.
+    #[test]
+    fn the_declared_price_and_the_charged_price_agree() {
+        for action in ALL_CRAFT_ACTIONS {
+            let PriceRule::Standard { base } = craft_action_def(action).price else {
+                continue;
+            };
+            for tier in TIERS {
+                let declared = craft_action_def(action).price.dust_at(tier, 1, MULT, EXP).expect("Standard is dust-denominated");
+                // What `craft_item_ex` actually charges, through the one
+                // function it charges through.
+                let charged = craft_dust_cost(action, tier, false, MULT, EXP);
+                assert_eq!(
+                    declared, charged,
+                    "{action:?} DECLARES {declared} dust at tier {tier} but is CHARGED {charged}. The declaration and the charge have drifted apart, which is the defect this table exists to make impossible - fix the charge site to read the rule rather than adjusting the rule to match the charge"
+                );
+                assert_eq!(
+                    base.max(1) > 0 && declared >= tier_surcharge(tier, EXP),
+                    true,
+                    "{action:?}'s price must at least cover the per-tier surcharge"
+                );
+            }
+        }
+    }
+
+    /// Panel Reforge, at the ratio it was ruled to: 5 x a standard craft
+    /// with base 60. Pinned as NUMBERS at live tiers, because the point of
+    /// form B was that it lowers the price across the band players are
+    /// actually in rather than doubling the low end the way an exact
+    /// 5x-a-Scour would have.
+    #[test]
+    fn panel_reforge_is_five_standard_crafts_and_is_cheaper_than_it_was_across_the_live_band() {
+        let rule = craft_action_def(CraftAction::Reforge).price;
+        assert_eq!(rule, PriceRule::MultipleOfStandard { times: 5, base: 60 });
+        for (tier, was) in [(3u32, 90u64), (20, 600), (35, 1050)] {
+            let now = rule.dust_at(tier, 1, MULT, EXP).expect("dust-denominated");
+            assert!(
+                now < was,
+                "panel Reforge at tier {tier} is {now}, which is not below the {was} it cost as a flat 30/tier. Form B was chosen over an exact 5x-a-Scour precisely because it does not raise the price anywhere players currently are"
+            );
+            assert_eq!(now, 5 * standard_price(60, tier, MULT, EXP), "the price must BE the declared multiple, not merely resemble it");
+        }
+    }
+
+    /// Reforge Now sits at 2 x the same standard craft, so panel Reforge
+    /// costs 2.5x it at every tier. The targeted version costs more than
+    /// the random one - that ratio is the ruling, and pinning it here is
+    /// what stops the two drifting into unrelated numbers.
+    #[test]
+    fn the_targeted_reforge_costs_two_and_a_half_times_the_random_one_at_every_tier() {
+        for tier in TIERS {
+            let panel = craft_action_def(CraftAction::Reforge).price.dust_at(tier, 1, MULT, EXP).expect("dust");
+            let random = composite_price("reforge_now").dust_at(tier, 1, MULT, EXP).expect("dust");
+            assert!(random < panel, "the random-slot reforge must cost less than the targeted one at tier {tier}: {random} vs {panel}");
+            assert_eq!(panel * 2, random * 5, "the ratio must stay exactly 5:2 at tier {tier} - {panel} vs {random}");
+        }
+    }
+
+    /// Veiled recombine is one Krangle per modifier carried over, and the
+    /// shape that matters is that it now SCALES: the old flat price was
+    /// 69x a Scour at tier 3 and 0.42x at tier 1000, which is not a price
+    /// that was tuned badly, it is a price pointing the wrong way.
+    #[test]
+    fn veiled_recombine_scales_with_tier_instead_of_inverting() {
+        let rule = composite_price("recombine_veiled");
+        let four_mods_low = rule.dust_at(3, 4, MULT, EXP).expect("dust");
+        let four_mods_high = rule.dust_at(201, 4, MULT, EXP).expect("dust");
+        assert!(four_mods_high > four_mods_low, "a higher-tier recombine must cost more, not the same");
+
+        // Against a Scour, at every tier. The property is NOT that the
+        // ratio holds flat - it cannot, because both prices carry a flat
+        // term that washes out at high tier, and this rule's flat term is
+        // four Krangles' worth. Under form C the ratio runs about 30x at
+        // tier 3 down to about 4x at tier 1000, and that decline is fine.
+        //
+        // What was broken was the INVERSION: the flat 500 + 500/modifier
+        // was 69x a Scour at tier 3 and 0.42x at tier 1000, so the
+        // strongest per-modifier guarantee in the crafting system ended up
+        // cheaper than the cheapest action in it. The property worth
+        // pinning is that it never decays toward parity.
+        //
+        // An earlier draft of this test asserted the ratio stayed within
+        // half of its low-tier value and FAILED at 4.9x against 30.4x -
+        // the test was wrong, not the rule. Recorded because "the ratio
+        // must not move" is the intuitive assertion here and it is the
+        // wrong one.
+        for tier in TIERS {
+            let price = rule.dust_at(tier, 4, MULT, EXP).expect("dust");
+            let scour = standard_price(250, tier, MULT, EXP);
+            let ratio = price as f64 / scour as f64;
+            assert!(
+                ratio >= 3.0,
+                "a 4-modifier veiled recombine is only {ratio:.1}x a Scour at tier {tier}. It guarantees every modifier carries over and keeps the better quality roll - if it decays toward the price of the cheapest action, the old inversion is back in a slower form"
+            );
+        }
+        // And more modifiers cost more, which the per-unit rule is for.
+        assert!(rule.dust_at(20, 8, MULT, EXP) > rule.dust_at(20, 4, MULT, EXP), "eight carried modifiers must cost more than four");
+    }
+
+    /// The two deliberate exceptions stay exceptions, and stay out of the
+    /// dust arithmetic entirely. `dust_at` returning `None` is the
+    /// mechanism: there is no dust number for a caller to accidentally use.
+    #[test]
+    fn the_declared_exceptions_have_no_dust_price_at_all() {
+        for action in [CraftAction::Polishing, CraftAction::DivineDust] {
+            let rule = craft_action_def(action).price;
+            assert!(matches!(rule, PriceRule::Exception { .. }), "{action:?} must be a declared exception");
+            for tier in TIERS {
+                assert_eq!(
+                    rule.dust_at(tier, 1, MULT, EXP),
+                    None,
+                    "{action:?} is denominated in another currency, so it must not produce a dust price at tier {tier} - a number here is a number something could spend"
+                );
+            }
+        }
     }
 }
