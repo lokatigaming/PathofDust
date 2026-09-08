@@ -7010,3 +7010,103 @@ curve change called a nerf in those words; Echo quantified; **Leech deliberately
 not quantified** because gear, class and tree sum under one cap and the felt
 effect is unmeasured; item 14's retirement included with an admission it should
 have been noted on 2026-09-04. Verified in the SERVED page, not only on disk.
+
+### 2026-09-08 — The passive form's dormant arm, and a guard that would have changed live state
+
+Branch `fix/passive-form-drift-guard` off `origin/master` `15d6672`.
+
+CLAUDE.md cites `admin_tunables_splash_http.rs` as the fixed shape for
+form-body drift — *"derive its field set from the rendered page … never
+from a hand-maintained list"* — and it does, **but only for
+`TunablesForm`**. `PassiveTunablesForm` had been on a hand-maintained
+superset body since the 2026-09-03 split.
+
+**A superset body catches a field you forgot to ADD; it can never catch a
+field the page STOPPED RENDERING.** The second direction is the one with
+the incident behind it (2026-08-23: an `<input>` dropped while the field
+stayed required, so every real browser save 422'd while the suite stayed
+green). The healer compensation on 2026-09-07 exercised only the safe
+direction — three new required fields the hand list did not send, caught
+at once — which is precisely why the hole was still there to find. **A
+guard that has only ever fired the safe way has not been shown to work.**
+
+#### Two responsibilities, two tests
+
+The existing body posts REAL baseline values and asserts they round-trip.
+Converting it to a filler-value scrape would have quietly deleted that
+assertion — the test would have kept its name and stopped doing its job.
+So the scrape is a SECOND test asserting only that the field set
+extracts, which is a different question and wants a different body.
+
+The guard posts back **what the page itself rendered** rather than a
+filler constant: every value is in-range by construction, so no
+out-of-range 400 can mask the 422 it is actually looking for.
+
+#### The checkbox, which is the finding worth keeping
+
+**A checkbox renders `value="1"` whether or not it is ticked.** `checked`
+is what says it is on, and a browser posts it ONLY when ticked.
+
+My first draft echoed every rendered value unconditionally. That would
+have posted `shattering_enabled=1` for an unticked box and **silently
+turned Shattering on** — a state-changing save wearing the costume of a
+no-op, in a test whose whole point is to prove a save is safe.
+
+It surfaced through a set-equality assertion added for an unrelated
+reason (the rendered set and the round-trip body must describe the same
+required fields). It fired on `shattering_enabled` being rendered but
+absent from the body — which is *correct*, since absent means false for a
+checkbox — and chasing that down is what exposed the echo bug. The scrape
+now parses per `<input>` tag, so `type` and `checked` (which sit before
+`name` in the markup) are visible, and an assertion pins that the echo
+did not move the checkbox in either direction.
+
+**Generalises past this test:** any "post the page back to itself" check
+has to model what a browser actually posts, and for a checkbox that is
+presence, not value.
+
+#### The mutation took three attempts to become honest
+
+1. **Renamed an input** → caught, but by an *existing* hardcoded
+   five-field assertion, not by the new guard. A mutation caught by
+   something other than the guard under test proves nothing about the
+   guard.
+2. **Deleted the `<input>` line alone** → **compile error**: the `format!`
+   named argument goes unused. For this rendering style the compiler
+   already catches a bare input deletion.
+3. **Deleted the input AND its `format!` argument** — which compiles, and
+   is the real shape of the 2026-08-23 incident → the guard fires.
+
+**Attempt 2 is the durable part: a dropped input is only silent if its
+format argument goes with it.** That narrows the window this class of
+defect can even occur in, and it is worth knowing before someone assumes
+every dropped field is invisible.
+
+#### Other forms — derived rather than eyeballed
+
+Counted required fields (no `#[serde(default)]`, not `Option`) across all
+21 `Form<T>` structs in the workspace:
+
+| form | required fields |
+|---|---|
+| `PassiveTunablesForm` | **26** — guarded as of today |
+| `TunablesForm` | **19** — guarded 2026-08-23 |
+| `PassiveOverrideForm` | 5 |
+| every other form | ≤ 2 |
+
+**Only the two wide tunables forms carried real exposure.**
+`PassiveOverrideForm` is a FIXED shape — class, node key, three ranks —
+not a growing list of dials, so a dropped field there is immediately
+visible rather than silent. It would want the same treatment only if the
+rank count ever grew, which is worth remembering rather than acting on.
+
+The shape of the risk is worth stating as a rule: **the danger scales
+with how many required fields a form has AND whether that number grows
+over time.** A wide form that gains a field every few weeks is where this
+defect lives; a narrow fixed one is not.
+
+Suite: **855 passed, 0 failed**, zero FAILED lines across all 42 result
+lines of a fully captured 309-line run. Golden corpus matched — nothing
+regenerated, tree clean.
+
+Test-only change, no player-facing behaviour, so no WIKI_IMPACT line.
