@@ -7700,3 +7700,93 @@ its list, and nothing warns you when the list is short — which is how `2bac806
 was pushed missing two files, compiling for its author and passing `cargo test`
 because the affected sites are `#[cfg(not(test))]`-gated. Checked on this
 release's push: 0 remaining.
+
+### 2026-09-08 — REFORGE-FLAT-1000 deploy record (release 21, hotfix + refund)
+
+| | |
+|---|---|
+| master commit | `4902663b746dab8b96336e3df83966a6d07e5167` |
+| live binary | `710a6b4f7ba6d74eec21fa07e0d6fe88403db3bf373aa200b4fc5f32194377ab` |
+| previous | `1139f9224d16740fb8320a599fe1b8166ab73bd0e254b5938bc1be8ba0f42538` |
+| rollback slot | `deploy-pre-20260908-215429-reforge-flat-1000` |
+| downtime | **0.50 s** |
+| suite | **919 passed / 0 failed / 43 result-lines** on the box |
+| seven §13B.5 checks | all pass |
+
+Release 20 repriced Reforge Now from a flat 1000 to `2 x Standard { 60 }`. Two
+players reported being charged ~7,000. Hotfixed back to a declared flat 1000 and
+refunded, rather than rolled back, because release 20's other three price cuts
+were wanted and the exposure was bounded at five uses.
+
+#### THE CAUSE WAS NOT THE FORMULA
+
+`MultipleOfStandard { times: 2, base: 60 }` evaluated exactly as designed. **The
+live `craft_tier_exponent` is 1.5; the design, the approved cost table and every
+test are written against 1.1.**
+
+| tier | exp 1.1 (design) | exp 1.5 (live) | old flat |
+|---|---|---|---|
+| 35 | 312 | 1,256 | 1,000 |
+| 107 | 1,038 | **6,654** | 1,000 |
+
+At the exponent the design assumed, the reprice was near-neutral at high tier —
+1,038 against 1,000. The flat price had **insulated** this action from the live
+curve; connecting it to the curve is what exposed the discrepancy. The live
+tunables file is dated 2026-09-04, four days before release 20, so this release
+did not change the exponent. Crossover is around tier 30.
+
+**The exponent discrepancy is the larger finding and it is with the owner.** It
+affects every price on the curve, not this button.
+
+#### THE DISPLAY WAS A SECOND, SEPARATE DEFECT
+
+The dashboard rendered a hardcoded `Reforge Now (1000d)` while charging
+`2 x Standard(highest tier)`. Two independent expressions that agreed until one
+moved. The fix makes `WEB_REFORGE_DUST_COST` the single source for the label, the
+affordability gate and the charge — **so the class is closed structurally rather
+than by making two numbers match again.**
+
+#### VERIFIED BY EFFECT, IN A 21-SECOND WINDOW
+
+Dust moves continuously from fights, so "nobody else's moved" is only provable
+across a tight window. Baseline captured at 21:54:29, deploy, re-capture at
+21:54:50.
+
+| character | before | after | delta | expected |
+|---|---|---|---|---|
+| wright | 38,702 | 44,356 | +5,654 | 5,654 |
+| merkosh | 53,009 | 58,385 | +5,376 | 5,376 |
+| jachiny | 12,634 | 17,646 | +5,012 | 5,012 |
+| roxus | 4,447 | 8,413 | +3,966 | 3,966 |
+| kibukah | 76,725 | 78,185 | +1,460 | 1,460 |
+
+All five exact, **21,468 total, and characters outside the list whose dust moved:
+NONE.** Marker `adventure-refund-reforge-now-overcharge-marker.json` present, so a
+restart cannot re-grant. Live control re-verified rendering `1000`.
+
+#### THIRD RELEASE RUNNING THAT A MARKER WAS MISSING FROM THE BACKUP ALLOW-LIST
+
+`adventure-refund-reforge-now-overcharge-marker.json` was not in
+`backup-game-data.sh`'s `MARKER_FILES`. Added in `4902663`.
+
+**This is the first one where losing it costs currency.** Every other marker on
+that list guards something whose second run is harmless or merely wasteful; a
+backup restored without this one re-grants 21,468 dust silently on the next start.
+`.gitignore` coverage confirmed with `git check-ignore` rather than inferred.
+
+#### The named flake did not recur
+
+b saw `live_reload_tests::editing_a_template_takes_effect_without_a_rebuild` fail
+in its refund run and once more in isolation, then pass. This merge run was the
+tiebreak: **0 FAILED, 0 panicked, 0 `live_reload` mentions** locally and on the
+box. The ship-anyway clause was not needed.
+
+#### The sweep's boundary case, resolved by b rather than assumed
+
+Cooldown records store `current_hour_bucket()` — epoch hours — so a record dates a
+use to the hour, not the minute. `roxus` and `kibukah` sat in bucket 496910, which
+straddles the 16:20:37 deploy, and no persisted state on the live box could
+separate them. Reported as an explicit unresolved group rather than folded in.
+b resolved it from a verified backup snapshot taken inside the deploy window,
+reading the cooldown file as it stood at 16:20:48. Evidence class: persisted state
+from a checksum-verified snapshot, not inference.
