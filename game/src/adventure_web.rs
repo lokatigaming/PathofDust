@@ -2630,12 +2630,34 @@ fn render_admin_passives_page(viewer: Option<&Character>, archetype: Archetype, 
             };
             // `has_entry`, not `differs`: Revert deletes the stored entry, and
             // a no-op override is exactly the case that most needs deleting.
+            //
+            // CONFIRMED because it is irreversible (2026-09-08, board item
+            // "`/admin/passives` Revert deletes rather than restores").
+            // The headline of that entry is not what is wrong here -
+            // dropping the entry IS how a node returns to its compiled-in
+            // default, and every statement of intent agrees on that. The
+            // real harm is the entry's own second sentence: it "destroys
+            // the tuning with no undo". A deliberately tuned node's
+            // numbers live in exactly one place, `PassiveOverrides`, which
+            // stores no prior value on either axis - so there is nothing
+            // to restore TO, and one misclick discards work that cannot
+            // be reconstructed from anything on disk.
+            //
+            // Restoring a previous value is not representable without new
+            // storage, so the honest fix is to stop the loss being
+            // SILENT rather than to pretend an undo exists. Same
+            // `onsubmit="return confirm(...)"` shape as every other
+            // irreversible control here (disenchant, delete Memory), and
+            // the string is deliberately STATIC and apostrophe-free for
+            // the reason `render_memories_section` documents: it sits in
+            // a single-quoted JS literal and `escape_html` does not
+            // escape `'`.
             let revert = if has_entry {
                 format!(
-                    "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\">\
+                    "<form method=\"post\" action=\"/admin/passives/revert\" class=\"passive-revert\" onsubmit=\"return confirm('Discard the tuned values for this node and return it to the compiled-in default? The current numbers are stored nowhere else and cannot be recovered.');\">\
                        <input type=\"hidden\" name=\"class\" value=\"{slug}\">\
                        <input type=\"hidden\" name=\"node_key\" value=\"{key}\">\
-                       <button class=\"btn-sm btn-danger\" type=\"submit\">Revert</button>\
+                       <button class=\"btn-sm btn-danger\" type=\"submit\">Revert to default</button>\
                      </form>",
                     slug = format!("{archetype:?}").to_lowercase(),
                 )
