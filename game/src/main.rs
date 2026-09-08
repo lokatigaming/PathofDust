@@ -45,7 +45,70 @@ fn env_u16_or(key: &str, default: u16) -> u16 {
 /// trusted not to reproduce the exact crash class that motivated the
 /// watchdog in the first place.
 fn main() -> anyhow::Result<()> {
+    // The `reset` subcommand runs entirely before the runtime, the
+    // logger and the game exist (2026-09-08). It touches the data
+    // directory directly and must never race a running instance's
+    // writes, so it does its own `GAME_DATA_DIR` read and returns
+    // without ever constructing an AdventureManager.
+    //
+    // No arg parser and no new dependency: this binary took no arguments
+    // at all before now, and one subcommand does not justify pulling in
+    // clap.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "reset") {
+        let _ = dotenvy::dotenv();
+        return run_reset(&args[1..]);
+    }
+
     tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(32 * 1024 * 1024).build()?.block_on(async_main())
+}
+
+/// `game reset [--confirm=DELETE-WORLD]`
+///
+/// Dry run is the DEFAULT: with no confirmation this prints the
+/// classification it would act on and deletes nothing. That is the
+/// safety property - there is no flag ordering, typo or missing argument
+/// that turns an inspection into a wipe, because the destructive path
+/// requires a token that has no default and no abbreviation.
+///
+/// Refuses outright, in both modes, if the data directory holds anything
+/// `stores.rs` does not classify.
+fn run_reset(args: &[String]) -> anyhow::Result<()> {
+    use game::adventure::reset::{execute, plan_reset, render_plan, CONFIRM_TOKEN};
+
+    let confirm_flag = format!("--confirm={CONFIRM_TOKEN}");
+    let mut confirmed = false;
+    for arg in args {
+        if arg == &confirm_flag {
+            confirmed = true;
+        } else {
+            anyhow::bail!("unrecognised argument {arg:?}\n\nusage: game reset [{confirm_flag}]\n  with no arguments this is a DRY RUN - it prints what it would delete and deletes nothing.");
+        }
+    }
+
+    // Same resolution `data_path` uses: GAME_DATA_DIR if set, else the
+    // process's own working directory. Read directly rather than through
+    // `set_data_dir` so this cannot be the call that locks the OnceLock
+    // in for a process that then goes on to do something else.
+    let data_dir = PathBuf::from(env_var("GAME_DATA_DIR").unwrap_or_else(|| ".".to_string()));
+
+    let plan = match plan_reset(&data_dir) {
+        Ok(plan) => plan,
+        Err(refusal) => {
+            // The refusal text goes to stderr and the process exits
+            // non-zero, so a script wrapping this cannot mistake a
+            // refusal for a completed reset.
+            eprintln!("{refusal}");
+            std::process::exit(2);
+        }
+    };
+
+    print!("{}", render_plan(&plan, confirmed));
+    if confirmed {
+        execute(&plan)?;
+        println!("Reset complete - {} entr{} destroyed, {} kept.", plan.to_delete.len(), if plan.to_delete.len() == 1 { "y" } else { "ies" }, plan.to_keep.len());
+    }
+    Ok(())
 }
 
 async fn async_main() -> anyhow::Result<()> {

@@ -68,6 +68,12 @@ mod published_constants;
 // pub(crate) so adventure_web.rs can name the tier table at the serving
 // boundary - the enforcement reads better spelled out than glob-imported.
 pub(crate) mod replay_bundle;
+// The season reset as a code path, and the store classification it acts
+// on. `pub` because `main.rs` is a separate crate and dispatches the
+// `reset` subcommand - see `reset.rs` for why a reset needs to exist in
+// code at all.
+pub mod reset;
+pub mod stores;
 mod tunables;
 
 pub use affix::*;
@@ -86,5 +92,11 @@ pub(crate) use pacing::*;
 pub use passive_overrides::*;
 pub use paths::set_data_dir;
 pub use paths::data_path;
+// Markers resolve BESIDE the characters file rather than through the
+// global `data_path` - see `marker_path`'s own doc for the defect that
+// caused (58 stray, gitignored marker files across two directories, and
+// startup-migration tests that behaved differently on a machine that had
+// run the suite before).
+pub use paths::marker_path;
 pub use published_constants::{published_constants_path, PublishedConstants, PUBLISHED_CONSTANTS_PATH};
 pub use tunables::*;
