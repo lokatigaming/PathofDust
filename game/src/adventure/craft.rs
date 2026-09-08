@@ -1096,6 +1096,21 @@ pub enum PriceRule {
     /// each `Standard`, so this rule says "no bulk modifier" rather than
     /// naming a number.
     ChainSummedOverSet,
+    /// A dust price that is deliberately FLAT - the same number at every
+    /// tier, by ruling rather than by omission. The reason is required for
+    /// the same journey `Exception` documents: a flat number with nothing
+    /// attached is indistinguishable, later, from a price nobody linked up
+    /// to the curve when everything around it moved.
+    ///
+    /// Distinct from `Exception`, which is not dust-denominated and
+    /// returns `None`. This one IS dust and returns its number, so the
+    /// declaration-versus-charge agreement still binds it.
+    ///
+    /// **Not a loophole for "the curve is inconvenient here."** A price
+    /// belongs on this rule only when someone decided the action should
+    /// cost the same at tier 1 and tier 1000 - which is a statement about
+    /// what the action is for, not about its arithmetic.
+    Flat { dust: u64, reason: &'static str },
     /// Deliberately NOT on the dust curve. The reason is required, because
     /// an exception without a stated reason is a literal wearing a hat -
     /// indistinguishable, six months later, from a price nobody linked up.
@@ -1121,6 +1136,10 @@ impl PriceRule {
             PriceRule::PerCountedUnit { flat, times, base } => Some(
                 scaled_base_cost(flat, base_mult).saturating_add(units.saturating_mul(times).saturating_mul(standard_price(base, tier, base_mult, exponent))),
             ),
+            // Flat by ruling: the same number at every tier, and it IS
+            // dust, so it answers here rather than returning `None` the
+            // way the non-dust exceptions do.
+            PriceRule::Flat { dust, .. } => Some(dust),
             PriceRule::ChainSummedOverSet | PriceRule::Exception { .. } | PriceRule::TokenOnly => None,
         }
     }
@@ -1141,14 +1160,29 @@ pub fn standard_price(base: u64, tier: u32, base_mult: f64, exponent: f64) -> u6
 /// operations have a stated price" is a question with a list for an answer
 /// rather than a grep.
 pub const COMPOSITE_PRICES: &[(&str, PriceRule)] = &[
-    // The dashboard's random-slot reforge. 2 x Standard { 60 } against
-    // panel Reforge's 5 x, so the panel version - which lets you CHOOSE
-    // the item and has no cooldown - costs 2.5x the random one. Not 9x
-    // (one per equip slot): a random reforge that lands somewhere you were
-    // not aiming still upgrades that slot, and this button is already
-    // hard-limited to once per hour, so its dust price is not what bounds
-    // its use. The 2.5x charges for targeting and for the absent cooldown.
-    ("reforge_now", PriceRule::MultipleOfStandard { times: 2, base: 60 }),
+    // The dashboard's random-slot reforge. FLAT 1000 DUST AT EVERY TIER,
+    // by owner ruling 2026-09-08. Declared here rather than left as a
+    // literal at the charge site, which is the whole point of this table.
+    //
+    // It was briefly `2 x Standard { 60 }` (release 20) and that was a
+    // mistake - mine, and a live one: priced off the highest equipped
+    // tier, it charged a player about 7,000 dust for a button whose own
+    // label said 1000. The flat price was never a number left behind by a
+    // cost change; it was a design decision, and the reprice contradicted
+    // an intent that had not been written down anywhere the sweep could
+    // see it.
+    //
+    // The number is `WEB_REFORGE_DUST_COST` rather than a repeated `1000`
+    // so the price the dashboard RENDERS and the price the charge site
+    // DEDUCTS cannot drift apart again - that divergence is exactly what
+    // the player saw.
+    (
+        "reforge_now",
+        PriceRule::Flat {
+            dust: WEB_REFORGE_DUST_COST,
+            reason: "Flat 1000 dust at every tier - owner ruling, 2026-09-08. This is the once-per-hour random reforge and its price is deliberately off the tier curve: the thing that bounds its use is the cooldown, not the cost, so scaling it with tier charges for the wrong resource. Was repriced to 2 x Standard { 60 } in release 20 and reverted the same day after it charged a player ~7,000 dust against a button labelled 1000d.",
+        },
+    ),
     // Veiled recombine, per modifier carried over. One Krangle per
     // modifier: a veiled recombine guarantees EVERY modifier transfers and
     // keeps the better quality roll, the strongest per-modifier guarantee
@@ -1211,6 +1245,13 @@ mod price_rule_tests {
                     !reason.trim().is_empty(),
                     "{action:?} is declared an exception to the dust curve with no reason. An exception without a stated reason is a literal wearing a hat - six months from now it is indistinguishable from a price nobody linked up, which is how this table came to be needed"
                 ),
+                PriceRule::Flat { dust, reason } => {
+                    assert!(dust > 0, "{action:?} declares a flat price of zero, which is 'free' written as if it were a price");
+                    assert!(
+                        !reason.trim().is_empty(),
+                        "{action:?} is flat with no stated reason. A flat number with nothing attached is indistinguishable from a price that was simply never moved when the curve around it changed - which is how Reforge Now came to be repriced by mistake"
+                    );
+                }
                 PriceRule::Standard { base } | PriceRule::MultipleOfStandard { base, .. } | PriceRule::PerCountedUnit { base, .. } => {
                     assert!(base > 0, "{action:?} derives its price from a zero base, which makes the relationship meaningless")
                 }
@@ -1227,8 +1268,8 @@ mod price_rule_tests {
     fn every_composite_operation_states_a_price_rule() {
         for &(name, rule) in COMPOSITE_PRICES {
             assert!(!name.trim().is_empty(), "a composite price entry with no name cannot be looked up");
-            if let PriceRule::Exception { reason, .. } = rule {
-                assert!(!reason.trim().is_empty(), "{name} is an exception with no stated reason");
+            if let PriceRule::Exception { reason, .. } | PriceRule::Flat { reason, .. } = rule {
+                assert!(!reason.trim().is_empty(), "{name} is off the standard curve with no stated reason");
             }
             // The lookup every charge site uses must actually find it -
             // a rule in the table that `composite_price` cannot resolve is
@@ -1289,18 +1330,45 @@ mod price_rule_tests {
         }
     }
 
-    /// Reforge Now sits at 2 x the same standard craft, so panel Reforge
-    /// costs 2.5x it at every tier. The targeted version costs more than
-    /// the random one - that ratio is the ruling, and pinning it here is
-    /// what stops the two drifting into unrelated numbers.
+    /// **Reforge Now is FLAT 1000 dust at every tier** - owner ruling,
+    /// 2026-09-08.
+    ///
+    /// This replaces `the_targeted_reforge_costs_two_and_a_half_times_the_
+    /// random_one_at_every_tier`, deleted rather than adjusted. That test
+    /// pinned a 5:2 ratio between panel Reforge and this button, and the
+    /// ratio was only ever a consequence of pricing this one at
+    /// `2 x Standard { 60 }`. With the flat price restored there is no
+    /// ratio to hold, and a test asserting one nobody wants is worse than
+    /// no test: it would have to be "fixed" by whoever next touched either
+    /// price, and the obvious fix is to re-derive the number rather than
+    /// to ask whether the relationship still exists.
+    ///
+    /// Panel Reforge is UNAFFECTED and keeps `5 x Standard { 60 }` - it is
+    /// a different button, targeted and uncooldowned, and its own test
+    /// above still pins it.
+    ///
+    /// The property asserted is the one that broke live: the DECLARED
+    /// price, the number the dashboard RENDERS, and the price at every
+    /// tier are one number. A tier-scaled rule fails this at the second
+    /// tier it is checked at.
     #[test]
-    fn the_targeted_reforge_costs_two_and_a_half_times_the_random_one_at_every_tier() {
+    fn reforge_now_is_flat_1000_dust_at_every_tier() {
+        let rule = composite_price("reforge_now");
+        assert!(
+            matches!(rule, PriceRule::Flat { dust: WEB_REFORGE_DUST_COST, .. }),
+            "Reforge Now must DECLARE a flat price, not merely happen to compute one - the declaration is what the charge site reads: {rule:?}"
+        );
         for tier in TIERS {
-            let panel = craft_action_def(CraftAction::Reforge).price.dust_at(tier, 1, MULT, EXP).expect("dust");
-            let random = composite_price("reforge_now").dust_at(tier, 1, MULT, EXP).expect("dust");
-            assert!(random < panel, "the random-slot reforge must cost less than the targeted one at tier {tier}: {random} vs {panel}");
-            assert_eq!(panel * 2, random * 5, "the ratio must stay exactly 5:2 at tier {tier} - {panel} vs {random}");
+            let dust = rule.dust_at(tier, 1, MULT, EXP).expect("Flat is dust-denominated");
+            assert_eq!(
+                dust, WEB_REFORGE_DUST_COST,
+                "Reforge Now must cost {WEB_REFORGE_DUST_COST} at tier {tier}, got {dust}. This is the live defect from release 20: priced off the highest equipped tier, it charged a player about 7,000 dust for a button whose label said 1000d"
+            );
         }
+        // The label and the charge are the same constant, so the two
+        // cannot drift apart the way they did. `adventure_web.rs` renders
+        // `WEB_REFORGE_DUST_COST` directly.
+        assert_eq!(WEB_REFORGE_DUST_COST, 1000, "the owner's ruling is 1000 dust; changing this changes what players are charged AND what the button says");
     }
 
     /// Veiled recombine is one Krangle per modifier carried over, and the

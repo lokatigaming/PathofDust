@@ -3414,7 +3414,7 @@ impl AdventureManager {
             .unwrap_or(1);
         let cost = composite_price("reforge_now")
             .dust_at(top_tier, 1, t.craft_base_cost_mult, t.craft_tier_exponent)
-            .expect("reforge_now declares MultipleOfStandard, which is dust-denominated");
+            .expect("reforge_now declares Flat, which is dust-denominated");
         if character.dust < cost {
             return None;
         }
