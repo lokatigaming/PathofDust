@@ -1273,10 +1273,25 @@ separately, not to an automatic cleanup.
       `game/**` no longer contains anything the bot binary is built from.
       `game` has no workspace-internal dependencies of its own, so that's
       the complete transitive set — there is no third crate to track.
+      **Amendment (2026-09-08, bot moved into `bot/`):** this rule's own
+      text says the dependency set is re-derived "only if the workspace
+      structure changes", and that is exactly what happened. The root
+      `Cargo.toml` is now a VIRTUAL manifest owning no package, and the
+      bot is the workspace member `bot` (`bot/**`, `bot/Cargo.toml`).
+      **`src/**` no longer exists at the repository root**, so the
+      pre-amendment path list would now match nothing and silently skip
+      every bot redeploy. The dependency set and its transitive closure
+      are otherwise unchanged — still the bot package alone, still no
+      third crate, still nothing under `game/**`. `Cargo.lock` stays at
+      the root and stays in the set; the move did not alter one byte of
+      it, which is itself the evidence that the dependency graph is the
+      same one.
    - Run `git diff --name-only <old-deployed-commit>..<new-commit>`. If
-      any changed path falls under `src/**` or root `Cargo.toml`/
-      `Cargo.lock`, the bot deploys this release. Changes under `game/**`
-      deploy the game alone. If none do, it doesn't.
+      any changed path falls under `bot/**` (pre-2026-09-08: `src/**`) or
+      root `Cargo.lock`, the bot deploys this release. Changes under
+      `game/**` deploy the game alone. If none do, it doesn't. Note that
+      `bot/Cargo.toml` is inside `bot/**` and needs no separate clause,
+      unlike the root manifest it replaced.
    - If the diff says skip but the freshly built `twitch-bot-rs.exe`'s
      SHA-256 differs from the live one anyway, note the mismatch in the
      deploy report and still skip — Rust release builds aren't

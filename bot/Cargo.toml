@@ -1,0 +1,61 @@
+# The Twitch bot. Moved out of the workspace ROOT and into `bot/`
+# (2026-09-08) - see the root manifest for why. Nothing in this file
+# changed except that it is no longer also the workspace manifest: the
+# package name, both `[[bin]]` targets, their `path` values (relative to
+# THIS file, so unchanged) and every dependency are byte-identical to
+# what the root carried.
+#
+# There is deliberately NO dependency on `game` here, and none on this
+# crate from `game/Cargo.toml`. The build-time decoupling removed the
+# path dependency and five `pub use game::...` re-exports on 2026-08-22;
+# the runtime one went with `chore/bot-decoupling` on 2026-09-02. The two
+# crates share no dependency, no import, no env key, no port and no file.
+
+[package]
+name = "twitch-bot-rs"
+version = "0.1.0"
+edition = "2021"
+default-run = "twitch-bot-rs"
+
+[[bin]]
+name = "twitch-bot-rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "auth"
+path = "src/bin/auth.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["fs"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+dotenvy = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+rand = "0.8"
+regex = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+open = "5"
+urlencoding = "2"
+url = "2"
+twitch-irc = { version = "5", features = ["refreshing-token-rustls-webpki-roots"] }
+rust_socketio = { version = "0.6", features = ["async"] }
+anyhow = "1"
+thiserror = "1"
+async-trait = "0.1"
+sha2 = "0.10"
+base64 = "0.22"
+zstd = "0.13"
+pulldown-cmark = "0.12"
+minijinja = { version = "2", features = ["loader"] }
+minijinja-autoreload = "2"
+flate2 = "1"

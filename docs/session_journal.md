@@ -7154,3 +7154,156 @@ lines of a fully captured 309-line run. Golden corpus matched — nothing
 regenerated, tree clean.
 
 Test-only change, no player-facing behaviour, so no WIKI_IMPACT line.
+
+## 2026-09-08 — THE BOT GETS A BACKUP, AND MOVES INTO `bot/` (branch `feature/bot-into-subdirectory`)
+
+Two things, in the order the owner ruled: the backup first because it is
+independent of the move and worse than the move, then the move itself.
+
+### The gap the bot-extraction survey found
+
+`tokens.json`, `commands.json`, `entrance-themes.json`,
+`personal-playlists.json` and `song-queue.json` existed in exactly one
+place. `backup-game-data.ps1` is an explicit allow-list and every entry
+in it is a game file; `backup-game-data.sh` archives
+`/var/lib/pathofdust`, the LINUX game data root, which holds no bot file.
+The game moved to Linux and the bot did not, so the nightly backup that
+had been running all week covered none of it.
+
+`backup-bot-data.ps1` is `backup-game-data.ps1`'s shape, not a new
+design: same parameters, same share-mode copy, same verify-then-prune
+ordering, same manifest and verdict, same earliest-of-day retention. Only
+the differences are re-argued in it.
+
+**11 files backed up, 4 excluded WITH REASONS** rather than by omission —
+`search-cache.json` (a YouTube cache, rebuilt by re-querying: losing it
+costs quota, not data), `daily-greeted.json` (`GreetedToday` carries its
+own date and self-invalidates, so its maximum lifetime is one day),
+`commands-data.json`/`themes-data.json` (derived public-site outputs,
+regenerated on every load, and written into `PUBLIC_SITE_DIR` rather than
+the bot's directory). `.env` is opt-in behind `-IncludeEnv`: copying live
+secrets into up to 54 retained snapshots multiplies where a leak can come
+from, to protect values that are all re-issuable.
+
+**The manifest was derived twice and the narrow derivation was wrong.**
+Grepping `PathBuf::from(...)` misses three files — `playrandom.rs` holds
+its path in a `const STATE_PATH: &str` and the two public-site outputs
+are built with `dir.join(...)`. Grepping every file literal in `src/**`
+finds all of them. That is why the list is derived twice and
+cross-checked, and the script says so.
+
+**THE HAZARD IS DIFFERENT FROM THE GAME'S AND SMALLER, so the comment
+saying otherwise was not copied.** The game persists with
+`std::fs::write` (truncate, then write), and a copy taken inside that
+window is a valid, useless file — that window is why its script retries.
+The bot has no such window: `state.rs`'s `save_json` goes through
+`write_atomic` (temp file, fsync, rename), so a reader sees the complete
+old file or the complete new one. Verification is kept anyway, for the
+two failures atomicity does not cover — a copy failing part-way, and a
+source that was already corrupt before the run.
+
+### THE REAL RUN FOUND A REAL BUG, which is the entire argument for running it
+
+First live run with `-IncludeEnv`: **every run degraded, and a degraded
+run skips pruning.** `Test-DataFile` assumed JSON, `.env` is `KEY=value`,
+so the switch would have silently disabled retention forever while still
+appearing to back up — failing in the direction where the thing looks
+healthy. Fixed by deciding the check from the file's name inside
+`Test-DataFile`, so the dry run and the live run can never disagree about
+which kind a file is.
+
+Verified across six runs against synthetic scratch trees, never the
+running bot's files: 11 copied / verdict clean; the four exclusions
+absent from the snapshot; zero-length and corrupt-JSON both hard
+failures; a UTF-8 BOM copied but flagged (serde_json will not parse
+through one, so a BOM means the LIVE file is already broken); degraded
+skipping the prune and exiting 1; retention pruning 3 of 6 aged snapshots
+by the right rule; `-IncludeEnv` clean after the fix.
+
+### The move — option (b), virtual workspace manifest
+
+`src/` -> `bot/src/`, the three overlay asset directories with it, the
+root package into `bot/Cargo.toml`, and the root reduced to
+`[workspace] members = ["bot", "game"]`.
+
+`resolver = "2"` is EXPLICIT and load-bearing. A virtual manifest
+defaults to resolver 1 regardless of what edition its members declare,
+whereas the previous root was a 2021-edition package and got resolver 2
+implicitly. Omitting the line would have changed feature unification
+across the whole workspace as a side effect of a directory move.
+
+**`Cargo.lock` did not change by one byte**, which is the evidence that
+the dependency graph after the split is the same graph.
+
+**Zero source changes.** The bot has no path indirection at all — every
+one of its 16 runtime paths is a bare CWD-relative literal — so the
+working directory IS the data directory, and relocating it relocates all
+sixteen. The property that would have made this expensive is the one that
+made it free.
+
+### watchdog.ps1 does NOT hold what the order believed, and moving it would have broken it
+
+The order named "watchdog.ps1's working directory and binary path". It
+holds neither. It holds `$TaskName` and `$ExpectedPathRoot`, the latter
+defaulting to `$PSScriptRoot` and compared against the LISTENING
+PROCESS'S IMAGE PATH.
+
+Cargo puts every workspace member's binary in one shared `target\`, so
+moving the crate moved no binary: the exe is still
+`target\release\twitch-bot-rs.exe`, a sibling of the script and not of
+the bot's sources. **Move watchdog.ps1 into `bot/` and
+`$ExpectedPathRoot` becomes `...\bot`, the live bot's own exe stops
+testing as "under my root", and the watchdog reads a healthy process as
+foreign.** So it stays at the root, unchanged except for a comment
+recording why — otherwise the next session tidies it into `bot/` and
+un-protects the bot.
+
+The working directory genuinely does change, to `bot\`. That lives in the
+`TwitchBotRS` scheduled task, which is on the box rather than in this
+repo, so it is a cutover step and not a code change.
+
+**Checked rather than assumed: `maintenance-flag.ps1` is unaffected.** It
+resolves the authoritative root from the `TwitchBotRS-Watchdog` task's
+`-File` argument (:146, :168), which points at `watchdog.ps1` at the
+repository root. That path does not move, so the flag still lands where
+the running watchdog looks.
+
+### REFACTOR_PLAN section 13's conditional bot redeploy rule keyed on `src/**`
+
+Amended, under the rule's own instruction to re-derive the dependency set
+"only if the workspace structure changes" — this is that change.
+`src/**` no longer exists at the repository root, so the pre-amendment
+path list would have matched nothing and **silently skipped every bot
+redeploy.** Amendment appended rather than the original rewritten, the
+same way the 2026-08-22 decoupling amendment was.
+
+Section 10's note that "a plain `cargo build --release` from the root
+only builds the root package in this workspace shape" also goes stale —
+a virtual manifest builds every member — but it is a dated record of a
+past stage rather than authoritative procedure, and CLAUDE.md's
+`--workspace` instruction stays correct either way. Not touched. FOUND,
+one line, here.
+
+FOUND — the root `.env.example` after the split documents ONE of the
+game's five keys (`OPERATOR_LOGIN`). `GAME_DATA_DIR`,
+`OPERATOR_BOOTSTRAP`, `ADVENTURE_WEB_PORT` and
+`ADVENTURE_OVERLAY_SERVER_PORT` were never in it. Pre-existing, not
+caused by the split, not fixed here.
+
+### The cutover is written and NOT run
+
+`docs/bot_move_cutover_runbook.md`. It stops the live bot mid-stream if
+run at the wrong time, so the owner picks the window. The ordering is the
+value: suppress the bot watchdog FIRST, because left armed it restarts
+the old bot from the old directory while the state is being copied and
+two processes then hold `tokens.json`. Stop by PID or by the scheduled
+task, never by image name. Copy, never move, because the copy is the
+rollback. Leave the old directory for one full stream.
+
+Its step 5 ends on the check that actually proves the cutover took: that
+`bot\tokens.json` gains a newer timestamp after the first token refresh.
+Every other check passes just as well against a bot still running happily
+from the old directory.
+
+No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
+crafting rule or command name changed.

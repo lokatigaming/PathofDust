@@ -1,51 +1,28 @@
+# VIRTUAL workspace manifest - no `[package]` of its own (2026-09-08).
+#
+# The Twitch bot used to BE this file's package, with `game` as its only
+# member, which made the bot the repo's apparent primary product and the
+# game a subcrate of it. That has been backwards since the 2026-08-22
+# build-time decoupling and doubly so since the game moved to Linux as
+# the `pathofdust` service while the bot stayed on Windows. Both crates
+# are now plain members and neither is the root.
+#
+# WHY ONE WORKSPACE AND NOT TWO REPOSITORIES. The crates already share no
+# dependency, no import, no env key, no port and no file, so separate
+# repos would cost two checkouts and two histories to decouple things
+# that are already decoupled. The argument that actually decides it is a
+# testing one: house rules require `cargo test --release --workspace`,
+# and the 2026-08-22 regression (a `TunablesForm` field with no
+# `#[serde(default)]`) got past a green "581 passed" report precisely
+# because a run did not span the whole workspace. One workspace keeps one
+# `--workspace` invocation covering both crates. Splitting the repo would
+# make that gap permanent.
+#
+# `resolver = "2"` is EXPLICIT and must stay. A virtual manifest defaults
+# to resolver 1 no matter what edition its members declare, whereas the
+# previous root was a 2021-edition package and therefore got resolver 2
+# implicitly. Omitting this line would silently change feature unification
+# across the whole workspace as a side effect of a directory move.
 [workspace]
-members = ["game"]
-
-[package]
-name = "twitch-bot-rs"
-version = "0.1.0"
-edition = "2021"
-default-run = "twitch-bot-rs"
-
-[[bin]]
-name = "twitch-bot-rs"
-path = "src/main.rs"
-
-[[bin]]
-name = "auth"
-path = "src/bin/auth.rs"
-
-[dependencies]
-tokio = { version = "1", features = ["full"] }
-axum = { version = "0.7", features = ["ws"] }
-tower-http = { version = "0.5", features = ["fs"] }
-reqwest = { version = "0.12", features = ["json", "stream"] }
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-futures-util = "0.3"
-tokio-stream = { version = "0.1", features = ["sync"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
-dotenvy = "0.15"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
-rand = "0.8"
-regex = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
-open = "5"
-urlencoding = "2"
-url = "2"
-twitch-irc = { version = "5", features = ["refreshing-token-rustls-webpki-roots"] }
-rust_socketio = { version = "0.6", features = ["async"] }
-anyhow = "1"
-thiserror = "1"
-async-trait = "0.1"
-sha2 = "0.10"
-base64 = "0.22"
-zstd = "0.13"
-pulldown-cmark = "0.12"
-minijinja = { version = "2", features = ["loader"] }
-minijinja-autoreload = "2"
-flate2 = "1"
+members = ["bot", "game"]
+resolver = "2"

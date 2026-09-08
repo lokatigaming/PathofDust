@@ -292,3 +292,9 @@ backup-pre-pool-cap/
 # deploy and left untracked until now, which is why it showed up as a
 # dirty entry in the C:\PathofDust checkout.
 /backup-pre-bot-decoupling
+
+# Snapshots written by bot/backup-bot-data.ps1 (2026-09-08). Its default
+# BackupRoot is a sibling of the directory it backs up, which for `bot/`
+# lands inside the checkout - the Windows deployment root and the
+# checkout are the same directory.
+/bot-backups
