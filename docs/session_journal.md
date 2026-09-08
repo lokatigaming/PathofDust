@@ -7627,3 +7627,76 @@ scenarios diverged, nothing regenerated, 17 fixtures, tree clean.
 >   in sand and Divine Dust, which have their own economies.
 > - Nothing else about crafting changed: same odds, same outcomes, same
 >   modifiers. Only what it costs.
+
+### 2026-09-08 — CRAFT-PRICE-RULES deploy record (release `craft-price-rules`)
+
+| | |
+|---|---|
+| master commit | `6a1bd44112774318987e8b12afd6f256ce8af2a4` |
+| live binary | `1139f9224d16740fb8320a599fe1b8166ab73bd0e254b5938bc1be8ba0f42538` |
+| previous | `a2e5b5869e4823a92d048d87677c1a863842020583ae372db3f40726bf7a8ddc` |
+| rollback slot | `deploy-pre-20260908-162037-craft-price-rules` |
+| downtime | **0.41 s** |
+| suite | **914 passed / 0 failed / 43 result-lines**, `--no-fail-fast`, on the box |
+| seven §13B.5 checks | all pass |
+
+Three crafting prices drop, every one of them down, and every price is now a
+stated relationship rather than a standalone literal. Suite delta 907 -> 914,
+attributable to exactly seven named price-rule tests.
+
+**The load-bearing one is `the_declared_price_and_the_charged_price_agree`.** A
+price rule that declares one thing while the charge site does another is worse
+than no rule at all — it reads as documentation and behaves as fiction.
+
+#### Check 3 moved and the equality absorbed it
+
+The roster went 22 -> 23 between releases; check 3 read `loaded 23 characters`
+against 23 in the file and passed. A literal expectation would have raised a
+false alarm on a healthy deploy for the third time in this project's history.
+That is the whole reason the row is an equality.
+
+#### A TOOLTIP DEFECT THAT ONLY THE LIVE PAGE COULD FIND
+
+Release 19 shipped `HIDEOUT_WARRIOR_ALL_TIP` with nine bare `{2014}`, `{2192}`
+and `{1F512}` sequences where Rust needs `\u{...}`. Without the `\u` they are not
+escapes, so players read `crafted {2014} if you cannot afford it` and
+`ticked {1F512} Keep`.
+
+**It compiled cleanly, no test asserts on tooltip prose, and the suite was green
+at 907/0/43 with the defect present.** It was found by fetching `/inventory` as
+the operator after that deploy and reading the rendered button context.
+
+Scope was checked rather than assumed: 87 `{NNNN}` sequences in the file, 78
+already escaped, and the 9 unescaped all on that one line. The adjacent
+`DIVINITY_TIP` — the same tooltip for the shard-paid twin — uses `\u{2014}`
+correctly, which is what makes the intended form unambiguous rather than a
+judgement call. Fixed in `654919f`, shipped with this release, and verified on
+the live page after: **0 literal sequences, em-dash renders.**
+
+Two smaller instrument notes from the same stretch. `sed -i` silently did nothing
+twice — no error, no change — and was only caught by re-counting afterwards
+instead of trusting the command's success. And two attempts to extract new test
+names from a diff returned empty, which reads as "no new tests" exactly as it
+reads as "bad pattern"; switching instrument entirely — extracting the test-name
+set at both commits and taking the difference — answered it immediately and does
+not depend on diff formatting at all.
+
+#### b's own wrong test, kept because the wrong version is instructive
+
+b's recombine test first asserted the price-to-Scour ratio stays within half its
+low-tier value. It failed, 4.9x against 30.4x. The rule was right and the
+assertion was wrong: both prices carry flat terms that wash out with tier at
+different rates, so that ratio cannot hold flat. The property actually worth
+pinning is that the price never decays toward parity — the old flat price went
+from 69x a Scour at tier 3 to **0.42x** at tier 1000, which is not mistuned, it
+is pointing the wrong way. Rewritten to assert >= 3x at every tier with the
+reasoning left in the test.
+
+#### Adopted from a: the explicit-add completeness check
+
+After `git add <paths>`, `git status --short` must show no remaining ` M`. The
+house rule against `-a` means an explicit-path commit is only ever as complete as
+its list, and nothing warns you when the list is short — which is how `2bac806`
+was pushed missing two files, compiling for its author and passing `cargo test`
+because the affected sites are `#[cfg(not(test))]`-gated. Checked on this
+release's push: 0 remaining.
