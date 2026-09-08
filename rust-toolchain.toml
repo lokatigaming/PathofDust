@@ -1,0 +1,42 @@
+# Pinned so every window compiles this workspace with the SAME compiler
+# production does (2026-09-08).
+#
+# WHY. Production binaries are built ON THE LINUX BOX - REFACTOR_PLAN.md
+# §13 runs `cargo build --release --workspace` in /root/deploy-src-$REL -
+# with rustc 1.98.0. Every Windows development window was compiling and
+# testing with 1.98.0's predecessor, so "the tests pass" and "the shipped
+# binary works" were statements about two different compilers. Nothing
+# had visibly diverged, which is not the same as nothing having diverged.
+#
+# WHY 1.98.0 SPECIFICALLY: it is what production runs. A pin that made
+# the box match the windows would be the wrong way round - the point is
+# that a window's test result should mean something about the box.
+#
+# NOTE ON WHAT THIS ACTUALLY FIXED. The two sides were not on different
+# policies; the Windows side was simply STALE. `stable` has been 1.98.0
+# since 2026-08-18 and the box had updated while the Windows machine had
+# not. A `rustup update` would have closed today's gap - and left it free
+# to reopen the next time either side updated alone, silently, with the
+# same no-symptom-until-it-matters shape. The pin is what stops it
+# reopening; the version choice is what closes it today.
+#
+# COST, so nobody is surprised: the first cargo invocation in any window
+# that does not already have 1.98.0 downloads it (rustup does this
+# automatically) and then rebuilds the workspace from scratch, because a
+# different compiler means a cold target directory. `-j 4` still applies
+# to that build.
+#
+# `components`: clippy only. The documented workflow requires clippy on
+# touched code; it does NOT use rustfmt - there is no rustfmt.toml and
+# blanket `cargo fmt` is banned by the house rules - so pulling rustfmt
+# down in every window would be paying for a tool the process forbids
+# using.
+#
+# There is no `rust-version` (MSRV) field in either Cargo.toml, so this
+# pin contradicts nothing. `Cargo.lock` is lockfile v4, which needs Cargo
+# 1.78 or newer - 1.98.0 clears that comfortably, and it is the reason a
+# pin must never be moved BACKWARDS past 1.78 without regenerating the
+# lockfile.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy"]
