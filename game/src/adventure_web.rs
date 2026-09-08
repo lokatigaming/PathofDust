@@ -1360,6 +1360,14 @@ fn divinity_error_text(err: DivinityError) -> String {
         DivinityError::NothingEligible => {
             "Every item in your bag is already Krangled or marked \u{1F512} Keep, so Divinity had nothing to work on \u{2014} your shard wasn't spent.".to_string()
         }
+        // Only the dust-priced all-items button can produce this; Divinity
+        // itself is paid for with a shard and never reaches it. The number
+        // is the QUOTE, and saying it is the point - a player refused
+        // without being told the price cannot decide whether to come back
+        // for it.
+        DivinityError::InsufficientDust(quote) => {
+            format!("That would cost {quote} dust and you don't have enough \u{2014} nothing was crafted and nothing was spent.")
+        }
     }
 }
 
@@ -1549,7 +1557,7 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
         // `item_a` (now `Option`, see the field's own doc) is the exact
         // same "nothing to act on" condition regardless of which of those
         // actions was requested.
-        let item_a = if !matches!(form.action.as_str(), "divine dust craft" | "divinity") {
+        let item_a = if !matches!(form.action.as_str(), "divine dust craft" | "divinity" | "hideout warrior all") {
             match form.item_a.as_deref() {
                 Some(id) => Some(id),
                 None => return Redirect::to(&craft_error_popup_url("No item selected.")),
@@ -1577,6 +1585,15 @@ async fn do_craft(State(state): State<AppState>, headers: HeaderMap, Form(form):
             // unit of work is already "the entire bag", and the shard cost
             // is per USE by ruling, so a x10 would silently be ten shards.
             return match state.adventure.apply_divinity(&login).await {
+                Ok(report) => Redirect::to(&divinity_popup_url(&report)),
+                Err(err) => Redirect::to(&craft_error_popup_url(&divinity_error_text(err))),
+            };
+        } else if form.action == "hideout warrior all" {
+            // Divinity's operation paid in dust instead of a shard - same
+            // bag-only set, same application path, branching only at the
+            // charge. Never batched, for the same reason Divinity is not:
+            // the unit of work is already "the whole bag".
+            return match state.adventure.apply_hideout_warrior_all(&login).await {
                 Ok(report) => Redirect::to(&divinity_popup_url(&report)),
                 Err(err) => Redirect::to(&craft_error_popup_url(&divinity_error_text(err))),
             };
@@ -7403,6 +7420,8 @@ const HIDEOUT_WARRIOR_TIP: &str = "Runs Transmute \u{2192} Augment \u{2192} Rega
 /// pickers" explicitly because this button sits in the same `<form>` as
 /// six per-item actions and is the only one there that does not act on
 /// the selection.
+const HIDEOUT_WARRIOR_ALL_TIP: &str = "Runs the whole Hideout Warrior chain {2014} Transmute {2192} Augment {2192} Regal {2192} Exalt {2192} Krangle {2014} over EVERY eligible item in your bag at once, for dust. Costs exactly what pressing Hideout Warrior on each of those items individually would have cost: no bulk discount, no bulk surcharge. The price on the button is the real total and is checked before anything is crafted {2014} if you cannot afford it, nothing happens and nothing is spent. Ignores the item pickers above: this is a whole-bag action. EQUIPPED GEAR IS NEVER TOUCHED, deliberately {2014} Krangle is permanent, so worn items can only be Krangled one at a time from the button above. Items already Krangled or ticked {1F512} Keep are skipped, not refused. This is Divinity paid in dust instead of a Unique Shard.";
+
 const DIVINITY_TIP: &str = "Costs one Unique Shard and runs the whole Hideout Warrior chain \u{2014} Transmute \u{2192} Augment \u{2192} Regal \u{2192} Exalt \u{2192} Krangle \u{2014} over EVERY eligible item in your bag at once, paying no dust at all. Ignores the item pickers above: this is a whole-bag action, not a per-item one. Equipped gear is never touched. Items already Krangled or ticked \u{1F512} Keep are skipped, not refused, and everything Krangle lands on is permanently locked and auto-named \u{201C}From Divinity\u{201D}. One shard per use \u{2014} there is no x10.";
 
 /// The Divine Dust craft recipe row (docs/divine_dust_spec.md) - a
@@ -7656,6 +7675,51 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
     } else {
         String::new()
     };
+    // The all-items Hideout Warrior button (2026-09-06) - Divinity's
+    // operation paid in dust. Its own row for the same reason Divinity has
+    // one: it ignores the item pickers.
+    //
+    // Always shown, unlike Divinity's hidden-until-a-shard-drops row -
+    // dust is a currency every player already has, so there is no
+    // "unaffordable button for something you have never seen" problem to
+    // avoid. It disables itself when nothing is eligible or the quote is
+    // out of reach, and says which.
+    //
+    // THE PRICE IS QUOTED FROM THE SAME FUNCTION THAT CHARGES. Not a
+    // formula written beside it - `hideout_warrior_quote` is what the
+    // handler checks the balance against, and the steps it prices go
+    // through the same `craft_dust_cost` as every single-item craft. A
+    // preview computed separately from its charge is the one kind of
+    // stale number the player sees before they spend.
+    let hw_all_row = {
+        let plan = c.plan_divinity();
+        let eligible = plan.targets.len();
+        let skipped = plan.skipped_krangled + plan.skipped_kept;
+        let quote = c.hideout_warrior_quote(&plan, tunables.craft_tier_bump_mult, tunables.craft_base_cost_mult, tunables.craft_tier_exponent);
+        let affordable = c.dust >= quote;
+        let disabled = if eligible == 0 || !affordable { " disabled" } else { "" };
+        let note = if eligible == 0 {
+            " <span class=\"muted\">nothing eligible in your bag</span>".to_string()
+        } else if !affordable {
+            format!(" <span class=\"muted\">you have {}</span>", c.dust)
+        } else if skipped > 0 {
+            format!(" <span class=\"muted\">{skipped} skipped (\u{1F512} Krangled or Keep)</span>")
+        } else {
+            String::new()
+        };
+        let confirm_msg = escape_html(&format!(
+            "Run the Hideout Warrior chain over all {eligible} eligible item{} in your bag for {quote} dust? This Krangles most of them permanently and cannot be undone.",
+            if eligible == 1 { "" } else { "s" }
+        ));
+        format!(
+            "<div class=\"craft-actions\">\
+              <span class=\"muted\">Whole bag:</span>\
+              <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"hideout warrior all\" data-confirm=\"1\" data-confirm-msg=\"{confirm_msg}\" data-tip=\"{HIDEOUT_WARRIOR_ALL_TIP}\"{disabled}>Hideout Warrior \u{2014} All Items ({eligible} item{plural}, {quote} dust)</button>\
+              {note}\
+            </div>",
+            plural = if eligible == 1 { "" } else { "s" },
+        )
+    };
     format!(
         "<div class=\"card\" id=\"crafting-card\">\
           <div class=\"header-row\"><h2>Crafting</h2><span class=\"dust-available\">💰 {dust} dust · \u{1FAB5} {sand} sand · ✨ {divine_dust} Divine Dust</span></div>\
@@ -7682,6 +7746,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
               <button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"hideout warrior\" data-confirm=\"1\" data-tip=\"{HIDEOUT_WARRIOR_TIP}\">Hideout Warrior</button>\
               <label class=\"veil-check\" data-tip=\"Leave checked to end on Krangle (permanently locks the item). Uncheck to stop after Exalt and leave it unlocked.\"><input type=\"checkbox\" name=\"hideout_krangle\" value=\"1\" checked> Include Krangle</label>\
             </div>\
+            {hw_all_row}\
             {divinity_row}\
           </form>\
         </div>",

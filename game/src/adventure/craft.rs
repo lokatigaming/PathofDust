@@ -153,6 +153,28 @@ pub fn tier_surcharge(tier: u32, exponent: f64) -> u64 {
     (TIER_CRAFT_DUST_COST as f64 * (tier as f64).powf(sanitize_craft_tier_exponent(exponent))).ceil() as u64
 }
 
+/// What ONE craft action costs in dust, at a given item tier.
+///
+/// The single source for that number (2026-09-06). `craft_item_ex` charges
+/// through this, and the all-items Hideout Warrior button quotes through
+/// it - so the price a player is SHOWN and the price they are CHARGED come
+/// from one function rather than from two expressions that happen to
+/// agree. Two copies of a price is exactly how the crafting economy ended
+/// up with five prices nobody re-derived; a preview is the same defect
+/// with a shorter fuse, because it is wrong in front of the player.
+///
+/// `saturating_add` because `base_cost()` is `u64::MAX` for the token-only
+/// shard actions - a "never affordable in dust" sentinel, not a price.
+///
+/// Each term is `ceil`'d on its own and then summed, never one `ceil` over
+/// the whole sum: that is what makes "a nonzero base cost can never round
+/// down to nothing" true.
+pub fn craft_dust_cost(action: CraftAction, tier: u32, veiled: bool, base_mult: f64, exponent: f64) -> u64 {
+    scaled_base_cost(action.base_cost(), base_mult)
+        .saturating_add(tier_surcharge(tier, exponent))
+        .saturating_add(if veiled { scaled_base_cost(VEIL_EXTRA_COST, base_mult) } else { 0 })
+}
+
 /// Shipped default for `LiveTunables::craft_tier_bump_mult` - 1.0, i.e.
 /// the banded per-craft tier bump is applied exactly as it always has
 /// been. The DIAL is the 2026-09-02 deliverable; the behaviour at the
@@ -595,6 +617,12 @@ pub enum DivinityError {
     /// ticked. Deliberately an error rather than a zero-work success: a
     /// shard must never be spent on a run that could not touch anything.
     NothingEligible,
+    /// The dust-priced all-items button only: the quoted total exceeds
+    /// what the character holds (2026-09-06). Carries the QUOTE so the
+    /// refusal can say what it would have cost - a bulk price a player
+    /// cannot see is how a refund thread starts. Nothing is charged and
+    /// nothing is crafted; see `AdventureManager::apply_hideout_warrior_all`.
+    InsufficientDust(u64),
 }
 
 /// What one Divinity run planned to do, decided BEFORE anything is
@@ -639,6 +667,19 @@ pub struct DivinityReport {
     /// 4-modifier item carrying a unique affix, for instance: no affix-add
     /// step matches its count and Krangle refuses a unique.
     pub unchanged: usize,
+    /// Dust the steps that ACTUALLY LANDED would have cost, priced through
+    /// `craft_dust_cost` at the tier each step ran at (2026-09-06).
+    ///
+    /// Accumulated by `apply_divinity` on every run and **charged by the
+    /// caller, or not** - that is the single point where the two bulk
+    /// buttons differ. Divinity ignores this and spends a Unique Shard;
+    /// the all-items Hideout Warrior button charges exactly this and
+    /// spends no shard. One application path, one branch, at the charge.
+    ///
+    /// Counts only steps that landed, so it is by construction "what
+    /// pressing the single-item button on each of these items would have
+    /// cost" rather than a bulk price of its own.
+    pub dust_cost: u64,
 }
 
 /// Why `AdventureManager::craft_divine_dust` (the dust+sand → Divine Dust
