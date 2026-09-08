@@ -135,6 +135,14 @@ MARKER_FILES=(
   # roster, which holds zero allocations in either retired node, but the
   # marker is what keeps a second pass from being possible at all.
   adventure-refund-retired-dead-nodes-marker.json
+  # Release 21's Reforge Now overcharge refund. This one guards a MONEY
+  # migration: 21,468 dust across five characters. Restoring a backup that
+  # omitted the marker would re-grant every one of them, silently, on the
+  # next start - the only migration on this list where losing the guard
+  # costs currency rather than being merely untidy. Third marker in a row
+  # to need adding here by hand; the drift check stages an unknown marker
+  # but the allow-list is what makes it a recorded, intended file.
+  adventure-refund-reforge-now-overcharge-marker.json
 )
 
 # Fight-tier sequence counters. THESE ARE COPIED LAST, AFTER the fight
