@@ -277,15 +277,15 @@ fn assign_legacy_crit_source(item: &mut Item, source: CritSource) {
 /// migration above them either way. Add a new balance-patch migration
 /// here as one line: (marker filename, the mutation), inserted at
 /// whatever sequence position it needs relative to the existing ones.
-pub(crate) const ITEM_MIGRATIONS: &[(&str, fn(&mut Item))] = &[
-    ("adventure-helm-rebalance-v2-marker.json", migrate_helm_rebalance_v2),
-    ("adventure-power-roll-backfill-marker.json", migrate_power_roll_backfill),
-    ("adventure-krangle-accuracy-marker.json", migrate_krangle_accuracy),
-    ("adventure-item-accuracy-marker.json", migrate_item_accuracy),
-    ("adventure-crit-value-nerf-marker.json", migrate_crit_value_nerf),
-    ("adventure-gloves-speed-rebalance-marker.json", migrate_gloves_speed_rebalance),
-    ("adventure-crit-lineage-backfill-marker.json", migrate_crit_lineage_backfill),
-    ("adventure-crit-flag-to-affix-tracking-marker.json", migrate_crit_flag_to_affix_tracking),
+pub(crate) const ITEM_MIGRATIONS: &[(Store, fn(&mut Item))] = &[
+    (Store::HelmRebalanceV2Marker, migrate_helm_rebalance_v2),
+    (Store::PowerRollBackfillMarker, migrate_power_roll_backfill),
+    (Store::KrangleAccuracyMarker, migrate_krangle_accuracy),
+    (Store::ItemAccuracyMarker, migrate_item_accuracy),
+    (Store::CritValueNerfMarker, migrate_crit_value_nerf),
+    (Store::GlovesSpeedRebalanceMarker, migrate_gloves_speed_rebalance),
+    (Store::CritLineageBackfillMarker, migrate_crit_lineage_backfill),
+    (Store::CritFlagToAffixTrackingMarker, migrate_crit_flag_to_affix_tracking),
     // LAST on purpose. It scales every stored affix value by
     // `f(tier)/tier`, so it must run AFTER every migration above that
     // reads or rewrites an affix value against the OLD linear
@@ -296,7 +296,7 @@ pub(crate) const ITEM_MIGRATIONS: &[(&str, fn(&mut Item))] = &[
     // they never run again; ordering it last is what keeps a fresh
     // install or a restored backup correct too, where every marker is
     // absent and the whole array runs in sequence.
-    ("adventure-affix-tier-curve-marker.json", migrate_affix_tier_curve),
+    (Store::AffixTierCurveMarker, migrate_affix_tier_curve),
 ];
 
 /// Runs each pending entry of `ITEM_MIGRATIONS` in array order, over
@@ -553,12 +553,12 @@ pub(crate) fn migrate_duplicate_unique_effects(character: &mut Character) {
 /// Character-level counterpart to `ITEM_MIGRATIONS` - same
 /// (marker filename, mutation) shape, for one-time corrections that touch
 /// a character's own fields rather than their gear.
-pub(crate) const CHARACTER_MIGRATIONS: &[(&str, fn(&mut Character))] = &[
-    ("adventure-flowlikewater-swap-marker.json", migrate_flowlikewater_swap),
-    ("adventure-celestial-shard-into-unique-shard-marker.json", migrate_celestial_shard_into_unique_shard),
-    ("adventure-duplicate-unique-effects-cleanup-marker.json", migrate_duplicate_unique_effects),
-    ("adventure-lingering-effect-to-echo-marker.json", migrate_lingering_effect_to_echo),
-    ("adventure-refund-retired-dead-nodes-marker.json", migrate_refund_retired_dead_nodes),
+pub(crate) const CHARACTER_MIGRATIONS: &[(Store, fn(&mut Character))] = &[
+    (Store::FlowlikewaterSwapMarker, migrate_flowlikewater_swap),
+    (Store::CelestialShardIntoUniqueShardMarker, migrate_celestial_shard_into_unique_shard),
+    (Store::DuplicateUniqueEffectsCleanupMarker, migrate_duplicate_unique_effects),
+    (Store::LingeringEffectToEchoMarker, migrate_lingering_effect_to_echo),
+    (Store::RefundRetiredDeadNodesMarker, migrate_refund_retired_dead_nodes),
 ];
 
 /// Runs each pending entry of `CHARACTER_MIGRATIONS` over every character -

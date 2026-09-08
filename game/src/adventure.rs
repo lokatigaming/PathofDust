@@ -98,5 +98,7 @@ pub use paths::data_path;
 // startup-migration tests that behaved differently on a machine that had
 // run the suite before).
 pub use paths::marker_path;
+pub use paths::normalize_caller_path;
+pub use stores::Store;
 pub use published_constants::{published_constants_path, PublishedConstants, PUBLISHED_CONSTANTS_PATH};
 pub use tunables::*;

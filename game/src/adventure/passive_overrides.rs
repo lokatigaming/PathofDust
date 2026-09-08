@@ -33,6 +33,7 @@
 //! 3). So an override array is indexed by effective rank - index 0 is
 //! rank 1 - and never needs a 4th entry.
 
+use super::stores::Store;
 use super::data_path;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -145,7 +146,7 @@ static PASSIVE_OVERRIDES: LazyLock<RwLock<PassiveOverrides>> = LazyLock::new(|| 
 /// overrides", logged, never a boot failure. A malformed file must
 /// never take the game down or, worse, silently apply half a table.
 fn load_passive_overrides_file() -> PassiveOverrides {
-    match std::fs::read_to_string(data_path(PASSIVE_OVERRIDES_PATH)) {
+    match std::fs::read_to_string(data_path(Store::PassiveOverrides)) {
         Ok(contents) => match toml::from_str::<PassiveOverrides>(&contents) {
             Ok(parsed) => parsed,
             Err(err) => {
@@ -190,7 +191,7 @@ pub fn passive_overrides() -> PassiveOverrides {
 /// `AdventureManager::save_live_tunables`.
 pub fn save_passive_overrides(overrides: PassiveOverrides) -> std::io::Result<()> {
     let contents = toml::to_string_pretty(&overrides).map_err(std::io::Error::other)?;
-    crate::state::save_text(data_path(PASSIVE_OVERRIDES_PATH), &contents).map_err(std::io::Error::other)?;
+    crate::state::save_text(data_path(Store::PassiveOverrides), &contents).map_err(std::io::Error::other)?;
     *PASSIVE_OVERRIDES.write().expect("passive overrides lock poisoned") = overrides;
     Ok(())
 }

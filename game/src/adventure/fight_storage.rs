@@ -32,8 +32,8 @@ use std::path::{Path, PathBuf};
 /// unchanged; their small set of OUTER callers each resolve once here
 /// instead), so `set_data_dir` genuinely redirects ALL of fight-
 /// storage's on-disk footprint.
-fn resolved(name: &str) -> String {
-    data_path(name).to_string_lossy().into_owned()
+fn resolved(store: Store) -> String {
+    data_path(store).to_string_lossy().into_owned()
 }
 
 pub(crate) const COARSE_FIGHTS_DIR: &str = "adventure-fights-coarse";
@@ -158,11 +158,11 @@ pub(crate) fn count_fight_files(dir: &str) -> usize {
 }
 
 pub(crate) fn save_coarse_fight(snapshot: &LastFightSnapshot) {
-    write_and_prune(&resolved(COARSE_FIGHTS_DIR), &resolved(COARSE_SEQ_PATH), COARSE_FIGHTS_CAPACITY, snapshot);
+    write_and_prune(&resolved(Store::FightsCoarse), &resolved(Store::FightsCoarseSeq), COARSE_FIGHTS_CAPACITY, snapshot);
 }
 
 pub(crate) fn save_detail_fight(detail: &DetailFightSnapshot) {
-    write_and_prune(&resolved(DETAIL_FIGHTS_DIR), &resolved(DETAIL_SEQ_PATH), DETAIL_FIGHTS_CAPACITY, detail);
+    write_and_prune(&resolved(Store::FightsDetail), &resolved(Store::FightsDetailSeq), DETAIL_FIGHTS_CAPACITY, detail);
 }
 
 /// Reads up to `limit` most recent coarse-tier fights, newest first -
@@ -171,7 +171,7 @@ pub(crate) fn save_detail_fight(detail: &DetailFightSnapshot) {
 /// (up to `COARSE_FIGHTS_CAPACITY`) - the fix for the old single-blob
 /// log's whole-file read on every request.
 pub(crate) fn recent_coarse_fights(limit: usize) -> Vec<LastFightSnapshot> {
-    read_recent(&resolved(COARSE_FIGHTS_DIR), limit)
+    read_recent(&resolved(Store::FightsCoarse), limit)
 }
 
 /// Like `write_and_prune`, but hands the sequence number to `build`
@@ -221,7 +221,7 @@ pub(crate) fn write_and_prune_seeded<T: Serialize>(
 /// caller decides how much of it to look at, and most callers want one
 /// member rather than the whole archive entry.
 pub(crate) fn read_bundle_file(seq: u64) -> Option<String> {
-    std::fs::read_to_string(fight_file_path(&resolved(BUNDLE_FIGHTS_DIR), seq)).ok()
+    std::fs::read_to_string(fight_file_path(&resolved(Store::FightsBundle), seq)).ok()
 }
 
 /// Returns the bundle-tier sequence number the write landed under (see
@@ -230,22 +230,22 @@ pub(crate) fn read_bundle_file(seq: u64) -> Option<String> {
 /// snapshot can never advertise a bundle that isn't actually on disk.
 pub(crate) fn save_bundle_fight<T: Serialize>(build: impl FnOnce(u64) -> T) -> Option<u64> {
     write_and_prune_seeded(
-        &resolved(BUNDLE_FIGHTS_DIR),
-        &resolved(BUNDLE_SEQ_PATH),
+        &resolved(Store::FightsBundle),
+        &resolved(Store::FightsBundleSeq),
         BUNDLE_FIGHTS_CAPACITY,
         build,
     )
 }
 
 pub(crate) fn save_summary_fight(summary: &FightSummarySnapshot) {
-    write_and_prune(&resolved(SUMMARY_FIGHTS_DIR), &resolved(SUMMARY_SEQ_PATH), SUMMARY_FIGHTS_CAPACITY, summary);
+    write_and_prune(&resolved(Store::FightsSummary), &resolved(Store::FightsSummarySeq), SUMMARY_FIGHTS_CAPACITY, summary);
 }
 
 /// Reads up to `limit` most recent fight summaries, newest first - what
 /// `/fights.json` reads instead of the full coarse-tier snapshot (see
 /// `fight_summaries_for_viewer` in `adventure_web.rs`).
 pub fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
-    read_recent(&resolved(SUMMARY_FIGHTS_DIR), limit)
+    read_recent(&resolved(Store::FightsSummary), limit)
 }
 
 /// Preserved evidence for a bug report (2026-08-18, `!pinfight`) -
@@ -290,7 +290,7 @@ fn fight_seq_from_path(path: &Path) -> Option<u64> {
 /// would otherwise land under the exact same name.
 fn copy_pinned(tier: &str, source: &Path) -> bool {
     let Some(file_name) = source.file_name() else { return false };
-    let dest = data_path(PINNED_FIGHTS_DIR).join(format!("{tier}-{}", file_name.to_string_lossy()));
+    let dest = data_path(Store::FightsPinned).join(format!("{tier}-{}", file_name.to_string_lossy()));
     match std::fs::copy(source, &dest) {
         Ok(_) => true,
         Err(err) => {
@@ -305,12 +305,12 @@ fn copy_pinned(tier: &str, source: &Path) -> bool {
 /// pruning. `None` if NEITHER tier has any file at all yet (nothing to
 /// pin - a fresh install/restart before the first fight has landed).
 pub fn pin_most_recent_fight() -> Option<PinnedFight> {
-    if let Err(err) = std::fs::create_dir_all(data_path(PINNED_FIGHTS_DIR)) {
+    if let Err(err) = std::fs::create_dir_all(data_path(Store::FightsPinned)) {
         tracing::error!("Failed to create pinned-fights directory {PINNED_FIGHTS_DIR}: {err}");
         return None;
     }
-    let coarse = list_fight_files(&resolved(COARSE_FIGHTS_DIR)).pop();
-    let detail = list_fight_files(&resolved(DETAIL_FIGHTS_DIR)).pop();
+    let coarse = list_fight_files(&resolved(Store::FightsCoarse)).pop();
+    let detail = list_fight_files(&resolved(Store::FightsDetail)).pop();
     if coarse.is_none() && detail.is_none() {
         return None;
     }
@@ -329,7 +329,7 @@ pub fn pin_most_recent_fight() -> Option<PinnedFight> {
 /// `render_tunables_page`) so a mod can confirm a `!pinfight` actually
 /// landed without spelunking the filesystem.
 pub fn list_pinned_fights() -> Vec<String> {
-    let Ok(read_dir) = std::fs::read_dir(data_path(PINNED_FIGHTS_DIR)) else { return Vec::new() };
+    let Ok(read_dir) = std::fs::read_dir(data_path(Store::FightsPinned)) else { return Vec::new() };
     let mut names: Vec<String> = read_dir.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).collect();
     names.sort();
     names.reverse();
@@ -352,22 +352,22 @@ const STORAGE_MIGRATION_MARKER_PATH: &str = "adventure-fights-storage-migration-
 /// outright. Marker-gated, same fire-once shape as every other
 /// migration in this codebase (see `migrations.rs`).
 pub(crate) fn run_storage_migration(characters_path: &std::path::Path) {
-    if crate::state::load_json::<bool>(marker_path(characters_path, STORAGE_MIGRATION_MARKER_PATH)).is_some() {
+    if crate::state::load_json::<bool>(marker_path(characters_path, Store::FightsStorageMigrationMarker)).is_some() {
         return;
     }
-    if let Some(old_log) = crate::state::load_json::<Vec<LastFightSnapshot>>(data_path(LAST_FIGHTS_LOG_PATH)) {
+    if let Some(old_log) = crate::state::load_json::<Vec<LastFightSnapshot>>(data_path(Store::LastFights)) {
         for snapshot in old_log.into_iter().rev() {
             save_coarse_fight(&snapshot);
         }
-        let migrated = count_fight_files(&resolved(COARSE_FIGHTS_DIR));
+        let migrated = count_fight_files(&resolved(Store::FightsCoarse));
         tracing::info!("Fight storage migration: split {LAST_FIGHTS_LOG_PATH} into {migrated} coarse-tier files");
-        let old_log_path = data_path(LAST_FIGHTS_LOG_PATH);
-        let backup_path = data_path(&format!("{LAST_FIGHTS_LOG_PATH}.bak"));
+        let old_log_path = data_path(Store::LastFights);
+        let backup_path = data_path(Store::LastFightsJsonBak);
         if let Err(err) = std::fs::rename(&old_log_path, &backup_path) {
             tracing::error!("Fight storage migration: failed to rename {} to {}: {err}", old_log_path.display(), backup_path.display());
         }
     }
-    if let Err(err) = crate::state::save_json(marker_path(characters_path, STORAGE_MIGRATION_MARKER_PATH), &true) {
+    if let Err(err) = crate::state::save_json(marker_path(characters_path, Store::FightsStorageMigrationMarker), &true) {
         tracing::error!("Failed to persist fight storage migration marker to {STORAGE_MIGRATION_MARKER_PATH}: {err}");
     }
 }

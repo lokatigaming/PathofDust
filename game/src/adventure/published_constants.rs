@@ -51,6 +51,7 @@
 // see `published_constants_path`. Bot and game genuinely stop sharing a
 // filesystem view on Linux, which is exactly the revisit this comment
 // flagged in advance.
+use super::stores::Store;
 use serde::{Deserialize, Serialize};
 
 pub const PUBLISHED_CONSTANTS_PATH: &str = "bot-published-constants.json";
@@ -65,7 +66,7 @@ pub const PUBLISHED_CONSTANTS_PATH: &str = "bot-published-constants.json";
 /// placeholder map) landing in different directories would present as the
 /// wiki quietly rendering "varies" forever.
 pub fn published_constants_path() -> std::path::PathBuf {
-    super::data_path(PUBLISHED_CONSTANTS_PATH)
+    super::data_path(Store::BotPublishedConstants)
 }
 
 /// The bot's own cooldown/volume-bound constants, as they exist at the

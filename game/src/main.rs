@@ -144,7 +144,7 @@ async fn async_main() -> anyhow::Result<()> {
     // 1-4's own manual smoke tests, where stdout was enough - a real bake
     // period (or any unattended run) needs this the same way the bot
     // needed it.
-    let logs_dir = game::adventure::data_path("logs");
+    let logs_dir = game::adventure::data_path(game::adventure::Store::Logs);
     std::fs::create_dir_all(&logs_dir)?;
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "game.log");
     let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
@@ -199,7 +199,7 @@ async fn async_main() -> anyhow::Result<()> {
         // and so was the last game-state marker `GAME_DATA_DIR` did not
         // move. Resolved once, out here, so the load and the save can
         // never disagree.
-        let wings_marker_path = game::adventure::data_path(WINGS_GIVEAWAY_MARKER_PATH);
+        let wings_marker_path = game::adventure::data_path(game::adventure::Store::WingsGiveawayMarker);
         if game::state::load_json::<bool>(&wings_marker_path).is_none() {
             let adventure = adventure.clone();
             tokio::spawn(async move {

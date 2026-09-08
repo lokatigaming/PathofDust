@@ -28,7 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::stores::{scope_of, StoreKind, StoreScope, STORES};
+use super::stores::{store_named, Store, StoreKind, StoreScope};
 
 /// The exact token that turns a dry run into a deletion.
 ///
@@ -112,7 +112,7 @@ pub fn plan_reset(data_dir: &Path) -> Result<ResetPlan, ResetRefusal> {
 
     // Fail closed FIRST, over the whole directory, before building any
     // delete list - so a refusal can never happen half way through.
-    let undeclared: Vec<String> = present.iter().filter(|name| scope_of(name).is_none()).cloned().collect();
+    let undeclared: Vec<String> = present.iter().filter(|name| store_named(name).is_none()).cloned().collect();
     if !undeclared.is_empty() {
         return Err(ResetRefusal::Undeclared(undeclared));
     }
@@ -120,8 +120,8 @@ pub fn plan_reset(data_dir: &Path) -> Result<ResetPlan, ResetRefusal> {
     let mut to_delete = Vec::new();
     let mut to_keep = Vec::new();
     for name in present {
-        let store = STORES.iter().find(|store| store.name == name).expect("every present entry is declared - the undeclared check above returned otherwise");
-        let planned = PlannedEntry { name, kind: store.kind, scope: store.scope, why: store.why };
+        let store = store_named(&name).expect("every present entry is declared - the undeclared check above returned otherwise");
+        let planned = PlannedEntry { name, kind: store.kind(), scope: store.scope(), why: store.why() };
         if planned.scope == StoreScope::World {
             to_delete.push(planned);
         } else {

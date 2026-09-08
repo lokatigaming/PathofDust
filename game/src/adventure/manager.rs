@@ -2142,9 +2142,9 @@ impl AdventureManager {
         // today still passes a bare filename (see main.rs), so with
         // `data_path`'s own default (unset = empty base) this is a true
         // no-op unless something has called `set_data_dir`.
-        let characters_path = data_path(characters_path.to_string_lossy().as_ref());
-        let world_path = data_path(world_path.to_string_lossy().as_ref());
-        let reforge_cooldown_path = data_path(reforge_cooldown_path.to_string_lossy().as_ref());
+        let characters_path = normalize_caller_path(&characters_path);
+        let world_path = normalize_caller_path(&world_path);
+        let reforge_cooldown_path = normalize_caller_path(&reforge_cooldown_path);
         let mut characters: HashMap<String, Character> = crate::state::load_json_fail_loud(&characters_path).unwrap_or_default();
         // Startup visibility (2026-08-22 fail-loud loading): one line saying
         // how many characters actually came off disk, and from where - the
@@ -2194,7 +2194,7 @@ impl AdventureManager {
         {
             const STARTER_KIT_BACKFILL_MARKER_PATH: &str = "adventure-starter-kit-backfill-marker.json";
             const STARTER_KIT_BACKFILL_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
-            if crate::state::load_json::<bool>(marker_path(&characters_path, STARTER_KIT_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::StarterKitBackfillMarker)).is_none() {
                 let mut rng = rand::thread_rng();
                 let mut changed = false;
                 for character in characters.values_mut() {
@@ -2214,7 +2214,7 @@ impl AdventureManager {
                 // point. A marker only written on a change would leave the
                 // guard unarmed on exactly the installs where the loop was
                 // a no-op, which is every install that matters here.
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, STARTER_KIT_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::StarterKitBackfillMarker), &true) {
                     tracing::error!("Failed to persist starter-kit backfill marker to {STARTER_KIT_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2242,7 +2242,7 @@ impl AdventureManager {
         // here.
         {
             const CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH: &str = "adventure-crit-reforge-equipped-backfill-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::CritReforgeEquippedBackfillMarker)).is_none() {
                 let mut rng = rand::thread_rng();
                 let mut changed = false;
                 for character in characters.values_mut() {
@@ -2266,7 +2266,7 @@ impl AdventureManager {
                         tracing::error!("Failed to persist crit-reforge equipped backfill to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::CritReforgeEquippedBackfillMarker), &true) {
                     tracing::error!("Failed to persist crit-reforge equipped backfill marker to {CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2286,7 +2286,7 @@ impl AdventureManager {
         // grant twice).
         {
             const CRAFT_TOKEN_BACKFILL_MARKER_PATH: &str = "adventure-craft-token-backfill-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::CraftTokenBackfillMarker)).is_none() {
                 for character in characters.values_mut() {
                     for &action in &ALL_CRAFT_ACTIONS {
                         character.add_craft_token(action, 1);
@@ -2295,7 +2295,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist craft token backfill to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::CraftTokenBackfillMarker), &true) {
                     tracing::error!("Failed to persist craft token backfill marker to {CRAFT_TOKEN_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2311,7 +2311,7 @@ impl AdventureManager {
         // original backfill.
         {
             const CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH: &str = "adventure-craft-token-backfill-v2-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::CraftTokenBackfillV2Marker)).is_none() {
                 for character in characters.values_mut() {
                     character.add_craft_token(CraftAction::Annulment, 1);
                     character.add_craft_token(CraftAction::Chancing, 1);
@@ -2319,7 +2319,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist craft token backfill v2 to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::CraftTokenBackfillV2Marker), &true) {
                     tracing::error!("Failed to persist craft token backfill v2 marker to {CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH}: {err}");
                 }
             }
@@ -2336,7 +2336,7 @@ impl AdventureManager {
         // every restart.
         {
             const PITY_LAUNCH_MARKER_PATH: &str = "adventure-pity-launch-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, PITY_LAUNCH_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::PityLaunchMarker)).is_none() {
                 for character in characters.values_mut() {
                     character.item_pity = PITY_THRESHOLD;
                     character.craft_pity = PITY_THRESHOLD;
@@ -2344,7 +2344,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist pity launch grant to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, PITY_LAUNCH_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::PityLaunchMarker), &true) {
                     tracing::error!("Failed to persist pity launch marker to {PITY_LAUNCH_MARKER_PATH}: {err}");
                 }
             }
@@ -2356,14 +2356,14 @@ impl AdventureManager {
         // same guarded-by-marker, fire-once shape as the pity grant above.
         {
             const WINGS_LAUNCH_GRANT_MARKER_PATH: &str = "adventure-wings-launch-grant-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, WINGS_LAUNCH_GRANT_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::WingsLaunchGrantMarker)).is_none() {
                 if let Some(character) = characters.get_mut("lokati_gaming") {
                     character.owns_wings = true;
                     if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                         tracing::error!("Failed to persist wings launch grant to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, WINGS_LAUNCH_GRANT_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::WingsLaunchGrantMarker), &true) {
                     tracing::error!("Failed to persist wings launch grant marker to {WINGS_LAUNCH_GRANT_MARKER_PATH}: {err}");
                 }
             }
@@ -2387,7 +2387,7 @@ impl AdventureManager {
         // writing this): Warrior's "overwhelm" and Slayer's "frenzy".
         {
             const PASSIVE_KEY_RENAME_MARKER_PATH: &str = "adventure-passive-key-rename-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, PASSIVE_KEY_RENAME_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::PassiveKeyRenameMarker)).is_none() {
                 for character in characters.values_mut() {
                     let renames: &[(&str, &str)] = match character.archetype {
                         Archetype::Warrior => &[("overwhelm", "overwhelmingforce")],
@@ -2403,7 +2403,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist passive key rename to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, PASSIVE_KEY_RENAME_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::PassiveKeyRenameMarker), &true) {
                     tracing::error!("Failed to persist passive key rename marker to {PASSIVE_KEY_RENAME_MARKER_PATH}: {err}");
                 }
             }
@@ -2428,7 +2428,7 @@ impl AdventureManager {
         // other one-off grant here.
         {
             const KIBUKAH_COMPENSATION_MARKER_PATH: &str = "adventure-kibukah-compensation-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&characters_path, KIBUKAH_COMPENSATION_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::KibukahCompensationMarker)).is_none() {
                 if let Some(character) = characters.get_mut("kibukah") {
                     let stage = crate::state::load_json::<WorldState>(&world_path).unwrap_or_default().stage;
                     let mut rng = rand::thread_rng();
@@ -2443,7 +2443,7 @@ impl AdventureManager {
                         tracing::error!("Failed to persist kibukah compensation grant to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, KIBUKAH_COMPENSATION_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::KibukahCompensationMarker), &true) {
                     tracing::error!("Failed to persist kibukah compensation marker to {KIBUKAH_COMPENSATION_MARKER_PATH}: {err}");
                 }
             }
@@ -2463,7 +2463,7 @@ impl AdventureManager {
         // same pool size.
         {
             const SPRITE_COUNT_MARKER_PATH: &str = "adventure-sprite-count.json";
-            let last_known_sprite_count: usize = crate::state::load_json(marker_path(&characters_path, SPRITE_COUNT_MARKER_PATH)).unwrap_or(0);
+            let last_known_sprite_count: usize = crate::state::load_json(marker_path(&characters_path, Store::SpriteCount)).unwrap_or(0);
             // Compared with `!=`, not just `>` - a bad sprite batch can
             // get pulled and replaced with a differently-sized one (see
             // "sprites 2.png" -> "sprites 3.png"), which can shrink the
@@ -2488,7 +2488,7 @@ impl AdventureManager {
                         }
                     }
                 }
-                if let Err(err) = crate::state::save_json(marker_path(&characters_path, SPRITE_COUNT_MARKER_PATH), &ALL_SPRITES.len()) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::SpriteCount), &ALL_SPRITES.len()) {
                     tracing::error!("Failed to persist sprite count marker to {SPRITE_COUNT_MARKER_PATH}: {err}");
                 }
             }
@@ -2518,7 +2518,7 @@ impl AdventureManager {
         let (rampage_complete_tx, _rx) = broadcast::channel(16);
         let (unique_shard_tx, _rx) = broadcast::channel(16);
         let (announcements_tx, _rx) = broadcast::channel(16);
-        let rampage_remaining: u32 = crate::state::load_json_fail_loud(data_path(RAMPAGE_STATE_PATH)).unwrap_or(0);
+        let rampage_remaining: u32 = crate::state::load_json_fail_loud(data_path(Store::RampageState)).unwrap_or(0);
         Arc::new(Self {
             characters: Mutex::new(characters),
             characters_path,
@@ -2737,12 +2737,12 @@ impl AdventureManager {
             // next character load merges it into UniqueShard anyway (see
             // `migrate_celestial_shard_into_unique_shard`).
             const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
-            if crate::state::load_json::<bool>(marker_path(&self.characters_path, CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&self.characters_path, Store::CelestialShardFirstAwardMarker)).is_none() {
                 if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
                     if self.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
                         self.announce(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name));
                     }
-                    if let Err(err) = crate::state::save_json(marker_path(&self.characters_path, CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH), &true) {
+                    if let Err(err) = crate::state::save_json(marker_path(&self.characters_path, Store::CelestialShardFirstAwardMarker), &true) {
                         tracing::error!("Failed to persist celestial shard first award marker: {err}");
                     }
                 }
@@ -2751,8 +2751,8 @@ impl AdventureManager {
             // Reusable one-time launch giveaways (see main.rs's own
             // ITEM_LAUNCH_GIVEAWAYS for the full history/reasoning) -
             // (marker path, the token to grant, the name shown in chat).
-            const ITEM_LAUNCH_GIVEAWAYS: &[(&str, CraftAction, &str)] =
-                &[("adventure-unique-shard-first-award-marker.json", CraftAction::UniqueShard, "Unique Shard")];
+            const ITEM_LAUNCH_GIVEAWAYS: &[(Store, CraftAction, &str)] =
+                &[(Store::UniqueShardFirstAwardMarker, CraftAction::UniqueShard, "Unique Shard")];
             for &(marker_name, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
                 if crate::state::load_json::<bool>(marker_path(&self.characters_path, marker_name)).is_some() {
                     continue;
@@ -5132,7 +5132,7 @@ impl AdventureManager {
     /// `start_rampage` and `spawn_rampage_loop`'s own decrement, the only
     /// two places that ever change the value.
     fn persist_rampage_remaining(&self, value: u32) {
-        if let Err(err) = crate::state::save_json(data_path(RAMPAGE_STATE_PATH), &value) {
+        if let Err(err) = crate::state::save_json(data_path(Store::RampageState), &value) {
             tracing::error!("Failed to persist rampage state to {RAMPAGE_STATE_PATH}: {err}");
         }
     }

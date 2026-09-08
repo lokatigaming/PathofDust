@@ -208,7 +208,7 @@ pub async fn start_adventure_web_server(
     // (every test passes one, pointed at its own scratch dir) wins over any
     // base regardless, so no caller's behaviour moves. `accounts_path` is
     // derived from this below, so `adventure-accounts.json` follows for free.
-    let sessions_path = crate::adventure::data_path(sessions_path.to_string_lossy().as_ref());
+    let sessions_path = crate::adventure::normalize_caller_path(&sessions_path);
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
     let accounts_path = accounts::accounts_path(&sessions_path);
     let accounts: HashMap<String, accounts::Account> = crate::state::load_json(&accounts_path).unwrap_or_default();
@@ -221,7 +221,7 @@ pub async fn start_adventure_web_server(
         // Same `data_path` resolution as `sessions_path` above, so reports
         // land beside the rest of the game state and every test's scratch
         // dir gets its own file rather than sharing production's.
-        bugs: BugReportManager::new(crate::adventure::data_path(BUG_REPORTS_PATH)),
+        bugs: BugReportManager::new(crate::adventure::data_path(crate::adventure::Store::Bugreports)),
         login_failures: Arc::new(Mutex::new(HashMap::new())),
         password_hash_permits: Arc::new(tokio::sync::Semaphore::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX as usize)),
         password_hash_permits_applied: Arc::new(std::sync::atomic::AtomicU32::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX)),
@@ -1856,7 +1856,7 @@ struct PatchNoteEntry {
 /// entries, negligible cost) rather than caching, so editing the file
 /// takes effect immediately without a bot restart.
 async fn patch_notes(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let entries: Vec<PatchNoteEntry> = crate::state::load_json(crate::adventure::data_path("patch-notes.json")).unwrap_or_default();
+    let entries: Vec<PatchNoteEntry> = crate::state::load_json(crate::adventure::data_path(crate::adventure::Store::PatchNotes)).unwrap_or_default();
     let character = match current_session(&headers, &state).await {
         Some((login, _)) => state.adventure.character(&login).await,
         None => None,
