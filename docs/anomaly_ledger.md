@@ -3680,3 +3680,275 @@ this session checked, so the implementer does not have to):
   anywhere in game logic. Not a defect under any criterion (no control
   exists, so no control can mislead). Recorded only so nobody mistakes
   the TOML key for an active dial.
+
+---
+
+## Two board rulings, 2026-09-08 — written by window `b` under owner order
+
+The two entries below were written by a feature session, not by the
+log-parser session that owns this file. **Numbering remains the parser's.**
+`#86` and `#87` were the next free numbers on master `78a96ea` at the time
+of writing (highest in use: `#85`), and neither is cited anywhere yet — so
+if the parser has already issued either number elsewhere, **these two are
+the ones to renumber**, not the parser's. Flagged rather than assumed,
+because this file's own header records what happened the last time two
+sessions each believed a number was free.
+
+Both are **corrections, not edits**: per the append-only rule, `#67`, `#70`
+and design §10.6 stay readable and dated exactly as written.
+
+---
+
+**#86 — CLOSING "Leak 1: Controller A pool-cap saturation". The board
+entry names the wrong controller, the wrong binder, and a constant that
+stopped being a constant on 2026-08-30. What survives is a closed-form
+coupling between two dials whose read-outs do not show it. Prose ruling;
+nothing changed, nothing run.**
+
+Supersedes the board item known as "Leak 1". Corrects nothing in `#67` —
+`#67` was right and is the source most of this rests on. What is corrected
+is the **board entry that has been carrying `#67`'s subject under a name
+`#67` itself refuted.**
+
+### The three claims, and which the code supports
+
+| the board entry says | verdict | source |
+| --- | --- | --- |
+| Controller **A** is saturated | **FALSE.** A is an *open loop* — regulating correctly, converging on an honest request, its output discarded downstream. `#67` said this explicitly on 2026-08-30 and the board entry was never updated | `#67` |
+| the **pool cap** is the binder | **TRUE of World 1.** `ENEMY_HP_POOL_HARD_CAP` bound the AGGREGATE generated pool — not per boss — and discarded ~92% of A's output | `#67` |
+| it describes a **current** defect | **FALSE.** The constant became the `enemy_hp_pool_hard_cap` LiveTunable on 2026-08-30 and was dialled to `5e16`, taking fights from 2.69 s to ~30 s | `#70` |
+
+And the saturation that actually occurred in **World 2** was neither of
+those. On 2026-09-03 `hp_pacing_mult` sat pinned at **6.000** against
+`hp_multiplier_ceiling` **6.0** — the *ceiling*, not the pool cap. It
+needed ~21x and was allowed 6x. The ceiling was later raised and A moved to
+**11.88 of 50**, i.e. not saturated today.
+
+**One board entry was carrying three different failures from two different
+worlds under one name.** That is why it read as unactionable for a week.
+
+### What replaces it: the pool cap is a stage-independent DPS threshold
+
+Both binders live in one call, `capped_hp_mult_for_pool` (`pacing.rs:409`):
+
+```
+let pool_cap_mult = sanitize_pool_cap(pool_cap) / base_pool;
+sanitize_mult(hp_mult.min(pool_cap_mult))
+```
+
+A's own request is `required = mean_dps * mid_target_s / base_pool`
+(`pacing.rs:574`, `mid_target_s` = 37.5 s). Substituting, `base_pool`
+cancels:
+
+> **The pool cap binds iff `mean_dps x 37.5 > pool_cap`.**
+>
+> Independent of stage, party size, average level and boss count. A pure
+> **aggregate-DPS threshold**, and it is the binder **A cannot see** —
+> nothing reports to A that its output was discarded, so it cannot respond.
+
+**Checked against a number it was not fitted to.** `#67`'s live World 1
+sample: `mean_dps` = 3.7149e14, so `mean_dps x 37.5` = **1.393e16**, and
+`#67` independently records the pool needed for the midpoint as
+**1.393e16 = 13.9x the cap**. Four significant figures, from a closed form
+derived afterwards.
+
+| pool cap setting | binds above (aggregate party DPS) |
+| --- | --- |
+| `1e15` — `ENEMY_HP_POOL_CAP_MIN`, and the **shipped default** | **2.67e13** |
+| `5e16` — `ENEMY_HP_POOL_CAP_MAX`, and World 1's operating value | 1.33e15 |
+
+### The coupling nobody had written down
+
+> **Relieving `hp_multiplier_ceiling` converts World 2's problem into
+> World 1's problem.**
+
+Once the ceiling stops binding, A's request is granted — so the delivered
+pool **is** `mean_dps x 37.5`, which is precisely the quantity the absolute
+cap tests. **The 6 -> 50 ceiling raise did not remove a failure mode; it
+moved the party along a path toward the other one.** The journal's "World 2
+will walk the same path if nothing changes" is not an analogy: it is this
+identity.
+
+The two binders differ in kind, which is why they have never been read
+together:
+
+| binder | condition | character |
+| --- | --- | --- |
+| `hp_multiplier_ceiling` | `mean_dps * 37.5 / base_pool > ceiling` | **relative** — DPS measured against the organic pool; bites as the party outruns the stage curve. **World 2's failure.** |
+| `enemy_hp_pool_hard_cap` | `mean_dps * 37.5 > pool_cap` | **absolute** — flat DPS threshold, stage-independent. **World 1's failure.** |
+
+**The two dials are coupled and neither read-out shows the coupling.** That
+is the live item this entry leaves open, and it is a display/ruling
+question, not a defect in either dial.
+
+### Not measured against World 2, deliberately
+
+World 2's last recorded aggregate figure is a **median win DPS of 2,738**
+at 04:52 on 2026-09-03 — nine to ten orders of magnitude below the 2.67e13
+default threshold. The number that matters is the slope, not the gap: that
+same night ran **409 -> 2,738, 6.7x in about nine hours**, and the affix
+tier curve that caused it is still in place.
+
+That distance was **not** estimated from this window. The 2026-09-03 ruling
+that `C:\PathofDust` is never production data holds, and independently
+there is nothing there to read: no `adventure-world.json`, no
+`adventure-live-tunables.toml`, no characters file — only fight directories
+whose newest coarse file is dated **2026-09-01, stage 2, boss `maxHp` 6**,
+a local smoke instance.
+
+**The measurement is `c`'s and needs no new code.** The summary tier already
+carries per-player `damageDealt` and `realDurationMs` across **200 retained
+fights** (against the coarse tier's 5), which reproduces A's own sampled
+quantity. One caveat: A's sampler uses `dealt_to_enemies.min(enemy_pool)`
+(`manager.rs:5016`), so a summary-derived figure slightly **overstates** A's
+sample when overkill is large — `#67` measured overkill at **1.01x** in
+World 1, **unverified in World 2**. Also needed, and visible only on the
+live box: the current `enemy_hp_pool_hard_cap` and `hp_multiplier_ceiling`.
+
+---
+
+**#87 — RE-SCOPING design §10.6 (Controller B re-pinning the three
+defensive stats). The mechanism is real and shipped; the magnitude in the
+document is wrong, because its table was computed against half-stages that
+were deliberately NOT shipped. Closed form below. The designated relief
+exists, is deployed, and is switched off. Prose ruling; nothing changed.**
+
+Corrects the arithmetic in §10.6 of `docs/dynamic_pacing_design_pass.md`
+(canonical branch `design/dynamic-pacing-corrections`). §10.6 stays as
+written; this is the dated correction that references it.
+
+**§10.6 is right about the mechanism.** `apply_dynamic_scaling`
+(`manager.rs:8143`) multiplies the three defensive secondaries by
+`sqrt(dmg_mult)` and re-caps at `BOSS_DEFENSE_CAP` = 0.75, so Controller B
+running hot flattens evasion, block and damage reduction back onto the cap —
+and B's only lever is `dmg_mult`, making the channel that teaches the world
+a player crafted defensively the same channel that re-pins the three stats
+§10 unfroze.
+
+### The correction: shipped `h` is half the doc's, so it binds ~30% sooner
+
+The raw ramp is `boss_secondary_ramp` = `cap * s / (s + h)`
+(`manager.rs:7939`). §10.6's table (`s=300`: evasion 0.562, block 0.500,
+DR 0.375) implies **h = 100 / 150 / 300**.
+
+**The shipped constants are half that — 50 / 75 / 150**
+(`manager.rs:7904-7906`), because the x2 stretch the design bundled was
+**deliberately rejected**. The k=1 ruling records why, in the constants'
+own doc: *"the design's ratified reason for bundling a x2 stretch was
+backwards (stretching `h` LOWERS every value)"*.
+
+Smaller `h` means a steeper ramp, higher raw values, and pinning at a
+**lower** multiplier. At s=300 the shipped evasion is **0.643**, not 0.562,
+and pins at `dmg_mult` **1.36** rather than the doc's 1.78.
+
+> **§10.6 understates its own problem by about 30% in `dmg_mult` terms at
+> every stage** — and it understates it in the reassuring direction, which
+> is why the error survived review.
+
+### Closed form, replacing the three-row table
+
+Pinning needs `raw * sqrt(m) >= 0.75` with `raw = 0.75*s/(s+h)`, so
+`0.75/raw = 1 + h/s` and:
+
+> **`m_pin = (1 + h/s)^2`**
+
+| stage | evasion (`h`=50) | block (`h`=75) | damage reduction (`h`=150) |
+| --- | --- | --- | --- |
+| 25 | 9.00 | 16.00 | 49.00 |
+| **50** | **4.00** | 6.25 | 16.00 |
+| **59** (World 2's last observed boss stage) | 3.41 | 5.16 | 12.55 |
+| **75** | 2.78 | **4.00** | 9.00 |
+| 100 | 2.25 | 3.06 | 6.25 |
+| **150** | 1.78 | 2.25 | **4.00** |
+| 200 | 1.56 | 1.89 | 3.06 |
+| 300 | 1.36 | 1.56 | 2.25 |
+| 500 | 1.21 | 1.32 | 1.69 |
+| 1000 | 1.10 | 1.16 | 1.32 |
+
+`DMG_MULTIPLIER_CEILING` is **4.0** (`pacing.rs:203`), so the largest
+secondary multiplier the system can ever produce is `sqrt(4)` = **2.0**.
+Setting `m` to the ceiling collapses the whole table to one line:
+
+> **At B's shipped ceiling, each defensive stat pins exactly at
+> `stage >= its own half-stage`: evasion from 50, block from 75, damage
+> reduction from 150.**
+
+Those constants are, by their own doc, **each stat's old freeze stage** —
+so **§10 unfroze each stat precisely up to the point at which a hot B
+refreezes it.** That symmetry is not in the design document and is a
+cleaner statement of §10.6 than §10.6 has.
+
+### Jitter moves the boundary, and bosses cross individually
+
+The raw value carries `boss_jitter` (+/-10%) applied **before** the clamp
+(`manager.rs:8244-8246`), so a high roll pins at `m_pin / 1.21`: **evasion
+from stage ~42** at the ceiling, and at stage 59 from `m` = 2.82 rather
+than 3.41. **Individual bosses cross before the average does**, which is how
+this will first be seen in a log rather than on a dashboard.
+
+### Against World 2 today
+
+Stage ~59, with B last observed at **2.2268** against a 4.0 ceiling
+(2026-09-03):
+
+| stat | needs `m` | at B = 2.23 | at B = ceiling 4.0 |
+| --- | --- | --- | --- |
+| evasion | 3.41 | not pinned — **0.66 of 0.75, 88% of cap** | **pinned** |
+| block | 5.16 | not pinned | **cannot pin** — 5.16 exceeds the ceiling |
+| damage reduction | 12.55 | not pinned | **cannot pin** |
+
+**At today's stage only evasion is exposed at all.** Block and damage
+reduction are unreachable at any legal B until stages 75 and 150.
+
+### The archetype curve is a RELIEF here, not an aggravation
+
+Recorded because the obvious reading is wrong. The 2026-09-05 archetype
+curve halved player advantages at live levels, and `d` measured Monk
+evasion roughly halved — but **that is a PLAYER stat.** §10.6 concerns
+**boss** evasion, block and damage reduction, generated by `boss_stats_for`
+from stage alone; it never touches `Archetype::bonus_at`. The curve cannot
+reach this premise through that door.
+
+It reaches it through exactly one: **where B sits.** A weaker party wins
+less, so B runs cooler, `sqrt(dmg_mult)` shrinks, and the secondaries move
+**away** from the cap. Two later changes push back slightly and both are
+survivability rather than damage — the healer compensation (2026-09-07) and
+Slayer's 9x leech (2026-09-08) — since survivability raises win rate, which
+raises B.
+
+### The actionable half: the designated relief is shipped and switched off
+
+§10.6's own recorded consequence is that the fix is **not** on the
+secondary-curve side — it is to give the world a channel for craft-driven
+power that does not run through B. That channel exists:
+`boss_gear_tier_weight` (2026-09-03, `manager::effective_avg_level`) feeds
+the ORGANIC stage/level curve, so the world can answer crafted power
+without spending B's authority and therefore without re-pinning the
+secondaries.
+
+**It is deployed at `0.0` — an exact no-op** (`BOSS_GEAR_TIER_WEIGHT`,
+`manager.rs:7958`), shipping the mechanism and the measurement, with the
+live excess distribution rendered beside it on `/admin/tunables` so the
+weight is chosen from observation rather than guessed. Range `[0.0, 1.0]`.
+
+> **Every unit `boss_gear_tier_weight` carries is a unit B does not have
+> to.**
+
+**Stated as a live option at its current value, not as a recommendation.**
+Turning it up is a balance decision with its own consequences — raising it
+raises the organic pool Controller A must scale (see `#67`'s FOUND note,
+which asks for a ruling on exactly this before the weight is dialled above
+0) — and nothing has been decided about it.
+
+### Two rejections from §10.6 still stand, unchanged
+
+- **Do NOT raise `BOSS_DEFENSE_CAP`.** It is a safety rail against an unhittable boss, and raising a rail as a side effect of a variety change is how rails stop meaning anything.
+- **Do NOT exempt the secondaries from `sqrt(dmg_mult)`.** That is a real change to how the controllers interact with boss composition and deserves its own pass.
+
+### What would settle it
+
+Where B actually sits in World 2, over a window of **at least ~46 fights**.
+The window is not negotiable: **B is rate-limited to 5% per fight, so a
+correction takes roughly 46 fights, about two hours at the live cadence.**
+A short window reads a transient as steady state — a previous report
+over-read a twenty-fight one. `c` has box access; this window does not.
