@@ -7790,3 +7790,81 @@ separate them. Reported as an explicit unresolved group rather than folded in.
 b resolved it from a verified backup snapshot taken inside the deploy window,
 reading the cooldown file as it stood at 16:20:48. Evidence class: persisted state
 from a checksum-verified snapshot, not inference.
+
+### 2026-09-09 — CRAFT-LABEL-AGREEMENT deploy record (release 22)
+
+| | |
+|---|---|
+| master commit | `ef86ec72b9965ab392ef4ef83eaf17c6cc5812e7` |
+| live binary | `0aa514b8f114b0dff8b419e20e8f2898ca0e6444f9b340b948a4ad9cc7437af4` |
+| previous | `710a6b4f7ba6d74eec21fa07e0d6fe88403db3bf373aa200b4fc5f32194377ab` |
+| rollback slot | `deploy-pre-20260909-182757-craft-label-agreement` |
+| downtime | **0.68 s** |
+| suite | **920 passed / 0 failed / 44 result-lines** on the box |
+| seven §13B.5 checks | all pass |
+
+Suite delta 919 -> 920, exactly one new test in one new file:
+`the_displayed_price_equals_the_declared_and_charged_price_at_every_tier`. Release
+21 bound label to charge for ONE button via a shared constant; this binds all of
+them via the rule itself, and `dust_at` is expressed THROUGH `display_params` so
+the preview cannot drift from the charge unless an attribute drifts first.
+
+Owner's condition verified: **no `PriceRule` table entry changed** — zero changed
+lines among the `("name", PriceRule::…)` tuples.
+
+#### THE TEMPLATE IS A SECOND ARTIFACT AND THE BINARY DEPLOY DOES NOT CARRY IT
+
+`templates/base.html` is read at runtime from `/var/lib/pathofdust/templates/`,
+which `deploy-linux.sh` does not touch. The label lives in that file's inline JS,
+so **deploying the binary alone would have fixed nothing** — the whole release is
+in the template.
+
+Caught before deploying by hashing the live file against the candidate:
+
+| | sha256 (first 32) | live `30 * tier` |
+|---|---|---|
+| live, before | `8036dcb2a682143f870266bf01ef9634` | **1, executable** |
+| candidate | `622e5550f4b7910b44303bc4e30eec19` | 0 (2 in comments) |
+| live, after | `622e5550f4b7910b44303bc4e30eec19` | 0 |
+
+§13B.8 followed: hashed before AND after. The before-hash differing is what proves
+the copy was not a no-op; matching the candidate after is what proves it landed.
+Binary first, then template, so the ordering never makes the live state worse than
+it already was.
+
+**This is the second template/data artifact in two items** — the sprite manifest
+stopped for the same reason yesterday. The difference is that `owners.toml` had no
+documented install path (remedy ambiguous, correctly escalated) while `base.html`
+has one in §13B.8 (remedy unambiguous, correctly executed).
+
+#### THE LABELS VERIFIED AGAINST THE RULES, NOT AGAINST EACH OTHER
+
+Server-rendered attributes, read off the live page after deploy:
+
+| control | attributes | at tier 103 | the rule |
+|---|---|---|---|
+| Reforge | `base=6 times=5 flat=0 mult=3 exp=1.5` | 5 × (6 + 3136) = **15,710** | `5 × standard(60)` |
+| veiled Recombine | `base=250 flat=50 per-unit=1 mult=3 exp=1.5` | 50 + 4 × (250+3136) = **13,594** | `50 + pool × standard(2500)` |
+
+Both bases arrive pre-scaled from the server (`ceil(60×0.1)=6`,
+`ceil(2500×0.1)=250`) and the browser evaluates only the rule's shape. Q1's ruling
+— parameters, never formulas, in the browser — holds by construction.
+
+Recombine's tier is the RESULT's, `floor((a+b)/2)+1`, matching `recombine_gear` —
+b's third mismatch, and the one nobody reported.
+
+#### A COUNT THAT LOOKED LIKE A DEFECT AND WAS NOT
+
+A tree-identity check labelled "old 30*tier formula gone" returned **2**. Checked
+by location rather than believed: both are `//` comments documenting the retired
+formula. The decisive check was `dustCost = 30`, which returns **0** — the
+assignment is what mattered, not the string.
+
+#### The patch note corrects release 20's, in the note itself
+
+Release 20 told players a 4-modifier veiled Recombine would go "2,500 → about
+1,100–1,650". At the live exponent it is ~13,594. **That note announced a cut on
+an action whose price rose about 5×**, because its figures came from the 1.1 design
+table rather than the live 1.5 curve. Release 22's note says so plainly rather than
+quietly restating the prices — a correction a player can see is a different thing
+from a correction only the code knows about.
