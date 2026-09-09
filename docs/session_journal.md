@@ -7868,3 +7868,74 @@ an action whose price rose about 5×**, because its figures came from the 1.1 de
 table rather than the live 1.5 curve. Release 22's note says so plainly rather than
 quietly restating the prices — a correction a player can see is a different thing
 from a correction only the code knows about.
+
+### 2026-09-10 — SPRITE-MANIFEST deploy record (release 23, item 3)
+
+| | |
+|---|---|
+| master commit | `63a9ce40463231bc84c355e1f292c81768ae7115` |
+| live binary | `e945caa39df21bed504b87f8b4ce09c037e0d108f1ec083b3aeae8cb732c130e` |
+| previous | `0aa514b8f114b0dff8b419e20e8f2898ca0e6444f9b340b948a4ad9cc7437af4` |
+| rollback slot | `deploy-pre-20260909-191434-sprite-manifest` |
+| downtime | **0.46 s** |
+| suite | **925 passed / 0 failed / 46 result-lines** on the box |
+| seven §13B.5 checks | all pass |
+
+Suite delta 920 -> 925: five tests in two new files, all named, all manifest-related.
+
+#### THE DATA WENT DOWN BEFORE THE BINARY, DELIBERATELY
+
+`owners.toml` was installed at the resolved path **before** the deploy, so no window
+existed in which the enforcement ran without its data. The old binary does not
+read the file at all, which is what makes installing early inert rather than
+risky; installing late would have opened exactly the window a's new test
+represents — sprite present, manifest absent, nobody can equip.
+
+| | |
+|---|---|
+| before | **ABSENT** |
+| after | `bc53b2eda6c4cb7ab82edef82caea044` — identical to the checkout |
+| perms | `pathofdust:pathofdust`, 664, 14 entries |
+
+`DATA_DIR` confirmed unset in the unit before relying on the resolved path, rather
+than taking the order's word for it.
+
+#### THE FIX IS THAT ONE FUNCTION ANSWERS BOTH QUESTIONS
+
+`custom_sprite_dir()` is now `data_path(CUSTOM_SPRITE_DIR)`, and the manifest is
+`custom_sprite_dir().join(CUSTOM_SPRITE_MANIFEST_FILE)`. **Listing the sprites and
+resolving their ownership can no longer point at different directories**, which
+was the actual defect — not the missing file, but a path that resolved one way in
+a checkout and another way in production.
+
+a's new test represents the box's condition directly: sprite present, manifest
+absent -> nobody can equip; drop the file in -> recovers with no restart. That is
+the test that would have caught what the stop caught.
+
+#### VERIFIED BY EFFECT ON THE LIVE PAGE
+
+Fetching `/characters` as each owner and checking the picker's contents:
+
+| login | own sprite offered |
+|---|---|
+| `kibukah` | `custom/kibukah` — **yes** |
+| `sitch89` | `custom/Sitch89` — **yes** |
+
+The failure mode here is silent unselectability, which a binary hash and a green
+suite cannot see. Only asking the page, as the user, closes it.
+
+#### The named flake, confirmed by procedure and by structure
+
+The local run was 924/1 on
+`live_reload_tests::editing_a_template_takes_effect_without_a_rebuild`. Confirmed
+in isolation per the house rule: **6 of 6 passed**. Structural argument on top:
+this change touches **zero** template files, so it cannot reach template
+live-reload. The box run was 925/0 with no recurrence.
+
+#### FOUND — an order premise that did not hold
+
+The order stated a pushed new heads on **both** `feature/sprite-manifest` and
+`feature/store-classification`. Only the first moved: `bef24bd -> a6a6980`.
+`feature/store-classification` is still `54f9e7c`, unchanged from the previous
+order's listing. Item 9 is far off and nothing is blocked, but the head must be
+re-read at its turn rather than assumed to have moved.
