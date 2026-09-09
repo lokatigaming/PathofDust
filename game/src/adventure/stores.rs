@@ -366,7 +366,7 @@ impl Store {
             Store::BotPublishedConstants => StoreScope::Config,
             Store::Templates => StoreScope::NotAStore,
             Store::Wiki => StoreScope::NotAStore,
-            Store::PublicAdventureOverlay => StoreScope::NotAStore,
+            Store::PublicAdventureOverlay => StoreScope::Config,
             Store::Logs => StoreScope::NotAStore,
         }
     }
@@ -491,7 +491,7 @@ impl Store {
             Store::BotPublishedConstants => "constants published for the bot to read - derived output, regenerated rather than owned by a world",
             Store::Templates => "shipped HTML templates - deployed assets, not persisted state",
             Store::Wiki => "live wiki content the OWNER edits by hand - a reset must never touch it",
-            Store::PublicAdventureOverlay => "shipped overlay assets, including the custom sprite drop-in directory",
+            Store::PublicAdventureOverlay => "overlay assets AND irreplaceable operator data: the custom sprite drop-ins, of which 5 of 14 exist only on the box, plus the owners.toml naming who may equip each one. Config rather than NotAStore because a deploy cannot recreate it - restoring this tree from a checkout LOSES sprites, which has already happened once",
             Store::Logs => "process logs - operational output, not game state",
         }
     }
@@ -606,6 +606,19 @@ mod tests {
         assert_eq!(Store::Accounts.scope(), StoreScope::Account, "accounts must survive a reset BY DECISION - they previously survived only by not appearing in the runbook");
         assert_eq!(Store::Characters.scope(), StoreScope::World, "the roster is what a season reset is for");
         assert_eq!(Store::Wiki.scope(), StoreScope::NotAStore, "the owner edits wiki content by hand - a reset touching it would destroy work no backup of the game covers");
+
+        // Reclassified 2026-09-09, from NotAStore. Both buckets survive a
+        // reset, so this changes NO behaviour - it stops the table
+        // asserting something false. "Not a store" means "a deploy can
+        // recreate it", and this tree cannot be: 5 of the 14 custom
+        // sprites exist only on the box, and `owners.toml` is now
+        // operator-edited there. Calling it shipped assets is what makes
+        // someone restore it from a checkout and lose five sprites.
+        assert_eq!(
+            Store::PublicAdventureOverlay.scope(),
+            StoreScope::Config,
+            "the overlay tree holds operator data a deploy cannot rebuild - it needs backing up like the tunables file, not treating as shipped assets"
+        );
         assert_eq!(Store::LiveTunables.scope(), StoreScope::Config, "operator configuration is not player state and does not belong to a world");
 
         // Markers world-scoped: a marker records what was applied to THIS
