@@ -7149,7 +7149,7 @@ fn render_model_picker(c: &Character, login: &str) -> String {
 /// tradeoff a fresh install already has for `commands.json`/etc. via
 /// `crate::state::load_json`.
 fn custom_sprite_names(viewer_login: &str) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(crate::adventure::CUSTOM_SPRITE_DIR) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(crate::adventure::custom_sprite_dir()) else { return Vec::new() };
     let viewer_id = viewer_login.to_lowercase();
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok())

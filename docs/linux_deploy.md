@@ -481,3 +481,46 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://staging.lokati.net/api/
 
 The synthetic pre-migration state is still on disk, so this whole migration is reversible by
 moving it back.
+
+---
+
+## Adding a custom sprite, from 2026-09-09 onward
+
+**Two files on the box, no deploy.**
+
+1. Drop the `.png` or `.gif` into the data directory's
+   `public_adventure_overlay/sprites/custom/` — on production,
+   `/var/lib/pathofdust/public_adventure_overlay/sprites/custom/`.
+2. Add its line to `owners.toml` **in that same directory**:
+   `"<filename stem>" = "<owning login>"`, or `"*"` for the shared pool.
+
+That is the whole procedure. Both are read per request, so the sprite is
+live immediately — no rebuild, no restart, no release.
+
+**A sprite with no `owners.toml` line is equippable by nobody.** That is
+deliberate (a name-matching fallback would reinstate the ambiguity the
+manifest exists to remove), and it is why step 2 is not optional.
+
+### The copy in the checkout is not what production reads
+
+`public_adventure_overlay/sprites/custom/owners.toml` is git-tracked so
+the test suite has something to check against and a **fresh install** has
+something to seed from. Production reads the copy in its data directory,
+resolved through `data_path` like every other runtime file.
+
+**This is the same trap the sprite files themselves already carry** (see
+the table above: 14 on the box, 9 in git). A deploy copies the binary and
+nothing else — so editing the checkout's `owners.toml` and shipping a
+release changes nothing on the box, and restoring the data directory from
+a checkout rather than a backup loses whatever the box had. Treat the two
+files the same way: **the box is the source of truth, the checkout is the
+seed.**
+
+### If a box ever ends up with sprites but no manifest
+
+Every custom sprite stops being selectable, including ones players are
+already wearing — the empty-map fail-safe rejects everything. The fix is
+to put `owners.toml` back in that directory; it takes effect on the next
+request with no restart. `game/tests/custom_sprite_manifest_deploy.rs`
+holds that exact condition and its recovery, so it stays a known state
+rather than a surprise.

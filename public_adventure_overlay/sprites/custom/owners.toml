@@ -1,0 +1,75 @@
+# Custom sprite ownership manifest (2026-09-07).
+#
+# Replaces the filename-as-ownership convention, which could not express
+# ownership unambiguously and failed in both directions at once:
+#
+#   * `Sitch89_2.gif` was selectable by NOBODY. The old rule accepted
+#     "<login>" optionally followed by DIGITS ONLY, and `_2` is not digits, so
+#     a file sitting on the box could never be equipped by anyone.
+#
+#   * `kmartbikes12.gif` was selectable by TWO people. `strip_prefix("kmartbikes1")`
+#     leaves `"2"`, which is all digits, so player `kmartbikes1` passed the gate
+#     for player `kmartbikes12`'s sprite. That gate is a real authorisation
+#     check — it is enforced in `is_valid_custom_sprite`, not merely hidden from
+#     the picker — and it failed OPEN whenever one login was a digit-extension
+#     of another.
+#
+# Both are the same fact: a filename cannot carry ownership. Ownership is now
+# stated here instead of inferred from a name.
+#
+# FORMAT
+#   key   = the sprite's filename stem, without extension, matched case-insensitively
+#   value = the owning login (lowercase), or "*" for the shared public pool
+#
+# `"*"` cannot collide with a login, so public is an ordinary entry with a
+# distinguished value rather than a reserved name prefix.
+#
+# A sprite file with NO entry here is REJECTED — unselectable by anyone, and
+# visible as such. There is deliberately no name-matching fallback: a fallback
+# would reinstate exactly the ambiguity this file removes, and would do it
+# silently. Add the entry instead.
+#
+# This file is read on every check, not cached, so dropping in a sprite and
+# adding its line here takes effect without a restart — the same live drop-in
+# property the directory has always had.
+#
+# `tests/custom_sprite_manifest.rs` asserts this file and the directory agree in
+# BOTH directions: every entry has a file, and every file has an entry.
+
+[sprites]
+"kibukah" = "kibukah"
+# CORRECTED 2026-09-07, and the correction matters more than the original.
+#
+# These two first read `kmartbikes3 = "kmartbikes3"` and
+# `kmartbikes12 = "kmartbikes12"`, on the assumption that a sprite named
+# `kmartbikes12` belonged to a player of that name and that `kmartbikes1`
+# reaching it was the old gate failing open.
+#
+# THERE IS NO PLAYER `kmartbikes12`. World 1's roster holds exactly one kmart
+# login — `kmartbikes1` — and that account had `custom/kmartbikes12` equipped,
+# legitimately: under the old "login followed by digits" rule, `kmartbikes1`
+# plus `2` was simply THEIR SECOND SPRITE. Writing the first version took that
+# sprite away from the only person who has ever used it.
+#
+# The error is the one this file exists to prevent: a second owner inferred
+# from a filename. Committed while building the cure for exactly that.
+#
+# `kmartbikes3` is assigned to the same login on the same evidence — it is the
+# only kmart account that exists. Note it was unselectable by ANYBODY under the
+# old rule (it needs a login `kmartbikes3` or `kmartbikes`, neither of which
+# exists), so it was a second orphan alongside `Sitch89_2` and the survey
+# missed it. If it turns out to belong to someone else, change this one line.
+"kmartbikes3" = "kmartbikes1"
+"kmartbikes12" = "kmartbikes1"
+"lokati_gaming" = "lokati_gaming"
+"lokati_gaming2" = "lokati_gaming"
+"lokati_gaming3" = "lokati_gaming"
+"lokati_gaming4" = "lokati_gaming"
+"lokati_gaming5" = "lokati_gaming"
+"lokati_gaming6" = "lokati_gaming"
+"qugetus_" = "qugetus_"
+"qugetus_2" = "qugetus_"
+"Sitch89" = "sitch89"
+# Unselectable by anyone before this file existed — `_2` is not a digit suffix.
+"Sitch89_2" = "sitch89"
+"xborntokillx" = "xborntokillx"

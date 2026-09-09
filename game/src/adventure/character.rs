@@ -1143,12 +1143,56 @@ pub(crate) fn sprite_for_character(id: &str) -> &'static str {
 /// `characterGifImgFor` for the animated-rendering half). Whatever
 /// `.png`/`.gif` files exist here are picked up live by
 /// `render_model_picker` (adventure_web.rs) - no code change/recompile/
-/// restart needed, just drop a file in. Nested under the same `sprites/`
+/// restart needed.
+///
+/// ADDING A SPRITE IS TWO FILES, NOT ONE (corrected 2026-09-09). This
+/// used to say "just drop a file in", which stopped being true when the
+/// ownership manifest shipped: a sprite with no line in `owners.toml` is
+/// equippable by NOBODY, deliberately. The procedure is
+///
+///   1. drop the `.png`/`.gif` into this directory **on the box**, and
+///   2. add `"<stem>" = "<owning login>"` to `owners.toml` beside it
+///      (or `"*"` for the shared pool).
+///
+/// Both are read per request, so it is live immediately - still no
+/// deploy. The copy of `owners.toml` in the checkout is for the test
+/// suite and for seeding a fresh install; production reads the one in
+/// its data directory. See `custom_sprite_manifest_path` and the
+/// operator note in `docs/linux_deploy.md`.
+///
+/// Nested under the same `sprites/`
 /// dir `ALL_SPRITES` already lives in, and already served at
 /// `/sprites/...` by the existing `ServeDir` mount (see
 /// `start_adventure_web_server`), so `/sprites/custom/<name>.png` (or
 /// `.gif`) just works with zero server-config changes either.
 pub const CUSTOM_SPRITE_DIR: &str = "public_adventure_overlay/sprites/custom";
+
+/// `CUSTOM_SPRITE_DIR` resolved against the configured data directory
+/// (2026-09-09).
+///
+/// **Every runtime read of the sprite drop-in directory and its manifest
+/// goes through this or `custom_sprite_manifest_path` below, and nothing
+/// reads the bare constants any more.** They used to be read directly,
+/// which meant they resolved against whatever the process's working
+/// directory happened to be - `/var/lib/pathofdust` under the unit file.
+/// That is the same directory `data_path` resolves to in production
+/// (`DATA_DIR` is unset there, so the base is empty and this is
+/// byte-identical to the bare literal), so **this changes no path on the
+/// box**. What it changes is that the resolution is now stated rather
+/// than inherited, and that it follows `GAME_DATA_DIR` like every other
+/// runtime file.
+///
+/// The reason it had to be all three read sites and not just the
+/// manifest: the picker lists this directory
+/// (`adventure_web::render_model_picker`), `custom_sprite_file_exists`
+/// probes it, and the manifest names their owners. Route one through
+/// `data_path` and leave the others bare, and the moment `GAME_DATA_DIR`
+/// is set the picker offers sprites from one root while ownership is
+/// judged from another - a silent divergence of exactly the kind that
+/// put the manifest in the wrong place to begin with.
+pub fn custom_sprite_dir() -> std::path::PathBuf {
+    crate::adventure::data_path(CUSTOM_SPRITE_DIR)
+}
 
 /// Whether `model` is a real file in `CUSTOM_SPRITE_DIR`, in the stored
 /// `custom/<name>` form (no extension) `change_model`/`effective_sprite`/
@@ -1160,33 +1204,90 @@ pub const CUSTOM_SPRITE_DIR: &str = "public_adventure_overlay/sprites/custom";
 /// folder (path separators, `..`) rather than trusting it's a plain
 /// filename.
 ///
-/// The reserved custom-sprite filename PREFIX (case-insensitive) that
-/// bypasses the per-player name gate below - anyone can select
-/// `custom/public.png`, `custom/public1.gif`, `custom/public2.png`, etc.
-/// (this prefix, optionally followed by nothing but digits), same as the
-/// curated `ALL_SPRITES`.
-pub const PUBLIC_CUSTOM_SPRITE_PREFIX: &str = "public";
+/// The ownership manifest, beside the sprites it describes.
+///
+/// Read on every check rather than cached, so dropping a sprite in and adding
+/// its line takes effect with no restart - the same live drop-in property
+/// `CUSTOM_SPRITE_DIR` has always had, and the same per-call cost
+/// `custom_sprite_file_exists` already pays by listing the directory.
+pub const CUSTOM_SPRITE_MANIFEST_FILE: &str = "owners.toml";
 
-/// Whether `name_lower` (already-lowercased) belongs to `prefix` - an
-/// exact match, OR `prefix` followed by nothing but digits, so one
-/// player/the public pool can have more than one sprite: "kibukah",
-/// "kibukah2", "kibukah3" - same numbered-suffix convention
-/// `PUBLIC_CUSTOM_SPRITE_PREFIX`'s own doc describes (2026-08-16 follow-
-/// up - a live report that "lokati_gaming2" wasn't being recognized as a
-/// second sprite for "lokati_gaming").
-pub(crate) fn custom_sprite_name_matches(name_lower: &str, prefix: &str) -> bool {
-    name_lower.strip_prefix(prefix.to_ascii_lowercase().as_str()).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+/// The manifest's real location: **derived from `custom_sprite_dir`, not
+/// spelled out separately** (2026-09-09).
+///
+/// It used to be its own full literal, which let the two drift apart in
+/// principle and, more importantly, made "beside the sprites" a comment
+/// rather than a fact. Joining the filename onto the directory makes it
+/// structural: there is no edit that moves the sprites without moving
+/// the manifest with them.
+///
+/// WHY THIS IS DATA-DIRECTORY CONTENT AND NOT PART OF THE BUILD. The
+/// sprites it describes are drop-ins - operators add a `.png`/`.gif` to
+/// the box and it is live with no recompile and no restart. The file
+/// naming their owners is the same kind of thing: operator-edited data,
+/// like `adventure-live-tunables.toml`, not code. It lives in the data
+/// directory for the same reason the sprites do.
+///
+/// The copy in the checkout is for the test suite and for a fresh
+/// install to seed from. **It is not what production reads.**
+pub fn custom_sprite_manifest_path() -> std::path::PathBuf {
+    custom_sprite_dir().join(CUSTOM_SPRITE_MANIFEST_FILE)
+}
+
+/// The manifest value meaning "anyone may select this", replacing the old
+/// reserved `public` filename prefix. Not a valid login, so it cannot collide
+/// with one: public is now an ordinary entry with a distinguished value rather
+/// than a name convention.
+pub const PUBLIC_SPRITE_OWNER: &str = "*";
+
+/// Every `stem -> owner` pair in the manifest, both sides lowercased.
+///
+/// A missing or unparseable manifest yields an EMPTY map, which rejects every
+/// custom sprite rather than falling back to name matching. That is the
+/// conservative direction on purpose: the failure is "nobody can equip a custom
+/// sprite", which is visible and complained about immediately, rather than
+/// "everybody can equip everybody's", which is silent.
+fn custom_sprite_owners() -> std::collections::HashMap<String, String> {
+    let Ok(text) = std::fs::read_to_string(custom_sprite_manifest_path()) else {
+        return std::collections::HashMap::new();
+    };
+    #[derive(serde::Deserialize, Default)]
+    struct Manifest {
+        #[serde(default)]
+        sprites: std::collections::HashMap<String, String>,
+    }
+    let parsed: Manifest = toml::from_str(&text).unwrap_or_default();
+    parsed.sprites.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_ascii_lowercase())).collect()
 }
 
 /// Whether custom-sprite filename `name` (bare, no `custom/` prefix, no
-/// extension) is one `owner_id` is allowed to pick - either it's named
-/// after them (see `custom_sprite_name_matches`), or it's in the
-/// reserved public pool. Shared by `is_valid_custom_sprite` (submit-time
-/// validation) and `render_model_picker`'s own listing (adventure_web.rs)
-/// so the two can't drift apart.
+/// extension) is one `owner_id` is allowed to pick. Shared by
+/// `is_valid_custom_sprite` (submit-time validation) and
+/// `render_model_picker`'s own listing (adventure_web.rs) so the two cannot
+/// drift apart.
+///
+/// **Manifest-driven since 2026-09-07, and the signature is deliberately
+/// unchanged** so every caller - including the authorisation check in
+/// `is_valid_custom_sprite`, which is what stops a hand-crafted POST equipping
+/// someone else's sprite - keeps its behaviour without being touched.
+///
+/// It replaced a filename convention that accepted "<login> optionally followed
+/// by digits", which was wrong in both directions at once:
+///
+/// * `Sitch89_2.gif` was selectable by **nobody** - `_2` is not digits, so a
+///   real file on the box could never be equipped.
+/// * `kmartbikes12.gif` was selectable by **two people** - `strip_prefix` left
+///   `"2"` for owner `kmartbikes1`, so the authorisation check FAILED OPEN
+///   whenever one login was a digit-extension of another.
+///
+/// A sprite with no manifest entry is rejected outright. There is no
+/// name-matching fallback, because a fallback reinstates exactly the ambiguity
+/// the manifest removes - it would be the same bug reached by a longer path.
 pub fn custom_sprite_is_owned_by(owner_id: &str, name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    custom_sprite_name_matches(&lower, owner_id) || custom_sprite_name_matches(&lower, PUBLIC_CUSTOM_SPRITE_PREFIX)
+    let Some(owner) = custom_sprite_owners().get(&name.to_ascii_lowercase()).cloned() else {
+        return false;
+    };
+    owner == PUBLIC_SPRITE_OWNER || owner == owner_id.to_ascii_lowercase()
 }
 
 /// Also name-gated to `owner_id` (2026-08-16, a live request: a custom
@@ -1237,7 +1338,7 @@ pub fn is_valid_custom_sprite(owner_id: &str, model: &str) -> bool {
 /// (`effective_sprite` matches `ALL_SPRITES` first) and the picker
 /// already lists this same directory once per page render.
 fn custom_sprite_file_exists(name: &str) -> bool {
-    let Ok(entries) = std::fs::read_dir(CUSTOM_SPRITE_DIR) else {
+    let Ok(entries) = std::fs::read_dir(custom_sprite_dir()) else {
         return false;
     };
     entries.flatten().any(|entry| {
