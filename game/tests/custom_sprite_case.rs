@@ -15,7 +15,7 @@
 //! fixture would prove the fix only against itself. That means anchoring
 //! this test binary's CWD at the workspace root, the same thing
 //! `http_golden_responses.rs` does and for the same reason: `cargo test`'s
-//! CWD is the PACKAGE root (`game/`), while `CUSTOM_SPRITE_DIR` is a bare
+//! CWD is the PACKAGE root (`game/`), while `custom_sprite_dir()` resolves a
 //! relative literal resolved against the workspace root in production.
 //! This is its own test binary specifically so that CWD change cannot
 //! affect anything else.
@@ -25,7 +25,7 @@
 //! `custom/kibukah` name the same file, and before this fix they disagreed
 //! on Linux.
 
-use game::adventure::{custom_sprite_is_owned_by, is_valid_custom_sprite, CUSTOM_SPRITE_DIR, CUSTOM_SPRITE_MANIFEST, PUBLIC_SPRITE_OWNER};
+use game::adventure::{custom_sprite_dir, custom_sprite_is_owned_by, custom_sprite_manifest_path, is_valid_custom_sprite, PUBLIC_SPRITE_OWNER};
 
 fn anchor_cwd_at_workspace_root() {
     std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).expect("failed to anchor CWD at the workspace root");
@@ -47,7 +47,7 @@ fn anchor_cwd_at_workspace_root() {
 /// `*` (public pool) entries are skipped — selectable by every login, so they
 /// cannot exercise a per-owner gate. There are none today.
 fn sprites_on_disk() -> Vec<(String, String)> {
-    let Ok(text) = std::fs::read_to_string(CUSTOM_SPRITE_MANIFEST) else {
+    let Ok(text) = std::fs::read_to_string(custom_sprite_manifest_path()) else {
         return Vec::new();
     };
     #[derive(serde::Deserialize)]
@@ -57,7 +57,7 @@ fn sprites_on_disk() -> Vec<(String, String)> {
     let Ok(parsed) = toml::from_str::<Manifest>(&text) else {
         return Vec::new();
     };
-    let Ok(entries) = std::fs::read_dir(CUSTOM_SPRITE_DIR) else {
+    let Ok(entries) = std::fs::read_dir(custom_sprite_dir()) else {
         return Vec::new();
     };
     let owners: std::collections::HashMap<String, String> = parsed.sprites.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_ascii_lowercase())).collect();
@@ -80,7 +80,7 @@ fn sprites_on_disk() -> Vec<(String, String)> {
 fn every_case_variant_of_a_real_sprite_validates_identically() {
     anchor_cwd_at_workspace_root();
     let sprites = sprites_on_disk();
-    assert!(!sprites.is_empty(), "the custom sprite directory must hold at least one .png/.gif for this test to mean anything - looked in {CUSTOM_SPRITE_DIR}");
+    assert!(!sprites.is_empty(), "the custom sprite directory must hold at least one .png/.gif for this test to mean anything - looked in {}", custom_sprite_dir().display());
 
     for (stem, owner) in sprites {
         assert!(is_valid_custom_sprite(&owner, &format!("custom/{stem}")), "{stem} exists on disk and must validate as stored");

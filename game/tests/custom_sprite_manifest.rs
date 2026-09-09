@@ -25,7 +25,7 @@
 //! are the reason it was built and a future reader should be able to see what
 //! "unambiguous ownership" bought.
 
-use game::adventure::{custom_sprite_is_owned_by, CUSTOM_SPRITE_DIR, CUSTOM_SPRITE_MANIFEST, PUBLIC_SPRITE_OWNER};
+use game::adventure::{custom_sprite_dir, custom_sprite_is_owned_by, custom_sprite_manifest_path, PUBLIC_SPRITE_OWNER};
 use std::collections::{HashMap, HashSet};
 
 /// Integration tests run with the package dir as CWD, but both paths are
@@ -38,7 +38,7 @@ fn anchor() {
 /// `custom_sprite_file_exists` and the picker's own listing use, so this test
 /// cannot pass by looking at a different set of files than the code does.
 fn files_on_disk() -> HashSet<String> {
-    let entries = std::fs::read_dir(CUSTOM_SPRITE_DIR).unwrap_or_else(|e| panic!("custom sprite dir {CUSTOM_SPRITE_DIR} must be readable: {e}"));
+    let entries = std::fs::read_dir(custom_sprite_dir()).unwrap_or_else(|e| panic!("custom sprite dir {} must be readable: {e}", custom_sprite_dir().display()));
     entries
         .flatten()
         .filter_map(|entry| {
@@ -53,7 +53,7 @@ fn files_on_disk() -> HashSet<String> {
 }
 
 fn manifest_entries() -> HashMap<String, String> {
-    let text = std::fs::read_to_string(CUSTOM_SPRITE_MANIFEST).unwrap_or_else(|e| panic!("manifest {CUSTOM_SPRITE_MANIFEST} must be readable: {e}"));
+    let text = std::fs::read_to_string(custom_sprite_manifest_path()).unwrap_or_else(|e| panic!("manifest {} must be readable: {e}", custom_sprite_manifest_path().display()));
     #[derive(serde::Deserialize)]
     struct Manifest {
         sprites: HashMap<String, String>,
@@ -88,7 +88,7 @@ fn every_sprite_file_has_a_manifest_entry() {
     assert!(
         unowned.is_empty(),
         "these sprite files have no manifest entry, so NOBODY can equip them: {unowned:?}\n\
-         A sprite with no entry is rejected outright - there is no name-matching fallback. Add an owner line to {CUSTOM_SPRITE_MANIFEST}."
+         A sprite with no entry is rejected outright - there is no name-matching fallback. Add an owner line to {}.", custom_sprite_manifest_path().display()
     );
 }
 
