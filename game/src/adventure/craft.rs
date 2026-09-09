@@ -81,13 +81,46 @@ pub const CRAFT_BASE_COST_MULT_MIN: f64 = 0.0;
 /// extra digit is refused rather than charged.
 pub const CRAFT_BASE_COST_MULT_MAX: f64 = 10.0;
 
-/// Shipped default for `LiveTunables::craft_tier_exponent` (2026-09-02,
-/// the same ruling): the per-tier surcharge is
-/// `TIER_CRAFT_DUST_COST x tier^exponent`, not `x tier`. Polynomial, not
-/// exponential - cost accelerates with tier, slowly, and never runs away
-/// over the tier range the game reaches (tier is `1 + stage/5`, so stage
-/// 1000 is tier 201). See `tier_surcharge`.
-pub const CRAFT_TIER_EXPONENT: f64 = 1.1;
+/// Shipped default for `LiveTunables::craft_tier_exponent`: the per-tier
+/// surcharge is `TIER_CRAFT_DUST_COST x tier^exponent`, not `x tier`.
+/// Polynomial, not exponential. See `tier_surcharge`.
+///
+/// **1.5 since 2026-09-09, and this is a CORRECTION OF THE PAPER, not a
+/// price change** (owner ruling). It shipped at 1.1 on 2026-09-02, but
+/// the live game has been running at 1.5 since 2026-09-04 - so the
+/// design doc, the approved cost table and every test written against
+/// 1.1 were describing a curve nobody plays on. The owner set 1.5
+/// deliberately; the live game was right and the paper was wrong. Moving
+/// the compiled default is what stops a fresh box, or a data directory
+/// whose `adventure-live-tunables.toml` is missing or unparseable,
+/// silently reverting to a curve the owner rejected -
+/// `load_live_tunables` falls back to `LiveTunables::default()` on
+/// `Err(_)` with only a `tracing::warn!`, so that failure is quiet and
+/// priced.
+///
+/// **It sits exactly at `CRAFT_TIER_EXPONENT_MAX`, with no headroom.**
+/// A later "raise it a little" is a code change, not a dial - worth
+/// knowing before anyone plans one.
+///
+/// THE SHAPE 1.5 ACTUALLY HAS, derived from `tier_surcharge` rather than
+/// estimated (tier is `1 + stage/5`, so stage 1000 is tier 201):
+///
+/// | tier | surcharge at 1.1 (the paper) | at 1.5 (live) |
+/// |---|---|---|
+/// | 1 | 3 | 3 |
+/// | 10 | 38 | 95 |
+/// | 35 | 150 | 622 |
+/// | 100 | 476 | 3,000 |
+/// | 201 | 1,025 | 8,550 |
+/// | 1000 | 5,986 | 94,869 |
+///
+/// "Accelerates slowly and never runs away over the tier range the game
+/// reaches" was true of 1.1 and is NOT true of this: at tier 201 the
+/// surcharge is 8.3x what the paper said, and it is the dominant term of
+/// every craft price well before the live band ends. That is the
+/// intended shape, recorded plainly rather than described in the old
+/// curve's language.
+pub const CRAFT_TIER_EXPONENT: f64 = 1.5;
 
 /// Lower bound on `craft_tier_exponent`. 1.0 is exactly the old linear
 /// `3 x tier` curve, so the floor is "put it back". Sub-1 is REFUSED (an
@@ -97,8 +130,17 @@ pub const CRAFT_TIER_EXPONENT: f64 = 1.1;
 pub const CRAFT_TIER_EXPONENT_MIN: f64 = 1.0;
 
 /// Upper bound on `craft_tier_exponent`. At 1.5 a tier-201 craft pays
-/// 8,551 dust in surcharge and a tier-500 one pays 33,541; past that the
-/// curve outruns the tier range the game actually reaches.
+/// **8,550** dust in surcharge and a tier-500 one pays **33,542**; past
+/// that the curve outruns the tier range the game actually reaches.
+///
+/// Those two figures read 8,551 and 33,541 until 2026-09-09. Both were
+/// off by one against `tier_surcharge` itself - corrected while
+/// re-deriving the table with the code rather than by hand, which is how
+/// the discrepancy surfaced at all.
+///
+/// **The shipped default now sits exactly here**, so this bound is no
+/// longer headroom: it is the setting. Raising the live curve further
+/// needs this constant changed, not a dial moved.
 pub const CRAFT_TIER_EXPONENT_MAX: f64 = 1.5;
 
 /// Resolves a live `craft_base_cost_mult` reading into the usable range -
@@ -865,12 +907,33 @@ mod cost_curve_tests {
     use super::*;
 
     /// The shipped curve, at the tiers that matter. Tier is `1 + stage/5`
-    /// (see `generate_item`), so stage 1000 is tier 201 - the numbers
-    /// below are the ones in the 2026-09-02 cost table the owner approved,
-    /// and this test is what stops them drifting silently.
+    /// (see `generate_item`), so stage 1000 is tier 201.
+    ///
+    /// **Re-derived at 1.5 on 2026-09-09.** These were the figures from
+    /// the 2026-09-02 cost table, computed at `craft_tier_exponent` = 1.1
+    /// - but live has run at 1.5 since 2026-09-04 and the owner has ruled
+    /// the live curve IS the design. The old column is kept beside the new
+    /// one because the gap is the whole point: the approved table
+    /// understated the live price by up to 8.3x, and a test asserting it
+    /// was pinning a curve nobody plays on.
+    ///
+    /// | tier | approved (1.1) | live (1.5) |
+    /// |---|---|---|
+    /// | 1 | 3 | 3 |
+    /// | 5 | 18 | 34 |
+    /// | 10 | 38 | 95 |
+    /// | 20 | 81 | 269 |
+    /// | 50 | 222 | 1,061 |
+    /// | 100 | 476 | 3,000 |
+    /// | 150 | 743 | 5,512 |
+    /// | 201 | 1,025 | 8,550 |
+    ///
+    /// Every figure produced by `tier_surcharge` itself rather than by
+    /// hand - which is how the two off-by-one errors in
+    /// `CRAFT_TIER_EXPONENT_MAX`'s own doc were caught.
     #[test]
     fn tier_surcharge_matches_the_approved_cost_table() {
-        for (tier, expected) in [(1u32, 3u64), (5, 18), (10, 38), (20, 81), (50, 222), (100, 476), (150, 743), (201, 1025)] {
+        for (tier, expected) in [(1u32, 3u64), (5, 34), (10, 95), (20, 269), (50, 1061), (100, 3000), (150, 5512), (201, 8550)] {
             assert_eq!(tier_surcharge(tier, CRAFT_TIER_EXPONENT), expected, "tier {tier} surcharge");
         }
     }
@@ -882,7 +945,12 @@ mod cost_curve_tests {
         let m = CRAFT_BASE_COST_MULT;
         assert_eq!(scaled_base_cost(250, m), 25);
         assert_eq!(scaled_base_cost(2500, m), 250);
-        for (tier, expected) in [(1u32, 28u64), (10, 63), (100, 501), (201, 1050)] {
+        // Re-derived at the live exponent 1.5 (2026-09-09). At 1.1 these
+        // read 28 / 63 / 501 / 1050; the base half (25) is unchanged, so
+        // every bit of the movement is the per-tier term, and past about
+        // tier 18 it is the whole price - see
+        // `tier_surcharge_matches_the_approved_cost_table`.
+        for (tier, expected) in [(1u32, 28u64), (10, 120), (100, 3025), (201, 8575)] {
             assert_eq!(scaled_base_cost(250, m) + tier_surcharge(tier, CRAFT_TIER_EXPONENT), expected, "Transmute at tier {tier}");
         }
     }
@@ -908,11 +976,22 @@ mod cost_curve_tests {
     /// the TIER, not to the product, and the ceil comes last. Two
     /// plausible mis-writings of the same formula produce different
     /// numbers, and this pins which one is the price.
+    ///
+    /// **Deliberately worked at 1.1, which is no longer the shipped
+    /// default** (it moved to 1.5 on 2026-09-09). This test is about
+    /// WHERE THE PARENTHESES AND THE CEIL GO, not about what the exponent
+    /// is, and 1.1 is the value the three readings were originally
+    /// separated at - 38 against 43 against 39, all distinct. Re-pointing
+    /// it at the live constant would make it re-derive its own answer and
+    /// stop distinguishing anything. Named as a literal so the divergence
+    /// from the default is visible rather than accidental.
+    const ILLUSTRATIVE_EXP: f64 = 1.1;
+
     #[test]
     fn tier_surcharge_is_the_exponent_of_the_tier_not_of_the_product() {
-        let (mult, exp) = (TIER_CRAFT_DUST_COST as f64, CRAFT_TIER_EXPONENT);
+        let (mult, exp) = (TIER_CRAFT_DUST_COST as f64, ILLUSTRATIVE_EXP);
         let tier = 10.0_f64;
-        let correct = tier_surcharge(10, CRAFT_TIER_EXPONENT);
+        let correct = tier_surcharge(10, ILLUSTRATIVE_EXP);
         let exponent_on_the_product = (mult * tier).powf(exp).ceil() as u64;
         let ceil_before_the_multiply = mult as u64 * tier.powf(exp).ceil() as u64;
         assert_eq!(correct, 38);
@@ -1307,6 +1386,18 @@ mod price_rule_tests {
     use super::*;
 
     const MULT: f64 = CRAFT_BASE_COST_MULT;
+    /// **The exponent the owner actually plays on**, read from the shipped
+    /// constant rather than named here - which is the same thing since
+    /// 2026-09-09, and deliberately so.
+    ///
+    /// It was not always. The constant shipped at 1.1 while live ran at
+    /// 1.5 from 2026-09-04, so every price test in this module was
+    /// asserting figures from a curve nobody plays on - passing quietly at
+    /// a number the owner had already rejected. Keeping this pointed at
+    /// `CRAFT_TIER_EXPONENT` is what makes that impossible to repeat: if
+    /// the compiled default ever diverges from the live intent again,
+    /// these tests move with the default and the divergence has to be
+    /// argued rather than discovered.
     const EXP: f64 = CRAFT_TIER_EXPONENT;
     /// Tier 3 is a live dropped item at stage 10; 35 is roughly the top of
     /// the live band; 201 and 1000 are ahead of the game, included so a
@@ -1391,22 +1482,69 @@ mod price_rule_tests {
     }
 
     /// Panel Reforge, at the ratio it was ruled to: 5 x a standard craft
-    /// with base 60. Pinned as NUMBERS at live tiers, because the point of
-    /// form B was that it lowers the price across the band players are
-    /// actually in rather than doubling the low end the way an exact
-    /// 5x-a-Scour would have.
+    /// with base 60 - **and it is DEARER than the flat 30/tier it
+    /// replaced, at every tier including the lowest.**
+    ///
+    /// **This test previously asserted the opposite**, under the name
+    /// `..._and_is_cheaper_than_it_was_across_the_live_band`, because form
+    /// B was chosen over an exact 5x-a-Scour on the stated grounds that it
+    /// "does not raise the price anywhere players currently are". That
+    /// premise was checked against `craft_tier_exponent` = **1.1**, the
+    /// compiled default at the time. **Live has run at 1.5 since
+    /// 2026-09-04, and the owner has ruled the live curve IS the design**
+    /// (2026-09-09) - so the premise was never true of the game, only of
+    /// the paper.
+    ///
+    /// Kept and re-pointed rather than deleted (owner ruling (b)): the
+    /// relationship is still worth pinning, it is simply the other one.
+    /// Deleting it would drop the only guard that panel Reforge's price
+    /// has a knowable shape at all.
+    ///
+    /// The numbers are what the incident on 2026-09-08 was made of - a
+    /// tier-101 Reforge at 15,260 against a label that said 3,030 - so
+    /// they are pinned exactly, not as a direction.
     #[test]
-    fn panel_reforge_is_five_standard_crafts_and_is_cheaper_than_it_was_across_the_live_band() {
+    fn panel_reforge_is_five_standard_crafts_and_is_dearer_than_the_flat_curve_it_replaced() {
         let rule = craft_action_def(CraftAction::Reforge).price;
         assert_eq!(rule, PriceRule::MultipleOfStandard { times: 5, base: 60 });
-        for (tier, was) in [(3u32, 90u64), (20, 600), (35, 1050)] {
+        // (tier, the old flat 30/tier price, the price at the live curve)
+        for (tier, was, now_expected) in [(1u32, 30u64, 45u64), (2, 60, 75), (3, 90, 110), (20, 600, 1375), (35, 1050, 3140), (101, 3030, 15_260)] {
             let now = rule.dust_at(tier, 1, MULT, EXP).expect("dust-denominated");
+            assert_eq!(now, now_expected, "panel Reforge at tier {tier} must cost exactly {now_expected} at the live exponent");
             assert!(
-                now < was,
-                "panel Reforge at tier {tier} is {now}, which is not below the {was} it cost as a flat 30/tier. Form B was chosen over an exact 5x-a-Scour precisely because it does not raise the price anywhere players currently are"
+                now > was,
+                "panel Reforge at tier {tier} is {now} against the {was} it cost as a flat 30/tier. Form B is DEARER at every tier on the live curve - if this ever reverses, either craft_tier_exponent moved or the rule did, and both are rulings rather than drift"
             );
             assert_eq!(now, 5 * standard_price(60, tier, MULT, EXP), "the price must BE the declared multiple, not merely resemble it");
         }
+    }
+
+    /// The live exponent is the compiled default, and the compiled default
+    /// is what the owner plays on (2026-09-09).
+    ///
+    /// **The failure this pins is silent by nature**: `load_live_tunables`
+    /// falls back to `LiveTunables::default()` whenever the tunables file
+    /// is missing or unparseable, with only a `tracing::warn!`. For five
+    /// days that fallback was 1.1 while live ran at 1.5, so a fresh box -
+    /// or a data directory restored without its TOML - would have priced
+    /// every craft on a curve the owner had rejected, and nothing would
+    /// have said so.
+    #[test]
+    fn the_compiled_exponent_is_the_one_the_game_is_played_on() {
+        assert_eq!(CRAFT_TIER_EXPONENT, 1.5, "the shipped default is the live curve - see this constant's own doc for why it moved off 1.1");
+        assert_eq!(
+            sanitize_craft_tier_exponent(f64::NAN),
+            1.5,
+            "and the non-finite fallback resolves there too, which is the path a corrupt tunables file actually takes"
+        );
+        assert_eq!(
+            CRAFT_TIER_EXPONENT, CRAFT_TIER_EXPONENT_MAX,
+            "the default now sits exactly at the upper bound - there is no headroom, and raising the live curve further is a code change rather than a dial"
+        );
+        // The bound's own doc quotes these two, and they were both off by
+        // one until they were re-derived from this function.
+        assert_eq!(tier_surcharge(201, CRAFT_TIER_EXPONENT), 8_550);
+        assert_eq!(tier_surcharge(500, CRAFT_TIER_EXPONENT), 33_542);
     }
 
     /// **Reforge Now is FLAT 1000 dust at every tier** - owner ruling,
