@@ -7883,3 +7883,46 @@ right; `public_adventure_overlay\sprites\custom` IS in the backup
 allow-list and was present in the extraction. Imprecise rather than wrong -
 the git-tracked assets are absent, the player-uploaded sprites are not.
 Not touched.
+
+## 2026-09-09 (second entry) — THE STALENESS CHECK GETS ITS OWN TASK
+
+`PodPullStalenessCheck`, daily 04:10, ten minutes behind the puller,
+running the same script with a new `-CheckOnly`.
+
+**Why not just `-SkipFetch`, which already existed.** Both tasks carry
+`-StartWhenAvailable`, so a box that wakes having missed both windows
+starts them at the SAME MOMENT - and `-SkipFetch` still SWEEPS, deleting
+every `pod-backup-*.tar.gz` with no verified sidecar. The puller writes
+the archive first and its `.sha256` only after checksum and readability
+pass, so an in-flight download is sidecar-less for the length of a
+transfer. A concurrent sweep would delete the download the other task is
+still writing.
+
+**Demonstrated rather than argued**, on one tree holding a deliberate
+sidecar-less "in-flight" file:
+
+  -CheckOnly   -> ALARM 79h, exit 1, 3 archives before and after, the
+                  in-flight file STILL PRESENT
+  -SkipFetch   -> same alarm, and `swept pod-backup-20260909-999999...`,
+                  the in-flight file GONE
+
+> **A checker that can destroy what it is checking is not a checker.**
+> `-CheckOnly` makes the second task structurally incapable of it rather
+> than relying on the two never overlapping.
+
+**`-WakeToRun` is FALSE on both, deliberately.** The box sleeping is the
+owner's workstation doing what workstations do. Waking it for a
+multi-minute fetch is intrusive, and waking it to write a log line nobody
+is watching yet buys nothing - the collector is still an open decision, so
+if the box is asleep no human is reading the alarm either.
+`-StartWhenAvailable` on both means a missed window runs ON WAKE, which is
+when someone could actually see it. **Reversible in one direction:** if a
+collector is ever wired to push somewhere the owner reads while away,
+`-WakeToRun` on the STALENESS task alone becomes worth it - it is seconds
+of work, unlike the fetch.
+
+Live run against the real store: `LastTaskResult=0`, `age=18h via=manifest`,
+`held 50` unchanged, 4 seconds. It also wrote the age line that the
+terminated 04:00 run never produced.
+
+FOUND - none this session.

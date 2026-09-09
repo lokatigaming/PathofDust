@@ -250,8 +250,18 @@ systemctl stop pathofdust
 mv /var/lib/pathofdust /var/lib/pathofdust.before-restore-$(date +%Y%m%d-%H%M%S)
 mkdir -p /var/lib/pathofdust
 
-# Reinstall the git-tracked assets the archive deliberately does NOT carry
-# (templates/, wiki/, public_adventure_overlay/) from a source checkout:
+# Reinstall the GIT-TRACKED assets the archive deliberately does not carry -
+# templates/, wiki/, and the checked-in part of public_adventure_overlay/ -
+# from a source checkout:
+#
+# Precise about that last one (corrected 2026-09-09, found by the restore
+# rehearsal): the archive DOES carry
+# `public_adventure_overlay/sprites/custom/`, which is in the backup
+# allow-list because it holds PLAYER-UPLOADED sprites that exist nowhere
+# else. What it does not carry is the rest of that directory, which is
+# checked in. So the order below matters: deploy first to lay down the
+# tracked assets, then `cp -r` the archive over the top, which restores the
+# uploads without disturbing anything else.
 /opt/pathofdust/bin/deploy.sh /root/dust
 
 # Then lay the archived state on top. cp -r only ever creates or overwrites.
