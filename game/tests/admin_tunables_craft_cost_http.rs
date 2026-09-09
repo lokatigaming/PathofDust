@@ -312,7 +312,14 @@ async fn the_craft_cost_dials_round_trip_and_the_quoted_price_is_the_charged_pri
         craft_form.matches(TIER_ATTR).count(),
         "every button carrying the per-tier parameters must live inside the ONE item-bearing craft form - a second form rendering them is how a preview starts pricing off the wrong button"
     );
-    assert_eq!(craft_form.matches(TIER_ATTR).count(), 8, "all eight currency buttons must carry the parameters, not just the first");
+    // Nine since 2026-09-09, not eight: panel REFORGE joined the
+    // parameterised path. It used to be a bespoke button carrying no
+    // price parameters at all, and `base.html` made up `30 * tier` for it
+    // - the flat curve retired on 2026-09-02 - so its label read 3,030
+    // where the server charged 15,260 and the affordability gate believed
+    // the label. If this count ever drops back to eight, check whether
+    // Reforge lost its parameters before adjusting the number.
+    assert_eq!(craft_form.matches(TIER_ATTR).count(), 9, "all eight currency buttons plus Reforge must carry the parameters, not just the first");
     // The Divine Dust recipe's own form sits ABOVE the craft form and posts
     // to the same URL. It must stay out of `craftButtons` entirely - it has
     // no item and no per-tier price, so a `data-base` on it would put it in

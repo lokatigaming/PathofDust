@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::adventure::{
-    affix_display, affix_name, affix_quality_percent, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
+    affix_display, affix_name, affix_quality_percent, composite_price, craft_action_def, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
     AutoDisenchantTier, BossKind, BugReportManager, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
@@ -7402,7 +7402,7 @@ fn craft_action_tip(action: CraftAction) -> &'static str {
             "Costs sand, not dust \u{2014} 1 per 10% quality (12 for a Perfect item). Raises the item's own quality by 5% and bumps one random modifier's roll by 5% of its range, both capped at the max. On an already-Perfect item (nothing left to raise on quality), instead bumps up to 2 random modifiers' rolls by 5%."
         }
         CraftAction::Reforge => {
-            "Rerolls this item to a new (usually higher) tier, same as the Reforge Gear channel points reward, but costs dust instead \u{2014} 30 per tier of the item \u{2014} and targets this specific item, with a small chance at a bonus modifier."
+            "Rerolls this item to a new (usually higher) tier, same as the Reforge Gear channel points reward, but costs dust instead \u{2014} five standard crafts, so it rises with the item's tier \u{2014} and targets this specific item, with a small chance at a bonus modifier."
         }
         CraftAction::DivineDust => {
             "Costs Divine Dust, not dust or sand \u{2014} 2 per tier of the item. Not yet Sacred: makes it Sacred (also Perfect, if it wasn't already) and grants one random sacred affix. Already Sacred: rerolls its sacred affix to a different one."
@@ -7410,7 +7410,7 @@ fn craft_action_tip(action: CraftAction) -> &'static str {
     }
 }
 
-const RECOMBINE_TIP: &str = "Forges item A and item B (same slot) into one new item, consuming both. New tier = the two items' average tier, rounded down, +1. Each source's own modifiers each independently have a 50% chance to carry over (max 4 total on the result); any modifier TYPE both items already share is guaranteed to carry over instead, keeping whichever of the two rolled values is higher. The result's quality is a coin flip between the two source items' own quality rolls. Free by default. Checking Veil (+dust) guarantees EVERY modifier carries over (same 4 cap) and keeps the BETTER of the two quality rolls instead of a coin flip, for 500 dust per combined modifier on top of the veil surcharge.";
+const RECOMBINE_TIP: &str = "Forges item A and item B (same slot) into one new item, consuming both. New tier = the two items' average tier, rounded down, +1. Each source's own modifiers each independently have a 50% chance to carry over (max 4 total on the result); any modifier TYPE both items already share is guaranteed to carry over instead, keeping whichever of the two rolled values is higher. The result's quality is a coin flip between the two source items' own quality rolls. Free by default. Checking Veil (+dust) guarantees EVERY modifier carries over (same 4 cap) and keeps the BETTER of the two quality rolls instead of a coin flip, at one Krangle per combined modifier on top of the veil surcharge, so its price rises with the result's tier.";
 
 const VEIL_TIP: &str = "Turns this craft's randomness into a choice: pay extra dust up front and get 3 independently-rolled outcomes to pick from, instead of one outcome applied automatically. A banked free token always veils at no extra cost. Scour has nothing to pick between, so veiling it does nothing.";
 
@@ -7546,6 +7546,18 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
         // on quoting the old price after this change while the server
         // charged the new one.
         let tier_attrs = format!(" data-tier-mult=\"{TIER_CRAFT_DUST_COST}\" data-tier-exp=\"{}\"", tunables.craft_tier_exponent);
+        // The rest of the rule, as PARAMETERS (2026-09-09). `data-base`
+        // above is one standard price's scaled flat half; these say how
+        // many of those the action costs and what one-off rides on top,
+        // so the preview evaluates `PriceDisplayParams::total_at`'s shape
+        // rather than a formula of its own. For every `Standard` action
+        // these are 1 and 0, so the six currency buttons render exactly
+        // what they rendered before - the attributes exist so the two
+        // actions that were NOT `Standard` can stop being special cases.
+        let rule_attrs = match craft_action_def(action).price.display_params(tunables.craft_base_cost_mult) {
+            Some(p) => format!(" data-times=\"{}\" data-flat=\"{}\"{}", p.times, p.flat, if p.per_unit { " data-per-unit=\"1\"" } else { "" }),
+            None => String::new(),
+        };
         // Scour has nothing to pick between when veiled (is_veilable() is
         // false for it) - omitting data-veil-extra is what tells the
         // preview script to leave its cost alone regardless of the
@@ -7556,7 +7568,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
             String::new()
         };
         format!(
-            "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"{value}\" data-base=\"{base}\" data-label=\"{label}\" data-tip=\"{tip}\"{tier_attrs}{veil_attr}{disabled}{confirm_attr}>{label} ({base}d)</button>",
+            "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"{value}\" data-base=\"{base}\" data-label=\"{label}\" data-tip=\"{tip}\"{tier_attrs}{rule_attrs}{veil_attr}{disabled}{confirm_attr}>{label} ({base}d)</button>",
             value = action.label().to_lowercase(),
             label = action.label(),
         )
@@ -7580,7 +7592,30 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
         (
             "Free".to_string(),
             if items.len() < 2 { " disabled" } else { "" },
-            format!(" data-base=\"0\" data-label=\"Recombine\" data-veil-extra=\"{VEIL_EXTRA_COST}\" data-recombine=\"1\""),
+            {
+                // Recombine on the same parameter set as everything else
+                // (2026-09-09). It used to carry an UNSCALED
+                // `data-veil-extra` and let `base.html` add a hardcoded
+                // `500 * pool`, both retired numbers: against a charge of
+                // `50 + pool x (250 + surcharge)` the label read
+                // `500 + 500 x pool`, wrong in two directions at once,
+                // which is why one modifier looked about right and three
+                // did not.
+                //
+                // `data-recombine` now marks only what is genuinely
+                // specific: the unit count is the two items' COMBINED
+                // affix count, and the tier is the RESULT's tier, not
+                // item A's - a third mismatch, since the charge prices
+                // `(a.tier + b.tier) / 2 + 1`.
+                let p = composite_price("recombine_veiled").display_params(tunables.craft_base_cost_mult).expect("recombine_veiled declares PerCountedUnit");
+                format!(
+                    " data-base=\"{base}\" data-label=\"Recombine\" data-veil-extra=\"{flat}\" data-times=\"{times}\" data-flat=\"{flat}\" data-per-unit=\"1\" data-tier-mult=\"{TIER_CRAFT_DUST_COST}\" data-tier-exp=\"{exp}\" data-recombine=\"1\"",
+                    base = p.unit_base,
+                    times = p.times,
+                    flat = p.flat,
+                    exp = tunables.craft_tier_exponent,
+                )
+            },
         )
     };
     // Hidden entirely (not just disabled) until the player actually has
@@ -7608,9 +7643,23 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
         "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"polishing\" data-polish=\"1\" data-sand=\"{}\" data-tip=\"{polish_tip}\">Polishing</button>",
         c.sand,
     );
+    // Reforge carries the SAME parameter set every other priced button
+    // does (2026-09-09). It used to carry none, and `base.html` made up
+    // `30 * tier * times` for it - the flat curve retired on 2026-09-02 -
+    // so at tier 101 the label said 3,030 while `dust_at` charged 15,260
+    // and the affordability gate believed the label. `data-reforge` now
+    // marks only the two things that really are specific to this button:
+    // it prices off the selected item, and it honours the x1/x5/x10/x50
+    // batch picker.
+    let reforge_params =
+        craft_action_def(CraftAction::Reforge).price.display_params(tunables.craft_base_cost_mult).expect("Reforge declares MultipleOfStandard");
     let reforge_btn = format!(
-        "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"reforge\" data-reforge=\"1\" data-dust=\"{}\" data-tip=\"{reforge_tip}\">Reforge</button>",
-        c.dust,
+        "<button class=\"btn-sm\" type=\"submit\" name=\"action\" value=\"reforge\" data-reforge=\"1\" data-dust=\"{dust}\" data-label=\"Reforge\" data-base=\"{base}\" data-times=\"{times}\" data-flat=\"{flat}\" data-tier-mult=\"{TIER_CRAFT_DUST_COST}\" data-tier-exp=\"{exp}\" data-tip=\"{reforge_tip}\">Reforge</button>",
+        dust = c.dust,
+        base = reforge_params.unit_base,
+        times = reforge_params.times,
+        flat = reforge_params.flat,
+        exp = tunables.craft_tier_exponent,
     );
     // Divine Dust apply/reroll (2026-08-19) - same "price depends on the
     // selected item" shape as Polish/Reforge above (2 x item_a's own

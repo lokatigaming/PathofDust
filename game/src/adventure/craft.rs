@@ -482,6 +482,16 @@ pub(crate) fn craft_action_cost(action: CraftAction) -> u64 {
 }
 
 impl CraftAction {
+    /// This action's declared `PriceRule` - the one the charge site reads
+    /// and the one the crafting panel's preview must derive its label
+    /// from. `pub` (2026-09-09) so a test outside this crate can ask what
+    /// an action costs without reaching for `craft_action_def`, which is
+    /// crate-private: the three-way label/charge agreement test lives in
+    /// `game/tests/` because it has to GET the real page over HTTP.
+    pub fn price_rule(self) -> PriceRule {
+        craft_action_def(self).price
+    }
+
     pub fn base_cost(self) -> u64 {
         match self {
             CraftAction::CelestialShard | CraftAction::UniqueShard | CraftAction::Polishing | CraftAction::Reforge | CraftAction::DivineDust => {
@@ -1130,18 +1140,87 @@ impl PriceRule {
     /// knowable only by running it - see
     /// `Character::hideout_warrior_quote`.
     pub fn dust_at(self, tier: u32, units: u64, base_mult: f64, exponent: f64) -> Option<u64> {
-        match self {
-            PriceRule::Standard { base } => Some(standard_price(base, tier, base_mult, exponent)),
-            PriceRule::MultipleOfStandard { times, base } => Some(times.saturating_mul(standard_price(base, tier, base_mult, exponent))),
-            PriceRule::PerCountedUnit { flat, times, base } => Some(
-                scaled_base_cost(flat, base_mult).saturating_add(units.saturating_mul(times).saturating_mul(standard_price(base, tier, base_mult, exponent))),
-            ),
-            // Flat by ruling: the same number at every tier, and it IS
-            // dust, so it answers here rather than returning `None` the
-            // way the non-dust exceptions do.
-            PriceRule::Flat { dust, .. } => Some(dust),
-            PriceRule::ChainSummedOverSet | PriceRule::Exception { .. } | PriceRule::TokenOnly => None,
+        // Flat by ruling: the same number at every tier, and it IS dust,
+        // so it answers here rather than returning `None` the way the
+        // non-dust exceptions do. Handled before `display_params` because
+        // it has no per-tier term for the shared expression to add.
+        if let PriceRule::Flat { dust, .. } = self {
+            return Some(dust);
         }
+        let p = self.display_params(base_mult)?;
+        Some(p.total_at(tier_surcharge(tier, exponent), units))
+    }
+
+    /// The rule's parameters, pre-scaled, for a caller that must compute
+    /// the same price somewhere this function cannot run - specifically
+    /// the crafting panel's live preview, which prices whichever item the
+    /// player has selected in a dropdown and therefore has to do its
+    /// arithmetic in the browser (2026-09-09).
+    ///
+    /// **This exists so the browser never holds a price FORMULA, only
+    /// PARAMETERS.** That distinction is the whole defect it was written
+    /// for: `templates/base.html` carried a hardcoded `30 * tier` for
+    /// panel Reforge - the flat curve retired on 2026-09-02 - so the
+    /// label read 3,030 while the charge was 15,260, and the affordability
+    /// gate believed the label. Veiled Recombine carried `500 * pool` for
+    /// the same reason. A formula in the browser cannot be kept in step
+    /// with one in Rust; a parameter can, because there is only one
+    /// arithmetic and it lives here.
+    ///
+    /// `dust_at` is expressed THROUGH this, not beside it, so the two
+    /// cannot drift even in principle - if this is wrong the charge is
+    /// wrong too, which is the failure mode you can actually detect.
+    ///
+    /// `None` for the rules that are not dust-denominated, plus `Flat`,
+    /// which `dust_at` answers before it gets here.
+    pub fn display_params(self, base_mult: f64) -> Option<PriceDisplayParams> {
+        match self {
+            PriceRule::Standard { base } => {
+                Some(PriceDisplayParams { flat: 0, times: 1, unit_base: scaled_base_cost(base, base_mult), per_unit: false })
+            }
+            PriceRule::MultipleOfStandard { times, base } => {
+                Some(PriceDisplayParams { flat: 0, times, unit_base: scaled_base_cost(base, base_mult), per_unit: false })
+            }
+            PriceRule::PerCountedUnit { flat, times, base } => Some(PriceDisplayParams {
+                flat: scaled_base_cost(flat, base_mult),
+                times,
+                unit_base: scaled_base_cost(base, base_mult),
+                per_unit: true,
+            }),
+            PriceRule::Flat { .. } | PriceRule::ChainSummedOverSet | PriceRule::Exception { .. } | PriceRule::TokenOnly => None,
+        }
+    }
+}
+
+/// One rule reduced to the four numbers a preview needs - see
+/// `PriceRule::display_params`. Every money value here is ALREADY scaled
+/// by `craft_base_cost_mult` and rounded, so a consumer adds the per-tier
+/// surcharge and multiplies; it never sees the base multiplier and cannot
+/// round differently from the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PriceDisplayParams {
+    /// A one-off component that does NOT repeat per unit - Recombine's
+    /// veil surcharge. Zero for every other rule.
+    pub flat: u64,
+    /// How many standard prices one unit costs.
+    pub times: u64,
+    /// The scaled flat half of one standard price. The per-tier half is
+    /// supplied by the caller, because it depends on the tier being
+    /// previewed.
+    pub unit_base: u64,
+    /// Whether `units` multiplies. `false` means the rule prices one
+    /// application regardless of what the caller counted, which is what
+    /// stops a stray unit count inflating a `Standard` action.
+    pub per_unit: bool,
+}
+
+impl PriceDisplayParams {
+    /// THE one expression. `dust_at` and the crafting panel's preview both
+    /// evaluate this shape and nothing else - the preview in JavaScript
+    /// against the attributes the button carries, this function in Rust.
+    pub fn total_at(self, tier_surcharge: u64, units: u64) -> u64 {
+        let units = if self.per_unit { units } else { 1 };
+        self.flat.saturating_add(units.saturating_mul(self.times).saturating_mul(self.unit_base.saturating_add(tier_surcharge)))
     }
 }
 

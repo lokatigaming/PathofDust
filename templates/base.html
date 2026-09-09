@@ -914,6 +914,43 @@
       var checked = document.querySelector('.polish-reforge-actions input[name="times"]:checked');
       return checked ? parseInt(checked.value, 10) : 1;
     };
+    // The per-tier half of a standard price. Math.ceil per term, exactly
+    // as AdventureManager::craft_item_ex does - the flat half is already
+    // ceil'd server-side into data-base, this ceils the tier term on its
+    // own, and the two are summed. Never one ceil over the whole sum, and
+    // never Math.round.
+    var tierCostAt = function(btn, tier) {
+      var mult = parseFloat(btn.getAttribute('data-tier-mult'));
+      var exp = parseFloat(btn.getAttribute('data-tier-exp'));
+      if (isNaN(mult) || isNaN(exp)) return 0;
+      if (tier <= 0) return 0;
+      return Math.ceil(mult * Math.pow(tier, exp));
+    };
+    // THE ONE EXPRESSION - `PriceDisplayParams::total_at`'s shape, in JS,
+    // over parameters the server emitted. NOTHING HERE IS A PRICE
+    // FORMULA: `times`, `flat`, `base` and the two tier parameters all
+    // come off the button, so this cannot drift from `PriceRule::dust_at`
+    // without an attribute drifting first.
+    //
+    // That is the whole point. This script used to carry `30 * tier` for
+    // Reforge and `500 * pool` for Recombine - both retired on 2026-09-02
+    // - so at tier 101 Reforge's label said 3,030 against a 15,260 charge
+    // and the affordability gate believed the label.
+    //
+    // Deliberately defined ABOVE `updateSpecialCosts`, which calls it and
+    // which runs before the block further down: a ReferenceError here
+    // would abort every statement left in this shared <script> tag, which
+    // is a failure this file has already had once.
+    var ruleCostOf = function(btn, tier, units) {
+      var base = parseInt(btn.getAttribute('data-base'), 10);
+      if (isNaN(base)) return 0;
+      var times = parseInt(btn.getAttribute('data-times') || '1', 10);
+      var flat = parseInt(btn.getAttribute('data-flat') || '0', 10);
+      if (isNaN(times)) times = 1;
+      if (isNaN(flat)) flat = 0;
+      var n = btn.hasAttribute('data-per-unit') ? units : 1;
+      return flat + n * times * (base + tierCostAt(btn, tier));
+    };
     var updateSpecialCosts = function() {
       var times = currentTimes();
       var suffix = times > 1 ? ' x' + times : '';
@@ -943,7 +980,11 @@
       }
       if (reforgeBtn) {
         var tier = itemASelect && itemASelect.selectedOptions.length ? parseInt(itemASelect.selectedOptions[0].getAttribute('data-tier') || '0', 10) : 0;
-        var dustCost = 30 * tier * times;
+        // Through the rule's own parameters, same as every other priced
+        // button. This was `30 * tier * times` - the flat curve retired on
+        // 2026-09-02 - which is why the label said 3,030 at tier 101 while
+        // the server charged 15,260 and this gate let the click through.
+        var dustCost = ruleCostOf(reforgeBtn, tier, 1) * times;
         var dustHave = parseInt(reforgeBtn.getAttribute('data-dust') || '0', 10);
         reforgeBtn.textContent = 'Reforge' + suffix + ' (' + dustCost + 'd)';
         reforgeBtn.disabled = dustHave < dustCost;
@@ -978,27 +1019,25 @@
       // does - the base fee is already ceil'd server-side into data-base,
       // this ceils the tier term on its own, and the two are then summed.
       // Never one ceil over the whole sum, and never Math.round.
-      var tierCostOf = function(btn) {
-        var mult = parseFloat(btn.getAttribute('data-tier-mult'));
-        var exp = parseFloat(btn.getAttribute('data-tier-exp'));
-        if (isNaN(mult) || isNaN(exp)) return 0;
-        var tier = tierOf(itemASelect);
-        if (tier <= 0) return 0;
-        return Math.ceil(mult * Math.pow(tier, exp));
-      };
       var updateCraftCosts = function() {
         var veiled = veilCheckbox.checked;
         var pool = affixCountOf(itemASelect) + affixCountOf(itemBSelect);
         craftButtons.forEach(function(btn) {
-          var base = parseInt(btn.getAttribute('data-base'), 10);
-          var extra = btn.getAttribute('data-veil-extra');
           var isRecombine = btn.hasAttribute('data-recombine');
-          var cost = isRecombine ? base : base + tierCostOf(btn);
-          if (veiled && extra !== null) {
+          // The result item's tier, matching `recombine_gear`'s own
+          // `(a.tier + b.tier) / 2 + 1`. Item A's tier is what this used
+          // to price against, which is a different number whenever the
+          // two items differ.
+          var tier = isRecombine
+            ? Math.floor((tierOf(itemASelect) + tierOf(itemBSelect)) / 2) + 1
+            : tierOf(itemASelect);
+          var extra = btn.getAttribute('data-veil-extra');
+          // A basic recombine is free; only veiling it costs anything, so
+          // its whole rule - flat surcharge included - applies only when
+          // the box is ticked.
+          var cost = isRecombine ? (veiled ? ruleCostOf(btn, tier, pool) : 0) : ruleCostOf(btn, tier, 1);
+          if (veiled && extra !== null && !isRecombine) {
             cost += parseInt(extra, 10);
-            if (isRecombine) {
-              cost += 500 * pool;
-            }
           }
           var costText = cost > 0 ? (cost + 'd') : 'Free';
           btn.textContent = btn.getAttribute('data-label') + ' (' + costText + ')';
