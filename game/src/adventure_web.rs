@@ -3607,9 +3607,9 @@ struct TunablesForm {
     hp_multiplier_floor: f64,
     #[serde(default = "default_hp_multiplier_ceiling")]
     hp_multiplier_ceiling: f64,
-    /// See `LiveTunables::hp_relax_after_losses`'s doc.
+    /// See `LiveTunables::hp_relax_after_secs`'s doc.
     #[serde(default)]
-    hp_relax_after_losses: u32,
+    hp_relax_after_secs: u64,
     /// See `LiveTunables::hp_relax_step_per_fight`'s doc.
     #[serde(default)]
     hp_relax_step_per_fight: f64,
@@ -4099,7 +4099,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 // 0 is meaningful here - it is the deliberate "no
                 // throttle, every win pays" setting - so this is a
                 // ceiling check only, in the same spirit as
-                // `hp_relax_after_losses` below.
+                // `hp_relax_after_secs` below.
                 win_xp_cooldown_secs: v.at_most_u64("win_xp_cooldown_secs", form.win_xp_cooldown_secs, crate::adventure::WIN_XP_COOLDOWN_SECS_MAX),
                 win_xp_catchup_enabled: form.win_xp_catchup_enabled.is_some(),
                 password_hash_permits: v.range_u32("password_hash_permits", form.password_hash_permits, crate::adventure::PASSWORD_HASH_PERMITS_MIN, crate::adventure::PASSWORD_HASH_PERMITS_MAX),
@@ -4182,7 +4182,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 // substitutes the shipped default), and on the step it is
                 // the deliberate off switch for relaxation. So neither is
                 // floored here - only the typo backstops apply.
-                hp_relax_after_losses: form.hp_relax_after_losses,
+                hp_relax_after_secs: form.hp_relax_after_secs,
                 hp_relax_step_per_fight: v.clamp("hp_relax_step_per_fight", form.hp_relax_step_per_fight, 0.0, 100.0),
                 target_win_loss_ratio: v.at_least("target_win_loss_ratio", form.target_win_loss_ratio, 0.001),
                 dmg_max_step_per_fight: v.clamp("dmg_max_step_per_fight", form.dmg_max_step_per_fight, 0.0, 100.0),
@@ -5616,9 +5616,9 @@ fn render_tunables_page(
               <p class=\"tunable-hint\">Ceiling on A's multiplier (hard-capped at 1,000,000 no matter what).</p>\
             </div>\
             <div class=\"tunable-row\">\
-              <label for=\"hp_relax_after_losses\">HP Relax After (consecutive losses)</label>\
-              <input type=\"number\" step=\"1\" min=\"0\" id=\"hp_relax_after_losses\" name=\"hp_relax_after_losses\" value=\"{hp_relax_after_losses}\">\
-              <p class=\"tunable-hint\">Consecutive LOST boss fights before Controller A starts decaying back toward neutral. A samples wins only — correct, but it means a wipe teaches A nothing, so an overshoot has no way back without this. 0 = unset (uses the shipped default); to switch relaxation off set the step below to 0.</p>\
+              <label for=\"hp_relax_after_secs\">HP Relax After (seconds since last win)</label>\
+              <input type=\"number\" step=\"1\" min=\"0\" id=\"hp_relax_after_secs\" name=\"hp_relax_after_secs\" value=\"{hp_relax_after_secs}\">\
+              <p class=\"tunable-hint\">SECONDS since the last winning boss fight before Controller A starts decaying back toward neutral. A samples wins only — correct, but it means a wipe teaches A nothing, so an overshoot has no way back without this. Was a consecutive-loss COUNT until 2026-09-09: boss fights arrive every 600s normally and every ~60s under permanent rampage, so a fight count meant ten different things depending on a toggle that can flip between two fights. Shipped at 1800 = three scheduled boss cycles, which is what the old count of 3 meant at the normal cadence. 0 = unset (uses the shipped default); to switch relaxation off set the step below to 0.</p>\
             </div>\
             <div class=\"tunable-row\">\
               <label for=\"hp_relax_step_per_fight\">HP Relax Step (per lost fight)</label>\
@@ -5771,7 +5771,7 @@ fn render_tunables_page(
         hp_max_step_per_fight = t.hp_max_step_per_fight,
         hp_multiplier_floor = t.hp_multiplier_floor,
         hp_multiplier_ceiling = t.hp_multiplier_ceiling,
-        hp_relax_after_losses = t.hp_relax_after_losses,
+        hp_relax_after_secs = t.hp_relax_after_secs,
         hp_relax_step_per_fight = t.hp_relax_step_per_fight,
         target_win_loss_ratio = t.target_win_loss_ratio,
         dmg_max_step_per_fight = t.dmg_max_step_per_fight,

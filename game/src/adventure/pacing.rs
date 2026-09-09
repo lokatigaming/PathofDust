@@ -176,26 +176,85 @@ pub(crate) const TOP_LAYER_ABSOLUTE_CAP: f64 = 0.95;
 /// both `LiveTunables::default()` and this module's own non-finite
 /// substitution fall back to, so the two lists can never drift apart.
 pub(crate) mod defaults {
+    /// The rolling sample window, in FIGHTS, and it stays in fights
+    /// (owner ruling 2026-09-09) - unlike the relaxation trigger above,
+    /// which moved to a clock the same day. The two are counted
+    /// differently on purpose: this is a **statistical estimator** and N
+    /// samples is what makes a mean, while the trigger is a **liveness
+    /// guard** and stuck-ness is a wall-clock experience. A time window
+    /// here would yield 2 samples at the live cadence, which is not an
+    /// estimator at all.
+    ///
+    /// **The cost is stated rather than left implicit: at
+    /// `ENCOUNTER_INTERVAL` (600 s) these 20 fights are 3 h 20 min, so the
+    /// window describes the party as it was more than three hours ago.**
+    /// That is accepted knowingly. Shrinking it to regain recency trades
+    /// away the only thing it is for, and the relaxation trigger is what
+    /// now covers "the party has changed and A has not noticed".
     pub const PACING_WINDOW_FIGHTS: u32 = 20;
     pub const TARGET_DURATION_MIN_S: f64 = 30.0;
     pub const TARGET_DURATION_MAX_S: f64 = 45.0;
     pub const HP_MAX_STEP_PER_FIGHT: f64 = 0.25;
     pub const HP_MULTIPLIER_FLOOR: f64 = 0.4;
     pub const HP_MULTIPLIER_CEILING: f64 = 6.0;
-    /// Controller A's relaxation trigger (2026-08-23): consecutive LOST
-    /// boss fights before A starts decaying back toward neutral. 3 is
-    /// roughly three minutes of uninterrupted wiping under the normal
-    /// operating mode (permanent rampage, ~60 s cadence) - long enough
-    /// that a single unlucky wipe never moves A, short enough that a
-    /// genuine overshoot is not left standing for an hour.
-    pub const HP_RELAX_AFTER_LOSSES: u32 = 3;
-    /// Controller A's relaxation rate: the RELATIVE step it takes back
-    /// toward neutral per lost fight once the streak triggers. 0.20 walks
-    /// a 30x overshoot (the live incident) back to neutral in ~19 fights
-    /// while never moving more in one fight than A's own escalation step
-    /// could. **0.0 disables relaxation entirely** - the off switch lives
-    /// on this axis rather than on the loss count, because a zero-valued
-    /// integer dial is read as UNSET across this module.
+    /// Controller A's relaxation trigger: **wall-clock seconds since the
+    /// party's last WINNING boss fight** (2026-09-09, owner ruling).
+    ///
+    /// WHY THIS IS A CLOCK AND NOT A FIGHT COUNT. It was
+    /// `HP_RELAX_AFTER_LOSSES = 3`, whose own doc read "roughly three
+    /// minutes of uninterrupted wiping under the normal operating mode
+    /// (permanent rampage, ~60 s cadence)". That operating mode ended:
+    /// `permanent_rampage` now defaults to `false`, so boss fights arrive
+    /// every `ENCOUNTER_INTERVAL` (600 s) instead of every ~60 s, and
+    /// three losses became **thirty** minutes without a line of code
+    /// changing.
+    ///
+    /// Re-sizing the count was not available. Dividing by ten gives 0.3
+    /// fights, which is not representable - the floor is 1, and 1 is still
+    /// 10 minutes AND destroys the property the constant was chosen for
+    /// ("a single unlucky wipe never moves A"). **At a 600 s cadence a
+    /// fight-counted trigger cannot be both slow enough to ignore one wipe
+    /// and fast enough to matter; at 60 s it could be both, which is why
+    /// nobody had to choose.**
+    ///
+    /// **And rampage is a TOGGLE.** A count tuned for 600 s is ten times
+    /// too slow the moment someone votes rampage on, and it can flip
+    /// between two fights. A clock means the same thing at both settings -
+    /// the property a fight count could never have. Half an hour of
+    /// uninterrupted losing is the same player experience whether it took
+    /// 3 fights or 30, and that experience is what this regulates.
+    ///
+    /// WHY 1800. Chosen against `ENCOUNTER_INTERVAL` the way
+    /// `WIN_XP_COOLDOWN_SECS` (450 s = 75% of it) was, and for the same
+    /// reason - a per-fight quantity that rampage can multiply by ten has
+    /// to be denominated in something rampage does not change:
+    ///
+    /// - **3 x `ENCOUNTER_INTERVAL`**, so at the scheduled cadence it fires
+    ///   after three lost boss cycles - exactly what the old count did,
+    ///   which is why this is a re-denomination and not a re-tuning.
+    /// - **A single unlucky wipe is ~600 s since the last win, one third of
+    ///   this**, so it sits well under the trigger, as it must.
+    /// - **Half of the "not left standing for an hour" bound** the original
+    ///   doc set, so the upper half of that intent survives too.
+    pub const HP_RELAX_AFTER_SECS: u64 = 1800;
+    /// Controller A's relaxation RATE: the relative step it takes back
+    /// toward neutral per fight, once the trigger above has fired. 0.20
+    /// walks a 30x overshoot (the live incident) back to neutral in ~19
+    /// fights while never moving more in one fight than A's own escalation
+    /// step could. **0.0 disables relaxation entirely** - the off switch
+    /// lives on this axis rather than on the trigger, because a
+    /// zero-valued dial there would read as "relax immediately", the
+    /// opposite of off.
+    ///
+    /// **This is still counted in FIGHTS, and at 600 s that is ~3 h 10 min
+    /// to unwind a 30x overshoot** - the "~19 fights" above was ~19
+    /// minutes when it was written under rampage. Left in fights and left
+    /// at 0.20 deliberately (owner ruling 2026-09-09 covered the TRIGGER
+    /// only): the rate is bounded by A's own escalation step, which is
+    /// also per-fight, so re-denominating one without the other would let
+    /// relaxation outrun the controller it is releasing. The trigger is
+    /// what decides *whether* A is stuck; this only decides how fast it
+    /// lets go once that is settled.
     pub const HP_RELAX_STEP_PER_FIGHT: f64 = 0.20;
     pub const TARGET_WIN_LOSS_RATIO: f64 = 2.0;
     pub const DMG_MAX_STEP_PER_FIGHT: f64 = 0.15;
@@ -245,10 +304,11 @@ pub(crate) struct PacingParams {
     pub hp_step: f64,
     pub hp_floor: f64,
     pub hp_ceiling: f64,
-    /// Consecutive lost boss fights before Controller A's relaxation path
-    /// engages (see `relax_hp_pacing_mult`). Sanitized like every other
+    /// Wall-clock SECONDS since the party's last winning boss fight before
+    /// Controller A's relaxation path engages (see `relax_hp_pacing_mult`
+    /// and `defaults::HP_RELAX_AFTER_SECS`). Sanitized like every other
     /// integer dial: 0 reads as UNSET and substitutes the shipped default.
-    pub hp_relax_after_losses: u32,
+    pub hp_relax_after_secs: u64,
     /// Controller A's per-fight relaxation step. 0.0 means relaxation is
     /// OFF (see `defaults::HP_RELAX_STEP_PER_FIGHT`).
     pub hp_relax_step: f64,
@@ -276,7 +336,7 @@ impl PacingParams {
             hp_step: finite_or(t.hp_max_step_per_fight, defaults::HP_MAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             hp_floor: finite_or(t.hp_multiplier_floor, defaults::HP_MULTIPLIER_FLOOR),
             hp_ceiling: finite_or(t.hp_multiplier_ceiling, defaults::HP_MULTIPLIER_CEILING),
-            hp_relax_after_losses: if t.hp_relax_after_losses == 0 { defaults::HP_RELAX_AFTER_LOSSES } else { t.hp_relax_after_losses },
+            hp_relax_after_secs: if t.hp_relax_after_secs == 0 { defaults::HP_RELAX_AFTER_SECS } else { t.hp_relax_after_secs },
             hp_relax_step: finite_or(t.hp_relax_step_per_fight, defaults::HP_RELAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
             wl_target: finite_or(t.target_win_loss_ratio, defaults::TARGET_WIN_LOSS_RATIO).max(0.001),
             dmg_step: finite_or(t.dmg_max_step_per_fight, defaults::DMG_MAX_STEP_PER_FIGHT).clamp(0.0, 100.0),
@@ -678,11 +738,19 @@ pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingPar
 /// so a losing streak actively pushed A further up. Both live incidents
 /// needed a manual override to break out.
 ///
-/// This is the release valve. After `hp_relax_after_losses` consecutive
-/// LOST boss fights, A decays one rate-limited step back toward neutral
-/// per fight, using the sample window not at all. Wins-only sampling is
-/// untouched: a loss still never becomes a duration sample, it only
-/// releases pressure.
+/// This is the release valve. Once it has been `hp_relax_after_secs` of
+/// WALL CLOCK since the party's last winning boss fight, A decays one
+/// rate-limited step back toward neutral per fight, using the sample
+/// window not at all. Wins-only sampling is untouched: a loss still never
+/// becomes a duration sample, it only releases pressure.
+///
+/// **The trigger is a clock, not a loss count** (2026-09-09, owner
+/// ruling) - see `defaults::HP_RELAX_AFTER_SECS` for why. In short: it
+/// was three consecutive losses, which meant three minutes under
+/// permanent rampage and became thirty when rampage went to
+/// default-off, and rampage is a toggle that can flip between two
+/// fights. A count is correct at exactly one setting of it; a clock is
+/// correct at both.
 ///
 /// **Downward only, and never past neutral.** The order framed this as
 /// "decay toward neutral", and from ABOVE neutral that is exactly what
@@ -696,11 +764,11 @@ pub(crate) fn update_dmg_pacing_mult(prev: f64, outcomes: &[bool], p: &PacingPar
 ///
 /// Returns `None` when it does not apply, so the caller falls through to
 /// the ordinary update.
-pub(crate) fn relax_hp_pacing_mult(prev: f64, losses_since_win: u32, p: &PacingParams) -> Option<f64> {
+pub(crate) fn relax_hp_pacing_mult(prev: f64, secs_since_last_win: u64, p: &PacingParams) -> Option<f64> {
     if !p.enabled || p.hp_relax_step <= 0.0 {
         return None;
     }
-    if losses_since_win < p.hp_relax_after_losses.max(1) {
+    if secs_since_last_win < p.hp_relax_after_secs.max(1) {
         return None;
     }
     let cur = sanitize_mult(prev);
@@ -823,7 +891,7 @@ mod tests {
             hp_step: 0.25,
             hp_floor: 0.4,
             hp_ceiling: 6.0,
-            hp_relax_after_losses: defaults::HP_RELAX_AFTER_LOSSES,
+            hp_relax_after_secs: defaults::HP_RELAX_AFTER_SECS,
             hp_relax_step: defaults::HP_RELAX_STEP_PER_FIGHT,
             wl_target: 2.0,
             dmg_step: 0.15,
@@ -1476,12 +1544,14 @@ mod tests {
         let mut mult = 30.0_f64;
         // Below the trigger nothing moves - one unlucky wipe must not
         // touch a controller that is otherwise doing its job.
-        for losses in 1..p.hp_relax_after_losses {
-            assert_eq!(relax_hp_pacing_mult(mult, losses, &p), None, "{losses} loss(es) is below the trigger");
+        // 600 is one ENCOUNTER_INTERVAL - a single unlucky wipe, which
+        // must never move A.
+        for secs in [0, 1, 600, p.hp_relax_after_secs - 1] {
+            assert_eq!(relax_hp_pacing_mult(mult, secs, &p), None, "{secs}s since the last win is below the trigger");
         }
         // At and past the trigger it decays, one rate-limited step a fight.
         let mut fights = 0;
-        let mut losses = p.hp_relax_after_losses;
+        let mut losses = p.hp_relax_after_secs;
         while mult > 1.0 + 1e-9 {
             let next = relax_hp_pacing_mult(mult, losses, &p).expect("the streak must keep relaxing");
             assert!(next < mult, "frozen at {mult} after {fights} lost fights");
@@ -1522,16 +1592,16 @@ mod tests {
     fn relaxation_respects_the_kill_switch_and_its_own_off_switch() {
         let mut off = params();
         off.enabled = false;
-        assert_eq!(relax_hp_pacing_mult(30.0, 99, &off), None, "the master kill-switch silences relaxation too");
+        assert_eq!(relax_hp_pacing_mult(30.0, 99_999, &off), None, "the master kill-switch silences relaxation too");
 
         let mut no_step = params();
         no_step.hp_relax_step = 0.0;
-        assert_eq!(relax_hp_pacing_mult(30.0, 99, &no_step), None, "a zero step is the off switch");
+        assert_eq!(relax_hp_pacing_mult(30.0, 99_999, &no_step), None, "a zero step is the off switch");
 
-        let unset = LiveTunables { hp_relax_after_losses: 0, ..Default::default() };
+        let unset = LiveTunables { hp_relax_after_secs: 0, ..Default::default() };
         assert_eq!(
-            PacingParams::from_tunables(&unset).hp_relax_after_losses,
-            defaults::HP_RELAX_AFTER_LOSSES,
+            PacingParams::from_tunables(&unset).hp_relax_after_secs,
+            defaults::HP_RELAX_AFTER_SECS,
             "0 reads as UNSET, never as 'relax on the first loss'"
         );
         let poisoned = LiveTunables { hp_relax_step_per_fight: f64::NAN, ..Default::default() };
@@ -1543,12 +1613,12 @@ mod tests {
     }
 
     /// Relaxation must not quietly become a second sampler: it reads only
-    /// the loss counter and A's own stored value, never the DPS window, and
-    /// it must leave wins-only sampling exactly as it was.
+    /// the elapsed clock and A's own stored value, never the DPS window,
+    /// and it must leave wins-only sampling exactly as it was.
     #[test]
     fn relaxation_reads_no_samples_and_does_not_disturb_wins_only_sampling() {
         let p = params();
-        let from_empty = relax_hp_pacing_mult(30.0, 99, &p);
+        let from_empty = relax_hp_pacing_mult(30.0, p.hp_relax_after_secs, &p);
         assert!(from_empty.is_some(), "relaxation works with no samples at all - it is not a window consumer");
 
         // The wins-only rule is untouched: a loss still never becomes a
@@ -1680,3 +1750,84 @@ mod tests {
 
 
 
+
+#[cfg(test)]
+mod relax_trigger_is_a_clock_tests {
+    use super::*;
+
+    fn p() -> PacingParams {
+        PacingParams::from_tunables(&LiveTunables::default())
+    }
+
+    /// One `ENCOUNTER_INTERVAL`. Not imported from `manager` - this module
+    /// must not depend on it - but named here so the relationship the
+    /// trigger was chosen against is visible at the assertion.
+    const ENCOUNTER_SECS: u64 = 600;
+
+    /// The boundary, exactly: N fires and N-1 does not.
+    #[test]
+    fn the_trigger_fires_at_n_and_not_at_n_minus_one() {
+        let p = p();
+        let n = p.hp_relax_after_secs;
+        assert_eq!(n, defaults::HP_RELAX_AFTER_SECS, "the default is what this test is pinning the boundary of");
+        assert_eq!(relax_hp_pacing_mult(30.0, n - 1, &p), None, "one second short of the trigger must not relax - a boundary that is off by one here is half an hour of live behaviour");
+        assert!(relax_hp_pacing_mult(30.0, n, &p).is_some(), "at exactly the trigger it must relax");
+    }
+
+    /// **A single unlucky wipe must never move A.** That was the stated
+    /// reason the old count was 3 rather than 1, and it is the property
+    /// most easily lost when a trigger is re-denominated: at the scheduled
+    /// cadence one loss is ~600 s since the last win, and if N had been
+    /// sized from the old "three minutes" wording it would sit at 180 and
+    /// fire on every single wipe.
+    #[test]
+    fn one_unlucky_wipe_at_the_scheduled_cadence_does_not_fire_it() {
+        let p = p();
+        assert_eq!(relax_hp_pacing_mult(30.0, ENCOUNTER_SECS, &p), None, "one lost boss cycle is not a stuck party");
+        assert_eq!(relax_hp_pacing_mult(30.0, 2 * ENCOUNTER_SECS, &p), None, "two lost cycles still is not");
+        assert!(
+            relax_hp_pacing_mult(30.0, 3 * ENCOUNTER_SECS, &p).is_some(),
+            "three lost boss cycles must fire it - that is exactly what the old count of 3 meant at this cadence, and the re-denomination is supposed to preserve it"
+        );
+    }
+
+    /// **The property a fight count could never have.** Rampage is a
+    /// toggle: with it on, boss fights arrive every ~60 s; with it off,
+    /// every 600 s. The SAME elapsed wall clock must mean the same thing
+    /// at both settings - so the trigger is expressed in seconds and the
+    /// number of fights that fit inside it is simply not part of the
+    /// question.
+    ///
+    /// Asserted as the invariant rather than by simulating two worlds:
+    /// `relax_hp_pacing_mult` takes seconds and has no access to a fight
+    /// count, a cadence, or the rampage flag, so there is no input through
+    /// which the setting could reach it. The old signature took a `u32`
+    /// loss count, which is exactly how the setting reached it before.
+    #[test]
+    fn the_same_elapsed_time_decides_identically_whichever_rampage_setting_is_live() {
+        let p = p();
+        let n = p.hp_relax_after_secs;
+        // 30 fights of wiping under rampage (~60 s each) and 3 under the
+        // scheduled cadence (600 s each) are the same half hour, and the
+        // trigger cannot tell them apart because it is never told.
+        let under_rampage = 30 * 60;
+        let under_schedule = 3 * ENCOUNTER_SECS;
+        assert_eq!(under_rampage, under_schedule, "both routes to the trigger are the same wall clock, which is the point");
+        assert_eq!(under_rampage, n as usize as u64, "and both are exactly N");
+        assert!(relax_hp_pacing_mult(30.0, under_rampage, &p).is_some());
+        assert!(relax_hp_pacing_mult(30.0, under_schedule, &p).is_some());
+        // Below it, likewise identical from either direction.
+        assert_eq!(relax_hp_pacing_mult(30.0, under_rampage - 1, &p), None);
+        assert_eq!(relax_hp_pacing_mult(30.0, under_schedule - 1, &p), None);
+    }
+
+    /// The chosen N against `ENCOUNTER_INTERVAL`, pinned so the reasoning
+    /// in the constant's doc cannot quietly stop being true.
+    #[test]
+    fn n_is_three_scheduled_boss_cycles_and_sits_between_its_two_bounds() {
+        let n = defaults::HP_RELAX_AFTER_SECS;
+        assert_eq!(n, 3 * ENCOUNTER_SECS, "N is three scheduled boss cycles - what the old count of 3 meant at the live cadence");
+        assert!(n > ENCOUNTER_SECS, "a single unlucky wipe must sit well under N");
+        assert!(n <= 3600, "and N must stay under the 'not left standing for an hour' bound the original constant set");
+    }
+}
