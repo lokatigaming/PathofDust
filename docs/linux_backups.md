@@ -285,6 +285,104 @@ zero here because no fight completed in the window. On a busy box that row would
 non-zero for `adventure-characters.json`, `adventure-world.json` and the summary tier — the
 question to ask is whether anything differs that *should not* churn.
 
+
+## Rehearsing a restore on Windows, from the off-box copy (2026-09-09)
+
+The section above restores **onto the box**. This one restores **off it** — take the
+pulled archive, bring a world up against it on a different machine, and confirm it is
+really there. It is what turns "the archive opens" into "a world comes back from it", and
+it is safe to run any time because nothing it does touches the live box, the live bot, or
+`C:\PathofDust`.
+
+**The archive was byte-identical after the rehearsal below** — 4,683,534 bytes, unchanged
+mtime. Extraction and verification only ever read it.
+
+Every step is what was actually typed on 2026-09-09, not a reconstruction.
+
+```powershell
+# 1. VERIFY BEFORE YOU TRUST. An archive without a matching sidecar is not a
+#    backup, and the checksum is the cheapest step here by a wide margin.
+$a = 'C:\pod-backups-linux\pod-backup-20260906-031801.tar.gz'
+$expected = ([regex]::Match((Get-Content "$a.sha256" -Raw), '[0-9a-fA-F]{64}')).Value.ToLower()
+$actual   = (Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash.ToLower()
+if ($expected -ne $actual) { throw 'checksum mismatch - stop' }
+
+# 2. EXTRACT SOMEWHERE FRESH. Never into a live deployment, never into
+#    C:\PathofDust, never over an existing tree.
+$R = 'C:\dust-work\restore-rehearsal'
+Remove-Item -Recurse -Force $R -ErrorAction SilentlyContinue
+New-Item -ItemType Directory "$R\data","$R\run" -Force | Out-Null
+tar -xzf $a -C "$R\data"
+
+# 3. READ THE MANIFEST FIRST. `verdict` must be `clean`; `createdAt` carries the
+#    SOURCE BOX'S UTC OFFSET, which is the only place it is recorded.
+Get-Content "$R\data\_backup-manifest.json" -Raw | ConvertFrom-Json |
+    Select-Object createdAt, verdict, filesCopied, filesFailed, sourceDir
+
+# 4. PUT `templates\` IN THE WORKING DIRECTORY. This is the step a first-time
+#    restorer will be missing, and the reason it is not obvious: GAME_DATA_DIR
+#    moves DATA, not static assets. The release binary resolves a bare
+#    `templates/` against its own CWD, so without this it starts, binds, and
+#    then cannot render a page.
+Copy-Item -Recurse -Force 'C:\dust-work\d\templates' "$R\run\templates"
+
+# 5. CHECK THE PORTS ARE FREE, and use ones production does not (4005/4004).
+foreach ($p in 24904,24905) {
+    if (Get-NetTCPConnection -State Listen -LocalPort $p -EA SilentlyContinue) { throw "port $p in use" }
+}
+
+# 6. START IT, pointed at the extraction.
+$env:GAME_DATA_DIR = "$R\data"
+$env:ADVENTURE_WEB_PORT = '24905'
+$env:ADVENTURE_OVERLAY_SERVER_PORT = '24904'
+Start-Process 'C:\dust-work\target-restore\release\game.exe' -WorkingDirectory "$R\run" `
+    -NoNewWindow -PassThru `
+    -RedirectStandardOutput "$R\run\stdout.log" -RedirectStandardError "$R\run\stderr.log"
+
+# 7. READ THE STARTUP LINES. They state the roster size and the path it came
+#    from - and the ABSENCE of migration lines is the result that matters most.
+Select-String 'loaded .* characters|PANIC|ERROR' "$R\run\stdout.log"
+
+# 8. READ A CHARACTER THROUGH THE GAME, not out of the JSON. The dashboard is
+#    session-gated, so register a throwaway account AGAINST THE SCRATCH COPY:
+#    POST /account/register {username,password}, then GET /characters/<login>.
+#    Compare level, dust and the nine equipped tiers against the raw file.
+
+# 9. STOP IT BY PID, NEVER BY IMAGE NAME - it runs the same `game.exe` image as
+#    production. Resolve the port to its owner and refuse on the wrong path.
+$c = Get-NetTCPConnection -State Listen -LocalPort 24905
+$p = Get-Process -Id $c.OwningProcess
+if ($p.Path -like 'C:\PathofDust\*') { throw 'REFUSING - that is production' }
+Stop-Process -Id $p.Id -Force
+
+# 10. DELETE THE EXTRACTION when the checks are recorded. It is a second copy of
+#     live player data - accounts, sessions, every character - and it should not
+#     outlive the rehearsal that needed it.
+Remove-Item -Recurse -Force $R
+```
+
+### What the rehearsal established, 2026-09-09
+
+From `pod-backup-20260906-031801.tar.gz`, `verdict: clean`, 255 files:
+
+| Check | Result |
+|---|---|
+| sidecar vs computed SHA-256 | match |
+| game boots against the extraction | **yes** — both servers bound, no panic, no ERROR |
+| **migrations re-fired** | **none** — the archive carries every marker, so no backfill ran against restored data |
+| roster size | 22, matching the file the game reported loading |
+| entries in the archive not declared in `stores.rs` | **0** |
+| one character, raw file vs rendered page | level, XP, dust, divine dust, W/L, archetype and **all nine equipped tiers and names** — identical |
+| written into the extraction by the rehearsal | 3 files: the throwaway account, its session, the game's own log |
+| the archive afterwards | **byte-identical** |
+
+The third row is the one to look for first on any future rehearsal. A restore that
+silently re-runs a migration against already-migrated data is the failure mode here, and
+its symptom is a marker file being *created* during startup rather than read.
+
+The last two rows are why this is safe to repeat: the procedure writes only inside the
+scratch tree, and the thing it restores from is untouched.
+
 ---
 
 # Off-box copy: the Windows-side pull
@@ -373,6 +471,17 @@ fall back to another key in the agent and you will not learn anything.
 
 `C:\pod-backup-pull\pull-linux-backups.ps1` — **outside `C:\PathofDust`**, so a deployment never
 touches it and it never lands inside the directory production backs up.
+
+> **The full listing further down is a snapshot as of 2026-09-01 and is now
+> historical.** The live script has changed twice since: 2026-09-08 made failures
+> COUNT rather than THROW so the staleness alarm is no longer behind the fetch's
+> success path, added one `list` retry, and stopped one bad archive aborting the
+> rest; 2026-09-09 took the snapshot's age from the manifest's `createdAt` (which
+> carries the source box's offset - it is **+02:00**) instead of assuming a zone for
+> the name, and retired the `-SnapshotZone` switch that briefly stood in for it.
+> Read the live script named above for what runs. This listing is
+> annotated rather than re-pasted so a reader chasing an old citation still lands on
+> what was written.
 
 ### Getting the bytes across: two ways that do not work
 

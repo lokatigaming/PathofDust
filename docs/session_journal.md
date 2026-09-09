@@ -7790,3 +7790,96 @@ separate them. Reported as an explicit unresolved group rather than folded in.
 b resolved it from a verified backup snapshot taken inside the deploy window,
 reading the cooldown file as it stood at 16:20:48. Evidence class: persisted state
 from a checksum-verified snapshot, not inference.
+
+## 2026-09-09 — THE PULL SCRIPT READS THE OFFSET, AND THE RESTORE PROCEDURE IS WRITTEN DOWN (branch `docs/restore-rehearsal-procedure`, plus the live pull script)
+
+### The 04:00 run — the fix's first live test, and the answer is "neither outcome"
+
+The order predicted two correct outcomes: fetch and recover, or raise the
+alarm. **What happened was the first, followed by a third thing.**
+
+`list` succeeded, the remote held 50, and all 7 missing archives came
+across clean - Sep 7 x2 and Sep 8 x5, including
+`pod-backup-20260908-162037`. Last fetch logged 04:01:48.
+
+**And then no `pull end` line, no age, no alarm.** `LastTaskResult` is
+`267014` = `0x41306` = SCHED_S_TASK_TERMINATED, and the System log has a
+power-state transition at **04:02:07** - nineteen seconds after that last
+line. `ExecutionTimeLimit` is `PT1H`, so it was not the limit: **the box
+slept mid-run and took the task with it.**
+
+Nothing was missed - the age after that fetch was well inside the limit,
+so there was no alarm to lose. But the shape is worth naming, because it
+is the same shape a second time:
+
+> **Yesterday the alarm was unreachable because the script exited before
+> it. Today it was unreachable because the process died before it. Moving
+> a check to the end of a run only protects it from the failures the run
+> reports - not from the ones that stop it reporting.**
+
+**The fix is not in the script and I did not build it:** the staleness
+check already runs standalone under `-SkipFetch`. A second scheduled task
+running only that, a few minutes after the puller, would answer "are we
+covered?" even when the fetch run never finishes. Ops configuration, not
+code, and not ordered - recommended in the report.
+
+### The offset is read, not configured
+
+`-SnapshotZone` is **retired one day after being added**. It was the right
+diagnosis and the wrong instrument: the restore rehearsal measured the box
+at **+02:00** from an archive's own `createdAt`, so `Local` (the shipped
+default) overstated age by 6 h and `Utc` - which I had documented as the
+corrected value - would have UNDERSTATED it by 2 h and fired the alarm
+LATE. **A switch whose two positions are "wrong and safe" and "wrong and
+unsafe" is a foot-gun**, and nobody should have to know the answer to set
+it.
+
+So the age now comes from `./_backup-manifest.json` inside each archive,
+streamed out with `tar -xzOf` the same way `backup-game-data.sh:424` reads
+a verdict. The name-parse survives as the fallback for an archive with no
+manifest, keeps `AssumeLocal` because that errs early rather than late,
+and **the log line says which source produced the number** - `via=manifest`
+or `via=name(assumed-local)` - so nobody has to guess whether they are
+reading a measured age or an assumed one.
+
+Verified on one tree of two real archives, three ways:
+
+  before, -SnapshotZone Local (shipped default)  age=83.2h   (+6.0 over)
+  before, -SnapshotZone Utc  (the "correction")  age=75.2h   (-2.0 under)
+  after,  manifest                               age=77.2h   via=manifest
+
+The arithmetic closes exactly, which is the confirmation that the box is
++02:00. Also exercised: a manifest-less archive falls back and says so
+(`age=2.5h via=name(assumed-local)`); an archive whose name will not parse
+either produces `FAILED: cannot date ... via=none` and exit 1; the alarm
+still fires on the manifest-derived age.
+
+A parse error caught by the first run of the edited script - removing the
+last parameter left a dangling comma in the `param()` block. Fixed before
+anything else ran.
+
+### The restore procedure
+
+`docs/linux_backups.md` gains the Windows-side rehearsal as it was
+actually run, next to the existing on-box restore rather than replacing
+it. The step the document could never have had is **step 4**:
+`templates\` must be in the working directory, because `GAME_DATA_DIR`
+moves DATA and not static assets - without it the binary starts, binds,
+and cannot render.
+
+The results table leads on the row that matters: **no migration re-fired.**
+A restore that silently re-runs a money migration against already-migrated
+data is the failure mode, and its symptom is a marker file being CREATED
+during startup rather than read.
+
+The embedded copy of the puller in that doc is now two changes stale. It
+is **annotated with a dated note rather than re-pasted** - the same
+treatment the append-only ruling prescribes for a claim that has gone
+stale, and cheaper than 200 lines of re-paste that would go stale again.
+
+FOUND - `docs/linux_backups.md:253` says the archive "deliberately does
+NOT carry templates/, wiki/, public_adventure_overlay/". The first two are
+right; `public_adventure_overlay\sprites\custom` IS in the backup
+allow-list and was present in the extraction. Imprecise rather than wrong -
+the git-tracked assets are absent, the player-uploaded sprites are not.
+Not touched.
