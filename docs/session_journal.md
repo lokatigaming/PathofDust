@@ -8309,3 +8309,74 @@ at 30 `game.log.*` files.
 
 No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
 crafting rule or command name changed.
+
+### 2026-09-10 — LOG-RETENTION-FIXED deploy record (release 26 = item 5 + b's fix)
+
+| | |
+|---|---|
+| master commit | `14af32b1d7d723dbcd0e06c2de1cefa91d1847ef` |
+| live binary | `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| previous | `e6632b6a5ce98aff72d41fa3bc2c1f12456dc49d1b33f36e98584203b3d53656` |
+| rollback slot | `deploy-pre-20260910-164947-log-retention-fixed` |
+| downtime | **0.54 s** |
+| suite | **936 passed / 0 failed / 46 result-lines** on the box |
+| seven §13B.5 checks | all pass |
+
+The Linux red from the first attempt is gone: the two retention tests that failed
+deterministically on the box now pass there.
+
+#### THE CORRECTION THAT MATTERED WAS MINE
+
+I reported the first red as "a TEST defect, not a product defect", reasoning that
+production is ext4 with one log per day and nine distinct btimes, so **"production
+never produces the tie the test constructs."**
+
+That inference was wrong and the owner caught it. `tar -xzf` stamps every extracted
+`game.log.*` with the same btime, so a **restore** produces exactly that tie — on
+the first start after a restore, which is the one start where the current day's log
+is most worth keeping. The test found on tmpfs what a restore would have found on
+ext4.
+
+**The general form, which is the durable part: observing a property of the current
+state is not establishing an invariant of the system.** The measurement was sound;
+the boundary was drawn in the wrong place.
+
+#### THE FIX REPLACES THE LIBRARY PRUNER RATHER THAN REORDERING IT
+
+I had assumed b would demote btime within an ordering of ours. There was none:
+`tracing_appender`'s `prune_old_logs` uses btime first and the filename only as
+`or_else`, so it could not be inverted from outside. Leaving `max_log_files` set
+would have kept the library pruning at construction and re-ranking a restored
+tie-btime directory whatever our code did afterwards.
+
+Verified in the deployed tree: **`.max_log_files(` appears 0 times**, and
+`prune_by_filename_date` is ours. A prefixed file with no parseable date is never
+deleted.
+
+#### VERIFIED BY EFFECT, THREE WAYS — AND THE THIRD IS THE ONLY REAL ONE
+
+| check | result |
+|---|---|
+| directory listing, before vs after | **IDENTICAL** — removed nothing, added nothing |
+| today's log size | 1,623 -> 2,324 B (grew; the restart appended) |
+| **today's first line** | `2026-09-10T01:40:07…` — the ORIGINAL 01:40 line |
+
+The count was never going to be the check: 9 files either side is equally consistent
+with one deleted and today's recreated. And b's mutation check had already shown
+`exists()` vacuous — a deleted log is reopened empty microseconds later.
+
+**The first line is the proof.** A recreated file would begin at the restart's own
+first line, around 16:49. Beginning at 01:40 proves the file was appended to.
+
+#### KNOWN GAP, ACCEPTED AND ON THE BOARD
+
+Pruning runs at appender construction only. With `Restart=always` and near-daily
+deploys that is bounded by restarts; an uptime beyond 30 days without a restart
+would exceed the limit until the next start.
+
+#### The named flake, confirmed twice over
+
+Local was 935/1 on `live_reload_tests::editing_a_template_takes_effect_without_a_rebuild`.
+**6 of 6 in isolation**, and this release changes exactly one file —
+`game/src/logging.rs`, zero templates — so it cannot reach template live-reload. The
+box run was 936/0.
