@@ -32,19 +32,26 @@ A persistent, chat-driven idle RPG (`src/adventure/`, `src/adventure_web.rs`, `s
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_CHANNEL` (from a Twitch app at https://dev.twitch.tv/console/apps — set its OAuth redirect URL to `http://localhost:3000/callback`).
+1. Copy `bot/.env.example` to `bot/.env` and fill in `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_CHANNEL` (from a Twitch app at https://dev.twitch.tv/console/apps — set its OAuth redirect URL to `http://localhost:3000/callback`).
 
 2. Get a Twitch token: run `cargo run --bin auth`, which opens your browser for the Twitch login flow and saves `tokens.json`.
 
-3. (Optional) Enable other integrations by setting their `.env` keys — see `.env.example` for `STREAMELEMENTS_JWT` (tip alerts), `YOUTUBE_API_KEYS` (song requests), `PAYPAL_RELAY_URL`/`PAYPAL_RELAY_TOKEN` (PayPal tips, see `cloudflare-paypal-relay/` for the Worker side), and `LASTFM_API_KEY` (`!playrandom`). Leaving a key unset disables that feature gracefully; nothing else breaks.
+3. (Optional) Enable other integrations by setting their `.env` keys — see `bot/.env.example` for `STREAMELEMENTS_JWT` (tip alerts), `YOUTUBE_API_KEYS` (song requests), `PAYPAL_RELAY_URL`/`PAYPAL_RELAY_TOKEN` (PayPal tips, see `cloudflare-paypal-relay/` for the Worker side), and `LASTFM_API_KEY` (`!playrandom`). Leaving a key unset disables that feature gracefully; nothing else breaks.
 
-4. Run the bot:
+4. Run the bot. It must run with `bot/` as its working directory — every file it persists is a bare CWD-relative path, so the working directory *is* its data directory:
 
    ```
+   cd bot
    cargo run
    ```
 
-   The Adventure game's web dashboard, chat overlay, song request player, and alert box all start automatically as part of the same process, each on its own local port (see `.env.example` for the port variables).
+   From the repository root instead, name the binary. The root is a virtual workspace manifest and owns no package of its own, so a bare `cargo run` there cannot tell which member you mean:
+
+   ```
+   cargo run --bin twitch-bot-rs
+   ```
+
+   The Adventure game's web dashboard, chat overlay, song request player, and alert box all start automatically as part of the same process, each on its own local port (see `bot/.env.example` for the port variables).
 
 ## OBS setup
 
@@ -59,17 +66,17 @@ Each overlay is a plain HTTP server the bot starts on its own port — add a Bro
 
 ## Project structure
 
-- `src/config.rs` — loads `.env`.
-- `src/twitch/` — auth (token refresh), chat (`twitch-irc`), EventSub (hand-rolled WebSocket client), Helix API calls.
+- `bot/src/config.rs` — loads `bot/.env`.
+- `bot/src/twitch/` — auth (token refresh), chat (`twitch-irc`), EventSub (hand-rolled WebSocket client), Helix API calls.
 - `src/adventure/` — the RPG's combat sim, characters, items, crafting, and the manager tying it all together; `src/adventure_web.rs` — its web dashboard; `src/passive_tree.rs` — every class's passive tree definitions.
-- `src/commands.rs` — command dispatch: hand-written commands plus the `commands.json`-backed system.
-- `src/alerts.rs` — SSE-based alert box server.
-- `src/streamelements.rs` — optional integrations.
-- `src/announcements.rs` — periodic chat announcements.
-- `src/song_requests.rs`, `src/song_overlay_server.rs`, `public_song_overlay/` — YouTube song requests and their OBS browser source.
-- `src/emotes.rs`, `src/chat_overlay_server.rs`, `public_chat_overlay/` — the chat overlay OBS browser source.
+- `bot/src/commands.rs` — command dispatch: hand-written commands plus the `commands.json`-backed system.
+- `bot/src/alerts.rs` — SSE-based alert box server.
+- `bot/src/streamelements.rs` — optional integrations.
+- `bot/src/announcements.rs` — periodic chat announcements.
+- `bot/src/song_requests.rs`, `bot/src/song_overlay_server.rs`, `bot/public_song_overlay/` — YouTube song requests and their OBS browser source.
+- `bot/src/emotes.rs`, `bot/src/chat_overlay_server.rs`, `bot/public_chat_overlay/` — the chat overlay OBS browser source.
 - `cloudflare-paypal-relay/` — the Cloudflare Worker that relays PayPal webhook tips to the bot (PayPal can't reach a bot with no public address directly).
-- `src/bin/auth.rs` — one-time OAuth setup binary.
+- `bot/src/bin/auth.rs` — one-time OAuth setup binary.
 
 ## Note on this repo
 

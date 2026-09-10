@@ -101,7 +101,11 @@ async fn callback(
 
     match result {
         Ok(()) => {
-            println!("\nSaved tokens.json — you can now run: cargo run\n");
+            // `cargo run --bin twitch-bot-rs`, not a bare `cargo run`: as
+            // of the 2026-09-08 move into `bot/`, the workspace root is a
+            // VIRTUAL manifest owning no package, so a bare `cargo run`
+            // there cannot tell which member is meant and errors out.
+            println!("\nSaved tokens.json — you can now run: cargo run --bin twitch-bot-rs\n");
             Html("<h1>Authorized.</h1><p>tokens.json has been saved. You can close this tab and go back to the terminal.</p>".to_string())
         }
         Err(err) => {

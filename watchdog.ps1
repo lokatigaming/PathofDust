@@ -136,6 +136,24 @@ param(
     # under. Only consulted when the image path is readable at all.
     # Resolved in the BODY - a param-block default of $PSScriptRoot
     # arrives EMPTY under the `-File` invocation the scheduled task uses.
+    #
+    # THIS SCRIPT STAYS AT THE REPOSITORY ROOT, and did NOT move into
+    # `bot/` when the bot crate did (2026-09-08). That is deliberate and
+    # it is this parameter's fault: the default is $PSScriptRoot, and the
+    # thing it is compared against is the LISTENING PROCESS'S IMAGE PATH,
+    # which is `target\release\twitch-bot-rs.exe` - a sibling of this
+    # file, not of the bot's sources. Cargo puts every workspace member's
+    # binary in one shared `target\`, so moving the crate moved no binary.
+    # Move this script into `bot/` and $ExpectedPathRoot becomes `...\bot`,
+    # the live bot's own exe stops testing as "under my root", and the
+    # watchdog reads a healthy process as foreign.
+    #
+    # The bot's WORKING DIRECTORY did change, to `bot/`, because that is
+    # where its state files now resolve. This watchdog never consults a
+    # working directory - it checks a port and an image path - so that
+    # change is invisible here. It belongs to the `TwitchBotRS` scheduled
+    # task definition, which lives on the box rather than in this repo,
+    # and it is a cutover step rather than a code change.
     [string] $ExpectedPathRoot,
 
     [string] $LogPath,
