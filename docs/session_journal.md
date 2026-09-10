@@ -8096,3 +8096,74 @@ is the 9×-vs-17× argument holding up in the one place it could have been check
 The cap itself is now a live balance lever nobody has looked at — if 4 in 20 are
 saturating, `LIFE_LEECH_CAP_PER_SEC` is doing real work. Owner has it as its own
 board item; not this branch.
+
+### 2026-09-10 — SLAYER-LEECH-9X deploy record (release 25, item 4)
+
+| | |
+|---|---|
+| master commit | `bb2ac834299735b3d6a76012d259ac0a276484a4` |
+| live binary | `e6632b6a5ce98aff72d41fa3bc2c1f12456dc49d1b33f36e98584203b3d53656` |
+| previous | `7239a11297bf47668e0e13b75baa2e8b79f0e354e3b7a98567e1e4d49df3da32` |
+| rollback slot | `deploy-pre-20260910-091207-slayer-leech-9x` |
+| downtime | **0.17 s** |
+| suite | **929 passed / 0 failed / 46 result-lines** on the box |
+| seven §13B.5 checks | all pass |
+
+`Archetype::Slayer` `life_leech_pct` 0.001 -> 0.009. One corpus fixture
+regenerated. Suite unchanged at 929 with **0 new `#[test]`** — the two existing
+assertions were updated rather than new ones added, which is why the count is
+correctly flat.
+
+#### THE EXPECTED SET WAS BOUNDED BEFORE THE RUN
+
+The corpus holds **exactly one `Archetype::Slayer` scenario**, so one divergence
+was the only possible correct answer and a second would have been unattributable.
+That is a stronger check than matching a name afterwards, and it is available
+whenever a change's reach is knowable in advance.
+
+#### FIVE INDEPENDENT THINGS AGREED
+
+| evidence | result |
+|---|---|
+| structural bound | 1 Slayer scenario -> at most 1 divergence |
+| observed divergence | exactly `slayer_vs_tough_boss_stage3000` |
+| source constant | `0.001 -> 0.009` = **exactly 9.000x** |
+| fixture leaf ratios | **9.00 / 9.22 / 9.00 / 9.05**, b's figures reproduced in order |
+| invariants | `won` false->false, attacks 14->14, heals 4->4 |
+
+**The SPREAD in those ratios is evidence, not noise.** Leech heals are integers
+clamped by missing HP, so a clean 9.00x on all four would have meant the clamp was
+engaging nowhere — which at stage 3000 would itself deserve investigation. Uneven
+ratios are what a correct implementation looks like here.
+
+`won` was checked deliberately rather than inherited from b's report: a 9x buff to
+a survival stat is exactly the change that feels like it should flip an outcome,
+which is what makes an unexamined assumption there dangerous.
+
+#### CHECK 3 RETURNED EMPTY AND IT WAS THE INSTRUMENT AGAIN
+
+The first run of check 3a produced no `loaded N characters` line. That is the one
+check that exists because a binary loading ZERO characters still answers 200, so
+an empty result there is not something to wave through.
+
+Re-queried with a wider window: the line **is** present, `loaded 24 characters` at
+09:12:24, against 24 in the file. **Check 3 passes, 24 = 24.** The first query ran
+about six seconds after the restart, before journald had flushed it.
+
+Durable: **do not query journald for a startup line immediately after a restart** —
+give it a few seconds or widen the window, or the check reports absence where there
+is only latency.
+
+#### The patch note says correction, not buff
+
+Slayer's leech was measured against the Leech AFFIX, whose coefficient was
+corrected 10x on 2026-09-04 while the archetype's was not moved with it. Nothing
+about Slayer was rebalanced that day; a number it was measured against moved out
+from under it, and its class perk silently fell from about one gear affix to about
+a tenth of one. 0.009 is half a Leech affix, restoring the prior relationship.
+
+A full affix (~0.017, 17x) was declined for a reason worth keeping: at 0.9-2.6%
+the leech stays far below `LIFE_LEECH_CAP_PER_SEC` at observed DPS, so every
+Slayer gets full value regardless of `endlessthirst`; at 17x it would pay out fully
+for a 3/3 build and be substantially cap-absorbed for one without — widening the
+gap between builds instead of fixing the class.
