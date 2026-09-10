@@ -560,6 +560,19 @@ pub(crate) struct WorldState {
     /// also cheaper and does not care how far back B happens to retain.
     #[serde(default)]
     boss_losses_since_win: u32,
+    /// Unix seconds of the party's last WINNING boss fight (2026-09-09) -
+    /// what Controller A's relaxation trigger measures against now that it
+    /// is a clock rather than a loss count (see
+    /// `pacing::defaults::HP_RELAX_AFTER_SECS`).
+    ///
+    /// `#[serde(default)]`, so a world file written before this field
+    /// existed loads as **0**, and 0 is treated as "no win recorded" at
+    /// the read site rather than as 1970 - which would otherwise read as
+    /// fifty-six years since the last win and relax A on the very first
+    /// fight after a deploy. That is the whole reason the read site checks
+    /// for 0 instead of just subtracting.
+    #[serde(default)]
+    last_boss_win_unix_secs: u64,
     /// High-water mark of `stage` (2026-09-02) - the highest the world has
     /// EVER reached, never decremented. `stage` itself walks +1 per boss
     /// win and -2 per loss, so it is not a record of progress; this is.
@@ -599,6 +612,7 @@ impl Default for WorldState {
             recent_boss_outcomes: std::collections::VecDeque::new(),
             recent_win_dps: std::collections::VecDeque::new(),
             boss_losses_since_win: 0,
+            last_boss_win_unix_secs: 0,
             highest_stage: 0,
         }
     }
@@ -6067,12 +6081,29 @@ impl AdventureManager {
             if pacing_params.enabled {
                 pacing::push_dps_sample(&mut world.recent_win_dps, won, pacing_sample_dps, pacing_params.window);
                 // A's own losing-streak counter (see the field's doc for
-                // why it is not read off B's outcome window).
+                // why it is not read off B's outcome window). Kept: it is
+                // still what `/admin/tunables` reads out, and it is the
+                // honest record of the streak even though the relaxation
+                // trigger is now a clock.
+                let now_secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
                 if won {
                     world.boss_losses_since_win = 0;
+                    world.last_boss_win_unix_secs = now_secs;
                 } else {
                     world.boss_losses_since_win = world.boss_losses_since_win.saturating_add(1);
                 }
+                // Seconds since the last WIN, for the relaxation trigger.
+                //
+                // A world that has never recorded a win - a fresh world,
+                // or one whose file predates this field - stores 0, and 0
+                // must read as "no win recorded", NOT as 1970. Subtracting
+                // there would hand the trigger fifty-six years and relax A
+                // on the first fight after a deploy, which is the opposite
+                // of what a release valve is for. `saturating_sub` also
+                // keeps a clock that has gone backwards (NTP correction,
+                // a restored backup) reading as 0 rather than wrapping.
+                let secs_since_last_win =
+                    if world.last_boss_win_unix_secs == 0 { 0 } else { now_secs.saturating_sub(world.last_boss_win_unix_secs) };
                 // RELAXATION TAKES PRECEDENCE over the ordinary update
                 // while the streak condition holds, and that ordering is
                 // the fix - not a tie-break. During a losing streak the
@@ -6083,7 +6114,7 @@ impl AdventureManager {
                 // and the required multiplier RISES, pushing A further up
                 // the longer the party loses. Letting it run first would
                 // undo the release valve every other fight.
-                if let Some(relaxed) = pacing::relax_hp_pacing_mult(world.hp_pacing_mult, world.boss_losses_since_win, &pacing_params) {
+                if let Some(relaxed) = pacing::relax_hp_pacing_mult(world.hp_pacing_mult, secs_since_last_win, &pacing_params) {
                     world.hp_pacing_mult = relaxed;
                 } else if let Some(next_hp) =
                     pacing::update_hp_pacing_mult(world.hp_pacing_mult, base_pool, &world.recent_win_dps.iter().copied().collect::<Vec<_>>(), &pacing_params)
@@ -9724,6 +9755,12 @@ mod dynamic_pacing_tests {
             world.stage = 40;
             world.hp_pacing_mult = 12.0;
             world.boss_losses_since_win = 5;
+            // The trigger is a CLOCK since 2026-09-09, so the streak
+            // counter alone no longer arms it - the last win has to
+            // actually be far enough back. An hour is comfortably past
+            // the 1800 s default.
+            world.last_boss_win_unix_secs =
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().saturating_sub(3600);
         }
         let outcome = manager.trigger_encounter_now(None).await;
         assert!(matches!(outcome, TriggerEncounterOutcome::Triggered), "a joined warrior must produce a real fight");
