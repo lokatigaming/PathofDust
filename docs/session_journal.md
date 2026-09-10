@@ -8532,3 +8532,76 @@ from the old directory.
 
 No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
 crafting rule or command name changed.
+
+### 2026-09-10 — BOT-INTO-SUBDIRECTORY (release 27) — MERGED, AND CORRECTLY NOT DEPLOYED
+
+| | |
+|---|---|
+| master commit | `5efda83eb08d33750107b66037c6c0b649feeaae` |
+| live binary | **unchanged** — `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| deploy | **refused, correctly** |
+| suite | **936 passed / 0 failed / 46 result-lines** on the box |
+| rollback slot | **none created** — nothing was swapped |
+
+`deploy-linux.sh` stopped with:
+
+```
+FATAL: new binary is identical to the live one - nothing to deploy
+```
+
+**That is the right outcome and it is also the branch's own proof.** This is a
+workspace *layout* move: the bot's source goes from `src/` to `bot/`, plus
+`Cargo.toml`, `.gitignore`, `README.md`, `REFACTOR_PLAN.md`, `watchdog.ps1`. It
+touches nothing in the `game` crate, so `game` compiles to the **same bytes** as
+release 26's binary.
+
+A layout change that leaves the shipped artifact byte-identical is exactly what
+"the move changes nothing about the running game" should look like, and the deploy
+gate demonstrated it rather than anyone asserting it. No restart occurred (service
+still up from 16:50:04), so no patch-notes entry is owed — the rule is one entry
+per deploy, and there was no deploy.
+
+#### THE PROPERTIES, VERIFIED ON THE BOX'S OWN EXTRACTED TREE
+
+| property | result |
+|---|---|
+| `members = ["bot", "game"]` | present |
+| `resolver = "2"` | present — a virtual manifest defaults to resolver 1 |
+| `bot/src` present, root `src/` gone | correct |
+| `watchdog.ps1` at root, absent from `bot/` | correct |
+| `Cargo.lock` changed by the move | **0 lines** |
+| cutover runbook shipped | yes, unrun |
+
+`Cargo.lock` byte-unchanged across a 52-file move is the strongest of these: the
+dependency graph is **the same graph**, which one differently-resolved dependency
+would expose.
+
+Both members build from **one** `--workspace` invocation into one shared target,
+verified on the box rather than only locally:
+
+```
+target/release/game            17,469,192 bytes
+target/release/twitch-bot-rs   23,137,048 bytes
+```
+
+That shared target is also why `watchdog.ps1` must stay at the repository root:
+moving it into `bot/` would resolve `$ExpectedPathRoot` to `…\bot` while the binary
+it guards sits in the shared `target\release\`, and the watchdog would read the
+healthy live bot as foreign.
+
+#### A CLAIM OF MINE THAT EXPIRES
+
+I recorded on 2026-09-10 that **the bot has zero `#[test]` functions**, and used it
+to qualify the one-invocation check — correctly, since an unchanged suite total
+could not have demonstrated bot coverage that did not exist.
+
+That was true when measured and is already going stale: d's
+`fix/insert-backstop-desync` adds the first two. Retiring it here rather than
+leaving it to be cited later as standing, which is the same failure mode as the
+`939ec8f` premise and the `1fa0beb` head.
+
+#### Not run
+
+The cutover. `docs/bot_move_cutover_runbook.md` ships with the branch; the owner
+picks the window. Merging changed nothing about the running bot, and no bot process
+runs on this box.
