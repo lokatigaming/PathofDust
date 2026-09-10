@@ -350,15 +350,15 @@ impl Archetype {
     /// ## Three classes are deliberately NOT uniform. Do not "fix" them.
     ///
     /// - **Slayer is HELD OUT ENTIRELY** and keeps the old linear
-    ///   expression. Its `life_leech` is `0.001` against the Leech
-    ///   affix's own `0.001` - a ratio of **1.0x** where every other
-    ///   class sits at 5-8x, i.e. the inverse outlier, and a pending
-    ///   coefficient raise on the affix side takes it to 0.1x. Applying
-    ///   the rule would hand Slayer a 2.5x buff now (25x after that
-    ///   lands) - the largest buff in the game, arriving as a side effect
-    ///   of a change advertised as a cut. It is a separate defect that
-    ///   happens to be expressible in the same units, and it is on the
-    ///   board as its own item.
+    ///   expression. Applying the rule here would BUFF it, not cut it -
+    ///   the largest buff in the game arriving as a side effect of a
+    ///   change advertised as a cut - so its magnitude was settled
+    ///   separately, on its own evidence, rather than by this ruling.
+    ///   **That separate settlement has now happened (2026-09-08): the
+    ///   coefficient is `0.009`, and it is still not on `blend`.** See
+    ///   the `Archetype::Slayer` arm below for the whole argument. The
+    ///   hold-out is about the SHAPE of the expression (linear, not
+    ///   curved); it was never about the number.
     /// - **Warlock is ANCHORED, not re-coefficiented.** There is **no
     ///   attack-speed affix in the game** - the nearest quantity is
     ///   `EquipSlot::Gloves`'s slot base power (0.009), which is not an
@@ -482,14 +482,48 @@ impl Archetype {
                 // **DELIBERATELY STILL LINEAR - Slayer is held out of the
                 // 2026-09-05 affix-curve ruling entirely** (owner
                 // ruling). Do not "finish the job" by putting this on
-                // `blend`. See `bonus_at`'s doc: at 0.001 against the
-                // Leech affix's own 0.001 this is a 1.0x ratio where
-                // every other class is 5-8x, so the rule would BUFF it
-                // 2.5x now and 25x once the pending affix raise lands -
-                // the largest buff in the game, inside a change
-                // advertised as a cut. Its real problem is a separate
-                // item on the board.
-                b.life_leech_pct = 0.001 * mult;
+                // `blend`: the rule re-parameterises a coefficient
+                // against the affix curve, and doing that here would have
+                // BUFFED the class inside a change advertised as a cut.
+                // The hold-out is about the SHAPE, and it stands.
+                //
+                // THE NUMBER, THOUGH, WAS SETTLED SEPARATELY (2026-09-08,
+                // owner ruling) - `0.001` -> `0.009`, about 9x.
+                //
+                // Why it moved. On 2026-09-04 `Leech.default_per_tier`
+                // went 0.001 -> 0.01 (a coefficient correction on the
+                // affix, see `affix.rs`). The archetype's own 0.001 did
+                // not move with it, so the free-with-the-class version
+                // fell to a TENTH of one gear affix - having been within
+                // a factor of two of it before. Nothing about Slayer was
+                // re-balanced; a number it was measured against moved out
+                // from under it. `0.009` is half a Leech affix, which
+                // restores the relationship that held before that day
+                // rather than inventing a new one.
+                //
+                // Why 9x and not 17x. Matching a FULL affix at live tiers
+                // needs ~0.017, and that was on the table. It was
+                // declined because it behaves differently with and
+                // without the `endlessthirst` passive: at 0.9-2.6% leech
+                // (9x across live levels) the result sits far below
+                // LIFE_LEECH_CAP_PER_SEC at any DPS in the observed
+                // distribution, so every Slayer gets the full value
+                // whether or not they have invested, while 17x would pay
+                // out fully for a 3/3 `endlessthirst` build and be
+                // substantially cap-absorbed for one without it -
+                // widening the gap between builds instead of fixing the
+                // class. 9x is also the direction that can be revisited:
+                // the saturation measurement this was decided WITHOUT is
+                // being collected now (per-player max HP was added to the
+                // summary tier the same day), and going 9x -> 17x later
+                // is a one-line change with a stated reason. Walking a
+                // shipped buff back is not.
+                //
+                // See `Character::combat_life_leech`/`apply_hit`'s leech
+                // handling for the LIFE_LEECH_CAP_PER_SEC ceiling this
+                // heals under, and `slayer_is_held_out_of_the_ruling_at_
+                // every_weight` for the guard that the SHAPE never moved.
+                b.life_leech_pct = 0.009 * mult;
             }
             Archetype::Elementalist => {
                 // Base class effect (docs/elementalist_spec.md) - same
@@ -6609,23 +6643,31 @@ mod archetype_curve_tests {
             assert_eq!(b(Archetype::Paladin).intervene_pct, 0.05 * mult);
             assert_eq!(b(Archetype::Cleric).heal_power_pct, 0.50 * mult);
             assert_eq!(b(Archetype::Paladin).heal_power_pct, 0.50 * mult);
-            assert_eq!(b(Archetype::Slayer).life_leech_pct, 0.001 * mult);
+            assert_eq!(b(Archetype::Slayer).life_leech_pct, 0.009 * mult);
             assert_eq!(b(Archetype::Cleric).divine_damage_pct, 0.0, "Divine Power must not exist at w = 0 - that is the pre-change class");
         }
     }
 
     /// **Slayer is held out, and this is the guard against someone
-    /// "finishing the job".** Its advantage must stay the old linear
+    /// "finishing the job".** Its advantage must stay the LINEAR
     /// expression at EVERY weight, including 1.0.
+    ///
+    /// The coefficient moved on 2026-09-08 (`0.001` -> `0.009`) and this
+    /// test moved with it. **That is not the same as the hold-out being
+    /// lifted, and this test must not be deleted as obsolete**: what it
+    /// guards is the SHAPE - that `w` does nothing here, so Slayer never
+    /// rides the affix curve the other classes were re-parameterised
+    /// onto. A future session that puts this on `blend` will still be
+    /// caught, because the value would then vary with `w`.
     #[test]
     fn slayer_is_held_out_of_the_ruling_at_every_weight() {
         for w in [0.0, 0.25, 0.5, 1.0] {
             for level in [1u32, 19, 50, 148] {
                 let got = Archetype::Slayer.bonus_at(level, w).life_leech_pct;
-                let want = 0.001 * (1.0 + level as f64 * 0.10);
+                let want = 0.009 * (1.0 + level as f64 * 0.10);
                 assert!(
                     (got - want).abs() < 1e-15,
-                    "Slayer leech moved at w = {w}, level {level}: {got} vs the old {want}. Slayer is deliberately EXCLUDED - applying the rule would buff it, not cut it. See bonus_at's doc."
+                    "Slayer leech moved at w = {w}, level {level}: {got} vs the linear {want}. Slayer is deliberately EXCLUDED from the curve ruling - applying it would buff the class, not cut it. See bonus_at's doc."
                 );
             }
         }
