@@ -81,9 +81,15 @@ async fn async_main() -> anyhow::Result<()> {
     // 1-4's own manual smoke tests, where stdout was enough - a real bake
     // period (or any unattended run) needs this the same way the bot
     // needed it.
+    //
+    // Retention landed 2026-09-08 - see `logging::MAX_LOG_FILES` for the
+    // number and its argument, and that module's header for where this
+    // resolves on the live box and why journald never covered it. The
+    // filenames are unchanged (`game.log.<date>`), so the files already on
+    // the box are adopted by the policy rather than left beside it.
     let logs_dir = game::adventure::data_path("logs");
     std::fs::create_dir_all(&logs_dir)?;
-    let file_appender = tracing_appender::rolling::daily(&logs_dir, "game.log");
+    let file_appender = game::logging::daily_appender(&logs_dir)?;
     let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::registry()
