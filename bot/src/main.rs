@@ -385,6 +385,12 @@ async fn async_main() -> anyhow::Result<()> {
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+        // Caps the two twitch-irc targets that turned a network outage
+        // into 232,184 lines in one minute on 2026-09-04. Sits ahead of
+        // both fmt layers so one filter bounds the console and the file
+        // alike; see log_rate_limit for why that path outruns the
+        // crate's own connection throttle.
+        .with(twitch_bot_rs::log_rate_limit::LogRateLimitLayer::new())
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
         .init();
