@@ -50,6 +50,10 @@
   let insertActive = false;
   let resumeVideoId = null;
   let resumeTime = 0;
+  // Set for the gap between resuming an interrupted song and that song
+  // actually reporting PLAYING, so a stale duplicate ENDED can't be
+  // mistaken for the resumed song ending. See the ENDED handler.
+  let insertJustResumed = false;
 
   // Volume ducking during alerts — 20%, restored when alert-box.html's
   // sound actually finishes (its real `ended`/error event triggers
@@ -158,6 +162,7 @@
 
   function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.PLAYING) {
+      insertJustResumed = false;
       send({ type: 'playerState', playing: true });
       if (!unmuteAttempted) {
         unmuteAttempted = true;
@@ -171,10 +176,19 @@
     }
     if (event.data === YT.PlayerState.ENDED) {
       if (insertActive) {
+        insertJustResumed = true;
         resumeFromInsert();
         send({ type: 'insertEnded' });
         return;
       }
+      // Never observed live — purely defensive. If the embed ever fired
+      // ENDED twice for one video (the second arriving after the branch
+      // above already cleared insertActive), this would fall through and
+      // report a real `ended`, and the server would advance() the main
+      // queue — silently eating the song the insert had interrupted.
+      // resumeFromInsert has just issued loadVideoById, so any ENDED
+      // arriving before that load reports PLAYING is a stale repeat.
+      if (insertJustResumed) return;
       send({ type: 'ended' });
     }
   }
