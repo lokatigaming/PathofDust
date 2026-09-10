@@ -7939,3 +7939,64 @@ The order stated a pushed new heads on **both** `feature/sprite-manifest` and
 `feature/store-classification` is still `54f9e7c`, unchanged from the previous
 order's listing. Item 9 is far off and nothing is blocked, but the head must be
 re-read at its turn rather than assumed to have moved.
+
+### 2026-09-10 — PACING-RELAX deploy record (release 24)
+
+| | |
+|---|---|
+| master commit | `22584c2fc9dc4f0bc88a127c802425c0d4f00aad` |
+| live binary | `7239a11297bf47668e0e13b75baa2e8b79f0e354e3b7a98567e1e4d49df3da32` |
+| previous | `e945caa39df21bed504b87f8b4ce09c037e0d108f1ec083b3aeae8cb732c130e` |
+| rollback slot | `deploy-pre-20260910-080403-pacing-relax` |
+| downtime | **0.36 s** |
+| suite | **929 passed / 0 failed / 46 result-lines** on the box |
+| seven §13B.5 checks | all pass |
+
+Controller A's relaxation trigger becomes a clock rather than a loss count. Suite
+delta 925 -> 929, four named pacing tests, no new suite. The load-bearing one is
+`the_same_elapsed_time_decides_identically_whichever_rampage_setting_is_live` —
+a time-based trigger is cadence-independent, so the 60 s-vs-600 s discrepancy that
+started this cannot recur.
+
+#### BOTH HALVES OF THE DEPLOY-DAY TRAP, PROVEN LIVE
+
+`WorldState::last_boss_win_unix_secs` is new with `#[serde(default)]`, so on the
+first read after deploy it is 0. The trap is that 0 must mean "no win recorded"
+and not "the last win was at epoch 0" — the latter yields ~1.79 billion seconds
+elapsed and relaxes Controller A immediately.
+
+| | value |
+|---|---|
+| `hp_pacing_mult` before deploy | **50.0** (at the ceiling) |
+| immediately after restart | **50.0** |
+| **after the first post-deploy boss fight** | **50.0 — did not relax** |
+| `last_boss_win_unix_secs` after that win | **1789020862 = 2026-09-10 08:14:22** |
+
+The first post-deploy boss fight (`fight-0000004700`, 08:14:22, **won**) exercised
+the guard AND the write path in one event: the guard held, and the field now
+carries the real win time. A being pinned at its ceiling made this unusually
+decisive — any downward movement at all would have been the bug, with no need to
+distinguish it from ordinary controller drift.
+
+#### MY WATCHER MISSED A FIGHT THAT HAPPENED ON TIME
+
+A background watcher polled for the first post-deploy boss fight and reported
+nothing. The order reasonably read hours of silence as a fact about the live game
+and asked why no boss fight came.
+
+**One did.** `fight-0000004700` landed at 08:14:22, ten minutes after the 08:04
+deploy, exactly at `ENCOUNTER_INTERVAL` = 600 s. Basic fights ran continuously
+either side of it (4696…4701). The game was working correctly the whole time; the
+instrument was not.
+
+**I cannot determine why the watcher missed it.** Its only output was its start
+line, and it kept no log of its own polling, so a post-mortem would be
+construction rather than diagnosis. Recording that as an unknown instead of
+inventing a cause.
+
+The durable lesson does not depend on the cause, and is now standing: **never poll
+for a game event longer than one encounter interval; if the event does not come,
+the absence is the report.** And the corollary this taught: a watcher that reports
+nothing is indistinguishable from a world in which nothing happened — so the check
+should have been two direct reads after the fact, which is exactly how it was
+finally closed and takes seconds.
