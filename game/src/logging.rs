@@ -105,6 +105,89 @@ pub const LOG_FILENAME_PREFIX: &str = "game.log";
 /// day's volume ever proves the estimate wrong.
 pub const MAX_LOG_FILES: usize = 30;
 
+/// The `YYYY-MM-DD` a rotated log's own filename carries, as a sortable
+/// `YYYYMMDD`, or `None` if this name is not one of ours to rank.
+///
+/// Deliberately hand-rolled rather than reaching for a date crate: the
+/// only thing needed is an ORDER, the format is fixed by
+/// `Rotation::DAILY`, and a parser that accepts exactly that shape is
+/// also the filter that decides what may be deleted.
+fn date_key_from_filename(name: &str) -> Option<u64> {
+    let rest = name.strip_prefix(LOG_FILENAME_PREFIX)?.strip_prefix('.')?;
+    let bytes = rest.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    let num = |from: usize, to: usize| rest[from..to].parse::<u64>().ok();
+    Some(num(0, 4)? * 10_000 + num(5, 7)? * 100 + num(8, 10)?)
+}
+
+/// Deletes the oldest rotated logs until `max_files - 1` remain, ranking
+/// **by the date in the filename and by nothing else**.
+///
+/// WHY THIS EXISTS AT ALL - the pruner it replaces is not ours.
+/// `tracing_appender`'s own `max_log_files` ranks by
+/// `metadata.created()` (btime) and only falls back to the filename date
+/// when that metadata is unreadable (`rolling.rs:689` in 0.2.5). **btime
+/// is the wrong primary key for a rotated log**, because it records when
+/// the bytes arrived on THIS filesystem rather than which day the log is
+/// of, and there are two ways for it to be wrong at once:
+///
+/// - **A RESTORE, which is the case that matters.** `tar -xzf` gives every
+///   extracted `game.log.*` the same btime, to the nanosecond. On the
+///   first start afterwards the pruner sorts equal keys, the tie order is
+///   arbitrary, and it can delete the CURRENT day's log while keeping a
+///   month-old one. That is the log a rollback decision is read from.
+/// - **tmpfs**, where six files written in a tight loop also tie. That is
+///   how this surfaced: the box's `/tmp` reproduced deterministically what
+///   a restore does occasionally, and Windows - which never ties - stayed
+///   green.
+///
+/// So btime is not demoted to a tie-break here, it is **removed**. The
+/// filename already carries the only fact the policy needs, it is written
+/// by the same library that reads it, and it survives every copy, archive
+/// and restore. **Do not promote btime back**: the test that would catch
+/// you is `identically_timestamped_logs_still_keep_today` and the
+/// condition it encodes is a restore, not a filesystem quirk.
+///
+/// **A prefixed file with no parseable date is never deleted.** The old
+/// pruner would happily remove `game.log.bak` - a hand-saved copy during
+/// an incident is exactly the sort of thing that ends up in this
+/// directory. If the rotation did not create it, it is not ours to
+/// collect.
+///
+/// `max_files - 1` rather than `max_files`, matching what it replaces:
+/// the caller is about to open today's file as the nth, so one slot is
+/// reserved and the steady-state directory holds exactly `max_files`.
+fn prune_by_filename_date(directory: &std::path::Path, max_files: usize) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut dated: Vec<(u64, std::path::PathBuf)> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            if !entry.metadata().ok()?.is_file() {
+                return None;
+            }
+            let key = date_key_from_filename(entry.file_name().to_str()?)?;
+            Some((key, entry.path()))
+        })
+        .collect();
+    let keep = max_files.saturating_sub(1);
+    if dated.len() <= keep {
+        return;
+    }
+    // By date, then by path, so two files claiming the same day still
+    // resolve to a stable order rather than to whatever `read_dir`
+    // happened to yield.
+    dated.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    for (_, path) in dated.iter().take(dated.len() - keep) {
+        if let Err(err) = std::fs::remove_file(path) {
+            eprintln!("Failed to remove old log file {}: {err}", path.display());
+        }
+    }
+}
+
 /// The game's daily-rolling file appender, retention included.
 ///
 /// Takes the directory rather than resolving `data_path("logs")` itself,
@@ -113,10 +196,35 @@ pub const MAX_LOG_FILES: usize = 30;
 /// `paths.rs` documents as untestable in this crate's shared test binary
 /// anyway.
 pub fn daily_appender(directory: impl AsRef<std::path::Path>) -> anyhow::Result<RollingFileAppender> {
+    daily_appender_with_retention(directory, MAX_LOG_FILES)
+}
+
+/// `daily_appender` with the retention limit as a parameter, so the
+/// policy can be exercised at a size a test can seed by hand.
+///
+/// **`max_log_files` is deliberately NOT set on the builder.** Setting it
+/// would re-arm the library's btime ranking on every rotation and at
+/// construction - and at construction it is actively dangerous, because
+/// the library prunes when `files.len() >= max_files` and reduces to
+/// `max_files - 1`, so with a directory full of tie-btime restored files
+/// the one it drops can be today's. Retention is ours alone.
+///
+/// KNOWN GAP, stated rather than left to be discovered: pruning now
+/// happens at CONSTRUCTION only, not on daily rotation. The unit is
+/// `Restart=always` and `c` deploys roughly daily, so in practice every
+/// day brings a fresh appender - but an uptime longer than `max_files`
+/// days with no restart would let the directory grow past the limit until
+/// the next start. Growth is still bounded by restarts rather than
+/// unbounded, which was the original defect; closing the last of it needs
+/// a rotation hook the library does not expose.
+pub(crate) fn daily_appender_with_retention(
+    directory: impl AsRef<std::path::Path>,
+    max_files: usize,
+) -> anyhow::Result<RollingFileAppender> {
+    prune_by_filename_date(directory.as_ref(), max_files);
     RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
         .filename_prefix(LOG_FILENAME_PREFIX)
-        .max_log_files(MAX_LOG_FILES)
         .build(directory)
         .map_err(|err| anyhow::anyhow!("could not open the rolling log appender: {err}"))
 }
@@ -170,12 +278,7 @@ mod tests {
         let dir = scratch("prunes");
         let seeded = seed_aged_logs(&dir, 6);
 
-        let _appender = RollingFileAppender::builder()
-            .rotation(Rotation::DAILY)
-            .filename_prefix(LOG_FILENAME_PREFIX)
-            .max_log_files(3)
-            .build(&dir)
-            .expect("the appender must build against a real directory");
+        let _appender = daily_appender_with_retention(&dir, 3).expect("the appender must build against a real directory");
 
         // (n - 1) survive, because the appender is about to open today's
         // file as the nth - see `prune_old_logs`'s own comment.
@@ -206,12 +309,7 @@ mod tests {
         let today = format!("{LOG_FILENAME_PREFIX}.2026-09-08");
         std::fs::write(dir.join(&today), "the release under investigation\n").expect("today's log must be writable");
 
-        let _appender = RollingFileAppender::builder()
-            .rotation(Rotation::DAILY)
-            .filename_prefix(LOG_FILENAME_PREFIX)
-            .max_log_files(2)
-            .build(&dir)
-            .expect("the appender must build against a real directory");
+        let _appender = daily_appender_with_retention(&dir, 2).expect("the appender must build against a real directory");
 
         assert!(present(&dir, &today), "the day currently being written must never be pruned by a restart");
         let body = std::fs::read_to_string(dir.join(&today)).expect("today's log must still be readable");
@@ -232,12 +330,7 @@ mod tests {
         std::fs::write(dir.join("incident-notes.txt"), "not a log\n").expect("foreign file must be writable");
         std::fs::write(dir.join("game.log.bak"), "hand-saved copy\n").expect("foreign file must be writable");
 
-        let _appender = RollingFileAppender::builder()
-            .rotation(Rotation::DAILY)
-            .filename_prefix(LOG_FILENAME_PREFIX)
-            .max_log_files(2)
-            .build(&dir)
-            .expect("the appender must build against a real directory");
+        let _appender = daily_appender_with_retention(&dir, 2).expect("the appender must build against a real directory");
 
         assert!(present(&dir, "incident-notes.txt"), "a non-log file in the log directory must survive pruning");
     }
@@ -270,5 +363,112 @@ mod tests {
         let date = &name["game.log.".len()..];
         assert_eq!(date.len(), 10, "the suffix must be a YYYY-MM-DD date, got {date}");
         assert_eq!(date.matches('-').count(), 2, "the suffix must be a YYYY-MM-DD date, got {date}");
+    }
+}
+
+#[cfg(test)]
+mod restore_condition_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn scratch(label: &str) -> std::path::PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("game_log_restore_{}_{label}_{unique}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("scratch dir must be creatable");
+        dir
+    }
+
+    /// **THE RESTORE CONDITION, MADE PERMANENT.**
+    ///
+    /// `tar -xzf` gives every extracted file the same creation timestamp,
+    /// so after a restore the whole log directory ties on btime - and a
+    /// pruner that ranks on btime is then choosing arbitrarily between a
+    /// month-old log and the current day's. This seeds that state
+    /// deliberately: no sleeps, no ordering, every file written in one
+    /// tight loop, which on tmpfs ties to the nanosecond and on any
+    /// filesystem ties often enough to matter.
+    ///
+    /// It is also the exact shape that made the box red while Windows
+    /// stayed green - Windows never ties, so the defect was invisible
+    /// here. Seeding the tie rather than hoping for it is what makes this
+    /// test mean the same thing on both.
+    ///
+    /// **If this fails, someone has promoted btime back.** The filename
+    /// carries the day; nothing else needs to.
+    #[test]
+    fn identically_timestamped_logs_still_keep_today() {
+        let dir = scratch("tie");
+        // Written NEWEST FIRST, so a pruner that fell back on directory
+        // order rather than the filename would delete today's first. The
+        // sibling suite seeds ascending on purpose; this one seeds the
+        // adversarial order on purpose.
+        let today = format!("{LOG_FILENAME_PREFIX}.2026-09-10");
+        std::fs::write(dir.join(&today), "the release under investigation\n").expect("today's log must be writable");
+        for day in (1..=8).rev() {
+            let name = format!("{LOG_FILENAME_PREFIX}.2026-09-{day:02}");
+            std::fs::write(dir.join(&name), format!("restored day {day}\n")).expect("seed log must be writable");
+        }
+
+        let _appender = daily_appender_with_retention(&dir, 3).expect("the appender must build against a real directory");
+
+        // CONTENT, not existence, and the order matters. A pruner that
+        // deletes today's log does not leave a hole: the appender opens
+        // the same filename immediately afterwards, so `exists()` is true
+        // again a microsecond later and asserts almost nothing. The bytes
+        // are the only witness that the file was not destroyed - checked
+        // first, and with the message that names what actually went wrong.
+        let body = std::fs::read_to_string(dir.join(&today)).expect("today's log must still be present after the prune");
+        assert!(
+            body.contains("the release under investigation"),
+            "today's log was DELETED and reopened empty by a prune where every file shares a creation timestamp. This is the state a restore leaves behind, and this is the log a rollback is decided from"
+        );
+        // Two survive at max 3 - one slot is reserved for the file the
+        // appender is about to open - and they must be the two NEWEST by
+        // filename date, not by whatever order the tie resolved in.
+        assert!(dir.join(format!("{LOG_FILENAME_PREFIX}.2026-09-08")).exists(), "the newest seeded day must survive alongside today");
+        for day in 1..=7 {
+            let name = format!("{LOG_FILENAME_PREFIX}.2026-09-{day:02}");
+            assert!(!dir.join(&name).exists(), "{name} is older than the retention window and must be pruned");
+        }
+    }
+
+    /// A prefixed file the rotation never created is not ours to delete.
+    /// The old library pruner would take `game.log.bak` - a hand-saved
+    /// copy during an incident is exactly what ends up in a log directory,
+    /// and it has no date for the policy to rank it by.
+    #[test]
+    fn a_prefixed_file_with_no_date_is_never_pruned() {
+        let dir = scratch("undated");
+        for day in 1..=6 {
+            let name = format!("{LOG_FILENAME_PREFIX}.2026-09-{day:02}");
+            std::fs::write(dir.join(&name), "rotated\n").expect("seed log must be writable");
+        }
+        std::fs::write(dir.join("game.log.bak"), "hand-saved during an incident\n").expect("foreign file must be writable");
+        std::fs::write(dir.join("game.log"), "no date at all\n").expect("foreign file must be writable");
+
+        let _appender = daily_appender_with_retention(&dir, 2).expect("the appender must build against a real directory");
+
+        assert!(dir.join("game.log.bak").exists(), "a prefixed file with no parseable date must survive - the rotation did not create it");
+        assert!(dir.join("game.log").exists(), "same for the bare prefix");
+    }
+
+    /// The ranking key itself, at the edges that decide what gets deleted.
+    #[test]
+    fn the_date_key_accepts_only_the_shape_rotation_writes() {
+        assert_eq!(date_key_from_filename("game.log.2026-09-10"), Some(20_260_910));
+        assert_eq!(date_key_from_filename("game.log.2026-01-01"), Some(20_260_101));
+        assert!(
+            date_key_from_filename("game.log.2026-09-09") < date_key_from_filename("game.log.2026-09-10"),
+            "the key must order by day, which is the whole reason it exists"
+        );
+        assert!(
+            date_key_from_filename("game.log.2025-12-31") < date_key_from_filename("game.log.2026-01-01"),
+            "and across a year boundary, where a plain string compare of the day alone would invert"
+        );
+        for rejected in ["game.log.bak", "game.log", "game.log.", "game.log.2026-9-10", "game.log.2026-09-1", "other.log.2026-09-10", "game.log.20260910"] {
+            assert_eq!(date_key_from_filename(rejected), None, "{rejected} must not be rankable, and therefore must not be deletable");
+        }
     }
 }
