@@ -37,7 +37,7 @@
       "targetHpAfter": 2000000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 575,
+      "hitId": 627,
       "sourceKind": "direct"
     },
     {
@@ -50,7 +50,7 @@
       "targetHpAfter": 8375,
       "isCrit": false,
       "evaded": true,
-      "hitId": 583,
+      "hitId": 635,
       "sourceKind": "direct"
     },
     {
@@ -63,7 +63,7 @@
       "targetHpAfter": 8375,
       "isCrit": false,
       "evaded": true,
-      "hitId": 588,
+      "hitId": 640,
       "sourceKind": "direct"
     },
     {
@@ -82,7 +82,7 @@
       "targetHpAfter": 1998953,
       "isCrit": false,
       "evaded": false,
-      "hitId": 592,
+      "hitId": 644,
       "sourceKind": "direct"
     },
     {
@@ -95,7 +95,7 @@
       "targetHpAfter": 1997207,
       "isCrit": false,
       "evaded": false,
-      "hitId": 605,
+      "hitId": 657,
       "sourceKind": "direct"
     },
     {
@@ -108,7 +108,7 @@
       "targetHpAfter": 1997207,
       "isCrit": false,
       "evaded": true,
-      "hitId": 617,
+      "hitId": 669,
       "sourceKind": "echo"
     },
     {
@@ -121,7 +121,7 @@
       "targetHpAfter": 1995550,
       "isCrit": false,
       "evaded": false,
-      "hitId": 624,
+      "hitId": 676,
       "sourceKind": "direct"
     },
     {
@@ -134,7 +134,7 @@
       "targetHpAfter": 3559,
       "isCrit": false,
       "evaded": false,
-      "hitId": 636,
+      "hitId": 688,
       "sourceKind": "direct"
     },
     {
@@ -147,7 +147,7 @@
       "targetHpAfter": 2655,
       "isCrit": false,
       "evaded": false,
-      "hitId": 646,
+      "hitId": 698,
       "sourceKind": "direct"
     },
     {
@@ -161,8 +161,8 @@
       "atMs": 1188,
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 19,
-      "targetHpAfter": 2674,
+      "amount": 171,
+      "targetHpAfter": 2826,
       "isRevive": false
     },
     {
@@ -175,7 +175,7 @@
       "targetHpAfter": 1993437,
       "isCrit": false,
       "evaded": false,
-      "hitId": 656,
+      "hitId": 708,
       "sourceKind": "direct"
     },
     {
@@ -183,8 +183,8 @@
       "atMs": 1485,
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 18,
-      "targetHpAfter": 2692,
+      "amount": 166,
+      "targetHpAfter": 2992,
       "isRevive": false
     },
     {
@@ -197,7 +197,7 @@
       "targetHpAfter": 1991386,
       "isCrit": false,
       "evaded": false,
-      "hitId": 668,
+      "hitId": 720,
       "sourceKind": "direct"
     },
     {
@@ -216,8 +216,8 @@
       "atMs": 1782,
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 9,
-      "targetHpAfter": 2701,
+      "amount": 81,
+      "targetHpAfter": 3073,
       "isRevive": false
     },
     {
@@ -230,7 +230,7 @@
       "targetHpAfter": 1990387,
       "isCrit": false,
       "evaded": false,
-      "hitId": 680,
+      "hitId": 732,
       "sourceKind": "direct"
     },
     {
@@ -249,8 +249,8 @@
       "atMs": 2079,
       "healer": "slayer_vs_tough_boss_stage3000",
       "target": "slayer_vs_tough_boss_stage3000",
-      "amount": 19,
-      "targetHpAfter": 2720,
+      "amount": 172,
+      "targetHpAfter": 3245,
       "isRevive": false
     },
     {
@@ -263,7 +263,7 @@
       "targetHpAfter": 1988258,
       "isCrit": false,
       "evaded": false,
-      "hitId": 693,
+      "hitId": 745,
       "sourceKind": "direct"
     },
     {
@@ -287,7 +287,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 705,
+      "hitId": 757,
       "sourceKind": "direct"
     },
     {
@@ -304,8 +304,8 @@
   ],
   "rolls": [
     {
-      "eventId": 576,
-      "hitId": 575,
+      "eventId": 628,
+      "hitId": 627,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -315,8 +315,8 @@
       "succeeded": false
     },
     {
-      "eventId": 577,
-      "hitId": 575,
+      "eventId": 629,
+      "hitId": 627,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -325,8 +325,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 578,
-      "hitId": 575,
+      "eventId": 630,
+      "hitId": 627,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -335,8 +335,8 @@
       "magnitude": 0.20921834854734822
     },
     {
-      "eventId": 579,
-      "hitId": 575,
+      "eventId": 631,
+      "hitId": 627,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -345,8 +345,8 @@
       "magnitude": 0.3879680711320619
     },
     {
-      "eventId": 580,
-      "hitId": 575,
+      "eventId": 632,
+      "hitId": 627,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -355,8 +355,8 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 581,
-      "hitId": 582,
+      "eventId": 633,
+      "hitId": 634,
       "atMs": 0,
       "category": "echo",
       "source": "Echo",
@@ -367,8 +367,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 584,
-      "hitId": 583,
+      "eventId": 636,
+      "hitId": 635,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -378,8 +378,8 @@
       "succeeded": true
     },
     {
-      "eventId": 585,
-      "hitId": 583,
+      "eventId": 637,
+      "hitId": 635,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -388,8 +388,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 586,
-      "hitId": 583,
+      "eventId": 638,
+      "hitId": 635,
       "atMs": 0,
       "category": "crit",
       "source": "Crit multiplier",
@@ -398,8 +398,8 @@
       "magnitude": 2.5
     },
     {
-      "eventId": 587,
-      "hitId": 583,
+      "eventId": 639,
+      "hitId": 635,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -408,8 +408,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 589,
-      "hitId": 588,
+      "eventId": 641,
+      "hitId": 640,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -419,8 +419,8 @@
       "succeeded": false
     },
     {
-      "eventId": 590,
-      "hitId": 588,
+      "eventId": 642,
+      "hitId": 640,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -429,8 +429,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 591,
-      "hitId": 588,
+      "eventId": 643,
+      "hitId": 640,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -439,8 +439,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 593,
-      "hitId": 592,
+      "eventId": 645,
+      "hitId": 644,
       "atMs": 297,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -450,8 +450,8 @@
       "succeeded": false
     },
     {
-      "eventId": 594,
-      "hitId": 592,
+      "eventId": 646,
+      "hitId": 644,
       "atMs": 297,
       "category": "evasion",
       "source": "Evasion",
@@ -461,8 +461,8 @@
       "succeeded": false
     },
     {
-      "eventId": 595,
-      "hitId": 592,
+      "eventId": 647,
+      "hitId": 644,
       "atMs": 297,
       "category": "block",
       "source": "Block chance",
@@ -472,8 +472,8 @@
       "succeeded": true
     },
     {
-      "eventId": 596,
-      "hitId": 592,
+      "eventId": 648,
+      "hitId": 644,
       "atMs": 297,
       "category": "evasion",
       "source": "Evasion",
@@ -482,8 +482,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 597,
-      "hitId": 592,
+      "eventId": 649,
+      "hitId": 644,
       "atMs": 297,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -492,8 +492,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 598,
-      "hitId": 592,
+      "eventId": 650,
+      "hitId": 644,
       "atMs": 297,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -502,8 +502,8 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 599,
-      "hitId": 592,
+      "eventId": 651,
+      "hitId": 644,
       "atMs": 297,
       "category": "crit",
       "source": "Crit chance",
@@ -512,8 +512,8 @@
       "magnitude": 0.20921834854734822
     },
     {
-      "eventId": 600,
-      "hitId": 592,
+      "eventId": 652,
+      "hitId": 644,
       "atMs": 297,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -522,8 +522,8 @@
       "magnitude": 0.3879680711320619
     },
     {
-      "eventId": 601,
-      "hitId": 592,
+      "eventId": 653,
+      "hitId": 644,
       "atMs": 297,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -532,8 +532,8 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 602,
-      "hitId": 592,
+      "eventId": 654,
+      "hitId": 644,
       "atMs": 297,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -543,8 +543,8 @@
       "succeeded": false
     },
     {
-      "eventId": 603,
-      "hitId": 604,
+      "eventId": 655,
+      "hitId": 656,
       "atMs": 297,
       "category": "echo",
       "source": "Echo",
@@ -555,8 +555,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 606,
-      "hitId": 605,
+      "eventId": 658,
+      "hitId": 657,
       "atMs": 594,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -566,8 +566,8 @@
       "succeeded": false
     },
     {
-      "eventId": 607,
-      "hitId": 605,
+      "eventId": 659,
+      "hitId": 657,
       "atMs": 594,
       "category": "evasion",
       "source": "Evasion",
@@ -577,8 +577,8 @@
       "succeeded": false
     },
     {
-      "eventId": 608,
-      "hitId": 605,
+      "eventId": 660,
+      "hitId": 657,
       "atMs": 594,
       "category": "block",
       "source": "Block chance",
@@ -588,8 +588,8 @@
       "succeeded": false
     },
     {
-      "eventId": 609,
-      "hitId": 605,
+      "eventId": 661,
+      "hitId": 657,
       "atMs": 594,
       "category": "evasion",
       "source": "Evasion",
@@ -598,8 +598,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 610,
-      "hitId": 605,
+      "eventId": 662,
+      "hitId": 657,
       "atMs": 594,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -608,8 +608,8 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 611,
-      "hitId": 605,
+      "eventId": 663,
+      "hitId": 657,
       "atMs": 594,
       "category": "crit",
       "source": "Crit chance",
@@ -618,8 +618,8 @@
       "magnitude": 0.20921834854734822
     },
     {
-      "eventId": 612,
-      "hitId": 605,
+      "eventId": 664,
+      "hitId": 657,
       "atMs": 594,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -628,8 +628,8 @@
       "magnitude": 0.3879680711320619
     },
     {
-      "eventId": 613,
-      "hitId": 605,
+      "eventId": 665,
+      "hitId": 657,
       "atMs": 594,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -638,8 +638,8 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 614,
-      "hitId": 605,
+      "eventId": 666,
+      "hitId": 657,
       "atMs": 594,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -649,8 +649,8 @@
       "succeeded": false
     },
     {
-      "eventId": 615,
-      "hitId": 616,
+      "eventId": 667,
+      "hitId": 668,
       "atMs": 594,
       "category": "echo",
       "source": "Echo",
@@ -661,8 +661,8 @@
       "magnitude": 1.0
     },
     {
-      "eventId": 618,
-      "hitId": 617,
+      "eventId": 670,
+      "hitId": 669,
       "atMs": 594,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -672,8 +672,8 @@
       "succeeded": false
     },
     {
-      "eventId": 619,
-      "hitId": 617,
+      "eventId": 671,
+      "hitId": 669,
       "atMs": 594,
       "category": "evasion",
       "source": "Evasion",
@@ -683,480 +683,9 @@
       "succeeded": true
     },
     {
-      "eventId": 620,
-      "hitId": 617,
-      "atMs": 594,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 621,
-      "hitId": 617,
-      "atMs": 594,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.20921834854734822
-    },
-    {
-      "eventId": 622,
-      "hitId": 617,
-      "atMs": 594,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.3879680711320619
-    },
-    {
-      "eventId": 623,
-      "hitId": 617,
-      "atMs": 594,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 625,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.20921834854734822,
-      "succeeded": false
-    },
-    {
-      "eventId": 626,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 627,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.2,
-      "succeeded": false
-    },
-    {
-      "eventId": 628,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 629,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 630,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.20921834854734822
-    },
-    {
-      "eventId": 631,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.3879680711320619
-    },
-    {
-      "eventId": 632,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 633,
-      "hitId": 624,
-      "atMs": 891,
-      "category": "elementalProc",
-      "source": "Cold proc",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.038796807113206176,
-      "succeeded": false
-    },
-    {
-      "eventId": 634,
-      "hitId": 635,
-      "atMs": 891,
-      "category": "echo",
-      "source": "Echo",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.1805068233314817,
-      "succeeded": false,
-      "magnitude": 0.0
-    },
-    {
-      "eventId": 637,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 638,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 639,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.36193769621700234,
-      "succeeded": false
-    },
-    {
-      "eventId": 640,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 641,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.3189339942500341
-    },
-    {
-      "eventId": 642,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 643,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 644,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 645,
-      "hitId": 636,
-      "atMs": 1100,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 1868.1762649969105
-    },
-    {
-      "eventId": 647,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.15,
-      "succeeded": false
-    },
-    {
-      "eventId": 648,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.0,
-      "succeeded": false
-    },
-    {
-      "eventId": 649,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.36193769621700234,
-      "succeeded": false
-    },
-    {
-      "eventId": 650,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "evasion",
-      "source": "Boss Pressure",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 651,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.3189339942500341
-    },
-    {
-      "eventId": 652,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "mitigation",
-      "source": "Boss Pressure",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.022000000000000002
-    },
-    {
-      "eventId": 653,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 654,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.1
-    },
-    {
-      "eventId": 655,
-      "hitId": 646,
-      "atMs": 1100,
-      "category": "pierce",
-      "source": "Boss Pierce",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 350.5621252800989
-    },
-    {
-      "eventId": 657,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.20921834854734822,
-      "succeeded": false
-    },
-    {
-      "eventId": 658,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 659,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.2,
-      "succeeded": false
-    },
-    {
-      "eventId": 660,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.15
-    },
-    {
-      "eventId": 661,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 662,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "crit",
-      "source": "Crit chance",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.20921834854734822
-    },
-    {
-      "eventId": 663,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "increasedDamage",
-      "source": "Increased damage (gear/tree)",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": 0.3879680711320619
-    },
-    {
-      "eventId": 664,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "increasedDamage",
-      "source": "Late-stage damage penalty",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "magnitude": -0.6
-    },
-    {
-      "eventId": 665,
-      "hitId": 656,
-      "atMs": 1188,
-      "category": "elementalProc",
-      "source": "Cold proc",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.038796807113206176,
-      "succeeded": false
-    },
-    {
-      "eventId": 666,
-      "hitId": 667,
-      "atMs": 1188,
-      "category": "echo",
-      "source": "Echo",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.1805068233314817,
-      "succeeded": false,
-      "magnitude": 0.0
-    },
-    {
-      "eventId": 669,
-      "hitId": 668,
-      "atMs": 1485,
-      "category": "crit",
-      "source": "Crit chance remainder",
-      "actor": "slayer_vs_tough_boss_stage3000",
-      "target": "__enemy_0__",
-      "probability": 0.20921834854734822,
-      "succeeded": false
-    },
-    {
-      "eventId": 670,
-      "hitId": 668,
-      "atMs": 1485,
-      "category": "evasion",
-      "source": "Evasion",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.15000000000000002,
-      "succeeded": false
-    },
-    {
-      "eventId": 671,
-      "hitId": 668,
-      "atMs": 1485,
-      "category": "block",
-      "source": "Block chance",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "probability": 0.2,
-      "succeeded": false
-    },
-    {
       "eventId": 672,
-      "hitId": 668,
-      "atMs": 1485,
+      "hitId": 669,
+      "atMs": 594,
       "category": "evasion",
       "source": "Evasion",
       "actor": "__enemy_0__",
@@ -1165,18 +694,8 @@
     },
     {
       "eventId": 673,
-      "hitId": 668,
-      "atMs": 1485,
-      "category": "mitigation",
-      "source": "Damage reduction",
-      "actor": "__enemy_0__",
-      "target": "slayer_vs_tough_boss_stage3000",
-      "magnitude": 0.25
-    },
-    {
-      "eventId": 674,
-      "hitId": 668,
-      "atMs": 1485,
+      "hitId": 669,
+      "atMs": 594,
       "category": "crit",
       "source": "Crit chance",
       "actor": "slayer_vs_tough_boss_stage3000",
@@ -1184,9 +703,9 @@
       "magnitude": 0.20921834854734822
     },
     {
-      "eventId": 675,
-      "hitId": 668,
-      "atMs": 1485,
+      "eventId": 674,
+      "hitId": 669,
+      "atMs": 594,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
       "actor": "slayer_vs_tough_boss_stage3000",
@@ -1194,9 +713,9 @@
       "magnitude": 0.3879680711320619
     },
     {
-      "eventId": 676,
-      "hitId": 668,
-      "atMs": 1485,
+      "eventId": 675,
+      "hitId": 669,
+      "atMs": 594,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
       "actor": "slayer_vs_tough_boss_stage3000",
@@ -1205,7 +724,488 @@
     },
     {
       "eventId": 677,
-      "hitId": 668,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.20921834854734822,
+      "succeeded": false
+    },
+    {
+      "eventId": 678,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 679,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 680,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 681,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 682,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.20921834854734822
+    },
+    {
+      "eventId": 683,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3879680711320619
+    },
+    {
+      "eventId": 684,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 685,
+      "hitId": 676,
+      "atMs": 891,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.038796807113206176,
+      "succeeded": false
+    },
+    {
+      "eventId": 686,
+      "hitId": 687,
+      "atMs": 891,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.1805068233314817,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 689,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 690,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 691,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.36193769621700234,
+      "succeeded": false
+    },
+    {
+      "eventId": 692,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 693,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3189339942500341
+    },
+    {
+      "eventId": 694,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 695,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 696,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 697,
+      "hitId": 688,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 1868.1762649969105
+    },
+    {
+      "eventId": 699,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 700,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 701,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.36193769621700234,
+      "succeeded": false
+    },
+    {
+      "eventId": 702,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 703,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3189339942500341
+    },
+    {
+      "eventId": 704,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.022000000000000002
+    },
+    {
+      "eventId": 705,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 706,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 707,
+      "hitId": 698,
+      "atMs": 1100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 350.5621252800989
+    },
+    {
+      "eventId": 709,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.20921834854734822,
+      "succeeded": false
+    },
+    {
+      "eventId": 710,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 711,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 712,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 713,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 714,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.20921834854734822
+    },
+    {
+      "eventId": 715,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3879680711320619
+    },
+    {
+      "eventId": 716,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 717,
+      "hitId": 708,
+      "atMs": 1188,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.038796807113206176,
+      "succeeded": false
+    },
+    {
+      "eventId": 718,
+      "hitId": 719,
+      "atMs": 1188,
+      "category": "echo",
+      "source": "Echo",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.1805068233314817,
+      "succeeded": false,
+      "magnitude": 0.0
+    },
+    {
+      "eventId": 721,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "probability": 0.20921834854734822,
+      "succeeded": false
+    },
+    {
+      "eventId": 722,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.15000000000000002,
+      "succeeded": false
+    },
+    {
+      "eventId": 723,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "probability": 0.2,
+      "succeeded": false
+    },
+    {
+      "eventId": 724,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 725,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__enemy_0__",
+      "target": "slayer_vs_tough_boss_stage3000",
+      "magnitude": 0.25
+    },
+    {
+      "eventId": 726,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.20921834854734822
+    },
+    {
+      "eventId": 727,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": 0.3879680711320619
+    },
+    {
+      "eventId": 728,
+      "hitId": 720,
+      "atMs": 1485,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "slayer_vs_tough_boss_stage3000",
+      "target": "__enemy_0__",
+      "magnitude": -0.6
+    },
+    {
+      "eventId": 729,
+      "hitId": 720,
       "atMs": 1485,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1215,8 +1215,8 @@
       "succeeded": false
     },
     {
-      "eventId": 678,
-      "hitId": 679,
+      "eventId": 730,
+      "hitId": 731,
       "atMs": 1485,
       "category": "echo",
       "source": "Echo",
@@ -1227,8 +1227,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 681,
-      "hitId": 680,
+      "eventId": 733,
+      "hitId": 732,
       "atMs": 1782,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1238,8 +1238,8 @@
       "succeeded": false
     },
     {
-      "eventId": 682,
-      "hitId": 680,
+      "eventId": 734,
+      "hitId": 732,
       "atMs": 1782,
       "category": "evasion",
       "source": "Evasion",
@@ -1249,8 +1249,8 @@
       "succeeded": false
     },
     {
-      "eventId": 683,
-      "hitId": 680,
+      "eventId": 735,
+      "hitId": 732,
       "atMs": 1782,
       "category": "block",
       "source": "Block chance",
@@ -1260,8 +1260,8 @@
       "succeeded": true
     },
     {
-      "eventId": 684,
-      "hitId": 680,
+      "eventId": 736,
+      "hitId": 732,
       "atMs": 1782,
       "category": "evasion",
       "source": "Evasion",
@@ -1270,8 +1270,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 685,
-      "hitId": 680,
+      "eventId": 737,
+      "hitId": 732,
       "atMs": 1782,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -1280,8 +1280,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 686,
-      "hitId": 680,
+      "eventId": 738,
+      "hitId": 732,
       "atMs": 1782,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1290,8 +1290,8 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 687,
-      "hitId": 680,
+      "eventId": 739,
+      "hitId": 732,
       "atMs": 1782,
       "category": "crit",
       "source": "Crit chance",
@@ -1300,8 +1300,8 @@
       "magnitude": 0.20921834854734822
     },
     {
-      "eventId": 688,
-      "hitId": 680,
+      "eventId": 740,
+      "hitId": 732,
       "atMs": 1782,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1310,8 +1310,8 @@
       "magnitude": 0.3879680711320619
     },
     {
-      "eventId": 689,
-      "hitId": 680,
+      "eventId": 741,
+      "hitId": 732,
       "atMs": 1782,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1320,8 +1320,8 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 690,
-      "hitId": 680,
+      "eventId": 742,
+      "hitId": 732,
       "atMs": 1782,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1331,8 +1331,8 @@
       "succeeded": true
     },
     {
-      "eventId": 691,
-      "hitId": 692,
+      "eventId": 743,
+      "hitId": 744,
       "atMs": 1782,
       "category": "echo",
       "source": "Echo",
@@ -1343,8 +1343,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 694,
-      "hitId": 693,
+      "eventId": 746,
+      "hitId": 745,
       "atMs": 2079,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1354,8 +1354,8 @@
       "succeeded": false
     },
     {
-      "eventId": 695,
-      "hitId": 693,
+      "eventId": 747,
+      "hitId": 745,
       "atMs": 2079,
       "category": "evasion",
       "source": "Evasion",
@@ -1365,8 +1365,8 @@
       "succeeded": false
     },
     {
-      "eventId": 696,
-      "hitId": 693,
+      "eventId": 748,
+      "hitId": 745,
       "atMs": 2079,
       "category": "block",
       "source": "Block chance",
@@ -1376,8 +1376,8 @@
       "succeeded": false
     },
     {
-      "eventId": 697,
-      "hitId": 693,
+      "eventId": 749,
+      "hitId": 745,
       "atMs": 2079,
       "category": "evasion",
       "source": "Evasion",
@@ -1386,8 +1386,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 698,
-      "hitId": 693,
+      "eventId": 750,
+      "hitId": 745,
       "atMs": 2079,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1396,8 +1396,8 @@
       "magnitude": 0.25
     },
     {
-      "eventId": 699,
-      "hitId": 693,
+      "eventId": 751,
+      "hitId": 745,
       "atMs": 2079,
       "category": "crit",
       "source": "Crit chance",
@@ -1406,8 +1406,8 @@
       "magnitude": 0.20921834854734822
     },
     {
-      "eventId": 700,
-      "hitId": 693,
+      "eventId": 752,
+      "hitId": 745,
       "atMs": 2079,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1416,8 +1416,8 @@
       "magnitude": 0.3879680711320619
     },
     {
-      "eventId": 701,
-      "hitId": 693,
+      "eventId": 753,
+      "hitId": 745,
       "atMs": 2079,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1426,8 +1426,8 @@
       "magnitude": -0.6
     },
     {
-      "eventId": 702,
-      "hitId": 693,
+      "eventId": 754,
+      "hitId": 745,
       "atMs": 2079,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1437,8 +1437,8 @@
       "succeeded": false
     },
     {
-      "eventId": 703,
-      "hitId": 704,
+      "eventId": 755,
+      "hitId": 756,
       "atMs": 2079,
       "category": "echo",
       "source": "Echo",
@@ -1449,8 +1449,8 @@
       "magnitude": 0.0
     },
     {
-      "eventId": 706,
-      "hitId": 705,
+      "eventId": 758,
+      "hitId": 757,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1460,8 +1460,8 @@
       "succeeded": false
     },
     {
-      "eventId": 707,
-      "hitId": 705,
+      "eventId": 759,
+      "hitId": 757,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -1471,8 +1471,8 @@
       "succeeded": false
     },
     {
-      "eventId": 708,
-      "hitId": 705,
+      "eventId": 760,
+      "hitId": 757,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -1482,8 +1482,8 @@
       "succeeded": true
     },
     {
-      "eventId": 709,
-      "hitId": 705,
+      "eventId": 761,
+      "hitId": 757,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1492,8 +1492,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 710,
-      "hitId": 705,
+      "eventId": 762,
+      "hitId": 757,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -1502,8 +1502,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 711,
-      "hitId": 705,
+      "eventId": 763,
+      "hitId": 757,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1512,8 +1512,8 @@
       "magnitude": 0.3189339942500341
     },
     {
-      "eventId": 712,
-      "hitId": 705,
+      "eventId": 764,
+      "hitId": 757,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1522,8 +1522,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 713,
-      "hitId": 705,
+      "eventId": 765,
+      "hitId": 757,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance",
@@ -1532,8 +1532,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 714,
-      "hitId": 705,
+      "eventId": 766,
+      "hitId": 757,
       "atMs": 2200,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1542,8 +1542,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 715,
-      "hitId": 705,
+      "eventId": 767,
+      "hitId": 757,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
