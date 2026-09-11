@@ -754,6 +754,10 @@ async fn async_main() -> anyhow::Result<()> {
         // is never offered again. Requests are left alone - see
         // PlaybackErrorEvent::was_random.
         play_random.clone().spawn_blocklist_watcher(manager.clone());
+        // Logs each random song once it actually reaches the stream, and
+        // keeps the no-repeat window - see record_random_play for why it
+        // is start-of-play and not queue time.
+        play_random.clone().spawn_play_log_watcher(manager.clone());
     }
 
     // Hourly Blood-filled Vessel price snapshots for lokati.net/vessel-pricing.html

@@ -143,6 +143,9 @@ $CoreFiles = @(
     'channel-points-interrupt-reward.json'   # main.rs:588 - the Twitch reward ID. Losing it does not delete the reward; it makes the bot CREATE A SECOND ONE, leaving two identical rewards in the channel and orphaning redemptions against the first.
     'channel-points-theme-reward.json'       # main.rs:572 - same shape, same failure.
     'playrandom-state.json'                  # playrandom.rs:274 STATE_PATH - the !playrandom on/off flag. Tiny, and included because its absence has ALREADY been misread once as "continuous mode randomly stopping on its own" (that comment's own words) when it was every bot restart.
+    'playrandom-log.json'                    # playrandom.rs PLAY_LOG_PATH - every random song that actually reached the stream (timestamp, id, title). A record of what was played, with no second copy anywhere; the only file here that grows without bound, which is why it is worth watching rather than assuming.
+    'playrandom-history.json'                # playrandom.rs HISTORY_PATH - the last 100 random video ids, which is what the no-repeat window IS. Losing it does not break playback; it makes !playrandom start repeating songs it just played, which reads as the feature having silently stopped working.
+    'playrandom-blocklist.json'              # playrandom.rs BLOCKLIST_PATH - random videos the overlay could not play, with the reason. Each entry cost one dead slot on stream to learn; losing the file means paying for every one of them again.
 )
 
 # DELIBERATELY EXCLUDED, each with the reason rather than by omission.

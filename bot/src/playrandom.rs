@@ -23,7 +23,7 @@ use crate::song_requests::{Song, SongRequestManager};
 use rand::seq::SliceRandom;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -287,9 +287,38 @@ pub(crate) fn requests_are_pending(queue: &[Song]) -> bool {
 /// slot on stream exactly once.
 const BLOCKLIST_PATH: &str = "playrandom-blocklist.json";
 
+/// Every random song that actually reached the stream (timestamp, video
+/// id, title). A JSON array rather than one object per line because
+/// backup-bot-data.ps1 parses every file it copies with ConvertFrom-Json
+/// to verify the snapshot, and JSONL would fail that check.
+const PLAY_LOG_PATH: &str = "playrandom-log.json";
+
+/// The no-repeat window: a video in the last this-many random plays is
+/// not offered again. When fewer than this have been played, the window
+/// is simply all of them — which is what a capped history gives for
+/// free, and is what keeps a small pool playable instead of starving.
+const NO_REPEAT_WINDOW: usize = 100;
+
+/// Where the ids behind that window live, so a restart does not forget.
+const HISTORY_PATH: &str = "playrandom-history.json";
+
 #[derive(Default, Serialize, Deserialize)]
 struct PersistedState {
     enabled: bool,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedHistory {
+    /// Oldest first, capped at `NO_REPEAT_WINDOW`.
+    played: VecDeque<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PlayLogEntry {
+    /// RFC 3339, so the log is readable without tooling.
+    at: String,
+    video_id: String,
+    title: String,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -318,6 +347,7 @@ pub struct PlayRandomManager {
     last_topup_attempt: Mutex<Option<Instant>>,
     topping_up: AtomicBool,
     blocklist: Mutex<PersistedBlocklist>,
+    history: Mutex<PersistedHistory>,
 }
 
 impl PlayRandomManager {
@@ -330,7 +360,69 @@ impl PlayRandomManager {
             last_topup_attempt: Mutex::new(None),
             topping_up: AtomicBool::new(false),
             blocklist: Mutex::new(crate::state::load_json(BLOCKLIST_PATH).unwrap_or_default()),
+            history: Mutex::new(crate::state::load_json(HISTORY_PATH).unwrap_or_default()),
         })
+    }
+
+    /// Whether this video is inside the no-repeat window.
+    fn was_recently_played(&self, video_id: &str) -> bool {
+        self.history.lock().unwrap().played.iter().any(|id| id == video_id)
+    }
+
+    /// Records a random song that actually reached the stream: into the
+    /// no-repeat window, and into the play log.
+    ///
+    /// Deliberately called when a song STARTS PLAYING, not when it is
+    /// queued. A queued random song can be retired unplayed by a request
+    /// (see song_requests::queue_song), and logging those would both lie
+    /// about what was played and spend the no-repeat window on songs
+    /// nobody heard.
+    pub fn record_random_play(&self, video_id: &str, title: &str) {
+        {
+            let mut history = self.history.lock().unwrap();
+            history.played.push_back(video_id.to_string());
+            while history.played.len() > NO_REPEAT_WINDOW {
+                history.played.pop_front();
+            }
+            if let Err(err) = crate::state::save_json(HISTORY_PATH, &*history) {
+                tracing::error!("Failed to persist {HISTORY_PATH}: {err}");
+            }
+        }
+
+        let mut log: Vec<PlayLogEntry> = crate::state::load_json(PLAY_LOG_PATH).unwrap_or_default();
+        log.push(PlayLogEntry {
+            at: chrono::Utc::now().to_rfc3339(),
+            video_id: video_id.to_string(),
+            title: title.to_string(),
+        });
+        if let Err(err) = crate::state::save_json(PLAY_LOG_PATH, &log) {
+            tracing::error!("Failed to append to {PLAY_LOG_PATH}: {err}");
+        }
+    }
+
+    /// Watches what is actually on stream and logs each random song once
+    /// it starts. Spawned once from main.rs.
+    pub fn spawn_play_log_watcher(self: Arc<Self>, song_requests: Arc<SongRequestManager>) {
+        let mut rx = song_requests.subscribe();
+        tokio::spawn(async move {
+            // State broadcasts fire for volume, mute and queue edits too,
+            // not just song changes, so the same song arrives many times
+            // over. Only a CHANGE of now_playing is a play.
+            let mut last_logged: Option<String> = None;
+            while let Ok(state) = rx.recv().await {
+                let Some(now_playing) = state.now_playing else {
+                    last_logged = None;
+                    continue;
+                };
+                if last_logged.as_deref() == Some(now_playing.video_id.as_str()) {
+                    continue;
+                }
+                last_logged = Some(now_playing.video_id.clone());
+                if now_playing.is_random() {
+                    self.record_random_play(&now_playing.video_id, &now_playing.title);
+                }
+            }
+        });
     }
 
     /// Records a video !playrandom offered that could not be played, so
@@ -434,6 +526,7 @@ impl PlayRandomManager {
         let mut resolved = Vec::new();
         let mut already_known_skips = 0u32;
         let mut blocklisted_skips = 0u32;
+        let mut recently_played_skips = 0u32;
         let mut resolve_failures = 0u32;
         for (artist, track) in candidates {
             if resolved.len() >= count {
@@ -454,6 +547,13 @@ impl PlayRandomManager {
                 Ok(song) if self.is_blocklisted(&song.video_id) => {
                     blocklisted_skips += 1;
                 }
+                // Inside the no-repeat window. The candidate list is
+                // already shuffled and finite, so "draw again" is just
+                // continuing this loop — which bounds the redraws at the
+                // pool Last.fm returned rather than spinning.
+                Ok(song) if self.was_recently_played(&song.video_id) => {
+                    recently_played_skips += 1;
+                }
                 Ok(song) => {
                     tracing::info!("!playrandom: resolved candidate \"{query}\" -> \"{}\"", song.title);
                     resolved.push(song);
@@ -465,7 +565,7 @@ impl PlayRandomManager {
             }
         }
         tracing::info!(
-            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {blocklisted_skips} blocklisted skip(s), {resolve_failures} resolve failure(s)",
+            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {blocklisted_skips} blocklisted skip(s), {recently_played_skips} no-repeat skip(s), {resolve_failures} resolve failure(s)",
             resolved.len()
         );
 
@@ -573,6 +673,29 @@ mod tests {
             requests_are_pending(&[song("R1", ""), song("REQ", "viewer")]),
             "a request anywhere in the queue holds random off, not just at the front"
         );
+    }
+
+    /// The no-repeat window keeps the last NO_REPEAT_WINDOW ids and no
+    /// more, and "or all of them if fewer" falls out of that for free -
+    /// a small pool still plays instead of starving.
+    #[test]
+    fn the_no_repeat_window_holds_the_last_hundred_and_drops_the_oldest() {
+        let mut history = PersistedHistory::default();
+        for i in 0..NO_REPEAT_WINDOW {
+            history.played.push_back(format!("v{i}"));
+        }
+        assert_eq!(history.played.len(), NO_REPEAT_WINDOW);
+        assert!(history.played.contains(&"v0".to_string()), "still inside the window");
+
+        // One more play pushes the oldest out, and only the oldest.
+        history.played.push_back("v100".to_string());
+        while history.played.len() > NO_REPEAT_WINDOW {
+            history.played.pop_front();
+        }
+        assert_eq!(history.played.len(), NO_REPEAT_WINDOW);
+        assert!(!history.played.contains(&"v0".to_string()), "the oldest play has left the window");
+        assert!(history.played.contains(&"v1".to_string()), "everything else stays");
+        assert!(history.played.contains(&"v100".to_string()));
     }
 
     /// ...and resumes on its own once the request queue empties. No
