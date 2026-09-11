@@ -8605,3 +8605,48 @@ leaving it to be cited later as standing, which is the same failure mode as the
 The cutover. `docs/bot_move_cutover_runbook.md` ships with the branch; the owner
 picks the window. Merging changed nothing about the running bot, and no bot process
 runs on this box.
+
+### 2026-09-11 — INSERT-BACKSTOP-DESYNC (item 7a) — merged, bot-only, deploy correctly refused
+
+| | |
+|---|---|
+| master commit | `fcb2d1fca642b9c61327f899db688d007bcbc4b4` |
+| live binary | **unchanged** — `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| deploy | **refused, correctly** — byte-identical |
+| box suite | **938 passed / 0 failed / 46 result-lines** |
+| rollback slot | none created |
+
+Bot-only, so the game binary cannot change and the gate said so. Second item in a
+row where the refusal is the expected result rather than a failure.
+
+#### THE RENAME-AWARE MERGE RESOLVED ITSELF — AND THE CHECK WAS NOT "NO CONFLICTS"
+
+d's branch was written against **root** paths before release 27 moved the bot:
+`src/song_requests.rs`, `src/song_overlay_server.rs`,
+`public_song_overlay/overlay.html`, `WIKI_IMPACT.md`. Git followed the renames and
+applied all four hunks to the `bot/` paths automatically — **112 insertions, 0
+deletions, matching d's own figures exactly.**
+
+**The dangerous outcome here was never a conflict.** A conflict is loud. The quiet
+failure is git *succeeding at the old paths*: recreating `src/song_requests.rs`
+beside `bot/src/song_requests.rs`, so the workspace builds the bot from `bot/` while
+d's desync fix sits in an orphaned root copy — compiling, passing, shipping, and
+doing nothing.
+
+So the check was **the absence of `src/` and `public_song_overlay/`**, verified in
+the merged tree and again in the box's extracted tree, not the absence of conflict
+markers.
+
+#### A CLAIM OF MINE EXPIRES, EXACTLY AS FLAGGED
+
+On 2026-09-10 I recorded that the bot has **zero `#[test]` functions**, used it to
+qualify release 27's one-invocation check, and said explicitly that d's branch would
+retire it.
+
+Measured here: **bot `#[test]` count 0 -> 2** —
+`stuck_backstop_for_a_superseded_insert_stays_a_no_op` and
+`stuck_backstop_relays_skip_insert_to_the_overlay`.
+
+That also gives release 27's property real content. "One `--workspace` invocation
+covers both members" was structurally true and **empty** for the bot while it had no
+tests; the bot's two now run in the same invocation as the game's 936.
