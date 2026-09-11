@@ -379,8 +379,13 @@ async fn async_main() -> anyhow::Result<()> {
     // buffered log lines are lost. (Briefly disabled 2026-08-17 after
     // logs/ grew to several GB - re-enabled with a one-time cleanup of the
     // old files, see that same commit.)
+    //
+    // That one-time cleanup became a real retention policy on 2026-09-08 -
+    // see `logging::MAX_LOG_FILES` for the number and the argument for it.
+    // The filenames are unchanged (`bot.log.<date>`), so the files already
+    // on disk are adopted by the policy rather than left beside it.
     std::fs::create_dir_all("logs")?;
-    let file_appender = tracing_appender::rolling::daily("logs", "bot.log");
+    let file_appender = twitch_bot_rs::logging::daily_appender("logs")?;
     let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::registry()
