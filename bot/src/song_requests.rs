@@ -225,6 +225,11 @@ pub enum RequestError {
     NotFound(String),
     #[error("That video is {duration_secs}s long, which is over the {max_secs}s limit.")]
     TooLong { duration_secs: u64, max_secs: u64 },
+    /// Caught before queueing, from the same `videos.list` call that
+    /// already fetches title and duration — the alternative is finding
+    /// out when the overlay's embed fails on stream.
+    #[error("YouTube won't play that one here — {reason}.")]
+    Restricted { reason: String },
     #[error("YouTube lookup failed: {0}")]
     Api(#[from] anyhow::Error),
 }
@@ -302,6 +307,14 @@ pub const SKIP_ACTION_COOLDOWN: Duration = Duration::from_secs(600);
 pub struct PlaybackErrorEvent {
     pub title: String,
     pub reason: String,
+    /// Needed to blocklist the video, which chat's "why did it skip"
+    /// message never had to know.
+    pub video_id: String,
+    /// Only `!playrandom` output is blocklisted. A viewer's own request
+    /// failing is their business and they may well request it again;
+    /// filler that cannot play is filler that should never be offered
+    /// again.
+    pub was_random: bool,
 }
 
 pub struct SongRequestManager {
@@ -669,10 +682,15 @@ impl SongRequestManager {
     /// insert (same as a normal `insertEnded` report) so the interrupted
     /// playlist song resumes, rather than advancing the main queue.
     pub fn report_insert_playback_error(&self, reason: String) {
-        let title = self.state.lock().unwrap().active_insert.as_ref().map(|s| s.title.clone());
+        let failed = self.state.lock().unwrap().active_insert.clone();
         self.clear_active_insert();
-        if let Some(title) = title {
-            let _ = self.playback_error_tx.send(PlaybackErrorEvent { title, reason });
+        if let Some(failed) = failed {
+            let _ = self.playback_error_tx.send(PlaybackErrorEvent {
+                title: failed.title,
+                reason,
+                video_id: failed.video_id,
+                was_random: failed.requested_by.is_empty(),
+            });
         }
     }
 
@@ -750,10 +768,15 @@ impl SongRequestManager {
     /// emits a `PlaybackErrorEvent` so chat gets told *why* the song
     /// changed instead of it just silently jumping to the next one.
     pub fn report_playback_error(&self, reason: String) {
-        let title = self.state.lock().unwrap().now_playing.as_ref().map(|s| s.title.clone());
+        let failed = self.state.lock().unwrap().now_playing.clone();
         self.advance();
-        if let Some(title) = title {
-            let _ = self.playback_error_tx.send(PlaybackErrorEvent { title, reason });
+        if let Some(failed) = failed {
+            let _ = self.playback_error_tx.send(PlaybackErrorEvent {
+                was_random: failed.is_random(),
+                title: failed.title,
+                reason,
+                video_id: failed.video_id,
+            });
         }
     }
 
@@ -1077,13 +1100,25 @@ impl SongRequestManager {
     }
 
     async fn fetch_video_details(&self, video_id: &str) -> Result<Option<(String, u64)>, RequestError> {
+        // `status` rides along on the call that already fetches title and
+        // duration, so the pre-check costs no extra quota — the free tier
+        // is 100 search units a day and this must not spend more of it.
         let data = self
-            .youtube_get("https://www.googleapis.com/youtube/v3/videos", &[("part", "snippet,contentDetails"), ("id", video_id)])
+            .youtube_get(
+                "https://www.googleapis.com/youtube/v3/videos",
+                &[("part", "snippet,contentDetails,status"), ("id", video_id)],
+            )
             .await?;
 
         let Some(item) = data.get("items").and_then(|v| v.as_array()).and_then(|a| a.first()) else {
             return Ok(None);
         };
+
+        // Before the cache: a video rejected here is never stored, so it
+        // cannot be served from cache later as though it were playable.
+        if let Some(reason) = restriction_reason(item) {
+            return Err(RequestError::Restricted { reason });
+        }
 
         let title = item
             .get("snippet")
@@ -1101,6 +1136,68 @@ impl SongRequestManager {
 
         Ok(Some((title, duration_secs)))
     }
+}
+
+/// The region the stream actually plays from, for `regionRestriction`.
+/// Singapore, matching the timezone the entrance-theme "stream day" is
+/// computed in (`entrance_themes::stream_day`). If the stream moves,
+/// this is the one line to change — YouTube's region data is only
+/// meaningful against a specific country.
+const STREAM_REGION: &str = "SG";
+
+/// Why YouTube's embedded player will refuse this video, or `None` if it
+/// will play. Reads one `videos.list` item, so it is a pure function
+/// over the API's own shape and testable without a network call.
+///
+/// These are the conditions the overlay would otherwise report as error
+/// codes 100/101/150 after the song was already queued and reached the
+/// front — the point of checking here is that the viewer finds out when
+/// they ask, not three songs later on stream.
+fn restriction_reason(item: &serde_json::Value) -> Option<String> {
+    let status = item.get("status");
+    let content = item.get("contentDetails");
+
+    if status.and_then(|s| s.get("embeddable")).and_then(|v| v.as_bool()) == Some(false) {
+        return Some("its owner has disabled embedding".to_string());
+    }
+    if status.and_then(|s| s.get("privacyStatus")).and_then(|v| v.as_str()) == Some("private") {
+        return Some("it's private".to_string());
+    }
+    // `uploadStatus` covers the video that is gone rather than restricted
+    // — the overlay reports both as the same unplayable embed.
+    if matches!(
+        status.and_then(|s| s.get("uploadStatus")).and_then(|v| v.as_str()),
+        Some("rejected" | "failed" | "deleted")
+    ) {
+        return Some("YouTube has taken it down".to_string());
+    }
+    // Age-restricted videos are never playable in an embed at all, no
+    // matter who is watching — there is no signed-in viewer in an OBS
+    // browser source to satisfy the check.
+    if content.and_then(|c| c.get("contentRating")).and_then(|r| r.get("ytRating")).and_then(|v| v.as_str())
+        == Some("ytAgeRestricted")
+    {
+        return Some("it's age-restricted, which YouTube never allows in an embed".to_string());
+    }
+
+    if let Some(region) = content.and_then(|c| c.get("regionRestriction")) {
+        let listed = |key: &str| {
+            region
+                .get(key)
+                .and_then(|v| v.as_array())
+                .map(|codes| codes.iter().any(|c| c.as_str() == Some(STREAM_REGION)))
+        };
+        // `blocked` and `allowed` are mutually exclusive in YouTube's
+        // data, but check both rather than assuming which one is present.
+        if listed("blocked") == Some(true) {
+            return Some(format!("it's blocked in {STREAM_REGION}"));
+        }
+        if listed("allowed") == Some(false) {
+            return Some(format!("it isn't available in {STREAM_REGION}"));
+        }
+    }
+
+    None
 }
 
 static VIDEO_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -1138,7 +1235,15 @@ mod tests {
     /// care, but the "requested songs keep the configured threshold"
     /// test needs it above 1 to mean anything.
     fn test_manager_with_threshold(voteskip_threshold: u32) -> Arc<SongRequestManager> {
-        let dir = std::env::temp_dir().join(format!("song-requests-test-{}", std::process::id()));
+        // A per-CALL directory, not a per-process one. These tests queue
+        // songs, and queue_song persists song-queue.json; with one shared
+        // directory the managers in parallel tests read each other's
+        // state back out of `new`, which showed up as three tests failing
+        // on one run and passing on the next. Flaky tests are worse than
+        // none.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("song-requests-test-{}-{unique}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         // Paths that don't exist yet — `new` loads them with
         // unwrap_or_default, so this needs no fixture and touches no
@@ -1236,6 +1341,108 @@ mod tests {
         let state = manager.snapshot();
         let queued: Vec<&str> = state.queue.iter().map(|s| s.video_id.as_str()).collect();
         assert_eq!(queued, ["Q1", "Q2"], "only the random song is retired");
+    }
+
+    // ---- restricted videos, caught before queueing ----
+
+    #[test]
+    fn a_playable_video_is_not_restricted() {
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({
+                "status": { "embeddable": true, "privacyStatus": "public", "uploadStatus": "processed" },
+                "contentDetails": { "duration": "PT3M20S" }
+            }))),
+            None
+        );
+    }
+
+    #[test]
+    fn embedding_disabled_is_caught() {
+        let reason = restriction_reason(&(serde_json::json!({
+            "status": { "embeddable": false, "privacyStatus": "public" }
+        })));
+        assert_eq!(reason.as_deref(), Some("its owner has disabled embedding"));
+    }
+
+    #[test]
+    fn private_and_taken_down_videos_are_caught() {
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({ "status": { "privacyStatus": "private" } }))).as_deref(),
+            Some("it's private")
+        );
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({ "status": { "uploadStatus": "rejected" } }))).as_deref(),
+            Some("YouTube has taken it down")
+        );
+    }
+
+    /// Age-restricted video are never playable in an embed, whoever is
+    /// watching — there is no signed-in viewer in an OBS browser source.
+    #[test]
+    fn age_restricted_videos_are_caught() {
+        let reason = restriction_reason(&(serde_json::json!({
+            "contentDetails": { "contentRating": { "ytRating": "ytAgeRestricted" } }
+        })));
+        assert!(reason.unwrap().contains("age-restricted"));
+    }
+
+    /// Both shapes of regionRestriction, against the region the stream
+    /// actually plays from.
+    #[test]
+    fn region_restrictions_are_read_against_the_streams_own_region() {
+        let blocked = restriction_reason(&(serde_json::json!({
+            "contentDetails": { "regionRestriction": { "blocked": ["SG", "MY"] } }
+        })));
+        assert_eq!(blocked.as_deref(), Some("it's blocked in SG"));
+
+        let allowed_elsewhere = restriction_reason(&(serde_json::json!({
+            "contentDetails": { "regionRestriction": { "allowed": ["US", "GB"] } }
+        })));
+        assert_eq!(allowed_elsewhere.as_deref(), Some("it isn't available in SG"));
+
+        // Blocked somewhere else, or explicitly allowed here, both play.
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({
+                "contentDetails": { "regionRestriction": { "blocked": ["DE"] } }
+            }))),
+            None
+        );
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({
+                "contentDetails": { "regionRestriction": { "allowed": ["SG"] } }
+            }))),
+            None
+        );
+    }
+
+    /// A response with none of these fields must not be treated as
+    /// restricted — absent data is not evidence of a problem, and
+    /// rejecting on it would block every video.
+    #[test]
+    fn a_response_missing_the_fields_entirely_is_allowed() {
+        assert_eq!(restriction_reason(&(serde_json::json!({}))), None);
+        assert_eq!(restriction_reason(&(serde_json::json!({ "snippet": { "title": "x" } }))), None);
+    }
+
+    /// A failed random song is blocklisted; a failed request is not. The
+    /// event carries both facts because chat's "why did it skip" message
+    /// never needed them.
+    #[test]
+    fn a_failed_songs_event_says_whether_it_was_random() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+
+        manager.queue_song(random_song("BROKEN"));
+        manager.report_playback_error("video not found or removed".to_string());
+        let event = errors.try_recv().expect("a playback error is announced");
+        assert_eq!(event.video_id, "BROKEN");
+        assert!(event.was_random, "!playrandom output is blocklistable");
+
+        manager.queue_song(requested_song("THEIRS", "alice"));
+        manager.report_playback_error("video not found or removed".to_string());
+        let event = errors.try_recv().expect("a playback error is announced");
+        assert_eq!(event.video_id, "THEIRS");
+        assert!(!event.was_random, "a viewer's own request is theirs to ask for again");
     }
 
     // ---- !modskip ----

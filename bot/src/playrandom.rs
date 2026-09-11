@@ -23,7 +23,7 @@ use crate::song_requests::{Song, SongRequestManager};
 use rand::seq::SliceRandom;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -281,9 +281,32 @@ pub(crate) fn requests_are_pending(queue: &[Song]) -> bool {
     queue.iter().any(|song| !song.is_random())
 }
 
+/// Videos !playrandom offered that the overlay could not actually play.
+/// Persisted beside `playrandom-state.json` so a restart does not start
+/// offering them again — the whole point is that each one costs a dead
+/// slot on stream exactly once.
+const BLOCKLIST_PATH: &str = "playrandom-blocklist.json";
+
 #[derive(Default, Serialize, Deserialize)]
 struct PersistedState {
     enabled: bool,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedBlocklist {
+    /// Video id -> why it was dropped. The reason is kept rather than a
+    /// bare set because the next person to read this file will want to
+    /// know whether it was a regional block that might lapse or a video
+    /// that is simply gone.
+    blocked: HashMap<String, BlockedEntry>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct BlockedEntry {
+    reason: String,
+    title: String,
+    /// RFC 3339, so the file is readable without tooling.
+    at: String,
 }
 
 pub struct PlayRandomManager {
@@ -294,6 +317,7 @@ pub struct PlayRandomManager {
     /// throttles retries after a failed one — see CONTINUOUS_RETRY_COOLDOWN.
     last_topup_attempt: Mutex<Option<Instant>>,
     topping_up: AtomicBool,
+    blocklist: Mutex<PersistedBlocklist>,
 }
 
 impl PlayRandomManager {
@@ -305,7 +329,46 @@ impl PlayRandomManager {
             enabled: AtomicBool::new(persisted.enabled),
             last_topup_attempt: Mutex::new(None),
             topping_up: AtomicBool::new(false),
+            blocklist: Mutex::new(crate::state::load_json(BLOCKLIST_PATH).unwrap_or_default()),
         })
+    }
+
+    /// Records a video !playrandom offered that could not be played, so
+    /// it is never offered again. Only called for random songs — see
+    /// `PlaybackErrorEvent::was_random`.
+    pub fn blocklist_video(&self, video_id: &str, title: &str, reason: &str) {
+        let mut blocklist = self.blocklist.lock().unwrap();
+        blocklist.blocked.insert(
+            video_id.to_string(),
+            BlockedEntry {
+                reason: reason.to_string(),
+                title: title.to_string(),
+                at: chrono::Utc::now().to_rfc3339(),
+            },
+        );
+        if let Err(err) = crate::state::save_json(BLOCKLIST_PATH, &*blocklist) {
+            tracing::error!("Failed to persist {BLOCKLIST_PATH}: {err}");
+        }
+        tracing::info!("!playrandom: blocklisted {video_id} (\"{title}\") — {reason}");
+    }
+
+    fn is_blocklisted(&self, video_id: &str) -> bool {
+        self.blocklist.lock().unwrap().blocked.contains_key(video_id)
+    }
+
+    /// Subscribes to playback errors and blocklists the random ones.
+    /// Spawned once from main.rs. A viewer's own failed request is left
+    /// alone deliberately: they may well ask for it again, and it is
+    /// their slot to waste.
+    pub fn spawn_blocklist_watcher(self: Arc<Self>, song_requests: Arc<SongRequestManager>) {
+        let mut rx = song_requests.subscribe_playback_errors();
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                if event.was_random {
+                    self.blocklist_video(&event.video_id, &event.title, &event.reason);
+                }
+            }
+        });
     }
 
     pub fn set_enabled(&self, enabled: bool) {
@@ -370,6 +433,7 @@ impl PlayRandomManager {
 
         let mut resolved = Vec::new();
         let mut already_known_skips = 0u32;
+        let mut blocklisted_skips = 0u32;
         let mut resolve_failures = 0u32;
         for (artist, track) in candidates {
             if resolved.len() >= count {
@@ -384,6 +448,12 @@ impl PlayRandomManager {
                 Ok(song) if already_known.contains(&song.title.to_lowercase()) => {
                     already_known_skips += 1;
                 }
+                // Offered before and the overlay could not play it. The
+                // id is only known after resolving, so this filters here
+                // rather than above the resolve.
+                Ok(song) if self.is_blocklisted(&song.video_id) => {
+                    blocklisted_skips += 1;
+                }
                 Ok(song) => {
                     tracing::info!("!playrandom: resolved candidate \"{query}\" -> \"{}\"", song.title);
                     resolved.push(song);
@@ -395,7 +465,7 @@ impl PlayRandomManager {
             }
         }
         tracing::info!(
-            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {resolve_failures} resolve failure(s)",
+            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {blocklisted_skips} blocklisted skip(s), {resolve_failures} resolve failure(s)",
             resolved.len()
         );
 

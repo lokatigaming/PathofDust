@@ -564,7 +564,7 @@ async fn handle_builtin(
                 return Some("!playrandom isn't enabled — set LASTFM_API_KEY in .env.".into());
             };
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let Some(arg) = args.first() else {
                 return Some(
@@ -709,7 +709,7 @@ async fn handle_builtin(
 
         "songrequest" | "sr" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             if args.is_empty() {
                 return Some("Usage: !songrequest <YouTube link or search terms>".into());
@@ -748,7 +748,7 @@ async fn handle_builtin(
             match first.to_lowercase().as_str() {
                 "add" => {
                     let Some(song_requests) = &services.song_requests else {
-                        return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                        return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
                     };
                     if args.len() < 2 {
                         return Some("Usage: !playlist add <YouTube link or search terms>".into());
@@ -808,7 +808,7 @@ async fn handle_builtin(
                 }
                 _ => {
                     let Some(song_requests) = &services.song_requests else {
-                        return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                        return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
                     };
                     let target = first.trim_start_matches('@').to_string();
 
@@ -881,7 +881,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             if args.is_empty() {
                 return Some("Usage: !songinsert <YouTube link or search terms>".into());
@@ -916,7 +916,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             if args.len() < 2 {
                 return Some("Usage: !settheme <username> <YouTube link or search terms>".into());
@@ -983,7 +983,7 @@ async fn handle_builtin(
 
         "queue" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let state = song_requests.snapshot();
 
@@ -1014,7 +1014,7 @@ async fn handle_builtin(
 
         "nowplaying" | "np" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let state = song_requests.snapshot();
             match state.active_insert.or(state.now_playing) {
@@ -1025,7 +1025,7 @@ async fn handle_builtin(
 
         "song" | "currentsong" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let state = song_requests.snapshot();
             match state.active_insert.or(state.now_playing) {
@@ -1045,7 +1045,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             // A theme (!songinsert/!si or an entrance theme) playing right
             // now is what's actually on stream — the main queue's
@@ -1064,7 +1064,7 @@ async fn handle_builtin(
 
         "voteskip" | "vs" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             Some(match song_requests.vote_skip(user) {
                 VoteSkipOutcome::NothingPlaying => "Nothing is playing right now.".into(),
@@ -1099,7 +1099,7 @@ async fn handle_builtin(
 
         "votepause" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             Some(match song_requests.vote_pause(user) {
                 VotePauseOutcome::NothingPlaying => "Nothing is playing right now.".into(),
@@ -1114,7 +1114,7 @@ async fn handle_builtin(
 
         "votestart" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             Some(match song_requests.vote_resume(user) {
                 VoteResumeOutcome::NotPaused => "The song isn't paused right now.".into(),
@@ -1139,7 +1139,7 @@ async fn handle_builtin(
 
         "votevolume" | "vv" => {
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let Some((obs, source_name)) = &services.obs_song_volume else {
                 return Some("!votevolume isn't configured — set OBS_WEBSOCKET_URL/OBS_SONG_SOURCE_NAME in .env.".into());
@@ -1177,7 +1177,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             Some(if song_requests.mod_pause() {
                 "Song paused.".into()
@@ -1191,7 +1191,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             song_requests.resume_now();
             Some("Song resumed.".into())
@@ -1202,7 +1202,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let Some((obs, source_name)) = &services.obs_song_volume else {
                 return Some("!modvolume isn't configured — set OBS_WEBSOCKET_URL/OBS_SONG_SOURCE_NAME in .env.".into());
@@ -1229,7 +1229,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             Some(if song_requests.lock_voteskip() {
                 "Voteskip disabled for this song — it's playing through.".into()
@@ -1243,7 +1243,7 @@ async fn handle_builtin(
                 return Some(Reply::None);
             }
             let Some(song_requests) = &services.song_requests else {
-                return Some("Song requests aren't enabled — set YOUTUBE_API_KEY in .env.".into());
+                return Some("Song requests aren't enabled — set YOUTUBE_API_KEYS in .env.".into());
             };
             let count = song_requests.clear_queue();
             Some(format!("Cleared {count} song(s) from the queue.").into())

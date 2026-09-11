@@ -750,6 +750,10 @@ async fn async_main() -> anyhow::Result<()> {
     let play_random = config.lastfm_api_key.as_ref().map(|key| PlayRandomManager::new(key.clone()));
     if let (Some(play_random), Some(manager)) = (&play_random, &song_requests) {
         play_random.clone().spawn_continuous_watcher(manager.clone());
+        // Records any !playrandom song the overlay could not play, so it
+        // is never offered again. Requests are left alone - see
+        // PlaybackErrorEvent::was_random.
+        play_random.clone().spawn_blocklist_watcher(manager.clone());
     }
 
     // Hourly Blood-filled Vessel price snapshots for lokati.net/vessel-pricing.html
