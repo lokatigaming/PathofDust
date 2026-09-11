@@ -27,6 +27,24 @@ pub struct Song {
     pub thumbnail_url: String,
 }
 
+impl Song {
+    /// Whether this song came from `!playrandom` rather than a person.
+    ///
+    /// `!playrandom` resolves its candidates through
+    /// `resolve_song_preview`, which passes an empty `requested_by` (see
+    /// that method) — every other producer supplies a real name: a chat
+    /// user, `"Streamer"` for the dock, `"Entrance Theme"` for an
+    /// insert. So an empty requester is exactly "nobody asked for this",
+    /// which is the distinction the queue rules below are built on.
+    ///
+    /// It is a method rather than five open-coded `.is_empty()` checks
+    /// so the rule has one definition and one place to change, the same
+    /// reason the dispatcher's command parsing was centralised.
+    pub fn is_random(&self) -> bool {
+        self.requested_by.is_empty()
+    }
+}
+
 /// What actually gets saved to disk (song-queue.json) so the playlist
 /// survives a bot restart — deliberately just the songs themselves, not
 /// player_state/muted/show_on_stream, which describe the *browser's*
@@ -550,6 +568,20 @@ impl SongRequestManager {
     pub fn queue_song(&self, song: Song) -> RequestOutcome {
         let outcome = {
             let mut state = self.state.lock().unwrap();
+            // A real request retires whatever !playrandom had queued
+            // behind it. `now_playing` is deliberately NOT touched: the
+            // song already on stream finishes, and the request plays
+            // after it, which is the owner's ruling ("finish current,
+            // then requests — not cut off").
+            //
+            // This sits in queue_song rather than in `request` so it
+            // covers every human path through one hook — chat !sr, the
+            // dock's add, and !playlist <user>, which queues
+            // already-resolved songs directly. The guard is what keeps
+            // !playrandom's own top-up from clearing itself.
+            if !song.is_random() {
+                state.queue.retain(|queued| !queued.is_random());
+            }
             let outcome = if state.now_playing.is_none() {
                 state.now_playing = Some(song.clone());
                 RequestOutcome::NowPlaying(song)
@@ -1088,6 +1120,78 @@ mod tests {
             requested_by: "Entrance Theme".to_string(),
             thumbnail_url: String::new(),
         }
+    }
+
+    /// A song as !playrandom produces it — `resolve_song_preview` passes
+    /// an empty requester, which is the whole marker.
+    fn random_song(video_id: &str) -> Song {
+        Song { requested_by: String::new(), title: format!("random {video_id}"), ..test_song(video_id) }
+    }
+
+    fn requested_song(video_id: &str, by: &str) -> Song {
+        Song { requested_by: by.to_string(), title: format!("requested {video_id}"), ..test_song(video_id) }
+    }
+
+    #[test]
+    fn only_playrandom_songs_count_as_random() {
+        assert!(random_song("R").is_random());
+        assert!(!requested_song("Q", "viewer").is_random());
+        // The dock and entrance themes both supply a real requester, so
+        // neither is ever mistaken for random.
+        assert!(!requested_song("D", "Streamer").is_random());
+        assert!(!test_song("T").is_random());
+    }
+
+    /// The owner's ruling, in one test: a request retires the random
+    /// songs waiting behind it, but the song already on stream finishes.
+    #[test]
+    fn a_request_clears_queued_random_songs_but_not_the_playing_one() {
+        let manager = test_manager();
+        manager.queue_song(random_song("PLAYING"));
+        manager.queue_song(random_song("R1"));
+        manager.queue_song(random_song("R2"));
+
+        let state = manager.snapshot();
+        assert_eq!(state.now_playing.as_ref().unwrap().video_id, "PLAYING");
+        assert_eq!(state.queue.len(), 2, "both random songs are queued before the request arrives");
+
+        manager.queue_song(requested_song("REQ", "viewer"));
+
+        let state = manager.snapshot();
+        assert_eq!(
+            state.now_playing.as_ref().unwrap().video_id,
+            "PLAYING",
+            "the song already on stream must finish — it is not cut off"
+        );
+        let queued: Vec<&str> = state.queue.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(queued, ["REQ"], "the queued random songs are retired, the request is all that is left");
+    }
+
+    /// The guard that keeps !playrandom's own top-up from clearing the
+    /// songs it is adding.
+    #[test]
+    fn a_random_song_does_not_clear_other_random_songs() {
+        let manager = test_manager();
+        manager.queue_song(random_song("PLAYING"));
+        manager.queue_song(random_song("R1"));
+        manager.queue_song(random_song("R2"));
+
+        assert_eq!(manager.snapshot().queue.len(), 2, "random top-up must not retire itself");
+    }
+
+    /// Requests already queued are kept when another request arrives —
+    /// clearing is scoped to random songs, not to the queue.
+    #[test]
+    fn a_request_does_not_clear_other_requests() {
+        let manager = test_manager();
+        manager.queue_song(requested_song("PLAYING", "viewer"));
+        manager.queue_song(requested_song("Q1", "alice"));
+        manager.queue_song(random_song("R1"));
+        manager.queue_song(requested_song("Q2", "bob"));
+
+        let state = manager.snapshot();
+        let queued: Vec<&str> = state.queue.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(queued, ["Q1", "Q2"], "only the random song is retired");
     }
 
     /// Clearing only the bot-side flag is what left the two sides

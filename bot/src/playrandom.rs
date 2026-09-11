@@ -273,6 +273,14 @@ async fn fetch_tag_candidates(http: &reqwest::Client, api_key: &str, tag: &str) 
 /// it was every single bot restart).
 const STATE_PATH: &str = "playrandom-state.json";
 
+/// Whether anything a person actually asked for is still waiting in the
+/// queue. Continuous mode stays out of the way until it drains — see
+/// `maybe_top_up`. Kept as a free function so the rule is testable
+/// without a live queue or a Last.fm round trip.
+pub(crate) fn requests_are_pending(queue: &[Song]) -> bool {
+    queue.iter().any(|song| !song.is_random())
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct PersistedState {
     enabled: bool,
@@ -406,7 +414,18 @@ impl PlayRandomManager {
     /// topped up until *something else* changed it first, e.g. a manual
     /// !songrequest).
     async fn maybe_top_up(self: &Arc<Self>, song_requests: &Arc<SongRequestManager>) {
-        if !self.is_enabled() || song_requests.snapshot().queue.len() >= CONTINUOUS_TOPUP_THRESHOLD {
+        let queue = song_requests.snapshot().queue;
+        if !self.is_enabled() || queue.len() >= CONTINUOUS_TOPUP_THRESHOLD {
+            return;
+        }
+        // Without this, clearing the random queue for a request achieves
+        // nothing visible: this watcher fires on *every* queue state
+        // change, sees a queue of one, and immediately refills random
+        // songs behind the request that just cleared them. Requests play
+        // through first; random resumes on its own the moment the last
+        // one leaves the queue, with no extra trigger needed, because
+        // that departure is itself a state change.
+        if requests_are_pending(&queue) {
             return;
         }
         if self.topping_up.swap(true, Ordering::SeqCst) {
@@ -455,5 +474,43 @@ impl PlayRandomManager {
                 self.maybe_top_up(&song_requests).await;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn song(video_id: &str, requested_by: &str) -> Song {
+        Song {
+            video_id: video_id.to_string(),
+            title: format!("song {video_id}"),
+            duration_secs: 200,
+            requested_by: requested_by.to_string(),
+            thumbnail_url: String::new(),
+        }
+    }
+
+    /// The other half of the owner's first rule. Clearing the random
+    /// queue for a request is undone immediately unless continuous mode
+    /// also stands down while that request is waiting — this watcher
+    /// fires on every queue state change and would otherwise refill
+    /// behind it.
+    #[test]
+    fn continuous_mode_stands_down_while_a_request_is_queued() {
+        assert!(requests_are_pending(&[song("REQ", "viewer")]));
+        assert!(
+            requests_are_pending(&[song("R1", ""), song("REQ", "viewer")]),
+            "a request anywhere in the queue holds random off, not just at the front"
+        );
+    }
+
+    /// ...and resumes on its own once the request queue empties. No
+    /// extra trigger is needed: the song leaving the queue is itself the
+    /// state change the watcher reacts to.
+    #[test]
+    fn continuous_mode_resumes_when_the_request_queue_empties() {
+        assert!(!requests_are_pending(&[]), "an empty queue is random's cue to resume");
+        assert!(!requests_are_pending(&[song("R1", ""), song("R2", "")]), "random songs never hold random off");
     }
 }
