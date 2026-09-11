@@ -9027,3 +9027,79 @@ is not an observation until you have looked at what it counted.
 in the order file. Step 2 onward stays pending.
 
 From item 8 the game binary changes again and real deploys resume.
+
+---
+
+## 2026-09-11 — item 8 merged (`docs/pacing-board-rulings`). Seventh refusal, recorded as its own result. FOUND: #86's present-tense claim is false today.
+
+| | |
+|---|---|
+| branch | `docs/pacing-board-rulings` `c7a672a` — **remote head matched the order, no drift** |
+| merge | **`e53872c`**, clean, no conflict |
+| content | docs-only: `docs/anomaly_ledger.md`, **272 insertions, 0 deletions, 0 modified lines** |
+| local suite | **980 / 0 / 46** (`--no-fail-fast`) |
+| box suite | **980 / 0 / 46** — identical |
+| archive | sha256 `bf68df5587c644b7…`, identical both ends |
+| deploy | **refused, byte-identical — seventh consecutive** |
+| service | untouched: active since 2026-09-10 16:50:04, `NRestarts` 0, no new slot |
+
+### THE DOCS-ONLY CLAIM, PROVED AGAINST THE TREE RATHER THAN THE DIFF
+
+`git diff --name-only` says docs-only, but that trusts the diff. The extracted tree was
+compared directly against the previous release's tree on the box:
+
+```
+files under game/src differing from the 7d tree: 0
+files under bot/src  differing from the 7d tree: 0
+```
+
+Zero and zero, so the binary could not move, and the refusal was predicted with certainty
+before the gate ran. 980 unchanged from 7d confirms it from the other side.
+
+### THE SUITE ABORTED, AND THE COUNT SAID SO
+
+The first run returned `passed=883 failed=1` with **`result-lines=1`**. Without
+`--no-fail-fast` cargo stops at the first failing binary, so that is **not** "one test
+failed out of 883" — it is *one test binary ran at all*. The result-line count is what
+distinguishes those, which is exactly why the rule exists.
+
+The failure was
+`adventure_web::render::live_reload_tests::editing_a_template_takes_effect_without_a_rebuild`
+— one of the three CLAUDE.md names as flaky under parallel, and the rule says confirm in
+isolation before flagging. In isolation, single-threaded: **ok, 0.05 s**. The rerun with
+`--no-fail-fast` came back **980 / 0 / 46** and the flake did not reproduce.
+
+A docs-only merge cannot break a template-reload test. Had I reported the first run's
+883/1 as this branch's result, it would have read as a regression caused by item 8.
+
+### FOUND — #86 SAYS "NOT SATURATED TODAY"; TODAY IT IS SATURATED
+
+Entry `#86`, shipped by this merge, states Controller A "moved to **11.88 of 50**, i.e.
+not saturated today." Read live from `/var/lib/pathofdust` on 2026-09-11 18:30:
+
+| dial | live |
+|---|---|
+| `hp_pacing_mult` | **50.0** |
+| `hp_multiplier_ceiling` | **50.0** |
+
+A is pinned **at** the ceiling. `boss_power_mult` 3.657; `enemy_hp_pool_hard_cap` 1e15.
+
+**I am not claiming the entry was wrong when written.** The pre-deploy snapshots carry only
+the binary, the fight-summary tier and `SHA256SUMS` — no world state — so 2026-09-08's
+value cannot be recovered, and reconstructing it would be construction. What is established
+is only this: **the sentence is false as of today.**
+
+The irony is the entry's own subject. `#86` closes a board item that "read as unactionable
+for a week" because a present-tense claim went stale and nobody updated it — and `#86`
+carries a present-tense claim of its own. *A dated measurement stays true; "today" does not.*
+
+Under the append-only rule this is **not mine to edit**: ledger numbering is the parser's,
+`#86` is `b`'s, and a correction is a new dated entry, never an overwrite. Recorded here and
+in the report for whichever session owns it.
+
+### THE REFUSAL, AS ITS OWN RESULT
+
+The order asked that item 8's refusal be recorded as its own result rather than as the
+streak continuing. It is: **item 8 is docs-only and the binary is provably unchanged**, a
+different fact from items 7/7a–7d being bot-only. Seven refusals, three distinct causes.
+From item 9 the game binary changes and real deploys resume.
