@@ -201,6 +201,15 @@ async fn handle_socket(socket: WebSocket, manager: Arc<SongRequestManager>) {
             let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
             let Some(kind) = value.get("type").and_then(|v| v.as_str()) else { continue };
 
+            // The insert handshake used to be invisible from the log: the
+            // only trace an `insertEnded` never arrived was
+            // clear_active_insert_if_stuck's timeout warning firing much
+            // later, which says nothing about what the overlay *did*
+            // send. Logging the message type (not the payload) makes the
+            // next occurrence diagnosable from the log alone. Volume is
+            // bounded by real playback events — a handful per song.
+            tracing::info!("song overlay ws: received {kind}");
+
             match kind {
                 // From the overlay:
                 "ended" => {

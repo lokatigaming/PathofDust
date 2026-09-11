@@ -650,6 +650,17 @@ impl SongRequestManager {
             state.active_insert = None;
             drop(state);
             self.broadcast_state();
+            // Clearing our own flag isn't enough: the overlay keeps its
+            // local `insertActive` set, and `applyState` early-returns on
+            // that flag, so once the two sides disagree the overlay
+            // ignores every future state broadcast and sits on the insert
+            // forever (bot idle, overlay busy and deaf). Relaying
+            // SkipInsert makes "consumed" a one-time transition this side
+            // actually owns — the overlay's handler resumes the
+            // interrupted song and reports back, and is a plain no-op if
+            // it already moved on. Also re-arms !modskip, which is gated
+            // on the very flag cleared above.
+            self.send_command(ControlAction::SkipInsert);
             tracing::warn!(
                 "!songinsert for video {video_id} never got an insertEnded report — force-cleared after timeout."
             );
@@ -1041,4 +1052,80 @@ fn parse_iso8601_duration(input: &str) -> u64 {
     let minutes: u64 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
     let seconds: u64 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
     hours * 3600 + minutes * 60 + seconds
+}
+
+// The bot crate has no other unit tests — these cover the one thing the
+// insert backstop can be checked on without OBS in the loop: that it
+// tells the overlay, not just itself, that the insert is over.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_manager() -> Arc<SongRequestManager> {
+        let dir = std::env::temp_dir().join(format!("song-requests-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // Paths that don't exist yet — `new` loads them with
+        // unwrap_or_default, so this needs no fixture and touches no
+        // live data.
+        SongRequestManager::new(
+            vec!["test-key".to_string()],
+            3600,
+            1,
+            1,
+            1,
+            1,
+            1,
+            dir.join("queue.json"),
+            dir.join("cache.json"),
+        )
+    }
+
+    fn test_song(video_id: &str) -> Song {
+        Song {
+            video_id: video_id.to_string(),
+            title: "entrance theme".to_string(),
+            duration_secs: 11,
+            requested_by: "Entrance Theme".to_string(),
+            thumbnail_url: String::new(),
+        }
+    }
+
+    /// Clearing only the bot-side flag is what left the two sides
+    /// desynced: the overlay keeps its own `insertActive` set and
+    /// `applyState` early-returns on it, so it ignores every later state
+    /// broadcast and sits on the insert forever. The relayed SkipInsert
+    /// is what actually ends it — delete that line and this fails.
+    #[test]
+    fn stuck_backstop_relays_skip_insert_to_the_overlay() {
+        let manager = test_manager();
+        let mut commands = manager.subscribe_commands();
+        manager.state.lock().unwrap().active_insert = Some(test_song("STUCKVID"));
+
+        manager.clear_active_insert_if_stuck("STUCKVID");
+
+        assert!(manager.snapshot().active_insert.is_none(), "the backstop should clear the bot-side flag");
+        let mut relayed_skip_insert = false;
+        while let Ok(action) = commands.try_recv() {
+            if matches!(action, ControlAction::SkipInsert) {
+                relayed_skip_insert = true;
+            }
+        }
+        assert!(relayed_skip_insert, "the backstop must relay SkipInsert so the overlay can resume");
+    }
+
+    /// The backstop is spawned per insert, so a late one can fire while a
+    /// *newer* insert is already playing. That case has to stay a total
+    /// no-op — otherwise the fix above would cut off the insert that's
+    /// actually on stream.
+    #[test]
+    fn stuck_backstop_for_a_superseded_insert_stays_a_no_op() {
+        let manager = test_manager();
+        let mut commands = manager.subscribe_commands();
+        manager.state.lock().unwrap().active_insert = Some(test_song("NEWER"));
+
+        manager.clear_active_insert_if_stuck("OLDER");
+
+        assert!(manager.snapshot().active_insert.is_some(), "a superseded backstop must leave the running insert alone");
+        assert!(commands.try_recv().is_err(), "a superseded backstop must not relay SkipInsert");
+    }
 }
