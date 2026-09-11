@@ -8890,3 +8890,49 @@ is what makes that visible rather than silent.
 
 **On the board, from b:** the rotation gap is restart-only and **worse on the bot** —
 no `Restart=always`, no daily deploys — and `tracing-appender` 0.2.5 exposes no hook.
+
+### 2026-09-11 — WALKON-SKIPS-COMMANDS (item 7c) — merged, bot-only, deploy correctly refused
+
+| | |
+|---|---|
+| master commit | `115dcddea2c5f1df6528b2f17b508f5b757c45ef` |
+| live binary | **unchanged** — `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| deploy | **refused, correctly** — byte-identical (fifth consecutive) |
+| box suite | **958 passed / 0 failed / 46 result-lines** |
+
+#### THE RISKIEST SHAPE THAT LOOKS SAFE: AN EXTRACTION PLUS A BEHAVIOUR CHANGE IN ONE COMMIT
+
+`parse_command`/`is_command` are lifted out of the dispatcher's inline parse — meant
+to be behaviour-preserving — while `entrance_themes` gains a real new behaviour, a
+command no longer spending the walk-on.
+
+**If the extracted parser diverges from the inline original, the symptom appears in
+command dispatch generally, not in walk-ons, and reads as unrelated.** So the
+question worth asking of the tests was whether they cover the EXTRACTION, not only
+the feature.
+
+They do. Five added, and the two that matter are:
+
+- **`a_bare_bang_is_chat_but_an_unknown_command_is_still_a_command`** — the
+  extraction boundary. A bare `!` versus an unrecognised `!foo` is exactly where a
+  rewritten parser drifts, and it is pinned.
+- **`a_normal_message_first_fires_once_and_only_once`** — the counterweight: the
+  UNCHANGED path still fires, and exactly once, so the refactor cannot silently break
+  ordinary walk-ons while the new feature looks fine.
+
+Plus `commands_all_day_never_fire_and_never_spend_it` (degenerate) and
+`two_commands_then_a_normal_message_fires_on_the_third` (sequencing).
+
+#### THE NAMED-TEST CHECK, APPLIED AGAIN
+
+958/0 would read identically whether the five new tests ran or did not exist, and a
+`--quiet` run prints no passing names. So the boundary test was run explicitly on the
+box:
+
+```
+entrance_themes::walk_on_ordering_tests::a_bare_bang_is_chat_but_an_unknown_command_is_still_a_command ... ok
+```
+
+Second module in two items named for the behaviour rather than the mechanism —
+`restore_condition_tests`, now `walk_on_ordering_tests`. A reader who breaks one
+learns from the module name what they broke.
