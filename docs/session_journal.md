@@ -8936,3 +8936,94 @@ entrance_themes::walk_on_ordering_tests::a_bare_bang_is_chat_but_an_unknown_comm
 Second module in two items named for the behaviour rather than the mechanism —
 `restore_condition_tests`, now `walk_on_ordering_tests`. A reader who breaks one
 learns from the module name what they broke.
+
+---
+
+## 2026-09-11 — item 7d merged (song-queue QOL). Sixth consecutive byte-identical refusal. The bot has never had a deploy.
+
+| | |
+|---|---|
+| branch | `feature/song-queue-qol`, head `0583f3a` (6 commits) |
+| merge | **`4dcd614`** onto `69d41d8` — **this is the head d's cutover package names** |
+| local suite | **980 passed / 0 failed / 46 result-lines** |
+| box suite | **980 passed / 0 failed / 46 result-lines** — identical to local |
+| archive | sha256 `e72d2c69edd6df01…`, **verified identical at both ends** |
+| live binary | **unchanged** — `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| deploy | **refused, correctly** — byte-identical (sixth consecutive) |
+| service | untouched: active since 2026-09-10 16:50:04, `NRestarts` 0, no new backup slot |
+
+### THE MERGE
+
+Only `WIKI_IMPACT.md` conflicted — keep-both, per the append-only rule, 4 added lines.
+`commands.rs` auto-merged, confirming d's prediction that its hunks do not overlap a's.
+Verified both contributors' work survived rather than trusting the auto-merge:
+
+| symbol | count in `bot/src/commands.rs` |
+|---|---|
+| a's `parse_command`/`is_command` (7c) | 4 |
+| d's `YOUTUBE_API_KEYS` | 19 |
+| d's `voteskip` | 7 |
+
+**Correcting a figure I carried forward:** I had `voteskip` at 17 in `commands.rs`. It is
+**7** there (40 across `bot/src`, the bulk of it in `song_requests.rs`). The conclusion —
+both hunks present, no overlap — is unchanged.
+
+### THE NAMED-TEST CHECK, THIRD ITEM RUNNING
+
+980/0 cannot distinguish "the 22 new tests ran" from "they were never compiled in", and a
+`--quiet` run prints no passing names. A grep for song/queue/voteskip names in the suite
+log returned **nothing**, which looks like absence and is just `--quiet` again. So they
+were run by name on the box:
+
+```
+playrandom::tests::the_play_log_is_capped_at_ten_thousand_newest_kept ... ok
+playrandom::tests::an_oversized_log_is_brought_back_in_one_write ... ok
+playrandom::tests::continuous_mode_stands_down_while_a_request_is_queued ... ok
+song_requests::tests::region_restrictions_are_read_against_the_streams_own_region ... ok
+song_requests::tests::one_vote_skips_a_song_nobody_requested ... ok
+```
+
+The first two are the play-log cap — the commit d added *after* naming `ef23176`, and the
+reason the order said to take the head d names rather than the one quoted.
+
+### FOUND — THE BOT HAS NEVER BEEN DEPLOYED BY ANYTHING
+
+Answering d's question for the cutover package. **`deploy-linux.sh` has never built or
+installed the bot, and neither has anything else.** `grep -Eic "bot|twitch"` on it: **0**.
+`/opt/pathofdust/bin/` holds no bot binary; the box has no bot binary outside build trees,
+no bot process, and zero systemd units mentioning one. The five Windows `.ps1` scripts
+contain **0** `cargo build`. The live bot runs from
+`C:\PathofDust\target\release\twitch-bot-rs.exe` — the **cargo output directory**, not an
+install location. There is no install step to have skipped because there is no installed
+copy.
+
+**§13's conditional-bot-redeploy wording therefore describes a step nobody has ever run**
+(§13B already says so outright: *"There is no bot on this box"*). It should be corrected,
+not cited.
+
+**Correcting my own record:** the 7a/7b/7/7c entries say the deploy "refused as
+byte-identical". True of the *game* binary and of the script's output — but it must not be
+read as "the bot was considered and found unchanged." **The script never considers the
+bot.** Six refusals say nothing whatsoever about it.
+
+The cutover package's step 2 is thus the **first bot deploy since Sep 2**. Measured gap:
+**239 commits on master**, of which **17 touch `bot/`**.
+
+### TWO INSTRUMENT ERRORS CAUGHT WHILE GATHERING THAT
+
+Both would have entered the report as evidence against my own conclusion.
+
+- `pgrep -c -f twitch-bot` on the box returned **1** — reading as "a bot process runs
+  there." It was matching **its own command line**. `ps -eo pid,comm,args` shows none.
+- `grep -Eic "bot|twitch" rollback-linux.sh` returned **1** — the word **BOTH** in a
+  comment.
+
+Same class as the `slots:`/`golem_slots:` and `max_log_files`-in-comments errors. A count
+is not an observation until you have looked at what it counted.
+
+### NOT DONE, DELIBERATELY
+
+**The cutover was not started.** The order grants it "on the owner's word"; no go appears
+in the order file. Step 2 onward stays pending.
+
+From item 8 the game binary changes again and real deploys resume.
