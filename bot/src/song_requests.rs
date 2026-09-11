@@ -1238,6 +1238,60 @@ mod tests {
         assert_eq!(queued, ["Q1", "Q2"], "only the random song is retired");
     }
 
+    // ---- !modskip ----
+    //
+    // The owner asked for "!modskip skips any song — requested, random,
+    // or an insert", believing it was gated on an active insert. It is
+    // not: commands.rs's arm tries skip_insert() first and then falls
+    // through to advance() unconditionally, so it already does this. The
+    // complaint was almost certainly the backstop trap closed separately
+    // — !modskip silently disarming after duration + 30.
+    //
+    // So this is a regression test and no behaviour change. It pins the
+    // two manager-level facts the handler's arm is built from. The
+    // `is_mod_or_broadcaster` gate itself is one line in that arm and is
+    // NOT covered here: reaching it needs a full `Services`, which means
+    // six unrelated managers, and building that to assert one `if` would
+    // cost more than it proves.
+
+    /// An active insert is what is actually on stream, so !modskip cuts
+    /// that and leaves the interrupted queue alone.
+    #[test]
+    fn modskip_cuts_the_insert_when_one_is_active_and_leaves_the_queue_alone() {
+        let manager = test_manager();
+        manager.queue_song(requested_song("PLAYING", "alice"));
+        manager.queue_song(requested_song("NEXT", "bob"));
+        manager.state.lock().unwrap().active_insert = Some(test_song("THEME"));
+        let mut commands = manager.subscribe_commands();
+
+        assert!(manager.skip_insert(), "an active insert is what !modskip must cut first");
+        assert!(
+            commands.try_recv().is_ok(),
+            "cutting the insert is relayed to the overlay, which is the only thing holding the player"
+        );
+        assert_eq!(
+            manager.snapshot().now_playing.unwrap().video_id,
+            "PLAYING",
+            "the interrupted song is resumed, not skipped — the queue never advanced"
+        );
+    }
+
+    /// With no insert, the arm falls through to advance(), which does not
+    /// care who asked for the song. This is the half the owner thought
+    /// was missing.
+    #[test]
+    fn modskip_falls_through_to_advance_for_random_and_requested_alike() {
+        let manager = test_manager();
+        manager.queue_song(random_song("RANDOM_PLAYING"));
+        manager.queue_song(requested_song("REQUESTED", "alice"));
+        manager.queue_song(random_song("LAST"));
+
+        assert!(!manager.skip_insert(), "no insert — the handler falls through to advance()");
+        assert_eq!(manager.advance().unwrap().video_id, "REQUESTED", "a random song is skippable");
+        assert!(!manager.skip_insert());
+        assert_eq!(manager.advance().unwrap().video_id, "LAST", "so is a requested one");
+    }
+
     /// The owner's second rule: one viewer can move past filler.
     ///
     /// The configured threshold is deliberately set to 3 here. With the
