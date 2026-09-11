@@ -172,7 +172,11 @@ pub enum VoteSkipOutcome {
     /// see `SKIP_ACTION_COOLDOWN`.
     OnCooldown { remaining_secs: u64 },
     Recorded { count: u32, threshold: u32 },
-    Skipped { new_now_playing: Option<Song> },
+    /// `was_random` is carried so chat can be told *why* one vote was
+    /// enough — the rule is invisible otherwise, and a viewer who sees a
+    /// song vanish on their single vote should learn it applies only to
+    /// songs nobody requested.
+    Skipped { new_now_playing: Option<Song>, was_random: bool },
     /// The voter requested the song currently playing themselves — no
     /// group vote needed, skipped immediately.
     SelfSkipped { new_now_playing: Option<Song> },
@@ -279,6 +283,11 @@ struct Inner {
 /// last 5 distinct genres played" from — larger than 5 on purpose, since
 /// consecutive songs are often the same genre and it needs enough raw
 /// history to actually find 5 *different* ones, not just the last 5 songs.
+/// A song nobody requested needs exactly one vote to skip (owner ruling
+/// 2026-09-11). See `effective_voteskip_threshold` for why it is not
+/// the configured threshold.
+const RANDOM_VOTESKIP_THRESHOLD: u32 = 1;
+
 const RECENT_HISTORY_LIMIT: usize = 30;
 
 /// Per-user cooldown shared by !voteskip and "Interrupt the Music" — see
@@ -767,9 +776,15 @@ impl SongRequestManager {
     /// self-skip cast here starts it, same as a redemption does.
     pub fn vote_skip(&self, user: &str) -> VoteSkipOutcome {
         let lower = user.to_lowercase();
-        // `None` here means "self-skip, go straight to advance()" —
-        // distinct from `Some(count)` below `voteskip_threshold`.
-        let count = {
+        // `was_random` comes back out of this block rather than being
+        // read again afterwards, because it has to be taken under the
+        // same lock as `now_playing` — otherwise the song could change
+        // between deciding the threshold and applying it.
+        //
+        // A `count` of `None` means "self-skip, go straight to
+        // advance()" — distinct from `Some(count)` below the effective
+        // threshold.
+        let (count, was_random) = {
             let mut state = self.state.lock().unwrap();
             if state.now_playing.is_none() {
                 return VoteSkipOutcome::NothingPlaying;
@@ -781,8 +796,9 @@ impl SongRequestManager {
                 return VoteSkipOutcome::OnCooldown { remaining_secs };
             }
 
+            let was_random = state.now_playing.as_ref().is_some_and(|s| s.is_random());
             let is_own_song = state.now_playing.as_ref().is_some_and(|s| s.requested_by.to_lowercase() == lower);
-            if is_own_song {
+            let count = if is_own_song {
                 state.skip_action_cooldowns.insert(lower, Instant::now());
                 None
             } else {
@@ -791,13 +807,34 @@ impl SongRequestManager {
                 }
                 state.skip_action_cooldowns.insert(lower, Instant::now());
                 Some(state.votes.len() as u32)
-            }
+            };
+            (count, was_random)
         };
 
+        let threshold = self.effective_voteskip_threshold(was_random);
         match count {
             None => VoteSkipOutcome::SelfSkipped { new_now_playing: self.advance() },
-            Some(count) if count >= self.voteskip_threshold => VoteSkipOutcome::Skipped { new_now_playing: self.advance() },
-            Some(count) => VoteSkipOutcome::Recorded { count, threshold: self.voteskip_threshold },
+            Some(count) if count >= threshold => {
+                VoteSkipOutcome::Skipped { new_now_playing: self.advance(), was_random }
+            }
+            Some(count) => VoteSkipOutcome::Recorded { count, threshold },
+        }
+    }
+
+    /// How many votes it takes to skip whatever is playing.
+    ///
+    /// A song nobody requested takes one. The configured threshold exists
+    /// so a group can override *a person's* choice; `!playrandom` output
+    /// is nobody's choice, so there is no one to override, and making the
+    /// room assemble a quorum to move past filler is the friction this
+    /// removes. Requested songs keep the configured threshold — along
+    /// with the shared cooldown, the !forceplay lock and the
+    /// skip-your-own-song rule, none of which this touches.
+    fn effective_voteskip_threshold(&self, now_playing_is_random: bool) -> u32 {
+        if now_playing_is_random {
+            RANDOM_VOTESKIP_THRESHOLD
+        } else {
+            self.voteskip_threshold
         }
     }
 
@@ -1094,6 +1131,13 @@ mod tests {
     use super::*;
 
     fn test_manager() -> Arc<SongRequestManager> {
+        test_manager_with_threshold(1)
+    }
+
+    /// The voteskip threshold is the third argument; most tests do not
+    /// care, but the "requested songs keep the configured threshold"
+    /// test needs it above 1 to mean anything.
+    fn test_manager_with_threshold(voteskip_threshold: u32) -> Arc<SongRequestManager> {
         let dir = std::env::temp_dir().join(format!("song-requests-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         // Paths that don't exist yet — `new` loads them with
@@ -1102,7 +1146,7 @@ mod tests {
         SongRequestManager::new(
             vec!["test-key".to_string()],
             3600,
-            1,
+            voteskip_threshold,
             1,
             1,
             1,
@@ -1192,6 +1236,58 @@ mod tests {
         let state = manager.snapshot();
         let queued: Vec<&str> = state.queue.iter().map(|s| s.video_id.as_str()).collect();
         assert_eq!(queued, ["Q1", "Q2"], "only the random song is retired");
+    }
+
+    /// The owner's second rule: one viewer can move past filler.
+    ///
+    /// The configured threshold is deliberately set to 3 here. With the
+    /// default of 1 this test passes whether or not the random rule
+    /// exists, which is exactly what a mutation check caught — a test
+    /// that cannot fail is not evidence.
+    #[test]
+    fn one_vote_skips_a_song_nobody_requested() {
+        let manager = test_manager_with_threshold(3);
+        manager.queue_song(random_song("PLAYING"));
+        manager.queue_song(random_song("NEXT"));
+
+        match manager.vote_skip("viewer") {
+            VoteSkipOutcome::Skipped { new_now_playing, was_random } => {
+                assert!(was_random, "chat has to be told why one vote was enough");
+                assert_eq!(new_now_playing.unwrap().video_id, "NEXT");
+            }
+            _ => panic!("a single vote must skip a random song"),
+        }
+    }
+
+    /// ...and only filler. A requested song still needs the configured
+    /// threshold, which `test_manager` sets above 1.
+    #[test]
+    fn one_vote_does_not_skip_a_requested_song() {
+        let manager = test_manager_with_threshold(3);
+        manager.queue_song(requested_song("PLAYING", "alice"));
+        manager.queue_song(requested_song("NEXT", "bob"));
+
+        match manager.vote_skip("viewer") {
+            VoteSkipOutcome::Recorded { count, threshold } => {
+                assert_eq!((count, threshold), (1, 3), "requested songs keep the configured threshold");
+            }
+            _ => panic!("one vote must not skip a requested song"),
+        }
+        assert_eq!(manager.snapshot().now_playing.unwrap().video_id, "PLAYING");
+    }
+
+    /// The threshold is the only thing that changes. !forceplay's lock
+    /// still wins over a random song, so the mod tool is not weakened.
+    #[test]
+    fn forceplay_still_locks_voting_on_a_random_song() {
+        let manager = test_manager();
+        manager.queue_song(random_song("PLAYING"));
+        assert!(manager.lock_voteskip());
+
+        assert!(
+            matches!(manager.vote_skip("viewer"), VoteSkipOutcome::Locked),
+            "a locked song stays locked whether or not anyone requested it"
+        );
     }
 
     /// Clearing only the bot-side flag is what left the two sides

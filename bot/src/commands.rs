@@ -1076,7 +1076,17 @@ async fn handle_builtin(
                 VoteSkipOutcome::Recorded { count, threshold } => {
                     format!("Vote to skip: {count}/{threshold}. Use !voteskip to vote!").into()
                 }
-                VoteSkipOutcome::Skipped { new_now_playing } => match new_now_playing {
+                // A random song skips on one vote, so say so — otherwise
+                // the rule is invisible and looks like the threshold
+                // broke. Requested songs keep the old wording exactly.
+                VoteSkipOutcome::Skipped { new_now_playing, was_random: true } => match new_now_playing {
+                    Some(song) => {
+                        format!("Skipped — nobody requested that one, so one vote is enough. Now playing: {}", song.title)
+                            .into()
+                    }
+                    None => "Skipped — nobody requested that one, so one vote is enough. The queue is now empty.".into(),
+                },
+                VoteSkipOutcome::Skipped { new_now_playing, was_random: false } => match new_now_playing {
                     Some(song) => format!("Vote to skip passed! Now playing: {}", song.title).into(),
                     None => "Vote to skip passed! The queue is now empty.".into(),
                 },
