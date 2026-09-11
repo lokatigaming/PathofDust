@@ -273,6 +273,25 @@ async fn fetch_tag_candidates(http: &reqwest::Client, api_key: &str, tag: &str) 
 /// it was every single bot restart).
 const STATE_PATH: &str = "playrandom-state.json";
 
+/// Appends one play-log entry and drops the oldest until the log is back
+/// inside `PLAY_LOG_MAX_ENTRIES`.
+///
+/// Separate from the write path so the ceiling is testable without
+/// touching the filesystem — the log's real path is a bare CWD-relative
+/// literal, like every other bot data file, so exercising
+/// `record_random_play` itself in a test would write into the repo.
+///
+/// Drains in one go rather than popping one at a time: a log that was
+/// already over the ceiling (an older file, or a lowered constant) comes
+/// straight back into range on the next write instead of taking one play
+/// per excess entry to get there.
+fn append_capped(log: &mut Vec<PlayLogEntry>, entry: PlayLogEntry) {
+    log.push(entry);
+    if log.len() > PLAY_LOG_MAX_ENTRIES {
+        log.drain(..log.len() - PLAY_LOG_MAX_ENTRIES);
+    }
+}
+
 /// Whether anything a person actually asked for is still waiting in the
 /// queue. Continuous mode stays out of the way until it drains — see
 /// `maybe_top_up`. Kept as a free function so the rule is testable
@@ -291,7 +310,17 @@ const BLOCKLIST_PATH: &str = "playrandom-blocklist.json";
 /// id, title). A JSON array rather than one object per line because
 /// backup-bot-data.ps1 parses every file it copies with ConvertFrom-Json
 /// to verify the snapshot, and JSONL would fail that check.
+///
+/// Capped at `PLAY_LOG_MAX_ENTRIES`, oldest dropped — see that constant.
 const PLAY_LOG_PATH: &str = "playrandom-log.json";
+
+/// The play log is the only backed-up bot file that would otherwise grow
+/// without bound, and it is copied into every hourly snapshot, so its
+/// size is multiplied by however many snapshots retention is holding
+/// (up to 54). At roughly 100 bytes an entry this ceiling puts the file
+/// around a megabyte at worst, which is the point: bounded, and still
+/// far more history than anyone will read.
+const PLAY_LOG_MAX_ENTRIES: usize = 10_000;
 
 /// The no-repeat window: a video in the last this-many random plays is
 /// not offered again. When fewer than this have been played, the window
@@ -390,11 +419,14 @@ impl PlayRandomManager {
         }
 
         let mut log: Vec<PlayLogEntry> = crate::state::load_json(PLAY_LOG_PATH).unwrap_or_default();
-        log.push(PlayLogEntry {
-            at: chrono::Utc::now().to_rfc3339(),
-            video_id: video_id.to_string(),
-            title: title.to_string(),
-        });
+        append_capped(
+            &mut log,
+            PlayLogEntry {
+                at: chrono::Utc::now().to_rfc3339(),
+                video_id: video_id.to_string(),
+                title: title.to_string(),
+            },
+        );
         if let Err(err) = crate::state::save_json(PLAY_LOG_PATH, &log) {
             tracing::error!("Failed to append to {PLAY_LOG_PATH}: {err}");
         }
@@ -673,6 +705,54 @@ mod tests {
             requests_are_pending(&[song("R1", ""), song("REQ", "viewer")]),
             "a request anywhere in the queue holds random off, not just at the front"
         );
+    }
+
+    fn log_entry(video_id: &str) -> PlayLogEntry {
+        PlayLogEntry {
+            at: "2026-09-11T00:00:00+00:00".to_string(),
+            video_id: video_id.to_string(),
+            title: format!("song {video_id}"),
+        }
+    }
+
+    /// The play log rides in every hourly backup snapshot, so it needs a
+    /// ceiling. One past the cap must leave exactly the cap, with the
+    /// newest kept and the oldest gone.
+    #[test]
+    fn the_play_log_is_capped_at_ten_thousand_newest_kept() {
+        let mut log = Vec::new();
+        for i in 0..=PLAY_LOG_MAX_ENTRIES {
+            append_capped(&mut log, log_entry(&format!("v{i}")));
+        }
+
+        assert_eq!(log.len(), PLAY_LOG_MAX_ENTRIES, "10,001 writes leave exactly 10,000");
+        assert_eq!(log.last().unwrap().video_id, format!("v{PLAY_LOG_MAX_ENTRIES}"), "the newest play is kept");
+        assert_eq!(log.first().unwrap().video_id, "v1", "and exactly one entry - the oldest - was dropped");
+        assert!(!log.iter().any(|e| e.video_id == "v0"), "v0 is gone");
+    }
+
+    /// A log already over the ceiling - an older file, or a lowered
+    /// constant - comes back into range on the next write, rather than
+    /// taking one play per excess entry to get there.
+    #[test]
+    fn an_oversized_log_is_brought_back_in_one_write() {
+        let mut log: Vec<PlayLogEntry> = (0..PLAY_LOG_MAX_ENTRIES + 500).map(|i| log_entry(&format!("old{i}"))).collect();
+
+        append_capped(&mut log, log_entry("newest"));
+
+        assert_eq!(log.len(), PLAY_LOG_MAX_ENTRIES);
+        assert_eq!(log.last().unwrap().video_id, "newest");
+    }
+
+    /// Below the ceiling nothing is dropped - the common case.
+    #[test]
+    fn a_short_log_keeps_everything() {
+        let mut log = Vec::new();
+        for i in 0..50 {
+            append_capped(&mut log, log_entry(&format!("v{i}")));
+        }
+        assert_eq!(log.len(), 50);
+        assert_eq!(log.first().unwrap().video_id, "v0", "the first play ever is still there");
     }
 
     /// The no-repeat window keeps the last NO_REPEAT_WINDOW ids and no
