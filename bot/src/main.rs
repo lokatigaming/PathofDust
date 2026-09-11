@@ -799,20 +799,31 @@ async fn async_main() -> anyhow::Result<()> {
                 messages_since_announcement.fetch_add(1, Ordering::Relaxed);
                 chat_overlay.broadcast_message(&msg.sender, &msg.text);
 
-                // Checked for *every* message (not just non-command ones)
-                // since "first message of the day" should count
-                // regardless of whether that first message happens to be
-                // a command. Only queues/starts the theme — the "Welcome
-                // in" announcement fires separately once it actually
-                // starts (see the theme_started_rx task above), since a
-                // queued theme might not start right away.
-                services.entrance_themes.maybe_play_entrance_theme(&msg.sender, &services.song_requests).await;
+                // Parsed ONCE, and the same parse answers both questions:
+                // is this a command to route, and is this the kind of
+                // message that fires a walk-on. Two separate rules would
+                // agree today and stop agreeing the first time either is
+                // touched - see `commands::parse_command`.
+                let parsed = commands::parse_command(&msg.text);
 
-                let Some(rest) = msg.text.strip_prefix('!') else { continue };
-                let mut parts = rest.trim().split_whitespace();
-                let Some(name) = parts.next() else { continue };
-                let name = name.to_lowercase();
-                let args: Vec<String> = parts.map(String::from).collect();
+                // A COMMAND MUST NOT SPEND THE WALK-ON (owner's ruling,
+                // 2026-09-11). This used to run for every message, and
+                // the comment here argued that was correct - "first
+                // message of the day should count regardless of whether
+                // that first message happens to be a command". It meant a
+                // player whose first message was `!playlist` had their
+                // theme consumed by it and never heard it.
+                //
+                // Passing the text rather than gating here keeps the
+                // decision (and the daily marker it consumes) inside the
+                // manager, where it is testable - see `claim_walk_on`.
+                // Only queues/starts the theme; the "Welcome in"
+                // announcement fires separately once it actually starts
+                // (see the theme_started_rx task above), since a queued
+                // theme might not start right away.
+                services.entrance_themes.maybe_play_entrance_theme(&msg.sender, &msg.text, &services.song_requests).await;
+
+                let Some((name, args)) = parsed else { continue };
 
                 // This whole loop is single-threaded/sequential (one
                 // `chat_rx.recv()` at a time) - a command handler that

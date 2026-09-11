@@ -276,28 +276,52 @@ impl EntranceThemeManager {
     /// is deferred until the theme actually starts (see
     /// `subscribe_theme_started`), not fired from here. Does nothing for
     /// a first-of-day chatter with no assigned theme.
-    pub async fn maybe_play_entrance_theme(&self, username: &str, song_requests: &Option<Arc<SongRequestManager>>) {
+    /// Whether this message should fire `username`'s walk-on - and, when
+    /// it should, CONSUMES their daily slot in the same step.
+    ///
+    /// Split out of `maybe_play_entrance_theme` (2026-09-11) so the
+    /// ordering is testable without a `SongRequestManager`: queueing
+    /// needs one, this half is the whole decision.
+    ///
+    /// A COMMAND RETURNS EARLY, BEFORE THE MARKER IS TOUCHED, and that
+    /// order is the entire fix. The check previously ran for every
+    /// message, and the comment at the call site argued that was right -
+    /// "first message of the day should count regardless of whether that
+    /// first message happens to be a command". The owner has reversed it:
+    /// a player whose first message of the day was `!playlist` had their
+    /// walk-on consumed by it and never heard it, which reads as the
+    /// theme being broken rather than spent.
+    ///
+    /// DEFERRED, NOT SKIPPED FOR THE DAY. Returning before the marker
+    /// write is what makes that true - the slot is still unclaimed, so
+    /// their first ordinary message later the same day fires it normally.
+    async fn claim_walk_on(&self, username: &str, text: &str) -> bool {
+        if crate::commands::is_command(text) {
+            return false;
+        }
+
         let key = username.to_lowercase();
         let today = stream_day();
 
-        let is_first_today = {
-            let mut greeted = self.greeted.lock().await;
-            if greeted.date != Some(today) {
-                greeted.date = Some(today);
-                greeted.users.clear();
+        let mut greeted = self.greeted.lock().await;
+        if greeted.date != Some(today) {
+            greeted.date = Some(today);
+            greeted.users.clear();
+        }
+        let first = greeted.users.insert(key);
+        if first {
+            if let Err(err) = crate::state::save_json(&self.greeted_path, &*greeted) {
+                tracing::error!("Failed to persist daily-greeted.json: {err}");
             }
-            let first = greeted.users.insert(key.clone());
-            if first {
-                if let Err(err) = crate::state::save_json(&self.greeted_path, &*greeted) {
-                    tracing::error!("Failed to persist daily-greeted.json: {err}");
-                }
-            }
-            first
-        };
+        }
+        first
+    }
 
-        if !is_first_today {
+    pub async fn maybe_play_entrance_theme(&self, username: &str, text: &str, song_requests: &Option<Arc<SongRequestManager>>) {
+        if !self.claim_walk_on(username, text).await {
             return;
         }
+        let key = username.to_lowercase();
 
         let Some(theme_url) = self.themes.lock().await.get(&key).map(|entry| entry.youtube_url.clone()) else {
             return;
@@ -318,4 +342,77 @@ impl EntranceThemeManager {
 /// it lands right at the start of today (00:00).
 fn stream_day() -> NaiveDate {
     (chrono::Utc::now().with_timezone(&chrono_tz::Asia::Singapore) - chrono::Duration::hours(8)).date_naive()
+}
+
+/// A bot command must not spend a player's walk-on (owner's ruling,
+/// 2026-09-11).
+///
+/// These drive `claim_walk_on` rather than `maybe_play_entrance_theme`
+/// because the decision IS the feature: whether the daily slot gets
+/// consumed, and by which message. The queueing half needs a
+/// `SongRequestManager` and adds nothing to what is being asserted here.
+///
+/// `true` means "this message fires the walk-on, and has now spent it".
+#[cfg(test)]
+mod walk_on_ordering_tests {
+    use super::*;
+
+    fn manager() -> Arc<EntranceThemeManager> {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("walk_on_ordering_{}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir must be creatable");
+        EntranceThemeManager::new(dir.join("themes.json"), dir.join("daily-greeted.json"), None)
+    }
+
+    #[tokio::test]
+    async fn a_command_first_defers_the_walk_on_to_the_next_normal_message() {
+        let m = manager();
+        assert!(!m.claim_walk_on("lokati", "!playlist").await, "a command must not fire the walk-on");
+        assert!(
+            m.claim_walk_on("lokati", "hello everyone").await,
+            "and must not have SPENT it either - the ruling is deferred to the next normal message, not skipped for the day, and this is the assertion that tells those two apart"
+        );
+        assert!(!m.claim_walk_on("lokati", "still here").await, "then it is spent, exactly once");
+    }
+
+    #[tokio::test]
+    async fn a_normal_message_first_fires_once_and_only_once() {
+        let m = manager();
+        assert!(m.claim_walk_on("kibukah", "morning").await, "the ordinary path must be untouched by this change");
+        assert!(!m.claim_walk_on("kibukah", "morning again").await, "second message of the day fires nothing");
+    }
+
+    #[tokio::test]
+    async fn commands_all_day_never_fire_and_never_spend_it() {
+        let m = manager();
+        for text in ["!playlist", "!settheme https://example.invalid", "!playrandom", "!price essence"] {
+            assert!(!m.claim_walk_on("sitch89", text).await, "{text} must not fire the walk-on");
+        }
+        assert!(
+            m.claim_walk_on("sitch89", "finally saying something").await,
+            "after a whole day of commands the slot must still be unclaimed - if any of them had consumed it this is where that shows up"
+        );
+    }
+
+    #[tokio::test]
+    async fn two_commands_then_a_normal_message_fires_on_the_third() {
+        let m = manager();
+        assert!(!m.claim_walk_on("qugetus_", "!playlist").await);
+        assert!(!m.claim_walk_on("qugetus_", "!playrandom").await);
+        assert!(m.claim_walk_on("qugetus_", "hi").await, "the third message is the first ordinary one, so it is the one that fires");
+    }
+
+    /// The two edge cases `parse_command`'s rule turns on, checked here
+    /// too because this is where getting them wrong would be felt: a
+    /// bare bang is ordinary chat and must fire, an unregistered command
+    /// is still a command and must not.
+    #[tokio::test]
+    async fn a_bare_bang_is_chat_but_an_unknown_command_is_still_a_command() {
+        let m = manager();
+        assert!(!m.claim_walk_on("xborntokillx", "!notarealcommand").await, "unregistered still routes as a command, so it must not spend the walk-on");
+
+        let m2 = manager();
+        assert!(m2.claim_walk_on("xborntokillx", "!").await, "a bare ! has no command name - the dispatcher falls through and treats it as chat, so the walk-on must too");
+    }
 }

@@ -329,6 +329,46 @@ async fn builtin_on_cooldown(name: &str) -> bool {
     false
 }
 
+/// Splits a chat message into `(command name, args)` **by the
+/// dispatcher's own rule**, or `None` if it is an ordinary message
+/// (2026-09-11).
+///
+/// Extracted from `main.rs`'s chat loop rather than reimplemented, and
+/// the loop now calls this instead of parsing inline, so the entrance
+/// theme's "is this a command?" question and the routing decision cannot
+/// drift apart. That mattered enough to share: a copy would be a second
+/// definition of "command" that agrees today and silently stops agreeing
+/// the first time either is touched.
+///
+/// TWO STEPS, BOTH LOAD-BEARING - a leading `!` is not sufficient:
+///
+///   * `strip_prefix('!')` - no bang, ordinary message;
+///   * a non-empty first token - so a bare `"!"`, or `"!   "`, is an
+///     ORDINARY message, because the dispatcher's own `parts.next()`
+///     gave up on it and fell through.
+///
+/// UNREGISTERED COMMANDS COUNT AS COMMANDS, deliberately. `!notarealthing`
+/// reaches `handle_command`, is logged as `chat command:`, and comes back
+/// `Reply::None` - the dispatcher has no path that treats it as ordinary
+/// chat, so neither does this. Asking "is it registered" instead would
+/// mean running `handle_builtin` (async, and it performs the command) or
+/// duplicating its arm list, which is the drift this function exists to
+/// prevent. It is also the safe direction for the walk-on: a mistyped
+/// command delays the theme to the player's next real message rather
+/// than spending it on a typo.
+pub fn parse_command(text: &str) -> Option<(String, Vec<String>)> {
+    let rest = text.strip_prefix('!')?;
+    let mut parts = rest.trim().split_whitespace();
+    let name = parts.next()?.to_lowercase();
+    Some((name, parts.map(String::from).collect()))
+}
+
+/// Whether a chat message is a command at all - see `parse_command`,
+/// whose rule this is.
+pub fn is_command(text: &str) -> bool {
+    parse_command(text).is_some()
+}
+
 pub async fn handle_command(
     name: &str,
     user: &str,
