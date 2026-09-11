@@ -27,6 +27,24 @@ pub struct Song {
     pub thumbnail_url: String,
 }
 
+impl Song {
+    /// Whether this song came from `!playrandom` rather than a person.
+    ///
+    /// `!playrandom` resolves its candidates through
+    /// `resolve_song_preview`, which passes an empty `requested_by` (see
+    /// that method) — every other producer supplies a real name: a chat
+    /// user, `"Streamer"` for the dock, `"Entrance Theme"` for an
+    /// insert. So an empty requester is exactly "nobody asked for this",
+    /// which is the distinction the queue rules below are built on.
+    ///
+    /// It is a method rather than five open-coded `.is_empty()` checks
+    /// so the rule has one definition and one place to change, the same
+    /// reason the dispatcher's command parsing was centralised.
+    pub fn is_random(&self) -> bool {
+        self.requested_by.is_empty()
+    }
+}
+
 /// What actually gets saved to disk (song-queue.json) so the playlist
 /// survives a bot restart — deliberately just the songs themselves, not
 /// player_state/muted/show_on_stream, which describe the *browser's*
@@ -154,7 +172,11 @@ pub enum VoteSkipOutcome {
     /// see `SKIP_ACTION_COOLDOWN`.
     OnCooldown { remaining_secs: u64 },
     Recorded { count: u32, threshold: u32 },
-    Skipped { new_now_playing: Option<Song> },
+    /// `was_random` is carried so chat can be told *why* one vote was
+    /// enough — the rule is invisible otherwise, and a viewer who sees a
+    /// song vanish on their single vote should learn it applies only to
+    /// songs nobody requested.
+    Skipped { new_now_playing: Option<Song>, was_random: bool },
     /// The voter requested the song currently playing themselves — no
     /// group vote needed, skipped immediately.
     SelfSkipped { new_now_playing: Option<Song> },
@@ -203,6 +225,11 @@ pub enum RequestError {
     NotFound(String),
     #[error("That video is {duration_secs}s long, which is over the {max_secs}s limit.")]
     TooLong { duration_secs: u64, max_secs: u64 },
+    /// Caught before queueing, from the same `videos.list` call that
+    /// already fetches title and duration — the alternative is finding
+    /// out when the overlay's embed fails on stream.
+    #[error("YouTube won't play that one here — {reason}.")]
+    Restricted { reason: String },
     #[error("YouTube lookup failed: {0}")]
     Api(#[from] anyhow::Error),
 }
@@ -261,6 +288,11 @@ struct Inner {
 /// last 5 distinct genres played" from — larger than 5 on purpose, since
 /// consecutive songs are often the same genre and it needs enough raw
 /// history to actually find 5 *different* ones, not just the last 5 songs.
+/// A song nobody requested needs exactly one vote to skip (owner ruling
+/// 2026-09-11). See `effective_voteskip_threshold` for why it is not
+/// the configured threshold.
+const RANDOM_VOTESKIP_THRESHOLD: u32 = 1;
+
 const RECENT_HISTORY_LIMIT: usize = 30;
 
 /// Per-user cooldown shared by !voteskip and "Interrupt the Music" — see
@@ -275,6 +307,14 @@ pub const SKIP_ACTION_COOLDOWN: Duration = Duration::from_secs(600);
 pub struct PlaybackErrorEvent {
     pub title: String,
     pub reason: String,
+    /// Needed to blocklist the video, which chat's "why did it skip"
+    /// message never had to know.
+    pub video_id: String,
+    /// Only `!playrandom` output is blocklisted. A viewer's own request
+    /// failing is their business and they may well request it again;
+    /// filler that cannot play is filler that should never be offered
+    /// again.
+    pub was_random: bool,
 }
 
 pub struct SongRequestManager {
@@ -550,6 +590,20 @@ impl SongRequestManager {
     pub fn queue_song(&self, song: Song) -> RequestOutcome {
         let outcome = {
             let mut state = self.state.lock().unwrap();
+            // A real request retires whatever !playrandom had queued
+            // behind it. `now_playing` is deliberately NOT touched: the
+            // song already on stream finishes, and the request plays
+            // after it, which is the owner's ruling ("finish current,
+            // then requests — not cut off").
+            //
+            // This sits in queue_song rather than in `request` so it
+            // covers every human path through one hook — chat !sr, the
+            // dock's add, and !playlist <user>, which queues
+            // already-resolved songs directly. The guard is what keeps
+            // !playrandom's own top-up from clearing itself.
+            if !song.is_random() {
+                state.queue.retain(|queued| !queued.is_random());
+            }
             let outcome = if state.now_playing.is_none() {
                 state.now_playing = Some(song.clone());
                 RequestOutcome::NowPlaying(song)
@@ -628,10 +682,15 @@ impl SongRequestManager {
     /// insert (same as a normal `insertEnded` report) so the interrupted
     /// playlist song resumes, rather than advancing the main queue.
     pub fn report_insert_playback_error(&self, reason: String) {
-        let title = self.state.lock().unwrap().active_insert.as_ref().map(|s| s.title.clone());
+        let failed = self.state.lock().unwrap().active_insert.clone();
         self.clear_active_insert();
-        if let Some(title) = title {
-            let _ = self.playback_error_tx.send(PlaybackErrorEvent { title, reason });
+        if let Some(failed) = failed {
+            let _ = self.playback_error_tx.send(PlaybackErrorEvent {
+                title: failed.title,
+                reason,
+                video_id: failed.video_id,
+                was_random: failed.requested_by.is_empty(),
+            });
         }
     }
 
@@ -709,10 +768,15 @@ impl SongRequestManager {
     /// emits a `PlaybackErrorEvent` so chat gets told *why* the song
     /// changed instead of it just silently jumping to the next one.
     pub fn report_playback_error(&self, reason: String) {
-        let title = self.state.lock().unwrap().now_playing.as_ref().map(|s| s.title.clone());
+        let failed = self.state.lock().unwrap().now_playing.clone();
         self.advance();
-        if let Some(title) = title {
-            let _ = self.playback_error_tx.send(PlaybackErrorEvent { title, reason });
+        if let Some(failed) = failed {
+            let _ = self.playback_error_tx.send(PlaybackErrorEvent {
+                was_random: failed.is_random(),
+                title: failed.title,
+                reason,
+                video_id: failed.video_id,
+            });
         }
     }
 
@@ -735,9 +799,15 @@ impl SongRequestManager {
     /// self-skip cast here starts it, same as a redemption does.
     pub fn vote_skip(&self, user: &str) -> VoteSkipOutcome {
         let lower = user.to_lowercase();
-        // `None` here means "self-skip, go straight to advance()" —
-        // distinct from `Some(count)` below `voteskip_threshold`.
-        let count = {
+        // `was_random` comes back out of this block rather than being
+        // read again afterwards, because it has to be taken under the
+        // same lock as `now_playing` — otherwise the song could change
+        // between deciding the threshold and applying it.
+        //
+        // A `count` of `None` means "self-skip, go straight to
+        // advance()" — distinct from `Some(count)` below the effective
+        // threshold.
+        let (count, was_random) = {
             let mut state = self.state.lock().unwrap();
             if state.now_playing.is_none() {
                 return VoteSkipOutcome::NothingPlaying;
@@ -749,8 +819,9 @@ impl SongRequestManager {
                 return VoteSkipOutcome::OnCooldown { remaining_secs };
             }
 
+            let was_random = state.now_playing.as_ref().is_some_and(|s| s.is_random());
             let is_own_song = state.now_playing.as_ref().is_some_and(|s| s.requested_by.to_lowercase() == lower);
-            if is_own_song {
+            let count = if is_own_song {
                 state.skip_action_cooldowns.insert(lower, Instant::now());
                 None
             } else {
@@ -759,13 +830,34 @@ impl SongRequestManager {
                 }
                 state.skip_action_cooldowns.insert(lower, Instant::now());
                 Some(state.votes.len() as u32)
-            }
+            };
+            (count, was_random)
         };
 
+        let threshold = self.effective_voteskip_threshold(was_random);
         match count {
             None => VoteSkipOutcome::SelfSkipped { new_now_playing: self.advance() },
-            Some(count) if count >= self.voteskip_threshold => VoteSkipOutcome::Skipped { new_now_playing: self.advance() },
-            Some(count) => VoteSkipOutcome::Recorded { count, threshold: self.voteskip_threshold },
+            Some(count) if count >= threshold => {
+                VoteSkipOutcome::Skipped { new_now_playing: self.advance(), was_random }
+            }
+            Some(count) => VoteSkipOutcome::Recorded { count, threshold },
+        }
+    }
+
+    /// How many votes it takes to skip whatever is playing.
+    ///
+    /// A song nobody requested takes one. The configured threshold exists
+    /// so a group can override *a person's* choice; `!playrandom` output
+    /// is nobody's choice, so there is no one to override, and making the
+    /// room assemble a quorum to move past filler is the friction this
+    /// removes. Requested songs keep the configured threshold — along
+    /// with the shared cooldown, the !forceplay lock and the
+    /// skip-your-own-song rule, none of which this touches.
+    fn effective_voteskip_threshold(&self, now_playing_is_random: bool) -> u32 {
+        if now_playing_is_random {
+            RANDOM_VOTESKIP_THRESHOLD
+        } else {
+            self.voteskip_threshold
         }
     }
 
@@ -1008,13 +1100,25 @@ impl SongRequestManager {
     }
 
     async fn fetch_video_details(&self, video_id: &str) -> Result<Option<(String, u64)>, RequestError> {
+        // `status` rides along on the call that already fetches title and
+        // duration, so the pre-check costs no extra quota — the free tier
+        // is 100 search units a day and this must not spend more of it.
         let data = self
-            .youtube_get("https://www.googleapis.com/youtube/v3/videos", &[("part", "snippet,contentDetails"), ("id", video_id)])
+            .youtube_get(
+                "https://www.googleapis.com/youtube/v3/videos",
+                &[("part", "snippet,contentDetails,status"), ("id", video_id)],
+            )
             .await?;
 
         let Some(item) = data.get("items").and_then(|v| v.as_array()).and_then(|a| a.first()) else {
             return Ok(None);
         };
+
+        // Before the cache: a video rejected here is never stored, so it
+        // cannot be served from cache later as though it were playable.
+        if let Some(reason) = restriction_reason(item) {
+            return Err(RequestError::Restricted { reason });
+        }
 
         let title = item
             .get("snippet")
@@ -1032,6 +1136,68 @@ impl SongRequestManager {
 
         Ok(Some((title, duration_secs)))
     }
+}
+
+/// The region the stream actually plays from, for `regionRestriction`.
+/// Singapore, matching the timezone the entrance-theme "stream day" is
+/// computed in (`entrance_themes::stream_day`). If the stream moves,
+/// this is the one line to change — YouTube's region data is only
+/// meaningful against a specific country.
+const STREAM_REGION: &str = "SG";
+
+/// Why YouTube's embedded player will refuse this video, or `None` if it
+/// will play. Reads one `videos.list` item, so it is a pure function
+/// over the API's own shape and testable without a network call.
+///
+/// These are the conditions the overlay would otherwise report as error
+/// codes 100/101/150 after the song was already queued and reached the
+/// front — the point of checking here is that the viewer finds out when
+/// they ask, not three songs later on stream.
+fn restriction_reason(item: &serde_json::Value) -> Option<String> {
+    let status = item.get("status");
+    let content = item.get("contentDetails");
+
+    if status.and_then(|s| s.get("embeddable")).and_then(|v| v.as_bool()) == Some(false) {
+        return Some("its owner has disabled embedding".to_string());
+    }
+    if status.and_then(|s| s.get("privacyStatus")).and_then(|v| v.as_str()) == Some("private") {
+        return Some("it's private".to_string());
+    }
+    // `uploadStatus` covers the video that is gone rather than restricted
+    // — the overlay reports both as the same unplayable embed.
+    if matches!(
+        status.and_then(|s| s.get("uploadStatus")).and_then(|v| v.as_str()),
+        Some("rejected" | "failed" | "deleted")
+    ) {
+        return Some("YouTube has taken it down".to_string());
+    }
+    // Age-restricted videos are never playable in an embed at all, no
+    // matter who is watching — there is no signed-in viewer in an OBS
+    // browser source to satisfy the check.
+    if content.and_then(|c| c.get("contentRating")).and_then(|r| r.get("ytRating")).and_then(|v| v.as_str())
+        == Some("ytAgeRestricted")
+    {
+        return Some("it's age-restricted, which YouTube never allows in an embed".to_string());
+    }
+
+    if let Some(region) = content.and_then(|c| c.get("regionRestriction")) {
+        let listed = |key: &str| {
+            region
+                .get(key)
+                .and_then(|v| v.as_array())
+                .map(|codes| codes.iter().any(|c| c.as_str() == Some(STREAM_REGION)))
+        };
+        // `blocked` and `allowed` are mutually exclusive in YouTube's
+        // data, but check both rather than assuming which one is present.
+        if listed("blocked") == Some(true) {
+            return Some(format!("it's blocked in {STREAM_REGION}"));
+        }
+        if listed("allowed") == Some(false) {
+            return Some(format!("it isn't available in {STREAM_REGION}"));
+        }
+    }
+
+    None
 }
 
 static VIDEO_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -1062,7 +1228,22 @@ mod tests {
     use super::*;
 
     fn test_manager() -> Arc<SongRequestManager> {
-        let dir = std::env::temp_dir().join(format!("song-requests-test-{}", std::process::id()));
+        test_manager_with_threshold(1)
+    }
+
+    /// The voteskip threshold is the third argument; most tests do not
+    /// care, but the "requested songs keep the configured threshold"
+    /// test needs it above 1 to mean anything.
+    fn test_manager_with_threshold(voteskip_threshold: u32) -> Arc<SongRequestManager> {
+        // A per-CALL directory, not a per-process one. These tests queue
+        // songs, and queue_song persists song-queue.json; with one shared
+        // directory the managers in parallel tests read each other's
+        // state back out of `new`, which showed up as three tests failing
+        // on one run and passing on the next. Flaky tests are worse than
+        // none.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("song-requests-test-{}-{unique}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         // Paths that don't exist yet — `new` loads them with
         // unwrap_or_default, so this needs no fixture and touches no
@@ -1070,7 +1251,7 @@ mod tests {
         SongRequestManager::new(
             vec!["test-key".to_string()],
             3600,
-            1,
+            voteskip_threshold,
             1,
             1,
             1,
@@ -1088,6 +1269,286 @@ mod tests {
             requested_by: "Entrance Theme".to_string(),
             thumbnail_url: String::new(),
         }
+    }
+
+    /// A song as !playrandom produces it — `resolve_song_preview` passes
+    /// an empty requester, which is the whole marker.
+    fn random_song(video_id: &str) -> Song {
+        Song { requested_by: String::new(), title: format!("random {video_id}"), ..test_song(video_id) }
+    }
+
+    fn requested_song(video_id: &str, by: &str) -> Song {
+        Song { requested_by: by.to_string(), title: format!("requested {video_id}"), ..test_song(video_id) }
+    }
+
+    #[test]
+    fn only_playrandom_songs_count_as_random() {
+        assert!(random_song("R").is_random());
+        assert!(!requested_song("Q", "viewer").is_random());
+        // The dock and entrance themes both supply a real requester, so
+        // neither is ever mistaken for random.
+        assert!(!requested_song("D", "Streamer").is_random());
+        assert!(!test_song("T").is_random());
+    }
+
+    /// The owner's ruling, in one test: a request retires the random
+    /// songs waiting behind it, but the song already on stream finishes.
+    #[test]
+    fn a_request_clears_queued_random_songs_but_not_the_playing_one() {
+        let manager = test_manager();
+        manager.queue_song(random_song("PLAYING"));
+        manager.queue_song(random_song("R1"));
+        manager.queue_song(random_song("R2"));
+
+        let state = manager.snapshot();
+        assert_eq!(state.now_playing.as_ref().unwrap().video_id, "PLAYING");
+        assert_eq!(state.queue.len(), 2, "both random songs are queued before the request arrives");
+
+        manager.queue_song(requested_song("REQ", "viewer"));
+
+        let state = manager.snapshot();
+        assert_eq!(
+            state.now_playing.as_ref().unwrap().video_id,
+            "PLAYING",
+            "the song already on stream must finish — it is not cut off"
+        );
+        let queued: Vec<&str> = state.queue.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(queued, ["REQ"], "the queued random songs are retired, the request is all that is left");
+    }
+
+    /// The guard that keeps !playrandom's own top-up from clearing the
+    /// songs it is adding.
+    #[test]
+    fn a_random_song_does_not_clear_other_random_songs() {
+        let manager = test_manager();
+        manager.queue_song(random_song("PLAYING"));
+        manager.queue_song(random_song("R1"));
+        manager.queue_song(random_song("R2"));
+
+        assert_eq!(manager.snapshot().queue.len(), 2, "random top-up must not retire itself");
+    }
+
+    /// Requests already queued are kept when another request arrives —
+    /// clearing is scoped to random songs, not to the queue.
+    #[test]
+    fn a_request_does_not_clear_other_requests() {
+        let manager = test_manager();
+        manager.queue_song(requested_song("PLAYING", "viewer"));
+        manager.queue_song(requested_song("Q1", "alice"));
+        manager.queue_song(random_song("R1"));
+        manager.queue_song(requested_song("Q2", "bob"));
+
+        let state = manager.snapshot();
+        let queued: Vec<&str> = state.queue.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(queued, ["Q1", "Q2"], "only the random song is retired");
+    }
+
+    // ---- restricted videos, caught before queueing ----
+
+    #[test]
+    fn a_playable_video_is_not_restricted() {
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({
+                "status": { "embeddable": true, "privacyStatus": "public", "uploadStatus": "processed" },
+                "contentDetails": { "duration": "PT3M20S" }
+            }))),
+            None
+        );
+    }
+
+    #[test]
+    fn embedding_disabled_is_caught() {
+        let reason = restriction_reason(&(serde_json::json!({
+            "status": { "embeddable": false, "privacyStatus": "public" }
+        })));
+        assert_eq!(reason.as_deref(), Some("its owner has disabled embedding"));
+    }
+
+    #[test]
+    fn private_and_taken_down_videos_are_caught() {
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({ "status": { "privacyStatus": "private" } }))).as_deref(),
+            Some("it's private")
+        );
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({ "status": { "uploadStatus": "rejected" } }))).as_deref(),
+            Some("YouTube has taken it down")
+        );
+    }
+
+    /// Age-restricted video are never playable in an embed, whoever is
+    /// watching — there is no signed-in viewer in an OBS browser source.
+    #[test]
+    fn age_restricted_videos_are_caught() {
+        let reason = restriction_reason(&(serde_json::json!({
+            "contentDetails": { "contentRating": { "ytRating": "ytAgeRestricted" } }
+        })));
+        assert!(reason.unwrap().contains("age-restricted"));
+    }
+
+    /// Both shapes of regionRestriction, against the region the stream
+    /// actually plays from.
+    #[test]
+    fn region_restrictions_are_read_against_the_streams_own_region() {
+        let blocked = restriction_reason(&(serde_json::json!({
+            "contentDetails": { "regionRestriction": { "blocked": ["SG", "MY"] } }
+        })));
+        assert_eq!(blocked.as_deref(), Some("it's blocked in SG"));
+
+        let allowed_elsewhere = restriction_reason(&(serde_json::json!({
+            "contentDetails": { "regionRestriction": { "allowed": ["US", "GB"] } }
+        })));
+        assert_eq!(allowed_elsewhere.as_deref(), Some("it isn't available in SG"));
+
+        // Blocked somewhere else, or explicitly allowed here, both play.
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({
+                "contentDetails": { "regionRestriction": { "blocked": ["DE"] } }
+            }))),
+            None
+        );
+        assert_eq!(
+            restriction_reason(&(serde_json::json!({
+                "contentDetails": { "regionRestriction": { "allowed": ["SG"] } }
+            }))),
+            None
+        );
+    }
+
+    /// A response with none of these fields must not be treated as
+    /// restricted — absent data is not evidence of a problem, and
+    /// rejecting on it would block every video.
+    #[test]
+    fn a_response_missing_the_fields_entirely_is_allowed() {
+        assert_eq!(restriction_reason(&(serde_json::json!({}))), None);
+        assert_eq!(restriction_reason(&(serde_json::json!({ "snippet": { "title": "x" } }))), None);
+    }
+
+    /// A failed random song is blocklisted; a failed request is not. The
+    /// event carries both facts because chat's "why did it skip" message
+    /// never needed them.
+    #[test]
+    fn a_failed_songs_event_says_whether_it_was_random() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+
+        manager.queue_song(random_song("BROKEN"));
+        manager.report_playback_error("video not found or removed".to_string());
+        let event = errors.try_recv().expect("a playback error is announced");
+        assert_eq!(event.video_id, "BROKEN");
+        assert!(event.was_random, "!playrandom output is blocklistable");
+
+        manager.queue_song(requested_song("THEIRS", "alice"));
+        manager.report_playback_error("video not found or removed".to_string());
+        let event = errors.try_recv().expect("a playback error is announced");
+        assert_eq!(event.video_id, "THEIRS");
+        assert!(!event.was_random, "a viewer's own request is theirs to ask for again");
+    }
+
+    // ---- !modskip ----
+    //
+    // The owner asked for "!modskip skips any song — requested, random,
+    // or an insert", believing it was gated on an active insert. It is
+    // not: commands.rs's arm tries skip_insert() first and then falls
+    // through to advance() unconditionally, so it already does this. The
+    // complaint was almost certainly the backstop trap closed separately
+    // — !modskip silently disarming after duration + 30.
+    //
+    // So this is a regression test and no behaviour change. It pins the
+    // two manager-level facts the handler's arm is built from. The
+    // `is_mod_or_broadcaster` gate itself is one line in that arm and is
+    // NOT covered here: reaching it needs a full `Services`, which means
+    // six unrelated managers, and building that to assert one `if` would
+    // cost more than it proves.
+
+    /// An active insert is what is actually on stream, so !modskip cuts
+    /// that and leaves the interrupted queue alone.
+    #[test]
+    fn modskip_cuts_the_insert_when_one_is_active_and_leaves_the_queue_alone() {
+        let manager = test_manager();
+        manager.queue_song(requested_song("PLAYING", "alice"));
+        manager.queue_song(requested_song("NEXT", "bob"));
+        manager.state.lock().unwrap().active_insert = Some(test_song("THEME"));
+        let mut commands = manager.subscribe_commands();
+
+        assert!(manager.skip_insert(), "an active insert is what !modskip must cut first");
+        assert!(
+            commands.try_recv().is_ok(),
+            "cutting the insert is relayed to the overlay, which is the only thing holding the player"
+        );
+        assert_eq!(
+            manager.snapshot().now_playing.unwrap().video_id,
+            "PLAYING",
+            "the interrupted song is resumed, not skipped — the queue never advanced"
+        );
+    }
+
+    /// With no insert, the arm falls through to advance(), which does not
+    /// care who asked for the song. This is the half the owner thought
+    /// was missing.
+    #[test]
+    fn modskip_falls_through_to_advance_for_random_and_requested_alike() {
+        let manager = test_manager();
+        manager.queue_song(random_song("RANDOM_PLAYING"));
+        manager.queue_song(requested_song("REQUESTED", "alice"));
+        manager.queue_song(random_song("LAST"));
+
+        assert!(!manager.skip_insert(), "no insert — the handler falls through to advance()");
+        assert_eq!(manager.advance().unwrap().video_id, "REQUESTED", "a random song is skippable");
+        assert!(!manager.skip_insert());
+        assert_eq!(manager.advance().unwrap().video_id, "LAST", "so is a requested one");
+    }
+
+    /// The owner's second rule: one viewer can move past filler.
+    ///
+    /// The configured threshold is deliberately set to 3 here. With the
+    /// default of 1 this test passes whether or not the random rule
+    /// exists, which is exactly what a mutation check caught — a test
+    /// that cannot fail is not evidence.
+    #[test]
+    fn one_vote_skips_a_song_nobody_requested() {
+        let manager = test_manager_with_threshold(3);
+        manager.queue_song(random_song("PLAYING"));
+        manager.queue_song(random_song("NEXT"));
+
+        match manager.vote_skip("viewer") {
+            VoteSkipOutcome::Skipped { new_now_playing, was_random } => {
+                assert!(was_random, "chat has to be told why one vote was enough");
+                assert_eq!(new_now_playing.unwrap().video_id, "NEXT");
+            }
+            _ => panic!("a single vote must skip a random song"),
+        }
+    }
+
+    /// ...and only filler. A requested song still needs the configured
+    /// threshold, which `test_manager` sets above 1.
+    #[test]
+    fn one_vote_does_not_skip_a_requested_song() {
+        let manager = test_manager_with_threshold(3);
+        manager.queue_song(requested_song("PLAYING", "alice"));
+        manager.queue_song(requested_song("NEXT", "bob"));
+
+        match manager.vote_skip("viewer") {
+            VoteSkipOutcome::Recorded { count, threshold } => {
+                assert_eq!((count, threshold), (1, 3), "requested songs keep the configured threshold");
+            }
+            _ => panic!("one vote must not skip a requested song"),
+        }
+        assert_eq!(manager.snapshot().now_playing.unwrap().video_id, "PLAYING");
+    }
+
+    /// The threshold is the only thing that changes. !forceplay's lock
+    /// still wins over a random song, so the mod tool is not weakened.
+    #[test]
+    fn forceplay_still_locks_voting_on_a_random_song() {
+        let manager = test_manager();
+        manager.queue_song(random_song("PLAYING"));
+        assert!(manager.lock_voteskip());
+
+        assert!(
+            matches!(manager.vote_skip("viewer"), VoteSkipOutcome::Locked),
+            "a locked song stays locked whether or not anyone requested it"
+        );
     }
 
     /// Clearing only the bot-side flag is what left the two sides

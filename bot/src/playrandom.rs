@@ -23,7 +23,7 @@ use crate::song_requests::{Song, SongRequestManager};
 use rand::seq::SliceRandom;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -273,9 +273,98 @@ async fn fetch_tag_candidates(http: &reqwest::Client, api_key: &str, tag: &str) 
 /// it was every single bot restart).
 const STATE_PATH: &str = "playrandom-state.json";
 
+/// Appends one play-log entry and drops the oldest until the log is back
+/// inside `PLAY_LOG_MAX_ENTRIES`.
+///
+/// Separate from the write path so the ceiling is testable without
+/// touching the filesystem — the log's real path is a bare CWD-relative
+/// literal, like every other bot data file, so exercising
+/// `record_random_play` itself in a test would write into the repo.
+///
+/// Drains in one go rather than popping one at a time: a log that was
+/// already over the ceiling (an older file, or a lowered constant) comes
+/// straight back into range on the next write instead of taking one play
+/// per excess entry to get there.
+fn append_capped(log: &mut Vec<PlayLogEntry>, entry: PlayLogEntry) {
+    log.push(entry);
+    if log.len() > PLAY_LOG_MAX_ENTRIES {
+        log.drain(..log.len() - PLAY_LOG_MAX_ENTRIES);
+    }
+}
+
+/// Whether anything a person actually asked for is still waiting in the
+/// queue. Continuous mode stays out of the way until it drains — see
+/// `maybe_top_up`. Kept as a free function so the rule is testable
+/// without a live queue or a Last.fm round trip.
+pub(crate) fn requests_are_pending(queue: &[Song]) -> bool {
+    queue.iter().any(|song| !song.is_random())
+}
+
+/// Videos !playrandom offered that the overlay could not actually play.
+/// Persisted beside `playrandom-state.json` so a restart does not start
+/// offering them again — the whole point is that each one costs a dead
+/// slot on stream exactly once.
+const BLOCKLIST_PATH: &str = "playrandom-blocklist.json";
+
+/// Every random song that actually reached the stream (timestamp, video
+/// id, title). A JSON array rather than one object per line because
+/// backup-bot-data.ps1 parses every file it copies with ConvertFrom-Json
+/// to verify the snapshot, and JSONL would fail that check.
+///
+/// Capped at `PLAY_LOG_MAX_ENTRIES`, oldest dropped — see that constant.
+const PLAY_LOG_PATH: &str = "playrandom-log.json";
+
+/// The play log is the only backed-up bot file that would otherwise grow
+/// without bound, and it is copied into every hourly snapshot, so its
+/// size is multiplied by however many snapshots retention is holding
+/// (up to 54). At roughly 100 bytes an entry this ceiling puts the file
+/// around a megabyte at worst, which is the point: bounded, and still
+/// far more history than anyone will read.
+const PLAY_LOG_MAX_ENTRIES: usize = 10_000;
+
+/// The no-repeat window: a video in the last this-many random plays is
+/// not offered again. When fewer than this have been played, the window
+/// is simply all of them — which is what a capped history gives for
+/// free, and is what keeps a small pool playable instead of starving.
+const NO_REPEAT_WINDOW: usize = 100;
+
+/// Where the ids behind that window live, so a restart does not forget.
+const HISTORY_PATH: &str = "playrandom-history.json";
+
 #[derive(Default, Serialize, Deserialize)]
 struct PersistedState {
     enabled: bool,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedHistory {
+    /// Oldest first, capped at `NO_REPEAT_WINDOW`.
+    played: VecDeque<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PlayLogEntry {
+    /// RFC 3339, so the log is readable without tooling.
+    at: String,
+    video_id: String,
+    title: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedBlocklist {
+    /// Video id -> why it was dropped. The reason is kept rather than a
+    /// bare set because the next person to read this file will want to
+    /// know whether it was a regional block that might lapse or a video
+    /// that is simply gone.
+    blocked: HashMap<String, BlockedEntry>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct BlockedEntry {
+    reason: String,
+    title: String,
+    /// RFC 3339, so the file is readable without tooling.
+    at: String,
 }
 
 pub struct PlayRandomManager {
@@ -286,6 +375,8 @@ pub struct PlayRandomManager {
     /// throttles retries after a failed one — see CONTINUOUS_RETRY_COOLDOWN.
     last_topup_attempt: Mutex<Option<Instant>>,
     topping_up: AtomicBool,
+    blocklist: Mutex<PersistedBlocklist>,
+    history: Mutex<PersistedHistory>,
 }
 
 impl PlayRandomManager {
@@ -297,7 +388,111 @@ impl PlayRandomManager {
             enabled: AtomicBool::new(persisted.enabled),
             last_topup_attempt: Mutex::new(None),
             topping_up: AtomicBool::new(false),
+            blocklist: Mutex::new(crate::state::load_json(BLOCKLIST_PATH).unwrap_or_default()),
+            history: Mutex::new(crate::state::load_json(HISTORY_PATH).unwrap_or_default()),
         })
+    }
+
+    /// Whether this video is inside the no-repeat window.
+    fn was_recently_played(&self, video_id: &str) -> bool {
+        self.history.lock().unwrap().played.iter().any(|id| id == video_id)
+    }
+
+    /// Records a random song that actually reached the stream: into the
+    /// no-repeat window, and into the play log.
+    ///
+    /// Deliberately called when a song STARTS PLAYING, not when it is
+    /// queued. A queued random song can be retired unplayed by a request
+    /// (see song_requests::queue_song), and logging those would both lie
+    /// about what was played and spend the no-repeat window on songs
+    /// nobody heard.
+    pub fn record_random_play(&self, video_id: &str, title: &str) {
+        {
+            let mut history = self.history.lock().unwrap();
+            history.played.push_back(video_id.to_string());
+            while history.played.len() > NO_REPEAT_WINDOW {
+                history.played.pop_front();
+            }
+            if let Err(err) = crate::state::save_json(HISTORY_PATH, &*history) {
+                tracing::error!("Failed to persist {HISTORY_PATH}: {err}");
+            }
+        }
+
+        let mut log: Vec<PlayLogEntry> = crate::state::load_json(PLAY_LOG_PATH).unwrap_or_default();
+        append_capped(
+            &mut log,
+            PlayLogEntry {
+                at: chrono::Utc::now().to_rfc3339(),
+                video_id: video_id.to_string(),
+                title: title.to_string(),
+            },
+        );
+        if let Err(err) = crate::state::save_json(PLAY_LOG_PATH, &log) {
+            tracing::error!("Failed to append to {PLAY_LOG_PATH}: {err}");
+        }
+    }
+
+    /// Watches what is actually on stream and logs each random song once
+    /// it starts. Spawned once from main.rs.
+    pub fn spawn_play_log_watcher(self: Arc<Self>, song_requests: Arc<SongRequestManager>) {
+        let mut rx = song_requests.subscribe();
+        tokio::spawn(async move {
+            // State broadcasts fire for volume, mute and queue edits too,
+            // not just song changes, so the same song arrives many times
+            // over. Only a CHANGE of now_playing is a play.
+            let mut last_logged: Option<String> = None;
+            while let Ok(state) = rx.recv().await {
+                let Some(now_playing) = state.now_playing else {
+                    last_logged = None;
+                    continue;
+                };
+                if last_logged.as_deref() == Some(now_playing.video_id.as_str()) {
+                    continue;
+                }
+                last_logged = Some(now_playing.video_id.clone());
+                if now_playing.is_random() {
+                    self.record_random_play(&now_playing.video_id, &now_playing.title);
+                }
+            }
+        });
+    }
+
+    /// Records a video !playrandom offered that could not be played, so
+    /// it is never offered again. Only called for random songs — see
+    /// `PlaybackErrorEvent::was_random`.
+    pub fn blocklist_video(&self, video_id: &str, title: &str, reason: &str) {
+        let mut blocklist = self.blocklist.lock().unwrap();
+        blocklist.blocked.insert(
+            video_id.to_string(),
+            BlockedEntry {
+                reason: reason.to_string(),
+                title: title.to_string(),
+                at: chrono::Utc::now().to_rfc3339(),
+            },
+        );
+        if let Err(err) = crate::state::save_json(BLOCKLIST_PATH, &*blocklist) {
+            tracing::error!("Failed to persist {BLOCKLIST_PATH}: {err}");
+        }
+        tracing::info!("!playrandom: blocklisted {video_id} (\"{title}\") — {reason}");
+    }
+
+    fn is_blocklisted(&self, video_id: &str) -> bool {
+        self.blocklist.lock().unwrap().blocked.contains_key(video_id)
+    }
+
+    /// Subscribes to playback errors and blocklists the random ones.
+    /// Spawned once from main.rs. A viewer's own failed request is left
+    /// alone deliberately: they may well ask for it again, and it is
+    /// their slot to waste.
+    pub fn spawn_blocklist_watcher(self: Arc<Self>, song_requests: Arc<SongRequestManager>) {
+        let mut rx = song_requests.subscribe_playback_errors();
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                if event.was_random {
+                    self.blocklist_video(&event.video_id, &event.title, &event.reason);
+                }
+            }
+        });
     }
 
     pub fn set_enabled(&self, enabled: bool) {
@@ -362,6 +557,8 @@ impl PlayRandomManager {
 
         let mut resolved = Vec::new();
         let mut already_known_skips = 0u32;
+        let mut blocklisted_skips = 0u32;
+        let mut recently_played_skips = 0u32;
         let mut resolve_failures = 0u32;
         for (artist, track) in candidates {
             if resolved.len() >= count {
@@ -376,6 +573,19 @@ impl PlayRandomManager {
                 Ok(song) if already_known.contains(&song.title.to_lowercase()) => {
                     already_known_skips += 1;
                 }
+                // Offered before and the overlay could not play it. The
+                // id is only known after resolving, so this filters here
+                // rather than above the resolve.
+                Ok(song) if self.is_blocklisted(&song.video_id) => {
+                    blocklisted_skips += 1;
+                }
+                // Inside the no-repeat window. The candidate list is
+                // already shuffled and finite, so "draw again" is just
+                // continuing this loop — which bounds the redraws at the
+                // pool Last.fm returned rather than spinning.
+                Ok(song) if self.was_recently_played(&song.video_id) => {
+                    recently_played_skips += 1;
+                }
                 Ok(song) => {
                     tracing::info!("!playrandom: resolved candidate \"{query}\" -> \"{}\"", song.title);
                     resolved.push(song);
@@ -387,7 +597,7 @@ impl PlayRandomManager {
             }
         }
         tracing::info!(
-            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {resolve_failures} resolve failure(s)",
+            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {blocklisted_skips} blocklisted skip(s), {recently_played_skips} no-repeat skip(s), {resolve_failures} resolve failure(s)",
             resolved.len()
         );
 
@@ -406,7 +616,18 @@ impl PlayRandomManager {
     /// topped up until *something else* changed it first, e.g. a manual
     /// !songrequest).
     async fn maybe_top_up(self: &Arc<Self>, song_requests: &Arc<SongRequestManager>) {
-        if !self.is_enabled() || song_requests.snapshot().queue.len() >= CONTINUOUS_TOPUP_THRESHOLD {
+        let queue = song_requests.snapshot().queue;
+        if !self.is_enabled() || queue.len() >= CONTINUOUS_TOPUP_THRESHOLD {
+            return;
+        }
+        // Without this, clearing the random queue for a request achieves
+        // nothing visible: this watcher fires on *every* queue state
+        // change, sees a queue of one, and immediately refills random
+        // songs behind the request that just cleared them. Requests play
+        // through first; random resumes on its own the moment the last
+        // one leaves the queue, with no extra trigger needed, because
+        // that departure is itself a state change.
+        if requests_are_pending(&queue) {
             return;
         }
         if self.topping_up.swap(true, Ordering::SeqCst) {
@@ -455,5 +676,114 @@ impl PlayRandomManager {
                 self.maybe_top_up(&song_requests).await;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn song(video_id: &str, requested_by: &str) -> Song {
+        Song {
+            video_id: video_id.to_string(),
+            title: format!("song {video_id}"),
+            duration_secs: 200,
+            requested_by: requested_by.to_string(),
+            thumbnail_url: String::new(),
+        }
+    }
+
+    /// The other half of the owner's first rule. Clearing the random
+    /// queue for a request is undone immediately unless continuous mode
+    /// also stands down while that request is waiting — this watcher
+    /// fires on every queue state change and would otherwise refill
+    /// behind it.
+    #[test]
+    fn continuous_mode_stands_down_while_a_request_is_queued() {
+        assert!(requests_are_pending(&[song("REQ", "viewer")]));
+        assert!(
+            requests_are_pending(&[song("R1", ""), song("REQ", "viewer")]),
+            "a request anywhere in the queue holds random off, not just at the front"
+        );
+    }
+
+    fn log_entry(video_id: &str) -> PlayLogEntry {
+        PlayLogEntry {
+            at: "2026-09-11T00:00:00+00:00".to_string(),
+            video_id: video_id.to_string(),
+            title: format!("song {video_id}"),
+        }
+    }
+
+    /// The play log rides in every hourly backup snapshot, so it needs a
+    /// ceiling. One past the cap must leave exactly the cap, with the
+    /// newest kept and the oldest gone.
+    #[test]
+    fn the_play_log_is_capped_at_ten_thousand_newest_kept() {
+        let mut log = Vec::new();
+        for i in 0..=PLAY_LOG_MAX_ENTRIES {
+            append_capped(&mut log, log_entry(&format!("v{i}")));
+        }
+
+        assert_eq!(log.len(), PLAY_LOG_MAX_ENTRIES, "10,001 writes leave exactly 10,000");
+        assert_eq!(log.last().unwrap().video_id, format!("v{PLAY_LOG_MAX_ENTRIES}"), "the newest play is kept");
+        assert_eq!(log.first().unwrap().video_id, "v1", "and exactly one entry - the oldest - was dropped");
+        assert!(!log.iter().any(|e| e.video_id == "v0"), "v0 is gone");
+    }
+
+    /// A log already over the ceiling - an older file, or a lowered
+    /// constant - comes back into range on the next write, rather than
+    /// taking one play per excess entry to get there.
+    #[test]
+    fn an_oversized_log_is_brought_back_in_one_write() {
+        let mut log: Vec<PlayLogEntry> = (0..PLAY_LOG_MAX_ENTRIES + 500).map(|i| log_entry(&format!("old{i}"))).collect();
+
+        append_capped(&mut log, log_entry("newest"));
+
+        assert_eq!(log.len(), PLAY_LOG_MAX_ENTRIES);
+        assert_eq!(log.last().unwrap().video_id, "newest");
+    }
+
+    /// Below the ceiling nothing is dropped - the common case.
+    #[test]
+    fn a_short_log_keeps_everything() {
+        let mut log = Vec::new();
+        for i in 0..50 {
+            append_capped(&mut log, log_entry(&format!("v{i}")));
+        }
+        assert_eq!(log.len(), 50);
+        assert_eq!(log.first().unwrap().video_id, "v0", "the first play ever is still there");
+    }
+
+    /// The no-repeat window keeps the last NO_REPEAT_WINDOW ids and no
+    /// more, and "or all of them if fewer" falls out of that for free -
+    /// a small pool still plays instead of starving.
+    #[test]
+    fn the_no_repeat_window_holds_the_last_hundred_and_drops_the_oldest() {
+        let mut history = PersistedHistory::default();
+        for i in 0..NO_REPEAT_WINDOW {
+            history.played.push_back(format!("v{i}"));
+        }
+        assert_eq!(history.played.len(), NO_REPEAT_WINDOW);
+        assert!(history.played.contains(&"v0".to_string()), "still inside the window");
+
+        // One more play pushes the oldest out, and only the oldest.
+        history.played.push_back("v100".to_string());
+        while history.played.len() > NO_REPEAT_WINDOW {
+            history.played.pop_front();
+        }
+        assert_eq!(history.played.len(), NO_REPEAT_WINDOW);
+        assert!(!history.played.contains(&"v0".to_string()), "the oldest play has left the window");
+        assert!(history.played.contains(&"v1".to_string()), "everything else stays");
+        assert!(history.played.contains(&"v100".to_string()));
+    }
+
+    /// ...and resumes on its own once the request queue empties. No
+    /// extra trigger is needed: the song leaving the queue is itself the
+    /// state change the watcher reacts to.
+    #[test]
+    fn continuous_mode_resumes_when_the_request_queue_empties() {
+        assert!(!requests_are_pending(&[]), "an empty queue is random's cue to resume");
+        assert!(!requests_are_pending(&[song("R1", ""), song("R2", "")]), "random songs never hold random off");
     }
 }
