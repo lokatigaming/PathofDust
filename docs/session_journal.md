@@ -8825,3 +8825,68 @@ out with what it is for and the instruction to remove it after use.
 
 No WIKI_IMPACT line: no cost, chance, formula, timer, boss behaviour,
 crafting rule or command name changed.
+
+### 2026-09-11 — BOT-LOG-RETENTION + FIX (item 7) — merged as one, box-green, deploy correctly refused
+
+| | |
+|---|---|
+| master commit | `f7c16046d13bbd480f8c57b29fbdfed75a3291cb` |
+| live binary | **unchanged** — `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| deploy | **refused, correctly** — byte-identical (fourth consecutive) |
+| box suite | **953 passed / 0 failed / 46 result-lines** |
+
+`a1f7389` contains `891095b`, so one merge carried the feature and its fix — the way
+release 26 carried item 5.
+
+#### THE CHECK WAS NAMED TESTS, NOT A TOTAL
+
+The box total was 953/0. **That alone could not distinguish "both green" from
+"neither ran"** — the `--quiet` run prints no passing test names, and the bot's test
+suite went from zero to existing two items ago, so "the tests are not there" was a
+live possibility rather than a pedantic one.
+
+Run by name on Linux instead:
+
+```
+logging::tests::constructing_the_appender_prunes_down_to_the_retention_limit ... ok
+logging::tests::todays_log_survives_a_restart_that_prunes ... ok
+logging::restore_condition_tests::identically_timestamped_logs_still_keep_today ... ok
+logging::restore_condition_tests::a_prefixed_file_with_no_date_is_never_pruned ... ok
+logging::restore_condition_tests::the_date_key_accepts_only_the_shape_rotation_writes ... ok
+```
+
+The first two are the ones that failed deterministically on this same box on
+2026-09-11. The third is the condition the whole defect turns on.
+
+#### THE ARC, FOR THE RECORD
+
+2026-09-10: item 5's retention went red on Linux, green on Windows. I measured the
+mechanism — six identical btimes on tmpfs, nine distinct on ext4 — and concluded
+**"a TEST defect, not a product defect"** because production never ties.
+
+**That inference was wrong.** `tar -xzf` stamps every extracted log with one btime, so
+a restore ties them — on the first start after a restore, the one start where the
+current day's log matters most. *Observing a property of the current state is not
+establishing an invariant of the system.*
+
+Release 26 fixed the game. I then predicted **by name**, before running anything,
+that the bot branch carried the same defect, and measured 938/2 on the box failing
+exactly those two tests. This is the port, proven on the platform where it failed.
+
+#### The `lib.rs` conflict was the first real code conflict of the bot sequence
+
+7b's `pub mod log_rate_limit;` and item 7's `pub mod logging;` claimed the same
+alphabetical slot. Mechanical, not semantic: independent modules, neither replacing
+the other, both files present — keep-both is the only resolution that compiles, and
+it happens to preserve alphabetical order since `_` sorts before `g`.
+
+#### b's duplication choice, and why it is the honest one
+
+b copied the game's pruner rather than sharing it, on the manifest's own stated
+property that the two crates share no file, with each pruner's doc naming the other as
+its twin. A shared crate would re-couple builds that `chore/bot-decoupling`
+deliberately separated. The risk is the copies drifting; naming the twin in both docs
+is what makes that visible rather than silent.
+
+**On the board, from b:** the rotation gap is restart-only and **worse on the bot** —
+no `Restart=always`, no daily deploys — and `tracing-appender` 0.2.5 exposes no hook.
