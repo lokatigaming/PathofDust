@@ -8650,3 +8650,42 @@ Measured here: **bot `#[test]` count 0 -> 2** —
 That also gives release 27's property real content. "One `--workspace` invocation
 covers both members" was structurally true and **empty** for the bot while it had no
 tests; the bot's two now run in the same invocation as the game's 936.
+
+### 2026-09-11 — RECONNECT-STORM-LOG-AND-CREDENTIALS (item 7b) — merged, bot-only, deploy correctly refused
+
+| | |
+|---|---|
+| master commit | `c4f198755f0a0c89c1261b26a15727f7229c2421` |
+| live binary | **unchanged** — `4ff1adb96b1179d8cd52a4ff4ba94540cc17eb0dd1d66e038d00b17e25912de2` |
+| deploy | **refused, correctly** — byte-identical |
+| box suite | **946 passed / 0 failed / 46 result-lines** |
+| rollback slot | none created |
+
+Third consecutive item where the refusal is the expected result. 4 files, 408
+insertions / 4 deletions, one new — matching d's figures.
+
+#### IT SHARES NOTHING WITH ITEM 7's FAILURE MODE, WHICH IS WHY IT COULD GO WHILE 7 WAITS
+
+Both branches aim at "the bot writes too much log", and it would have been easy to
+hold this one by association. Measured instead: `bot/src/log_rate_limit.rs` has
+**0 `max_log_files`, 0 `btime`/`created()`, 0 `fs::`**. It is an in-memory tracing
+layer that bounds emission, not a pruner that ranks files by creation time. The two
+solve the same complaint at different layers and only one depends on filesystem
+ordering.
+
+#### THE EIGHT TESTS, AND THE TWO THAT ARE NOT VACUOUS
+
+Rate limiter: `a_synthetic_flood_is_bounded_and_the_total_is_reported`,
+`only_the_two_flooding_targets_are_limited`, `the_cap_is_per_target`,
+**`the_layer_actually_keeps_suppressed_events_out_of_the_output`**.
+
+Auth: `a_still_valid_cached_token_is_reused_instead_of_erroring`,
+`an_expired_cached_token_is_still_reused_rather_than_spinning`,
+`the_expiry_boundary_is_not_treated_as_expired`, **`an_empty_token_still_fails`**.
+
+The two in bold are the ones that would be absent from a naive version. A rate
+limiter that COUNTS suppressions while still emitting them passes every other
+limiter test; asserting the output is what makes it real. And "reuse the cached
+token when refresh fails" is a fallback made more permissive — which is exactly how
+it becomes "accept anything" — so the empty-token rejection is the counterweight,
+with the expiry-boundary test closing the off-by-one.
