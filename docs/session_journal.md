@@ -9210,3 +9210,73 @@ Releases 27, 7a, 7b, 7, 7c, 7d and item 8 all refused, across three distinct cau
 (bot-only ×5, docs-only ×1, docs-only ×1). Item 9 is the first moving binary since release
 27, and the gate deployed rather than refused — which is the streak ending correctly
 rather than a pattern breaking.
+
+---
+
+## 2026-09-12 — item 7e merged (`!theme remove`). Bot-only; refusal predicted from the tree, then observed.
+
+| | |
+|---|---|
+| branch | `feature/theme-remove` `ca35224` (head matched the order) |
+| merge | **`cdd67e2`**, clean, **no conflicts** |
+| local suite | **1020 / 0 / 46** — exactly d's figure (1009 + 11) |
+| box suite | **1020 / 0 / 46** — identical |
+| deploy | **refused, byte-identical** — predicted, then observed |
+| service | untouched: active, `NRestarts` 0, live `69ff7067…` |
+
+### THE PREDICTION, MADE BEFORE THE GATE
+
+The board's new standard from item 8, applied to its first bot-only item. Diffing the
+extracted tree against **release 28's deployed tree** on the box:
+
+```
+files differing under game/src: 0
+files differing under bot/src:  2
+```
+
+Zero under `game/src`, so the game binary cannot move and the gate MUST refuse. Then
+observed:
+
+```
+old binary sha256: 69ff7067368d82449f4e1213c9a79f1aab489667005131ee5c7e486cd196b4a1
+new binary sha256: 69ff7067368d82449f4e1213c9a79f1aab489667005131ee5c7e486cd196b4a1
+FATAL: new binary is identical to the live one - nothing to deploy
+```
+
+Worth noting what the "old" hash now is: **`69ff7067…`**, release 28's binary. The gate's
+own output is independent evidence that today's deploy is live.
+
+### THE NAMED-TEST CHECK, FOURTH ITEM RUNNING
+
+1020/0 cannot distinguish "the 11 new tests ran" from "they were never compiled in", and a
+name-grep of the suite log returned **nothing** — `--quiet` again, not absence. Run by
+name on the box:
+
+```
+commands::theme_remove_tests::a_non_mod_is_refused_and_nothing_is_written ... ok
+commands::theme_remove_tests::a_non_remove_argument_never_removes_anything ... ok
+commands::theme_remove_tests::an_at_prefix_and_a_bare_name_remove_the_same_entry ... ok
+commands::theme_remove_tests::bare_theme_still_returns_the_link ... ok
+entrance_themes::tests::any_casing_of_a_name_reaches_the_same_entry ... ok
+entrance_themes::tests::removing_a_theme_leaves_daily_greeted_alone ... ok
+```
+
+This is a **destructive** command — it deletes another user's data — so the tests that
+carry the weight are the ones about what it must NOT do:
+
+- **`a_non_mod_is_refused_and_nothing_is_written`** — the permission boundary, and
+  "nothing is written" rather than merely "refused".
+- **`a_non_remove_argument_never_removes_anything`** — `!theme <anything-else>` cannot
+  delete. A destructive verb reached by accident is the failure mode worth pinning.
+- **`bare_theme_still_returns_the_link`** — the pre-existing behaviour survives.
+- **`removing_a_theme_leaves_daily_greeted_alone`** — blast radius: the adjacent state is
+  untouched.
+
+Both modules are named for behaviour rather than mechanism, continuing the pattern from
+`restore_condition_tests` and `walk_on_ordering_tests`.
+
+### MASTER HEAD MOVED
+
+`c218a42` → **`cdd67e2`**. The cutover package re-derives master's head by its own test
+rather than trusting one quoted in a document, which is exactly why this is safe — the
+head has now moved twice today.
