@@ -155,6 +155,38 @@ async fn admin_passives_gates_writes_and_a_saved_override_reaches_the_game() {
     assert!(admin_body.contains("differs from default"), "the tuned node must be marked");
     assert!(admin_body.contains("/admin/passives/revert"), "and must offer a revert");
 
+    // Revert is IRREVERSIBLE and must not be silently so (2026-09-08,
+    // board item "`/admin/passives` Revert deletes rather than restores").
+    //
+    // The headline of that board entry is not the defect - dropping the
+    // entry IS how a node returns to its compiled default, and the button,
+    // the handler doc, `PassiveOverrides::revert`'s doc, the unit test and
+    // the HTTP assertion further down this very file all agree on that.
+    // The defect is the entry's second sentence: it "destroys the tuning
+    // with no undo". `PassiveOverrides` stores no prior value on either
+    // axis, so restoring one is not representable and a misclick discards
+    // work that exists nowhere else on disk.
+    //
+    // So the guard is that the loss cannot be silent. Asserted against the
+    // RENDERED page rather than the render function, because what matters
+    // is what reaches the operator's browser.
+    assert!(
+        admin_body.contains("onsubmit=\"return confirm("),
+        "the revert control must confirm before discarding - it is irreversible and there is no stored previous value to restore, so a misclick is unrecoverable"
+    );
+    assert!(
+        admin_body.contains("cannot be recovered"),
+        "and the confirmation must say the values are unrecoverable, not merely ask twice - the operator needs to know what is being spent, the same way the disenchant and delete-Memory confirms do"
+    );
+    // Static and apostrophe-free, for the reason `render_memories_section`
+    // documents: the string sits inside a single-quoted JS literal in a
+    // double-quoted HTML attribute, and `escape_html` does not escape `'`.
+    // A stray apostrophe here would terminate the literal and silently
+    // break the handler, which fails OPEN - the form would submit with no
+    // confirmation at all.
+    let confirm_text = admin_body.split("onsubmit=\"return confirm('").nth(1).and_then(|rest| rest.split("');").next()).expect("the confirm string must be extractable");
+    assert!(!confirm_text.contains('\''), "the confirm string must contain no apostrophe or it terminates its own JS literal and the guard fails open, got: {confirm_text}");
+
     let player_page =
         client.get(format!("{base}/passives")).header(reqwest::header::COOKIE, "adv_session=admin-token").send().await.expect("GET failed").text().await.expect("body");
     // Matched on the MARKUP, not the bare class name: `base.html` now

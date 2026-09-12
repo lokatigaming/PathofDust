@@ -357,6 +357,14 @@ Registration is open and there is no throttling on login attempts beyond what th
 **`/admin/passives` Revert deletes rather than restores.**
 The Revert control drops the override entirely instead of returning it to a prior value, so using it on a deliberately tuned node destroys the tuning with no undo. Same silent-destruction class as the save-path defects fixed in `fix/passive-override-units`. Found during the 2026-08-27 deploy verification. Recorded, not scheduled.
 
+**ADDRESSED 2026-09-08, and the headline was wrong while the second sentence was right.** *"Deletes rather than restores"* is a false dichotomy here: dropping the entry **is** how a node returns to its compiled-in value, because `PassiveOverrides::value_for` returning `None` means "use the node's own compiled value". Every statement of intent already agreed on that and none of them promised a prior value — the button, `PassiveOverrides::revert`'s doc, `do_revert_passive_override`, the unit test `revert_returns_a_node_to_its_compiled_in_values`, and a live HTTP assertion in `admin_passives_http.rs` that drives a real POST and passes.
+
+What was real is this entry's **second** sentence: it "destroys the tuning with no undo". `PassiveOverrides` holds `nodes` and `conversion_caps` and **no prior value on either axis**, and the on-disk TOML has no history table — so *restore-to-previous is not representable at all* without new storage. A deliberately tuned node's numbers exist in exactly one place, and one misclick discarded them.
+
+Fixed by making the loss impossible to take silently rather than by pretending an undo exists: the control now carries the same `onsubmit="return confirm(...)"` guard every other irreversible action on this site uses (disenchant, delete Memory), says the numbers "cannot be recovered", and is labelled **"Revert to default"** so it states what it goes back to. The confirm string is static and apostrophe-free — an apostrophe would terminate its own JS literal and the guard would fail **open**, which is now its own assertion.
+
+**Not fixed, deliberately:** there is still no undo. Adding one means storing a previous value, which is new storage and a separate decision. If that is wanted, it is a new order.
+
 **Account file could be wiped to a valid empty `{}`.**
 Backup shape validation accepts `{}` as legitimate (a game with no accounts yet), so a logic bug wiping the file would verify clean and prune normally — collapsing the safety margin from 30 days to 24 hours. The 30-day earliest-of-day retention still saves you. The guard would be a count-regression check. `adventure-characters.json` has identical exposure. Recorded, not scheduled.
 
