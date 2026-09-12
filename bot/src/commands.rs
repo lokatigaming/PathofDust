@@ -149,7 +149,7 @@ fn hand_written_public_entries() -> Vec<PublicCommandEntry> {
         ("songinsert", "Mod tool: plays a song immediately, then returns to the current song where it left off and continues the playlist. Usage: !songinsert <YouTube link or search terms> (alias !si).", true),
         ("settheme", "Mod tool: assigns a chatter's entrance theme song, played (same as !songinsert) the first time they chat each day. Usage: !settheme <username> <YouTube link or search terms>.", true),
         ("resetgreeted", "Mod tool: clears \"already greeted today\" for a user (or everyone, if no username given), so entrance themes retrigger without waiting for the next day. Usage: !resetgreeted [username].", true),
-        ("theme", "Links to the page listing everyone's entrance theme song (alias !themes).", false),
+        ("theme", "Links to the page listing everyone's entrance theme song (alias !themes). Mod tool: !theme remove <username> clears that person's saved entrance theme.", false),
         ("playlist", "Every song you !songrequest is saved to your own playlist, viewable anytime at lokati.net/playlists.html. Usage: !playlist <username> (queues 5 random songs from their saved playlist), !playlist <username> play <#> (queues one specific song by position number), !playlist add <song>, !playlist remove <position or title>, !playlist clear (wipes your own playlist; mods can also !playlist clear <username>).", false),
         ("modclear", "Mod tool: clears the pending song queue immediately (doesn't stop the current song) — alias for !clearqueue.", true),
         ("playrandom", "Usage: !playrandom <1-5> queues that many songs from the last 5 distinct genres actually played (genre via Last.fm, since YouTube has no genre data). Mod tool: !playrandom on/off toggles continuously auto-queuing similar songs whenever the queue runs low.", false),
@@ -489,7 +489,14 @@ async fn handle_builtin(
             | "resetgreeted"
             | "vesselprice"
             | "vp"
-    );
+    )
+    // `!theme remove <user>` is a mod tool wearing a public command's
+    // name. Without this it inherits !theme's 5s public cooldown and a
+    // mod removing two themes in a row gets Reply::None for the second —
+    // a mod command that silently does nothing, which is the exact shape
+    // of trap the insert backstop already cost us once. The bare
+    // `!theme` link keeps its cooldown.
+        || (matches!(name, "theme" | "themes") && args.first().is_some_and(|a| a.eq_ignore_ascii_case("remove")));
 
     if !is_mod_tool
         && matches!(
@@ -560,6 +567,33 @@ async fn handle_builtin(
         }
 
         "commands" => Some("Full command list: https://lokati.net/commands.html".into()),
+
+        // `!theme`/`!themes` has always been a bare link command that
+        // ignores its arguments. `remove` is the first subcommand it has
+        // ever had, so anything that is not exactly `remove` still falls
+        // through to the link, and no previously-working invocation
+        // changes meaning.
+        "theme" | "themes" if args.first().is_some_and(|a| a.eq_ignore_ascii_case("remove")) => {
+            if !is_mod_or_broadcaster {
+                // Same silent refusal every other mod tool uses (see
+                // !modskip) — a non-mod gets no reply at all rather than
+                // an invitation to keep trying.
+                return Some(Reply::None);
+            }
+            // `!theme remove` with nothing after it must be a usage line,
+            // never a removal of the caller's own theme.
+            let Some(target) = args.get(1) else {
+                return Some("Usage: !theme remove <username>".into());
+            };
+            // Same normalisation !settheme does, so the two commands
+            // always agree on which entry a name refers to.
+            let username = target.trim_start_matches('@');
+            if services.entrance_themes.remove_theme(username).await {
+                Some(format!("Removed {username}'s entrance theme.").into())
+            } else {
+                Some(format!("{username} doesn't have an entrance theme set.").into())
+            }
+        }
 
         "theme" | "themes" => Some("Everyone's entrance theme songs: https://lokati.net/themes.html".into()),
 
@@ -1378,5 +1412,192 @@ async fn handle_command_management(args: &[String], services: &Services) -> Repl
         format!("Updated !{target}.").into()
     } else {
         format!("Added !{target}.").into()
+    }
+}
+
+/// `!theme remove <username>` — the mod gate, the `@` normalisation and
+/// the three replies. These go through `handle_command` rather than the
+/// manager directly, because the gate and the normalisation are the
+/// command layer's, and a manager-level test cannot see either.
+#[cfg(test)]
+mod theme_remove_tests {
+    use super::*;
+    use crate::twitch::auth::AuthClient;
+
+    fn test_dir() -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("theme-remove-test-{}-{unique}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    /// Everything here is constructed from local paths — no network is
+    /// touched. `AuthClient::new` refuses to start without a tokens.json,
+    /// so one is written with placeholder values; it is never used,
+    /// because none of these commands reaches Helix.
+    async fn services_in(dir: &std::path::Path) -> Services {
+        std::fs::write(
+            dir.join("tokens.json"),
+            r#"{"accessToken":"t","refreshToken":"r","scope":[],"expiresIn":99999,"obtainmentTimestamp":0}"#,
+        )
+        .unwrap();
+        let auth = AuthClient::new("cid".to_string(), "secret".to_string(), dir.join("tokens.json")).unwrap();
+
+        Services {
+            helix: HelixClient::new(auth),
+            broadcaster_id: "0".to_string(),
+            alerts: None,
+            streamelements: None,
+            announcements: Arc::new(Announcements::new()),
+            static_commands: StaticCommands::load(dir.join("commands.json"), None).await,
+            song_requests: None,
+            poe_ninja_http: reqwest::Client::new(),
+            poe_ninja_league: "Standard".to_string(),
+            entrance_themes: EntranceThemeManager::new(
+                dir.join("entrance-themes.json"),
+                dir.join("daily-greeted.json"),
+                None,
+            ),
+            personal_playlists: PersonalPlaylistManager::new(dir.join("personal-playlists.json"), None),
+            play_random: None,
+            obs_song_volume: None,
+            bug_reports: BugReportManager::new(dir.join("bugreports.json")),
+        }
+    }
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn reply_text(reply: Reply) -> String {
+        match reply {
+            Reply::One(s) => s,
+            Reply::Many(v) => v.join(" | "),
+            Reply::None => String::new(),
+        }
+    }
+
+    /// Read back through the loader the bot boots with — the in-memory
+    /// map would pass even if nothing were written.
+    fn persisted_names(dir: &std::path::Path) -> Vec<String> {
+        let themes: HashMap<String, serde_json::Value> =
+            crate::state::load_json(dir.join("entrance-themes.json")).unwrap_or_default();
+        let mut keys: Vec<String> = themes.keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
+    #[tokio::test]
+    async fn a_mod_removes_a_theme_and_it_is_gone_from_disk() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+        services.entrance_themes.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
+
+        let reply = handle_command("theme", "somemod", &args(&["remove", "Alice"]), true, false, &services).await;
+
+        assert_eq!(reply_text(reply), "Removed Alice's entrance theme.");
+        assert!(persisted_names(&dir).is_empty(), "the removal reached the file");
+    }
+
+    /// The `@` a chatter naturally types must reach the same entry as the
+    /// bare name — this is the command layer's normalisation, matching
+    /// what !settheme already does with `trim_start_matches('@')`.
+    #[tokio::test]
+    async fn an_at_prefix_and_a_bare_name_remove_the_same_entry() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+        services.entrance_themes.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
+
+        let reply = handle_command("theme", "somemod", &args(&["remove", "@ALICE"]), true, false, &services).await;
+
+        assert_eq!(reply_text(reply), "Removed ALICE's entrance theme.");
+        assert!(persisted_names(&dir).is_empty(), "@ stripped and case folded, same entry");
+    }
+
+    #[tokio::test]
+    async fn removing_a_user_with_no_theme_says_so() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+        services.entrance_themes.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
+
+        let reply = handle_command("theme", "somemod", &args(&["remove", "bob"]), true, false, &services).await;
+
+        assert_eq!(reply_text(reply), "bob doesn't have an entrance theme set.");
+        assert_eq!(persisted_names(&dir), ["alice"], "and Alice is untouched");
+    }
+
+    /// The gate. A non-mod gets the same silent refusal every other mod
+    /// tool gives, and nothing is written.
+    #[tokio::test]
+    async fn a_non_mod_is_refused_and_nothing_is_written() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+        services.entrance_themes.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
+        let before = std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap();
+
+        let reply = handle_command("theme", "randomviewer", &args(&["remove", "Alice"]), false, false, &services).await;
+
+        assert!(matches!(reply, Reply::None), "mod tools refuse silently rather than inviting retries");
+        assert_eq!(persisted_names(&dir), ["alice"], "the theme survives");
+        assert_eq!(std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap(), before, "the file was not rewritten");
+    }
+
+    /// `!theme remove` with no target is a usage line, never a removal of
+    /// the caller's own theme.
+    #[tokio::test]
+    async fn remove_with_no_target_is_a_usage_line() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+        services.entrance_themes.set_theme("somemod", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
+
+        let reply = handle_command("theme", "somemod", &args(&["remove"]), true, false, &services).await;
+
+        assert_eq!(reply_text(reply), "Usage: !theme remove <username>");
+        assert_eq!(persisted_names(&dir), ["somemod"], "the caller's own theme is NOT removed");
+    }
+
+    /// The pre-existing behaviour, pinned: bare `!theme` is a link
+    /// command for everyone.
+    ///
+    /// **This test may call the bare form exactly ONCE, and it must be
+    /// the only test in this binary that does.** `BUILTIN_COOLDOWNS` is a
+    /// process-global static keyed by command name (`builtin_on_cooldown`),
+    /// `!themes` normalises onto the same `"theme"` bucket, and the
+    /// cooldown is 5s — so a second bare call anywhere in the suite comes
+    /// back `Reply::None` and whichever test ran second fails, depending
+    /// on scheduling. The `remove` path is exempt because it registers as
+    /// a mod tool and mod tools skip the cooldown block entirely, which
+    /// is why every other test here can call `!theme remove` freely.
+    #[tokio::test]
+    async fn bare_theme_still_returns_the_link() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+
+        let reply = handle_command("theme", "viewer", &[], false, false, &services).await;
+
+        assert_eq!(reply_text(reply), "Everyone's entrance theme songs: https://lokati.net/themes.html");
+    }
+
+    /// An argument that is not `remove` must not reach the removal path.
+    ///
+    /// Asserted on the FILE rather than the reply, because the reply here
+    /// is at the mercy of the shared cooldown described above: a
+    /// non-`remove` argument is not a mod tool, so it goes through the
+    /// public bucket and may legitimately come back `Reply::None`. What
+    /// must hold either way is that nothing was removed.
+    #[tokio::test]
+    async fn a_non_remove_argument_never_removes_anything() {
+        let dir = test_dir();
+        let services = services_in(&dir).await;
+        services.entrance_themes.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
+        let before = std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap();
+
+        for arg in ["something-else", "Alice", "delete", "rm"] {
+            let _ = handle_command("theme", "somemod", &args(&[arg]), true, false, &services).await;
+        }
+
+        assert_eq!(persisted_names(&dir), ["alice"], "only the exact word `remove` removes");
+        assert_eq!(std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap(), before);
     }
 }
