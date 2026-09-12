@@ -9505,3 +9505,77 @@ tree-diff/gate disagreement now has **one** cause worth escalating instead of tw
 triggered `syncing channel updates for 1.98.0 … downloading 6 components` — rustup treats
 `stable` and an explicit `1.98.0` as distinct installs even when both resolve to
 `rustc 1.98.0 (88d9e12ae)`. Harmless here; it would matter on a box with no network.
+
+---
+
+## 2026-09-13 — item 7f merged (`transport-connect-backoff`). Two independent 1023s. A transient SSH timeout that was not an outage.
+
+| | |
+|---|---|
+| branch | `feature/transport-connect-backoff` `70baed0` (off `311660d`) |
+| merge | **`1ebdd2a`**, clean, bot-only (3 files) |
+| local suite | **1023 / 0 / 46**, 0 compile errors, **20 warnings — unchanged** |
+| box suite | **1023 / 0 / 46** |
+| d's independent run | **1023 / 0 / 46** |
+| deploy | **refused, byte-identical** — predicted from the tree (0 under `game/src`, 4 under `bot/src`), then observed |
+
+Money-migration hazard **absent** here: the merge-base `311660d` already carries 6
+entries, so it does not predate the refund. The rule correctly says "no hazard" as well as
+"hazard".
+
+### THE COUNT DISCREPANCY WAS ARITHMETIC, NOT A LOST TEST
+
+d reported **1024**, I measured **1023**. Reconciled rather than waved away:
+
+```
+d's branch, off 311660d : master was 1020 there (pre-fold) + 4 new = 1024
+mine, off current master: master is 1019 (fold: 2 tests -> 1)  + 4 new = 1023
+```
+
+Exactly one, exactly the cooldown fold. Both figures correct for their tree.
+
+### THE COMPILER-BUMP WORRY, RAISED UNPROMPTED AND CLOSED
+
+d flagged that 7f's 1024 predated the pin and that an `async_trait` impl of a THIRD-PARTY
+trait with five delegated associated types is where a bump bites. Correct instinct; it
+compiles clean under 1.98.0 with **no new warnings**. d also tested the right thing — it
+merged master into a throwaway branch rather than testing 7f alone, because a bare 7f run
+sits on `311660d`, would have re-hit the cooldown failure, and would have said nothing
+about the compiler.
+
+**Precision about what my warning check proves.** The 20-vs-20 set-difference compared
+master-before-7f against ITSELF on two toolchains, so it isolates the compiler and says
+nothing about the new file. The post-merge run showing 20 again WITH
+`backoff_transport.rs` present establishes the new file adds no warnings **by count, not
+by set-difference** — a swap preserving the count exactly is a stretch but is not excluded.
+Said plainly rather than letting the stronger claim stand.
+
+### FOUND — THE CAP TEST COPIES A NUMBER IT COULD READ
+
+`the_cap_stays_below_the_crates_connect_timeout` hardcodes
+`Duration::from_secs(20)` with a comment citing twitch-irc 5.0.1's default. That is a
+number copied from a dependency rather than read from it: a version bump moving the
+default would leave the test green while the real relationship broke. `ClientConfig::default()`
+is public. Same principle §13B.5 states for health checks — *a number copied out of
+production rather than read from it at run time is not a check.* Reported, not fixed; d
+agrees and has flagged it for the owner to place as its own change rather than folding it
+into 7g unasked.
+
+### A TRANSIENT SSH TIMEOUT THAT WAS NOT AN OUTAGE
+
+The build waiter died with exit 255, and the retry reported `Connection timed out` on
+port 22 — a different signature from the earlier `Connection reset`. **Checked before
+concluding anything**, because the live game runs on that box:
+
+| | |
+|---|---|
+| `https://adventure.lokati.net/` | **200**, 79,140 B — the known landing-page size |
+| ping | 2/2, 194 ms, 0% loss |
+| port 22 on retry | **open** |
+| service | active since 2026-09-12 18:05:19, `NRestarts` 0 |
+| box uptime | 1 week 5 days — **never rebooted** |
+
+So: a network blip on the path, the game serving throughout, the build unaffected because
+it runs under `systemd-run` for exactly this reason. **A failed connection is not evidence
+of a failed host** — the same shape as the day's other instrument errors, and the reason
+the procedure puts builds in a transient unit instead of an SSH session.
