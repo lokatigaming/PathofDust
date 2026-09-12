@@ -379,10 +379,27 @@
         resumeFromAlertPause();
         break;
       case 'skipInsert':
+        // A SKIP FROM THE BOT IS NEVER IGNORED. The bot is the authority
+        // on whether an insert is over, and `insertEnded` is the only
+        // thing that clears its `active_insert`. This used to be inside
+        // the `insertActive` branch, so a page holding that flag false —
+        // a reload mid-insert is the likeliest way — swallowed the skip
+        // silently and the bot's backstop had nothing to show for
+        // itself. That is exactly what happened live on 2026-09-12
+        // 17:43:00Z: the backstop fired at duration+30 and sent this
+        // command, and the overlay answered nothing at all.
+        //
+        // THE RESUME STAYS GUARDED, and this is the one state where
+        // "unconditional" would be worse than the bug: with no insert
+        // active, `resumeVideoId` is null, and resumeFromInsert's else
+        // branch calls stopVideo() and hides the player — it would kill
+        // whatever main-queue song is actually on stream. Nothing to
+        // resume means nothing to resume; the REPLY is what the bot
+        // needs, and it goes either way.
         if (insertActive) {
           resumeFromInsert();
-          send({ type: 'insertEnded' });
         }
+        send({ type: 'insertEnded' });
         break;
     }
   }
@@ -397,6 +414,27 @@
     // insert away mid-playback. Once insertEnded fires (see the ENDED
     // handler), the next state broadcast is correct again.
     if (insertActive) return;
+
+    // DELIBERATELY NOT DONE HERE: adopting `state.activeInsert` when the
+    // bot reports an insert this page knows nothing about — the obvious
+    // "recover after a reload mid-insert" move. It was considered and
+    // rejected on 2026-09-13, and the reason is a race that recreates the
+    // exact loop this file is being fixed for.
+    //
+    // Finishing an insert is not atomic across the two sides: the ENDED
+    // handler clears insertActive and sends `insertEnded`, and only when
+    // the BOT processes that does `active_insert` clear. The resumed
+    // song's own PLAYING report lands in that window and triggers a state
+    // broadcast still carrying the finished insert. A page that adopted
+    // it would reload the theme it just finished, end it, adopt it
+    // again — a loop, built out of the fix for a loop.
+    //
+    // Making it safe needs "did I just finish this one?" state that is
+    // itself wrong the second time a viewer's theme legitimately plays
+    // twice in a session. The unconditional `insertEnded` reply in the
+    // skipInsert handler already converges both sides within
+    // duration+30s without any of that, so the recovery buys a narrower
+    // window at the cost of a worse failure.
 
     const np = state.nowPlaying;
 
