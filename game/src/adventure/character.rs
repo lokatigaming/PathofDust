@@ -1225,7 +1225,7 @@ pub const CUSTOM_SPRITE_DIR: &str = "public_adventure_overlay/sprites/custom";
 /// judged from another - a silent divergence of exactly the kind that
 /// put the manifest in the wrong place to begin with.
 pub fn custom_sprite_dir() -> std::path::PathBuf {
-    crate::adventure::data_path(CUSTOM_SPRITE_DIR)
+    crate::adventure::data_path(crate::adventure::Store::PublicAdventureOverlay).join("sprites/custom")
 }
 
 /// Whether `model` is a real file in `CUSTOM_SPRITE_DIR`, in the stored
@@ -1654,18 +1654,67 @@ impl Character {
     /// character's stable lowercased map key (NOT `display_name`, which
     /// isn't guaranteed stable/unique) - same id `CharacterView`/
     /// `AdventureManager` address them by everywhere else.
-    pub fn effective_sprite(&self, id: &str) -> String {
-        match self.model.as_deref() {
-            Some(chosen) if ALL_SPRITES.contains(&chosen) => chosen.to_string(),
+    /// PRECEDENCE, stated because the value now lives in two places
+    /// (2026-09-08). `selected` is the ACCOUNT-scoped selection from
+    /// `Store::SpriteSelections` and it WINS. `self.model` is the
+    /// world-scoped copy and is only consulted when there is no account
+    /// selection at all.
+    ///
+    /// **If the two disagree, the account store is right.** It is the
+    /// authority because it is the one that survives a season reset;
+    /// `model` is kept in sync by `change_model` and is retained as the
+    /// migration's source and as the fallback for a character whose
+    /// login has no entry yet. A stale `model` therefore cannot change
+    /// what a player looks like - it can only answer when the authority
+    /// is silent.
+    ///
+    /// Ordering note that is easy to get backwards: the account
+    /// selection is checked FIRST and, if it is present but no longer
+    /// valid (file deleted, ownership revoked), this falls through to
+    /// `model` and then to the hash default rather than stopping. That
+    /// keeps a revoked custom sprite from pinning a player to a broken
+    /// image, which is the same reason the custom branch re-validates on
+    /// every call instead of trusting the stored value.
+    pub fn effective_sprite(&self, id: &str, selected: Option<&str>) -> String {
+        for candidate in [selected, self.model.as_deref()].into_iter().flatten() {
+            if ALL_SPRITES.contains(&candidate) {
+                return candidate.to_string();
+            }
             // Custom drop-in sprite (see `CUSTOM_SPRITE_DIR`) - re-checked
             // against disk (AND against `id` for ownership - see
             // `is_valid_custom_sprite`'s doc) on every call rather than
             // trusted from the stored value alone, so a file removed
             // after being chosen falls back to the stable hash-default
             // instead of a broken image forever.
-            Some(chosen) if is_valid_custom_sprite(id, chosen) => chosen.to_string(),
-            _ => sprite_for_character(id).to_string(),
+            if is_valid_custom_sprite(id, candidate) {
+                return candidate.to_string();
+            }
         }
+        sprite_for_character(id).to_string()
+    }
+
+    /// Is this `change_model` request asking for the sprite already
+    /// equipped? (2026-09-07)
+    ///
+    /// `change_model` had no no-op guard: re-picking the sprite you
+    /// already have ran the full charge path and spent a banked
+    /// `free_model_changes` token, or `MODEL_CHANGE_COST` dust. That is
+    /// masked today only because `MODEL_CHANGES_FREE_FOR_ALL` is `true`,
+    /// and that flag documents itself as TEMPORARY - the day it flips
+    /// back, this becomes a live charge for changing nothing.
+    ///
+    /// Compared WITHOUT case, because a sprite name is a case-insensitive
+    /// identity everywhere else: `is_valid_custom_sprite` resolves
+    /// `custom/Sitch89` and `custom/sitch89` to the same file on purpose
+    /// (see `custom_sprite_case.rs`). An exact comparison would charge a
+    /// player for "changing" between two spellings of one sprite - the
+    /// same case bug in a new place.
+    ///
+    /// `None` (never chosen) is never a no-op: the character is riding
+    /// the hash default, so picking anything is a real change even if the
+    /// name happens to match what that default already renders.
+    pub(crate) fn selection_already_equipped(&self, selected: Option<&str>, requested: &str) -> bool {
+        selected.or(self.model.as_deref()).is_some_and(|current| current.eq_ignore_ascii_case(requested))
     }
 
     /// Slot accessor by `EquipSlot` - used by the loot roll (which picks a
@@ -5796,6 +5845,53 @@ pub enum ChangeModelError {
     InvalidChoice,
     /// Not enough dust — carries the cost that was needed.
     InsufficientDust(u64),
+}
+
+/// The no-op guard on `change_model` (2026-09-07).
+///
+/// Covers the PREDICATE only. It does not prove `change_model` calls it -
+/// no test in this workspace constructs an `AdventureManager`, and
+/// `paths.rs` documents its `DATA_DIR` `OnceLock` as inherently flaky in
+/// this crate's single-process test binary, so building that harness is
+/// its own piece of work rather than a rider on a three-line fix. Stated
+/// here rather than left for a reader to discover.
+#[cfg(test)]
+mod model_noop_guard_tests {
+    use super::*;
+
+    fn with_model(model: Option<&str>) -> Character {
+        let mut character = Character::new("someone".to_string());
+        character.model = model.map(str::to_string);
+        character
+    }
+
+    #[test]
+    fn re_picking_the_same_sprite_is_a_no_op() {
+        assert!(with_model(Some("knight")).selection_already_equipped(None, "knight"), "the sprite you already wear must not be a change - it is what sends the request down the charge path");
+    }
+
+    #[test]
+    fn a_different_sprite_is_a_real_change() {
+        assert!(!with_model(Some("knight")).selection_already_equipped(None, "wizard"), "a different sprite must still be charged for, or the guard has eaten the feature");
+        assert!(!with_model(Some("custom/Sitch89")).selection_already_equipped(None, "custom/Sitch89_2"), "and a near-miss name is a different sprite, not the same one");
+    }
+
+    #[test]
+    fn never_having_chosen_is_never_a_no_op() {
+        // Riding the hash default. Even if the name matches what that
+        // default already renders, storing the pick is a real change -
+        // `effective_sprite` treats `None` and `Some(x)` differently.
+        assert!(!with_model(None).selection_already_equipped(None, "knight"), "a character who has never picked must always be able to pick");
+    }
+
+    #[test]
+    fn case_is_not_a_change() {
+        // The whole point: `custom/Sitch89` and `custom/sitch89` resolve
+        // to one file (`custom_sprite_case.rs`), so treating them as
+        // different would charge for a spelling.
+        assert!(with_model(Some("custom/Sitch89")).selection_already_equipped(None, "custom/sitch89"), "same sprite, different spelling - must not be a charge");
+        assert!(with_model(Some("custom/sitch89")).selection_already_equipped(None, "custom/SITCH89"), "and in the other direction too");
+    }
 }
 
 /// Stage A of the Memories build (docs/memories_spec.md) - the

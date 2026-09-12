@@ -208,7 +208,7 @@ pub async fn start_adventure_web_server(
     // (every test passes one, pointed at its own scratch dir) wins over any
     // base regardless, so no caller's behaviour moves. `accounts_path` is
     // derived from this below, so `adventure-accounts.json` follows for free.
-    let sessions_path = crate::adventure::data_path(sessions_path.to_string_lossy().as_ref());
+    let sessions_path = crate::adventure::normalize_caller_path(&sessions_path);
     let sessions: HashMap<String, Session> = crate::state::load_json(&sessions_path).unwrap_or_default();
     let accounts_path = accounts::accounts_path(&sessions_path);
     let accounts: HashMap<String, accounts::Account> = crate::state::load_json(&accounts_path).unwrap_or_default();
@@ -221,7 +221,7 @@ pub async fn start_adventure_web_server(
         // Same `data_path` resolution as `sessions_path` above, so reports
         // land beside the rest of the game state and every test's scratch
         // dir gets its own file rather than sharing production's.
-        bugs: BugReportManager::new(crate::adventure::data_path(BUG_REPORTS_PATH)),
+        bugs: BugReportManager::new(crate::adventure::data_path(crate::adventure::Store::Bugreports)),
         login_failures: Arc::new(Mutex::new(HashMap::new())),
         password_hash_permits: Arc::new(tokio::sync::Semaphore::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX as usize)),
         password_hash_permits_applied: Arc::new(std::sync::atomic::AtomicU32::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX)),
@@ -487,7 +487,8 @@ async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params):
             let character = state.adventure.character(&login).await;
             let (used_this_hour, next_reset_ms) = state.adventure.reforge_status(&login).await;
             let popup = if params.reforged.is_some() { render_reforge_popup(&params) } else { String::new() };
-            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables(), &state.adventure.recent_announcements()))
+            let selections = state.adventure.sprite_selections_snapshot().await;
+            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables(), &state.adventure.recent_announcements(), selections.get(&login).map(String::as_str)))
         }
     };
     Html(render_page(&body))
@@ -1873,7 +1874,7 @@ struct PatchNoteEntry {
 /// entries, negligible cost) rather than caching, so editing the file
 /// takes effect immediately without a bot restart.
 async fn patch_notes(State(state): State<AppState>, headers: HeaderMap) -> Html<String> {
-    let entries: Vec<PatchNoteEntry> = crate::state::load_json(crate::adventure::data_path("patch-notes.json")).unwrap_or_default();
+    let entries: Vec<PatchNoteEntry> = crate::state::load_json(crate::adventure::data_path(crate::adventure::Store::PatchNotes)).unwrap_or_default();
     let character = match current_session(&headers, &state).await {
         Some((login, _)) => state.adventure.character(&login).await,
         None => None,
@@ -2162,7 +2163,8 @@ async fn character_list(State(state): State<AppState>, headers: HeaderMap) -> Ht
         Some((login, _)) => {
             let characters = state.adventure.all_characters().await;
             let viewer = state.adventure.character(&login).await;
-            render_character_list(&characters, viewer.as_ref())
+            let selections = state.adventure.sprite_selections_snapshot().await;
+            render_character_list(&characters, viewer.as_ref(), &selections)
         }
     };
     Html(render_page(&body))
@@ -2183,7 +2185,10 @@ async fn character_detail(State(state): State<AppState>, headers: HeaderMap, Pat
         Some((viewer_login, _)) => {
             let viewer = state.adventure.character(&viewer_login).await;
             match state.adventure.character(&login).await {
-                Some(c) => render_character_detail(&login, &c, viewer.as_ref(), &state.adventure.live_tunables()),
+                Some(c) => {
+                    let selections = state.adventure.sprite_selections_snapshot().await;
+                    render_character_detail(&login, &c, viewer.as_ref(), &state.adventure.live_tunables(), selections.get(&login).map(String::as_str))
+                }
                 None => format!(
                     "{}<div class=\"card\"><h1>Not Found</h1><p>No such character.</p><p class=\"muted\"><a href=\"/characters\">&larr; Back to the character list</a></p></div>",
                     top_nav(viewer.as_ref())
@@ -4590,13 +4595,13 @@ struct RosterCardCtx {
 /// `templates/characters.html` (2026-08-18, Phase 1 pilot migration) -
 /// see `render::render_template`'s doc for why `top_nav` is still a
 /// Rust-rendered raw HTML string rather than a template partial.
-fn render_character_list(characters: &[(String, Character)], viewer: Option<&Character>) -> String {
+fn render_character_list(characters: &[(String, Character)], viewer: Option<&Character>, selections: &HashMap<String, String>) -> String {
     let mut sorted: Vec<&(String, Character)> = characters.iter().collect();
     sorted.sort_by(|(_, a), (_, b)| b.level.cmp(&a.level).then(b.wins.cmp(&a.wins)));
     let cards: Vec<RosterCardCtx> = sorted
         .iter()
         .map(|(login, c)| {
-            let sprite = c.effective_sprite(login);
+            let sprite = c.effective_sprite(login, selections.get(login).map(String::as_str));
             let games = c.wins + c.losses;
             let winrate = if games > 0 { format!("{:.0}%", c.wins as f64 / games as f64 * 100.0) } else { "—".to_string() };
             RosterCardCtx {
@@ -4636,7 +4641,7 @@ mod character_list_render_tests {
         bravo.wins = 0;
         bravo.losses = 0;
         let characters = vec![("alpha".to_string(), alpha), ("bravo".to_string(), bravo)];
-        let output = render_character_list(&characters, None);
+        let output = render_character_list(&characters, None, &HashMap::new());
         let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a><a class=\"top-nav-link\" href=\"/bugs\">\u{1F41E} Report a Bug</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"roster-grid\"><a class=\"roster-card\" href=\"/characters/bravo\"><img class=\"roster-sprite\" src=\"/sprites/sprite-26.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-26.gif'\" alt=\"\"><div class=\"roster-name\">Bravo</div><div class=\"roster-meta\">Level 12 Commoner</div><div class=\"roster-meta\">0W / 0L (\u{2014})</div></a><a class=\"roster-card\" href=\"/characters/alpha\"><img class=\"roster-sprite\" src=\"/sprites/sprite-06.png\" onerror=\"this.onerror=null;this.src='/sprites/sprite-06.gif'\" alt=\"\"><div class=\"roster-name\">Alpha</div><div class=\"roster-meta\">Level 5 Commoner</div><div class=\"roster-meta\">10W / 3L (77%)</div></a></div>";
         assert_eq!(output, expected, "render_character_list output must be byte-for-byte identical to the pre-migration baseline");
     }
@@ -4646,7 +4651,7 @@ mod character_list_render_tests {
     /// function, not just a zero-iteration loop).
     #[test]
     fn matches_pre_migration_empty_baseline() {
-        let output = render_character_list(&[], None);
+        let output = render_character_list(&[], None, &HashMap::new());
         let expected = "<div class=\"top-nav\"><a class=\"top-nav-link\" href=\"/\">\u{1F3E0} Character Sheet</a><a class=\"top-nav-link\" href=\"/inventory\">\u{1F392} Bag &amp; Crafting</a><a class=\"top-nav-link\" href=\"/passives\">\u{1F333} Passives</a><a class=\"top-nav-link\" href=\"/characters\">\u{1F3C6} Character List</a><a class=\"top-nav-link\" href=\"/fights\">\u{1F4DC} Fight History</a><a class=\"top-nav-link\" href=\"/wiki\">\u{1F4D6} Wiki</a><a class=\"top-nav-link\" href=\"/overlay\" target=\"_blank\" rel=\"noopener\">\u{1F4FA} Watch Overlay</a><a class=\"top-nav-link\" href=\"/bugs\">\u{1F41E} Report a Bug</a></div><div class=\"card\"><h1>Adventure Roster</h1></div><div class=\"card\"><p class=\"muted\">Nobody's joined the adventure yet.</p></div>";
         assert_eq!(output, expected, "empty-roster render_character_list output must be byte-for-byte identical to the pre-migration baseline");
     }
@@ -4760,10 +4765,10 @@ fn render_inventory_item_readonly(item: &Item) -> String {
 /// dashboard (profile header, Combat Stats via the SAME shared
 /// `render_combat_stats_card` the owner's page uses, Gear, Bag), just
 /// with every action button stripped out.
-fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character>, tunables: &LiveTunables) -> String {
+fn render_character_detail(login: &str, c: &Character, viewer: Option<&Character>, tunables: &LiveTunables, selected: Option<&str>) -> String {
     let nav = top_nav(viewer);
     let name = escape_html(&c.display_name);
-    let sprite = c.effective_sprite(login);
+    let sprite = c.effective_sprite(login, selected);
     let xp_pct = if c.xp_needed() > 0 { (c.xp as f64 / c.xp_needed() as f64 * 100.0).clamp(0.0, 100.0) } else { 100.0 };
     let games = c.wins + c.losses;
     let winrate = if games > 0 { format!("{:.0}%", c.wins as f64 / games as f64 * 100.0) } else { "—".to_string() };
@@ -5959,6 +5964,7 @@ fn render_dashboard(
     reforge_next_reset_ms: u64,
     tunables: &LiveTunables,
     announcements: &[String],
+    selected: Option<&str>,
 ) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
@@ -5977,7 +5983,7 @@ fn render_dashboard(
     let xp_pct = if c.xp_needed() > 0 { (c.xp as f64 / c.xp_needed() as f64 * 100.0).clamp(0.0, 100.0) } else { 100.0 };
     let games = c.wins + c.losses;
     let winrate = if games > 0 { format!("{:.0}%", c.wins as f64 / games as f64 * 100.0) } else { "—".to_string() };
-    let sprite = c.effective_sprite(login);
+    let sprite = c.effective_sprite(login, selected);
 
     // Retreated now covers two distinct cases: gear actually worn out
     // (the original path, with a real free-repair countdown), and a mod
@@ -6042,7 +6048,7 @@ fn render_dashboard(
     let combat_stats_html = render_combat_stats_card(c, tunables);
 
     let archetype_picker_html = render_archetype_picker(c);
-    let model_picker_html = render_model_picker(c, login);
+    let model_picker_html = render_model_picker(c, login, selected);
     let wings_card_html = render_wings_card(c);
 
     format!(
@@ -7058,11 +7064,14 @@ fn render_passive_tree_readonly(login: &str, c: &Character, viewer: Option<&Char
 /// dropdown. Free while `c.model` is still `None` (never explicitly
 /// chosen); `MODEL_CHANGE_COST` dust every time after - same
 /// free-once-then-paid shape as `render_archetype_picker`. Submitting
-/// without changing the selection is harmless (server-side `change_model`
-/// still charges for it if not free, same as re-picking the same
-/// archetype would) - the picker doesn't try to detect/block a no-op pick.
-fn render_model_picker(c: &Character, login: &str) -> String {
-    let current_sprite = c.effective_sprite(login);
+/// without changing the selection is harmless and, since 2026-09-08, is
+/// also FREE: `change_model` returns early when the requested sprite is
+/// the one already equipped, before the charge path. This comment used to
+/// say the server "still charges for it if not free", which stopped being
+/// true when that guard landed. The picker still does not detect a no-op
+/// pick itself - the server does, which is the half that matters.
+fn render_model_picker(c: &Character, login: &str, selected: Option<&str>) -> String {
+    let current_sprite = c.effective_sprite(login, selected);
     let current_line = if MODEL_CHANGES_FREE_FOR_ALL {
         // See MODEL_CHANGES_FREE_FOR_ALL's doc - no token/dust accounting
         // to report while this is on, so just say what it is.

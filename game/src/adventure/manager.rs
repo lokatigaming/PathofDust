@@ -1990,6 +1990,13 @@ pub struct PassivePreview {
 pub struct AdventureManager {
     characters: Mutex<HashMap<String, Character>>,
     characters_path: PathBuf,
+    /// Sprite selections, keyed by lowercased login - the ACCOUNT-scoped
+    /// authority for what a player looks like. See
+    /// `Store::SpriteSelections`: this survives a season reset where
+    /// `Character::model` does not, which is the whole point of it
+    /// existing separately.
+    sprite_selections: Mutex<HashMap<String, String>>,
+    sprite_selections_path: PathBuf,
     world: Mutex<WorldState>,
     world_path: PathBuf,
     /// Lowercased character id -> the last time a BOSS WIN actually paid
@@ -2209,9 +2216,9 @@ impl AdventureManager {
         // today still passes a bare filename (see main.rs), so with
         // `data_path`'s own default (unset = empty base) this is a true
         // no-op unless something has called `set_data_dir`.
-        let characters_path = data_path(characters_path.to_string_lossy().as_ref());
-        let world_path = data_path(world_path.to_string_lossy().as_ref());
-        let reforge_cooldown_path = data_path(reforge_cooldown_path.to_string_lossy().as_ref());
+        let characters_path = normalize_caller_path(&characters_path);
+        let world_path = normalize_caller_path(&world_path);
+        let reforge_cooldown_path = normalize_caller_path(&reforge_cooldown_path);
         let mut characters: HashMap<String, Character> = crate::state::load_json_fail_loud(&characters_path).unwrap_or_default();
         // Startup visibility (2026-08-22 fail-loud loading): one line saying
         // how many characters actually came off disk, and from where - the
@@ -2261,7 +2268,7 @@ impl AdventureManager {
         {
             const STARTER_KIT_BACKFILL_MARKER_PATH: &str = "adventure-starter-kit-backfill-marker.json";
             const STARTER_KIT_BACKFILL_SLOTS: [EquipSlot; 5] = [EquipSlot::Weapon, EquipSlot::Helm, EquipSlot::Body, EquipSlot::Gloves, EquipSlot::Boots];
-            if crate::state::load_json::<bool>(data_path(STARTER_KIT_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::StarterKitBackfillMarker)).is_none() {
                 let mut rng = rand::thread_rng();
                 let mut changed = false;
                 for character in characters.values_mut() {
@@ -2281,7 +2288,7 @@ impl AdventureManager {
                 // point. A marker only written on a change would leave the
                 // guard unarmed on exactly the installs where the loop was
                 // a no-op, which is every install that matters here.
-                if let Err(err) = crate::state::save_json(data_path(STARTER_KIT_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::StarterKitBackfillMarker), &true) {
                     tracing::error!("Failed to persist starter-kit backfill marker to {STARTER_KIT_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2309,7 +2316,7 @@ impl AdventureManager {
         // here.
         {
             const CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH: &str = "adventure-crit-reforge-equipped-backfill-marker.json";
-            if crate::state::load_json::<bool>(data_path(CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::CritReforgeEquippedBackfillMarker)).is_none() {
                 let mut rng = rand::thread_rng();
                 let mut changed = false;
                 for character in characters.values_mut() {
@@ -2333,7 +2340,7 @@ impl AdventureManager {
                         tracing::error!("Failed to persist crit-reforge equipped backfill to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::CritReforgeEquippedBackfillMarker), &true) {
                     tracing::error!("Failed to persist crit-reforge equipped backfill marker to {CRIT_REFORGE_EQUIPPED_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2353,7 +2360,7 @@ impl AdventureManager {
         // grant twice).
         {
             const CRAFT_TOKEN_BACKFILL_MARKER_PATH: &str = "adventure-craft-token-backfill-marker.json";
-            if crate::state::load_json::<bool>(data_path(CRAFT_TOKEN_BACKFILL_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::CraftTokenBackfillMarker)).is_none() {
                 for character in characters.values_mut() {
                     for &action in &ALL_CRAFT_ACTIONS {
                         character.add_craft_token(action, 1);
@@ -2362,7 +2369,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist craft token backfill to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(CRAFT_TOKEN_BACKFILL_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::CraftTokenBackfillMarker), &true) {
                     tracing::error!("Failed to persist craft token backfill marker to {CRAFT_TOKEN_BACKFILL_MARKER_PATH}: {err}");
                 }
             }
@@ -2378,7 +2385,7 @@ impl AdventureManager {
         // original backfill.
         {
             const CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH: &str = "adventure-craft-token-backfill-v2-marker.json";
-            if crate::state::load_json::<bool>(data_path(CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::CraftTokenBackfillV2Marker)).is_none() {
                 for character in characters.values_mut() {
                     character.add_craft_token(CraftAction::Annulment, 1);
                     character.add_craft_token(CraftAction::Chancing, 1);
@@ -2386,7 +2393,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist craft token backfill v2 to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::CraftTokenBackfillV2Marker), &true) {
                     tracing::error!("Failed to persist craft token backfill v2 marker to {CRAFT_TOKEN_BACKFILL_V2_MARKER_PATH}: {err}");
                 }
             }
@@ -2403,7 +2410,7 @@ impl AdventureManager {
         // every restart.
         {
             const PITY_LAUNCH_MARKER_PATH: &str = "adventure-pity-launch-marker.json";
-            if crate::state::load_json::<bool>(data_path(PITY_LAUNCH_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::PityLaunchMarker)).is_none() {
                 for character in characters.values_mut() {
                     character.item_pity = PITY_THRESHOLD;
                     character.craft_pity = PITY_THRESHOLD;
@@ -2411,7 +2418,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist pity launch grant to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(PITY_LAUNCH_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::PityLaunchMarker), &true) {
                     tracing::error!("Failed to persist pity launch marker to {PITY_LAUNCH_MARKER_PATH}: {err}");
                 }
             }
@@ -2423,14 +2430,14 @@ impl AdventureManager {
         // same guarded-by-marker, fire-once shape as the pity grant above.
         {
             const WINGS_LAUNCH_GRANT_MARKER_PATH: &str = "adventure-wings-launch-grant-marker.json";
-            if crate::state::load_json::<bool>(data_path(WINGS_LAUNCH_GRANT_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::WingsLaunchGrantMarker)).is_none() {
                 if let Some(character) = characters.get_mut("lokati_gaming") {
                     character.owns_wings = true;
                     if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                         tracing::error!("Failed to persist wings launch grant to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(WINGS_LAUNCH_GRANT_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::WingsLaunchGrantMarker), &true) {
                     tracing::error!("Failed to persist wings launch grant marker to {WINGS_LAUNCH_GRANT_MARKER_PATH}: {err}");
                 }
             }
@@ -2454,7 +2461,7 @@ impl AdventureManager {
         // writing this): Warrior's "overwhelm" and Slayer's "frenzy".
         {
             const PASSIVE_KEY_RENAME_MARKER_PATH: &str = "adventure-passive-key-rename-marker.json";
-            if crate::state::load_json::<bool>(data_path(PASSIVE_KEY_RENAME_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::PassiveKeyRenameMarker)).is_none() {
                 for character in characters.values_mut() {
                     let renames: &[(&str, &str)] = match character.archetype {
                         Archetype::Warrior => &[("overwhelm", "overwhelmingforce")],
@@ -2470,7 +2477,7 @@ impl AdventureManager {
                 if let Err(err) = crate::state::save_json(&characters_path, &characters) {
                     tracing::error!("Failed to persist passive key rename to {}: {err}", characters_path.display());
                 }
-                if let Err(err) = crate::state::save_json(data_path(PASSIVE_KEY_RENAME_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::PassiveKeyRenameMarker), &true) {
                     tracing::error!("Failed to persist passive key rename marker to {PASSIVE_KEY_RENAME_MARKER_PATH}: {err}");
                 }
             }
@@ -2495,7 +2502,7 @@ impl AdventureManager {
         // other one-off grant here.
         {
             const KIBUKAH_COMPENSATION_MARKER_PATH: &str = "adventure-kibukah-compensation-marker.json";
-            if crate::state::load_json::<bool>(data_path(KIBUKAH_COMPENSATION_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&characters_path, Store::KibukahCompensationMarker)).is_none() {
                 if let Some(character) = characters.get_mut("kibukah") {
                     let stage = crate::state::load_json::<WorldState>(&world_path).unwrap_or_default().stage;
                     let mut rng = rand::thread_rng();
@@ -2510,7 +2517,7 @@ impl AdventureManager {
                         tracing::error!("Failed to persist kibukah compensation grant to {}: {err}", characters_path.display());
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(KIBUKAH_COMPENSATION_MARKER_PATH), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::KibukahCompensationMarker), &true) {
                     tracing::error!("Failed to persist kibukah compensation marker to {KIBUKAH_COMPENSATION_MARKER_PATH}: {err}");
                 }
             }
@@ -2530,7 +2537,7 @@ impl AdventureManager {
         // same pool size.
         {
             const SPRITE_COUNT_MARKER_PATH: &str = "adventure-sprite-count.json";
-            let last_known_sprite_count: usize = crate::state::load_json(data_path(SPRITE_COUNT_MARKER_PATH)).unwrap_or(0);
+            let last_known_sprite_count: usize = crate::state::load_json(marker_path(&characters_path, Store::SpriteCount)).unwrap_or(0);
             // Compared with `!=`, not just `>` - a bad sprite batch can
             // get pulled and replaced with a differently-sized one (see
             // "sprites 2.png" -> "sprites 3.png"), which can shrink the
@@ -2555,7 +2562,7 @@ impl AdventureManager {
                         }
                     }
                 }
-                if let Err(err) = crate::state::save_json(data_path(SPRITE_COUNT_MARKER_PATH), &ALL_SPRITES.len()) {
+                if let Err(err) = crate::state::save_json(marker_path(&characters_path, Store::SpriteCount), &ALL_SPRITES.len()) {
                     tracing::error!("Failed to persist sprite count marker to {SPRITE_COUNT_MARKER_PATH}: {err}");
                 }
             }
@@ -2565,7 +2572,45 @@ impl AdventureManager {
         // `run_storage_migration`'s own doc. Independent of `characters`,
         // so it doesn't need to sit inside any of the character-mutating
         // blocks above.
-        run_storage_migration();
+        run_storage_migration(&characters_path);
+
+        // Sprite selections move to their own ACCOUNT-scoped store
+        // (2026-09-08). `Character::model` is world-scoped - it lives in
+        // the characters file, which a season reset destroys - so every
+        // player silently lost the sprite they picked and fell back to
+        // the hash default with no error and no notice. The selection is
+        // identity rather than progress, so it now lives in a store the
+        // reset keeps (see `Store::SpriteSelections`).
+        //
+        // IDEMPOTENT BY INSPECTION, not by its marker. The destination's
+        // own entry is the record: a login already present here is left
+        // alone, so re-running this can never overwrite a newer choice
+        // with an older one. That property is REQUIRED rather than
+        // tidy, because markers are world-scoped - the marker is
+        // destroyed by the very reset this store survives, so after the
+        // first reset this migration WILL run again against a fresh
+        // roster. Marker-gating is an optimisation on top; it is not the
+        // record.
+        let sprite_selections_path = sibling_store_path(&characters_path, Store::SpriteSelections);
+        let mut sprite_selections: HashMap<String, String> = crate::state::load_json(&sprite_selections_path).unwrap_or_default();
+        {
+            let mut copied = 0usize;
+            for (id, character) in characters.iter() {
+                let Some(model) = character.model.as_deref() else { continue };
+                if sprite_selections.contains_key(id) {
+                    continue;
+                }
+                sprite_selections.insert(id.clone(), model.to_string());
+                copied += 1;
+            }
+            if copied > 0 {
+                if let Err(err) = crate::state::save_json(&sprite_selections_path, &sprite_selections) {
+                    tracing::error!("Failed to persist sprite selections to {}: {err}", sprite_selections_path.display());
+                } else {
+                    tracing::info!("Sprite selections: carried {copied} character model(s) into the account-scoped store at {}", sprite_selections_path.display());
+                }
+            }
+        }
 
         let mut world: WorldState = crate::state::load_json_fail_loud(&world_path).unwrap_or_default();
         // `highest_stage` backfill (2026-09-02). The live world file
@@ -2585,10 +2630,12 @@ impl AdventureManager {
         let (rampage_complete_tx, _rx) = broadcast::channel(16);
         let (unique_shard_tx, _rx) = broadcast::channel(16);
         let (announcements_tx, _rx) = broadcast::channel(16);
-        let rampage_remaining: u32 = crate::state::load_json_fail_loud(data_path(RAMPAGE_STATE_PATH)).unwrap_or(0);
+        let rampage_remaining: u32 = crate::state::load_json_fail_loud(data_path(Store::RampageState)).unwrap_or(0);
         Arc::new(Self {
             characters: Mutex::new(characters),
             characters_path,
+            sprite_selections: Mutex::new(sprite_selections),
+            sprite_selections_path,
             world: Mutex::new(world),
             world_path,
             last_win_xp: Mutex::new(HashMap::new()),
@@ -2804,12 +2851,12 @@ impl AdventureManager {
             // next character load merges it into UniqueShard anyway (see
             // `migrate_celestial_shard_into_unique_shard`).
             const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
-            if crate::state::load_json::<bool>(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH)).is_none() {
+            if crate::state::load_json::<bool>(marker_path(&self.characters_path, Store::CelestialShardFirstAwardMarker)).is_none() {
                 if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
                     if self.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
                         self.announce(format!("✨ {} was the top healer of that fight and has been awarded a rare Celestial Shard!", top.display_name));
                     }
-                    if let Err(err) = crate::state::save_json(data_path(CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH), &true) {
+                    if let Err(err) = crate::state::save_json(marker_path(&self.characters_path, Store::CelestialShardFirstAwardMarker), &true) {
                         tracing::error!("Failed to persist celestial shard first award marker: {err}");
                     }
                 }
@@ -2818,10 +2865,10 @@ impl AdventureManager {
             // Reusable one-time launch giveaways (see main.rs's own
             // ITEM_LAUNCH_GIVEAWAYS for the full history/reasoning) -
             // (marker path, the token to grant, the name shown in chat).
-            const ITEM_LAUNCH_GIVEAWAYS: &[(&str, CraftAction, &str)] =
-                &[("adventure-unique-shard-first-award-marker.json", CraftAction::UniqueShard, "Unique Shard")];
-            for &(marker_path, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
-                if crate::state::load_json::<bool>(data_path(marker_path)).is_some() {
+            const ITEM_LAUNCH_GIVEAWAYS: &[(Store, CraftAction, &str)] =
+                &[(Store::UniqueShardFirstAwardMarker, CraftAction::UniqueShard, "Unique Shard")];
+            for &(marker_name, action, item_label) in ITEM_LAUNCH_GIVEAWAYS {
+                if crate::state::load_json::<bool>(marker_path(&self.characters_path, marker_name)).is_some() {
                     continue;
                 }
                 let top3_by = |amount: fn(&PlayerFightStats) -> u64| -> Vec<String> {
@@ -2849,7 +2896,7 @@ impl AdventureManager {
                 if self.grant_craft_token(&winner_id, action, 1).await {
                     self.announce(format!("🎁 {display} was randomly drawn from that fight's top performers and has been awarded a {item_label}!"));
                 }
-                if let Err(err) = crate::state::save_json(data_path(marker_path), &true) {
+                if let Err(err) = crate::state::save_json(marker_path(&self.characters_path, marker_name), &true) {
                     tracing::error!("Failed to persist {item_label} launch giveaway marker: {err}");
                 }
             }
@@ -2950,6 +2997,7 @@ impl AdventureManager {
         let stage = self.world.lock().await.stage;
         let characters = self.characters.lock().await;
         let downed_until = self.downed_until.lock().await;
+        let selections = self.sprite_selections.lock().await;
         let now = SystemTime::now();
         let characters = characters
             .iter()
@@ -2968,7 +3016,7 @@ impl AdventureManager {
                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map(|d| d.as_millis() as u64),
                 retreated: c.retreated_since.is_some(),
-                model: c.effective_sprite(id),
+                model: c.effective_sprite(id, selections.get(id).map(String::as_str)),
                 flying: c.owns_wings && c.flying,
             })
             .collect();
@@ -3921,6 +3969,26 @@ impl AdventureManager {
         }
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&id).ok_or(ChangeModelError::NotJoined)?;
+        // Re-picking the sprite you already have is not a change and must
+        // not reach the charge path below (2026-09-07) - see
+        // `model_already_equipped`. Returns `Ok` rather than an error
+        // because nothing went wrong and the caller
+        // (`adventure_web::do_change_model`) discards the result anyway:
+        // the player asked to look like X and does look like X. Returning
+        // early also skips the persist and the broadcast, both of which
+        // would be writing a value identical to the stored one.
+        //
+        // Checked against the ACCOUNT-scoped selection first, not just
+        // `character.model` (2026-09-08). The two are kept in sync
+        // below, but after a season reset the character is fresh - its
+        // `model` is `None` while the surviving selection is what the
+        // player can actually see. Guarding on `model` alone would
+        // charge them for re-picking the sprite they are already
+        // wearing, which is exactly the case this guard exists for.
+        let mut selections = self.sprite_selections.lock().await;
+        if character.selection_already_equipped(selections.get(&id).map(String::as_str), &model) {
+            return Ok(());
+        }
         if MODEL_CHANGES_FREE_FOR_ALL {
             // Neither dust nor a banked token spent - see the flag's doc.
         } else if character.free_model_changes > 0 {
@@ -3931,11 +3999,29 @@ impl AdventureManager {
             }
             character.dust -= MODEL_CHANGE_COST;
         }
+        // Both, deliberately. The account store is the AUTHORITY that
+        // `effective_sprite` reads first and the one a reset keeps;
+        // `character.model` is kept in step so nothing still reading it
+        // goes stale, and so the two can never disagree through this
+        // path. See `effective_sprite` for what happens if they ever do.
+        selections.insert(id.clone(), model.clone());
         character.model = Some(model);
         self.persist_characters(&characters);
+        if let Err(err) = crate::state::save_json(&self.sprite_selections_path, &*selections) {
+            tracing::error!("Failed to persist sprite selections to {}: {err}", self.sprite_selections_path.display());
+        }
+        drop(selections);
         drop(characters);
         self.broadcast_state().await;
         Ok(())
+    }
+
+    /// A snapshot of the account-scoped sprite selections, for callers
+    /// that need to resolve sprites for many characters at once (a
+    /// roster page, the broadcast state) without holding the lock across
+    /// the whole render.
+    pub async fn sprite_selections_snapshot(&self) -> HashMap<String, String> {
+        self.sprite_selections.lock().await.clone()
     }
 
     /// Web dashboard: buys the "Wings of Flight" cosmetic MTX outright
@@ -5305,7 +5391,7 @@ impl AdventureManager {
     /// `start_rampage` and `spawn_rampage_loop`'s own decrement, the only
     /// two places that ever change the value.
     fn persist_rampage_remaining(&self, value: u32) {
-        if let Err(err) = crate::state::save_json(data_path(RAMPAGE_STATE_PATH), &value) {
+        if let Err(err) = crate::state::save_json(data_path(Store::RampageState), &value) {
             tracing::error!("Failed to persist rampage state to {RAMPAGE_STATE_PATH}: {err}");
         }
     }
@@ -11151,5 +11237,256 @@ mod hideout_warrior_all_tests {
         let after = manager.character("shardy").await.expect("still joined");
         assert_eq!(after.dust, 500, "...and Divinity must ignore it. The shard is the price; charging both would be the two paths quietly converging");
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+}
+
+/// WIRING for the `change_model` no-op guard (2026-09-08).
+///
+/// The guard's PREDICATE is unit-tested in `character.rs`
+/// (`model_noop_guard_tests`). This module tests the other half - that
+/// `change_model` actually calls it - by driving the real public seam,
+/// the same reason `a_filler_fight_feeds_neither_controller` and the
+/// Fix-2 relaxation test drive real fights through theirs: so the
+/// plumbing cannot silently rot.
+///
+/// **This corrects a claim I made and the owner repeated.** I reported
+/// that "no test in this workspace constructs an `AdventureManager`" and
+/// used it to justify leaving the wiring untested. It was false - 19
+/// in-crate call sites and 41 across 30 files in `game/tests` do exactly
+/// that, behind nine helpers. The observation was true of the file I was
+/// reading and I stated it about the workspace. **Absence from where you
+/// looked is not absence.**
+///
+/// WHICH BRANCH IS WIRED-TESTED, AND WHICH IS NOT. This covers the
+/// curated `ALL_SPRITES` branch only. The custom-sprite branch reaches
+/// `custom_sprite_file_exists` -> `CUSTOM_SPRITE_DIR`, a bare
+/// CWD-relative constant, which would make this test's result depend on
+/// the process's working directory. That constant is consistent with how
+/// `adventure_web.rs` resolves the same tree - it is a static-asset
+/// directory rather than data - so it is deliberately NOT parameterised
+/// here. The custom branch's ownership and case rules have their own
+/// coverage in `custom_sprite_case.rs` and `custom_sprite_manifest.rs`;
+/// what is untested is specifically the no-op guard against a CUSTOM
+/// sprite name.
+///
+/// Note what this asserts and why it is not the obvious thing: it cannot
+/// check that dust or a banked token went unspent, because
+/// `MODEL_CHANGES_FREE_FOR_ALL` is `true` and neither is spent on ANY
+/// path today. The guard's other observable effect is that it returns
+/// before `persist_characters`, so the characters file is the witness.
+#[cfg(test)]
+mod change_model_wiring_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn disposable_manager(label: &str) -> (Arc<AdventureManager>, PathBuf) {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::temp_dir().join(format!("change_model_wiring_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&scratch).expect("scratch dir must be creatable");
+        let manager = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        (manager, scratch)
+    }
+
+    #[tokio::test]
+    async fn re_picking_the_same_sprite_never_reaches_the_charge_path() {
+        let (manager, scratch) = disposable_manager("noop");
+        manager.join("picky", "picky").await;
+
+        let first = ALL_SPRITES[0];
+        manager.change_model("picky", first.to_string()).await.expect("a curated sprite must be selectable");
+        assert_eq!(manager.characters.lock().await.get("picky").expect("just joined").model.as_deref(), Some(first), "sanity: the first pick must actually take, or nothing below means anything");
+
+        // The characters file is the witness. Deleting it means only a
+        // real `persist_characters` can bring it back.
+        let characters_file = scratch.join("adventure-characters.json");
+        std::fs::remove_file(&characters_file).expect("the first change must have persisted a file to delete");
+
+        manager.change_model("picky", first.to_string()).await.expect("re-picking what you already wear must succeed, not error");
+        assert!(
+            !characters_file.exists(),
+            "change_model must return BEFORE persist_characters when nothing changed - a rewritten file proves it ran the full path, which is the path that spends a banked token or {MODEL_CHANGE_COST} dust once MODEL_CHANGES_FREE_FOR_ALL flips back to false"
+        );
+
+        // The other arm, so this cannot pass with change_model broken
+        // outright: a genuinely different sprite still persists.
+        let second = ALL_SPRITES[1];
+        manager.change_model("picky", second.to_string()).await.expect("a different sprite must be a real change");
+        assert!(characters_file.exists(), "a REAL change must still persist - without this arm the test above would pass even if change_model did nothing at all");
+        assert_eq!(manager.characters.lock().await.get("picky").expect("still joined").model.as_deref(), Some(second), "and the new sprite must be the one stored");
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// Markers must follow the characters file into the scratch
+    /// directory, not land in the process's working directory
+    /// (2026-09-08). This is the isolation `marker_path` exists to
+    /// provide, asserted through a real manager rather than by reading
+    /// the helper.
+    #[tokio::test]
+    async fn a_disposable_manager_keeps_its_markers_to_itself() {
+        let (_manager, scratch) = disposable_manager("markers");
+
+        let starter_kit = scratch.join("adventure-starter-kit-backfill-marker.json");
+        assert!(
+            starter_kit.exists(),
+            "the startup backfill marker must be written BESIDE this manager's characters file. If it is missing here it went to the process CWD, where it persists BETWEEN RUNS and silently marks every later manager's startup migrations as already done"
+        );
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+}
+
+/// Stage 4/5: the sprite selection survives a season reset (2026-09-08).
+///
+/// The defect these exist for: `Character::model` lives in the characters
+/// file, which is world-scoped, so a reset destroyed every player's
+/// sprite choice and dropped them back to the hash default with no error
+/// and no notice. The selection is identity rather than progress, so it
+/// now lives in `Store::SpriteSelections`, which the reset keeps.
+#[cfg(test)]
+mod sprite_selection_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn scratch(label: &str) -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("sprite_selection_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn manager_in(dir: &std::path::Path) -> Arc<AdventureManager> {
+        AdventureManager::new(dir.join("adventure-characters.json"), dir.join("adventure-world.json"), dir.join("adventure-reforge-cooldown.json"))
+    }
+
+    /// Removes exactly what `game reset` removes - the world-scoped
+    /// stores - and nothing else. Driven off the classification itself
+    /// rather than a hand-listed set, so if a store is ever reclassified
+    /// these tests follow it instead of quietly testing the old shape.
+    fn wipe_world_scoped(dir: &std::path::Path) {
+        for store in crate::adventure::stores::world_scoped() {
+            let path = dir.join(store.name());
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+
+    /// THE POINT OF THE WHOLE EXERCISE. Pick a sprite, wipe exactly what
+    /// a season reset wipes, and the player still looks like themselves.
+    #[tokio::test]
+    async fn a_sprite_survives_the_reset_that_destroys_the_character() {
+        let dir = scratch("survives");
+        let chosen = ALL_SPRITES[3];
+        {
+            let manager = manager_in(&dir);
+            manager.join("keeper", "keeper").await;
+            manager.change_model("keeper", chosen.to_string()).await.expect("a curated sprite must be selectable");
+        }
+
+        wipe_world_scoped(&dir);
+        assert!(!dir.join("adventure-characters.json").exists(), "sanity: the reset must actually have removed the roster, or this test proves nothing");
+        assert!(dir.join("adventure-sprite-selections.json").exists(), "the selection store is Account-scoped and must NOT be in the world-scoped delete list");
+
+        let manager = manager_in(&dir);
+        manager.join("keeper", "keeper").await;
+        let characters = manager.characters.lock().await;
+        let character = characters.get("keeper").expect("re-joined on the fresh world");
+        assert_eq!(character.model, None, "sanity: the fresh character genuinely has no world-scoped model - so what follows can only have come from the account store");
+
+        let selections = manager.sprite_selections.lock().await;
+        assert_eq!(
+            character.effective_sprite("keeper", selections.get("keeper").map(String::as_str)),
+            chosen,
+            "the sprite must survive a season reset - this is the defect the whole store classification was built to close"
+        );
+    }
+
+    /// The migration carries an existing `model` into the account store,
+    /// and is IDEMPOTENT BY INSPECTION rather than by its marker: a login
+    /// already present is left alone, so a re-run can never overwrite a
+    /// newer choice with an older one. That property is required, not
+    /// tidy - markers are world-scoped, so the marker is destroyed by the
+    /// very reset the store survives, and this WILL run again.
+    #[tokio::test]
+    async fn the_migration_carries_model_across_and_never_overwrites_a_newer_choice() {
+        let dir = scratch("migrate");
+        let old = ALL_SPRITES[5];
+        let newer = ALL_SPRITES[6];
+
+        // A character saved before the store existed: `model` set, and no
+        // selections file at all.
+        {
+            let manager = manager_in(&dir);
+            manager.join("legacy", "legacy").await;
+            let mut characters = manager.characters.lock().await;
+            characters.get_mut("legacy").expect("joined").model = Some(old.to_string());
+            manager.persist_characters(&characters);
+        }
+        let _ = std::fs::remove_file(dir.join("adventure-sprite-selections.json"));
+
+        // First boot: the migration carries it across.
+        {
+            let manager = manager_in(&dir);
+            assert_eq!(manager.sprite_selections.lock().await.get("legacy").map(String::as_str), Some(old), "the migration must carry an existing model into the account store");
+        }
+
+        // The player then picks something new, and the migration runs
+        // AGAIN - as it will after every reset, its marker being gone.
+        {
+            let manager = manager_in(&dir);
+            manager.change_model("legacy", newer.to_string()).await.expect("a curated sprite must be selectable");
+        }
+        {
+            let manager = manager_in(&dir);
+            assert_eq!(
+                manager.sprite_selections.lock().await.get("legacy").map(String::as_str),
+                Some(newer),
+                "a re-run must NOT overwrite the newer choice with the stale model - the destination entry is the record, which is what idempotent-by-inspection means here"
+            );
+        }
+    }
+
+    /// Precedence, asserted rather than left to a doc comment: when the
+    /// two disagree, the account store wins.
+    #[tokio::test]
+    async fn the_account_store_wins_when_the_two_disagree() {
+        let dir = scratch("precedence");
+        let manager = manager_in(&dir);
+        manager.join("split", "split").await;
+
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut("split").expect("joined");
+        character.model = Some(ALL_SPRITES[1].to_string());
+        assert_eq!(character.effective_sprite("split", Some(ALL_SPRITES[2])), ALL_SPRITES[2], "the account-scoped selection is the authority - a stale world-scoped model must not win");
+        assert_eq!(character.effective_sprite("split", None), ALL_SPRITES[1], "and with no account selection, the model is still consulted rather than dropping to the hash default");
+    }
+
+    /// Re-picking after a reset must not charge. The character is fresh
+    /// so `model` is `None`, but the surviving selection is what the
+    /// player can see - guarding on `model` alone would bill them for
+    /// re-picking the sprite they are already wearing.
+    #[tokio::test]
+    async fn re_picking_after_a_reset_is_still_a_no_op() {
+        let dir = scratch("noop_after_reset");
+        let chosen = ALL_SPRITES[7];
+        {
+            let manager = manager_in(&dir);
+            manager.join("again", "again").await;
+            manager.change_model("again", chosen.to_string()).await.expect("selectable");
+        }
+        wipe_world_scoped(&dir);
+
+        let manager = manager_in(&dir);
+        manager.join("again", "again").await;
+        assert_eq!(manager.characters.lock().await.get("again").expect("joined").model, None, "sanity: fresh character, no world-scoped model");
+
+        let characters_file = dir.join("adventure-characters.json");
+        std::fs::remove_file(&characters_file).expect("join must have persisted a file to delete");
+        manager.change_model("again", chosen.to_string()).await.expect("re-picking what you already wear must succeed");
+        assert!(
+            !characters_file.exists(),
+            "re-picking the surviving selection must return before the charge path and before the persist - otherwise a reset silently bills every player for continuing to look the same"
+        );
     }
 }

@@ -235,3 +235,63 @@ opens is the world players spend the season in.
 
 The three commands above take a few minutes. World 2 is being played on
 the wrong item scaling because nobody spent them.
+
+---
+
+## Step: the wipe itself is now `game reset`, not `rm` (2026-09-08)
+
+**Added because the wipe had no representation in code at all.** There was
+no reset function, no wipe, nothing in the product that decided what a
+season destroys — it was `rm` by hand against this document. What survived
+a reset survived because nobody typed its filename. `adventure-accounts.json`
+is not named in the cutover steps, so **accounts persisted by omission**,
+which is exactly the kind of thing that holds until the once it does not.
+
+### The command
+
+```sh
+game reset                              # DRY RUN - prints the plan, deletes nothing
+game reset --confirm=DELETE-WORLD       # actually destroys world-scoped state
+```
+
+`GAME_DATA_DIR` selects the directory, same as every other path the game
+resolves; with it unset the reset acts on the process's working directory.
+
+**Dry run is the default.** There is no flag ordering, typo or missing
+argument that turns an inspection into a wipe — the destructive path needs
+a token with no default and no abbreviation. `--force` and `--confirm=yes`
+are both rejected outright (exit 1).
+
+### It refuses rather than guesses
+
+If the data directory holds an entry `game/src/adventure/stores.rs` does
+not classify, the reset **refuses in both modes** and exits 2, naming
+every offending entry:
+
+```
+REFUSING TO RESET: 2 entries in the data directory are not declared in stores.rs:
+    adventure-brand-new-store.json
+    some-unclassified-dir
+```
+
+An unclassified file means nobody has decided whether a season should
+destroy it, and guessing either way is worse than stopping. **So a new
+persisted store now blocks the next reset until somebody classifies it** —
+which is the point. It also refuses if it cannot read the directory at
+all: "I could not look" must never be mistaken for "there was nothing
+there".
+
+What it does **not** check is whether every declared store *exists*. Most
+of the table is legitimately absent — stores are created lazily on first
+write, and on a freshly reset world almost none of them exist yet.
+A check demanding presence would refuse on exactly the world it protects.
+
+### Read the plan before confirming
+
+It prints the classification it is acting on — both what will be destroyed
+and **what will be kept**, with a reason for each — *before* anything
+happens. The keep list is the half worth reading: if `adventure-accounts.json`
+is ever missing from it, stop.
+
+Verified against a mirror of live production's 50 entries: **39 destroyed,
+11 kept**, accounts and `wiki/` among the survivors.
