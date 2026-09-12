@@ -254,16 +254,49 @@ impl EntranceThemeManager {
         }
     }
 
+    /// The one writer for entrance-themes.json. `set_theme` and
+    /// `remove_theme` both go through here rather than each saving for
+    /// themselves, so the file has a single write path and the public
+    /// page can never be regenerated from a map that was persisted
+    /// differently.
+    fn persist(&self, themes: &HashMap<String, ThemeEntry>) {
+        if let Err(err) = crate::state::save_json(&self.themes_path, themes) {
+            tracing::error!("Failed to persist entrance-themes.json: {err}");
+        }
+        self.regenerate_public_page(themes);
+    }
+
     /// !settheme mod command — persists immediately and regenerates the
     /// public /themes.html page's data.
     pub async fn set_theme(&self, username: &str, youtube_url: String, title: String) {
         let key = username.to_lowercase();
         let mut themes = self.themes.lock().await;
         themes.insert(key, ThemeEntry { display_name: username.to_string(), youtube_url, title });
-        if let Err(err) = crate::state::save_json(&self.themes_path, &*themes) {
-            tracing::error!("Failed to persist entrance-themes.json: {err}");
+        self.persist(&themes);
+    }
+
+    /// `!theme remove <username>` mod command — drops someone's stored
+    /// entrance theme. Returns false if they had none, so the caller can
+    /// say so rather than claiming a removal that did not happen.
+    ///
+    /// Keyed by lowercased username, exactly as `set_theme` keys it, so
+    /// `@Name`, `Name` and `name` all reach the same entry once the
+    /// caller has stripped the `@`.
+    ///
+    /// Deliberately does NOT touch `daily-greeted.json` or anything about
+    /// a currently-playing insert: this removes the STORED theme. If the
+    /// target's theme happens to be on stream at that moment it finishes
+    /// normally — the insert is already in flight and owns itself (see
+    /// `start_theme`), and cutting it here would be a second, surprising
+    /// effect of a command whose job is editing a file.
+    pub async fn remove_theme(&self, username: &str) -> bool {
+        let key = username.to_lowercase();
+        let mut themes = self.themes.lock().await;
+        if themes.remove(&key).is_none() {
+            return false;
         }
-        self.regenerate_public_page(&themes);
+        self.persist(&themes);
+        true
     }
 
     /// Called for every chat message. If this is `username`'s first
@@ -414,5 +447,108 @@ mod walk_on_ordering_tests {
 
         let m2 = manager();
         assert!(m2.claim_walk_on("xborntokillx", "!").await, "a bare ! has no command name - the dispatcher falls through and treats it as chat, so the walk-on must too");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A per-CALL directory. These tests write entrance-themes.json, and
+    /// the suite runs them in parallel — a shared directory would have
+    /// them reading each other's file back out of `new`.
+    fn test_dir() -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("entrance-themes-test-{}-{unique}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    fn manager_in(dir: &std::path::Path) -> Arc<EntranceThemeManager> {
+        // public_site_dir None disables the themes-data.json
+        // regeneration, which is a display concern and needs a real site
+        // folder.
+        EntranceThemeManager::new(dir.join("entrance-themes.json"), dir.join("daily-greeted.json"), None)
+    }
+
+    /// Reads the file back through the SAME loader the bot boots with,
+    /// rather than inspecting the in-memory map — the point of the test
+    /// is that the removal survives a restart, and an in-memory check
+    /// would pass even if nothing were ever written.
+    fn persisted_keys(dir: &std::path::Path) -> Vec<String> {
+        let themes: HashMap<String, ThemeEntry> =
+            crate::state::load_json(dir.join("entrance-themes.json")).unwrap_or_default();
+        let mut keys: Vec<String> = themes.keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
+    #[tokio::test]
+    async fn removing_a_theme_persists_to_disk() {
+        let dir = test_dir();
+        let manager = manager_in(&dir);
+        manager.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".to_string(), "A".to_string()).await;
+        manager.set_theme("Bob", "https://youtu.be/bbbbbbbbbbb".to_string(), "B".to_string()).await;
+        assert_eq!(persisted_keys(&dir), ["alice", "bob"]);
+
+        assert!(manager.remove_theme("Alice").await, "removing a set theme reports success");
+
+        assert_eq!(persisted_keys(&dir), ["bob"], "the removal is on disk, not just in the map");
+    }
+
+    /// Case folding is this manager's job and must match how `set_theme`
+    /// keyed the entry in the first place, whatever case the mod typed.
+    ///
+    /// Stripping the leading `@` is the COMMAND layer's job, not this
+    /// one's — `set_theme` would happily key an entry under `"@name"` if
+    /// handed one. That the two commands strip it identically is asserted
+    /// at the command level instead; see
+    /// `commands::theme_remove_tests::an_at_prefix_and_a_bare_name_remove_the_same_entry`.
+    #[tokio::test]
+    async fn any_casing_of_a_name_reaches_the_same_entry() {
+        let dir = test_dir();
+        let manager = manager_in(&dir);
+        manager.set_theme("MixedCase", "https://youtu.be/ccccccccccc".to_string(), "C".to_string()).await;
+        assert_eq!(persisted_keys(&dir), ["mixedcase"], "set_theme keys by the lowercased name");
+
+        assert!(manager.remove_theme("mixedcase").await, "an all-lowercase name reaches it");
+        assert!(persisted_keys(&dir).is_empty());
+
+        manager.set_theme("MixedCase", "https://youtu.be/ccccccccccc".to_string(), "C".to_string()).await;
+        assert!(manager.remove_theme("MIXEDCASE").await, "and so does an all-uppercase one");
+        assert!(persisted_keys(&dir).is_empty());
+    }
+
+    /// Nothing to remove must report that, so the caller can say so
+    /// rather than claiming a removal that never happened.
+    #[tokio::test]
+    async fn removing_an_unknown_user_reports_no_theme_and_writes_nothing() {
+        let dir = test_dir();
+        let manager = manager_in(&dir);
+        manager.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".to_string(), "A".to_string()).await;
+
+        assert!(!manager.remove_theme("nobody").await, "an unknown user is not a removal");
+
+        assert_eq!(persisted_keys(&dir), ["alice"], "and nothing was rewritten");
+    }
+
+    /// The removal must not disturb who has already been greeted today —
+    /// that is a separate file with its own lifetime, and clearing it
+    /// would re-trigger everyone's theme.
+    #[tokio::test]
+    async fn removing_a_theme_leaves_daily_greeted_alone() {
+        let dir = test_dir();
+        let manager = manager_in(&dir);
+        manager.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".to_string(), "A".to_string()).await;
+        // maybe_play_entrance_theme is what writes daily-greeted.json; with
+        // no SongRequestManager it still records the greeting and returns.
+        manager.maybe_play_entrance_theme("Alice", "hello chat", &None).await;
+        let greeted_before = std::fs::read_to_string(dir.join("daily-greeted.json")).unwrap();
+
+        assert!(manager.remove_theme("Alice").await);
+
+        let greeted_after = std::fs::read_to_string(dir.join("daily-greeted.json")).unwrap();
+        assert_eq!(greeted_before, greeted_after, "daily-greeted.json is not this command's business");
     }
 }
