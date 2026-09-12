@@ -1558,46 +1558,65 @@ mod theme_remove_tests {
     }
 
     /// The pre-existing behaviour, pinned: bare `!theme` is a link
-    /// command for everyone.
+    /// command for everyone, and only the exact word `remove` reaches the
+    /// removal path.
     ///
-    /// **This test may call the bare form exactly ONCE, and it must be
-    /// the only test in this binary that does.** `BUILTIN_COOLDOWNS` is a
-    /// process-global static keyed by command name (`builtin_on_cooldown`),
-    /// `!themes` normalises onto the same `"theme"` bucket, and the
-    /// cooldown is 5s — so a second bare call anywhere in the suite comes
-    /// back `Reply::None` and whichever test ran second fails, depending
-    /// on scheduling. The `remove` path is exempt because it registers as
-    /// a mod tool and mod tools skip the cooldown block entirely, which
-    /// is why every other test here can call `!theme remove` freely.
-    #[tokio::test]
-    async fn bare_theme_still_returns_the_link() {
-        let dir = test_dir();
-        let services = services_in(&dir).await;
-
-        let reply = handle_command("theme", "viewer", &[], false, false, &services).await;
-
-        assert_eq!(reply_text(reply), "Everyone's entrance theme songs: https://lokati.net/themes.html");
-    }
-
-    /// An argument that is not `remove` must not reach the removal path.
+    /// **These two assertions are ONE test on purpose, and this must stay
+    /// the only test in this binary that reaches `!theme`'s public reply
+    /// path at all.**
     ///
-    /// Asserted on the FILE rather than the reply, because the reply here
-    /// is at the mercy of the shared cooldown described above: a
-    /// non-`remove` argument is not a mod tool, so it goes through the
-    /// public bucket and may legitimately come back `Reply::None`. What
-    /// must hold either way is that nothing was removed.
+    /// `BUILTIN_COOLDOWNS` is a process-global
+    /// `static LazyLock<Mutex<HashMap<String, Instant>>>` keyed by command
+    /// name (`builtin_on_cooldown`), the cooldown is 5s, and `!themes`
+    /// normalises onto the same `"theme"` bucket. **Every** non-`remove`
+    /// invocation arms it — a bare `!theme`, and equally `!theme
+    /// something-else`, because anything that is not `remove` falls
+    /// through to the link. So a second such call anywhere in the process
+    /// returns `Reply::None` and whoever asserted the link text loses,
+    /// depending on nothing more than which test ran first.
+    ///
+    /// That is not hypothetical: these were originally two tests, the
+    /// second armed the bucket the first depended on, and it put master
+    /// red. Running them BY NAME passed, because isolation gives each one
+    /// its own process and hides it entirely. Folding them into one test
+    /// makes the order deterministic — the bare call happens first, while
+    /// the bucket is guaranteed cold — without a test-only hook into the
+    /// production static, which parallel tests could race anyway.
+    ///
+    /// `!theme remove` is exempt: it registers as a mod tool and mod
+    /// tools skip the cooldown block entirely, which is why every other
+    /// test in this module can call it freely.
     #[tokio::test]
-    async fn a_non_remove_argument_never_removes_anything() {
+    async fn a_non_remove_argument_falls_through_to_the_link_and_removes_nobody() {
         let dir = test_dir();
         let services = services_in(&dir).await;
         services.entrance_themes.set_theme("Alice", "https://youtu.be/aaaaaaaaaaa".into(), "A".into()).await;
         let before = std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap();
 
-        for arg in ["something-else", "Alice", "delete", "rm"] {
-            let _ = handle_command("theme", "somemod", &args(&[arg]), true, false, &services).await;
-        }
+        // EXACTLY ONE call may exercise this path per process, and the
+        // cooldown is why: `builtin_on_cooldown` returns `Reply::None`
+        // *before* dispatch reaches the match arm at all, so every
+        // subsequent call is eaten by the gate rather than tested. A loop
+        // here proves nothing — it looks like coverage and is not.
+        //
+        // So the one call is spent on the case that can destroy data:
+        // `!theme delete Alice`. It subsumes the bare form, because the
+        // guard is `args.first()` matching `remove` exactly — no
+        // argument and a non-`remove` argument take the identical branch
+        // — and it is the only shape that actually removes someone if
+        // that guard stops being exact. A SINGLE-argument call would not
+        // do: a wrongly-widened arm finds no target, falls out on the
+        // usage line, and removes nothing, so it passes while broken.
+        // (Verified: widening the guard to `args.first().is_some()`
+        // survives a one-arg check and fails this one.)
+        let reply = handle_command("theme", "somemod", &args(&["delete", "Alice"]), true, false, &services).await;
 
-        assert_eq!(persisted_names(&dir), ["alice"], "only the exact word `remove` removes");
+        assert_eq!(
+            reply_text(reply),
+            "Everyone's entrance theme songs: https://lokati.net/themes.html",
+            "anything that is not exactly `remove` still falls through to the link, as it always did"
+        );
+        assert_eq!(persisted_names(&dir), ["alice"], "and removes nobody");
         assert_eq!(std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap(), before);
     }
 }
