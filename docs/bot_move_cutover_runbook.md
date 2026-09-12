@@ -134,6 +134,103 @@ how this section goes stale.
 - [ ] the command prints at least one commit. **If it prints nothing, STOP** — the
       premise is wrong, not the bot.
 
+### CLEAR THE UNTRACKED SPRITES BEFORE THE PULL — `git pull` refuses otherwise
+
+*(Added 2026-09-12, after c hit exactly this on the box.)*
+
+The deployment at `1465e45` held untracked sprite files at paths master tracks, so
+`git pull` aborted rather than overwrite them. They were byte-identical to master's
+copies, but the pull cannot know that and will not guess. **Step 2's pull will hit the
+same wall**, and the temptation in a live window — with the bot stopped and the clock
+running — is to `git clean` them away.
+
+> **Count the files, not the `git status` lines.** This was first reported as *five*
+> untracked sprites, because plain `git status` collapses an untracked directory into a
+> single entry. Running the detection below on the box on 2026-09-12 found **55**: the
+> five `sprites/custom/*.gif`, plus fifty `sprites/basicenemy/*.png` hiding behind one
+> `?? public_adventure_overlay/sprites/basicenemy/` line. That is why the command uses
+> `--untracked-files=all`, and why the number is not written into this step — **derive
+> it on the day.**
+
+**Do not delete. Move.** `game/src/adventure/stores.rs:500` is explicit about why:
+
+> *"restoring this tree from a checkout LOSES sprites, which has already happened once"*
+
+— and names the overlay tree as *"irreplaceable operator data: the custom sprite
+drop-ins, of which 5 of 14 exist only on the box"*. A sprite that exists only here and
+is deleted during a pull is gone; a sprite that is moved is recoverable in one command.
+
+```powershell
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$hold  = "C:\dust-work\sprites-pre-pull-$stamp"
+New-Item -ItemType Directory -Force $hold | Out-Null
+
+cd C:\PathofDust
+# Every untracked file under the overlay tree that collides with a path master tracks.
+$untracked = git status --porcelain --untracked-files=all public_adventure_overlay |
+             Where-Object { $_.StartsWith('?? ') } |
+             ForEach-Object { $_.Substring(3).Trim('"') }
+
+$differs = @()
+foreach ($p in $untracked) {
+    # Only files master TRACKS can block a pull; anything else is left alone.
+    git cat-file -e "origin/master:$p" 2>$null
+    if ($LASTEXITCODE -ne 0) { continue }
+
+    # Compare git's OWN object ids, not file hashes. These are sprites -
+    # binary - and piping `git cat-file blob` through PowerShell would
+    # mangle it into text before anything could hash it. `hash-object`
+    # hashes the working file under the same rules git would store it by,
+    # so this is exactly the comparison that decides whether the pull
+    # would destroy anything.
+    $theirs = (git rev-parse "origin/master:$p").Trim()
+    $ours   = (git hash-object -- $p).Trim()
+    if ($ours -ne $theirs) { $differs += $p; continue }
+
+    # Mirror the RELATIVE PATH under the hold directory, never just the
+    # leaf. These files span more than one subdirectory (custom/ and
+    # basicenemy/), and flattening them would lose which tree each came
+    # from - making the post-pull check below meaningless and any manual
+    # restore a guess.
+    $dest = Join-Path $hold $p.Replace('/', '\')
+    New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
+    Move-Item -LiteralPath $p -Destination $dest
+    "moved  $p"
+}
+"$($untracked.Count) untracked, $($differs.Count) differing"
+if ($differs) { $differs | ForEach-Object { "DIFFERS  $_" } }
+```
+
+- [ ] **If anything printed `DIFFERS`, STOP and report.** A colliding file whose
+      contents are not master's is a sprite that exists only on the box under a name
+      master also uses. Moving it is still right, but deciding which copy wins is the
+      owner's, and it is not a decision to make against a stopped bot.
+- [ ] every other collision now lives in `C:\dust-work\sprites-pre-pull-<stamp>\`, and
+      `git status` shows the overlay tree clean of them
+
+Now the pull runs. **Afterwards, prove the tracked copies are what you moved aside:**
+
+```powershell
+cd C:\PathofDust
+Get-ChildItem $hold -File -Recurse | ForEach-Object {
+    # The relative path is what was preserved on the way in, so it is
+    # what identifies the file on the way back out.
+    $rel  = $_.FullName.Substring($hold.Length + 1)
+    $live = Join-Path 'C:\PathofDust' $rel
+    $verdict =
+        if (-not (Test-Path -LiteralPath $live)) { 'MISSING' }
+        elseif ((Get-FileHash -LiteralPath $live -Algorithm SHA256).Hash -eq
+                (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash) { 'match' }
+        else { 'MISMATCH' }
+    "{0,-60} {1}" -f $rel, $verdict
+}
+```
+
+- [ ] every line reads `match` — `MISSING` means the pull did not restore that path and the hold directory is now the only copy; `MISMATCH` means master's version differs from what was there
+- [ ] **keep the hold directory until the cutover is signed off**, for the same reason
+      the old state files are kept: it is the only copy of anything that turns out not
+      to have come back
+
 ### Then confirm it actually landed
 
 ```powershell
