@@ -9364,3 +9364,69 @@ The artifact `deploy-linux.sh` ships is the **game** binary. The failure is in
 contemplates proceeding under `--no-fail-fast` with a legitimately failing test — the
 result-line count (**46**) is what proves the suite actually ran. Every game-side test
 passed, and the seven §13B.5 checks passed after the deploy.
+
+---
+
+## 2026-09-12 — master back to green: d's `fix/theme-test-cooldown-collision` merged. And a correction to my own count: 55 sprite collisions, not 5.
+
+| | |
+|---|---|
+| branch | `fix/theme-test-cooldown-collision` `34c080d` (off `db5ef7f`) |
+| merge | **`18e2e01`**, clean |
+| local suite | **1019 / 0 / 46** |
+| **box suite** | **1019 / 0 / 46** — green on the platform where it failed |
+| module, single-threaded | **6 / 0** — the exact ordering that previously failed |
+| deploy | **refused, byte-identical** — predicted from the tree (0 diffs under `game/src`), then observed |
+
+Merged ahead of item 11 deliberately: a red master returns 1019/1 on every later box run,
+and a second, real failure could hide behind the known one.
+
+**Scope verified rather than taken on trust.** `commands.rs` holds both production code and
+tests; the sole hunk is at lines 1558-1623 and the `#[cfg(test)]` module starts at 1422, so
+**no production code was touched**. The 5 s cooldown is correct behaviour and stays.
+
+The two tests are folded into one — `a_non_remove_argument_falls_through_to_the_link_and_removes_nobody`
+— so exactly one cold call per process exercises the link path, which is all the gate
+permits.
+
+### WHAT d FOUND THAT I DID NOT
+
+Reported here because both would have shipped as false confidence, and neither was visible
+from where I was standing:
+
+1. **Widening the arm's guard to `args.first().is_some()` SURVIVED the old loop.** A
+   wrongly-matching arm finds no target, falls out on the usage line and removes nobody, so
+   the file assertion still passes while the guard is broken. `!theme delete Alice` is the
+   shape that actually loses data.
+2. **The loop was theatre.** `builtin_on_cooldown` returns `Reply::None` BEFORE dispatch
+   reaches the match arm, so after the first call every later iteration was eaten by the
+   gate rather than tested. It looked like coverage and was not.
+
+The single cold call now goes to `!theme delete Alice`, which subsumes the bare form (the
+guard matches `remove` exactly, so no-args and non-remove-args take the identical branch)
+and asserts both halves. d confirms the widened guard fails it.
+
+### THE GENERAL RULE, SHARPER THAN MY VERSION
+
+I wrote that by-name runs prove a test can pass, not that it passes in the suite. d's
+sharpening: **any test touching process-global state is invisible to a by-name run**,
+because `cargo test <name>` gets its own process. `BUILTIN_COOLDOWNS` is exactly that.
+That names the CLASS rather than the instance.
+
+### CORRECTION — 55 UNTRACKED COLLISIONS IN `C:\PathofDust`, NOT 5
+
+My bot-deploy report (2026-09-12d) said "five untracked custom sprite `.gif` files that
+collide with paths master tracks." **The real number is 55**: 50 PNGs under
+`public_adventure_overlay/sprites/basicenemy/` plus those 5 GIFs.
+
+Cause: `git status --porcelain` **collapses an untracked DIRECTORY into one line**, and a
+directory path never matches a tracked FILE path, so all 50 were invisible to my check.
+`--untracked-files=all` is what shows them.
+
+**The conclusion is unchanged and strengthened.** All 55 are byte-identical to master (0
+differ), so nothing was ever at risk — and declining to pull `C:\PathofDust` was *more*
+justified than I knew, not less. d is writing this into the runbook as item 18.
+
+Same instrument class as the `pgrep`-matching-itself and `BOTH`-in-a-comment errors, this
+time found in my work by another window. **A collapsed directory is a count that hides a
+count.**
