@@ -6,13 +6,16 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use twitch_irc::login::RefreshingLoginCredentials;
 use twitch_irc::message::{ServerMessage, UserNoticeEvent};
-use twitch_irc::{ClientConfig, SecureTCPTransport, TwitchIRCClient};
+use twitch_irc::{ClientConfig, TwitchIRCClient};
 
 use super::auth::{AuthClient, TwitchAuthStorage};
 use super::eventsub::TwitchEvent;
 
 pub type Credentials = RefreshingLoginCredentials<TwitchAuthStorage>;
-pub type Inner = TwitchIRCClient<SecureTCPTransport, Credentials>;
+/// `BackoffTransport` rather than `SecureTCPTransport`: a FAILING
+/// connect is otherwise retried at CPU speed, because the crate drops
+/// its rate-limit permit on the early return. See backoff_transport.
+pub type Inner = TwitchIRCClient<crate::twitch::backoff_transport::BackoffTransport, Credentials>;
 
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
