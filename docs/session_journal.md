@@ -9103,3 +9103,110 @@ The order asked that item 8's refusal be recorded as its own result rather than 
 streak continuing. It is: **item 8 is docs-only and the binary is provably unchanged**, a
 different fact from items 7/7a–7d being bot-only. Seven refusals, three distinct causes.
 From item 9 the game binary changes and real deploys resume.
+
+---
+
+## 2026-09-12 — RELEASE 28 DEPLOYED: item 9 `feature/store-classification`. 0.36 s downtime. The refusal streak ends at seven.
+
+| | |
+|---|---|
+| branch | `feature/store-classification` `875fa0c` (head matched a's claim) |
+| merge | **`553e03e`** — four conflicts, two load-bearing |
+| local suite | **1009 / 0 / 46** (`--no-fail-fast`) |
+| box suite | **1009 / 0 / 46** — identical |
+| clippy | exit 0 |
+| archive | `159b4ecd6a3901b0…`, identical both ends |
+| binary | `4ff1adb9…` → **`69ff7067…`** |
+| **downtime** | **0.36 s** (rehearsal band: 0.47 / 0.62 / 0.17) |
+| rollback slot | `deploy-pre-20260912-143136-store-classification` |
+| patch notes | 37 → **38** entries |
+
+### THE MERGE — A MONEY MIGRATION WAS NEARLY LOST
+
+Master had **six** character migrations, the branch **five**. The branch's merge-base is
+`3a3253c`, older than release 21, so it never carried
+`migrate_refund_reforge_now_overcharge` — the **21,468 dust** refund. **Taking the
+branch's side wholesale would have dropped it silently.**
+
+The migration is **NOT idempotent**: its own test proves a second call takes a character
+from 5,654 to 11,308 dust. The marker file is the only thing preventing a repeat payout.
+
+Kept the typed form, restored the sixth entry, and classified
+`Store::RefundReforgeNowOverchargeMarker` at all six required sites, modelled on
+`RefundRetiredDeadNodesMarker`. It maps to exactly
+`adventure-refund-reforge-now-overcharge-marker.json` — the filename live worlds already
+wrote. A mismatch reads as "never ran" and pays twice.
+
+**The guard was strengthened, not merely retyped.** Master compared the marker by
+FILENAME; converting to variant-only would have been *weaker than what master had*,
+because a renamed variant still registers. It now pins both.
+
+**Board rule adopted (owner's wording):** *a merge-base older than the last money
+migration is a hazard to name before merging, not after; a dropped marker store reads as
+"never ran" and pays twice.*
+
+### manager.rs — TWO MODULES INTERLEAVED
+
+Git tangled master's `hideout_warrior_all_tests` with the branch's
+`change_model_wiring_tests`: their `use` lines and `disposable_manager` helper matched as
+common context, so the conflict ran across module boundaries to EOF. Took each module
+whole from its own side rather than hand-editing an interleave. All three modules
+(`hideout_warrior_all_tests`, `change_model_wiring_tests`, `sprite_selection_tests`)
+present exactly once.
+
+### THREE FAILURES, ALL GUARDS WORKING AS DESIGNED
+
+| fired | why correct |
+|---|---|
+| `data_path` type error on `custom_sprite_dir()` | the branch's whole point — "a store you have not classified will not compile" |
+| refund test would not compile | compared the marker by string against a now-typed list |
+| `all_lists_every_variant_exactly_once` 56 vs 55 | I added a variant; the message says to bump it |
+
+The first is the one-line resolution the order named:
+`Store::PublicAdventureOverlay` joined with `sprites/custom`, the identical path master
+produced. **5 of the 14 custom sprites exist only on the box**, so a wrong path would have
+made them unselectable.
+
+### THE SEVEN CHECKS
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0`, unchanged |
+| 3 | loaded-N **=** file count | **24 = 24** |
+| 4 | live hash = candidate | exact |
+| 5 | auth `/characters` / `/passives` | 200 / 87,174 B · 200 / 100,275 B |
+| 6 | anon `/admin/tunables` | **404** |
+| 7 | anon POST `/api/commands/join` | **404** |
+
+**Check 5 was run with a control**, and the control is what makes it a check: WITHOUT the
+cookie both pages return the same 79,140-byte landing page. That is exactly the trap the
+row warns about, and it proves the authenticated loads actually loaded data.
+
+**Fight 6060 resolved at 14:34:53** (4,889 B) — the game loop, not just the web server.
+Zero errors since start.
+
+### THE MIGRATION RAN
+
+`Sprite selections: carried 16 character model(s) into the account-scoped store`. The
+branch's note predicted **15**; live carried **16**, because the roster moved after the
+note was written. The code counted rather than trusting the number — the
+equality-not-literal rule, working.
+
+### FOUND — CHECK 6's BYTE FIGURE IS AGEING
+
+§13B.5 records `~71,722 B`; measured today **78,896 B**. The STATUS CODE is the
+discriminator (corrected 2026-09-02, when the refusal became a real 404), so the check is
+sound — but the byte literal is the same frozen-snapshot class the doc warns about two
+rows further down, and it will keep drifting as pages grow. Not a failure; flagged so the
+row can lose the number rather than the number causing a false alarm one day.
+
+`CUSTOM_SPRITE_DIR` now has no code consumer — filed to `a` as item 17 by the owner. Not
+mine.
+
+### THE STREAK ENDS AT SEVEN
+
+Releases 27, 7a, 7b, 7, 7c, 7d and item 8 all refused, across three distinct causes
+(bot-only ×5, docs-only ×1, docs-only ×1). Item 9 is the first moving binary since release
+27, and the gate deployed rather than refused — which is the streak ending correctly
+rather than a pattern breaking.
