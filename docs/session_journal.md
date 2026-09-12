@@ -9280,3 +9280,87 @@ Both modules are named for behaviour rather than mechanism, continuing the patte
 `c218a42` → **`cdd67e2`**. The cutover package re-derives master's head by its own test
 rather than trusting one quoted in a document, which is exactly why this is safe — the
 head has now moved twice today.
+
+---
+
+## 2026-09-12 — RELEASE 29 DEPLOYED: item 10 `fix/admin-passives-revert`. 0.33 s downtime. FOUND: master is red on a bot test.
+
+| | |
+|---|---|
+| branch | `fix/admin-passives-revert` `c59c4c2` (head matched the order) |
+| merge | **`311660d`**, clean, no conflicts |
+| local suite | **1020 / 0 / 46** |
+| box suite | **1019 / 1 / 46** — the failure is 7e's, see below |
+| binary | `69ff7067…` → **`a4fa7a81…`** |
+| **downtime** | **0.33 s** |
+| rollback slot | `deploy-pre-20260912-180501-admin-passives-revert` |
+| patch notes | 38 → **39** |
+
+### THE MONEY-MIGRATION HAZARD, NAMED BEFORE AND VERIFIED AFTER
+
+The board rule's first real application. The merge-base `78a96ea` carries **5**
+`CHARACTER_MIGRATIONS` entries; master carries **6** — so this branch's base DOES predate
+the reforge-now refund. It does not touch `migrations.rs`, so a 3-way merge should keep
+master's sixth entry, but that was verified rather than assumed: **6 entries after the
+merge, refund entry present**, and again in the shipped tree on the box.
+
+### VERIFIED ON THE LIVE RENDERED PAGE, NOT THE HASH
+
+The admin page is class-scoped (`?class=…`) and defaults to Warrior; `grace` is a **Cleric**
+node. Fetching the class that actually holds the override:
+
+```
+revert forms:              1
+onsubmit confirms:         1
+"Revert to default":       1
+"cannot be recovered":     1
+grace override 0.33 shown: 1
+confirm('Discard the tuned values for this node and return it to the compiled-in default?
+ The current numbers are stored nowhere else and cannot be recovered.'
+```
+
+**That last row also exonerates release 28**: `0.33` rendering proves passive overrides
+still load after the store classification. Checked the mechanism too — the retired
+`PASSIVE_OVERRIDES_PATH` and `Store::PassiveOverrides` map to the **identical** string
+`adventure-passive-overrides.toml`, so the path never moved.
+
+I reached that only after three wrong readings of my own instruments, all on the default
+Warrior view: "feature absent" (it was a different class), "wrong page" (the shared base
+template gives every page the same `<title>`), and `name="nodes[…"` returning 0 (a guessed
+attribute pattern). **A guessed pattern returning zero is the instrument failing, not
+evidence.** The decisive measurement was counting `<form action=…>` values, which needs no
+guess.
+
+### FOUND — MASTER IS RED ON LINUX, AND MY NAMED-TEST CHECK HAS A HOLE
+
+`commands::theme_remove_tests::bare_theme_still_returns_the_link` **FAILS on the box**.
+Item 10 is game-only and cannot have caused it; this is 7e's, and it is **pre-existing
+since 7e merged**.
+
+Root cause, from the test's own doc comment plus the code: `BUILTIN_COOLDOWNS` is a
+process-global `static LazyLock<Mutex<HashMap<String, Instant>>>` with a **5 s**
+`BUILTIN_COOLDOWN`. `a_non_remove_argument_never_removes_anything` calls `!theme
+something-else`; a non-`remove` argument falls through to the link path and **arms the
+global cooldown**, so the later bare call returns `Reply::None` — the empty string the
+assertion sees. `remove` itself is exempt because mod tools skip the cooldown.
+
+It fails **single-threaded as well** (6 passed / 1 failed), so it is order-dependent shared
+state, not a parallel race. **Not a product defect** — the 5 s cooldown is correct
+anti-spam behaviour; only the suite shares one process.
+
+**The self-correction that matters.** I ran 7e's tests "by name" on this box and reported
+all six green, including this one. They passed *because isolation hides this defect* — one
+bare call per process instead of two. **The named-test check proves a test exists and can
+pass; it does not prove it passes inside the suite.** Four items have now used that check;
+this is its first demonstrated blind spot. The suite total plus `--no-fail-fast` plus the
+result-line count is what catches this class, and it did.
+
+Filed to d — 7e is theirs, and the live bot already carries this code (harmlessly).
+
+### WHY THE DEPLOY WENT AHEAD ANYWAY
+
+The artifact `deploy-linux.sh` ships is the **game** binary. The failure is in
+`twitch-bot-rs`'s lib tests, is explained, is pre-existing, and the house rule explicitly
+contemplates proceeding under `--no-fail-fast` with a legitimately failing test — the
+result-line count (**46**) is what proves the suite actually ran. Every game-side test
+passed, and the seven §13B.5 checks passed after the deploy.
