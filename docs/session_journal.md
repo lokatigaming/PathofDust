@@ -9430,3 +9430,78 @@ justified than I knew, not less. d is writing this into the runbook as item 18.
 Same instrument class as the `pgrep`-matching-itself and `BOTH`-in-a-comment errors, this
 time found in my work by another window. **A collapsed directory is a count that hides a
 count.**
+
+---
+
+## 2026-09-13 — overlay.html copied to the live tree; item 11 (toolchain pin) merged. The pinned build reproduced release 29 byte-for-byte.
+
+### THE OVERLAY COPY — 02:19:18 MPST
+
+| | |
+|---|---|
+| before | `bc3adb0744e955c9…` · 16,385 B · 5 Aug 21:37 · `insertJustResumed` **0** |
+| **after** | **`736e7f66f7026ba8…`** · 17,235 B · `insertJustResumed` **4** |
+| rollback | `C:\dust-work\overlay-pre-20260913\` — hash-verified BEFORE writing |
+| `dock.html` | untouched | 
+| restart | **none** — bot still PID 31912, started 2026-09-12 21:32:46 |
+
+The OBS browser-source refresh is the owner's; until then the loaded page runs unchanged,
+because the server reads per request but the loaded page is not re-read.
+
+**THE ORDERED METHOD WOULD HAVE WRITTEN THE WRONG BYTES.** The order preferred a
+byte-exact `Copy-Item` from a worktree on master's head. But `core.autocrlf=true` and
+`.gitattributes` pins `*.rs`, `*.sh`, `*.service`, `*.timer`, `backup-pull-shell` to LF —
+**not `*.html`**. So the worktree holds CRLF (17,677 B, `fb309cd4…`) while the blob holds
+LF (17,235 B, `736e7f66…`): 442 lines, 442 bytes. **Git reports the file clean and shows no
+diff**, because it normalises on the way in — so no git command would have warned.
+
+A `Copy-Item` would have failed the order's own "verify `736e7f66…`" step. **The
+verification step is what caught it.** Wrote the blob's bytes directly via shell
+redirection instead, so no cmdlet could re-encode. The live file was already LF, so the
+on-disk convention was preserved rather than changed.
+
+**Instrument lied twice, in opposite directions.** `grep -c $'\r'` said **0** CR lines —
+talking me OUT of a diagnosis I had already reached correctly. An `od | tr | grep` count
+then said **777** for both files. `head -c 24 | od -c` on each, plus the arithmetic (442
+lines, 442 bytes), settled it. **When two instruments disagree, go to the bytes.**
+
+Stated as d stated it: the copy **closes a known gap and removes a variable; it is not
+established as the cure.** The `skipInsert` handler the backstop targets already existed in
+the August file. d's proof the bot half worked is the never-got-`insertEnded` warning at
++41.0 s = duration 11 + 30 exactly. The `muted`-same-millisecond reading is **suggestive,
+not proof**; the `playerState` `playing` boolean would settle it and is not logged. 7g is
+queued.
+
+### ITEM 11 — `chore/pin-toolchain` `86e2064`, merged `e9c6551`
+
+| | |
+|---|---|
+| local suite under 1.98.0 | **1019 / 0 / 46** — identical to 1.97.1 on the same tree |
+| box suite | **1019 / 0 / 46** |
+| warnings | **20 under both**, zero new under 1.98.0 |
+| deploy | **refused, byte-identical** — predicted from the tree, then observed |
+
+**THE PIN REPRODUCED RELEASE 29 BYTE-FOR-BYTE.** Release 29's live binary was built under
+`stable`; this built identical `game/src` under an explicit `1.98.0` pin, in a *different*
+per-release directory, and produced **`a4fa7a81…` on both sides**.
+
+That demonstrates two things empirically rather than by inspection:
+
+1. the two rustup entries yield identical output, and
+2. **the per-release build path does not leak into the binary** — which is exactly b's
+   `CARGO_MANIFEST_DIR` concern. b checked the one obvious candidate by grep (its only
+   shipped occurrence is `#[cfg(test)]`; the `#[cfg(not(test))]` arm is the bare relative
+   `"templates"`, verified here). This is the end-to-end version of that check.
+
+**Why it matters beyond hygiene — b's insight, my correction to its mechanism.** The gate
+refuses when the fresh build is byte-identical to live, which *assumes* identical sources
+give identical bytes. No window's rustc can reach that comparison: both sides are box-built
+from a `git archive`, which is why §13B forbids building from a working tree. The real
+exposure was the **box** following `stable` and drifting between releases — a docs-only
+release would then deploy instead of refuse. The pin closes that prospectively, so a
+tree-diff/gate disagreement now has **one** cause worth escalating instead of two.
+
+**Correction to a's prediction:** the box did NOT pay nothing. Entering the pinned tree
+triggered `syncing channel updates for 1.98.0 … downloading 6 components` — rustup treats
+`stable` and an explicit `1.98.0` as distinct installs even when both resolve to
+`rustc 1.98.0 (88d9e12ae)`. Harmless here; it would matter on a box with no network.
