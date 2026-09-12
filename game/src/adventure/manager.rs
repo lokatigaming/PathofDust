@@ -1498,7 +1498,7 @@ pub struct FightSummarySnapshot {
     pub display_duration_ms: u32,
     #[serde(default)]
     pub real_duration_ms: u32,
-    /// The replay bundle's own sequence number (`BUNDLE_SEQ_PATH` in
+    /// The replay bundle's own sequence number (`Store::FightsBundleSeq` in
     /// `fight_storage.rs` - NOT this summary tier's own counter, NOT
     /// `started_at_unix_ms`) - exactly the key `GET
     /// /fights/:seq/members/:member` resolves through `read_bundle_file`.
@@ -1841,7 +1841,7 @@ pub struct DetailFightSnapshot {
 }
 
 /// Old single-blob fight log path, superseded (2026-08-17) by per-fight
-/// files under `COARSE_FIGHTS_DIR`/`DETAIL_FIGHTS_DIR` (see
+/// files under `Store::FightsCoarse`/`Store::FightsDetail` (see
 /// `fight_storage.rs`) - a single ever-growing `Vec<LastFightSnapshot>`
 /// fully read+deserialized+rewritten on EVERY fight save, confirmed at
 /// 340MB on disk. Kept around only as the one-time migration's read
@@ -2850,7 +2850,6 @@ impl AdventureManager {
             // the resulting CelestialShard token is harmless - the very
             // next character load merges it into UniqueShard anyway (see
             // `migrate_celestial_shard_into_unique_shard`).
-            const CELESTIAL_SHARD_FIRST_AWARD_MARKER_PATH: &str = "adventure-celestial-shard-first-award-marker.json";
             if crate::state::load_json::<bool>(marker_path(&self.characters_path, Store::CelestialShardFirstAwardMarker)).is_none() {
                 if let Some(top) = result.summary.players.iter().filter(|p| p.healing_done > 0).max_by_key(|p| p.healing_done) {
                     if self.grant_craft_token(&top.id, CraftAction::CelestialShard, 1).await {
@@ -3961,7 +3960,7 @@ impl AdventureManager {
     /// OBS overlay's open WebSocket (see `adventure_overlay_server.rs`),
     /// same as any other roster change. `model` is valid either as one of
     /// the curated `ALL_SPRITES`, or as a self-service custom drop-in
-    /// (see `CUSTOM_SPRITE_DIR`/`is_valid_custom_sprite`).
+    /// (see `custom_sprite_dir`/`is_valid_custom_sprite`).
     pub async fn change_model(&self, username: &str, model: String) -> Result<(), ChangeModelError> {
         let id = username.to_lowercase();
         if !ALL_SPRITES.contains(&model.as_str()) && !is_valid_custom_sprite(&id, &model) {
@@ -11259,7 +11258,7 @@ mod hideout_warrior_all_tests {
 ///
 /// WHICH BRANCH IS WIRED-TESTED, AND WHICH IS NOT. This covers the
 /// curated `ALL_SPRITES` branch only. The custom-sprite branch reaches
-/// `custom_sprite_file_exists` -> `CUSTOM_SPRITE_DIR`, a bare
+/// `custom_sprite_file_exists` -> `custom_sprite_dir()`, resolved through
 /// CWD-relative constant, which would make this test's result depend on
 /// the process's working directory. That constant is consistent with how
 /// `adventure_web.rs` resolves the same tree - it is a static-asset

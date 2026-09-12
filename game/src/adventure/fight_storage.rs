@@ -36,15 +36,6 @@ fn resolved(store: Store) -> String {
     data_path(store).to_string_lossy().into_owned()
 }
 
-pub(crate) const COARSE_FIGHTS_DIR: &str = "adventure-fights-coarse";
-pub(crate) const DETAIL_FIGHTS_DIR: &str = "adventure-fights-detail";
-pub(crate) const SUMMARY_FIGHTS_DIR: &str = "adventure-fights-summary";
-const COARSE_SEQ_PATH: &str = "adventure-fights-coarse-seq.json";
-const DETAIL_SEQ_PATH: &str = "adventure-fights-detail-seq.json";
-const SUMMARY_SEQ_PATH: &str = "adventure-fights-summary-seq.json";
-pub(crate) const BUNDLE_FIGHTS_DIR: &str = "adventure-fights-bundle";
-const BUNDLE_SEQ_PATH: &str = "adventure-fights-bundle-seq.json";
-
 /// Lowered 100 -> 10 -> 5 (2026-08-17 Phase 2, then again 2026-08-18)
 /// as real on-disk sizes kept outrunning the estimates: the Phase 2 cut
 /// was made against 49MB detail files, but by the next day a single
@@ -252,7 +243,7 @@ pub fn recent_summary_fights(limit: usize) -> Vec<FightSummarySnapshot> {
 /// COPIES (never moves - the originals stay right where they are and
 /// keep aging out on the tiers' own normal schedule) the current most
 /// recent coarse-tier and detail-tier fight files here. `write_and_prune`
-/// only ever looks inside `COARSE_FIGHTS_DIR`/`DETAIL_FIGHTS_DIR`
+/// only ever looks inside `Store::FightsCoarse`/`Store::FightsDetail`
 /// themselves for `.json` files to prune (see `list_fight_files`), so a
 /// SEPARATE directory nothing ever prunes from is enough on its own -
 /// no allowlist/exclusion logic needed anywhere else. Disk only grows
@@ -378,7 +369,7 @@ mod pin_most_recent_fight_tests {
 
     // Only `fight_seq_from_path` is unit-tested here - it's the one pure
     // piece of `!pinfight`'s logic. Every other fn in this module now
-    // resolves COARSE_FIGHTS_DIR/DETAIL_FIGHTS_DIR/PINNED_FIGHTS_DIR
+    // resolves Store::FightsCoarse/FightsDetail/FightsPinned
     // through `resolved`/`data_path` (2026-08-18, architecture refactor
     // Stage 1's configurable-persistence-paths work - see `paths.rs`),
     // so a test COULD sandbox this against a temp dir via `set_data_dir`

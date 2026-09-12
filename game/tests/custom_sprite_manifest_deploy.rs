@@ -26,19 +26,40 @@
 //! and this file is the only caller in it - the same reason
 //! `admin_passives_http.rs` is one file with one test.
 
-use game::adventure::{custom_sprite_is_owned_by, custom_sprite_manifest_path, is_valid_custom_sprite, CUSTOM_SPRITE_DIR};
+use game::adventure::{custom_sprite_dir, custom_sprite_is_owned_by, custom_sprite_manifest_path, is_valid_custom_sprite};
 
 #[test]
 fn a_manifest_missing_from_the_data_directory_is_visible_here_and_recoverable_in_place() {
     let scratch = std::env::temp_dir().join(format!("custom_sprite_manifest_deploy_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
-    let custom = scratch.join(CUSTOM_SPRITE_DIR);
+
+    // Data directory set FIRST, then the layout built from the resolver
+    // itself (2026-09-12). This used to join a `CUSTOM_SPRITE_DIR`
+    // constant onto the scratch root and assert afterwards that the
+    // resolver agreed - two spellings of one path, cross-checked. The
+    // const is gone, and deriving the layout from `custom_sprite_dir()`
+    // is strictly better than cross-checking a copy of it: there is now
+    // no second spelling that could disagree.
+    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this file is the only caller in its process");
+    let custom = custom_sprite_dir();
     std::fs::create_dir_all(&custom).expect("scratch sprite dir must be creatable");
 
     // The box's shape: the sprite file present, the manifest absent.
     std::fs::write(custom.join("kibukah.png"), b"not really a png").expect("sprite file must be writable");
 
-    assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - this file is the only caller in its process");
+    // Three separate things, because any two of them pass while the
+    // third is wrong: inside the data directory, UNDER THE OVERLAY STORE
+    // specifically, and ending in the right tail. Checking only the tail
+    // would accept `<data>/wiki/sprites/custom`; checking only the store
+    // would accept any tail under it.
+    let overlay = game::adventure::data_path(game::adventure::Store::PublicAdventureOverlay);
+    assert!(custom.starts_with(&scratch), "the resolver must land inside the configured data directory, not the checkout - got {}", custom.display());
+    assert!(custom.starts_with(&overlay), "and under the OVERLAY store - got {}, expected something under {}", custom.display(), overlay.display());
+    assert!(
+        custom.ends_with("sprites/custom") || custom.ends_with("sprites\\custom"),
+        "and ending in sprites/custom - got {}",
+        custom.display()
+    );
     assert_eq!(custom_sprite_manifest_path(), custom.join("owners.toml"), "the manifest must resolve BESIDE the sprites, inside the configured data directory - not against the checkout");
 
     // --- the deployed-without-the-manifest condition -------------------

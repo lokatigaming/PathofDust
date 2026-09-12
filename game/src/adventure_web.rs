@@ -7100,7 +7100,7 @@ fn render_model_picker(c: &Character, login: &str, selected: Option<&str>) -> St
             )
         })
         .collect();
-    // Self-service custom drop-in sprites (see `CUSTOM_SPRITE_DIR`'s doc,
+    // Self-service custom drop-in sprites (see `custom_sprite_dir`'s doc,
     // 2026-08-16) - scanned live off disk on every page render, so a PNG
     // dropped into the folder shows up here immediately, no code change/
     // recompile/restart needed. Only rendered as its own section when
@@ -7144,7 +7144,7 @@ fn render_model_picker(c: &Character, login: &str, selected: Option<&str>) -> St
     )
 }
 
-/// See `render_model_picker`/`CUSTOM_SPRITE_DIR`'s doc - every `.png` or
+/// See `render_model_picker`/`custom_sprite_dir`'s doc - every `.png` or
 /// `.gif` in the self-service drop-in folder THIS `viewer_login` is
 /// actually allowed to pick (2026-08-16: name-gated per
 /// `custom_sprite_is_owned_by`'s doc - either the file's named after
