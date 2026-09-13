@@ -118,9 +118,9 @@
             pendingVideoId = null;
           }
           if (pendingCommand) {
-            const { action, volume, videoId } = pendingCommand;
+            const { action, volume, videoId, durationSecs } = pendingCommand;
             pendingCommand = null;
-            runCommand(action, volume, videoId);
+            runCommand(action, volume, videoId, durationSecs);
           }
         },
         onStateChange: onPlayerStateChange,
@@ -140,6 +140,114 @@
   // moment the next song started — this is what's actually remembered
   // and reapplied instead.
   let currentVolume = 100;
+
+  // ---- Ending an insert without waiting for YouTube ----
+  //
+  // THE DEFECT THIS EXISTS FOR. Every previous fix waited for the IFrame
+  // player's ENDED event. Inside OBS's embedded Chromium that event does
+  // not always arrive for short clips: the embed loops the clip instead,
+  // `insertActive` stays true, and the audience hears an 11-second intro
+  // three times before the bot's backstop rescues them 30s later. It was
+  // never reproducible in desktop Chrome, which is why it survived three
+  // rounds of fixes — the two ids that loop are both YouTube Shorts.
+  //
+  // So the overlay now ends an insert on ITS OWN CLOCK, and ENDED is
+  // merely one more way to reach the same function. Two detectors:
+  //
+  //   WRAP     — currentTime jumped BACKWARDS. A clip that restarts has
+  //              ended, whatever the player says. This is the primary
+  //              detector and it fires within one tick of the loop.
+  //   DEADLINE — the clip has been on screen for its own duration plus
+  //              a small grace, not counting time it spent paused or
+  //              buffering. Backstop for a loop we somehow miss, or a
+  //              clip that stalls at its final frame without ENDED.
+  const INSERT_TICK_MS = 500;
+  // A backwards jump smaller than this is seeking noise or the player
+  // re-reporting a buffered position, not a restart.
+  const INSERT_WRAP_TOLERANCE_SECS = 2;
+  const INSERT_DEADLINE_GRACE_SECS = 1.5;
+
+  let insertElapsedMs = 0;
+  let insertLastTickAt = null;
+  let insertLastTime = null;
+  // Whatever we know of the insert's length: the bot sends duration_secs
+  // with the command (it already knows — its own backstop is sized from
+  // it), and getDuration() fills it in if an older bot omits it.
+  let insertDurationSecs = 0;
+
+  function beginInsertWatch(durationSecs) {
+    insertElapsedMs = 0;
+    insertLastTickAt = Date.now();
+    insertLastTime = null;
+    insertDurationSecs = durationSecs || 0;
+  }
+
+  /// THE ONE END PATH. ENDED, wrap, deadline and the bot's skip all come
+  /// here, so there is one place that stops the player, resumes, and
+  /// reports — not four that can drift apart.
+  function endInsert(reason) {
+    if (!insertActive) return;
+    // stopVideo() FIRST and explicitly: a looping embed does not stop on
+    // its own, and resumeFromInsert's loadVideoById is asynchronous, so
+    // without this the loop can keep playing audibly across the swap.
+    if (player && player.stopVideo) player.stopVideo();
+    insertJustResumed = true;
+    resumeFromInsert();
+    send({ type: 'insertEnded' });
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      send({ type: 'insertEndReason', reason });
+    }
+  }
+
+  function checkInsertProgress() {
+    const tickAt = Date.now();
+    const sinceLastTick = insertLastTickAt === null ? 0 : tickAt - insertLastTickAt;
+    insertLastTickAt = tickAt;
+
+    if (!insertActive || !playerReady || !player.getCurrentTime) return;
+
+    const now = player.getCurrentTime();
+
+    // WRAP. Checked before anything else — a restart is the clearest
+    // possible evidence the clip reached its end.
+    if (insertLastTime !== null && now < insertLastTime - INSERT_WRAP_TOLERANCE_SECS) {
+      endInsert('wrapped');
+      return;
+    }
+    insertLastTime = now;
+
+    // Learn the length from the player if the bot did not supply it.
+    if (!insertDurationSecs && player.getDuration) {
+      const reported = player.getDuration();
+      if (reported > 0) insertDurationSecs = reported;
+    }
+
+    // DEADLINE — elapsed time with PAUSED and BUFFERING excluded, which
+    // is not the same as "PLAYING time" and the difference matters.
+    //
+    // Counting only PLAYING was the first attempt and it was WRONG: a
+    // clip that stalls on its final frame leaves PLAYING at exactly its
+    // duration, so the counter freezes a hair under duration+grace and
+    // the deadline never fires — the precise case this is here to catch.
+    // Harness case B caught it.
+    //
+    // ENDED, CUED and UNSTARTED all count, because in each of them the
+    // clip is done progressing and we are only waiting. PAUSED and
+    // BUFFERING do not, because in those the viewer has heard LESS of
+    // the clip, not more — an alert pause, !modpause or a slow connection
+    // must never cut a theme short.
+    const playerState = player.getPlayerState ? player.getPlayerState() : null;
+    const stalledByPlayer =
+      playerState === YT.PlayerState.PAUSED || playerState === YT.PlayerState.BUFFERING;
+    if (!stalledByPlayer) {
+      insertElapsedMs += sinceLastTick;
+    }
+    if (insertDurationSecs && insertElapsedMs / 1000 >= insertDurationSecs + INSERT_DEADLINE_GRACE_SECS) {
+      endInsert('deadline');
+    }
+  }
+
+  setInterval(checkInsertProgress, INSERT_TICK_MS);
 
   // Shared by the ENDED and onError paths — swaps back to whatever song
   // an active insert (!songinsert/!si or an entrance theme) interrupted,
@@ -176,9 +284,11 @@
     }
     if (event.data === YT.PlayerState.ENDED) {
       if (insertActive) {
-        insertJustResumed = true;
-        resumeFromInsert();
-        send({ type: 'insertEnded' });
+        // YouTube's own ENDED is now just ONE of the four ways into
+        // endInsert — wrap, deadline and the bot's skip are the others,
+        // and this one is the one that does not always arrive inside
+        // OBS. See endInsert.
+        endInsert('ended');
         return;
       }
       // Never observed live — purely defensive. If the embed ever fired
@@ -303,9 +413,9 @@
 
   // Transport controls relayed from the dock — this page is the only one
   // holding a real YT.Player, so it's the one that actually executes these.
-  function runCommand(action, volume, videoId) {
+  function runCommand(action, volume, videoId, durationSecs) {
     if (!playerReady) {
-      pendingCommand = { action, volume, videoId };
+      pendingCommand = { action, volume, videoId, durationSecs };
       return;
     }
     switch (action) {
@@ -349,6 +459,10 @@
         // player was already unmuted from an interrupted song.
         applyVisibility(true);
         resetStuckWatchdog();
+        // Arm the overlay's own end detectors before the clip starts, so
+        // a clip that loops immediately is still caught on the first
+        // tick. durationSecs comes from the bot, which already knows it.
+        beginInsertWatch(durationSecs);
         player.loadVideoById(videoId);
         break;
       case 'duckVolume': {
@@ -397,9 +511,12 @@
         // resume means nothing to resume; the REPLY is what the bot
         // needs, and it goes either way.
         if (insertActive) {
-          resumeFromInsert();
+          endInsert('skipInsert from the bot');
+        } else {
+          // 7g's rule, unchanged: the reply still goes when there is
+          // nothing to end, so the bot's state clears either way.
+          send({ type: 'insertEnded' });
         }
-        send({ type: 'insertEnded' });
         break;
     }
   }
@@ -468,7 +585,7 @@
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'state') applyState(msg);
-      else if (msg.type === 'command') runCommand(msg.action, msg.volume, msg.videoId);
+      else if (msg.type === 'command') runCommand(msg.action, msg.volume, msg.videoId, msg.durationSecs);
     };
     ws.onclose = () => setTimeout(connect, 2000);
     ws.onerror = () => ws.close();

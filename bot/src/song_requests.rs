@@ -106,7 +106,15 @@ pub enum ControlAction {
     /// one ends. The server-side queue/now_playing bookkeeping is never
     /// touched by this at all, which is what makes "just continue the
     /// playlist afterward" free — there's nothing to restore server-side.
-    InsertSong(String),
+    InsertSong {
+        video_id: String,
+        /// The overlay ends an insert on its own clock now, and this is
+        /// what it sizes its deadline from. The bot already knows the
+        /// length - its own backstop is computed from the same field -
+        /// so sending it costs nothing and saves the overlay waiting for
+        /// getDuration() to report.
+        duration_secs: u64,
+    },
     /// Fired the instant an alert's sound starts playing — tells the
     /// overlay to duck the music volume down to 20%. Stays ducked until
     /// `UnduckVolume` arrives (or a safety-net timeout, in case that
@@ -291,6 +299,22 @@ struct Inner {
 /// A song nobody requested needs exactly one vote to skip (owner ruling
 /// 2026-09-11). See `effective_voteskip_threshold` for why it is not
 /// the configured threshold.
+/// How long past a song's own length the bot waits before giving up on
+/// an insert it never got an `insertEnded` for.
+///
+/// Was 30s, lowered to 8 on 2026-09-13. Thirty was sized when the
+/// overlay could only end an insert on YouTube's ENDED event, so the
+/// backstop had to cover a clip that never ended at all - and an 11s
+/// intro therefore played three times before anyone was rescued. The
+/// overlay now ends inserts on its own clock (wrap and deadline
+/// detection in overlay.html), so this only has to cover buffering and
+/// a page that is not answering at all, not a whole extra playthrough.
+///
+/// ONE CONSTANT, not five copies: this was open-coded as `+ 30` at five
+/// call sites, which is exactly how the two halves of a timeout drift
+/// apart.
+pub const INSERT_BACKSTOP_GRACE_SECS: u64 = 8;
+
 const RANDOM_VOTESKIP_THRESHOLD: u32 = 1;
 
 const RECENT_HISTORY_LIMIT: usize = 30;
@@ -644,7 +668,7 @@ impl SongRequestManager {
             state.active_insert = Some(song.clone());
         }
         self.broadcast_state();
-        self.send_command(ControlAction::InsertSong(song.video_id.clone()));
+        self.send_command(ControlAction::InsertSong { video_id: song.video_id.clone(), duration_secs: song.duration_secs });
 
         Ok(SongInsertOutcome::Inserted { song })
     }

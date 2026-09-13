@@ -20,7 +20,7 @@ use twitch_bot_rs::paypal;
 use twitch_bot_rs::personal_playlists::PersonalPlaylistManager;
 use twitch_bot_rs::playrandom::PlayRandomManager;
 use twitch_bot_rs::song_overlay_server;
-use twitch_bot_rs::song_requests::{SongInsertOutcome, SongRequestManager};
+use twitch_bot_rs::song_requests::{SongInsertOutcome, SongRequestManager, INSERT_BACKSTOP_GRACE_SECS};
 use twitch_bot_rs::streamelements::{self, Tip};
 use twitch_bot_rs::twitch::auth::AuthClient;
 use twitch_bot_rs::twitch::eventsub::{self, TwitchEvent};
@@ -134,7 +134,7 @@ async fn handle_theme_redemption(
                 Ok(SongInsertOutcome::Inserted { song: inserted }) => {
                     let sr = song_requests.clone();
                     let video_id = inserted.video_id.clone();
-                    let timeout = Duration::from_secs(inserted.duration_secs + 30);
+                    let timeout = Duration::from_secs(inserted.duration_secs + INSERT_BACKSTOP_GRACE_SECS);
                     tokio::spawn(async move {
                         tokio::time::sleep(timeout).await;
                         sr.clear_active_insert_if_stuck(&video_id);
@@ -272,7 +272,7 @@ async fn handle_interrupt_redemption(
         Ok(SongInsertOutcome::Inserted { song: inserted }) => {
             let sr = song_requests.clone();
             let video_id = inserted.video_id.clone();
-            let timeout = Duration::from_secs(inserted.duration_secs + 30);
+            let timeout = Duration::from_secs(inserted.duration_secs + INSERT_BACKSTOP_GRACE_SECS);
             tokio::spawn(async move {
                 tokio::time::sleep(timeout).await;
                 sr.clear_active_insert_if_stuck(&video_id);
