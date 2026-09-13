@@ -25,7 +25,7 @@ use crate::playrandom::PlayRandomManager;
 use crate::poe_ninja;
 use crate::song_requests::{
     RequestOutcome, SongInsertOutcome, SongRequestManager, VotePauseOutcome, VoteResumeOutcome, VoteSkipOutcome,
-    VoteVolumeOutcome, MAX_VOTE_VOLUME, MIN_VOTE_VOLUME,
+    VoteVolumeOutcome, INSERT_BACKSTOP_GRACE_SECS, MAX_VOTE_VOLUME, MIN_VOTE_VOLUME,
 };
 use crate::streamelements::StreamElementsWatcher;
 use crate::twitch::helix::HelixClient;
@@ -974,7 +974,7 @@ async fn handle_builtin(
                     // actually knows when playback really finishes.
                     let sr = song_requests.clone();
                     let video_id = song.video_id.clone();
-                    let timeout = Duration::from_secs(song.duration_secs + 30);
+                    let timeout = Duration::from_secs(song.duration_secs + INSERT_BACKSTOP_GRACE_SECS);
                     tokio::spawn(async move {
                         tokio::time::sleep(timeout).await;
                         sr.clear_active_insert_if_stuck(&video_id);
@@ -1017,7 +1017,7 @@ async fn handle_builtin(
                         Ok(SongInsertOutcome::Inserted { song: inserted }) => {
                             let sr = song_requests.clone();
                             let video_id = inserted.video_id.clone();
-                            let timeout = Duration::from_secs(inserted.duration_secs + 30);
+                            let timeout = Duration::from_secs(inserted.duration_secs + INSERT_BACKSTOP_GRACE_SECS);
                             tokio::spawn(async move {
                                 tokio::time::sleep(timeout).await;
                                 sr.clear_active_insert_if_stuck(&video_id);

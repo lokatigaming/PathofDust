@@ -143,8 +143,8 @@ fn command_message(action: ControlAction) -> Option<String> {
         ControlAction::SetVolume(percent) => {
             serde_json::json!({ "type": "command", "action": "setVolume", "volume": percent })
         }
-        ControlAction::InsertSong(video_id) => {
-            serde_json::json!({ "type": "command", "action": "insertSong", "videoId": video_id })
+        ControlAction::InsertSong { video_id, duration_secs } => {
+            serde_json::json!({ "type": "command", "action": "insertSong", "videoId": video_id, "durationSecs": duration_secs })
         }
         other => serde_json::json!({ "type": "command", "action": other }),
     };

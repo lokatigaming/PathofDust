@@ -181,7 +181,7 @@ impl EntranceThemeManager {
                 // rest of this queue).
                 let sr = song_requests.clone();
                 let video_id = song.video_id.clone();
-                let timeout = std::time::Duration::from_secs(song.duration_secs + 30);
+                let timeout = std::time::Duration::from_secs(song.duration_secs + crate::song_requests::INSERT_BACKSTOP_GRACE_SECS);
                 tokio::spawn(async move {
                     tokio::time::sleep(timeout).await;
                     sr.clear_active_insert_if_stuck(&video_id);
