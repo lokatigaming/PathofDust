@@ -8,3 +8,30 @@
 *.service text eol=lf
 *.timer text eol=lf
 backup-pull-shell text eol=lf
+
+# Files the bot or game serves or reads as bytes. Without these a Windows
+# worktree holds CRLF copies while the blob is LF and git reports clean, so
+# anything copied from a worktree to a served directory ships the wrong bytes.
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.ps1 text eol=lf
+
+*.png binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.exe binary
+*.dll binary
+*.zip binary
+*.gz binary
+*.7z binary
+*.tar binary
