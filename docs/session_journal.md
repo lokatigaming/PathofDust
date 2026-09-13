@@ -9579,3 +9579,79 @@ So: a network blip on the path, the game serving throughout, the build unaffecte
 it runs under `systemd-run` for exactly this reason. **A failed connection is not evidence
 of a failed host** — the same shape as the day's other instrument errors, and the reason
 the procedure puts builds in a transient unit instead of an SSH session.
+
+---
+
+## 2026-09-13 — BOT WINDOW: 7i merged, overlay written live, binary swapped. 1.16 s downtime. The 12d `tokens.json` check is unreliable.
+
+| | |
+|---|---|
+| merged | **`2259679`** (7i `e23f59e`, which CONTAINS 7g — already on master as `41e8e17`, so no double-merge) |
+| suite | **1028 / 0 / 46** |
+| overlay live | `bfcfbd66…` → **`90c2fd44…`** · 25,072 B · byte-exact · 13:12:14 |
+| binary | `baea1585…` → **`380ef077…`** · 17,396,736 B |
+| **downtime** | **1.16 s** (13:17:01.550 → 13:17:02.711) |
+| rollbacks | overlay `C:\dust-work\overlay-pre-7i-20260913-131202\` · exe `C:\dust-work\bot-pre-20260913-131231\` |
+| data backup | 12 files, 409.23 KB, verdict clean |
+| errors since swap | **0** |
+
+Downtime 1.16 s against last night's 23.51 s — the difference is start detection, not the
+swap itself.
+
+### FOUND — "`tokens.json` mtime advanced" IS NOT A VALID PROOF
+
+The 12d procedure verifies a bot swap by checking that `tokens.json`'s mtime advanced. It
+**did not** this time: mtime stayed at 10:00:46 across a 13:17:02 restart. That is not a
+failure of the deploy.
+
+`tokens.json` is written when the OAuth token is **refreshed**, not when the bot
+authenticates. The token was refreshed at 10:00:46 and Twitch tokens last hours, so at
+13:17 there was nothing to rewrite. The check passed on 2026-09-12 21:32 and again at
+10:00 **by coincidence of timing** — both restarts happened to fall where a refresh was
+due.
+
+**The reliable proof is the log line**, and it is unambiguous:
+
+```
+2026-09-13T05:17:06.599558Z  twitch_irc::login: Fetched login name `lokati_gaming` for provided auth token
+2026-09-13T05:17:06.327750Z  twitch_bot_rs::twitch::chat: Connected to chat in #lokati_gaming
+```
+
+Same class as §13B.5's byte literal: **an artifact that only sometimes moves is not a
+check.** The 12d procedure should verify authentication from the log, not from a file
+whose mtime depends on token expiry. Carrying this into the docs commit alongside the §13
+bot wording and the §13B.5 byte literal.
+
+### 7g's SERVER HALF IS IN THE BINARY — PROVEN WITHOUT TRAFFIC
+
+The order's other verification is `playing=`/`muted=` on overlay messages. **They cannot be
+observed yet**: there has been no `song overlay ws` traffic at all since the swap (8
+messages in the 10 minutes before, 0 after), because the overlay only reports on player
+state changes and nothing is playing. *Absence of traffic is not absence of the feature*,
+and I will not report it either way from silence.
+
+What IS establishable, and was:
+
+| | new binary | old binary |
+|---|---|---|
+| `playing=` | **1** | **0** |
+| `muted=` | **1** | — |
+| `song overlay ws: received` | **1** | — |
+| control `zzz-not-a-real-string` | **0** | — |
+
+A control string and a negative case, because a bare "1" proves nothing on its own.
+
+**`strings` failed as the instrument** and would have produced a false negative: it
+returned **0** for all three, including `song overlay ws: received`, which the OLD binary
+demonstrably contains — it wrote that line constantly. `grep` on the binary discriminates
+correctly. Fourth instrument failure of the day, same lesson: check the instrument against
+something whose answer you already know.
+
+### WHAT IS AND IS NOT VERIFIED ON STREAM
+
+The overlay file on disk is 7i. **The loaded page is not** — OBS holds the page it loaded
+at 10:47, which is the 13a copy. The refresh is the owner's, and until then the running
+page has 7a's guard but neither 7g's unconditional reply nor 7i's four exits.
+
+**The loop itself can only be verified by the next Short that plays on stream.** Stated as
+ordered; not claimed fixed.
