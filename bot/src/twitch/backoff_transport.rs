@@ -185,8 +185,9 @@ mod tests {
     /// other fails here rather than in production.
     #[test]
     fn the_cap_stays_below_the_crates_connect_timeout() {
-        // twitch-irc 5.0.1 ClientConfig::default(): connect_timeout = 20s.
-        let connect_timeout = Duration::from_secs(20);
+        // Read from the crate, not restated: default() uses anonymous
+        // credentials, so this needs no token.
+        let connect_timeout = twitch_irc::ClientConfig::default().connect_timeout;
         assert!(
             MAX_DELAY < connect_timeout,
             "MAX_DELAY {MAX_DELAY:?} must stay under connect_timeout {connect_timeout:?}, or T::new() is cancelled before it ever attempts"
