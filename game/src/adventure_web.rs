@@ -245,6 +245,7 @@ pub async fn start_adventure_web_server(
         .route("/disenchant", post(do_disenchant))
         .route("/disenchant-all", post(do_disenchant_all))
         .route("/toggle-disenchant-protect", post(do_toggle_disenchant_protect))
+        .route("/unlock-all", post(do_unlock_all))
         .route("/reforge", post(do_reforge))
         .route("/repair-equipped", post(do_repair_equipped))
         .route("/repair-item", post(do_repair_item))
@@ -863,6 +864,16 @@ async fn do_disenchant_all(State(state): State<AppState>, headers: HeaderMap) ->
 async fn do_toggle_disenchant_protect(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<ItemIdForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
         state.adventure.toggle_disenchant_protect(&login, &form.item_id).await;
+    }
+    Redirect::to("/inventory")
+}
+
+/// Silent (no popup), same as Disenchant All - the confirm() on the button
+/// is the second step, and the unticked boxes on the next page load are
+/// confirmation enough. See `Character::unprotect_all_items`.
+async fn do_unlock_all(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        state.adventure.unprotect_all_items(&login).await;
     }
     Redirect::to("/inventory")
 }
@@ -6274,6 +6285,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
             </form>"
         )
     };
+    let unlock_all_html = render_unlock_all_form(&c.inventory);
 
     // Free craft-action tokens (see Character::craft_tokens) - "shown in
     // the player's inventory" per the original request, so it lives
@@ -6331,7 +6343,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
             {crafting_card_html}\
           </div>\
         </div>\
-        <div class=\"card bag-card\"><div class=\"header-row\"><h2>Bag ({bag_count}/{cap})</h2>{disenchant_all_html}</div>{auto_disenchant_html}{craft_tokens_html}{inventory_html}</div>",
+        <div class=\"card bag-card\"><div class=\"header-row\"><h2>Bag ({bag_count}/{cap})</h2>{unlock_all_html}{disenchant_all_html}</div>{auto_disenchant_html}{craft_tokens_html}{inventory_html}</div>",
         cap = INVENTORY_CAPACITY,
         auto_disenchant_html = render_auto_disenchant_settings(c),
     )
@@ -8222,6 +8234,58 @@ fn render_inventory_by_slot(items: &[Item], render_item: impl Fn(&Item) -> Strin
         })
         .collect();
     format!("<div class=\"bag-rows\">{rows}</div>")
+}
+
+/// Unlock All (2026-09-17, queue item 20) - clears every bag item's
+/// 🔒 Keep tick-box in one go. Two-step through the same
+/// `onsubmit="return confirm(...)"` shape as Disenchant All, naming the
+/// count; and like Disenchant All it renders nothing when there is nothing
+/// it would touch.
+fn render_unlock_all_form(inventory: &[Item]) -> String {
+    let protected_count = inventory.iter().filter(|i| i.disenchant_protected).count();
+    if protected_count == 0 {
+        return String::new();
+    }
+    let noun = if protected_count == 1 { "item" } else { "items" };
+    format!(
+        "<form method=\"post\" action=\"/unlock-all\" onsubmit=\"return confirm('Unlock {protected_count} {noun}? Their \\'Keep\\' marks are removed, so they can be disenchanted and crafted on again.');\">\
+          <button class=\"btn-sm\" type=\"submit\">\u{1f513} Unlock All ({protected_count})</button>\
+        </form>"
+    )
+}
+
+#[cfg(test)]
+mod unlock_all_render_tests {
+    use super::*;
+    use crate::adventure::generate_item_at_tier;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn bag(ticked: &[bool]) -> Vec<Item> {
+        let mut rng = StdRng::seed_from_u64(3);
+        ticked
+            .iter()
+            .map(|&t| {
+                let mut item = generate_item_at_tier(EquipSlot::Helm, 10, &mut rng);
+                item.disenchant_protected = t;
+                item
+            })
+            .collect()
+    }
+
+    #[test]
+    fn names_the_count_in_both_the_button_and_the_confirm() {
+        let html = render_unlock_all_form(&bag(&[true, false, true, true]));
+        assert!(html.contains("action=\"/unlock-all\""), "got: {html}");
+        assert!(html.contains("return confirm('Unlock 3 items?"), "the confirm must state the count, got: {html}");
+        assert!(html.contains("Unlock All (3)"), "got: {html}");
+        assert!(render_unlock_all_form(&bag(&[true])).contains("confirm('Unlock 1 item?"));
+    }
+
+    #[test]
+    fn renders_nothing_when_nothing_is_ticked() {
+        assert_eq!(render_unlock_all_form(&bag(&[false, false])), "");
+        assert_eq!(render_unlock_all_form(&[]), "");
+    }
 }
 
 fn render_inventory_item(item: &Item, dust: u64) -> String {

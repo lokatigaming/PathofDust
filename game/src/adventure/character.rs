@@ -2168,6 +2168,21 @@ impl Character {
         Some(item.disenchant_protected)
     }
 
+    /// Unlock All (2026-09-17, queue item 20) - clears
+    /// `Item::disenchant_protected` on every bag item at once. Same single
+    /// field, same bag-only scope and same guard bypass as
+    /// `toggle_item_protection`; Krangle's `locked` is a different,
+    /// permanent flag and is never touched here. Returns how many items it
+    /// unlocked - 0 on a bag with nothing ticked, which is a no-op.
+    pub(crate) fn unprotect_all_items(&mut self) -> usize {
+        let mut count = 0;
+        for item in self.inventory.iter_mut().filter(|i| i.disenchant_protected) {
+            item.disenchant_protected = false;
+            count += 1;
+        }
+        count
+    }
+
     /// Test-only handle onto an item, bypassing every guard - lets a test
     /// in another module set up a locked/unique/sacred fixture directly.
     /// Never compiled into a release binary.
@@ -4789,6 +4804,49 @@ mod protection_tests {
         assert!(character.find_mutable_item(&id).is_ok(), "and the item must be craftable again immediately after");
         assert_eq!(character.toggle_item_protection(&id), Some(true), "and re-ticking must work too");
         assert!(matches!(character.find_mutable_item(&id), Err(CraftError::ItemProtected)), "re-ticked, it refuses again");
+    }
+
+    /// Unlock All over a mixed bag: every ticked item is cleared, the count
+    /// is right, and nothing on any item but `disenchant_protected` moves -
+    /// Krangle's `locked` included.
+    #[test]
+    fn unlock_all_clears_only_the_keep_flag_on_a_mixed_bag() {
+        let mut character = Character::new("keeper".to_string());
+        character.inventory.clear();
+        let mut rng = StdRng::seed_from_u64(9);
+        for n in 0..5 {
+            let mut item = generate_item_at_tier(EquipSlot::Helm, 40, &mut rng);
+            item.disenchant_protected = n % 2 == 0;
+            item.locked = n == 0 || n == 1;
+            character.inventory.push(item);
+        }
+        let expected: Vec<serde_json::Value> = character
+            .inventory
+            .iter()
+            .map(|i| {
+                let mut i = i.clone();
+                i.disenchant_protected = false;
+                serde_json::to_value(&i).unwrap()
+            })
+            .collect();
+
+        assert_eq!(character.unprotect_all_items(), 3, "items 0, 2 and 4 were ticked");
+        let after: Vec<serde_json::Value> = character.inventory.iter().map(|i| serde_json::to_value(i).unwrap()).collect();
+        assert_eq!(after, expected, "only disenchant_protected may change");
+        assert!(character.inventory[0].locked && character.inventory[1].locked, "Krangle locks must survive");
+        assert_eq!(character.unprotect_all_items(), 0, "a second run is a no-op");
+    }
+
+    #[test]
+    fn unlock_all_on_a_bag_with_nothing_ticked_is_a_no_op() {
+        let (mut character, _) = protected_item_character();
+        character.inventory[0].disenchant_protected = false;
+        let before = serde_json::to_value(&character.inventory).unwrap();
+        assert_eq!(character.unprotect_all_items(), 0);
+        assert_eq!(serde_json::to_value(&character.inventory).unwrap(), before);
+
+        character.inventory.clear();
+        assert_eq!(character.unprotect_all_items(), 0, "an empty bag is a no-op too");
     }
 
     /// The pre-existing half of the tick-box's job, asserted so widening it
