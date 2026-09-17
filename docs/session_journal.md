@@ -9713,3 +9713,87 @@ The script's `grep -i fight` over the journal returned **nothing**, even though 
 service does not log the word, so an empty result there proves nothing. The summary files
 are what prove the loop. The transcript was written by PowerShell 5.1 `Tee-Object`,
 so it is UTF-16. It reads fine as a file but won't `grep` as ASCII.
+
+## 2026-09-18 — RELEASE 31 DEPLOYED: item 20 `feat/inventory-unlock-all`. 0.35 s downtime. Item 19 was already merged; only its report was missing.
+
+Merge `1960bab` (`123e84f` + `7583109`), pushed. Live binary
+`d0f11e25…` → **`da5e6fde…`**. Rollback slot
+`deploy-pre-20260917-211049-inventory-unlock-all` (= `deploy-pre-LATEST`);
+the release-30 slot `deploy-pre-20260917-142640-model-change-failures`
+stays as ordered.
+
+### 19 WAS DONE. A MISSING REPORT IS NOT A MISSING MERGE.
+
+The order asked whether item 19 had actually landed, because no report for it
+existed. It had: `123e84f` is in the log with `e40073c` as its second parent and
+`git ls-remote` shows origin at the same commit. What was missing was **this
+window's merge report** — window a's *branch* report
+(`reports\2026-09-13-19-gitattributes-lf.md`) had existed since 09-13.
+`suite-19-gitattributes.txt` turned out to be a full-workspace run written 18
+minutes **after** the merge commit: 1033 / 0 / 47. No record names the command
+that produced it, so it is recorded as a found artifact, not an attributable
+count. Worth keeping as a general point: **"a merge you cannot see in the log
+did not happen" is the right rule, and it correctly cleared this one** — the
+evidence was in the log the whole time, and the gap was in the paperwork.
+
+### THE FLAKE WAS CHECKED ON BOTH SIDES OF THE MERGE
+
+`adventure_web::render::live_reload_tests::editing_a_template_takes_effect_without_a_rebuild`,
+run alone: **1 / 0 before the merge**, **1 / 0 after**. It is the same known
+flake and item 20 did not bring it in. It did not even fire in the post-merge
+full run, which came back **1037 / 0 / 47** — all green, against b's branch
+figure of 1036 / 1 / 47. The box's own run of the same commit agreed exactly:
+**1037 / 0 / 47**, `test exit: 0`. 1037 = 1033 + 20's four new tests.
+
+Note on the filter: `-- --exact live_reload_tests::editing_a_template…` matches
+**nothing** and reports `0 passed; 917 filtered out`, which reads like a pass if
+skimmed. The module is nested — the real path is
+`adventure_web::render::live_reload_tests::…`. Always read the filtered-out
+count when running one test by name.
+
+### THE SEVEN CHECKS — 6 of 7, CHECK 5 UNRUN BY RULE
+
+| # | check | result |
+|---|---|---|
+| 1 | `is-active` | `active` |
+| 2 | `NRestarts` | `0`, unchanged |
+| 3 | loaded-N **=** file count | **24 = 24** |
+| 4 | live hash = candidate | `da5e6fde…` exact |
+| 5 | authenticated `/characters` / `/passives` | **NOT RUN — by the 2026-09-17 rule.** Needs an owner-supplied cookie |
+| 6 | anon `/admin/tunables` | **404** / 77,589 B |
+| 7 | anon POST `/api/commands/join` | **404** / 0 B |
+
+Control: anonymous `/` is 200 / 77,833 B, the landing page. **Check 5 ran clean
+this time by not running at all** — release 30's check 6 was refused as
+`[Credential Exploration]` only after check 5 had read a session token in the
+same batch. With no token read anywhere in the run, check 6 went through
+unprompted on the first attempt. The rule paid for itself immediately.
+
+**The game loop, on the new binary:** three summaries, `fight-0000012109`
+(21:11:06, the startup second), then `fight-0000012110` (21:12:06, 6,541 B) and
+`fight-0000012111` (21:13:06, 5,092 B). The first one alone would not have
+proved anything — it shares its second with service start, so it could have been
+an in-flight fight flushed at startup. The two later ones, a minute apart, are
+the proof. **0** panic/ERROR lines since the deploy.
+
+### NOT VERIFIED: THE BUTTON HAS NOT BEEN CLICKED
+
+Item 20 is a web-form change, and the house rule is that a live click-through is
+the only close for one. The Bag page needs a login, so that verification is
+blocked behind the same cookie as check 5. **`render_unlock_all_form` is proven
+present in the shipped source (6 hits in the archive the box built) and its four
+tests pass, but no human or script has clicked 🔓 Unlock All on production.**
+Recorded as NOT VERIFIED, pending the owner's cookie or an owner click.
+
+### PATCH NOTES
+
+40 → **41** blocks, new top block "September 18, 2026", one section, "Unlock All:
+clear every Keep mark in your bag at once". +15 lines, no price changes.
+Pre-edit copy `/root/patch-notes.pre-inventory-unlock-all.json`. The writer
+proved its own fidelity first: a re-dump of the untouched list was byte-identical
+to the 180,719-byte original, so the diff is exactly the added lines and nothing
+reflowed, and `new[1:] == old` was asserted before the file was replaced.
+**The date is the owner's date, not the box's.** The box was still on
+2026-09-17 CEST when this ran (it is six hours behind +0800); the entry is dated
+September 18 to match the order and the commit timezone. Say so if that is
+backwards and it is a one-line fix.
