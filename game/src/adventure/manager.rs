@@ -3203,6 +3203,21 @@ impl AdventureManager {
         Some(new_state)
     }
 
+    /// Web dashboard: Unlock All - see `Character::unprotect_all_items`.
+    /// Returns how many items were unlocked, 0 if the character hasn't
+    /// joined or nothing was ticked (nothing persisted in that case).
+    pub async fn unprotect_all_items(&self, username: &str) -> usize {
+        let mut characters = self.characters.lock().await;
+        let Some(character) = characters.get_mut(&username.to_lowercase()) else { return 0 };
+        let count = character.unprotect_all_items();
+        if count > 0 {
+            self.persist_characters(&characters);
+            drop(characters);
+            self.broadcast_state().await;
+        }
+        count
+    }
+
     /// Web dashboard: flips `Character::auto_repair` - see its doc.
     pub async fn toggle_auto_repair(&self, username: &str) -> Option<bool> {
         let mut characters = self.characters.lock().await;
