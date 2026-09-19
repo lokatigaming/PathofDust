@@ -798,7 +798,7 @@ async fn handle_builtin(
                     services.personal_playlists.add_song(user, &song).await;
                     Some(format!("Queued \"{}\" at position {position}.", song.title).into())
                 }
-                Err(err) => Some(err.to_string().into()),
+                Err(err) => err.chat_reply().map(Into::into),
             }
         }
 
@@ -842,7 +842,7 @@ async fn handle_builtin(
                             )
                             .into(),
                         }),
-                        Err(err) => Some(err.to_string().into()),
+                        Err(err) => err.chat_reply().map(Into::into),
                     }
                 }
                 "remove" => {
@@ -981,7 +981,7 @@ async fn handle_builtin(
                     });
                     Some(format!("Inserted \"{}\" — playing now, will return to the playlist after.", song.title).into())
                 }
-                Err(err) => Some(err.to_string().into()),
+                Err(err) => err.chat_reply().map(Into::into),
             }
         }
 
@@ -1037,7 +1037,7 @@ async fn handle_builtin(
                         }
                     }
                 }
-                Err(err) => Some(err.to_string().into()),
+                Err(err) => err.chat_reply().map(Into::into),
             }
         }
 

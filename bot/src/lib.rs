@@ -33,6 +33,7 @@ pub mod paypal;
 pub mod personal_playlists;
 pub mod playrandom;
 pub mod poe_ninja;
+pub mod redact;
 pub mod song_overlay_server;
 pub mod song_requests;
 pub mod state;

@@ -83,7 +83,7 @@ pub fn start_paypal_watcher(
             loop {
                 interval.tick().await;
                 if let Err(err) = watcher.poll(&on_tip).await {
-                    tracing::error!("PayPal relay poll failed: {err}");
+                    tracing::error!("PayPal relay poll failed: {}", crate::redact::redact(&err.to_string()));
                 }
             }
         });

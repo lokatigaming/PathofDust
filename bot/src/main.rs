@@ -721,12 +721,38 @@ async fn async_main() -> anyhow::Result<()> {
     // skips the song and emits a PlaybackErrorEvent here so chat knows why
     // it changed instead of the switch happening with no explanation.
     if let Some(manager) = &song_requests {
+        // Cloned before the first `async move` takes ownership of the
+        // shadowing binding below.
+        let halt_chat_client = chat_client.clone();
         let chat_client = chat_client.clone();
         let mut playback_error_rx = manager.subscribe_playback_errors();
         tokio::spawn(async move {
             while let Ok(event) = playback_error_rx.recv().await {
                 tracing::warn!("Song skipped due to playback error: \"{}\" — {}", event.title, event.reason);
-                chat_client.say(format!("Skipped \"{}\" — {}.", event.title, event.reason)).await;
+                // Every stalled skip is still logged above and still
+                // reaches the !playrandom blocklist watcher — only the
+                // chat line is rate-limited, to one per stall episode.
+                // See PlaybackErrorEvent::announce.
+                if event.announce {
+                    chat_client.say(format!("Skipped \"{}\" — {}.", event.title, event.reason)).await;
+                }
+            }
+        });
+
+        // The cascade stop: enough songs stalled in a row that the fault
+        // is plainly playback itself, so the bot has stopped skipping and
+        // is holding the rest of the queue. Said once per episode — the
+        // stall itself keeps repeating until playback recovers.
+        let mut playback_halted_rx = manager.subscribe_playback_halts();
+        tokio::spawn(async move {
+            while let Ok(event) = playback_halted_rx.recv().await {
+                halt_chat_client
+                    .say(format!(
+                        "Playback looks broken — {} songs stalled in a row, so I've stopped skipping to save the queue. \
+                         A mod can !skip once it's working again.",
+                        event.consecutive_stalls
+                    ))
+                    .await;
             }
         });
     }

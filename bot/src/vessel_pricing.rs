@@ -406,7 +406,7 @@ async fn sync_to_sheet(report: &VesselPriceReport, sync_secret: &str) {
     match result {
         Ok(resp) if resp.status().is_success() => tracing::info!("vessel_pricing: synced hourly snapshot to sheet."),
         Ok(resp) => tracing::warn!("vessel_pricing: sheet sync failed: HTTP {}", resp.status()),
-        Err(err) => tracing::warn!("vessel_pricing: sheet sync failed: {err}"),
+        Err(err) => tracing::warn!("vessel_pricing: sheet sync failed: {}", crate::redact::redact(&err.to_string())),
     }
 }
 

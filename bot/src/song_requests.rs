@@ -238,8 +238,44 @@ pub enum RequestError {
     /// out when the overlay's embed fails on stream.
     #[error("YouTube won't play that one here — {reason}.")]
     Restricted { reason: String },
-    #[error("YouTube lookup failed: {0}")]
-    Api(#[from] anyhow::Error),
+    /// The request never completed at all — DNS, TLS, the connection,
+    /// a timeout. THE DISPLAY DELIBERATELY CARRIES NO DETAIL FROM THE
+    /// UNDERLYING ERROR, and that is the whole point of this variant:
+    /// a `reqwest::Error`'s own Display prints the full request URL,
+    /// and the YouTube URL has the API key in its query string. On
+    /// 2026-09-19 three chat lines carried the key because this variant
+    /// rendered `{0}`. Redacting at the five call sites in commands.rs
+    /// would have left the sixth to reintroduce it, so the guarantee
+    /// lives here, in the one place every call site formats through.
+    /// The real error is logged (redacted) where this is constructed —
+    /// see `youtube_get`.
+    #[error("YouTube lookup failed — couldn't reach YouTube just now. Try again in a moment.")]
+    Unreachable {
+        /// False for the 2nd and later failures of one run — see
+        /// `chat_reply` and `LOOKUP_FAILURE_QUIET_WINDOW`.
+        announce: bool,
+    },
+    /// YouTube answered, but with an error status. Safe by the same
+    /// rule: the only thing interpolated is a number.
+    #[error("YouTube lookup failed — YouTube returned {status}. Check the bot's log for details.")]
+    Status {
+        status: u16,
+        announce: bool,
+    },
+}
+
+impl RequestError {
+    /// The line to put in chat, or `None` when this one is deliberately
+    /// silent because a run of lookup failures has already been
+    /// announced. Every chat call site goes through this rather than
+    /// `to_string()`, so neither the redaction nor the rate limit
+    /// depends on the call site remembering them.
+    pub fn chat_reply(&self) -> Option<String> {
+        match self {
+            Self::Unreachable { announce } | Self::Status { announce, .. } if !announce => None,
+            other => Some(other.to_string()),
+        }
+    }
 }
 
 struct Inner {
@@ -290,6 +326,17 @@ struct Inner {
     /// In-memory only, not persisted; losing it on a restart just means a
     /// few songs' worth of genre context, not anything worth a file for.
     history: VecDeque<Song>,
+    /// How many stalled skips have happened in a row with no successful
+    /// playback in between — the cascade counter. Reset by
+    /// `report_player_state(true)`, which the overlay sends on every
+    /// transition into PLAYING, so any song that actually starts clears
+    /// it. See `report_playback_error` for what the count does.
+    consecutive_stalls: u32,
+    /// When the last failed YouTube lookup was seen — the rate limit on
+    /// the "lookup failed" chat line. `None` means no run is in
+    /// progress, so the next failure speaks. See
+    /// `claim_lookup_failure_announcement`.
+    last_lookup_failure_at: Option<Instant>,
 }
 
 /// How many recently-played songs !playrandom keeps around to derive "the
@@ -339,7 +386,55 @@ pub struct PlaybackErrorEvent {
     /// filler that cannot play is filler that should never be offered
     /// again.
     pub was_random: bool,
+    /// False for the 2nd and later stalled skips of one stall episode —
+    /// the chat announcement is rate-limited to one line per episode (see
+    /// `report_playback_error`), while every other subscriber (the
+    /// !playrandom blocklist) still sees the event. Always true for a
+    /// hard playback error, which is per-video and says something real
+    /// about that one video.
+    pub announce: bool,
 }
+
+/// Emitted once when `STALL_CASCADE_LIMIT` stalled skips have happened in
+/// a row — the bot has stopped skipping and is holding what is left of
+/// the queue. main.rs subscribes and says so in chat, once per episode.
+#[derive(Debug, Clone)]
+pub struct PlaybackHaltedEvent {
+    /// How many songs the cascade ate before the stop engaged — the chat
+    /// line names it, so the number chat sees can never drift from the
+    /// constant that produced it.
+    pub consecutive_stalls: u32,
+}
+
+/// The `reason` the overlay's stuck-playback watchdog reports, verbatim —
+/// see `reportStuckPlayback` in bot/public_song_overlay/overlay.html. It
+/// is the one playback error that is about the *player* rather than the
+/// video, which is why it is the one that cascades: while YouTube is
+/// unhappy, every song in the queue fails it in turn. Matched by string
+/// because the overlay a live OBS has already loaded cannot be changed
+/// from here — pinned by `the_stall_reason_matches_the_overlay`.
+pub const STALL_REASON: &str = "playback stalled";
+
+/// How many stalled skips in a row the bot will do before it stops
+/// skipping altogether and holds what is left of the queue.
+///
+/// 2026-09-19: a seven-minute YouTube outage inside OBS's Chromium made
+/// eleven consecutive songs stall, and the bot skipped and announced
+/// every one of them — eleven viewer requests destroyed at one a minute,
+/// and eleven lines of chat, over a fault that was about none of those
+/// videos. Playing nothing is better than draining the queue.
+pub const STALL_CASCADE_LIMIT: u32 = 3;
+
+/// How long after a failed YouTube lookup another failure stays silent
+/// in chat. Same shape as the stall rate limit above: one line per RUN,
+/// not one per attempt.
+///
+/// 2026-09-19: three failures inside two minutes each posted their own
+/// line — and each one had taken 39-90s to fail first, because the
+/// YouTube client has no request timeout, so viewers were watching !sr
+/// hang and then complain. Every failure is still logged; only chat is
+/// rationed.
+pub const LOOKUP_FAILURE_QUIET_WINDOW: Duration = Duration::from_secs(300);
 
 pub struct SongRequestManager {
     /// Tried in rotation on a 429 (quota exceeded) — a single free-tier
@@ -366,6 +461,7 @@ pub struct SongRequestManager {
     tx: broadcast::Sender<QueueState>,
     command_tx: broadcast::Sender<ControlAction>,
     playback_error_tx: broadcast::Sender<PlaybackErrorEvent>,
+    playback_halted_tx: broadcast::Sender<PlaybackHaltedEvent>,
 }
 
 impl SongRequestManager {
@@ -384,6 +480,7 @@ impl SongRequestManager {
         let (tx, _rx) = broadcast::channel(16);
         let (command_tx, _rx) = broadcast::channel(16);
         let (playback_error_tx, _rx) = broadcast::channel(16);
+        let (playback_halted_tx, _rx) = broadcast::channel(16);
         let persisted: PersistedQueue = crate::state::load_json(&queue_path).unwrap_or_default();
         let cache: SearchCache = crate::state::load_json(&cache_path).unwrap_or_default();
         Arc::new(Self {
@@ -415,10 +512,13 @@ impl SongRequestManager {
                 skip_action_cooldowns: HashMap::new(),
                 active_insert: None,
                 history: VecDeque::new(),
+                consecutive_stalls: 0,
+                last_lookup_failure_at: None,
             }),
             tx,
             command_tx,
             playback_error_tx,
+            playback_halted_tx,
         })
     }
 
@@ -450,7 +550,10 @@ impl SongRequestManager {
             let mut query: Vec<(&str, &str)> = params.to_vec();
             query.push(("key", key));
 
-            let resp = self.http.get(url).query(&query).send().await.map_err(anyhow::Error::from)?;
+            let resp = match self.http.get(url).query(&query).send().await {
+                Ok(resp) => resp,
+                Err(err) => return Err(self.lookup_unreachable(&err)),
+            };
 
             if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 self.current_key_index.store((index + 1) % num_keys, Ordering::Relaxed);
@@ -464,17 +567,48 @@ impl SongRequestManager {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                tracing::error!("YouTube API request failed ({status}): {body}");
-                return Err(RequestError::Api(anyhow::anyhow!(
-                    "YouTube API returned {status} — check the bot's log for details."
-                )));
+                tracing::error!("YouTube API request failed ({status}): {}", crate::redact::redact(&body));
+                return Err(RequestError::Status {
+                    status: status.as_u16(),
+                    announce: self.claim_lookup_failure_announcement(),
+                });
             }
 
             self.current_key_index.store(index, Ordering::Relaxed);
-            return Ok(resp.json().await.map_err(anyhow::Error::from)?);
+            let value = match resp.json().await {
+                Ok(value) => value,
+                Err(err) => return Err(self.lookup_unreachable(&err)),
+            };
+            // A lookup that completed ends the failure run, so the next
+            // outage gets its own chat line instead of inheriting this
+            // run's silence.
+            self.state.lock().unwrap().last_lookup_failure_at = None;
+            return Ok(value);
         }
 
         unreachable!("loop always returns on the last attempt (success or error)")
+    }
+
+    /// Logs a failed lookup — with the query kept and every credential
+    /// in it replaced by a placeholder, so the line is still worth
+    /// reading — and builds the chat-safe error for it. THE ONLY PLACE
+    /// a transport error's text is formatted at all.
+    fn lookup_unreachable(&self, err: &dyn std::fmt::Display) -> RequestError {
+        tracing::warn!("YouTube lookup failed: {}", crate::redact::redact(&err.to_string()));
+        RequestError::Unreachable { announce: self.claim_lookup_failure_announcement() }
+    }
+
+    /// Whether this failure is the one that gets to speak. The first
+    /// failure of a run does; everything inside
+    /// `LOOKUP_FAILURE_QUIET_WINDOW` of the one before it does not, and
+    /// each failure pushes the window out, so an outage that keeps
+    /// failing produces exactly one line however long it lasts. A
+    /// lookup that succeeds clears it outright (see `youtube_get`).
+    fn claim_lookup_failure_announcement(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let announce = state.last_lookup_failure_at.is_none_or(|at| at.elapsed() >= LOOKUP_FAILURE_QUIET_WINDOW);
+        state.last_lookup_failure_at = Some(Instant::now());
+        announce
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<QueueState> {
@@ -487,6 +621,11 @@ impl SongRequestManager {
 
     pub fn subscribe_playback_errors(&self) -> broadcast::Receiver<PlaybackErrorEvent> {
         self.playback_error_tx.subscribe()
+    }
+
+    /// The cascade stop firing — see `report_playback_error`.
+    pub fn subscribe_playback_halts(&self) -> broadcast::Receiver<PlaybackHaltedEvent> {
+        self.playback_halted_tx.subscribe()
     }
 
     pub fn snapshot(&self) -> QueueState {
@@ -532,6 +671,13 @@ impl SongRequestManager {
         {
             let mut state = self.state.lock().unwrap();
             state.player_state = if playing { PlayerState::Playing } else { PlayerState::Paused };
+            // A song that actually reached PLAYING is the proof that
+            // playback works again, so it ends the stall episode —
+            // including the one a mod's manual !skip starts playing while
+            // the cascade stop is holding the queue.
+            if playing {
+                state.consecutive_stalls = 0;
+            }
         }
         self.broadcast_state();
     }
@@ -714,6 +860,7 @@ impl SongRequestManager {
                 reason,
                 video_id: failed.video_id,
                 was_random: failed.requested_by.is_empty(),
+                announce: true,
             });
         }
     }
@@ -791,8 +938,44 @@ impl SongRequestManager {
     /// exactly like a natural `ended` would (via `advance`), but also
     /// emits a `PlaybackErrorEvent` so chat gets told *why* the song
     /// changed instead of it just silently jumping to the next one.
+    ///
+    /// Both of those are rationed for a *stall*, which is the one reason
+    /// that is about the player rather than the video and therefore the
+    /// one that repeats on every song in the queue: the chat line goes
+    /// out once per episode, and past `STALL_CASCADE_LIMIT` in a row
+    /// this stops skipping altogether. See the two constants.
     pub fn report_playback_error(&self, reason: String) {
-        let failed = self.state.lock().unwrap().now_playing.clone();
+        // A stall is the player's fault, not the video's, so it is the
+        // only reason that counts toward the cascade: while it lasts,
+        // every song in the queue fails the same way in turn. A hard
+        // error (removed, region-locked) is about that one video, and
+        // still skips and announces every time.
+        let stalled = reason == STALL_REASON;
+        let (failed, stalls) = {
+            let mut state = self.state.lock().unwrap();
+            if stalled {
+                state.consecutive_stalls += 1;
+            } else {
+                state.consecutive_stalls = 0;
+            }
+            (state.now_playing.clone(), state.consecutive_stalls)
+        };
+
+        // THE CASCADE STOP. Past the limit the bot stops skipping
+        // entirely: now_playing stays put, the queue is not consumed, and
+        // no event goes out. The one line announcing it is sent on the
+        // transition only, so the stall repeating every ~40s for the rest
+        // of the outage stays silent.
+        if stalled && stalls > STALL_CASCADE_LIMIT {
+            if stalls == STALL_CASCADE_LIMIT + 1 {
+                tracing::warn!(
+                    "{STALL_CASCADE_LIMIT} songs stalled in a row — holding the queue instead of skipping any further."
+                );
+                let _ = self.playback_halted_tx.send(PlaybackHaltedEvent { consecutive_stalls: STALL_CASCADE_LIMIT });
+            }
+            return;
+        }
+
         self.advance();
         if let Some(failed) = failed {
             let _ = self.playback_error_tx.send(PlaybackErrorEvent {
@@ -800,6 +983,9 @@ impl SongRequestManager {
                 title: failed.title,
                 reason,
                 video_id: failed.video_id,
+                // One line per stall episode — the first stalled skip
+                // says why, the rest of the run is silent.
+                announce: !stalled || stalls == 1,
             });
         }
     }
@@ -1467,6 +1653,188 @@ mod tests {
         let event = errors.try_recv().expect("a playback error is announced");
         assert_eq!(event.video_id, "THEIRS");
         assert!(!event.was_random, "a viewer's own request is theirs to ask for again");
+    }
+
+    // ---- The key in chat (2026-09-19) ----
+
+    /// THE ONE THAT MATTERS. Whatever a lookup failure is caused by,
+    /// the line it produces for chat can never carry a URL, because the
+    /// Display does not interpolate the underlying error at all. This
+    /// is asserted on the type rather than on the five call sites in
+    /// commands.rs on purpose — the sixth call site is the one that
+    /// would have reintroduced it.
+    #[test]
+    fn no_lookup_failure_can_put_a_url_in_chat() {
+        for err in [
+            RequestError::Unreachable { announce: true },
+            RequestError::Status { status: 403, announce: true },
+            RequestError::NotFound("trapt echo".to_string()),
+            RequestError::TooLong { duration_secs: 4000, max_secs: 3600 },
+            RequestError::Restricted { reason: "blocked in this region".to_string() },
+        ] {
+            let line = err.chat_reply().expect("an announced error has a chat line");
+            assert!(!line.contains("key="), "{line}");
+            assert!(!line.contains("api_key"), "{line}");
+            assert!(!line.contains("googleapis.com"), "{line}");
+            assert!(!line.contains("http"), "no URL of any kind reaches chat: {line}");
+            assert!(!line.contains('?'), "and therefore no query string: {line}");
+        }
+    }
+
+    /// The failure still has to SAY something useful — a rate limit and
+    /// a redaction that leave chat with nothing would just be a
+    /// different way of not telling anyone.
+    #[test]
+    fn a_lookup_failure_still_explains_itself_in_plain_words() {
+        let line = RequestError::Unreachable { announce: true }.chat_reply().unwrap();
+        assert!(line.starts_with("YouTube lookup failed"), "{line}");
+        assert!(line.contains("Try again in a moment"), "{line}");
+        let line = RequestError::Status { status: 403, announce: true }.chat_reply().unwrap();
+        assert!(line.contains("403"), "the status is a number, and numbers are safe: {line}");
+    }
+
+    /// 21b: a run of failures gets one line, not one per attempt. The
+    /// window is pushed out by every failure, so an outage that keeps
+    /// failing stays at one line however long it runs.
+    #[test]
+    fn a_run_of_failed_lookups_announces_once() {
+        let manager = test_manager();
+        assert!(manager.claim_lookup_failure_announcement(), "the first failure of a run speaks");
+        for _ in 0..5 {
+            assert!(!manager.claim_lookup_failure_announcement(), "the rest of the run is silent");
+        }
+
+        // A lookup that completes clears the run — `youtube_get` does
+        // this on its success path, which no test can reach without a
+        // network, so the state change is asserted directly.
+        manager.state.lock().unwrap().last_lookup_failure_at = None;
+        assert!(manager.claim_lookup_failure_announcement(), "a new run after a success speaks again");
+    }
+
+    /// A suppressed failure produces no chat line at all, rather than an
+    /// empty one.
+    #[test]
+    fn a_suppressed_lookup_failure_says_nothing() {
+        assert!(RequestError::Unreachable { announce: false }.chat_reply().is_none());
+        assert!(RequestError::Status { status: 500, announce: false }.chat_reply().is_none());
+    }
+
+    // ---- The stall cascade (2026-09-19) ----
+    //
+    // A seven-minute YouTube outage inside OBS's Chromium stalled eleven
+    // songs in a row. Each one was correctly diagnosed, skipped and
+    // announced — eleven viewer requests gone at one a minute, and
+    // eleven lines of chat. The detector was right every time; the skip
+    // path simply had no counter.
+
+    /// One chat line per stall EPISODE, not one per song. The skips
+    /// themselves still happen (up to the cascade limit) and every one
+    /// still reaches the blocklist watcher — only `announce` is
+    /// rate-limited.
+    #[test]
+    fn a_run_of_stalled_skips_announces_once() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+        for video_id in ["A", "B", "C", "D"] {
+            manager.queue_song(requested_song(video_id, "alice"));
+        }
+
+        let mut announced = Vec::new();
+        for _ in 0..STALL_CASCADE_LIMIT {
+            manager.report_playback_error(STALL_REASON.to_string());
+            let event = errors.try_recv().expect("every stalled skip still emits its event");
+            announced.push((event.video_id, event.announce));
+        }
+        assert_eq!(
+            announced,
+            vec![("A".to_string(), true), ("B".to_string(), false), ("C".to_string(), false)],
+            "only the first stalled skip of an episode says anything in chat"
+        );
+
+        // Playback recovering ends the episode, so the next outage gets
+        // its own line rather than inheriting this one's silence.
+        manager.report_player_state(true);
+        manager.report_playback_error(STALL_REASON.to_string());
+        assert!(errors.try_recv().expect("a new episode still skips").announce, "a new episode announces again");
+    }
+
+    /// A hard error is about one video, not about playback, so it is
+    /// neither counted nor silenced — and it clears a stall run that was
+    /// building up, because the player plainly answered about a video.
+    #[test]
+    fn a_hard_playback_error_still_announces_every_time() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+        for video_id in ["A", "B", "C"] {
+            manager.queue_song(random_song(video_id));
+        }
+
+        manager.report_playback_error(STALL_REASON.to_string());
+        assert!(errors.try_recv().unwrap().announce);
+        for _ in 0..2 {
+            manager.report_playback_error("video not found or removed".to_string());
+            assert!(errors.try_recv().expect("a hard error always skips").announce, "hard errors are never rate-limited");
+        }
+    }
+
+    /// The cascade stops itself. Past the limit the bot stops skipping,
+    /// stops consuming the queue, and says so exactly once — an entire
+    /// queue of viewer requests is worth more than the stream having
+    /// something on.
+    #[test]
+    fn the_cascade_stops_after_the_limit_and_holds_the_queue() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+        let mut halts = manager.subscribe_playback_halts();
+        // One more song than the cascade can eat, so "the queue is held"
+        // is distinguishable from "the queue ran out".
+        for i in 0..STALL_CASCADE_LIMIT + 3 {
+            manager.queue_song(requested_song(&format!("SONG{i}"), "alice"));
+        }
+
+        for _ in 0..STALL_CASCADE_LIMIT {
+            manager.report_playback_error(STALL_REASON.to_string());
+        }
+        while errors.try_recv().is_ok() {}
+        assert!(halts.try_recv().is_err(), "the limit is how many skips are allowed, not one fewer");
+
+        let held = manager.snapshot();
+        for _ in 0..4 {
+            manager.report_playback_error(STALL_REASON.to_string());
+        }
+        assert_eq!(
+            manager.snapshot().now_playing.map(|s| s.video_id),
+            held.now_playing.map(|s| s.video_id),
+            "a held queue does not advance"
+        );
+        assert_eq!(manager.snapshot().queue.len(), held.queue.len(), "a held queue is not consumed");
+        assert!(errors.try_recv().is_err(), "a held stall neither skips nor announces a skip");
+
+        let halt = halts.try_recv().expect("the stop announces itself");
+        assert_eq!(halt.consecutive_stalls, STALL_CASCADE_LIMIT);
+        assert!(halts.try_recv().is_err(), "once per episode — the stall itself repeats every ~40s");
+
+        // A mod's !skip onto a song that plays is the way out: the
+        // overlay's PLAYING report clears the run, and skipping works
+        // again from there.
+        manager.report_player_state(true);
+        manager.report_playback_error(STALL_REASON.to_string());
+        assert!(errors.try_recv().expect("recovery re-arms skipping").announce);
+    }
+
+    /// The cascade stop is keyed off a string the OVERLAY produces, and
+    /// the overlay a live OBS has already loaded cannot be changed from
+    /// the bot. If that literal is ever edited in overlay.html, every
+    /// stall silently becomes a hard error again and the cascade comes
+    /// back — so the two are pinned together here rather than trusted to
+    /// stay in step.
+    #[test]
+    fn the_stall_reason_matches_the_overlay() {
+        let overlay = include_str!("../public_song_overlay/overlay.html");
+        assert!(
+            overlay.contains(&format!("const reason = '{STALL_REASON}';")),
+            "reportStuckPlayback in overlay.html no longer sends STALL_REASON verbatim"
+        );
     }
 
     // ---- !modskip ----

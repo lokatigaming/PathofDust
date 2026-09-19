@@ -263,7 +263,7 @@ impl PersonalPlaylistManager {
             match result {
                 Ok(resp) if resp.status().is_success() => {}
                 Ok(resp) => tracing::warn!("Personal playlist sync to Apps Script failed: HTTP {}", resp.status()),
-                Err(err) => tracing::warn!("Personal playlist sync to Apps Script failed: {err}"),
+                Err(err) => tracing::warn!("Personal playlist sync to Apps Script failed: {}", crate::redact::redact(&err.to_string())),
             }
         });
     }
