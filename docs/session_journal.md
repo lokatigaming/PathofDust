@@ -10152,3 +10152,90 @@ FOUND: the game's patch-notes file now carries two blocks dated
 September 19 — this one and release 32's. Repeated dates are established
 convention there (September 2 appears seven times), so this is normal,
 noted only so a later reader does not read it as duplication.
+
+## 2026-09-19 — BOT DEPLOYED: item 22 `feature/http-timeouts-22`. 3.12 s. A suite failure that was the documented flake, and a filter trap with a second face.
+
+Queue item 22. Merge `a2f5b87`, pushed. Base `d0e51ee`'s parent was
+`357b73e`, master's tip, so the merge had **no conflicts at all**.
+Seventeen HTTP clients given timeouts; the eighteenth already had one and
+was left alone. New guard binary `bot/tests/no_bare_reqwest_client.rs`.
+
+`cargo test --release --workspace --quiet -j 4`: **1054 passed / 0 failed
+/ 0 ignored, 48 result lines, exit 0** — d's figures exactly. The delta
+off the 1050 / 47 baseline is fully accounted: +3 tests and +1 result
+line for the guard binary, +1 for the timeout chat test. The guard
+binary's own line is visible in the run as `3 passed`.
+
+**THE FIRST RUN OF THAT SUITE FAILED.** `adventure_web::render::live_reload_tests::editing_a_template_takes_effect_without_a_rebuild`
+failed under the parallel run, exit 101, and the run stopped there with
+only one result line and 920 passed. That is one of the three tests
+CLAUDE.md names flaky-under-parallel and requires confirming in isolation
+before flagging. Confirmed in isolation: **1 passed**. Re-ran the full
+suite clean.
+
+**Confirming it took two attempts, and the first is the filter trap
+wearing a new face.** `cargo test --release -p game -- --exact
+adventure_web::render::live_reload_tests::editing_a_template_takes_effect_without_a_rebuild`
+printed `test result: ok. 0 passed; 0 failed; 0 ignored; 1 filtered out`
+and **exited 0**. The 09-18 ruling had me watching for exactly that
+shape, so I did not read it as a pass — but the diagnosis in that ruling
+did not fit: the path was **not** wrong. `--list` prints it verbatim,
+character for character. What actually happened is that the **lib test
+binary never ran at all** under `-p game`; the two result lines that
+appeared came from other binaries in the package, and the one saying
+`1 filtered out` was a small integration binary filtering its own single
+test. Adding `--lib` ran the right binary and the test passed.
+
+So the rule earned on 09-18 needs a second half, and this is the durable
+form: **a `filtered out` line is not a pass, and a run that produced no
+line for your test AT ALL is not a pass either.** Before believing any
+targeted run, confirm the binary holding the test actually ran — count
+the tests in the result line and check it is the population you expected.
+`0 passed` next to `920 filtered out` is a real run of the right binary;
+`0 passed` next to `1 filtered out` is a different binary answering a
+question you did not ask.
+
+**The swap, predicted from the tree and proven by the log.** `bot/src`
+changed across fourteen files, so a swap was needed; the hashes
+(`6c296cb2…` -> `dd36f7ea…`) only proved the file copied is the file
+built. Markers `Fetched login name` and `Connected to chat` went **2 ->
+3** each, the new pair at 16:03:18-19 UTC, matching new PID 13224's start
+of 00:03:15 local (UTC+8). `tokens.json` played no part.
+
+Watchdog disabled before and re-enabled after (`Ready`). PID 15516's path
+confirmed as `C:\PathofDust\target\release\twitch-bot-rs.exe` before
+anything was stopped; `Stop-ScheduledTask` again left it alive, so it was
+stopped **by PID**, never by image name. Port 4001 free before the copy,
+held by the new PID after. Rollback copy at
+`C:\PathofDust\backup-pre-20260920-000259-http-timeouts-22\twitch-bot-rs.exe.pre-http-timeouts-22`,
+hash verified `6C296CB2…`.
+
+**The folder stamp and the patch-note date disagree, and both are
+right.** The rollback folder is named `20260920-000259` from the dev
+box's local clock (UTC+8, past midnight); the patch notes are dated
+**September 19, 2026** from the game box's local clock (Europe/Berlin,
+18:04). Ruling 4 says patch-note dates follow the players' server, which
+is the game box. Recorded because the two stamps sitting side by side in
+one release look like an error and are not.
+
+Post-swap log: zero ERROR, zero WARN. Chat, StreamElements, PayPal,
+EventSub, OBS WebSocket, announcements and essence pricing all up, and
+`playerState playing=true` arrived at 16:03:43 — the transition the stall
+detector keys on.
+
+**Patch-notes correction, per the owner's ruling.** The block written for
+21 said the leaked key "is being treated as exposed". The owner has
+decided not to rotate it, so that sentence was not true and it was
+pointed at players. Reworded to describe only what shipped — the bot no
+longer prints request URLs, so a failed lookup cannot put credentials
+into chat — with **no claim about the old key's status either way**. Done
+in the same pass as 22's block, with the pre-edit copy
+(`7f4bc11f…`) and nothing else touched: exactly one item reworded, proven
+both structurally and by `diff` showing one line removed. A sweep
+confirms no "treated as exposed" or rotation claim survives anywhere in
+the file.
+
+**The redaction is still unverified live.** No YouTube lookup has failed
+since 21 swapped at 07:43 UTC — the only three failures in the log are
+the pre-swap ones at 06:28-06:30 that caused all this. Per the order, no
+failure was manufactured in production. Verified by inspection only.
