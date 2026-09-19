@@ -10,6 +10,7 @@ use axum::response::Html;
 use axum::routing::get;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use twitch_bot_rs::twitch::auth::TwitchTokens;
 
@@ -123,7 +124,7 @@ async fn handle_callback(state: &AppState, params: &HashMap<String, String>) -> 
         .get("code")
         .ok_or_else(|| anyhow::anyhow!("No code returned."))?;
 
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build");
     let resp = http
         .post("https://id.twitch.tv/oauth2/token")
         .form(&[

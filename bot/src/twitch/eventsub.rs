@@ -270,7 +270,7 @@ pub async fn start_eventsub_listener(
     interrupt_reward_id: Option<String>,
     on_event: impl Fn(TwitchEvent) + Send + Sync + 'static,
 ) {
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("reqwest client build");
     let on_event = Arc::new(on_event);
 
     tokio::spawn(async move {

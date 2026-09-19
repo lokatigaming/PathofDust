@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use crate::twitch::auth::AuthClient;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EmoteMap {
@@ -17,7 +18,7 @@ pub struct EmoteMap {
 }
 
 pub async fn fetch_all(auth: Arc<AuthClient>, broadcaster_id: &str, channel_login: &str) -> EmoteMap {
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("reqwest client build");
     let mut emotes = HashMap::new();
 
     // BTTV and FFZ global sets first (lowest priority — overwritten by

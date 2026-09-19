@@ -7,6 +7,7 @@
 // whole point is that it's editable on the fly.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 const ANNOUNCEMENTS_URL: &str = "https://lokati.net/api/feed?announcements=1";
 
@@ -17,7 +18,7 @@ pub struct Announcements {
 
 impl Announcements {
     pub fn new() -> Self {
-        Self { http: reqwest::Client::new(), next_index: AtomicUsize::new(0) }
+        Self { http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("reqwest client build"), next_index: AtomicUsize::new(0) }
     }
 
     /// The current announcement list, straight from the sheet. Empty (not

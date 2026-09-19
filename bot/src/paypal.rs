@@ -74,7 +74,7 @@ pub fn start_paypal_watcher(
     let loaded: Vec<Tip> = crate::state::load_json(&history_path).unwrap_or_default();
 
     let watcher =
-        Arc::new(PaypalWatcher { relay_url, relay_token, http: reqwest::Client::new(), history: Mutex::new(loaded), history_path });
+        Arc::new(PaypalWatcher { relay_url, relay_token, http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("reqwest client build"), history: Mutex::new(loaded), history_path });
 
     {
         let watcher = watcher.clone();

@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use twitch_irc::login::{TokenStorage, UserAccessToken};
 
@@ -61,7 +62,7 @@ impl AuthClient {
             client_secret,
             tokens_path,
             tokens: RwLock::new(tokens),
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("reqwest client build"),
         }))
     }
 

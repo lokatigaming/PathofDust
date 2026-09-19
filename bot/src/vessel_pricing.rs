@@ -352,11 +352,11 @@ async fn price_cell(
 /// The page links out to a manual trade search for those instead - see
 /// vessel-pricing.html.
 pub async fn recommend_vessel_prices(league: &str) -> VesselPriceReport {
-    let http = reqwest::Client::builder().user_agent(TRADE_USER_AGENT).build().unwrap_or_default();
+    let http = reqwest::Client::builder().user_agent(TRADE_USER_AGENT).timeout(Duration::from_secs(30)).build().unwrap_or_default();
 
     // A separate plain client for poe.ninja - different site, its own
     // (more permissive) rate limits, no need for the trade-specific UA.
-    let poe_ninja_http = reqwest::Client::new();
+    let poe_ninja_http = reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build");
     let chaos_per_divine = poe_ninja::fetch_chaos_per_divine(&poe_ninja_http, league).await.ok();
 
     let mut cells = Vec::with_capacity(TOTAL_BANDS.len());
@@ -396,7 +396,7 @@ async fn sync_to_sheet(report: &VesselPriceReport, sync_secret: &str) {
         "cells": cells_json,
     });
 
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build");
     let result = http
         .post(APPS_SCRIPT_EXEC_URL)
         .query(&[("action", "syncVesselPricing"), ("secret", sync_secret)])

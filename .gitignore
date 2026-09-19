@@ -298,3 +298,7 @@ backup-pre-pool-cap/
 # lands inside the checkout - the Windows deployment root and the
 # checkout are the same directory.
 /bot-backups
+
+# The `d` window's own --target-dir (house rule: one per feature session,
+# because production's target/release binaries are file-locked).
+/target-d

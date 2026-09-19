@@ -793,11 +793,19 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Hourly Blood-filled Vessel price snapshots for lokati.net/vessel-pricing.html
     // — see vessel_pricing.rs. No-ops if PLAYLIST_SYNC_SECRET isn't set.
-    vessel_pricing::spawn_hourly_snapshotter(reqwest::Client::new(), config.poe_ninja_league.clone(), config.playlist_sync_secret.clone());
+    vessel_pricing::spawn_hourly_snapshotter(
+        reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build"),
+        config.poe_ninja_league.clone(),
+        config.playlist_sync_secret.clone(),
+    );
 
     // Hourly Deafening Essence price snapshots for lokati.net/essence-pricing.html
     // — see essence_pricing.rs. No-ops if PLAYLIST_SYNC_SECRET isn't set.
-    essence_pricing::spawn_hourly_snapshotter(reqwest::Client::new(), config.poe_ninja_league.clone(), config.playlist_sync_secret.clone());
+    essence_pricing::spawn_hourly_snapshotter(
+        reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build"),
+        config.poe_ninja_league.clone(),
+        config.playlist_sync_secret.clone(),
+    );
 
     // Connects (and keeps reconnecting) in the background regardless of
     // whether OBS is even running yet — !votevolume/!modvolume just get

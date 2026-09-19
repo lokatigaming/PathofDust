@@ -36,7 +36,7 @@ async fn sync_to_sheet(league: &str, prices: &[poe_ninja::EssencePrice], sync_se
         "essences": essences_json,
     });
 
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build");
     let result = http
         .post(APPS_SCRIPT_EXEC_URL)
         .query(&[("action", "syncEssencePricing"), ("secret", sync_secret)])
