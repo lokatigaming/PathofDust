@@ -10083,3 +10083,72 @@ poe.ninja client a 10s timeout. Not fixed — not ordered.
 FOUND: the key was broadcast to a live channel three times (06:28:38, 06:29:17,
 06:30:08 — the only three such lines in any retained log). **It should be
 rotated regardless of this fix.**
+
+## 2026-09-19 — BOT DEPLOYED: item 21 `feature/bot-chat-safety-21`. The first real bot swap. 3.68 s, proven by the log lines and not by `tokens.json`.
+
+Queue item 21, jumped ahead of 13 on the owner's order because both halves
+are live-stream defects. 13 was already merged and deployed as release 32
+(`bef27a9`) before that order arrived, so 21 merged onto `107eb55`, not
+onto its stated base `d6e6685`. Merge `123a56b`, pushed.
+
+`cargo test --release --workspace --quiet -j 4`: **1050 passed / 0 failed
+/ 0 ignored, 47 result lines, exit 0** — d's reported figures exactly,
++13 over the 1037 baseline release 32 left.
+
+**The swap was predicted from the tree, not from a hash**, per the 09-18
+rule that these release builds are not bit-reproducible. `bot/src`
+changed substantively: a new `bot/src/redact.rs` (172 lines), +386 in
+`bot/src/song_requests.rs`, plus `main.rs`, `commands.rs`,
+`playrandom.rs`. The hashes did differ (`380ef077…` -> `6c296cb2…`) but
+that was never the deciding evidence; it only proves the file copied is
+the file built.
+
+**Proven the §13 way — the log, never `tokens.json`.** Baseline before
+the swap: `Fetched login name` and `Connected to chat` appeared once
+each, at 02:29:47 UTC, from the 10:29 local start. After: **two each**,
+the new pair at 07:43:14 UTC, matching the new PID 15516's start time of
+15:43:10 local. `tokens.json`'s mtime was 10:29:42 and is exactly the
+kind of witness 12d found unreliable; it played no part here.
+
+**Process handling, per PRODUCTION SAFETY.** Watchdog
+`TwitchBotRS-Watchdog` disabled first, re-enabled after (`Ready`).
+PID 9656 resolved and its path confirmed as
+`C:\PathofDust\target\release\twitch-bot-rs.exe` before anything was
+stopped. `Stop-ScheduledTask` alone left the process alive, so it was
+stopped **by PID**, never by image name. Port 4001 confirmed free before
+the copy, and afterwards confirmed held by the new PID 15516 — the same
+port-to-PID liveness test `watchdog.ps1` itself uses.
+
+Rollback copy at
+`C:\PathofDust\backup-pre-20260919-154245-bot-chat-safety-21\twitch-bot-rs.exe.pre-bot-chat-safety-21`,
+hash verified `380EF077…` against the binary it saved, with `tokens.json`
+beside it. Timestamp-first name, for the §13B.3 reason: the older
+`backup-pre-<name>` folders on this box collide silently when a name is
+redeployed.
+
+**Checkout before copy.** `git status` showed only the deliberately
+uncommitted `.claude/settings.json` — not a compiled file — so the binary
+at `target/release/` was built from HEAD `123a56b`'s sources, and the
+copy could be trusted to be the merge.
+
+Post-swap log: zero ERROR or WARN lines. Chat, StreamElements, PayPal,
+EventSub, OBS WebSocket, announcements and essence pricing all up.
+
+**The redaction guarantee lives in the type, which is the part worth
+keeping.** `RequestError::Unreachable` and `::Status` interpolate nothing
+but a number, so no call site can put the lookup URL — and therefore the
+YouTube API key in its query string — into chat by forgetting to strip
+it. The three leaked chat lines earlier today are why. **NOT YET
+OBSERVED LIVE:** no lookup has failed since the swap, and per the order a
+failure was not manufactured in production to test it. The live
+confirmation is still outstanding.
+
+Patch notes written after the swap succeeded, per the 09-18 ruling, and
+honest about the limit: 21 stops a stall cascade destroying the queue, it
+does not stop the stalls. Their cause is still unexplained and lives
+outside our code.
+
+FOUND: the game's patch-notes file now carries two blocks dated
+September 19 — this one and release 32's. Repeated dates are established
+convention there (September 2 appears seven times), so this is normal,
+noted only so a later reader does not read it as duplication.
