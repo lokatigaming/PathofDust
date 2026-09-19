@@ -9935,3 +9935,115 @@ change: `wiki/dashboard.md:36`'s "rampage completion" should go, because
 that announcement has been unreachable since 2026-09-02 and is now
 deleted - but `wiki/getting-started.md:95-101` describes Permanent
 Rampage as live and is CORRECT.
+
+## 2026-09-19 — RELEASE 32 DEPLOYED: item 13 `fix/rampage-countdown-removal`. 0.60 s downtime. `checkout --theirs` on a 60-commit-stale branch reverted master, and the build caught it.
+
+Queue item 13. Merge `bef27a9`, binary
+`c9292de81d3c9e3c23a02ff0eff10329fa7df65307c2816c6419df5a06c88fe5`,
+rollback slot
+`/var/backups/pathofdust/deploy-pre-20260919-082827-rampage-countdown-removal`.
+Both suites 1037 passed / 0 failed / 0 ignored, 47 result lines, exit 0,
+from `cargo test --release --workspace --quiet` — locally and on the box.
+
+**The mistake, because it is the reusable part.** Three conflicts:
+`WIKI_IMPACT.md` and `docs/session_journal.md` (pure tail appends both
+sides, keep-both) and `game/src/adventure/manager.rs`. I resolved
+manager.rs with `git checkout --theirs -- game/src/adventure/manager.rs`
+and committed. The build then failed with **32 errors**.
+
+`git checkout --theirs <file>` does not take the branch side of the
+CONFLICTED HUNKS. It takes **the entire branch copy of the file**, and
+this branch's base (`6a1bd44`) is ~60 commits behind master. Everything
+master had done to manager.rs since — the whole store-classification
+pass, item 20's `unprotect_all_items`, `sprite_selections_snapshot` —
+was silently reverted. Measured: master's manager.rs carries **27**
+`Store::` uses and the whole-file take left **0**.
+
+It was caught only because the build is between the merge and the push.
+Nothing in the merge itself complained: git reported a clean resolution,
+because taking one whole side *is* a legal resolution. **Durable rule:
+`--ours`/`--theirs` on a file are whole-file operations and are only
+safe when the branch is current with master. Against a stale branch,
+resolve the conflicted hunks in the auto-merged working file, which
+already holds both sides' unconflicted work.** Redone that way: 25
+`Store::` uses (master's 27 minus exactly the two deleted sites), and
+`unprotect_all_items` intact.
+
+**What the conflict actually was**, and it is a small thing that reads
+alarmingly: master's store classification rewrote
+`data_path(RAMPAGE_STATE_PATH)` into `data_path(Store::RampageState)` on
+precisely the two lines this branch DELETES — the load site in `new()`
+and the save in `persist_rampage_remaining`. Master changed no other
+rampage code since the base (`git log -L` over `rampage_active` across
+`6a1bd44..HEAD` is empty), so the branch side is right for both hunks
+and loses only a reclassification of two lines that no longer exist.
+
+`Store::RampageState` survives in `stores.rs` and still compiles — the
+variant, the ALL list, its name/scope/kind arms and its own test at
+`stores.rs:637` all live inside `stores.rs` and reference nothing in
+manager.rs. Its declared description already says it is "absent because
+nothing has written it since `start_rampage` lost its last caller in the
+bot decoupling", which after this merge is more true, not less. Left
+untouched.
+
+**The identity check had to be inverted.** §13B.1 says to grep the
+unpacked tree for a symbol the release ADDS; this release only removes.
+Checked the removals absent (`start_rampage`, `persist_rampage_remaining`,
+`rampage_remaining: Mutex` all 0) and the survivals present
+(`permanent_rampage` 23, `RAMPAGE_MIN_INTERVAL_MS` 4, `rampage_notify` 7,
+`spawn_rampage_loop` 12, `unprotect_all_items` 10). `RAMPAGE_COMPLETE_MESSAGE`
+returned 1 hit, which is the retirement comment at `announcements.rs:291`,
+not code.
+
+**Health checks.** 1 `active`; 2 NRestarts `0`; 3 log `loaded 24
+characters` = file `24`; 4 live hash = candidate; 6 `/admin/tunables`
+**404**; 7 `POST /api/commands/join` **404**. Check 5 **BLOCKED** — needs
+a session cookie, and per the 2026-09-18 ruling the rule that nothing
+reads a token stays.
+
+**The port is 4005, and 4004 is not it.** `curl` against my assumed 4000
+returned `000` on both checks. Resolving the listening ports by MainPID
+gave two: 4004 and 4005. On **4004** check 6 returns 404 with a **0-byte**
+body and check 7 returns **405** — a wrong-server answer that a
+status-only reading of check 7 would have called a fail and a
+status-only reading of check 6 would have called a pass. On **4005**,
+the game: check 6 404 / 77,589 B, check 7 404. Resolve the port from the
+PID, never from memory, and read check 6's body size as well as its code.
+
+**Fight loop confirmed, and my first attempt could not have confirmed
+it.** I watched `ls | wc -l` on `adventure-fights-summary/`, which is
+capped at `SUMMARY_FIGHTS_CAPACITY = 200` — it read 200 before and 200
+after and would have read 200 forever. Watching the newest filename
+instead: `fight-0000014226.json` -> `fight-0000014227.json` at 08:33:49,
+after the 08:28:27 swap. **A capped directory cannot be watched by
+counting.**
+
+**Patch notes written after the swap, per the 2026-09-18 ruling** — only
+once `deploy-linux.sh` reported success and check 4 matched. Dated
+**September 19, 2026**, the box's local date (`Europe/Berlin`).
+
+**Release 31's date corrected in the same pass, per the same ruling.**
+Its block read "September 18, 2026"; its rollback slot is
+`deploy-pre-20260917-211049-inventory-unlock-all`, so the box-local
+deploy date was the **17th**. Pre-edit copies taken to the new rollback
+slot and `/root` (`a2fe0c20…`) before touching it. Proven to be the only
+change two ways: structurally (the new list minus the inserted block,
+with that one date put back, compares equal to the original) and
+textually (`diff` = one line removed, 15 added). The file's exact
+serialization was matched first — `json.dumps(indent=2,
+ensure_ascii=False)` plus a trailing newline — so nothing reformatted;
+a naive `ensure_ascii=True` dump would have rewritten all 782 escapes
+and buried the real diff in a 181 KB reflow.
+
+**Bot: not redeployed, diff-clean — and the deploy skill's dependency
+set for it is stale.** The skill says the bot's set is "the root
+package's own `src/**` plus its one workspace-internal dependency
+`game/**`", which would have made this release a bot release, since it
+changes `game/`. That describes the pre-2026-09-08 layout. The workspace
+is now **virtual**, the bot is the `bot/` member, and `bot/Cargo.toml`
+says in its own comment that there is "deliberately NO dependency on
+`game`". The true set is `bot/**` + `Cargo.lock`, and
+`git diff --name-only d6e6685..bef27a9 -- bot Cargo.lock` is **empty**.
+§13B is the same answer from the other direction: there is no bot on
+this box at all. FOUND: the deploy-release skill's bot dependency-set
+wording needs updating to `bot/**` + `Cargo.lock`.
