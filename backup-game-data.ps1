@@ -102,7 +102,6 @@ $CoreFiles = @(
     'adventure-characters.json'        # main.rs:122 -> manager.rs:1785 (data_path)
     'adventure-world.json'             # main.rs:123 -> manager.rs:1786 (data_path)
     'adventure-reforge-cooldown.json'  # main.rs:124 -> manager.rs:1787 (data_path)
-    'adventure-rampage-state.json'     # manager.rs:206  RAMPAGE_STATE_PATH
     'adventure-sessions.json'          # main.rs:165 -> adventure_web.rs:92/140 (CWD, NOT data_path)
     'adventure-accounts.json'          # adventure_web/accounts.rs:37 accounts_path (sibling of sessions; CWD, NOT data_path)
     'adventure-live-tunables.toml'     # tunables.rs:526 TUNABLES_PATH
