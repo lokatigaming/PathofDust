@@ -234,7 +234,9 @@ async fn fetch_tag_candidates(http: &reqwest::Client, api_key: &str, tag: &str) 
     let resp = match resp {
         Ok(r) => r,
         Err(err) => {
-            tracing::warn!("!playrandom: tag.gettoptracks request for \"{tag}\" failed: {err}");
+            // Redacted: a reqwest error's Display prints the request
+            // URL, and the Last.fm URL carries api_key in its query.
+            tracing::warn!("!playrandom: tag.gettoptracks request for \"{tag}\" failed: {}", crate::redact::redact(&err.to_string()));
             return Vec::new();
         }
     };
@@ -243,7 +245,10 @@ async fn fetch_tag_candidates(http: &reqwest::Client, api_key: &str, tag: &str) 
     let body = match resp.text().await {
         Ok(b) => b,
         Err(err) => {
-            tracing::warn!("!playrandom: tag.gettoptracks response body for \"{tag}\" unreadable: {err}");
+            tracing::warn!(
+                "!playrandom: tag.gettoptracks response body for \"{tag}\" unreadable: {}",
+                crate::redact::redact(&err.to_string())
+            );
             return Vec::new();
         }
     };
@@ -261,7 +266,12 @@ async fn fetch_tag_candidates(http: &reqwest::Client, api_key: &str, tag: &str) 
             candidates
         }
         Err(err) => {
-            tracing::warn!("!playrandom: couldn't parse tag.gettoptracks response for \"{tag}\": {err}. Body: {body}");
+            // The body too: an API that echoes the request back would
+            // echo the key with it.
+            tracing::warn!(
+                "!playrandom: couldn't parse tag.gettoptracks response for \"{tag}\": {err}. Body: {}",
+                crate::redact::redact(&body)
+            );
             Vec::new()
         }
     }

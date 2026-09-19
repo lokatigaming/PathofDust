@@ -9797,3 +9797,39 @@ reflowed, and `new[1:] == old` was asserted before the file was replaced.
 2026-09-17 CEST when this ran (it is six hours behind +0800); the entry is dated
 September 18 to match the order and the commit timezone. Say so if that is
 backwards and it is a one-line fix.
+
+## 2026-09-19 — item 21 built on `feature/bot-chat-safety-21`: the key in chat, the lookup spam, the stall cascade. Not deployed; the bot swap is the owner's window.
+
+Three defects, one branch, base `origin/master` `d6e6685`. Diagnosis written
+first and reported before any code:
+`C:\dust-work\reports\item-21-diagnosis-2026-09-19.md`.
+
+**The standing suspicion was wrong, and it is worth writing down why.** The
+stall cascade was blamed on a stale OBS browser source — the owner was asked to
+refresh it when 7i shipped and never confirmed he had. He had. `insertEndReason`
+is a message only the 7i overlay sends (`git log -S` → `e23f59e`, nothing
+earlier), and the live log *receives* it at 04:32:19, 05:45:58 and 06:19:12 —
+on both sides of the cascade. **The file on disk matching the repo proves
+nothing about what OBS loaded; a message only the new page can send proves it.**
+Durable technique, not a one-off: when you need to know which build of a client
+is live, look for a message the new build emits, not for the bytes on disk.
+
+The stalls were real. `playerState playing=true` is sent on every transition
+into PLAYING, and between `ended` at 05:23:11 and recovery at 05:30:24 there is
+not one, while the songs either side both produce one. The player never started,
+eleven times running. Correct detector, real fault, no regression on 09-13 — the
+stuck watchdog predates the bot's move into the workspace (`40ab614`).
+
+**The two failures do not share a cause.** Stalls 05:23–05:40; HTTP failures
+06:11–06:30, with a PayPal poll to a third host failing in the same window.
+Flaky outbound network on the box, two subsystems, non-overlapping windows.
+
+FOUND: the YouTube client is `reqwest::Client::new()`
+(`song_requests.rs`), which has **no request timeout at all** — the three failed
+lookups took 90s, 39s and 51s to give up, blocking the viewer's `!sr` that whole
+time. `main.rs` already carries a comment about exactly this trap and gives the
+poe.ninja client a 10s timeout. Not fixed — not ordered.
+
+FOUND: the key was broadcast to a live channel three times (06:28:38, 06:29:17,
+06:30:08 — the only three such lines in any retained log). **It should be
+rotated regardless of this fix.**

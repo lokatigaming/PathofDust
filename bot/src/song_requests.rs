@@ -238,8 +238,44 @@ pub enum RequestError {
     /// out when the overlay's embed fails on stream.
     #[error("YouTube won't play that one here — {reason}.")]
     Restricted { reason: String },
-    #[error("YouTube lookup failed: {0}")]
-    Api(#[from] anyhow::Error),
+    /// The request never completed at all — DNS, TLS, the connection,
+    /// a timeout. THE DISPLAY DELIBERATELY CARRIES NO DETAIL FROM THE
+    /// UNDERLYING ERROR, and that is the whole point of this variant:
+    /// a `reqwest::Error`'s own Display prints the full request URL,
+    /// and the YouTube URL has the API key in its query string. On
+    /// 2026-09-19 three chat lines carried the key because this variant
+    /// rendered `{0}`. Redacting at the five call sites in commands.rs
+    /// would have left the sixth to reintroduce it, so the guarantee
+    /// lives here, in the one place every call site formats through.
+    /// The real error is logged (redacted) where this is constructed —
+    /// see `youtube_get`.
+    #[error("YouTube lookup failed — couldn't reach YouTube just now. Try again in a moment.")]
+    Unreachable {
+        /// False for the 2nd and later failures of one run — see
+        /// `chat_reply` and `LOOKUP_FAILURE_QUIET_WINDOW`.
+        announce: bool,
+    },
+    /// YouTube answered, but with an error status. Safe by the same
+    /// rule: the only thing interpolated is a number.
+    #[error("YouTube lookup failed — YouTube returned {status}. Check the bot's log for details.")]
+    Status {
+        status: u16,
+        announce: bool,
+    },
+}
+
+impl RequestError {
+    /// The line to put in chat, or `None` when this one is deliberately
+    /// silent because a run of lookup failures has already been
+    /// announced. Every chat call site goes through this rather than
+    /// `to_string()`, so neither the redaction nor the rate limit
+    /// depends on the call site remembering them.
+    pub fn chat_reply(&self) -> Option<String> {
+        match self {
+            Self::Unreachable { announce } | Self::Status { announce, .. } if !announce => None,
+            other => Some(other.to_string()),
+        }
+    }
 }
 
 struct Inner {
@@ -296,6 +332,11 @@ struct Inner {
     /// transition into PLAYING, so any song that actually starts clears
     /// it. See `report_playback_error` for what the count does.
     consecutive_stalls: u32,
+    /// When the last failed YouTube lookup was seen — the rate limit on
+    /// the "lookup failed" chat line. `None` means no run is in
+    /// progress, so the next failure speaks. See
+    /// `claim_lookup_failure_announcement`.
+    last_lookup_failure_at: Option<Instant>,
 }
 
 /// How many recently-played songs !playrandom keeps around to derive "the
@@ -384,6 +425,17 @@ pub const STALL_REASON: &str = "playback stalled";
 /// videos. Playing nothing is better than draining the queue.
 pub const STALL_CASCADE_LIMIT: u32 = 3;
 
+/// How long after a failed YouTube lookup another failure stays silent
+/// in chat. Same shape as the stall rate limit above: one line per RUN,
+/// not one per attempt.
+///
+/// 2026-09-19: three failures inside two minutes each posted their own
+/// line — and each one had taken 39-90s to fail first, because the
+/// YouTube client has no request timeout, so viewers were watching !sr
+/// hang and then complain. Every failure is still logged; only chat is
+/// rationed.
+pub const LOOKUP_FAILURE_QUIET_WINDOW: Duration = Duration::from_secs(300);
+
 pub struct SongRequestManager {
     /// Tried in rotation on a 429 (quota exceeded) — a single free-tier
     /// key is capped at 100 search.list calls/day, so more than one key
@@ -461,6 +513,7 @@ impl SongRequestManager {
                 active_insert: None,
                 history: VecDeque::new(),
                 consecutive_stalls: 0,
+                last_lookup_failure_at: None,
             }),
             tx,
             command_tx,
@@ -497,7 +550,10 @@ impl SongRequestManager {
             let mut query: Vec<(&str, &str)> = params.to_vec();
             query.push(("key", key));
 
-            let resp = self.http.get(url).query(&query).send().await.map_err(anyhow::Error::from)?;
+            let resp = match self.http.get(url).query(&query).send().await {
+                Ok(resp) => resp,
+                Err(err) => return Err(self.lookup_unreachable(&err)),
+            };
 
             if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 self.current_key_index.store((index + 1) % num_keys, Ordering::Relaxed);
@@ -511,17 +567,48 @@ impl SongRequestManager {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                tracing::error!("YouTube API request failed ({status}): {body}");
-                return Err(RequestError::Api(anyhow::anyhow!(
-                    "YouTube API returned {status} — check the bot's log for details."
-                )));
+                tracing::error!("YouTube API request failed ({status}): {}", crate::redact::redact(&body));
+                return Err(RequestError::Status {
+                    status: status.as_u16(),
+                    announce: self.claim_lookup_failure_announcement(),
+                });
             }
 
             self.current_key_index.store(index, Ordering::Relaxed);
-            return Ok(resp.json().await.map_err(anyhow::Error::from)?);
+            let value = match resp.json().await {
+                Ok(value) => value,
+                Err(err) => return Err(self.lookup_unreachable(&err)),
+            };
+            // A lookup that completed ends the failure run, so the next
+            // outage gets its own chat line instead of inheriting this
+            // run's silence.
+            self.state.lock().unwrap().last_lookup_failure_at = None;
+            return Ok(value);
         }
 
         unreachable!("loop always returns on the last attempt (success or error)")
+    }
+
+    /// Logs a failed lookup — with the query kept and every credential
+    /// in it replaced by a placeholder, so the line is still worth
+    /// reading — and builds the chat-safe error for it. THE ONLY PLACE
+    /// a transport error's text is formatted at all.
+    fn lookup_unreachable(&self, err: &dyn std::fmt::Display) -> RequestError {
+        tracing::warn!("YouTube lookup failed: {}", crate::redact::redact(&err.to_string()));
+        RequestError::Unreachable { announce: self.claim_lookup_failure_announcement() }
+    }
+
+    /// Whether this failure is the one that gets to speak. The first
+    /// failure of a run does; everything inside
+    /// `LOOKUP_FAILURE_QUIET_WINDOW` of the one before it does not, and
+    /// each failure pushes the window out, so an outage that keeps
+    /// failing produces exactly one line however long it lasts. A
+    /// lookup that succeeds clears it outright (see `youtube_get`).
+    fn claim_lookup_failure_announcement(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let announce = state.last_lookup_failure_at.is_none_or(|at| at.elapsed() >= LOOKUP_FAILURE_QUIET_WINDOW);
+        state.last_lookup_failure_at = Some(Instant::now());
+        announce
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<QueueState> {
@@ -1566,6 +1653,70 @@ mod tests {
         let event = errors.try_recv().expect("a playback error is announced");
         assert_eq!(event.video_id, "THEIRS");
         assert!(!event.was_random, "a viewer's own request is theirs to ask for again");
+    }
+
+    // ---- The key in chat (2026-09-19) ----
+
+    /// THE ONE THAT MATTERS. Whatever a lookup failure is caused by,
+    /// the line it produces for chat can never carry a URL, because the
+    /// Display does not interpolate the underlying error at all. This
+    /// is asserted on the type rather than on the five call sites in
+    /// commands.rs on purpose — the sixth call site is the one that
+    /// would have reintroduced it.
+    #[test]
+    fn no_lookup_failure_can_put_a_url_in_chat() {
+        for err in [
+            RequestError::Unreachable { announce: true },
+            RequestError::Status { status: 403, announce: true },
+            RequestError::NotFound("trapt echo".to_string()),
+            RequestError::TooLong { duration_secs: 4000, max_secs: 3600 },
+            RequestError::Restricted { reason: "blocked in this region".to_string() },
+        ] {
+            let line = err.chat_reply().expect("an announced error has a chat line");
+            assert!(!line.contains("key="), "{line}");
+            assert!(!line.contains("api_key"), "{line}");
+            assert!(!line.contains("googleapis.com"), "{line}");
+            assert!(!line.contains("http"), "no URL of any kind reaches chat: {line}");
+            assert!(!line.contains('?'), "and therefore no query string: {line}");
+        }
+    }
+
+    /// The failure still has to SAY something useful — a rate limit and
+    /// a redaction that leave chat with nothing would just be a
+    /// different way of not telling anyone.
+    #[test]
+    fn a_lookup_failure_still_explains_itself_in_plain_words() {
+        let line = RequestError::Unreachable { announce: true }.chat_reply().unwrap();
+        assert!(line.starts_with("YouTube lookup failed"), "{line}");
+        assert!(line.contains("Try again in a moment"), "{line}");
+        let line = RequestError::Status { status: 403, announce: true }.chat_reply().unwrap();
+        assert!(line.contains("403"), "the status is a number, and numbers are safe: {line}");
+    }
+
+    /// 21b: a run of failures gets one line, not one per attempt. The
+    /// window is pushed out by every failure, so an outage that keeps
+    /// failing stays at one line however long it runs.
+    #[test]
+    fn a_run_of_failed_lookups_announces_once() {
+        let manager = test_manager();
+        assert!(manager.claim_lookup_failure_announcement(), "the first failure of a run speaks");
+        for _ in 0..5 {
+            assert!(!manager.claim_lookup_failure_announcement(), "the rest of the run is silent");
+        }
+
+        // A lookup that completes clears the run — `youtube_get` does
+        // this on its success path, which no test can reach without a
+        // network, so the state change is asserted directly.
+        manager.state.lock().unwrap().last_lookup_failure_at = None;
+        assert!(manager.claim_lookup_failure_announcement(), "a new run after a success speaks again");
+    }
+
+    /// A suppressed failure produces no chat line at all, rather than an
+    /// empty one.
+    #[test]
+    fn a_suppressed_lookup_failure_says_nothing() {
+        assert!(RequestError::Unreachable { announce: false }.chat_reply().is_none());
+        assert!(RequestError::Status { status: 500, announce: false }.chat_reply().is_none());
     }
 
     // ---- The stall cascade (2026-09-19) ----
