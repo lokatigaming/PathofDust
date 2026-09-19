@@ -290,6 +290,12 @@ struct Inner {
     /// In-memory only, not persisted; losing it on a restart just means a
     /// few songs' worth of genre context, not anything worth a file for.
     history: VecDeque<Song>,
+    /// How many stalled skips have happened in a row with no successful
+    /// playback in between — the cascade counter. Reset by
+    /// `report_player_state(true)`, which the overlay sends on every
+    /// transition into PLAYING, so any song that actually starts clears
+    /// it. See `report_playback_error` for what the count does.
+    consecutive_stalls: u32,
 }
 
 /// How many recently-played songs !playrandom keeps around to derive "the
@@ -339,7 +345,44 @@ pub struct PlaybackErrorEvent {
     /// filler that cannot play is filler that should never be offered
     /// again.
     pub was_random: bool,
+    /// False for the 2nd and later stalled skips of one stall episode —
+    /// the chat announcement is rate-limited to one line per episode (see
+    /// `report_playback_error`), while every other subscriber (the
+    /// !playrandom blocklist) still sees the event. Always true for a
+    /// hard playback error, which is per-video and says something real
+    /// about that one video.
+    pub announce: bool,
 }
+
+/// Emitted once when `STALL_CASCADE_LIMIT` stalled skips have happened in
+/// a row — the bot has stopped skipping and is holding what is left of
+/// the queue. main.rs subscribes and says so in chat, once per episode.
+#[derive(Debug, Clone)]
+pub struct PlaybackHaltedEvent {
+    /// How many songs the cascade ate before the stop engaged — the chat
+    /// line names it, so the number chat sees can never drift from the
+    /// constant that produced it.
+    pub consecutive_stalls: u32,
+}
+
+/// The `reason` the overlay's stuck-playback watchdog reports, verbatim —
+/// see `reportStuckPlayback` in bot/public_song_overlay/overlay.html. It
+/// is the one playback error that is about the *player* rather than the
+/// video, which is why it is the one that cascades: while YouTube is
+/// unhappy, every song in the queue fails it in turn. Matched by string
+/// because the overlay a live OBS has already loaded cannot be changed
+/// from here — pinned by `the_stall_reason_matches_the_overlay`.
+pub const STALL_REASON: &str = "playback stalled";
+
+/// How many stalled skips in a row the bot will do before it stops
+/// skipping altogether and holds what is left of the queue.
+///
+/// 2026-09-19: a seven-minute YouTube outage inside OBS's Chromium made
+/// eleven consecutive songs stall, and the bot skipped and announced
+/// every one of them — eleven viewer requests destroyed at one a minute,
+/// and eleven lines of chat, over a fault that was about none of those
+/// videos. Playing nothing is better than draining the queue.
+pub const STALL_CASCADE_LIMIT: u32 = 3;
 
 pub struct SongRequestManager {
     /// Tried in rotation on a 429 (quota exceeded) — a single free-tier
@@ -366,6 +409,7 @@ pub struct SongRequestManager {
     tx: broadcast::Sender<QueueState>,
     command_tx: broadcast::Sender<ControlAction>,
     playback_error_tx: broadcast::Sender<PlaybackErrorEvent>,
+    playback_halted_tx: broadcast::Sender<PlaybackHaltedEvent>,
 }
 
 impl SongRequestManager {
@@ -384,6 +428,7 @@ impl SongRequestManager {
         let (tx, _rx) = broadcast::channel(16);
         let (command_tx, _rx) = broadcast::channel(16);
         let (playback_error_tx, _rx) = broadcast::channel(16);
+        let (playback_halted_tx, _rx) = broadcast::channel(16);
         let persisted: PersistedQueue = crate::state::load_json(&queue_path).unwrap_or_default();
         let cache: SearchCache = crate::state::load_json(&cache_path).unwrap_or_default();
         Arc::new(Self {
@@ -415,10 +460,12 @@ impl SongRequestManager {
                 skip_action_cooldowns: HashMap::new(),
                 active_insert: None,
                 history: VecDeque::new(),
+                consecutive_stalls: 0,
             }),
             tx,
             command_tx,
             playback_error_tx,
+            playback_halted_tx,
         })
     }
 
@@ -489,6 +536,11 @@ impl SongRequestManager {
         self.playback_error_tx.subscribe()
     }
 
+    /// The cascade stop firing — see `report_playback_error`.
+    pub fn subscribe_playback_halts(&self) -> broadcast::Receiver<PlaybackHaltedEvent> {
+        self.playback_halted_tx.subscribe()
+    }
+
     pub fn snapshot(&self) -> QueueState {
         let state = self.state.lock().unwrap();
         QueueState {
@@ -532,6 +584,13 @@ impl SongRequestManager {
         {
             let mut state = self.state.lock().unwrap();
             state.player_state = if playing { PlayerState::Playing } else { PlayerState::Paused };
+            // A song that actually reached PLAYING is the proof that
+            // playback works again, so it ends the stall episode —
+            // including the one a mod's manual !skip starts playing while
+            // the cascade stop is holding the queue.
+            if playing {
+                state.consecutive_stalls = 0;
+            }
         }
         self.broadcast_state();
     }
@@ -714,6 +773,7 @@ impl SongRequestManager {
                 reason,
                 video_id: failed.video_id,
                 was_random: failed.requested_by.is_empty(),
+                announce: true,
             });
         }
     }
@@ -791,8 +851,44 @@ impl SongRequestManager {
     /// exactly like a natural `ended` would (via `advance`), but also
     /// emits a `PlaybackErrorEvent` so chat gets told *why* the song
     /// changed instead of it just silently jumping to the next one.
+    ///
+    /// Both of those are rationed for a *stall*, which is the one reason
+    /// that is about the player rather than the video and therefore the
+    /// one that repeats on every song in the queue: the chat line goes
+    /// out once per episode, and past `STALL_CASCADE_LIMIT` in a row
+    /// this stops skipping altogether. See the two constants.
     pub fn report_playback_error(&self, reason: String) {
-        let failed = self.state.lock().unwrap().now_playing.clone();
+        // A stall is the player's fault, not the video's, so it is the
+        // only reason that counts toward the cascade: while it lasts,
+        // every song in the queue fails the same way in turn. A hard
+        // error (removed, region-locked) is about that one video, and
+        // still skips and announces every time.
+        let stalled = reason == STALL_REASON;
+        let (failed, stalls) = {
+            let mut state = self.state.lock().unwrap();
+            if stalled {
+                state.consecutive_stalls += 1;
+            } else {
+                state.consecutive_stalls = 0;
+            }
+            (state.now_playing.clone(), state.consecutive_stalls)
+        };
+
+        // THE CASCADE STOP. Past the limit the bot stops skipping
+        // entirely: now_playing stays put, the queue is not consumed, and
+        // no event goes out. The one line announcing it is sent on the
+        // transition only, so the stall repeating every ~40s for the rest
+        // of the outage stays silent.
+        if stalled && stalls > STALL_CASCADE_LIMIT {
+            if stalls == STALL_CASCADE_LIMIT + 1 {
+                tracing::warn!(
+                    "{STALL_CASCADE_LIMIT} songs stalled in a row — holding the queue instead of skipping any further."
+                );
+                let _ = self.playback_halted_tx.send(PlaybackHaltedEvent { consecutive_stalls: STALL_CASCADE_LIMIT });
+            }
+            return;
+        }
+
         self.advance();
         if let Some(failed) = failed {
             let _ = self.playback_error_tx.send(PlaybackErrorEvent {
@@ -800,6 +896,9 @@ impl SongRequestManager {
                 title: failed.title,
                 reason,
                 video_id: failed.video_id,
+                // One line per stall episode — the first stalled skip
+                // says why, the rest of the run is silent.
+                announce: !stalled || stalls == 1,
             });
         }
     }
@@ -1467,6 +1566,124 @@ mod tests {
         let event = errors.try_recv().expect("a playback error is announced");
         assert_eq!(event.video_id, "THEIRS");
         assert!(!event.was_random, "a viewer's own request is theirs to ask for again");
+    }
+
+    // ---- The stall cascade (2026-09-19) ----
+    //
+    // A seven-minute YouTube outage inside OBS's Chromium stalled eleven
+    // songs in a row. Each one was correctly diagnosed, skipped and
+    // announced — eleven viewer requests gone at one a minute, and
+    // eleven lines of chat. The detector was right every time; the skip
+    // path simply had no counter.
+
+    /// One chat line per stall EPISODE, not one per song. The skips
+    /// themselves still happen (up to the cascade limit) and every one
+    /// still reaches the blocklist watcher — only `announce` is
+    /// rate-limited.
+    #[test]
+    fn a_run_of_stalled_skips_announces_once() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+        for video_id in ["A", "B", "C", "D"] {
+            manager.queue_song(requested_song(video_id, "alice"));
+        }
+
+        let mut announced = Vec::new();
+        for _ in 0..STALL_CASCADE_LIMIT {
+            manager.report_playback_error(STALL_REASON.to_string());
+            let event = errors.try_recv().expect("every stalled skip still emits its event");
+            announced.push((event.video_id, event.announce));
+        }
+        assert_eq!(
+            announced,
+            vec![("A".to_string(), true), ("B".to_string(), false), ("C".to_string(), false)],
+            "only the first stalled skip of an episode says anything in chat"
+        );
+
+        // Playback recovering ends the episode, so the next outage gets
+        // its own line rather than inheriting this one's silence.
+        manager.report_player_state(true);
+        manager.report_playback_error(STALL_REASON.to_string());
+        assert!(errors.try_recv().expect("a new episode still skips").announce, "a new episode announces again");
+    }
+
+    /// A hard error is about one video, not about playback, so it is
+    /// neither counted nor silenced — and it clears a stall run that was
+    /// building up, because the player plainly answered about a video.
+    #[test]
+    fn a_hard_playback_error_still_announces_every_time() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+        for video_id in ["A", "B", "C"] {
+            manager.queue_song(random_song(video_id));
+        }
+
+        manager.report_playback_error(STALL_REASON.to_string());
+        assert!(errors.try_recv().unwrap().announce);
+        for _ in 0..2 {
+            manager.report_playback_error("video not found or removed".to_string());
+            assert!(errors.try_recv().expect("a hard error always skips").announce, "hard errors are never rate-limited");
+        }
+    }
+
+    /// The cascade stops itself. Past the limit the bot stops skipping,
+    /// stops consuming the queue, and says so exactly once — an entire
+    /// queue of viewer requests is worth more than the stream having
+    /// something on.
+    #[test]
+    fn the_cascade_stops_after_the_limit_and_holds_the_queue() {
+        let manager = test_manager();
+        let mut errors = manager.subscribe_playback_errors();
+        let mut halts = manager.subscribe_playback_halts();
+        // One more song than the cascade can eat, so "the queue is held"
+        // is distinguishable from "the queue ran out".
+        for i in 0..STALL_CASCADE_LIMIT + 3 {
+            manager.queue_song(requested_song(&format!("SONG{i}"), "alice"));
+        }
+
+        for _ in 0..STALL_CASCADE_LIMIT {
+            manager.report_playback_error(STALL_REASON.to_string());
+        }
+        while errors.try_recv().is_ok() {}
+        assert!(halts.try_recv().is_err(), "the limit is how many skips are allowed, not one fewer");
+
+        let held = manager.snapshot();
+        for _ in 0..4 {
+            manager.report_playback_error(STALL_REASON.to_string());
+        }
+        assert_eq!(
+            manager.snapshot().now_playing.map(|s| s.video_id),
+            held.now_playing.map(|s| s.video_id),
+            "a held queue does not advance"
+        );
+        assert_eq!(manager.snapshot().queue.len(), held.queue.len(), "a held queue is not consumed");
+        assert!(errors.try_recv().is_err(), "a held stall neither skips nor announces a skip");
+
+        let halt = halts.try_recv().expect("the stop announces itself");
+        assert_eq!(halt.consecutive_stalls, STALL_CASCADE_LIMIT);
+        assert!(halts.try_recv().is_err(), "once per episode — the stall itself repeats every ~40s");
+
+        // A mod's !skip onto a song that plays is the way out: the
+        // overlay's PLAYING report clears the run, and skipping works
+        // again from there.
+        manager.report_player_state(true);
+        manager.report_playback_error(STALL_REASON.to_string());
+        assert!(errors.try_recv().expect("recovery re-arms skipping").announce);
+    }
+
+    /// The cascade stop is keyed off a string the OVERLAY produces, and
+    /// the overlay a live OBS has already loaded cannot be changed from
+    /// the bot. If that literal is ever edited in overlay.html, every
+    /// stall silently becomes a hard error again and the cascade comes
+    /// back — so the two are pinned together here rather than trusted to
+    /// stay in step.
+    #[test]
+    fn the_stall_reason_matches_the_overlay() {
+        let overlay = include_str!("../public_song_overlay/overlay.html");
+        assert!(
+            overlay.contains(&format!("const reason = '{STALL_REASON}';")),
+            "reportStuckPlayback in overlay.html no longer sends STALL_REASON verbatim"
+        );
     }
 
     // ---- !modskip ----
