@@ -3,6 +3,7 @@
 // it's only ever used from there.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::auth::AuthClient;
 
@@ -30,7 +31,7 @@ pub struct PendingRedemption {
 
 impl HelixClient {
     pub fn new(auth: Arc<AuthClient>) -> Self {
-        Self { auth, http: reqwest::Client::new() }
+        Self { auth, http: reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("reqwest client build") }
     }
 
     /// Resolves a channel login (e.g. from TWITCH_CHANNEL in .env) to its

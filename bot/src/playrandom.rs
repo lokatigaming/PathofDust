@@ -393,7 +393,7 @@ impl PlayRandomManager {
     pub fn new(lastfm_api_key: String) -> Arc<Self> {
         let persisted: PersistedState = crate::state::load_json(STATE_PATH).unwrap_or_default();
         Arc::new(Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("reqwest client build"),
             lastfm_api_key,
             enabled: AtomicBool::new(persisted.enabled),
             last_topup_attempt: Mutex::new(None),

@@ -486,7 +486,7 @@ impl SongRequestManager {
         Arc::new(Self {
             youtube_api_keys,
             current_key_index: AtomicUsize::new(0),
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("reqwest client build"),
             voteskip_threshold,
             votepause_threshold,
             voteresume_threshold,
@@ -1717,6 +1717,37 @@ mod tests {
     fn a_suppressed_lookup_failure_says_nothing() {
         assert!(RequestError::Unreachable { announce: false }.chat_reply().is_none());
         assert!(RequestError::Status { status: 500, announce: false }.chat_reply().is_none());
+    }
+
+    /// 22: the request timeout now on the YouTube client fails through
+    /// `lookup_unreachable`, the same door every other transport error
+    /// uses, so it inherits 21a's redaction and 21b's quiet window with
+    /// no chat code of its own. Asserted with a stand-in that renders
+    /// exactly what reqwest's timeout renders — URL, key and all —
+    /// because a real one needs a network.
+    #[test]
+    fn a_timed_out_lookup_says_the_same_safe_sentence() {
+        struct TimedOut;
+        impl std::fmt::Display for TimedOut {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(
+                    "error sending request for url (https://www.googleapis.com/youtube/v3/search?q=trapt&key=AIzaTESTKEY): operation timed out",
+                )
+            }
+        }
+
+        let manager = test_manager();
+        let err = manager.lookup_unreachable(&TimedOut);
+        assert!(matches!(err, RequestError::Unreachable { announce: true }), "the first timeout of a run speaks");
+
+        let line = err.chat_reply().expect("an announced timeout has a chat line");
+        assert_eq!(line, "YouTube lookup failed \u{2014} couldn't reach YouTube just now. Try again in a moment.");
+        assert!(!line.contains("AIzaTESTKEY"), "no key: {line}");
+        assert!(!line.contains("googleapis.com"), "no URL: {line}");
+        assert!(!line.contains("timed out"), "chat gets one sentence whatever the cause: {line}");
+
+        // And a run of timeouts is one line, not one per attempt.
+        assert!(manager.lookup_unreachable(&TimedOut).chat_reply().is_none(), "the rest of the run is silent");
     }
 
     // ---- The stall cascade (2026-09-19) ----

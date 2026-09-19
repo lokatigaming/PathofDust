@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
 /// Same Apps Script Web App the build feed, Patreon login, and Valdo
@@ -97,7 +98,7 @@ pub struct PersonalPlaylistManager {
 impl PersonalPlaylistManager {
     pub fn new(path: PathBuf, sync_secret: Option<String>) -> Arc<Self> {
         let playlists: HashMap<String, UserPlaylist> = crate::state::load_json(&path).unwrap_or_default();
-        let this = Arc::new(Self { playlists: Mutex::new(playlists), path, sync_secret, http: reqwest::Client::new() });
+        let this = Arc::new(Self { playlists: Mutex::new(playlists), path, sync_secret, http: reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build") });
         // Pushes local state to the sheet once at startup too, so a
         // restart (or a hand-edited local JSON file) doesn't leave the
         // public site showing stale data until the next actual change.
