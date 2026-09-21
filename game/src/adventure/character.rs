@@ -1199,36 +1199,43 @@ pub(crate) fn sprite_for_character(id: &str) -> &'static str {
 /// `/sprites/...` by the existing `ServeDir` mount (see
 /// `start_adventure_web_server`), so `/sprites/custom/<name>.png` (or
 /// `.gif`) just works with zero server-config changes either.
-pub const CUSTOM_SPRITE_DIR: &str = "public_adventure_overlay/sprites/custom";
-
-/// `CUSTOM_SPRITE_DIR` resolved against the configured data directory
-/// (2026-09-09).
 ///
-/// **Every runtime read of the sprite drop-in directory and its manifest
-/// goes through this or `custom_sprite_manifest_path` below, and nothing
-/// reads the bare constants any more.** They used to be read directly,
-/// which meant they resolved against whatever the process's working
-/// directory happened to be - `/var/lib/pathofdust` under the unit file.
-/// That is the same directory `data_path` resolves to in production
-/// (`DATA_DIR` is unset there, so the base is empty and this is
-/// byte-identical to the bare literal), so **this changes no path on the
-/// box**. What it changes is that the resolution is now stated rather
-/// than inherited, and that it follows `GAME_DATA_DIR` like every other
-/// runtime file.
+/// ---
 ///
-/// The reason it had to be all three read sites and not just the
-/// manifest: the picker lists this directory
-/// (`adventure_web::render_model_picker`), `custom_sprite_file_exists`
-/// probes it, and the manifest names their owners. Route one through
-/// `data_path` and leave the others bare, and the moment `GAME_DATA_DIR`
-/// is set the picker offers sprites from one root while ownership is
-/// judged from another - a silent divergence of exactly the kind that
-/// put the manifest in the wrong place to begin with.
+/// **This function is the single source for where that directory is**,
+/// and the only way to get there.
+///
+/// THE CONST IS GONE (2026-09-12). There used to be a
+/// `CUSTOM_SPRITE_DIR = "public_adventure_overlay/sprites/custom"`
+/// beside this. Once resolution moved onto the store table, nothing
+/// resolved through it: the head comes from
+/// `Store::PublicAdventureOverlay`'s own name and the tail is joined
+/// here, so the const was a second, unread spelling of the same path.
+/// Editing it would have moved nothing while looking like it moved
+/// everything - "documented path is not the resolved path", the exact
+/// drift that stranded the ownership manifest off the box in the first
+/// place. Deleted rather than re-pointed at the tail, because the head
+/// it carried (`public_adventure_overlay`) is the STORE'S name and
+/// belongs in the store table, not restated here.
+///
+/// **Every runtime read of the drop-in directory and its manifest goes
+/// through this or `custom_sprite_manifest_path` below.** Resolution is
+/// stated rather than inherited from the process's working directory,
+/// and follows `GAME_DATA_DIR` like every other runtime file. In
+/// production `DATA_DIR` is unset, so this is byte-identical to the bare
+/// literal it replaced - no path on the box moved.
+///
+/// It had to be all three read sites, not just the manifest: the picker
+/// lists this directory (`adventure_web::render_model_picker`),
+/// `custom_sprite_file_exists` probes it, and the manifest names their
+/// owners. Route one through the store and leave the others bare, and
+/// the moment `GAME_DATA_DIR` is set the picker offers sprites from one
+/// root while ownership is judged from another.
 pub fn custom_sprite_dir() -> std::path::PathBuf {
     crate::adventure::data_path(crate::adventure::Store::PublicAdventureOverlay).join("sprites/custom")
 }
 
-/// Whether `model` is a real file in `CUSTOM_SPRITE_DIR`, in the stored
+/// Whether `model` is a real file in `custom_sprite_dir()`, in the stored
 /// `custom/<name>` form (no extension) `change_model`/`effective_sprite`/
 /// `render_model_picker` all key it by - accepts either a `.png` or a
 /// `.gif` on disk (the overlay itself figures out which extension
@@ -1242,7 +1249,7 @@ pub fn custom_sprite_dir() -> std::path::PathBuf {
 ///
 /// Read on every check rather than cached, so dropping a sprite in and adding
 /// its line takes effect with no restart - the same live drop-in property
-/// `CUSTOM_SPRITE_DIR` has always had, and the same per-call cost
+/// `custom_sprite_dir()` has always had, and the same per-call cost
 /// `custom_sprite_file_exists` already pays by listing the directory.
 pub const CUSTOM_SPRITE_MANIFEST_FILE: &str = "owners.toml";
 
@@ -1346,7 +1353,7 @@ pub fn is_valid_custom_sprite(owner_id: &str, model: &str) -> bool {
     custom_sprite_file_exists(name)
 }
 
-/// Whether a `.png` or `.gif` for `name` exists in `CUSTOM_SPRITE_DIR`,
+/// Whether a `.png` or `.gif` for `name` exists in `custom_sprite_dir()`,
 /// compared WITHOUT case (both the stem and the extension).
 ///
 /// Resolved by listing the directory rather than by probing
@@ -1680,7 +1687,7 @@ impl Character {
             if ALL_SPRITES.contains(&candidate) {
                 return candidate.to_string();
             }
-            // Custom drop-in sprite (see `CUSTOM_SPRITE_DIR`) - re-checked
+            // Custom drop-in sprite (see `custom_sprite_dir`) - re-checked
             // against disk (AND against `id` for ownership - see
             // `is_valid_custom_sprite`'s doc) on every call rather than
             // trusted from the stored value alone, so a file removed
