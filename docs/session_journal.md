@@ -10375,3 +10375,42 @@ the file.
 since 21 swapped at 07:43 UTC — the only three failures in the log are
 the pre-swap ones at 06:28-06:30 that caused all this. Per the order, no
 failure was manufactured in production. Verified by inspection only.
+
+## 2026-09-21 — items 14, 18, 16 merged as a batch, all refused byte-identical as predicted. STOPPED at 17: it is not docs-only, and it moves the binary.
+
+First session under the 09-21 rule: the one-item rule governs deploys, not merges.
+
+| item | branch / head | merge | predicted | observed |
+|---|---|---|---|---|
+| 14 | `docs/restore-rehearsal-procedure` `f1daf61` | `1be8520` | refused, byte-identical | **refused**, `c9292de8…` both sides |
+| 18 | `docs/cutover-sprite-collision` `53aae2f`, carrying `1743f0b` | `7fea190` | refused, byte-identical | **refused**, `c9292de8…` both sides |
+| 16 | `docs/ledger-86-today-correction` `d950151` | `b68bf2b` | refused, byte-identical | **refused**, `c9292de8…` both sides |
+| 17 | `chore/sprite-dir-single-source` `0710609` | **not merged** | **moves the binary** | probe build `f7323dab…` ≠ live `c9292de8…` |
+
+**Predictions from the tree.** 14, 18 and 16 change only `docs/`; `game/`, `Cargo.lock` and
+the toolchain file are unchanged since release 32 (`bef27a9`), no `build.rs` exists, and
+nothing `include_str!`s a doc. 14a was not merged separately — `1743f0b` is an ancestor of
+`7fea190`. Each gate ran from its own per-release archive (`docs-14-…`, `docs-18-…`,
+`docs-16-…`); service `active`, `NRestarts=0` after every one.
+
+**14's journal conflict, keep-both.** Branch entry (written 09-09 16:22) placed before
+HEAD's first conflicting entry (release 22's record, 09-10 00:30). Resolution diff against
+HEAD is +136 / −0, equal to the branch's own additions — nothing lost.
+
+**One suite, after the three:** `cargo test --release --workspace --quiet -j 4` on `b68bf2b`
+— **1054 passed / 0 failed / 0 ignored, 48 result lines, exit 0**, identical to the post-22
+baseline, as it must be for docs-only merges.
+
+**Why 17 stopped the batch.** The order lists it among four docs-only merges; it is not.
+It deletes `CUSTOM_SPRITE_DIR` and nine dead consts and rewrites doc comments across
+`character.rs`, `fight_storage.rs`, `manager.rs`, `adventure_web.rs` and one test. Dead
+consts and comments contribute no code, but the edits shift line numbers, and line numbers
+are compiled into panic `Location`s and `tracing` callsite metadata — so the binary moves
+even though behaviour should not. Predicted, then measured without deploying: its merge was
+made in a scratch worktree (second worktree, not a stash), built on the box as
+`probe-17-sprite-dir`, hashed, and **`deploy-linux.sh` was not run**. The probe commit was
+never pushed and the worktree is removed. Merging 17 is therefore a game deploy, and 15
+behind it is untouched. Needs the owner's ruling.
+
+FOUND: my own stray `cat > file` with no input hung a Bash call for 600 s before anything
+ran; nothing was pushed or built by it, and the empty file it created was removed.
