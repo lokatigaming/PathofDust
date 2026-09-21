@@ -42,7 +42,13 @@ const PLAYER_LOGIN: &str = "craft-price-tester";
 const SHIPPED_MULT: f64 = 0.1;
 const MULT_MIN: f64 = 0.0;
 const MULT_MAX: f64 = 10.0;
-const SHIPPED_EXPONENT: f64 = 1.1;
+/// 1.5 since 2026-09-09, and this file failing was the intended
+/// behaviour of that change: its own doc above says "if someone edits the
+/// constants without meaning to change live prices, this file fails and
+/// says so". The edit WAS meant - the compiled default was 1.1 while the
+/// live tunables file has held 1.5 since 2026-09-04, so the constant was
+/// the thing out of step, not the game.
+const SHIPPED_EXPONENT: f64 = 1.5;
 const EXPONENT_MIN: f64 = 1.0;
 const EXPONENT_MAX: f64 = 1.5;
 /// Must match `craft::CRAFT_TIER_BUMP_MULT` and its bounds (2026-09-02).
