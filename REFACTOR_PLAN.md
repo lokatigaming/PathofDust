@@ -1521,6 +1521,26 @@ cargo build --release --workspace > /root/build-$REL.log 2>&1; echo "build exit:
 cargo test  --release --workspace --quiet > /root/test-$REL.log 2>&1; echo "test exit: $?"
 ```
 
+**Confirm the archive arrived intact before you unpack it (added
+2026-09-21).** Hash it on both ends and compare the full digests:
+
+```sh
+# dev machine, before scp
+sha256sum src-deploy-$REL.tar.gz
+# box, after scp
+sha256sum /root/src-deploy-$REL.tar.gz
+```
+
+**The two digests must be equal.** If they differ, delete the box copy and
+copy it again; never unpack a mismatch. This check does something the
+identity grep below cannot. The grep proves the tree contains the
+release; the hash proves the bytes you built are the bytes `git archive`
+produced from the commit you named. That rules out a truncated transfer,
+and it rules out another session's archive landing on the same path. It
+has been done by hand since 2026-09-03 (item 5 `dc24762e…`, 09-07
+`779655cf…`, release 33 `f6768a55…`), and all of them matched. It is
+written here so that it stops depending on who is deploying.
+
 **Confirm the tree is the one you think it is before you build it.** The
 incident's root cause was a binary built from a tree that predated the
 merge it was supposed to contain, and nothing in this procedure would
