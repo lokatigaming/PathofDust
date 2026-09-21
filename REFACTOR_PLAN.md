@@ -1310,6 +1310,15 @@ separately, not to an automatic cleanup.
      workspace-member restructure, a path that doesn't cleanly resolve
      to either crate) — deploy both, as before this amendment. When in
      doubt, don't skip.
+   - **A bot swap is proven by the log, not by `tokens.json` (added
+     2026-09-21, from the 2026-09-13 journal).** The 12d procedure's
+     "`tokens.json` mtime advanced" check is unreliable: that file is
+     written when the OAuth token is *refreshed*, not when the bot
+     authenticates, so its mtime stayed put across a real 13:17 restart
+     on 2026-09-13 and had passed twice before only by coincidence of
+     timing. Proof of a swap is the bot's own log after the restart
+     time: `Fetched login name ... for provided auth token` and
+     `Connected to chat in #<channel>`.
    - **If the bot deploys:** suppress `TwitchBotRS-Watchdog` with its own
      maintenance flag — `C:\PathofDust\maintenance-flag.ps1 -Target Bot
      -Set -Reason "<release> <sha>"`, confirming with `-Target Bot
@@ -1452,6 +1461,27 @@ merge, and `git push origin master`. Everything below replaces 13A steps
 3, 4 and 4a. There is no bot on this box, so 13A's conditional bot
 redeploy does not apply; `.clinerules` (13A step 6) is a Windows
 deployment-root artifact and does not apply either.
+
+> **Patch notes on Linux are written AFTER the swap (owner ruling
+> 2026-09-18), not first.** Write the entry only once `deploy-linux.sh`
+> has reported success and check 4 (13B.5) matches the candidate hash; a
+> refused or rolled-back deploy must not leave a note for a release that
+> never went live. Date it by **the box's clock** (`date` on the box,
+> `Europe/Berlin`), never the dev machine's. Take a pre-edit copy of
+> `/var/lib/pathofdust/patch-notes.json` into the rollback slot first, and
+> write with the file's own serialization (`json.dumps(indent=2,
+> ensure_ascii=False)` plus a trailing newline) so the diff is the new
+> block and nothing else. This supersedes "write the patch-notes entry
+> FIRST" above for 13B deploys.
+>
+> **Whether a release moves the binary is MEASURED, never reasoned from
+> how the diff looks (ruling 2026-09-21).** Comment and whitespace edits
+> shift line numbers, and line numbers are compiled into panic
+> `Location`s and `tracing` callsite metadata — so a "cosmetic" diff under
+> `game/` can move the binary (item 17, 2026-09-21: dead consts and doc
+> comments only, probe build `f7323dab…` against live `c9292de8…`). When
+> it matters, build the merge on the box from a scratch worktree and hash
+> it; do not run `deploy-linux.sh` on a probe.
 
 #### 1. Build, test, hash
 
@@ -1754,6 +1784,33 @@ Apply the same test to any check added below: if it contains a number
 copied out of production rather than read from it at run time, it is not a
 check — it is a timer counting down to a false alarm.
 
+> **Added 2026-09-21 — checks 5 and 6 still carry byte literals, and by
+> the rule just stated they are not expectations.** "94 KB / 72 KB today"
+> (check 5) and "~71,722 B" (check 6) were measured 2026-09-02; check 6's
+> body read **77,589 B** on 2026-09-19 with nothing wrong. Read both as
+> *orders of magnitude* only: check 5 passes on a 200 whose body is tens
+> of KB rather than a near-empty page, check 6 on a 404 whose body is the
+> game's full not-found page rather than **0 bytes**. A 0-byte 404 is the
+> wrong server answering (see the port note below), not a pass.
+>
+> **Check 5 never reads a token out of `adventure-sessions.json` (owner
+> ruling 2026-09-17).** It uses a session cookie the owner supplies for
+> that run, or it does not run and the report says "check 5 unrun, cookie
+> needed". This supersedes 13B.8.5's "reuse an existing
+> `adventure-sessions.json` entry" method.
+>
+> **Resolve the port from the PID, never from memory (2026-09-19).** The
+> game's MainPID listens on two ports; on 2026-09-19 the game was **4005**,
+> and **4004** answered check 6 with a 0-byte 404 and check 7 with 405.
+> `ss -ltnp | grep "pid=$(systemctl show pathofdust -p MainPID --value),"`
+> and use the port that serves the game's own not-found page.
+>
+> **Watch the fight loop by the newest filename, never by counting.**
+> `adventure-fights-summary/` is capped at `SUMMARY_FIGHTS_CAPACITY =
+> 200`, so its count reads 200 before and after a healthy deploy and
+> would read 200 forever. `ls adventure-fights-summary | sort | tail -1`
+> must advance past the swap time.
+
 Plus, before calling a deploy done: **watch one fight resolve.** The web
 server answering proves the web server; only a fight in the journal and a
 new file in `adventure-fights-summary/` proves the game loop.
@@ -1986,6 +2043,10 @@ match on a file that no longer contains it as executable code.
 Session access for the authenticated fetch: reuse an existing
 `adventure-sessions.json` entry whose login equals `OPERATOR_LOGIN`, per
 the cutover runbook §7.3 method. Read-only — do not write to that file.
+**Superseded 2026-09-17 (owner ruling), recorded 2026-09-21:** never read
+a token out of `adventure-sessions.json`; use a cookie the owner supplies
+for the run, or leave the authenticated fetch unrun and say so. See the
+note under 13B.5.
 
 ##### 8.6 The binary hash NOT changing is the expected outcome
 

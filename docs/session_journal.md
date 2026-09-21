@@ -10414,6 +10414,7 @@ behind it is untouched. Needs the owner's ruling.
 
 FOUND: my own stray `cat > file` with no input hung a Bash call for 600 s before anything
 ran; nothing was pushed or built by it, and the empty file it created was removed.
+
 ## 2026-09-21 — RELEASE 33 DEPLOYED: items 17 + 15 bundled (`bundle-17-15`). 0.57 s downtime. Prediction held: the binary moved, and no price did.
 
 Owner ruling (a), bundled. Merges: 17 `chore/sprite-dir-single-source` `0710609` → `f8fde9d`
