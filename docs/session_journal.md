@@ -10414,3 +10414,38 @@ behind it is untouched. Needs the owner's ruling.
 
 FOUND: my own stray `cat > file` with no input hung a Bash call for 600 s before anything
 ran; nothing was pushed or built by it, and the empty file it created was removed.
+## 2026-09-21 — RELEASE 33 DEPLOYED: items 17 + 15 bundled (`bundle-17-15`). 0.57 s downtime. Prediction held: the binary moved, and no price did.
+
+Owner ruling (a), bundled. Merges: 17 `chore/sprite-dir-single-source` `0710609` → `f8fde9d`
+(clean); 15 `feat/craft-exponent-1-5` `3bcede3` → `aa06259` (`WIKI_IMPACT.md` tail conflict,
+keep-both, +2 / −0). Binary `58376a633ae3b1bc867d59b192b461b8f97636d662f5a68ca04e92abdedf196c`
+over `c9292de8…`; rollback slot
+`/var/backups/pathofdust/deploy-pre-20260921-111325-bundle-17-15`.
+
+**15's guard, checked before merging.** Live `adventure-live-tunables.toml` line 80 reads
+`craft_tier_exponent = 1.5`. 15's only non-test, non-comment change is the compiled default
+`CRAFT_TIER_EXPONENT` 1.1 → 1.5 — the fallback moves onto the live value; nothing live moves.
+
+**Prediction, stated before the build:** gate accepts; the candidate differs from live
+`c9292de8…` and from 17's solo probe `f7323dab…` (15 changes a compiled constant). Observed
+`58376a63…`, both inequalities true.
+
+**Suites**, `cargo test --release --workspace --quiet -j 4`, on `aa06259`: local **1055 / 0 / 0,
+48 result lines, exit 0**; box **1055 / 0 / 0, 48 lines, exit 0**. Baseline 1054 + 1 = 15's new
+`the_compiled_exponent_is_the_one_the_game_is_played_on`.
+
+**Archive integrity by hand**: `src-deploy-bundle-17-15.tar.gz` `f6768a55…` on both ends.
+Identity: `pub const CRAFT_TIER_EXPONENT: f64 = 1.5` present; `CUSTOM_SPRITE_DIR` only in the
+`character.rs:1209` doc comment, same as the commit.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 log `loaded 24 characters` = file `24`; 4 live =
+candidate; 5 **unrun** — needs an owner cookie, no token read; 6 port 4005 (from MainPID)
+404 / 77,589 B (4004: 404 / 0 B, the wrong server); 7 404. Fight loop: newest summary
+`fight-0000017260` → `fight-0000017261` at 11:14:46, after the 11:13:25 swap.
+
+**Patch notes after the swap and check 4**, one block for both items, dated **September 21,
+2026** by the box clock. Pre-edit copy `accc48f7…` in the slot and `/root`; diff +19 / −0;
+new file `46b956d2…`. The craft section says "no price moves" because that is the fact.
+
+Bot: not redeployed — `git diff --name-only bef27a9..aa06259 -- bot Cargo.lock` touches no
+bot path, and there is no bot on the box.
