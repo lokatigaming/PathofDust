@@ -3952,3 +3952,92 @@ The window is not negotiable: **B is rate-limited to 5% per fight, so a
 correction takes roughly 46 fights, about two hours at the live cadence.**
 A short window reads a transient as steady state — a previous report
 over-read a twenty-fight one. `c` has box access; this window does not.
+
+---
+
+**#88 — CORRECTION to `#86`: its closing "not saturated today" is false
+today. Controller A is pinned at its ceiling, measured 2026-09-11 18:30
+on the live box. The reading `#86` quoted was true when taken and was
+never an invariant — and the word that made it stale is "today".**
+
+Corrects one sentence of `#86` (2026-09-08). `#86` itself is untouched
+and stays readable, wrong, and dated, per the append-only ruling of
+2026-09-02: **a correction is a new entry, never an overwrite.**
+
+Numbering: `#86`/`#87` were taken provisionally against master `78a96ea`
+with a note offering to renumber if the parser had issued either. It had
+not — both are still the highest in this file — so they stand as
+written and this entry takes the next free number.
+
+### The sentence
+
+`#86`, on Controller A's history in World 2:
+
+> "The ceiling was later raised and A moved to **11.88 of 50**, i.e. not
+> saturated today."
+
+### The measurement that contradicts it
+
+Read by `c` from `/var/lib/pathofdust` at **2026-09-11 18:30**:
+
+| dial | live value |
+| --- | --- |
+| `hp_pacing_mult` | **50.0** |
+| `hp_multiplier_ceiling` | **50.0** |
+| `boss_power_mult` | 3.657 |
+| `enemy_hp_pool_hard_cap` | 1e15 |
+
+**Controller A is pinned at its ceiling.** Not near it — on it.
+
+### What is NOT being claimed
+
+**Nobody is claiming 11.88 was wrong when written.** It came from a
+reading taken before 2026-09-08, and that reading cannot be checked now:
+pre-deploy backups carry no world state, so the value on that date is
+unrecoverable. **It will not be reconstructed, and nothing here depends
+on reconstructing it.** The defect is not an arithmetic error. It is that
+a measurement was written in a tense that made it outlive its own
+evidence.
+
+### The rule
+
+> **A dated measurement stays true. "Today" does not.**
+>
+> **Ledger entries carry the date of the reading, never the word
+> "today".** "A was 11.88 of 50 on 2026-09-05" is still true and always
+> will be. "A is not saturated today" was true for some number of days
+> and then silently became a false claim sitting in a file people cite.
+>
+> The two sentences carry the same fact and differ only in whether they
+> expire.
+
+**`#86` is the entry this lesson should have been hardest to miss on.**
+Its own subject is a board item that went unactionable for a week because
+it described a condition that had changed underneath it — and it closed
+by making a present-tense claim of exactly that kind. The failure mode
+being documented and the failure mode being committed were the same one,
+three paragraphs apart.
+
+### The pin itself is already on the board — cited, not re-derived
+
+Controller A has sat at 50.0 since 2026-09-04. Its uncapped request is
+**67.8** with `boss_gear_tier_weight` at 1.0 (98.9 without), so the
+ceiling binds and A cannot step down to a value it is not asking for. The
+median boss fight is **35.2 s** against a 30–45 s target — inside the
+band — and the standing decision is **to leave the dials alone**, because
+the pin is currently what keeps the typical fight inside the window.
+
+None of that is new here and none of it is re-derived. It is named so a
+reader who arrives at `#86`'s stale sentence can see both that it is
+stale and that the live state is already understood and deliberate,
+rather than an unnoticed problem.
+
+### Scope
+
+One sentence in one entry. No other `#86` claim is affected: its closed
+form (`mean_dps × 37.5 > pool_cap`), its identity check against `#67`'s
+independently measured 1.393e16, and its coupling result (relieving the
+ceiling walks the party toward the absolute cap) are all dateless
+arithmetic and remain exactly as true as when written. **That contrast is
+the point of this entry** — the arithmetic did not rot; the sentence with
+"today" in it did.
