@@ -1,3 +1,28 @@
+## NOT DEFECTS — two things that keep being reported and never should be
+
+**A passive node at rank 4 is CORRECT.** Some passive nodes deliberately
+take a 4th point as the gate to progress to the next part of the tree —
+a Specialization's 4th point adds no further increment of its own stat,
+it unlocks that specialization's three Modifier children. A character
+holding rank 4 on such a node is correct. **It is never a defect, never a
+data-integrity finding, never something to report** — not in an audit,
+not in the anomaly ledger, not as a FOUND line. The definition already
+says so and needs no comment added: `game/src/passive_tree.rs` gives
+`spec()` `max_rank: 4` while `skill()` and `modifier()` get 3,
+`PassiveNode::effective_rank` floors a Specialization's magnitude at 3 so
+the 4th point buys only the unlock, and the module header states the
+whole shape. Do not "fix" a rank-4 allocation and do not file it.
+
+**Bosses carry an intentional scaling damage reduction on player hits.**
+It ramps with stage — about **×0.94** to player damage around stages
+165–205 — and it is normal game design, not missing damage and not an
+unlogged bug. It is a live dial, not a constant: `boss_dr_half_stage`
+(shipped default `BOSS_DR_HALF_STAGE`), applied at
+`game/src/adventure/manager.rs:8615` through `boss_secondary_ramp` and
+capped at `BOSS_DEFENSE_CAP`, times a per-boss jitter. Player damage
+landing a few percent under a hand-computed expectation inside that band
+is this mechanic working. Never report it as a defect.
+
 ## Deploy procedure
 Deploy procedure is documented in REFACTOR_PLAN.md §13 (authoritative,
 supersedes any earlier version) — `git push origin master` remains a
@@ -124,15 +149,19 @@ point for design.
 
 ROLES. Feature sessions build on branches. The deploy session alone merges to master and deploys. The log parser verifies from fight logs and owns the anomaly ledger (its numbering is canonical). One release at a time, deployed only on the owner's explicit go.
 
-BRANCH DISCIPLINE. Each feature session: own git worktree, branch off current origin/master, own --target-dir (production binaries are file-locked). Never touch the main checkout. Push and STOP — never merge to master, never deploy, never regenerate golden-corpus fixtures (report mismatches with attributed causes; regeneration happens at merge). Fixture ADDITIONS are allowed; re-capturing an unmerged draft needs explicit permission plus a per-diff explanation.
+BRANCH DISCIPLINE. Each feature session: own git worktree, branch off current origin/master, own --target-dir (production binaries are file-locked). Never touch the main checkout. Push and STOP — never merge to master, never deploy, never regenerate golden-corpus fixtures (report mismatches with attributed causes; regeneration happens at merge). Fixture ADDITIONS are allowed; re-capturing an unmerged draft needs explicit permission plus a per-diff explanation. **When a clean tree is needed for a comparison, add a SECOND WORKTREE — never `git stash`.** A stash mutates shared state another session may have work in flight against, and a forgotten stash is a silent loss; a worktree costs nothing and touches nobody else's checkout.
 
 PRODUCTION SAFETY. Never terminate a process by image name. `taskkill /IM` (and any equivalent that matches on executable name — `Stop-Process -Name`, `pkill`) matches production by name and can kill the live game or bot; a `/FI` filter is not a safeguard, because a filter that matches nothing today matches everything the day it stops applying. Stop processes by PID, or by resolving the listening port to its owning PID, and confirm the resolved process path is NOT under `C:\PathofDust` before stopping it. This applies to disposable smoke/test instances too — they run the same `game.exe` image as production.
 
 BUILD & TEST. cargo build --release --workspace (a plain build misses game.exe). Clippy clean on touched code. NO blanket cargo fmt — no rustfmt.toml exists; match file style by hand. Tests must be run with `cargo test --release --workspace --quiet` — the FULL workspace suite, not a single crate's internal tests — and every reported count must name the exact command that produced it. Crate-internal-only runs miss root-level integration tests (`tests/*.rs`), which is exactly how a real regression got past a "581 passed" report on 2026-08-22: a new `TunablesForm` field consumed by an HTTP handler had no `#[serde(default)]`, so `tests/admin_tunables_splash_http.rs` — which posts a fixed, pre-existing field set — started 422ing instead of redirecting, and the crate-internal run never touched that file. General trap worth knowing by name: any new form/struct field an HTTP handler consumes needs `#[serde(default)]`, or it silently breaks every existing integration test that still posts the old field set. **The trap runs in BOTH directions, and the second direction is the dangerous one because no existing test can see it** — 2026-08-23, dynamic pacing: the retired `dynamic_scaling_mult` had its `<input>` REMOVED from the rendered form and its handler read dropped, but the field stayed REQUIRED on `TunablesForm`. Every real browser save — which posts only what the page renders — 422'd and silently changed nothing, while the whole suite stayed green, because `admin_tunables_splash_http.rs` posts a hand-maintained SUPERSET body that still included the retired key. A superset body can never catch a field the page stopped rendering; it 422s only on fields it forgot to add, never on fields the page no longer sends. Durable rule: **a form POST test must derive its field set from the rendered page** (GET the page, scrape the `name="..."` attributes out of that form, POST exactly those), never from a hand-maintained list — then drift in either direction fails the suite instead of shipping. `admin_tunables_splash_http.rs` now does this; copy that shape for any new form. Report counts + failures only — never paste full passing output. Known flaky-under-parallel tests: the two legacy redistribution tests and live_reload_tests::editing_a_template_takes_effect_without_a_rebuild — confirm in isolation before flagging.
 
+THE FILTER TRAP, BOTH HALVES (earned 2026-09-18, second half 2026-09-19). **A `filtered out` line is not a pass, and a run that produced no line for your test AT ALL is not a pass either.** Both shapes exit 0 and read like a pass if skimmed. Before believing any targeted run, confirm the binary holding the test actually ran: count the tests in the result line and check it is the population you expected. `0 passed / 920 filtered out` is the right binary answering the question you asked; `0 passed / 1 filtered out` is a different binary answering a question you did not ask — on 2026-09-19 that one line came from a small integration binary filtering its own single test while the lib test binary never ran at all. Two causes, both live: a **nested module path** must be given in full (`adventure_web::render::live_reload_tests::…`, not `live_reload_tests::…`, which matches nothing and reports `0 passed; 917 filtered out`), and **`-p game` can skip the lib test binary entirely** — add `--lib` to run it. `--list` printing your test verbatim does not mean your run executed it.
+
 LARGE FILES. Never read combat.rs or any >5k-line file whole. Grep for symbols, then read targeted line ranges.
 
 PROCESS. Fit report FIRST on every feature: verify the order's premises against the code, enumerate every touch point, propose a staged plan, then STOP for approval. If an order's premise is wrong, say so with evidence — refuting a premise beats building on it. Verified claims outrank code-trace claims: live logs and live click-throughs are the only close for behavior and web-form changes.
+
+ORDERS REPEAT THEIR LISTS (ruling 2026-09-24). **An order never refers to a list in a previous order — it repeats the list.** Order files are full-file overwrites, so the previous order is gone the moment the next one lands; a pointer back to it points at nothing. If an order you are given does refer to a list you cannot find, say so and ask for it repeated — do not reconstruct it and do not guess. Release 33 paid for this rule: "the ten rules, as listed in the 09-21 order" survived nowhere, and that item shipped BLOCKED.
 
 TUNABLES DOCTRINE. Every numeric aspect of a mechanic ships as a LiveTunable or node-value override unless genuinely structural (see Decision 16 in docs/passive_tunables_spec.md for the shared-constant exception). Damage reduction caps at defensive_stat_hard_cap (default 0.95) universally — no immunity through DR, ever. Flat/derived damage sources (Shattering icicles, Holy Fire) deliver through the shared dedicated path, never apply_hit.
 

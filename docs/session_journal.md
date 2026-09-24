@@ -10450,3 +10450,44 @@ new file `46b956d2…`. The craft section says "no price moves" because that is 
 
 Bot: not redeployed — `git diff --name-only bef27a9..aa06259 -- bot Cargo.lock` touches no
 bot path, and there is no bot on the box.
+
+## 2026-09-24 — DOCS: the rules the 09-21 order relied on, repeated and written down. Backfill line for release 30.
+
+No code, no deploy. Release 33 closed the 09-13 backlog; this entry records
+the rules that landed with it and the one backfill they require.
+
+**BACKFILL — release 30 shipped without a journal entry as part of the
+deploy.** Item 12 `fix/model-change-failures` went live 2026-09-17
+12:26:57Z; its journal entry (the `## 2026-09-17 — RELEASE 30 DEPLOYED`
+entry above) was written afterwards, on the owner's word, and committed as
+`3a6e68c`. Nothing in that entry is wrong and nothing here rewrites it —
+this line records only the sequence, which is the whole reason the rule now
+exists. **The journal entry is part of a deploy, not an extra**, and it is
+now written into REFACTOR_PLAN §13B.7: every release gets its dated entry
+in the same session that shipped it, asked for or not, because the report
+lives outside the repo and the journal is the only record `git log` can
+find.
+
+**Where the rest went.** CLAUDE.md: rank 4 on a passive node is correct and
+is never a finding (`passive_tree.rs` already declares `spec()` at
+`max_rank: 4` and floors the magnitude at 3, so no code comment was needed
+and none was added); bosses carry an intentional scaling damage reduction
+on player hits (~×0.94 around stages 165–205, the `boss_dr_half_stage`
+dial); the filter trap in both halves; a second worktree, never `git
+stash`; and an order repeats any list it relies on rather than pointing at
+an earlier order — order files are full-file overwrites, which is how "the
+ten rules" vanished and shipped BLOCKED at release 33. REFACTOR_PLAN: the
+bot-hash wording verbatim in §13A's conditional bot redeploy, the reason
+behind "check 5 never reads a token" in §13B.5, and the CRLF/worktree rule
+in §13B.8.5.
+
+**Already carried by `e14e7e6`, confirmed not re-added:** the §13B.5 byte
+literals as orders of magnitude, "check 5 never reads a token" itself,
+patch notes written after the swap, and `tokens.json` mtime retired as swap
+proof in §13A.
+
+**BLOCKED: the "§13 bot wording" item.** I could not determine what it
+asked for. §13 already carries the diff-over-hash rule, the log-line swap
+proof, and "there is no bot on this box"; the order's own instruction for
+that case is to say so and skip, so it is skipped. Name the sentence and it
+is a one-line change.

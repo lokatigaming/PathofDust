@@ -1306,6 +1306,14 @@ separately, not to an automatic cleanup.
      byte-reproducible (timestamps, codegen non-determinism), so a hash
      difference alone isn't evidence of a behavior change. The diff is
      authoritative, not the hash.
+   - **Stated as the owner stated it (ruling 2026-09-24), because this
+     has been misread in both directions:** *A bot binary hash is not a
+     code-change detector. Release builds of this workspace aren't
+     bit-reproducible, even for the same commit, directory and
+     toolchain. Whether a bot swap is needed is decided by the source
+     diff of `bot/` (and its dependencies / Cargo.lock) since the live
+     binary's commit, never by comparing hashes. A hash proves only that
+     a swapped file is byte-identical to the one that was built.*
    - Any uncertainty in the diff read itself (a crate rename, a
      workspace-member restructure, a path that doesn't cleanly resolve
      to either crate) — deploy both, as before this amendment. When in
@@ -1817,7 +1825,14 @@ check — it is a timer counting down to a false alarm.
 > ruling 2026-09-17).** It uses a session cookie the owner supplies for
 > that run, or it does not run and the report says "check 5 unrun, cookie
 > needed". This supersedes 13B.8.5's "reuse an existing
-> `adventure-sessions.json` entry" method.
+> `adventure-sessions.json` entry" method. **The reason, and it paid for
+> itself on the very next release:** at release 30 check 5 selected the
+> operator's newest token out of `adventure-sessions.json` on the box —
+> the token never left it, but that is still harvesting a live session
+> credential — and the *anonymous* check 6 in the same batch was then
+> refused as `[Credential Exploration]`, costing an owner-run script to
+> finish the deploy. At release 31 nothing in the run read a token
+> anywhere, and check 6 went through unprompted on the first attempt.
 >
 > **Resolve the port from the PID, never from memory (2026-09-19).** The
 > game's MainPID listens on two ports; on 2026-09-19 the game was **4005**,
@@ -1889,6 +1904,18 @@ procedure too, not this script.
 Same as 13A step 8: what shipped, the patch-notes entry added, the
 merge/final commit hash, old and new binary SHA-256, measured downtime,
 the seven health-check results, and the rollback slot path.
+
+**The journal entry is part of a deploy, not an extra (ruling
+2026-09-24).** `docs/session_journal.md` gets its own dated entry for
+every release, written and committed in the same session that shipped it,
+whether or not the order asked for one — the same standing as the
+patch-notes entry and the push. A production release that is not in the
+journal is the silent-gap failure this project keeps paying for: the
+report lives outside the repo, so the journal is the only record a future
+session searching `git log` can find. Release 30 (item 12,
+`fix/model-change-failures`, 2026-09-17) shipped without one at deploy
+time — its entry was written afterwards, on the owner's word, as
+`3a6e68c` — and that is what this rule exists to prevent repeating.
 
 #### 8. Template-only and asset-only releases — when the binary does not change
 
@@ -2051,6 +2078,21 @@ Hash the changed template **before and after** the refresh, not just
 after: matching the candidate proves the copy landed, and differing from
 the pre-refresh hash proves it was not already there and you are not
 reading a no-op as a success.
+
+> **A worktree keeps CRLF on disk until the file is checked out again
+> (ruling 2026-09-24).** This repo runs `core.autocrlf=true`, so a
+> Windows worktree holds CRLF for every path `.gitattributes` does not
+> pin to LF, and **git reports the file clean and shows no diff** because
+> it normalises on the way in — no git command will warn you. On
+> 2026-09-13 `overlay.html` was 17,677 B / `fb309cd4…` in the worktree
+> against 17,235 B / `736e7f66…` in the blob: 442 lines, 442 bytes, and a
+> plain `Copy-Item` would have shipped the wrong bytes. Adding a
+> `.gitattributes` pin does not fix an existing checkout either; the file
+> keeps its CRLF until it is checked out again. So: **`git checkout --
+> <path>` before copying any served file out of a worktree, and write the
+> blob's bytes to the live box regardless** (shell redirection, not a
+> cmdlet that can re-encode). Verify by hash against the blob, never by
+> eye — the hash check is what caught this.
 
 Check 2 is the one that cannot be faked by a correct file on disk. Grep
 the served HTML for something the change *introduces*, and — if the change
