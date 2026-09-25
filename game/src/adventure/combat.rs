@@ -618,6 +618,7 @@ impl ArchetypeSkill {
                     let pick_at = rng.gen_range(0..candidates.len());
                     let target_idx = candidates[pick_at];
                     let base_damage = attacker_base_damage(&units[actor_idx], rng);
+                    let lucky_ev_start = events.len();
                     apply_hit(units, actor_idx, target_idx, base_damage, at_ms, events, rolls, rng, true, false);
                     // Chain Reaper - each of THIS dash's bonus targets
                     // (beyond the base FLICKER_STRIKE_HITS) heals the
@@ -651,6 +652,7 @@ impl ArchetypeSkill {
                     }
                     let boosted_splash = units[actor_idx].splash + FLICKER_STRIKE_BONUS_SPLASH;
                     apply_splash(units, actor_idx, target_idx, base_damage, boosted_splash, tunables.splash_extra_targets as usize, None, at_ms, events, rolls, rng, tunables);
+                    apply_lucky_splash(units, actor_idx, lucky_ev_start, AttackSourceKind::Direct, at_ms, events, rolls, rng);
                     // Insatiable - a chance for this hit to extend Endless
                     // Thirst's leech-cap bonus by 2s.
                     let insatiable_chance = units[actor_idx].insatiable_extend_chance;
@@ -2512,6 +2514,15 @@ pub(crate) struct CombatSimUnit {
     /// `increased_damage`, kept so the heal roll can divide it back out
     /// (owner ruling 9: healing is not reduced). 0.0 for everyone else.
     unyielding_damage_less: f64,
+    /// Lucky (item 29a) - THIS unit's own lucky chance per mechanic, the
+    /// already-combined Luckstone totals (`1 - prod(1 - l)`, capped at
+    /// 1.0). Snapshotted at the same site as `echo_pct`; 0.0 for bosses,
+    /// mobs and golems. See `roll_lucky` for what each one rolls against.
+    lucky_evasion: f64,
+    lucky_block: f64,
+    lucky_crit: f64,
+    lucky_echo: f64,
+    lucky_splash: f64,
     /// Seed of Life (Druid only, redesigned 2026-08-21 alongside the Echo
     /// rework - see passive_tree.rs's own doc) - THIS unit's own rate.
     /// Every time one of THEIR OWN heals echoes (see `roll_echo`'s doc for
@@ -3475,6 +3486,11 @@ impl Default for CombatSimUnit {
             next_templeguardian_heal_at_ms: 0,
             echo_pct: 0.0,
             unyielding_damage_less: 0.0,
+            lucky_evasion: 0.0,
+            lucky_block: 0.0,
+            lucky_crit: 0.0,
+            lucky_echo: 0.0,
+            lucky_splash: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -3932,6 +3948,9 @@ pub(crate) struct RollAttackerDamageResult {
     is_crit: bool,
     crit_remainder: f64,
     crit_remainder_roll: bool,
+    /// `roll_lucky`'s result for this hit's lucky crit - `None` when no
+    /// lucky roll was made (see that fn's doc).
+    lucky_crit_roll: Option<(f64, bool)>,
     deterministic_sources: Vec<(RollCategory, &'static str, f64)>,
 }
 
@@ -4048,6 +4067,20 @@ pub(crate) fn roll_attacker_damage(
     if force_crit {
         crit_stacks = crit_stacks.max(1.0);
     }
+    // Lucky crit (item 29a, owner ruling 1) - one extra roll at
+    // `lucky x min(crit_chance, 1)`, "rolls twice and takes the best": a
+    // failed base crit becomes a crit; a base crit instead gets
+    // `lucky x` its WHOLE bonus term (overcrit stacks included) added on
+    // top - 100% crit, 10% lucky, 200% bonus gives 220%.
+    let lucky_crit_roll = roll_lucky(atk.lucky_crit, crit_chance, rng);
+    let mut lucky_crit_bonus_scale = 0.0;
+    if let Some((_, true)) = lucky_crit_roll {
+        if crit_stacks > 0.0 {
+            lucky_crit_bonus_scale = atk.lucky_crit.clamp(0.0, 1.0);
+        } else {
+            crit_stacks = 1.0;
+        }
+    }
     let is_crit = crit_stacks > 0.0;
     // Ranger's Predator's Eye - a live crit-multiplier bonus against the
     // marked target only (see `mark_crit_multiplier_bonus`'s doc).
@@ -4109,7 +4142,7 @@ pub(crate) fn roll_attacker_damage(
             deterministic_sources.push((RollCategory::Crit, "Arcane Instability", atk.arcaneinstability_bonus_pct));
         }
     }
-    let crit_bonus_mult = 1.0 + crit_stack_bonus(crit_stacks, crit_multiplier);
+    let crit_bonus_mult = 1.0 + crit_stack_bonus(crit_stacks, crit_multiplier) * (1.0 + lucky_crit_bonus_scale);
     let mut dmg = base_damage * crit_bonus_mult;
     // Mage's Temporal Rift / Warlock's Unstable Power - baseline attack
     // speed above 100% converts excess into increased damage (see
@@ -4177,7 +4210,7 @@ pub(crate) fn roll_attacker_damage(
     if atk.splash_target_dmg_bonus > 0.0 {
         deterministic_sources.push((RollCategory::IncreasedDamage, "Splash target bonus", atk.splash_target_dmg_bonus));
     }
-    RollAttackerDamageResult { damage: dmg, is_crit, crit_remainder: remainder, crit_remainder_roll: remainder_roll, deterministic_sources }
+    RollAttackerDamageResult { damage: dmg, is_crit, crit_remainder: remainder, crit_remainder_roll: remainder_roll, lucky_crit_roll, deterministic_sources }
 }
 
 /// Resolves one hit's actual damage from a base roll, running it through
@@ -4343,6 +4376,9 @@ pub(crate) fn resolve_hit(
     let mut probabilistic_rolls: Vec<(RollCategory, &'static str, Option<f64>, bool)> = Vec::new();
     if crit_remainder > 0.0 {
         probabilistic_rolls.push((RollCategory::Crit, "Crit chance remainder", Some(crit_remainder), crit_remainder_roll));
+    }
+    if let Some((chance, succeeded)) = attacker_roll.lucky_crit_roll {
+        probabilistic_rolls.push((RollCategory::Crit, "Lucky crit", Some(chance), succeeded));
     }
     // Full-detail combat log (2026-08-17, Phase 2) - the attacker-side
     // `raw_dmg *=` debuffs below (Cthulhu through the late-stage penalty)
@@ -4664,8 +4700,18 @@ pub(crate) fn resolve_hit(
     // current lowest-HP ally (see `apply_hit`'s live computation).
     if !opportunist_guaranteed {
         let chance = evasion_after_elemental.clamp(0.0, 1.0);
-        let evaded = rng.gen_bool(chance);
+        let mut evaded = rng.gen_bool(chance);
         probabilistic_rolls.push((RollCategory::Evasion, "Evasion", Some(chance), evaded));
+        // Lucky evasion (item 29a) - a second chance at `lucky x` the
+        // final evasion chance, only when the base roll failed. Inside the
+        // `!opportunist_guaranteed` gate, so a guaranteed hit skips it too
+        // (owner ruling 5).
+        if !evaded {
+            if let Some((lucky_chance, lucky_evaded)) = roll_lucky(def.lucky_evasion, chance, rng) {
+                probabilistic_rolls.push((RollCategory::Evasion, "Lucky evasion", Some(lucky_chance), lucky_evaded));
+                evaded = lucky_evaded;
+            }
+        }
         if evaded {
             return HitOutcome {
                 damage: pierce_amount.round().max(0.0) as u64,
@@ -4717,8 +4763,16 @@ pub(crate) fn resolve_hit(
         false
     } else if !opportunist_guaranteed {
         let chance = block_after_elemental.clamp(0.0, 1.0);
-        let rolled = rng.gen_bool(chance);
+        let mut rolled = rng.gen_bool(chance);
         probabilistic_rolls.push((RollCategory::Block, "Block chance", Some(chance), rolled));
+        // Lucky block (item 29a) - same shape as lucky evasion above; the
+        // Stonewall and guaranteed-hit branches never reach it.
+        if !rolled {
+            if let Some((lucky_chance, lucky_blocked)) = roll_lucky(def.lucky_block, chance, rng) {
+                probabilistic_rolls.push((RollCategory::Block, "Lucky block", Some(lucky_chance), lucky_blocked));
+                rolled = lucky_blocked;
+            }
+        }
         rolled
     } else {
         false
@@ -5804,6 +5858,11 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             next_templeguardian_heal_at_ms: 0,
             echo_pct: 0.0,
             unyielding_damage_less: 0.0,
+            lucky_evasion: 0.0,
+            lucky_block: 0.0,
+            lucky_crit: 0.0,
+            lucky_echo: 0.0,
+            lucky_splash: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -7334,8 +7393,28 @@ pub(crate) fn apply_flat_source_damage(
     // Top layer (ADDITION 4): applied AFTER the combined-DR step - the
     // very last transformation before rounding/landing.
     let final_damage = apply_top_layer_to(&units[target_idx], mitigated).round().max(0.0) as i64;
+    land_flat_damage(units, source_idx, target_idx, raw_amount, final_damage, source_kind, at_ms, events, rolls, rng).1
+}
+
+/// The landing half of `apply_flat_source_damage`, split out so lucky
+/// splash/echo (item 29a) can land an ALREADY-mitigated amount through
+/// the same path with no second DR pass. Returns `(hit_id, killed)` -
+/// `hit_id` is `None` when nothing landed.
+#[allow(clippy::too_many_arguments)]
+fn land_flat_damage(
+    units: &mut [CombatSimUnit],
+    source_idx: usize,
+    target_idx: usize,
+    raw_amount: f64,
+    final_damage: i64,
+    source_kind: AttackSourceKind,
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+) -> (Option<u64>, bool) {
     if final_damage <= 0 {
-        return false;
+        return (None, false);
     }
     let hit_id = next_hit_id();
     let new_hp = (units[target_idx].hp - final_damage).max(0);
@@ -7355,12 +7434,201 @@ pub(crate) fn apply_flat_source_damage(
         source_kind,
     });
     if new_hp != 0 {
-        return false;
+        return (Some(hit_id), false);
     }
     units[target_idx].alive = false;
     events.push(CombatEvent::Defeat { at_ms, unit: target_id });
     fire_on_kill(units, source_idx, at_ms, events, rolls, rng);
-    true
+    (Some(hit_id), true)
+}
+
+/// Lucky (item 29a) - one hit read back off the `Attack` events a swing
+/// just pushed: its `hit_id`, target, whether it was evaded, and its
+/// landed damage (summed across every `Attack` sharing that `hit_id`, so
+/// a Curse of Weakness credit split still counts as the one hit it is).
+struct LuckyLandedHit {
+    hit_id: u64,
+    target: String,
+    evaded: bool,
+    damage: u64,
+}
+
+/// Every hit `units[attacker_idx]` landed of `kind` in `events[start..]`,
+/// in push order. `hit_id`s come off one monotonic counter and a hit
+/// allocates its id before any nested follow-up (Twin Strikes and co.)
+/// allocates its own, so the smallest `hit_id` of the primary kind is the
+/// swing's own primary hit - see `lucky_primary_hit`.
+fn lucky_landed_hits(units: &[CombatSimUnit], attacker_idx: usize, events: &[CombatEvent], start: usize, kind: AttackSourceKind) -> Vec<LuckyLandedHit> {
+    let attacker_id = &units[attacker_idx].id;
+    let mut hits: Vec<LuckyLandedHit> = Vec::new();
+    for event in &events[start..] {
+        if let CombatEvent::Attack { attacker, target, evaded, hit_id, source_kind, .. } = event {
+            if attacker == attacker_id && *source_kind == kind && !hits.iter().any(|h| h.hit_id == *hit_id) {
+                hits.push(LuckyLandedHit { hit_id: *hit_id, target: target.clone(), evaded: *evaded, damage: 0 });
+            }
+        }
+    }
+    for hit in &mut hits {
+        hit.damage = events[start..]
+            .iter()
+            .map(|e| match e {
+                CombatEvent::Attack { hit_id, damage, .. } if *hit_id == hit.hit_id => *damage,
+                _ => 0,
+            })
+            .sum();
+    }
+    hits
+}
+
+fn lucky_primary_hit(units: &[CombatSimUnit], attacker_idx: usize, events: &[CombatEvent], start: usize, kind: AttackSourceKind) -> Option<LuckyLandedHit> {
+    lucky_landed_hits(units, attacker_idx, events, start, kind).into_iter().min_by_key(|h| h.hit_id)
+}
+
+/// Pushes the "Lucky echo"/"Lucky splash" roll onto the primary hit's
+/// `hit_id`, returning the roll's own `event_id` (what the bonus
+/// damage's `caused_by` points at).
+#[allow(clippy::too_many_arguments)]
+fn push_lucky_roll(
+    units: &[CombatSimUnit],
+    attacker_idx: usize,
+    hit_id: u64,
+    target: &str,
+    category: RollCategory,
+    source: &'static str,
+    chance: f64,
+    succeeded: bool,
+    at_ms: u32,
+    rolls: &mut Vec<RollEvent>,
+) -> u64 {
+    let event_id = next_hit_id();
+    rolls.push(RollEvent {
+        event_id,
+        hit_id,
+        caused_by: None,
+        at_ms,
+        category,
+        source: std::borrow::Cow::Borrowed(source),
+        actor: units[attacker_idx].id.clone(),
+        target: Some(target.to_string()),
+        probability: Some(chance),
+        succeeded: Some(succeeded),
+        magnitude: None,
+    });
+    event_id
+}
+
+/// Lands a lucky splash/echo bonus: `amount` is already-landed
+/// (post-mitigation) damage, so it goes through `land_flat_damage` with
+/// no second DR pass, and - being the derived-damage path - never
+/// splashes or echoes again. `Attack` has no `caused_by` of its own, so
+/// the link back to the lucky roll is a magnitude-only `RollEvent` on the
+/// bonus hit's own `hit_id` with `caused_by: Some(roll_event_id)`.
+#[allow(clippy::too_many_arguments)]
+fn land_lucky_damage(
+    units: &mut [CombatSimUnit],
+    attacker_idx: usize,
+    target_idx: usize,
+    amount: f64,
+    source_kind: AttackSourceKind,
+    category: RollCategory,
+    source: &'static str,
+    roll_event_id: u64,
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+) {
+    if amount <= 0.0 || !units[target_idx].alive || is_damage_immune(&units[target_idx], at_ms) {
+        return;
+    }
+    let final_damage = amount.round().max(0.0) as i64;
+    let (Some(hit_id), _) = land_flat_damage(units, attacker_idx, target_idx, amount, final_damage, source_kind, at_ms, events, rolls, rng) else {
+        return;
+    };
+    rolls.push(RollEvent {
+        event_id: next_hit_id(),
+        hit_id,
+        caused_by: Some(roll_event_id),
+        at_ms,
+        category,
+        source: std::borrow::Cow::Borrowed(source),
+        actor: units[attacker_idx].id.clone(),
+        target: Some(units[target_idx].id.clone()),
+        probability: None,
+        succeeded: None,
+        magnitude: Some(final_damage as f64),
+    });
+}
+
+/// Lucky splash (item 29a, owner ruling 2) - called right after a swing's
+/// `apply_splash`, with `start` = `events.len()` from just before the
+/// swing's primary `apply_hit`. Does NOT need the splash roll to have
+/// succeeded. On success every target the swing landed on - the primary
+/// (`primary_kind`) and every splashed target - takes an extra
+/// `lucky x landed damage`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_lucky_splash(
+    units: &mut [CombatSimUnit],
+    attacker_idx: usize,
+    start: usize,
+    primary_kind: AttackSourceKind,
+    at_ms: u32,
+    events: &mut Vec<CombatEvent>,
+    rolls: &mut Vec<RollEvent>,
+    rng: &mut impl Rng,
+) {
+    let lucky = units[attacker_idx].lucky_splash;
+    if lucky <= 0.0 {
+        return;
+    }
+    let Some(primary) = lucky_primary_hit(units, attacker_idx, events, start, primary_kind) else {
+        return;
+    };
+    let Some((chance, succeeded)) = roll_lucky(lucky, 1.0, rng) else {
+        return;
+    };
+    let roll_event_id = push_lucky_roll(units, attacker_idx, primary.hit_id, &primary.target, RollCategory::Splash, "Lucky splash", chance, succeeded, at_ms, rolls);
+    if !succeeded {
+        return;
+    }
+    let mut landed = vec![primary];
+    landed.extend(lucky_landed_hits(units, attacker_idx, events, start, AttackSourceKind::Splash));
+    for hit in landed {
+        if hit.evaded || hit.damage == 0 {
+            continue;
+        }
+        let Some(target_idx) = units.iter().position(|u| u.id == hit.target) else {
+            continue;
+        };
+        let amount = lucky.min(1.0) * hit.damage as f64;
+        land_lucky_damage(units, attacker_idx, target_idx, amount, AttackSourceKind::Splash, RollCategory::Splash, "Lucky splash", roll_event_id, at_ms, events, rolls, rng);
+    }
+}
+
+/// Lucky echo (item 29a, owner ruling 3) - called after a swing's own echo
+/// repeats, with `start` = `events.len()` from just before its primary
+/// `apply_hit`. On success the primary target takes EXACTLY the original
+/// hit's landed damage again - no re-roll - tagged `Echo`. It does not
+/// splash and does not echo again.
+pub(crate) fn apply_lucky_echo(units: &mut [CombatSimUnit], attacker_idx: usize, start: usize, at_ms: u32, events: &mut Vec<CombatEvent>, rolls: &mut Vec<RollEvent>, rng: &mut impl Rng) {
+    let lucky = units[attacker_idx].lucky_echo;
+    if lucky <= 0.0 {
+        return;
+    }
+    let Some(primary) = lucky_primary_hit(units, attacker_idx, events, start, AttackSourceKind::Direct) else {
+        return;
+    };
+    let Some((chance, succeeded)) = roll_lucky(lucky, 1.0, rng) else {
+        return;
+    };
+    let roll_event_id = push_lucky_roll(units, attacker_idx, primary.hit_id, &primary.target, RollCategory::Echo, "Lucky echo", chance, succeeded, at_ms, rolls);
+    if !succeeded || primary.evaded || primary.damage == 0 {
+        return;
+    }
+    let Some(target_idx) = units.iter().position(|u| u.id == primary.target) else {
+        return;
+    };
+    land_lucky_damage(units, attacker_idx, target_idx, primary.damage as f64, AttackSourceKind::Echo, RollCategory::Echo, "Lucky echo", roll_event_id, at_ms, events, rolls, rng);
 }
 
 /// Water Golem's own Shattering modifier (docs/elementalist_spec.md,
@@ -10168,6 +10436,22 @@ pub(crate) fn roll_echo(pct: f64, rng: &mut impl Rng) -> (u32, f64, bool) {
     (guaranteed + if succeeded { 1 } else { 0 }, remainder, succeeded)
 }
 
+/// Lucky (item 29a) - the one roll all five lucky mechanics share. The
+/// chance is `lucky x stat`, both clamped to [0, 1]: evasion/block pass
+/// their final post-debuff chance, crit passes its (uncapped, stack-
+/// count) crit chance and gets `min(crit_chance, 1)` here, echo/splash
+/// pass 1.0 (no stat term). Returns `None` - and makes NO rng draw - when
+/// the chance is 0, so every unit without lucky leaves the rng sequence,
+/// and therefore every existing fight, byte-identical. `Some((chance,
+/// succeeded))` otherwise, for the caller's "Lucky ..." `RollEvent`.
+pub(crate) fn roll_lucky(lucky: f64, stat: f64, rng: &mut impl Rng) -> Option<(f64, bool)> {
+    let chance = lucky.clamp(0.0, 1.0) * stat.clamp(0.0, 1.0);
+    if chance <= 0.0 {
+        return None;
+    }
+    Some((chance, rng.gen_bool(chance)))
+}
+
 /// Rolls how many extra targets a splash-keyed action/effect hits this
 /// time, and what fraction of the primary hit/heal each one takes
 /// (2026-08-20 splash redesign; 2026-08-20 FINAL SPLASH TABLE addendum,
@@ -11318,6 +11602,13 @@ pub(crate) fn simulate_battle(
                 next_templeguardian_heal_at_ms: 0,
                 echo_pct: c.combat_echo_pct(tunables),
                 unyielding_damage_less: c.unyielding_damage_less(tunables),
+                // Lucky (item 29a) - every equipped Luckstone of each kind,
+                // already folded `1 − Π(1 − lᵢ)` by `luckstone_total`.
+                lucky_evasion: c.luckstone_total(LuckyKind::Evasion),
+                lucky_block: c.luckstone_total(LuckyKind::Block),
+                lucky_crit: c.luckstone_total(LuckyKind::Crit),
+                lucky_echo: c.luckstone_total(LuckyKind::Echo),
+                lucky_splash: c.luckstone_total(LuckyKind::Splash),
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
@@ -12619,6 +12910,11 @@ pub(crate) fn simulate_battle(
             next_templeguardian_heal_at_ms: 0,
             echo_pct: 0.0,
             unyielding_damage_less: 0.0,
+            lucky_evasion: 0.0,
+            lucky_block: 0.0,
+            lucky_crit: 0.0,
+            lucky_echo: 0.0,
+            lucky_splash: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -13786,6 +14082,11 @@ pub(crate) fn simulate_battle(
                                 next_templeguardian_heal_at_ms: 0,
                                 echo_pct: 0.0,
                                 unyielding_damage_less: 0.0,
+                                lucky_evasion: 0.0,
+                                lucky_block: 0.0,
+                                lucky_crit: 0.0,
+                                lucky_echo: 0.0,
+                                lucky_splash: 0.0,
                                 seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -14368,6 +14669,9 @@ pub(crate) fn simulate_battle(
                     if truestrike_bonus > 0.0 {
                         units[actor_idx].crit_chance += truestrike_bonus;
                     }
+                    // Lucky splash/echo (item 29a) read this swing's landed
+                    // hits back off the events pushed from here on.
+                    let lucky_ev_start = events.len();
                     apply_hit(&mut units, actor_idx, boss_idx, primary_damage, at_ms, &mut events, &mut rolls, &mut rng, true, false);
                     if truestrike_bonus > 0.0 {
                         units[actor_idx].crit_chance = original_crit_chance;
@@ -14423,6 +14727,7 @@ pub(crate) fn simulate_battle(
                     let extra_splash_targets =
                         (units[actor_idx].stormofarrows_extra_targets + units[actor_idx].widerburst_extra_targets + units[actor_idx].stormcaller_extra_targets) as usize;
                     apply_splash(&mut units, actor_idx, boss_idx, damage_base, splash, tunables.splash_extra_targets as usize + extra_splash_targets, None, at_ms, &mut events, &mut rolls, &mut rng, tunables);
+                    apply_lucky_splash(&mut units, actor_idx, lucky_ev_start, AttackSourceKind::Direct, at_ms, &mut events, &mut rolls, &mut rng);
                     // Echo (2026-08-21, replaces Lingering Effect) - ONE
                     // roll for this unified hit governs both the repeat
                     // hit and its paired splash (see `roll_echo`'s doc).
@@ -14455,10 +14760,15 @@ pub(crate) fn simulate_battle(
                                 break;
                             }
                             units[actor_idx].echo_repeat_in_progress = true;
+                            let echo_ev_start = events.len();
                             apply_hit(&mut units, actor_idx, boss_idx, primary_damage, at_ms, &mut events, &mut rolls, &mut rng, true, false);
                             apply_splash(&mut units, actor_idx, boss_idx, damage_base, splash, tunables.splash_extra_targets as usize + extra_splash_targets, None, at_ms, &mut events, &mut rolls, &mut rng, tunables);
+                            apply_lucky_splash(&mut units, actor_idx, echo_ev_start, AttackSourceKind::Echo, at_ms, &mut events, &mut rolls, &mut rng);
                         }
                     }
+                    // Lucky echo (item 29a) - independent of `echo_pct`,
+                    // after the ordinary repeats; see `apply_lucky_echo`.
+                    apply_lucky_echo(&mut units, actor_idx, lucky_ev_start, at_ms, &mut events, &mut rolls, &mut rng);
                     // Berserker's Frenzy - a chance for THIS attack to
                     // strike the same target extra times (see
                     // `fire_frenzy`'s doc). `damage_base` (not
@@ -14641,6 +14951,31 @@ pub(crate) fn simulate_battle(
                                 grant_shield(&mut units, actor_idx, target_idx, echoed_healed as f64 * seedoflife_pct, at_ms, SEEDOFLIFE_SHIELD_DURATION_MS, &mut events);
                             }
                             apply_heal_splash(&mut units, actor_idx, target_idx, heal, heal_splash, at_ms, &mut events, &mut rng, tunables);
+                        }
+                    }
+                    // Lucky echo, heal share (item 29a, owner ruling 4) -
+                    // one extra repeat of the SAME resolved `heal` the
+                    // ordinary echoes above repeat, independent of
+                    // `echo_pct`. No splash, no further echo.
+                    let lucky_echo = units[actor_idx].lucky_echo;
+                    if lucky_echo > 0.0 {
+                        if let Some((chance, succeeded)) = roll_lucky(lucky_echo, 1.0, &mut rng) {
+                            rolls.push(RollEvent {
+                                event_id: next_hit_id(),
+                                hit_id: next_hit_id(),
+                                caused_by: None,
+                                at_ms,
+                                category: RollCategory::Echo,
+                                source: std::borrow::Cow::Borrowed("Lucky echo"),
+                                actor: units[actor_idx].id.clone(),
+                                target: Some(units[target_idx].id.clone()),
+                                probability: Some(chance),
+                                succeeded: Some(succeeded),
+                                magnitude: None,
+                            });
+                            if succeeded && units[actor_idx].alive && units[target_idx].alive {
+                                apply_heal(&mut units, actor_idx, target_idx, heal as f64, at_ms, &mut events, &mut rng);
+                            }
                         }
                     }
                     // Prayer of Mending - a chance for this same heal to
@@ -20670,4 +21005,321 @@ mod top_layer_tests {
     }
 }
 
+#[cfg(test)]
+mod lucky_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
 
+    fn unit(id: &str) -> CombatSimUnit {
+        CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 1_000_000, max_hp: 1_000_000, ..Default::default() }
+    }
+
+    fn resolve(atk: &CombatSimUnit, def: &CombatSimUnit, seed: u64) -> HitOutcome {
+        let mut rng = StdRng::seed_from_u64(seed);
+        resolve_hit(100.0, atk, def, 1, &mut rng, 0.0, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    }
+
+    fn roll_named(outcome: &HitOutcome, name: &str) -> Option<(RollCategory, Option<f64>, bool)> {
+        outcome.probabilistic_rolls.iter().find(|(_, n, ..)| *n == name).map(|(c, _, p, s)| (*c, *p, *s))
+    }
+
+    /// `crit_multiplier` whose one-stack bonus term is exactly `bonus`.
+    fn multiplier_for_bonus(bonus: f64) -> f64 {
+        1.0 + bonus / CRIT_BONUS_MULT
+    }
+
+    #[test]
+    fn roll_lucky_chance_is_lucky_times_the_capped_stat() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let (chance, _) = roll_lucky(0.15, 0.75, &mut rng).expect("non-zero chance must roll");
+        assert!((chance - 0.1125).abs() < 1e-12, "15% lucky on 75% evasion is 11.25%, got {chance}");
+        let (chance, _) = roll_lucky(0.10, 5.0, &mut rng).expect("non-zero chance must roll");
+        assert!((chance - 0.10).abs() < 1e-12, "500% crit caps the stat at 100%: 10% lucky rolls at 10%, got {chance}");
+    }
+
+    #[test]
+    fn roll_lucky_at_zero_makes_no_rng_draw() {
+        let mut touched = StdRng::seed_from_u64(9);
+        let mut untouched = StdRng::seed_from_u64(9);
+        assert!(roll_lucky(0.0, 0.5, &mut touched).is_none());
+        assert!(roll_lucky(0.5, 0.0, &mut touched).is_none());
+        assert_eq!(touched.gen::<u64>(), untouched.gen::<u64>(), "a zero-chance lucky roll must not advance the rng - that is what keeps every existing fight byte-identical");
+    }
+
+    #[test]
+    fn luckstone_sources_stack_multiplicatively() {
+        assert!((combine_reduction_sources(&[0.10, 0.10]) - 0.19).abs() < 1e-12);
+        assert!((combine_reduction_sources(&[0.10, 0.10, 0.10]) - 0.271).abs() < 1e-12);
+        assert_eq!(combine_reduction_sources(&[1.0, 0.5]), 1.0);
+    }
+
+    #[test]
+    fn lucky_crit_on_a_base_crit_adds_lucky_times_the_whole_bonus() {
+        // 100% crit, 10% lucky, 200% bonus -> 220% on a lucky success.
+        let atk = CombatSimUnit { crit_chance: 1.0, crit_multiplier: multiplier_for_bonus(2.0), lucky_crit: 0.10, ..unit("attacker") };
+        let mut found = false;
+        for seed in 0..500u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let roll = roll_attacker_damage(100.0, &atk, 0, &mut rng, 0.0, 0.0, 0.0, false, false);
+            assert!(roll.is_crit);
+            match roll.lucky_crit_roll {
+                Some((chance, true)) => {
+                    assert!((chance - 0.10).abs() < 1e-12);
+                    assert!((roll.damage - 320.0).abs() < 1e-9, "100 x (1 + 2.0 x 1.1) = 320, got {}", roll.damage);
+                    found = true;
+                }
+                Some((_, false)) => assert!((roll.damage - 300.0).abs() < 1e-9, "a failed lucky roll leaves the plain 200% bonus"),
+                None => panic!("a non-zero lucky crit must roll"),
+            }
+        }
+        assert!(found, "no seed in 0..500 produced a lucky success at 10% - test would be vacuous");
+    }
+
+    #[test]
+    fn lucky_crit_turns_a_failed_base_crit_into_a_crit() {
+        let atk = CombatSimUnit { crit_chance: 0.5, crit_multiplier: multiplier_for_bonus(2.0), lucky_crit: 1.0, ..unit("attacker") };
+        let mut found = false;
+        for seed in 0..200u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let roll = roll_attacker_damage(100.0, &atk, 0, &mut rng, 0.0, 0.0, 0.0, false, false);
+            if !roll.crit_remainder_roll && roll.lucky_crit_roll == Some((0.5, true)) {
+                assert!(roll.is_crit, "base failed, lucky succeeded - the hit must become a crit");
+                assert!((roll.damage - 300.0).abs() < 1e-9, "a converted crit pays the plain bonus, no extra lucky term - got {}", roll.damage);
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "no seed produced base-fail + lucky-success");
+    }
+
+    #[test]
+    fn lucky_evasion_turns_a_failed_evasion_roll_into_an_evade() {
+        let atk = unit("attacker");
+        let def = CombatSimUnit { evasion: 0.5, lucky_evasion: 1.0, ..unit("defender") };
+        let mut found = false;
+        for seed in 0..200u64 {
+            let outcome = resolve(&atk, &def, seed);
+            let base = roll_named(&outcome, "Evasion").expect("evasion must roll");
+            let lucky = roll_named(&outcome, "Lucky evasion");
+            if base.2 {
+                assert!(lucky.is_none(), "a successful base evade needs no lucky roll");
+            } else {
+                let lucky = lucky.expect("a failed base evade must roll lucky");
+                assert_eq!(lucky.0, RollCategory::Evasion);
+                assert!((lucky.1.unwrap() - 0.5).abs() < 1e-12, "lucky 100% x evasion 50% = 50%");
+                assert_eq!(outcome.evaded, lucky.2);
+                found |= lucky.2;
+            }
+        }
+        assert!(found);
+    }
+
+    #[test]
+    fn lucky_block_turns_a_failed_block_roll_into_a_block() {
+        let atk = unit("attacker");
+        let def = CombatSimUnit { block_chance: 0.5, lucky_block: 1.0, ..unit("defender") };
+        let mut found = false;
+        for seed in 0..200u64 {
+            let outcome = resolve(&atk, &def, seed);
+            if let Some(lucky) = roll_named(&outcome, "Lucky block") {
+                assert!(!roll_named(&outcome, "Block chance").unwrap().2);
+                assert_eq!(outcome.is_blocked, lucky.2);
+                found |= lucky.2;
+            }
+        }
+        assert!(found);
+    }
+
+    #[test]
+    fn lucky_is_skipped_when_opportunist_guarantees_the_hit() {
+        let atk = CombatSimUnit { opportunist_guaranteed_hits: 1, ..unit("attacker") };
+        let def = CombatSimUnit { evasion: 0.9, lucky_evasion: 1.0, block_chance: 0.9, lucky_block: 1.0, ..unit("defender") };
+        for seed in 0..50u64 {
+            let outcome = resolve(&atk, &def, seed);
+            assert!(!outcome.evaded && !outcome.is_blocked, "a guaranteed hit lands");
+            assert!(roll_named(&outcome, "Lucky evasion").is_none() && roll_named(&outcome, "Lucky block").is_none(), "the outcome is already decided - no lucky roll");
+        }
+    }
+
+    #[test]
+    fn lucky_evasion_roll_shares_the_hits_hit_id() {
+        let def = CombatSimUnit { evasion: 0.5, lucky_evasion: 1.0, ..unit("defender") };
+        for seed in 0..50u64 {
+            let mut units = vec![unit("attacker"), def.clone()];
+            let (mut events, mut rolls) = (Vec::new(), Vec::new());
+            let mut rng = StdRng::seed_from_u64(seed);
+            apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+            let lucky: Vec<_> = rolls.iter().filter(|r| r.source == "Lucky evasion").collect();
+            if let Some(r) = lucky.first() {
+                assert_eq!(lucky.len(), 1);
+                let hit_id = events.iter().find_map(|e| match e {
+                    CombatEvent::Attack { hit_id, .. } => Some(*hit_id),
+                    _ => None,
+                });
+                assert_eq!(Some(r.hit_id), hit_id);
+                return;
+            }
+        }
+        panic!("no seed rolled lucky evasion");
+    }
+
+    /// A 100-damage primary hit, the base splash roll failing (0% splash),
+    /// then lucky splash - returns (events, rolls, lucky succeeded).
+    fn lucky_splash_swing(lucky: f64, seed: u64) -> (Vec<CombatEvent>, Vec<RollEvent>, bool) {
+        let tunables = LiveTunables::default();
+        let mut units = vec![CombatSimUnit { lucky_splash: lucky, ..unit("attacker") }, unit("target"), unit("bystander")];
+        let (mut events, mut rolls) = (Vec::new(), Vec::new());
+        let mut rng = StdRng::seed_from_u64(seed);
+        let start = events.len();
+        apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+        apply_splash(&mut units, 0, 1, 100.0, 0.0, 1, None, 1, &mut events, &mut rolls, &mut rng, &tunables);
+        apply_lucky_splash(&mut units, 0, start, AttackSourceKind::Direct, 1, &mut events, &mut rolls, &mut rng);
+        let succeeded = rolls.iter().any(|r| r.source == "Lucky splash" && r.succeeded == Some(true));
+        (events, rolls, succeeded)
+    }
+
+    #[test]
+    fn lucky_splash_adds_lucky_times_landed_damage_with_the_splash_roll_failing() {
+        for seed in 0..500u64 {
+            let (events, rolls, succeeded) = lucky_splash_swing(0.10, seed);
+            if !succeeded {
+                continue;
+            }
+            let splash_hits: Vec<(String, u64, u64)> = events
+                .iter()
+                .filter_map(|e| match e {
+                    CombatEvent::Attack { target, damage, source_kind: AttackSourceKind::Splash, hit_id, .. } => Some((target.clone(), *damage, *hit_id)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(splash_hits.len(), 1, "0% splash hits nobody else - only the primary takes the lucky bonus, and it never splashes again");
+            assert_eq!(splash_hits[0].0, "target");
+            assert_eq!(splash_hits[0].1, 10, "10% lucky on a 100 landed hit is +10, no second DR pass");
+            let primary_hit_id = events.iter().find_map(|e| match e {
+                CombatEvent::Attack { source_kind: AttackSourceKind::Direct, hit_id, .. } => Some(*hit_id),
+                _ => None,
+            });
+            let roll = rolls.iter().find(|r| r.source == "Lucky splash" && r.probability.is_some()).unwrap();
+            assert_eq!(roll.category, RollCategory::Splash);
+            assert_eq!(Some(roll.hit_id), primary_hit_id, "the lucky roll sits on the primary hit's hit_id");
+            let link = rolls.iter().find(|r| r.hit_id == splash_hits[0].2).expect("the bonus hit carries its caused_by link");
+            assert_eq!(link.caused_by, Some(roll.event_id));
+            return;
+        }
+        panic!("no seed produced a lucky splash success at 10%");
+    }
+
+    #[test]
+    fn zero_lucky_splash_touches_nothing() {
+        let (events, rolls, _) = lucky_splash_swing(0.0, 3);
+        assert!(!rolls.iter().any(|r| r.source.starts_with("Lucky")));
+        assert_eq!(events.iter().filter(|e| matches!(e, CombatEvent::Attack { .. })).count(), 1);
+    }
+
+    #[test]
+    fn lucky_echo_deals_exactly_the_original_landed_damage_and_never_rerolls() {
+        let mut primaries = std::collections::HashSet::new();
+        for seed in 0..40u64 {
+            let mut units = vec![CombatSimUnit { crit_chance: 0.5, crit_multiplier: 3.0, lucky_echo: 1.0, ..unit("attacker") }, unit("target")];
+            let (mut events, mut rolls) = (Vec::new(), Vec::new());
+            let mut rng = StdRng::seed_from_u64(seed);
+            let start = events.len();
+            apply_hit(&mut units, 0, 1, 100.0, 1, &mut events, &mut rolls, &mut rng, true, false);
+            apply_lucky_echo(&mut units, 0, start, 1, &mut events, &mut rolls, &mut rng);
+            let damage_of = |kind: AttackSourceKind| -> Vec<u64> {
+                events
+                    .iter()
+                    .filter_map(|e| match e {
+                        CombatEvent::Attack { damage, source_kind, .. } if *source_kind == kind => Some(*damage),
+                        _ => None,
+                    })
+                    .collect()
+            };
+            let (direct, echo) = (damage_of(AttackSourceKind::Direct), damage_of(AttackSourceKind::Echo));
+            assert_eq!(direct.len(), 1);
+            assert_eq!(echo, vec![direct[0]], "exactly one lucky echo, for exactly the original's landed damage, seed {seed}");
+            assert_eq!(rolls.iter().filter(|r| r.source == "Lucky echo" && r.probability.is_some()).count(), 1);
+            primaries.insert(direct[0]);
+        }
+        assert!(primaries.len() > 1, "the fixture must vary the primary (crit/non-crit) or a re-roll would be indistinguishable");
+    }
+
+    /// Item 29a wiring - a Warrior with crit, evasion and block all
+    /// non-zero (so every lucky kind has a base stat to roll against),
+    /// every unique cleared, and one Luckstone per `stones` entry.
+    fn luckstone_character(stones: &[(EquipSlot, LuckyKind, u16)]) -> Character {
+        let mut c = Character::new("lucky".to_string());
+        c.archetype = Archetype::Warrior;
+        c.level = 100;
+        for slot in crate::adventure::EQUIP_SLOTS {
+            if let Some(item) = c.equipped_item_mut_unguarded(slot) {
+                item.affixes.clear();
+                item.unique_affix = None;
+            }
+        }
+        let weapon = c.equipped_item_mut_unguarded(EquipSlot::Weapon).expect("starter kit fills every slot");
+        weapon.affixes.extend([(Affix::CritChance, 0.5), (Affix::Evasion, 0.3), (Affix::BlockChance, 0.3)]);
+        for &(slot, kind, pct) in stones {
+            let mut item = generate_item_at_tier(slot, 10, &mut StdRng::seed_from_u64(0));
+            item.affixes.clear();
+            item.unique_affix = Some(UniqueAffix::Luckstone { kind, pct });
+            c.equip(item);
+        }
+        c
+    }
+
+    fn luckstone_fight_rolls(c: Character) -> Vec<RollEvent> {
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("lucky".to_string(), c);
+        let boss_stats = BossStats {
+            hp: 50_000_000,
+            atk: 1,
+            attack_interval_ms: 1_000,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let mut rng = StdRng::seed_from_u64(29);
+        simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &LiveTunables::default(), TEST_FIGHT_SEED, &mut rng).3
+    }
+
+    const LUCKY_SOURCES: [(LuckyKind, &str); 5] = [
+        (LuckyKind::Echo, "Lucky echo"),
+        (LuckyKind::Crit, "Lucky crit"),
+        (LuckyKind::Evasion, "Lucky evasion"),
+        (LuckyKind::Block, "Lucky block"),
+        (LuckyKind::Splash, "Lucky splash"),
+    ];
+
+    /// End-to-end through `simulate_battle`'s player constructor: one
+    /// Luckstone of a kind makes exactly that kind's lucky roll appear in
+    /// a real fight and no other, and a character wearing none makes no
+    /// lucky roll at all.
+    #[test]
+    fn an_equipped_luckstone_sets_only_its_own_lucky_field_in_a_real_fight() {
+        for (kind, source) in LUCKY_SOURCES {
+            let rolls = luckstone_fight_rolls(luckstone_character(&[(EquipSlot::Ring1, kind, 1000)]));
+            for (_, other) in LUCKY_SOURCES {
+                let seen = rolls.iter().any(|r| r.source == other);
+                assert_eq!(seen, other == source, "a {kind:?} Luckstone: `{other}` roll present = {seen}");
+            }
+        }
+        let rolls = luckstone_fight_rolls(luckstone_character(&[]));
+        assert!(!rolls.iter().any(|r| r.source.starts_with("Lucky")), "no Luckstone must mean no lucky roll");
+    }
+
+    /// Two 10% Echo Luckstones reach the combat unit as 19% (`1 − 0.9²`),
+    /// read straight off the "Lucky echo" roll, whose probability is the
+    /// unit's `lucky_echo` itself.
+    #[test]
+    fn two_luckstones_of_one_kind_reach_the_combat_unit_as_19_percent() {
+        let rolls = luckstone_fight_rolls(luckstone_character(&[(EquipSlot::Ring1, LuckyKind::Echo, 1000), (EquipSlot::Ring2, LuckyKind::Echo, 1000)]));
+        let lucky: Vec<f64> = rolls.iter().filter(|r| r.source == "Lucky echo").filter_map(|r| r.probability).collect();
+        assert!(!lucky.is_empty(), "fixture produced no lucky echo roll - test would be vacuous");
+        assert!(lucky.iter().all(|p| (p - 0.19).abs() < 1e-12), "every lucky echo roll must be at 19%, got {lucky:?}");
+    }
+}
