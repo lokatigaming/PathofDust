@@ -4439,6 +4439,7 @@ impl AdventureManager {
                 return Err(CraftError::AlreadyUnique);
             }
             let (item_name, slot, tier, perfect) = (item.name.clone(), item.slot, item.tier, item.perfect);
+            let all_candidates = unique_affix_candidates(item);
             // Duplicate-unique-effects fix (2026-08-21) - if this item is
             // currently EQUIPPED, filter out any UniqueAffix candidate
             // that would duplicate a unique already worn in another
@@ -4455,10 +4456,12 @@ impl AdventureManager {
             // never need their own re-check: every candidate ever offered
             // is guaranteed conflict-free by construction.
             let is_equipped = character.equipped(slot).as_ref().is_some_and(|i| i.id == item_id);
+            // Item 29: a bag item is never offered Crafting Expertise
+            // (owner ruling 5) - `apply_unique_affix` refuses it too.
             let allowed_uniques: Vec<UniqueAffix> = if is_equipped {
-                ALL_UNIQUE_AFFIXES.into_iter().filter(|&unique| !character.has_conflicting_unique_affix_value(unique, slot)).collect()
+                all_candidates.into_iter().filter(|&unique| !character.has_conflicting_unique_affix_value(unique, slot)).collect()
             } else {
-                ALL_UNIQUE_AFFIXES.to_vec()
+                all_candidates.into_iter().filter(|&unique| unique != UniqueAffix::CraftingExpertise).collect()
             };
             if allowed_uniques.is_empty() {
                 return Err(CraftError::ConflictingUniqueAffix);
@@ -5001,6 +5004,12 @@ impl AdventureManager {
                         // before/after mismatch here would be a real
                         // signal something else is wrong.
                         let balance_before = character.craft_token_count(CraftAction::UniqueShard);
+                        // Item 29, owner ruling 10 - a Luckstone's pct is
+                        // rolled here, on apply, never in the picker.
+                        let unique = match unique {
+                            UniqueAffix::Luckstone { kind, .. } => UniqueAffix::Luckstone { kind, pct: roll_luckstone_pct(&self.live_tunables(), &mut rand::thread_rng()) },
+                            other => other,
+                        };
                         let result = character.apply_unique_affix(item_id, unique);
                         let balance_after = character.craft_token_count(CraftAction::UniqueShard);
                         tracing::info!(
@@ -9470,7 +9479,9 @@ mod unique_shard_tests {
         assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 0, "the token is consumed at insert time, before any choice is made - same convention every veiled craft already uses");
 
         let pending = manager.pending_veil("chooser").await.expect("a pending choice must exist");
-        assert_eq!(pending.candidates.len(), ALL_UNIQUE_AFFIXES.len(), "one candidate per UniqueAffix variant - data-driven, not hardcoded to 2");
+        let item = character.find_item_by_id(&id).expect("item still present").clone();
+        let expected: Vec<UniqueAffix> = unique_affix_candidates(&item).into_iter().filter(|&u| u != UniqueAffix::CraftingExpertise).collect();
+        assert_eq!(pending.candidates.len(), expected.len(), "one candidate per unique_affix_candidates entry (a bag item is never offered Crafting Expertise)");
         let offered: Vec<UniqueAffix> = pending
             .candidates
             .iter()
@@ -9479,8 +9490,8 @@ mod unique_shard_tests {
                 other => panic!("expected a Currency candidate, got {other:?}"),
             })
             .collect();
-        for &expected in ALL_UNIQUE_AFFIXES.iter() {
-            assert!(offered.contains(&expected), "missing a candidate for {expected:?}");
+        for want in &expected {
+            assert!(offered.contains(want), "missing a candidate for {want:?}");
         }
 
         std::fs::remove_dir_all(&scratch).ok();
@@ -9613,12 +9624,16 @@ mod unique_shard_tests {
         assert!(matches!(result, CraftResult::PendingChoice));
 
         let pending = manager.pending_veil("partial").await.expect("a pending choice must exist");
-        assert_eq!(pending.candidates.len(), 1, "SplitPersonality must be filtered out, leaving exactly one candidate");
-        let offered = match &pending.candidates[0] {
-            VeilCandidate::Currency(outcome) => outcome.unique_affix_added,
-            other => panic!("expected a Currency candidate, got {other:?}"),
-        };
-        assert_eq!(offered, Some(UniqueAffix::CelestialConversion), "only the non-conflicting affix may be offered");
+        let offered: Vec<Option<UniqueAffix>> = pending
+            .candidates
+            .iter()
+            .map(|c| match c {
+                VeilCandidate::Currency(outcome) => outcome.unique_affix_added,
+                other => panic!("expected a Currency candidate, got {other:?}"),
+            })
+            .collect();
+        assert!(!offered.contains(&Some(UniqueAffix::SplitPersonality)), "SplitPersonality must be filtered out");
+        assert!(offered.contains(&Some(UniqueAffix::CelestialConversion)), "the non-conflicting affixes are still offered");
 
         let character = manager.character("partial").await.expect("still joined");
         assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 0, "a real (partial) pick was still built, so the token is still consumed at insert time");
@@ -9627,29 +9642,83 @@ mod unique_shard_tests {
     }
 
     /// Duplicate-unique-effects fix - the insert-time filter's FULL-
-    /// REJECT case: the target item is equipped and EVERY `UniqueAffix`
-    /// candidate would conflict (both already worn elsewhere - a
-    /// two-character-slot party trick, but exactly what happens once a
-    /// player owns one of each unique). Must reject before the token is
-    /// consumed, same convention `ItemLocked`/`AlreadyUnique` use.
+    /// REJECT case used to be "every `UniqueAffix` already worn". Since
+    /// item 29 that is unreachable: Luckstone is exempt from the
+    /// one-worn-at-a-time rule (owner ruling 8), so with every OTHER kind
+    /// worn elsewhere the picker still offers exactly the five Luckstones.
     #[tokio::test]
-    async fn applying_to_an_equipped_item_rejects_when_every_candidate_conflicts_and_keeps_the_token() {
+    async fn applying_to_an_equipped_item_with_every_other_kind_worn_offers_only_luckstones() {
         let (manager, scratch) = disposable_manager("equipped_full_conflict");
         let id = joined_with_unique_shard_and_equipped_item(&manager, "blocked", 1, Some(UniqueAffix::SplitPersonality)).await;
         {
             let mut characters = manager.characters.lock().await;
             let character = characters.get_mut("blocked").unwrap();
-            let mut body = generate_item_at_tier(EquipSlot::Body, 10, &mut rand::thread_rng());
-            body.unique_affix = Some(UniqueAffix::CelestialConversion);
-            character.body = Some(body);
+            let worn = [
+                (EquipSlot::Body, UniqueAffix::CelestialConversion),
+                (EquipSlot::Gloves, UniqueAffix::Unyielding),
+                (EquipSlot::Boots, UniqueAffix::CraftingExpertise),
+                (EquipSlot::Ring1, UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] }),
+            ];
+            for (slot, unique) in worn {
+                let mut item = generate_item_at_tier(slot, 10, &mut rand::thread_rng());
+                item.unique_affix = Some(unique);
+                character.equip(item);
+            }
         }
 
-        let err = manager.craft_item_ex("blocked", &id, CraftAction::UniqueShard, false, true).await.expect_err("every candidate conflicts - must reject outright");
-        assert!(matches!(err, CraftError::ConflictingUniqueAffix));
+        manager.craft_item_ex("blocked", &id, CraftAction::UniqueShard, false, true).await.expect("Luckstones never conflict");
+        let pending = manager.pending_veil("blocked").await.expect("a pending choice must exist");
+        let offered: Vec<UniqueAffix> = pending
+            .candidates
+            .iter()
+            .map(|c| match c {
+                VeilCandidate::Currency(outcome) => outcome.unique_affix_added.expect("unique candidate"),
+                other => panic!("expected a Currency candidate, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(offered, ALL_LUCKY_KINDS.map(|kind| UniqueAffix::Luckstone { kind, pct: 0 }).to_vec(), "only the five Luckstones survive the kind filter");
 
-        let character = manager.character("blocked").await.expect("still joined");
-        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a full-reject precondition must not consume the token - checked BEFORE insert");
-        assert!(manager.pending_veil("blocked").await.is_none(), "a rejected attempt must not create a pending choice");
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Item 29, owner ruling 10 - a Luckstone candidate carries no pct;
+    /// the pct is rolled on commit, inside the tunable range.
+    #[tokio::test]
+    async fn choosing_a_luckstone_rolls_its_pct_on_apply_inside_the_tunable_range() {
+        let (manager, scratch) = disposable_manager("luckstone_roll");
+        let id = joined_with_unique_shard_and_equipped_item(&manager, "lucky", 1, None).await;
+        manager.craft_item_ex("lucky", &id, CraftAction::UniqueShard, false, true).await.expect("must build a pending choice");
+        let pending = manager.pending_veil("lucky").await.expect("pending choice must exist");
+        let index = pending
+            .candidates
+            .iter()
+            .position(|c| matches!(c, VeilCandidate::Currency(outcome) if outcome.unique_affix_added == Some(UniqueAffix::Luckstone { kind: LuckyKind::Block, pct: 0 })))
+            .expect("a Block Luckstone must be offered");
+
+        manager.choose_veil_outcome("lucky", index).await.expect("commit").expect("committed");
+        let character = manager.character("lucky").await.expect("still joined");
+        match character.find_item_by_id(&id).and_then(|i| i.unique_affix) {
+            Some(UniqueAffix::Luckstone { kind: LuckyKind::Block, pct }) => assert!((700..=1400).contains(&pct), "rolled {pct} bp, outside 7-14%"),
+            other => panic!("expected a Block Luckstone, got {other:?}"),
+        }
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Item 29, owner ruling 5 - Crafting Expertise is never offered for a
+    /// bag item.
+    #[tokio::test]
+    async fn a_bag_item_is_never_offered_crafting_expertise_but_an_equipped_one_is() {
+        let (manager, scratch) = disposable_manager("expertise_bag");
+        let bag_id = joined_with_unique_shard_and_item(&manager, "bagexp", 1).await;
+        manager.craft_item_ex("bagexp", &bag_id, CraftAction::UniqueShard, false, true).await.expect("pending");
+        let pending = manager.pending_veil("bagexp").await.expect("pending");
+        assert!(!pending.candidates.iter().any(|c| matches!(c, VeilCandidate::Currency(o) if o.unique_affix_added == Some(UniqueAffix::CraftingExpertise))));
+
+        let worn_id = joined_with_unique_shard_and_equipped_item(&manager, "wornexp", 1, None).await;
+        manager.craft_item_ex("wornexp", &worn_id, CraftAction::UniqueShard, false, true).await.expect("pending");
+        let pending = manager.pending_veil("wornexp").await.expect("pending");
+        assert!(pending.candidates.iter().any(|c| matches!(c, VeilCandidate::Currency(o) if o.unique_affix_added == Some(UniqueAffix::CraftingExpertise))));
 
         std::fs::remove_dir_all(&scratch).ok();
     }
@@ -9672,7 +9741,9 @@ mod unique_shard_tests {
 
         manager.craft_item_ex("bagger", &id, CraftAction::UniqueShard, false, true).await.expect("a bagged item must never be filtered/rejected");
         let pending = manager.pending_veil("bagger").await.expect("a pending choice must exist");
-        assert_eq!(pending.candidates.len(), ALL_UNIQUE_AFFIXES.len(), "every candidate offered, unfiltered - the conflict only matters once equipped");
+        let item = manager.character("bagger").await.expect("still joined").find_item_by_id(&id).expect("item still present").clone();
+        let expected = unique_affix_candidates(&item).into_iter().filter(|&u| u != UniqueAffix::CraftingExpertise).count();
+        assert_eq!(pending.candidates.len(), expected, "every candidate offered, unfiltered by conflicts - only Crafting Expertise is withheld from a bag item");
 
         std::fs::remove_dir_all(&scratch).ok();
     }

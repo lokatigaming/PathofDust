@@ -1765,7 +1765,28 @@ impl Character {
     /// the full enumeration (equip, receive, and both unique-granting
     /// craft paths).
     pub(crate) fn has_conflicting_unique_affix_value(&self, unique: UniqueAffix, excluding_slot: EquipSlot) -> bool {
-        EQUIP_SLOTS.iter().filter(|&&s| s != excluding_slot).filter_map(|&s| self.equipped(s).as_ref()).any(|other| other.unique_affix == Some(unique))
+        // Item 29: compared by KIND (a Divine Forge conflicts with any
+        // other Divine Forge whatever its picks); Luckstone is exempt -
+        // it is designed to stack across items (owner ruling 8).
+        if matches!(unique, UniqueAffix::Luckstone { .. }) {
+            return false;
+        }
+        EQUIP_SLOTS.iter().filter(|&&s| s != excluding_slot).filter_map(|&s| self.equipped(s).as_ref()).any(|other| other.unique_affix.is_some_and(|o| o.same_kind(unique)))
+    }
+
+    /// Item 29 - every EQUIPPED Luckstone of `kind`, folded through
+    /// `combine_reduction_sources` (`1 − Π(1 − lᵢ)`), capped at 1.0. 0.0
+    /// for a character wearing none. Item 29a's lucky engine reads this.
+    pub fn luckstone_total(&self, kind: LuckyKind) -> f64 {
+        let sources: Vec<f64> = EQUIP_SLOTS
+            .iter()
+            .filter_map(|&s| self.equipped(s).as_ref())
+            .filter_map(|item| match item.unique_affix {
+                Some(UniqueAffix::Luckstone { kind: k, pct }) if k == kind => Some(pct as f64 / 10_000.0),
+                _ => None,
+            })
+            .collect();
+        combine_reduction_sources(&sources).min(1.0)
     }
 
     pub(crate) fn equip(&mut self, item: Item) {
@@ -2767,8 +2788,15 @@ impl Character {
     pub(crate) fn apply_unique_affix(&mut self, item_id: &str, unique: UniqueAffix) -> Result<CraftOutcome, CraftError> {
         let existing = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
         let slot = existing.slot;
-        if self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id) && self.has_conflicting_unique_affix_value(unique, slot) {
+        let is_equipped = self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id);
+        if is_equipped && self.has_conflicting_unique_affix_value(unique, slot) {
             return Err(CraftError::ConflictingUniqueAffix);
+        }
+        // Item 29, owner ruling 5 - Expertise is lost on unequip, so it is
+        // only ever granted to an item already in a slot. The picker omits
+        // it for a bag item; this is the commit-time backstop.
+        if unique == UniqueAffix::CraftingExpertise && !is_equipped {
+            return Err(CraftError::UniqueRequiresEquipped);
         }
         let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
@@ -6299,6 +6327,65 @@ mod duplicate_unique_effects_tests {
         assert!(matches!(outcome, ReceiveOutcome::AddedToBag), "an empty ring slot must NOT auto-equip a conflicting unique");
         assert!(character.ring2.is_none());
         assert!(character.inventory.iter().any(|i| i.id == id));
+    }
+
+    // ── Item 29 (2026-09-25) ─────────────────────────────────────────
+
+    #[test]
+    fn only_crafting_expertise_is_lost_on_unequip() {
+        let luck = UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 };
+        let forge = UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] };
+        for unique in ALL_UNIQUE_AFFIXES.into_iter().chain([luck, forge]) {
+            assert_eq!(unique.lost_on_unequip(), unique == UniqueAffix::CraftingExpertise, "{unique:?}");
+        }
+    }
+
+    #[test]
+    fn luckstone_total_folds_equipped_stones_of_one_kind_and_ignores_the_rest() {
+        let mut character = Character::new("luck".to_string());
+        assert_eq!(character.luckstone_total(LuckyKind::Crit), 0.0, "a non-carrier reads exactly zero");
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 }));
+        character.ring2 = Some(unique_item(EquipSlot::Ring2, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 }));
+        character.amulet = Some(unique_item(EquipSlot::Amulet, UniqueAffix::Luckstone { kind: LuckyKind::Block, pct: 1400 }));
+        character.inventory.push(unique_item(EquipSlot::Helm, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 5000 }));
+        assert!((character.luckstone_total(LuckyKind::Crit) - 0.19).abs() < 1e-12, "1 − 0.9 × 0.9; the bag stone is ignored");
+        assert!((character.luckstone_total(LuckyKind::Block) - 0.14).abs() < 1e-12);
+        assert_eq!(character.luckstone_total(LuckyKind::Echo), 0.0);
+    }
+
+    #[test]
+    fn luckstones_stack_but_other_uniques_conflict_by_kind() {
+        let mut character = Character::new("kinds".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 }));
+        character.ring2 = Some(unique_item(EquipSlot::Ring2, UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] }));
+        assert!(!character.has_conflicting_unique_affix_value(UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 700 }, EquipSlot::Helm), "Luckstone is exempt (ruling 8)");
+        assert!(
+            character.has_conflicting_unique_affix_value(UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::Leech] }, EquipSlot::Helm),
+            "a second Divine Forge conflicts whatever its picks"
+        );
+    }
+
+    #[test]
+    fn crafting_expertise_is_refused_on_a_bag_item() {
+        let mut character = Character::new("bagexp".to_string());
+        let item = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+        let id = item.id.clone();
+        character.inventory.push(item);
+        assert!(matches!(character.apply_unique_affix(&id, UniqueAffix::CraftingExpertise), Err(CraftError::UniqueRequiresEquipped)));
+        assert_eq!(character.find_item_by_id(&id).unwrap().unique_affix, None);
+    }
+
+    #[test]
+    fn divine_forge_is_offered_once_per_affix_pair_and_never_below_two_affixes() {
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        let forges = |item: &Item| unique_affix_candidates(item).into_iter().filter(|u| matches!(u, UniqueAffix::DivineForge { .. })).count();
+        item.affixes = vec![(Affix::IncreasedDamage, 0.1), (Affix::IncreasedLife, 0.1), (Affix::CritChance, 0.1), (Affix::Leech, 0.1)];
+        item.sacred_affix = Some((Affix::Splash, 0.1));
+        assert_eq!(forges(&item), 6, "4 choose 2; the sacred affix is never a pick");
+        assert!(!unique_affix_candidates(&item).iter().any(|u| matches!(u, UniqueAffix::DivineForge { affixes } if affixes.contains(&Affix::Splash))));
+        item.affixes.truncate(1);
+        assert_eq!(forges(&item), 0, "not offered below 2 affixes (ruling 6)");
+        assert_eq!(unique_affix_candidates(&item).iter().filter(|u| matches!(u, UniqueAffix::Luckstone { pct: 0, .. })).count(), 5);
     }
 }
 

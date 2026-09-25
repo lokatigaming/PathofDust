@@ -1592,6 +1592,7 @@ fn craft_error_text(err: CraftError) -> String {
         CraftError::ConflictingUniqueAffix => {
             "You already have that unique effect equipped elsewhere — unequip it first, or apply the shard to an item in your bag instead.".to_string()
         }
+        CraftError::UniqueRequiresEquipped => "Crafting Expertise can only be applied to an equipped item — equip it first, then use the shard.".to_string(),
     }
 }
 
@@ -3522,6 +3523,31 @@ fn default_catchup_full_deficit() -> f64 {
     crate::adventure::CATCHUP_FULL_DEFICIT
 }
 
+// Serde defaults for the item-29 unique-affix dials (2026-09-25). Same
+// shipped-constant rule as above: a 0.0 Expertise multiplier would zero
+// crafted divine dust and every Reforge's price.
+fn default_unyielding_life_more() -> f64 {
+    crate::adventure::UNYIELDING_LIFE_MORE
+}
+fn default_unyielding_damage_less() -> f64 {
+    crate::adventure::UNYIELDING_DAMAGE_LESS
+}
+fn default_expertise_craft_crit_mult() -> f64 {
+    crate::adventure::EXPERTISE_CRAFT_CRIT_MULT
+}
+fn default_expertise_divine_dust_mult() -> f64 {
+    crate::adventure::EXPERTISE_DIVINE_DUST_MULT
+}
+fn default_expertise_reforge_cost_mult() -> f64 {
+    crate::adventure::EXPERTISE_REFORGE_COST_MULT
+}
+fn default_luckstone_min_pct() -> f64 {
+    crate::adventure::LUCKSTONE_MIN_PCT
+}
+fn default_luckstone_max_pct() -> f64 {
+    crate::adventure::LUCKSTONE_MAX_PCT
+}
+
 // Serde defaults for the four world-stage drop gates (2026-09-02). Same
 // rule, and the same reason, as `default_enemy_hp_pool_hard_cap` above:
 // `#[serde(default)]` on a `u32` resolves to 0, and 0 means "this gate is
@@ -3712,6 +3738,22 @@ struct TunablesForm {
     /// on any of them.
     #[serde(default = "default_catchup_full_deficit")]
     catchup_full_deficit: f64,
+    /// See `LiveTunables::unyielding_life_more` and its six siblings
+    /// below. Shipped-constant defaults, same reasoning as `win_xp_flat`.
+    #[serde(default = "default_unyielding_life_more")]
+    unyielding_life_more: f64,
+    #[serde(default = "default_unyielding_damage_less")]
+    unyielding_damage_less: f64,
+    #[serde(default = "default_expertise_craft_crit_mult")]
+    expertise_craft_crit_mult: f64,
+    #[serde(default = "default_expertise_divine_dust_mult")]
+    expertise_divine_dust_mult: f64,
+    #[serde(default = "default_expertise_reforge_cost_mult")]
+    expertise_reforge_cost_mult: f64,
+    #[serde(default = "default_luckstone_min_pct")]
+    luckstone_min_pct: f64,
+    #[serde(default = "default_luckstone_max_pct")]
+    luckstone_max_pct: f64,
     /// See `LiveTunables::defensive_stat_hard_cap`'s doc.
     defensive_stat_hard_cap: f64,
     /// See `LiveTunables::enemy_hp_pool_hard_cap`'s doc. `#[serde(default)]`
@@ -4244,6 +4286,13 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                     crate::adventure::CATCHUP_FULL_DEFICIT_MIN,
                     crate::adventure::CATCHUP_FULL_DEFICIT_MAX,
                 ),
+                unyielding_life_more: v.clamp("unyielding_life_more", form.unyielding_life_more, 0.0, 5.0),
+                unyielding_damage_less: v.clamp("unyielding_damage_less", form.unyielding_damage_less, 0.0, 1.0),
+                expertise_craft_crit_mult: v.clamp("expertise_craft_crit_mult", form.expertise_craft_crit_mult, 1.0, 100.0),
+                expertise_divine_dust_mult: v.clamp("expertise_divine_dust_mult", form.expertise_divine_dust_mult, 1.0, 10.0),
+                expertise_reforge_cost_mult: v.clamp("expertise_reforge_cost_mult", form.expertise_reforge_cost_mult, 0.0, 1.0),
+                luckstone_min_pct: v.clamp("luckstone_min_pct", form.luckstone_min_pct, 0.0, 1.0),
+                luckstone_max_pct: v.clamp("luckstone_max_pct", form.luckstone_max_pct, 0.0, 1.0),
                 shattering_enabled: previous.shattering_enabled,
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
@@ -5877,6 +5926,42 @@ fn render_tunables_page(
               <input type=\"number\" step=\"any\" min=\"{catchup_full_deficit_min}\" max=\"{catchup_full_deficit_max}\" required id=\"catchup_full_deficit\" name=\"catchup_full_deficit\" value=\"{catchup_full_deficit}\">\
               <p class=\"tunable-hint\"><strong>Unit: fraction of the leader&rsquo;s level.</strong> Range {catchup_full_deficit_min} &ndash; {catchup_full_deficit_max}. How far below the highest-level character in the fight someone must be to earn the <strong>full 3&times;</strong> catch-up bonus. At the shipped 0.5, a character at half the leader&rsquo;s level or below gets the whole bonus, and it tapers straight down to <strong>1&times; for anyone level with the leader</strong> &mdash; so a bunched roster pays nobody a bonus, which is the point. <strong>Bigger is stingier</strong> (a deeper deficit needed for the same bonus); smaller makes catch-up bite sooner. Applies to dust and drop odds as well as XP. Does not switch catch-up off &mdash; that is the checkbox above, and it only covers XP.</p>\
             </div>\
+            <h2>Unique Affixes</h2>\
+            <div class=\"tunable-row\">\
+              <label for=\"unyielding_life_more\">Unyielding: More Life</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"5\" required id=\"unyielding_life_more\" name=\"unyielding_life_more\" value=\"{unyielding_life_more}\">\
+              <p class=\"tunable-hint\"><strong>Unit: fraction.</strong> Max life &times; (1 + this). Shipped 0.25.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"unyielding_damage_less\">Unyielding: Less Damage</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" required id=\"unyielding_damage_less\" name=\"unyielding_damage_less\" value=\"{unyielding_damage_less}\">\
+              <p class=\"tunable-hint\"><strong>Unit: fraction.</strong> Damage dealt &times; (1 &minus; this). Healing is not reduced. Shipped 0.25.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"expertise_craft_crit_mult\">Crafting Expertise: Craft Crit Multiplier</label>\
+              <input type=\"number\" step=\"any\" min=\"1\" max=\"100\" required id=\"expertise_craft_crit_mult\" name=\"expertise_craft_crit_mult\" value=\"{expertise_craft_crit_mult}\">\
+              <p class=\"tunable-hint\"><strong>Unit: multiplier.</strong> Reforge and Recombine crit chance on the Expertise item itself, capped at 100%. The once-per-lineage crit rule still applies. Shipped 10.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"expertise_divine_dust_mult\">Crafting Expertise: Divine Dust Multiplier</label>\
+              <input type=\"number\" step=\"any\" min=\"1\" max=\"10\" required id=\"expertise_divine_dust_mult\" name=\"expertise_divine_dust_mult\" value=\"{expertise_divine_dust_mult}\">\
+              <p class=\"tunable-hint\"><strong>Unit: multiplier.</strong> Divine dust crafted while an Expertise item is equipped. Shipped 2.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"expertise_reforge_cost_mult\">Crafting Expertise: Reforge Cost Multiplier</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" required id=\"expertise_reforge_cost_mult\" name=\"expertise_reforge_cost_mult\" value=\"{expertise_reforge_cost_mult}\">\
+              <p class=\"tunable-hint\"><strong>Unit: multiplier.</strong> Panel Reforge dust cost on the Expertise item. Reforge Now and channel-points Reforge Gear are unaffected. Shipped 0.9.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"luckstone_min_pct\">Luckstone: Minimum Roll</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" required id=\"luckstone_min_pct\" name=\"luckstone_min_pct\" value=\"{luckstone_min_pct}\">\
+              <p class=\"tunable-hint\"><strong>Unit: fraction.</strong> Low end of the Luckstone roll, made once when applied. Existing Luckstones keep their roll. Shipped 0.07.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"luckstone_max_pct\">Luckstone: Maximum Roll</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" required id=\"luckstone_max_pct\" name=\"luckstone_max_pct\" value=\"{luckstone_max_pct}\">\
+              <p class=\"tunable-hint\"><strong>Unit: fraction.</strong> High end of the Luckstone roll. Shipped 0.14.</p>\
+            </div>\
             <h2>Rampage</h2>\
             <h2>Live Overlay Broadcast</h2>\n            <div class=\"tunable-row\">\
               <label for=\"buffsnapshot_dedupe_window_ms\">Buff Snapshot Dedupe Window (ms)</label>\
@@ -5971,6 +6056,13 @@ fn render_tunables_page(
         catchup_full_deficit = t.catchup_full_deficit,
         catchup_full_deficit_min = crate::adventure::CATCHUP_FULL_DEFICIT_MIN,
         catchup_full_deficit_max = crate::adventure::CATCHUP_FULL_DEFICIT_MAX,
+        unyielding_life_more = t.unyielding_life_more,
+        unyielding_damage_less = t.unyielding_damage_less,
+        expertise_craft_crit_mult = t.expertise_craft_crit_mult,
+        expertise_divine_dust_mult = t.expertise_divine_dust_mult,
+        expertise_reforge_cost_mult = t.expertise_reforge_cost_mult,
+        luckstone_min_pct = t.luckstone_min_pct,
+        luckstone_max_pct = t.luckstone_max_pct,
         password_hash_permits = t.password_hash_permits,
         password_hash_permits_min = crate::adventure::PASSWORD_HASH_PERMITS_MIN,
         password_hash_permits_max = crate::adventure::PASSWORD_HASH_PERMITS_MAX,
