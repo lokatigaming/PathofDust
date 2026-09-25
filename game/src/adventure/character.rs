@@ -6466,7 +6466,7 @@ mod duplicate_unique_effects_tests {
         let bagged_id = bagged.id.clone();
         character.inventory.push(bagged);
 
-        let outcome = character.recombine(&equipped_id, &bagged_id, &mut rand::thread_rng()).expect("recombine must succeed");
+        let outcome = character.recombine(&equipped_id, &bagged_id, &LiveTunables::default(), &mut rand::thread_rng()).expect("recombine must succeed");
         let child = character.weapon.as_ref().expect("the child must re-equip into the now-empty slot");
         assert_eq!(child.id, outcome.item_id);
         assert_eq!(child.unique_affix, Some(UniqueAffix::CraftingExpertise), "recombine must keep Crafting Expertise");
