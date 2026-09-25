@@ -10606,3 +10606,30 @@ block (dated by the box clock). Pre-edit copy `9630cec3…` is at
 `/root/patch-notes.pre-se-tip-auth-32.json`. The diff adds 6 lines and removes
 none. No game deploy: the diff touches nothing under `game/`. No WIKI_IMPACT
 line: no command, cost or formula changed.
+
+## 2026-09-26 — release 37 `unique-shard-31` deployed (item 31, window c)
+
+Order `2026-09-26 items 31 + 30`. The previous session built and tested on the box, then stopped
+before `deploy-linux.sh` without writing a report. It recorded no refusal. State on resume:
+the merge `10b1ced` existed locally only, and the live binary was still release 35's `250de20e…`.
+
+Merge `10b1ced` (`--no-ff` of `feature/unique-shard-flow-31` `134ee6c` onto `5997309`). One conflict
+hunk: the `game/src/adventure_web.rs` use-list, where item 33 and item 31 both import `UniqueAffix`
+and 31 adds `ALL_LUCKY_KINDS`. It was resolved keep-both as the union. Item 33's `gear_stat_line`
+auto-merged untouched. No character migration since `3377665` and none in 31. No stored-format
+change: the new state lives only in in-memory maps, and a binary-only rollback is safe.
+
+Suite `cargo test --release --workspace --quiet -j 4`: **1097 / 0 / 50** locally and on the box,
+matching the prediction. Archive `6d53a31284a9d14747dd6d20b0702baf480d2b0c2cf34608955b8ae390f272b9`
+matched on both ends. Live `250de20e…` → **`2a33d50144011bba5602322407fe6a7ffbd9bb33a6620043a4d62f05a141c9e5`**,
+downtime **0.24 s**, slot `deploy-pre-20260925-203510-unique-shard-31`.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live =
+candidate; 5 **unrun**: it needs a cookie, and no token was read; 6 port 4005 404 / 82,617 B
+(4004: 404 / 0 B); 7 404; 0 panic/ERROR lines. The fight loop went `fight-0000023410` →
+`…23412` at 20:35:30, after the 20:35:10 swap.
+
+**Patch notes**: section appended to the **September 25, 2026** block (box clock). Pre-edit copy
+`7aa18350…` in the slot; diff +8 / −0.
+
+Bot: not redeployed. `git diff --name-only 5997309..10b1ced -- bot Cargo.lock Cargo.toml` is empty.
