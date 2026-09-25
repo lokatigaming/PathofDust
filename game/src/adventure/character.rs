@@ -6428,6 +6428,49 @@ mod duplicate_unique_effects_tests {
         assert_eq!(unique_affix_candidates(&item).iter().filter(|u| matches!(u, UniqueAffix::Luckstone { pct: 0, .. })).count(), 5);
     }
 
+    /// Stage 5 - the fold caps at 1.0 however many stones are worn.
+    #[test]
+    fn luckstone_total_caps_at_one() {
+        let mut character = Character::new("capped".to_string());
+        for slot in [EquipSlot::Ring1, EquipSlot::Ring2, EquipSlot::Amulet] {
+            character.equip(unique_item(slot, UniqueAffix::Luckstone { kind: LuckyKind::Echo, pct: 10_000 }));
+        }
+        assert_eq!(character.luckstone_total(LuckyKind::Echo), 1.0);
+    }
+
+    /// Stage 5 - payloads live inside the enum, so both carry-over sites
+    /// keep them with no edits: Reforge Now / Reforge Gear rebuild the item,
+    /// and Recombine's child inherits a source's unique.
+    #[test]
+    fn payload_uniques_survive_reforge_equipped_item_and_recombine() {
+        let luck = UniqueAffix::Luckstone { kind: LuckyKind::Splash, pct: 1234 };
+        let mut character = Character::new("carry".to_string());
+        for slot in EQUIP_SLOTS {
+            *character.equipped_mut(slot) = None;
+        }
+        character.equip(unique_item(EquipSlot::Ring1, luck));
+        AdventureManager::reforge_equipped_item(&mut character).expect("one item equipped");
+        assert_eq!(character.ring1.as_ref().unwrap().unique_affix, Some(luck));
+
+        let forge = UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] };
+        let a = unique_item(EquipSlot::Helm, forge);
+        let b = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+        let (id_a, id_b) = (a.id.clone(), b.id.clone());
+        character.inventory.push(a);
+        character.inventory.push(b);
+        let outcome = character.recombine(&id_a, &id_b, &LiveTunables::default(), &mut rand::thread_rng()).expect("recombine");
+        assert_eq!(character.find_item_by_id(&outcome.item_id).unwrap().unique_affix, Some(forge));
+    }
+
+    /// Stage 5 - payload variants round-trip through the save format.
+    #[test]
+    fn payload_uniques_round_trip_through_json() {
+        for unique in [UniqueAffix::Luckstone { kind: LuckyKind::Block, pct: 987 }, UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::Leech] }, UniqueAffix::Unyielding] {
+            let json = serde_json::to_string(&unique).unwrap();
+            assert_eq!(serde_json::from_str::<UniqueAffix>(&json).unwrap(), unique, "{json}");
+        }
+    }
+
     /// Stage 3 - Expertise's 10× applies to crafts on the Expertise item
     /// only, and the resulting chance clamps at 1.0 (ruling 2).
     #[test]
