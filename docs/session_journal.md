@@ -10571,3 +10571,38 @@ candidate; 5 **unrun**, it needs an owner cookie and no token was read; 6 port 4
 
 Bot: not redeployed. `git diff --name-only 3377665..edfe1ac -- bot Cargo.lock Cargo.toml`
 is empty, and there is no bot on the box.
+
+## 2026-09-26 — BOT DEPLOYED: release 36 `se-tip-auth-32` (item 32, window c). 5.4 s, `authenticated` proven in the log.
+
+Order `2026-09-25 item 32`. Status check first: `6561bcf` was on
+`origin/fix/se-tip-auth-32` only — **not merged, not deployed**; the live
+exe `dd36f7ea…` was item 22's build. The pre-swap log had logged
+`StreamElements watcher started` and **zero** `StreamElements: authenticated`
+lines, which is the defect as reported.
+
+Merged `--no-ff` as `2056c48`, no conflicts, one file (`bot/src/streamelements.rs`).
+`cargo test --release --workspace --quiet -j 4`: **1092 / 0 / 0, 49 result
+lines, exit 0**, exactly the prediction (the branch adds no tests). Clippy on
+`twitch-bot-rs`: its only warning is the old dead `history_path` field at line
+34, which this diff does not touch.
+
+Bot deploy (`bot/**` changed): `backup-bot-data.ps1` snapshot
+`bot-backup-20260926-005349`, 12 files, verdict clean, `.env` not included →
+Bot maintenance flag set, confirmed as the live flag → `Stop-ScheduledTask`,
+and old PID 9544 exited on its own in 1.69 s (no kill by PID needed) → port 4001
+freed → copy → hash verified → start → port 4001 held by new PID 3084, task
+`267009` → flag cleared, `TwitchBotRS-Watchdog` `Ready`. **Downtime 5.4 s**
+(from the stop until port 4001 was listening again). Exe `dd36f7ea…` →
+**`d9b7c2f7531d61a06e68ed6a823ea4bdf1f503417e6df72dfe53399ec34c3fa8`**.
+Rollback copy: `C:\PathofDust\backup-pre-20260926-005414-se-tip-auth-32\twitch-bot-rs.exe.pre-se-tip-auth-32`.
+
+**Proof by log, not `tokens.json`:** `StreamElements watcher started` at
+16:54:23.81Z, then `StreamElements: authenticated` at **16:54:24.38Z** (payload
+not reproduced here), the first such line the bot has ever logged. After the
+swap: zero ERROR and zero WARN lines.
+
+Patch notes: one section appended to the box's existing **September 25, 2026**
+block (dated by the box clock). Pre-edit copy `9630cec3…` is at
+`/root/patch-notes.pre-se-tip-auth-32.json`. The diff adds 6 lines and removes
+none. No game deploy: the diff touches nothing under `game/`. No WIKI_IMPACT
+line: no command, cost or formula changed.
