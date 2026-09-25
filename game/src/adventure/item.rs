@@ -773,7 +773,13 @@ impl Item {
     /// implicit) already decays too.
     pub fn effective_affix_total(&self, affix: Affix) -> f64 {
         let decay = self.decay_fraction();
-        let normal: f64 = self.affixes.iter().filter(|(a, _)| *a == affix).map(|(_, v)| v * decay).sum();
+        // Divine Forge (item 29, owner ruling 7) - the forged types' rolled
+        // value doubles HERE, so every consumer downstream (caps, overflow
+        // conversion, crit stacks, both elemental feeds) behaves exactly as
+        // if the item had rolled that value. The sacred copy is never
+        // forged, and `affix_instance_count` is untouched.
+        let forge = if matches!(self.unique_affix, Some(UniqueAffix::DivineForge { affixes }) if affixes.contains(&affix)) { 2.0 } else { 1.0 };
+        let normal: f64 = self.affixes.iter().filter(|(a, _)| *a == affix).map(|(_, v)| v * decay * forge).sum();
         let sacred = self.sacred_affix.filter(|(a, _)| *a == affix).map(|(_, v)| v * decay).unwrap_or(0.0);
         normal + sacred
     }

@@ -3399,7 +3399,9 @@ impl Character {
         let gear_increased =
             self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).max_hp_pct + self.sum_affix(Affix::IncreasedLife) + self.slot_implicit(EquipSlot::Pants);
         let tree_increased = self.passive_bonus().max_hp_pct + self.passive_overflow_bonus(t).max_hp_pct;
-        (base * (1.0 + gear_increased) * (1.0 + tree_increased)).max(1.0).round() as u32
+        // Unyielding (item 29) - its own "more" layer; 1.0 for non-carriers.
+        let unyielding = if self.wears_unique(UniqueAffix::Unyielding) { 1.0 + t.unyielding_life_more } else { 1.0 };
+        (base * (1.0 + gear_increased) * (1.0 + tree_increased) * unyielding).max(1.0).round() as u32
     }
 
     /// Damage dealt per hit against an enemy - every archetype deals
@@ -4125,7 +4127,28 @@ impl Character {
         // Soul Exchange extends Life Tap's own damage-bonus ratio (base
         // 2x, +4%/rank more of the SAME lifetap magnitude).
         let life_tap = self.passive_node_magnitude("lifetap") * (2.0 + self.passive_node_magnitude("soulexchange"));
-        ((1.0 + gear_total) * (1.0 + tree_total) * (1.0 + titans_grip) * (1.0 + overwhelm) * (1.0 + momentousblow) * (1.0 + reckless_swing) * (1.0 + death_wish) * (1.0 + life_tap) - 1.0).max(-0.9)
+        // Unyielding (item 29) - its own "less" layer, same shape as the
+        // Reckless Swing/Death Wish layers above. Healing is exempt (ruling
+        // 9): `simulate_battle`'s heal roll divides this factor back out
+        // via `CombatSimUnit::unyielding_damage_less`.
+        let unyielding = 1.0 - self.unyielding_damage_less(t);
+        ((1.0 + gear_total) * (1.0 + tree_total) * (1.0 + titans_grip) * (1.0 + overwhelm) * (1.0 + momentousblow) * (1.0 + reckless_swing) * (1.0 + death_wish) * (1.0 + life_tap) * unyielding - 1.0).max(-0.9)
+    }
+
+    /// Unyielding's "less damage" fraction for this character - 0.0 unless
+    /// an equipped item carries `UniqueAffix::Unyielding`.
+    pub(crate) fn unyielding_damage_less(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        if self.wears_unique(UniqueAffix::Unyielding) {
+            t.unyielding_damage_less
+        } else {
+            0.0
+        }
+    }
+
+    /// Whether any equipped item carries exactly `unique` - for the
+    /// payload-free variants (item 29).
+    pub(crate) fn wears_unique(&self, unique: UniqueAffix) -> bool {
+        EQUIP_SLOTS.iter().any(|&s| self.equipped(s).as_ref().is_some_and(|i| i.unique_affix == Some(unique)))
     }
 
     /// Mouseover breakdown for "Increased Dmg Dealt" (a live request - "all
@@ -6386,6 +6409,67 @@ mod duplicate_unique_effects_tests {
         item.affixes.truncate(1);
         assert_eq!(forges(&item), 0, "not offered below 2 affixes (ruling 6)");
         assert_eq!(unique_affix_candidates(&item).iter().filter(|u| matches!(u, UniqueAffix::Luckstone { pct: 0, .. })).count(), 5);
+    }
+
+    /// Stage 2 - Unyielding: one "more life" and one "less damage" layer.
+    #[test]
+    fn unyielding_multiplies_life_up_and_damage_down() {
+        let t = LiveTunables::default();
+        let mut character = Character::new("unyielding".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::Unyielding));
+        character.ring1.as_mut().unwrap().unique_affix = None;
+        let (hp, inc) = (character.combat_max_hp(&t), character.combat_increased_damage(&t));
+        character.ring1.as_mut().unwrap().unique_affix = Some(UniqueAffix::Unyielding);
+        let more_hp = character.combat_max_hp(&t);
+        assert!((more_hp as f64 - (hp as f64) * 1.25).abs() <= 1.0, "{hp} × 1.25 ≈ {more_hp}");
+        assert!(((1.0 + character.combat_increased_damage(&t)) - (1.0 + inc) * 0.75).abs() < 1e-9);
+        assert_eq!(character.unyielding_damage_less(&t), 0.25);
+    }
+
+    /// Stage 2 - Divine Forge doubles exactly its two picked types on its
+    /// own item; the sacred copy and instance counts are untouched, and a
+    /// pick no longer on the item is simply inert.
+    #[test]
+    fn divine_forge_doubles_only_its_two_picked_types() {
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        item.affixes = vec![(Affix::IncreasedDamage, 0.10), (Affix::CritChance, 0.20), (Affix::Leech, 0.05)];
+        item.sacred_affix = Some((Affix::CritChance, 0.03));
+        let before: Vec<f64> = [Affix::IncreasedDamage, Affix::CritChance, Affix::Leech].iter().map(|&a| item.effective_affix_total(a)).collect();
+        item.unique_affix = Some(UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::CritChance] });
+        let decay = item.decay_fraction();
+        assert!((item.effective_affix_total(Affix::IncreasedDamage) - 2.0 * before[0]).abs() < 1e-12);
+        assert!((item.effective_affix_total(Affix::CritChance) - (0.40 + 0.03) * decay).abs() < 1e-12, "normal copy doubled, sacred copy not");
+        assert!((item.effective_affix_total(Affix::Leech) - before[2]).abs() < 1e-12, "an unpicked type is untouched");
+        assert_eq!(item.affix_instance_count(Affix::CritChance), 2, "still counts as one instance per copy (ruling 7)");
+        item.affixes.retain(|(a, _)| *a != Affix::IncreasedDamage);
+        assert_eq!(item.effective_affix_total(Affix::IncreasedDamage), 0.0, "an annulled pick goes inert, nothing breaks");
+    }
+
+    /// GUARD - a character carrying none of the new uniques is unchanged
+    /// by every item-29 dial, however extreme.
+    #[test]
+    fn non_carriers_are_unchanged_by_every_item_29_dial() {
+        let shipped = LiveTunables::default();
+        let extreme = LiveTunables {
+            unyielding_life_more: 5.0,
+            unyielding_damage_less: 0.9,
+            expertise_craft_crit_mult: 100.0,
+            expertise_divine_dust_mult: 10.0,
+            expertise_reforge_cost_mult: 0.0,
+            luckstone_min_pct: 1.0,
+            luckstone_max_pct: 1.0,
+            ..LiveTunables::default()
+        };
+        let mut character = Character::new("plain".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::SplitPersonality));
+        for t in [&shipped, &extreme] {
+            assert_eq!(character.combat_max_hp(t), character.combat_max_hp(&shipped));
+            assert_eq!(character.combat_increased_damage(t), character.combat_increased_damage(&shipped));
+            assert_eq!(character.unyielding_damage_less(t), 0.0);
+        }
+        for kind in ALL_LUCKY_KINDS {
+            assert_eq!(character.luckstone_total(kind), 0.0);
+        }
     }
 }
 
