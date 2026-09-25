@@ -2806,13 +2806,13 @@ impl Character {
         if is_equipped && self.has_conflicting_unique_affix_value(unique, slot) {
             return Err(CraftError::ConflictingUniqueAffix);
         }
+        let item = self.find_mutable_item(item_id)?;
         // Item 29, owner ruling 5 - Expertise is lost on unequip, so it is
         // only ever granted to an item already in a slot. The picker omits
         // it for a bag item; this is the commit-time backstop.
         if unique == UniqueAffix::CraftingExpertise && !is_equipped {
             return Err(CraftError::UniqueRequiresEquipped);
         }
-        let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
         let tier = item.tier;
