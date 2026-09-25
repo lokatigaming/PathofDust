@@ -984,7 +984,13 @@
         // button. This was `30 * tier * times` - the flat curve retired on
         // 2026-09-02 - which is why the label said 3,030 at tier 101 while
         // the server charged 15,260 and this gate let the click through.
-        var dustCost = ruleCostOf(reforgeBtn, tier, 1) * times;
+        //
+        // Item 30: the selected option's `data-reforge-cost` is the price
+        // the server charges for THAT item (`panel_reforge_dust_cost`,
+        // Crafting Expertise discount included) - read, never recomputed.
+        // The rule parameters are only the fallback when no option has it.
+        var serverCost = itemASelect && itemASelect.selectedOptions.length ? parseInt(itemASelect.selectedOptions[0].getAttribute('data-reforge-cost'), 10) : NaN;
+        var dustCost = (isNaN(serverCost) ? ruleCostOf(reforgeBtn, tier, 1) : serverCost) * times;
         var dustHave = parseInt(reforgeBtn.getAttribute('data-dust') || '0', 10);
         reforgeBtn.textContent = 'Reforge' + suffix + ' (' + dustCost + 'd)';
         reforgeBtn.disabled = dustHave < dustCost;

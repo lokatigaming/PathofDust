@@ -495,6 +495,20 @@ pub(crate) fn craft_action_def(action: CraftAction) -> CraftActionDef {
     }
 }
 
+/// Panel Reforge's dust price for `item` - the ONE source (item 30). The
+/// charge in `craft_item_ex` and the crafting card's per-item
+/// `data-reforge-cost` both call this, so the label cannot show one number
+/// while the handler charges another. Crafting Expertise (item 29, rulings
+/// 1 and 3) discounts it on the Expertise item only; Reforge Now and
+/// channel-points Reforge Gear never reach it.
+pub(crate) fn panel_reforge_dust_cost(item: &Item, t: &LiveTunables) -> u64 {
+    let cost = craft_action_def(CraftAction::Reforge)
+        .price
+        .dust_at(item.tier, 1, t.craft_base_cost_mult, t.craft_tier_exponent)
+        .expect("Reforge declares MultipleOfStandard, which is dust-denominated");
+    if item.unique_affix == Some(UniqueAffix::CraftingExpertise) { (cost as f64 * t.expertise_reforge_cost_mult).round() as u64 } else { cost }
+}
+
 /// Resolved dust cost for every entry of `ALL_CRAFT_ACTIONS`, computed
 /// once and cached - `CraftActionDef`'s code defaults with
 /// `adventure-item-balance.toml`'s `[craft_action_cost]` overrides (if

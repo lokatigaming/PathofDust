@@ -4389,15 +4389,10 @@ impl AdventureManager {
             // `tier * PANEL_REFORGE_DUST_PER_TIER` - a flat 30/tier that
             // the 2026-09-02 cost cut did not reach, because nothing
             // connected it to the formula every other action moved with.
+            // Crafting Expertise's discount lives there too (item 30): the
+            // crafting card's label reads the same function.
             let t = self.live_tunables();
-            let cost = craft_action_def(CraftAction::Reforge)
-                .price
-                .dust_at(item.tier, 1, t.craft_base_cost_mult, t.craft_tier_exponent)
-                .expect("Reforge declares MultipleOfStandard, which is dust-denominated");
-            // Crafting Expertise (item 29, rulings 1 and 3) - panel Reforge
-            // on the Expertise item only; Reforge Now and channel-points
-            // Reforge Gear never reach this branch.
-            let cost = if item.unique_affix == Some(UniqueAffix::CraftingExpertise) { (cost as f64 * t.expertise_reforge_cost_mult).round() as u64 } else { cost };
+            let cost = panel_reforge_dust_cost(item, &t);
             if character.dust < cost {
                 return Err(CraftError::InsufficientDust(cost));
             }
