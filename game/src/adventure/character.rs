@@ -1436,6 +1436,17 @@ pub(crate) fn combine_reduction_sources(sources: &[f64]) -> f64 {
 /// wiki's constant audit - was a bare `0.05` at its one call site.
 pub const RECOMBINE_CRIT_CHANCE: f64 = 0.05;
 
+/// Crafting Expertise's craft-crit multiplier for a craft on `item` (item
+/// 29, ruling 1) - `expertise_craft_crit_mult` when `item` itself carries
+/// the affix, exactly 1.0 otherwise so every other craft rolls unchanged.
+pub(crate) fn expertise_crit_mult(item: &Item, t: &crate::adventure::LiveTunables) -> f64 {
+    if item.unique_affix == Some(UniqueAffix::CraftingExpertise) {
+        t.expertise_craft_crit_mult
+    } else {
+        1.0
+    }
+}
+
 /// Result of `Character::capped_stat_breakdown` - `sources` is
 /// (label, value) per contributor, in fraction form same as every other
 /// combat stat here (0.20 = 20%), not yet multiplied by 100.
@@ -2249,8 +2260,8 @@ impl Character {
     /// source item, otherwise the bag). Both source items are ALWAYS
     /// consumed on success, even if the result ends up lost to a full
     /// bag - recombination is a real forge, not a free reroll.
-    pub(crate) fn recombine(&mut self, item_id_a: &str, item_id_b: &str, rng: &mut impl Rng) -> Result<RecombineOutcome, RecombineError> {
-        let roll = self.roll_recombine(item_id_a, item_id_b, false, rng)?;
+    pub(crate) fn recombine(&mut self, item_id_a: &str, item_id_b: &str, t: &crate::adventure::LiveTunables, rng: &mut impl Rng) -> Result<RecombineOutcome, RecombineError> {
+        let roll = self.roll_recombine(item_id_a, item_id_b, false, t, rng)?;
         self.apply_recombine_roll(item_id_a, item_id_b, roll, rng)
     }
 
@@ -2264,7 +2275,7 @@ impl Character {
     /// the normal 50%-per-affix coin flip (see `recombine`'s doc); the
     /// player pays for that certainty via `recombine_gear`'s separate
     /// pool-size surcharge, not here.
-    pub(crate) fn roll_recombine(&self, item_id_a: &str, item_id_b: &str, guaranteed: bool, rng: &mut impl Rng) -> Result<RecombineRoll, RecombineError> {
+    pub(crate) fn roll_recombine(&self, item_id_a: &str, item_id_b: &str, guaranteed: bool, t: &crate::adventure::LiveTunables, rng: &mut impl Rng) -> Result<RecombineRoll, RecombineError> {
         if item_id_a == item_id_b {
             return Err(RecombineError::SameItem);
         }
@@ -2371,7 +2382,10 @@ impl Character {
         // anything in this fn at all - Recombine doesn't grant or roll for
         // it, only ever inherits whichever of it survives the merge below.
         let already_recombine_crit = item_a.recombine_crit_used() || item_b.recombine_crit_used();
-        let bonus_affix = if !already_recombine_crit && rng.gen_bool(RECOMBINE_CRIT_CHANCE) {
+        // Crafting Expertise (item 29) - either source carrying it counts
+        // as a craft on the Expertise item.
+        let crit_chance = (RECOMBINE_CRIT_CHANCE * expertise_crit_mult(item_a, t).max(expertise_crit_mult(item_b, t))).min(1.0);
+        let bonus_affix = if !already_recombine_crit && rng.gen_bool(crit_chance) {
             let present: Vec<Affix> = affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             weighted_affix_pick(&candidates, 1, rng).first().copied().map(|affix| {
@@ -3023,7 +3037,7 @@ impl Character {
     /// keeps the target item's id stable across the craft, so this
     /// matches that instead. Same underlying tier-jump/rare-bonus-affix
     /// logic otherwise.
-    pub(crate) fn reforge_item(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<ReforgeOutcome, CraftError> {
+    pub(crate) fn reforge_item(&mut self, item_id: &str, t: &crate::adventure::LiveTunables, rng: &mut impl Rng) -> Result<ReforgeOutcome, CraftError> {
         let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
@@ -3037,7 +3051,10 @@ impl Character {
         // reforge whose crit-granted affix is still on the item gets no
         // further chance - `rng.gen_bool` isn't even called, so this
         // doesn't cost the roll sequence anything either.
-        let bonus_affix = if !item.reforge_crit_used() && rng.gen_bool(reforge_crit_chance(quality_percent, was_perfect)) {
+        // Crafting Expertise (item 29, rulings 1-2) - raises the odds on
+        // this item only; the once-per-lineage gate above still holds.
+        let crit_chance = (reforge_crit_chance(quality_percent, was_perfect) * expertise_crit_mult(item, t)).min(1.0);
+        let bonus_affix = if !item.reforge_crit_used() && rng.gen_bool(crit_chance) {
             let present: Vec<Affix> = item.affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             let mult = if was_perfect { PERFECT_QUALITY_MULT } else { 1.0 };
@@ -4808,7 +4825,7 @@ mod protection_tests {
         let mut rng = StdRng::seed_from_u64(2);
 
         assert!(matches!(character.polish(&id, &mut rng), Err(CraftError::ItemProtected)), "Polish must refuse a protected item");
-        assert!(matches!(character.reforge_item(&id, &mut rng), Err(CraftError::ItemProtected)), "Reforge must refuse a protected item");
+        assert!(matches!(character.reforge_item(&id, &LiveTunables::default(), &mut rng), Err(CraftError::ItemProtected)), "Reforge must refuse a protected item");
         assert!(
             matches!(character.apply_divine_dust(&id, &mut rng), Err(CraftError::ItemProtected)),
             "Divine Dust must refuse a protected item"
@@ -4845,7 +4862,7 @@ mod protection_tests {
         partner.affixes = vec![(Affix::Evasion, 0.05)];
         let partner_id = partner.id.clone();
         character.inventory.push(partner);
-        let roll = character.roll_recombine(&partner_id, &id, false, &mut rng);
+        let roll = character.roll_recombine(&partner_id, &id, false, &LiveTunables::default(), &mut rng);
         assert!(matches!(roll, Err(RecombineError::ItemProtected)), "row 19: the recombine gate must refuse a protected input");
         assert!(character.find_item_by_id(&id).is_some(), "the protected item must survive a refused recombine");
         assert!(character.find_item_by_id(&partner_id).is_some(), "its partner must survive too");
@@ -5246,7 +5263,7 @@ mod crit_lineage_tests {
         // must NEVER fire across many attempts with a real RNG.
         let mut rng = StdRng::seed_from_u64(2);
         for _ in 0..500 {
-            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            let outcome = character.reforge_item(&item_id, &LiveTunables::default(), &mut rng).expect("reforge should succeed");
             assert!(outcome.bonus_affix.is_none(), "a reforge crit fired despite its crit-granted affix still being present");
             assert!(character.find_item_by_id(&item_id).unwrap().reforge_crit_used(), "the gate must stay locked while Evasion is still on the item");
         }
@@ -5262,7 +5279,7 @@ mod crit_lineage_tests {
         let mut rng = StdRng::seed_from_u64(3);
         let mut crit_count = 0;
         for _ in 0..500 {
-            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            let outcome = character.reforge_item(&item_id, &LiveTunables::default(), &mut rng).expect("reforge should succeed");
             if outcome.bonus_affix.is_some() {
                 crit_count += 1;
             }
@@ -5293,7 +5310,7 @@ mod crit_lineage_tests {
         let mut rng = StdRng::seed_from_u64(6);
         let mut crit_count = 0;
         for _ in 0..500 {
-            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            let outcome = character.reforge_item(&item_id, &LiveTunables::default(), &mut rng).expect("reforge should succeed");
             if outcome.bonus_affix.is_some() {
                 crit_count += 1;
             }
@@ -5318,7 +5335,7 @@ mod crit_lineage_tests {
         character.add_to_inventory(item_b);
 
         let mut rng = StdRng::seed_from_u64(4);
-        let roll = character.roll_recombine(&id_a, &id_b, false, &mut rng).expect("roll should succeed");
+        let roll = character.roll_recombine(&id_a, &id_b, false, &LiveTunables::default(), &mut rng).expect("roll should succeed");
         assert!(roll.bonus_affix.is_none(), "recombine must never roll a crit when a source's recombine_crit_used() is still true");
     }
 
@@ -5340,7 +5357,7 @@ mod crit_lineage_tests {
         // deterministically, so Evasion (and its crit tag) is guaranteed
         // to carry into the result.
         let mut rng = StdRng::seed_from_u64(5);
-        let roll = character.roll_recombine(&id_a, &id_b, true, &mut rng).expect("roll should succeed");
+        let roll = character.roll_recombine(&id_a, &id_b, true, &LiveTunables::default(), &mut rng).expect("roll should succeed");
         assert!(roll.affixes.iter().any(|&(a, _)| a == Affix::Evasion), "test setup sanity: Evasion must have survived the merge");
         assert!(roll.reforge_crit_used(), "reforge_crit_used must inherit true when the crit-granted affix actually survives the merge");
     }
@@ -5365,7 +5382,7 @@ mod crit_lineage_tests {
         character.add_to_inventory(item_b);
 
         let mut rng = StdRng::seed_from_u64(7);
-        let roll = character.roll_recombine(&id_a, &id_b, true, &mut rng).expect("roll should succeed");
+        let roll = character.roll_recombine(&id_a, &id_b, true, &LiveTunables::default(), &mut rng).expect("roll should succeed");
         assert!(!roll.reforge_crit_used(), "a dead crit tag with no surviving affix must not lock the merged item's gate");
     }
 
@@ -6409,6 +6426,20 @@ mod duplicate_unique_effects_tests {
         item.affixes.truncate(1);
         assert_eq!(forges(&item), 0, "not offered below 2 affixes (ruling 6)");
         assert_eq!(unique_affix_candidates(&item).iter().filter(|u| matches!(u, UniqueAffix::Luckstone { pct: 0, .. })).count(), 5);
+    }
+
+    /// Stage 3 - Expertise's 10× applies to crafts on the Expertise item
+    /// only, and the resulting chance clamps at 1.0 (ruling 2).
+    #[test]
+    fn expertise_crit_mult_applies_only_to_the_expertise_item_and_clamps() {
+        let t = LiveTunables::default();
+        let expert = unique_item(EquipSlot::Helm, UniqueAffix::CraftingExpertise);
+        let other = unique_item(EquipSlot::Helm, UniqueAffix::Unyielding);
+        assert_eq!(expertise_crit_mult(&expert, &t), 10.0);
+        assert_eq!(expertise_crit_mult(&other, &t), 1.0);
+        assert!((RECOMBINE_CRIT_CHANCE * expertise_crit_mult(&expert, &t)).min(1.0) - 0.5 < 1e-12);
+        let huge = LiveTunables { expertise_craft_crit_mult: 100.0, ..LiveTunables::default() };
+        assert_eq!((RECOMBINE_CRIT_CHANCE * expertise_crit_mult(&expert, &huge)).min(1.0), 1.0);
     }
 
     /// Stage 2 - Unyielding: one "more life" and one "less damage" layer.

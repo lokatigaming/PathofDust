@@ -4162,6 +4162,7 @@ impl AdventureManager {
     /// veiled recombine is really "pay for certainty", not "pick your
     /// favorite roll" the way a veiled currency craft is.
     pub async fn recombine_gear(&self, username: &str, item_id_a: &str, item_id_b: &str, veiled: bool) -> Result<RecombineResult, RecombineError> {
+        let tunables = self.live_tunables();
         let mut characters = self.characters.lock().await;
         let character = characters.get_mut(&username.to_lowercase()).ok_or(RecombineError::NotJoined)?;
         let has_free = character.free_recombines > 0;
@@ -4221,7 +4222,7 @@ impl AdventureManager {
                 let mut rng = rand::thread_rng();
                 let mut candidates = Vec::with_capacity(3);
                 for _ in 0..3 {
-                    candidates.push(VeilCandidate::Recombine(character.roll_recombine(item_id_a, item_id_b, true, &mut rng)?));
+                    candidates.push(VeilCandidate::Recombine(character.roll_recombine(item_id_a, item_id_b, true, &tunables, &mut rng)?));
                 }
                 candidates
             };
@@ -4247,7 +4248,7 @@ impl AdventureManager {
 
         let outcome = {
             let mut rng = rand::thread_rng();
-            character.recombine(item_id_a, item_id_b, &mut rng)?
+            character.recombine(item_id_a, item_id_b, &tunables, &mut rng)?
         };
         if has_free {
             character.free_recombines -= 1;
@@ -4378,12 +4379,16 @@ impl AdventureManager {
                 .price
                 .dust_at(item.tier, 1, t.craft_base_cost_mult, t.craft_tier_exponent)
                 .expect("Reforge declares MultipleOfStandard, which is dust-denominated");
+            // Crafting Expertise (item 29, rulings 1 and 3) - panel Reforge
+            // on the Expertise item only; Reforge Now and channel-points
+            // Reforge Gear never reach this branch.
+            let cost = if item.unique_affix == Some(UniqueAffix::CraftingExpertise) { (cost as f64 * t.expertise_reforge_cost_mult).round() as u64 } else { cost };
             if character.dust < cost {
                 return Err(CraftError::InsufficientDust(cost));
             }
             let outcome = {
                 let mut rng = rand::thread_rng();
-                character.reforge_item(item_id, &mut rng)?
+                character.reforge_item(item_id, &t, &mut rng)?
             };
             character.dust -= cost;
             character.last_crafted_item_id = Some(item_id.to_string());
@@ -4873,8 +4878,14 @@ impl AdventureManager {
         }
         character.dust -= tunables.divine_dust_craft_dust_cost;
         character.sand -= tunables.divine_dust_craft_sand_cost;
-        character.divine_dust += tunables.divine_dust_craft_output;
-        let output = tunables.divine_dust_craft_output;
+        // Crafting Expertise (item 29, ruling 1) - character-wide while
+        // equipped, since this recipe is not tied to an item.
+        let output = if character.wears_unique(UniqueAffix::CraftingExpertise) {
+            (tunables.divine_dust_craft_output as f64 * tunables.expertise_divine_dust_mult).round() as u64
+        } else {
+            tunables.divine_dust_craft_output
+        };
+        character.divine_dust += output;
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -9278,6 +9289,61 @@ mod divine_dust_craft_tests {
         assert_eq!(character.dust, 1000, "1000 dust must be deducted");
         assert_eq!(character.sand, 40, "10 sand must be deducted");
         assert_eq!(character.divine_dust, 1);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Item 29 stage 3 - Crafting Expertise doubles crafted divine dust
+    /// character-wide while equipped, and only while equipped.
+    #[tokio::test]
+    async fn crafting_expertise_equipped_doubles_crafted_divine_dust() {
+        let (manager, scratch) = disposable_manager("expertise_dd");
+        unlock_recipe(&manager).await;
+        joined_with_currency(&manager, "expert", 5000, 50).await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("expert").unwrap();
+            let mut ring = generate_item_at_tier(EquipSlot::Ring1, 10, &mut rand::thread_rng());
+            ring.unique_affix = Some(UniqueAffix::CraftingExpertise);
+            character.inventory.push(ring.clone());
+            ring.id = "worn-expertise".to_string();
+            character.ring1 = Some(ring);
+        }
+        assert_eq!(manager.craft_divine_dust("expert").await.expect("affordable"), 2, "1 × 2 while equipped");
+        {
+            let mut characters = manager.characters.lock().await;
+            characters.get_mut("expert").unwrap().ring1 = None;
+        }
+        assert_eq!(manager.craft_divine_dust("expert").await.expect("affordable"), 1, "a bag copy does nothing");
+        assert_eq!(manager.character("expert").await.unwrap().divine_dust, 3);
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Item 29 stage 3 - panel Reforge costs 10% less on the Expertise item
+    /// itself, and full price on any other item.
+    #[tokio::test]
+    async fn panel_reforge_is_discounted_only_on_the_expertise_item() {
+        let (manager, scratch) = disposable_manager("expertise_reforge");
+        joined_with_currency(&manager, "smith", 10_000_000, 0).await;
+        let (expert_id, plain_id) = {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("smith").unwrap();
+            let mut expert = generate_item_at_tier(EquipSlot::Ring1, 10, &mut rand::thread_rng());
+            expert.unique_affix = Some(UniqueAffix::CraftingExpertise);
+            let plain = generate_item_at_tier(EquipSlot::Ring2, 10, &mut rand::thread_rng());
+            let ids = (expert.id.clone(), plain.id.clone());
+            character.ring1 = Some(expert);
+            character.ring2 = Some(plain);
+            ids
+        };
+        let t = manager.live_tunables();
+        let full = craft_action_def(CraftAction::Reforge).price.dust_at(10, 1, t.craft_base_cost_mult, t.craft_tier_exponent).unwrap();
+        for (id, expected) in [(&expert_id, (full as f64 * 0.9).round() as u64), (&plain_id, full)] {
+            let before = manager.character("smith").await.unwrap().dust;
+            manager.craft_item_ex("smith", id, CraftAction::Reforge, false, true).await.expect("affordable");
+            assert_eq!(before - manager.character("smith").await.unwrap().dust, expected);
+        }
 
         std::fs::remove_dir_all(&scratch).ok();
     }
