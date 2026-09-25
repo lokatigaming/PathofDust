@@ -655,6 +655,9 @@ pub enum CraftError {
     /// Item 29, owner ruling 5 - `UniqueAffix::CraftingExpertise` picked
     /// for an item that is not equipped (see `Character::apply_unique_affix`).
     UniqueRequiresEquipped,
+    /// Item 31 - `POST /craft/unique-shard`'s `choice` is malformed or is
+    /// not one of this item's own candidates (`unique_affix_candidates`).
+    InvalidUniqueChoice,
 }
 
 /// Why `AdventureManager::apply_divinity` didn't run at all. Own error

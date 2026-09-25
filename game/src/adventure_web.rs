@@ -39,7 +39,7 @@ use crate::adventure::{
     AutoDisenchantTier, BossKind, BugReportManager, ChangeModelError, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
-    SubmitOutcome, UniqueAffix, VeilChosenOutcome,
+    SubmitOutcome, UniqueAffix, VeilChosenOutcome, ALL_LUCKY_KINDS,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, BUG_REPORTS_PATH, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MAX_REPORT_LEN, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
     HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, TIER_CRAFT_DUST_COST,
     VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST, scaled_base_cost,
@@ -259,6 +259,7 @@ pub async fn start_adventure_web_server(
         .route("/name-item", post(do_name_item))
         .route("/craft", post(do_craft))
         .route("/craft/choose-veil", post(do_choose_veil))
+        .route("/craft/unique-shard", post(do_unique_shard))
         .route("/passives", get(passives_page))
         .route("/passives/allocate", post(do_allocate_passive))
         .route("/passives/save", post(do_save_passives))
@@ -1612,6 +1613,7 @@ fn craft_error_text(err: CraftError) -> String {
             "You already have that unique effect equipped elsewhere — unequip it first, or apply the shard to an item in your bag instead.".to_string()
         }
         CraftError::UniqueRequiresEquipped => "Crafting Expertise can only be applied to an equipped item — equip it first, then use the shard.".to_string(),
+        CraftError::InvalidUniqueChoice => "That unique affix isn't available for this item — nothing was spent. Pick again.".to_string(),
     }
 }
 
@@ -1964,6 +1966,34 @@ async fn do_choose_veil(State(state): State<AppState>, headers: HeaderMap, Form(
             // already show, via the same CraftError message table.
             Err(err) => return Redirect::to(&craft_error_popup_url(&craft_error_text(err))),
         }
+    }
+    Redirect::to("/inventory")
+}
+
+/// Item 31 - the Unique Shard's one-step commit. The picker, sub-options
+/// and Cancel are all client-side (`render_unique_shard_flow`); this is
+/// the only request, sent after the final confirm, and the shard is
+/// spent here or not at all (`AdventureManager::apply_unique_shard`).
+/// Both fields default so a stale or partial POST gets the error popup,
+/// never a bare 422.
+#[derive(Deserialize)]
+struct UniqueShardForm {
+    #[serde(default)]
+    item_id: String,
+    #[serde(default)]
+    choice: String,
+}
+
+async fn do_unique_shard(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<UniqueShardForm>) -> impl IntoResponse {
+    if let Some((login, _)) = current_session(&headers, &state).await {
+        let result = match UniqueAffix::from_choice_key(&form.choice) {
+            Some(choice) => state.adventure.apply_unique_shard(&login, &form.item_id, choice).await,
+            None => Err(CraftError::InvalidUniqueChoice),
+        };
+        return match result {
+            Ok(outcome) => Redirect::to(&craft_popup_url(&outcome.item_name, outcome.slot, outcome.tier, &craft_outcome_change_text(&outcome))),
+            Err(err) => Redirect::to(&craft_error_popup_url(&craft_error_text(err))),
+        };
     }
     Redirect::to("/inventory")
 }
@@ -7660,7 +7690,7 @@ fn craft_action_tip(action: CraftAction) -> &'static str {
             "Legacy currency, no longer earnable \u{2014} Celestial Shard merged into Unique Shard. Held tokens are safe and still usable, but nothing drops these any more."
         }
         CraftAction::UniqueShard => {
-            "Consumes a Unique Shard to grant a unique affix, shown above the item's tier \u{2014} outside the normal 4-modifier cap and unaffected by any other crafting. Pick which effect at apply time: Celestial Conversion (bonus damage/follow-up hit), Split Personality (invest points into a 2nd class on /passives), Unyielding (more life, less damage), Crafting Expertise (better crafting on this item; equipped items only, lost if unequipped), Divine Forge (doubles two of this item's modifiers) or Luckstone (a lucky second roll; can stack). An item can only ever have one; a Krangled item can't receive one, and a unique item can't be Krangled. Needs an actual Unique Shard \u{2014} can't be bought with dust."
+            "Grants a unique affix, shown above the item's tier \u{2014} outside the normal 4-modifier cap and unaffected by any other crafting. Opens a picker first: browse every effect and cancel freely \u{2014} the shard is only spent when you confirm your pick. The six effects: Celestial Conversion (bonus damage/follow-up hit), Split Personality (invest points into a 2nd class on /passives), Unyielding (more life, less damage), Crafting Expertise (better crafting on this item; equipped items only, lost if unequipped), Divine Forge (doubles two of this item's modifiers) or Luckstone (a lucky second roll; can stack). An item can only ever have one; a Krangled item can't receive one, and a unique item can't be Krangled. Needs an actual Unique Shard \u{2014} can't be bought with dust."
         }
         CraftAction::Polishing => {
             "Costs sand, not dust \u{2014} 1 per 10% quality (12 for a Perfect item). Raises the item's own quality by 5% and bumps one random modifier's roll by 5% of its range, both capped at the max. On an already-Perfect item (nothing left to raise on quality), instead bumps up to 2 random modifiers' rolls by 5%."
@@ -7735,6 +7765,128 @@ fn render_divine_dust_recipe_row(c: &Character, tunables: &LiveTunables, unlocke
     )
 }
 
+/// Item 31 - the Unique Shard's browse-before-commit flow: picker (every
+/// top-level affix, greyed with a reason when this item can't take it) ->
+/// sub-options (Divine Forge: tick exactly 2 of the item's modifiers;
+/// Luckstone: one of 5 kinds) -> the native `data-confirm` dialog, which
+/// is the final confirm. base.html's Unique Shard block drives the panels
+/// from the per-item `data-us-*` rows below; every Cancel/Back is
+/// client-side and nothing is spent until the one POST to
+/// `/craft/unique-shard`. Empty unless a shard is held.
+fn render_unique_shard_flow(c: &Character, items: &[&Item], tunables: &LiveTunables) -> String {
+    if c.craft_token_count(CraftAction::UniqueShard) == 0 {
+        return String::new();
+    }
+    let (lo, hi) = (tunables.luckstone_min_pct.min(tunables.luckstone_max_pct), tunables.luckstone_min_pct.max(tunables.luckstone_max_pct));
+    let luck_range = format!("{:.0}\u{2013}{:.0}%", lo * 100.0, hi * 100.0);
+    // One representative per top-level kind; the payload is irrelevant to
+    // the kind key and to the kind-level conflict check (`same_kind`).
+    let kinds: Vec<UniqueAffix> = crate::adventure::ALL_UNIQUE_AFFIXES
+        .iter()
+        .copied()
+        .chain([UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::CritChance] }, UniqueAffix::Luckstone { kind: ALL_LUCKY_KINDS[0], pct: 0 }])
+        .collect();
+    let kind_key = |u: UniqueAffix| u.choice_key().split(':').next().unwrap_or_default().to_string();
+    let kind_rows: String = kinds
+        .iter()
+        .map(|&u| {
+            let desc = match u {
+                UniqueAffix::DivineForge { .. } => "Doubles two of this item's modifiers \u{2014} you tick which two. The sacred affix is never a pick.".to_string(),
+                UniqueAffix::Luckstone { .. } => format!("A lucky second roll on Echo, Crit, Evasion, Block or Splash \u{2014} you pick which. Strength rolled when applied ({luck_range}). Stacks with other Luckstones."),
+                other => other.description(),
+            };
+            format!(
+                "<div class=\"us-kind\" data-kind=\"{key}\"><button type=\"button\" class=\"btn-sm\" data-us-pick=\"{key}\" data-us-name=\"{name}\">{name}</button> <span class=\"muted\">{desc}</span> <span class=\"us-why\"></span></div>",
+                key = kind_key(u),
+                name = u.name(),
+                desc = escape_html(&desc),
+            )
+        })
+        .collect();
+    let luck_buttons: String = ALL_LUCKY_KINDS
+        .iter()
+        .map(|&kind| {
+            format!(
+                "<button type=\"button\" class=\"btn-sm\" data-us-choice=\"{choice}\" data-us-label=\"Luckstone (Lucky {name}, {luck_range} rolled on apply)\">Lucky {name}</button> ",
+                choice = UniqueAffix::Luckstone { kind, pct: 0 }.choice_key(),
+                name = kind.name(),
+            )
+        })
+        .collect();
+    // Per-item facts the panels need: a whole-item block reason, the
+    // modifiers Divine Forge can pick from, and each kind this item can't
+    // take with why (ruling 4: greyed with the reason, never hidden).
+    // Same gates `apply_unique_shard` enforces - this is only the preview.
+    let item_rows: String = items
+        .iter()
+        .map(|item| {
+            let equipped = c.equipped(item.slot).as_ref().is_some_and(|e| e.id == item.id);
+            let blocked = match c.check_item_mutable(&item.id) {
+                Err(err) => craft_error_text(err),
+                Ok(i) if i.unique_affix.is_some() => craft_error_text(CraftError::AlreadyUnique),
+                Ok(_) => String::new(),
+            };
+            let affixes: String = item
+                .affixes
+                .iter()
+                .map(|&(a, _)| {
+                    let serde_key = serde_json::to_value(a).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+                    format!("<i data-affix=\"{serde_key}\" data-label=\"{}\"></i>", escape_html(affix_name(a)))
+                })
+                .collect();
+            let off: String = kinds
+                .iter()
+                .filter_map(|&u| {
+                    let why = if u == UniqueAffix::CraftingExpertise && !equipped {
+                        "equipped items only \u{2014} equip this item first".to_string()
+                    } else if equipped && c.has_conflicting_unique_affix_value(u, item.slot) {
+                        format!("you already wear a {} on another equipped item", u.name())
+                    } else if matches!(u, UniqueAffix::DivineForge { .. }) && item.affixes.len() < 2 {
+                        "needs at least 2 modifiers on this item".to_string()
+                    } else {
+                        return None;
+                    };
+                    Some(format!("<i data-off=\"{}\" data-why=\"{}\"></i>", kind_key(u), escape_html(&why)))
+                })
+                .collect();
+            format!(
+                "<div data-us-item=\"{id}\" data-name=\"{name}\" data-blocked=\"{blocked}\" hidden>{affixes}{off}</div>",
+                id = escape_html(&item.id),
+                name = escape_html(&item.display_name()),
+                blocked = escape_html(&blocked),
+            )
+        })
+        .collect();
+    format!(
+        "<div id=\"us-flow\" hidden>\
+          <h3>Unique Shard \u{2014} <span data-us-itemname></span></h3>\
+          <p class=\"muted\">Browse freely \u{2014} nothing is spent until you confirm your pick.</p>\
+          <div data-us-panel=\"picker\">\
+            <p class=\"us-blocked\" hidden></p>\
+            {kind_rows}\
+            <button type=\"button\" class=\"btn-sm\" data-us-cancel>Cancel</button>\
+          </div>\
+          <div data-us-panel=\"divineForge\" hidden>\
+            <p>Divine Forge: tick exactly 2 of this item's modifiers to double.</p>\
+            <div data-us-df-list></div>\
+            <button type=\"button\" class=\"btn-sm\" data-us-df-apply disabled>Apply Divine Forge</button>\
+            <button type=\"button\" class=\"btn-sm\" data-us-back>Cancel</button>\
+          </div>\
+          <div data-us-panel=\"luckstone\" hidden>\
+            <p>Luckstone: pick which mechanic becomes lucky.</p>\
+            {luck_buttons}\
+            <button type=\"button\" class=\"btn-sm\" data-us-back>Cancel</button>\
+          </div>\
+          <form method=\"post\" action=\"/craft/unique-shard\" id=\"us-form\">\
+            <input type=\"hidden\" name=\"item_id\" value=\"\">\
+            <input type=\"hidden\" name=\"choice\" value=\"\">\
+            <button type=\"submit\" value=\"unique shard\" data-confirm=\"1\" data-confirm-msg=\"\" hidden>Apply</button>\
+          </form>\
+          {item_rows}\
+        </div>"
+    )
+}
+
 fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlocked: bool) -> String {
     let items = all_items(c);
     let divine_dust_recipe_html = render_divine_dust_recipe_row(c, tunables, divine_dust_unlocked);
@@ -7781,9 +7933,11 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
         // 2026-08-15 request was that the dialog SAY WHICH ITEM, and a
         // static override would drop exactly that (see Divinity, which
         // overrides only because it is whole-bag and has no item to
-        // name).
+        // name). Item 31 moved it off this button: the shard button now only
+        // opens the picker, and the confirm fires on the final pick
+        // (`render_unique_shard_flow`), naming the item and the affix.
         let confirm_attr =
-            if matches!(action, CraftAction::Krangle | CraftAction::Scour | CraftAction::Annulment | CraftAction::Chancing | CraftAction::UniqueShard) { " data-confirm=\"1\"" } else { "" };
+            if matches!(action, CraftAction::Krangle | CraftAction::Scour | CraftAction::Annulment | CraftAction::Chancing) { " data-confirm=\"1\"" } else { "" };
         let tokens = c.craft_token_count(action);
         if tokens > 0 {
             return format!(
@@ -7891,8 +8045,20 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
     let celestial_btn =
         if c.craft_token_count(CraftAction::CelestialShard) > 0 { action_btn(CraftAction::CelestialShard) } else { String::new() };
     // Same hidden-until-earned shape as celestial_btn above, for the
-    // Unique Shard token.
-    let unique_shard_btn = if c.craft_token_count(CraftAction::UniqueShard) > 0 { action_btn(CraftAction::UniqueShard) } else { String::new() };
+    // Unique Shard token. Item 31: a plain `type="button"` that opens the
+    // in-page picker (`render_unique_shard_flow`) - it no longer submits
+    // or confirms; the confirm moved to the final pick, where the spend is.
+    let shard_tokens = c.craft_token_count(CraftAction::UniqueShard);
+    let unique_shard_btn = if shard_tokens > 0 {
+        format!(
+            "<button class=\"btn-sm\" type=\"button\" data-us-open=\"1\" data-tip=\"{tip}\">Unique Shard (Free — {shard_tokens} token{s})</button>",
+            tip = craft_action_tip(CraftAction::UniqueShard),
+            s = if shard_tokens == 1 { "" } else { "s" },
+        )
+    } else {
+        String::new()
+    };
+    let unique_shard_flow = render_unique_shard_flow(c, &items, tunables);
     // Polishing (sand) and Reforge (30*tier dust) both price off the
     // SELECTED item rather than a flat action-wide cost, so unlike
     // action_btn's other 6 buttons their price text is entirely
@@ -8062,6 +8228,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
             {hw_all_row}\
             {divinity_row}\
           </form>\
+          {unique_shard_flow}\
         </div>",
         dust = format_number(c.dust as f64),
         sand = format_number(c.sand as f64),

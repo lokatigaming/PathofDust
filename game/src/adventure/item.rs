@@ -370,6 +370,45 @@ impl UniqueAffix {
             UniqueAffix::Luckstone { kind, pct } => format!("{:.2}% Lucky {}. Stacks with other Luckstones.", pct as f64 / 100.0, kind.name()),
         }
     }
+
+    /// Item 31 - the `choice` string `POST /craft/unique-shard` carries:
+    /// the variant's serde name, plus `:a,b` (Divine Forge's two affix
+    /// serde names) or `:kind` (Luckstone). A Luckstone's pct is never
+    /// part of it - it rolls on apply (ruling 10).
+    pub fn choice_key(self) -> String {
+        fn serde_name<T: Serialize>(v: &T) -> String {
+            serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+        }
+        match self {
+            UniqueAffix::CelestialConversion => "celestialConversion".to_string(),
+            UniqueAffix::SplitPersonality => "splitPersonality".to_string(),
+            UniqueAffix::Unyielding => "unyielding".to_string(),
+            UniqueAffix::CraftingExpertise => "craftingExpertise".to_string(),
+            UniqueAffix::DivineForge { affixes: [a, b] } => format!("divineForge:{},{}", serde_name(&a), serde_name(&b)),
+            UniqueAffix::Luckstone { kind, .. } => format!("luckstone:{}", serde_name(&kind)),
+        }
+    }
+
+    /// Inverse of `choice_key`; `None` for anything malformed. A parsed
+    /// Luckstone carries `pct: 0`, same as its picker candidate.
+    pub fn from_choice_key(key: &str) -> Option<UniqueAffix> {
+        fn de<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
+            T::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(s)).ok()
+        }
+        let (head, rest) = key.split_once(':').map_or((key, None), |(h, r)| (h, Some(r)));
+        match (head, rest) {
+            ("celestialConversion", None) => Some(UniqueAffix::CelestialConversion),
+            ("splitPersonality", None) => Some(UniqueAffix::SplitPersonality),
+            ("unyielding", None) => Some(UniqueAffix::Unyielding),
+            ("craftingExpertise", None) => Some(UniqueAffix::CraftingExpertise),
+            ("divineForge", Some(pair)) => {
+                let (a, b) = pair.split_once(',')?;
+                Some(UniqueAffix::DivineForge { affixes: [de(a)?, de(b)?] })
+            }
+            ("luckstone", Some(kind)) => Some(UniqueAffix::Luckstone { kind: de(kind)?, pct: 0 }),
+            _ => None,
+        }
+    }
 }
 
 /// Which crit source tagged a `crit_bonus_affixes` entry - see that

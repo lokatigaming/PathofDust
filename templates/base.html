@@ -1095,6 +1095,97 @@
   })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
 
   try { (function() {
+    // Item 31 - Unique Shard browse-before-commit. render_unique_shard_flow
+    // (adventure_web.rs) renders three panels and one data-us-item row per
+    // item; this walks picker -> sub-options -> the final confirm. Every
+    // Cancel is client-side. The only request is the hidden us-form
+    // submit, clicked here so the data-confirm block above fires with a
+    // message naming the item, the affix and the sub-choice; cancelling
+    // that dialog leaves the player on the panel they were on.
+    var flow = document.getElementById('us-flow');
+    if (!flow) return;
+    var form = document.getElementById('us-form');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var dfList = flow.querySelector('[data-us-df-list]');
+    var dfApply = flow.querySelector('[data-us-df-apply]');
+    var current = null;
+    function show(name) {
+      flow.querySelectorAll('[data-us-panel]').forEach(function(p) { p.hidden = p.getAttribute('data-us-panel') !== name; });
+    }
+    function itemName() { return current ? current.getAttribute('data-name') : 'this item'; }
+    function commit(choice, label) {
+      if (!current) return;
+      form.querySelector('input[name="item_id"]').value = current.getAttribute('data-us-item');
+      form.querySelector('input[name="choice"]').value = choice;
+      submitBtn.setAttribute('data-confirm-msg', 'Apply ' + label + ' to ' + itemName() + '? This spends 1 Unique Shard and cannot be undone.');
+      submitBtn.click();
+    }
+    function ticked() { return Array.prototype.slice.call(dfList.querySelectorAll('input:checked')); }
+    dfList.addEventListener('change', function() {
+      var n = ticked().length;
+      dfList.querySelectorAll('input').forEach(function(box) { box.disabled = n >= 2 && !box.checked; });
+      dfApply.disabled = n !== 2;
+    });
+    function open() {
+      var sel = document.querySelector('#crafting-card select[name="item_a"]');
+      var id = sel ? sel.value : '';
+      current = null;
+      flow.querySelectorAll('[data-us-item]').forEach(function(row) { if (row.getAttribute('data-us-item') === id) current = row; });
+      flow.querySelector('[data-us-itemname]').textContent = current ? itemName() : 'no item selected';
+      var blocked = current ? current.getAttribute('data-blocked') : 'Pick an item first.';
+      var note = flow.querySelector('.us-blocked');
+      note.textContent = blocked;
+      note.hidden = !blocked;
+      flow.querySelectorAll('.us-kind').forEach(function(row) {
+        var off = current ? current.querySelector('[data-off="' + row.getAttribute('data-kind') + '"]') : null;
+        var why = off ? off.getAttribute('data-why') : '';
+        row.querySelector('button').disabled = !!(blocked || why);
+        row.style.opacity = (blocked || why) ? '0.5' : '';
+        row.querySelector('.us-why').textContent = (why && !blocked) ? '(unavailable: ' + why + ')' : '';
+      });
+      show('picker');
+      flow.hidden = false;
+      flow.scrollIntoView({ block: 'nearest' });
+    }
+    document.addEventListener('click', function(e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-us-open],[data-us-pick],[data-us-choice],[data-us-df-apply],[data-us-back],[data-us-cancel]') : null;
+      if (!t) return;
+      if (t.hasAttribute('data-us-open')) { open(); return; }
+      if (!flow.contains(t)) return;
+      if (t.hasAttribute('data-us-cancel')) { flow.hidden = true; return; }
+      if (t.hasAttribute('data-us-back')) { show('picker'); return; }
+      if (t.hasAttribute('data-us-choice')) { commit(t.getAttribute('data-us-choice'), t.getAttribute('data-us-label')); return; }
+      if (t.hasAttribute('data-us-df-apply')) {
+        var picks = ticked();
+        if (picks.length !== 2) return;
+        commit('divineForge:' + picks[0].value + ',' + picks[1].value, 'Divine Forge (doubles ' + picks[0].getAttribute('data-label') + ' and ' + picks[1].getAttribute('data-label') + ')');
+        return;
+      }
+      var kind = t.getAttribute('data-us-pick');
+      if (kind === 'divineForge') {
+        dfList.innerHTML = '';
+        current.querySelectorAll('[data-affix]').forEach(function(a) {
+          var label = document.createElement('label');
+          label.className = 'batch-check';
+          var box = document.createElement('input');
+          box.type = 'checkbox';
+          box.value = a.getAttribute('data-affix');
+          box.setAttribute('data-label', a.getAttribute('data-label'));
+          label.appendChild(box);
+          label.appendChild(document.createTextNode(' ' + a.getAttribute('data-label')));
+          dfList.appendChild(label);
+        });
+        dfApply.disabled = true;
+        show('divineForge');
+      } else if (kind === 'luckstone') {
+        show('luckstone');
+      } else {
+        commit(kind, t.getAttribute('data-us-name'));
+      }
+    });
+  })(); } catch (err) { /* isolates this block's own failure from every other block on the page - see the scroll-restore block's own history for why. */ }
+
+  try { (function() {
     // Same fix as the OBS overlay's sprite normalization (see
     // overlay.html's computeContentScale) - sprites are sliced by hand
     // from packed sheets, so different sheets carry different amounts of
