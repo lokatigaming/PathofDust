@@ -10495,3 +10495,54 @@ is a one-line change.
 ## 2026-09-25 — a: item 29a wire (Luckstones into the player combat unit)
 
 FOUND: `guard_tests::the_five_unchecked_commit_halves_go_through_the_guard` fails on b's 29b stage-1 head `50d3f7a` itself ("apply_unique_affix (audit row 13) no longer takes its item through the guard") — present on the untouched baseline, not caused by 29a.
+
+## 2026-09-25 — RELEASE 34 DEPLOYED: item 29, unique affixes b + a + d (`unique-affixes-29-r2`). 0.31 s downtime. ROLLBACK IS ONE-WAY — see below.
+
+Merges, order b → a → d: b `35017cd` → `5a00f27` (clean); a `d824ff7` → `3fce9ac`
+(`combat.rs` 6 hunks, every one b's `unyielding_damage_less` field line beside a's five
+`lucky_*` field lines in the same struct/initialiser lists — keep-both; `WIKI_IMPACT.md`
+keep-both, +3 / −0); d `7e7af8d` → `9bb35c2` (`WIKI_IMPACT.md` keep-both, +2 / −0).
+`equip_item`/`unequip_item` (`confirm_loss`): the only callers are the two handlers, and
+both form fields carry `#[serde(default)]`.
+
+**Semantic conflict found by the suite, not by git:** `9bb35c2` did not compile its lib tests.
+d's `duplicate_unique_effects_tests` called `Character::recombine` without the
+`&LiveTunables` argument b's stage 3 added after d's base `50d3f7a`. Fixed in `4f71fc6`,
+test-only, same form as b's own call in the same module. The first archive
+(`unique-affixes-29`, `9bb35c2`) was abandoned and its box build stopped. Everything
+below is `4f71fc6`.
+
+**Prediction, stated before the run:** 1091 / 0 / 49 lines (1055 + 17 b + 14 a + 5 d; base
+`50d3f7a` = 1062 from d's own suite file). **Suites**, `cargo test --release --workspace
+--quiet -j 4` on `4f71fc6`: local **1091 / 0 / 0, 49 lines, exit 0**; box **1091 / 0 / 0, 49
+lines, exit 0**. The prediction held exactly. `guard_tests::the_five_unchecked_commit_halves_go_through_the_guard`
+passes in isolation on the merged head (`--lib`, full path, 1 passed / 956 filtered).
+`golden_corpus::golden_corpus_matches_committed_fixtures` passes and no fixture path moved
+since `aa06259`, so a player without a Luckstone fights exactly as before.
+
+Archive `src-deploy-unique-affixes-29-r2.tar.gz` `cc8d2039…` on both ends. Binary
+`05e74c37943256cb9602508de4c38b007d89428a0da095817bfd34d80afefc4d` over `58376a63…`;
+rollback slot `/var/backups/pathofdust/deploy-pre-20260925-144403-unique-affixes-29-r2`.
+
+**ROLLBACK PAST RELEASE 34 NEEDS THE DATA BACKUP, NOT JUST THE BINARY.** `UniqueAffix` has
+no `#[serde(other)]`: once any player applies one of the new uniques, no earlier binary can
+load that save. Full `/var/lib/pathofdust` backup taken before the swap, outside the slot:
+`/var/backups/pathofdust/full-data-pre-release-34-20260925-144338.tar.gz`, sha256
+`9afe7c4add59de8b4512ad58944abe94442dba2ee1c83e7d0f2162ae038378e3` (66 MB, gzip-OK, 481
+entries = live count, characters file parses to 24). It was taken with the service running.
+Restoring it loses all progress made after 14:43:38.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live =
+candidate; 5 **unrun**, it needs an owner cookie and no token was read; 6 port 4005 (from
+MainPID) 404 / 77,589 B (4004: 404 / 0 B); 7 404; 0 panic/ERROR lines. Fight loop:
+`fight-0000023076` → `…23077` at 14:44:27, after the 14:44:03 swap.
+
+**Patch notes** after the swap and check 4. One block dated **September 25, 2026** by the box
+clock: the four new uniques, LUCKY, and the Expertise-lost-on-unequip warning. Pre-edit copy
+`46b956d2…` in the slot; diff +33 / −0; new file `a008b920…`.
+
+Bot: not redeployed. `git diff --name-only aa06259..4f71fc6 -- bot Cargo.lock Cargo.toml`
+is empty, and there is no bot on the box.
+
+Not in this release: the Reforge button's on-page price does not show the Expertise
+discount, though the server charges correctly (b's follow-up). The patch notes say so.
