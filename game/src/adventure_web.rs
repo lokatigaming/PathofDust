@@ -754,6 +754,25 @@ struct SlotForm {
     slot: EquipSlot,
 }
 
+/// `/equip` and `/unequip` (item 29d). `confirm_loss` is sent only by a
+/// form whose displaced item carries a `lost_on_unequip` unique (see
+/// `loss_confirm_html`), after the player OKs the confirm(). Absent means
+/// false, so every other form and every old tab posts exactly what it
+/// always did.
+#[derive(Deserialize)]
+struct EquipForm {
+    item_id: String,
+    #[serde(default)]
+    confirm_loss: bool,
+}
+
+#[derive(Deserialize)]
+struct UnequipForm {
+    slot: EquipSlot,
+    #[serde(default)]
+    confirm_loss: bool,
+}
+
 #[derive(Deserialize)]
 struct ArchetypeForm {
     archetype: Archetype,
@@ -815,16 +834,16 @@ struct VeilChoiceForm {
     index: usize,
 }
 
-async fn do_equip(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<ItemIdForm>) -> impl IntoResponse {
+async fn do_equip(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<EquipForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
-        state.adventure.equip_item(&login, &form.item_id).await;
+        state.adventure.equip_item(&login, &form.item_id, form.confirm_loss).await;
     }
     Redirect::to("/")
 }
 
-async fn do_unequip(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<SlotForm>) -> impl IntoResponse {
+async fn do_unequip(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<UnequipForm>) -> impl IntoResponse {
     if let Some((login, _)) = current_session(&headers, &state).await {
-        state.adventure.unequip_item(&login, form.slot).await;
+        state.adventure.unequip_item(&login, form.slot, form.confirm_loss).await;
     }
     Redirect::to("/")
 }
@@ -6358,7 +6377,7 @@ fn render_inventory_page(display_name: &str, character: Option<&Character>, pend
     let inventory_html = if c.inventory.is_empty() {
         "<p class=\"muted\">Empty — gear you find lands here to equip yourself.</p>".to_string()
     } else {
-        render_inventory_by_slot(&c.inventory, |item| render_inventory_item(item, c.dust))
+        render_inventory_by_slot(&c.inventory, |item| render_inventory_item(item, c.dust, c.equipped(item.slot).as_ref()))
     };
 
     // Only shown when there's actually something it would touch -
@@ -8258,14 +8277,36 @@ fn quality_line_html(item: &Item) -> String {
 /// Crafting page (see `render_gear_slot`), per the request that the
 /// dashboard keep re-equipping possible without leaving it. Empty
 /// string (no form at all) when nothing in the bag matches this slot.
+/// Item 29d: the `(onsubmit attribute, hidden confirm_loss input)` pair for
+/// a form that moves `displaced` out of its equip slot - both empty unless
+/// `displaced` carries a `lost_on_unequip` unique. Same `onsubmit="return
+/// confirm(..)"` shape as Disenchant All; the hidden field is what the
+/// server-side gate in `AdventureManager::equip_item`/`unequip_item` needs
+/// to let the move through.
+fn loss_confirm_html(displaced: Option<&Item>) -> (String, &'static str) {
+    let Some((item, unique)) = displaced.and_then(|i| i.unique_affix.filter(|u| u.lost_on_unequip()).map(|u| (i, u))) else {
+        return (String::new(), "");
+    };
+    let name_js = escape_html(&item.display_name()).replace('\'', "");
+    (
+        format!(
+            " onsubmit=\"return confirm('{name_js} will lose its {affix} unique affix for good when it leaves its slot. Continue?');\"",
+            affix = unique.name(),
+        ),
+        "<input type=\"hidden\" name=\"confirm_loss\" value=\"true\">",
+    )
+}
+
 fn render_equip_picker(character: &Character, slot: EquipSlot) -> String {
     let candidates: Vec<&Item> = character.inventory.iter().filter(|i| i.slot == slot).collect();
     if candidates.is_empty() {
         return String::new();
     }
     let options = craft_item_options(character, &candidates, false, None);
+    let (onsubmit, confirm_input) = loss_confirm_html(character.equipped(slot).as_ref());
     format!(
-        "<form method=\"post\" action=\"/equip\" class=\"equip-picker\">\
+        "<form method=\"post\" action=\"/equip\" class=\"equip-picker\"{onsubmit}>\
+          {confirm_input}\
           <select name=\"item_id\">{options}</select>\
           <button class=\"btn-sm\" type=\"submit\">Equip</button>\
         </form>"
@@ -8283,12 +8324,14 @@ fn render_gear_slot(character: &Character, slot: EquipSlot, label: &str) -> Stri
             let slot_value = format!("{:?}", slot).to_lowercase();
             let repair_html = render_repair_form("/repair-equipped", "slot", &slot_value, item, character.dust);
             let body = item_card_body_html(item);
+            let (onsubmit, confirm_input) = loss_confirm_html(Some(item));
             format!(
                 "<div class=\"gear-slot\"><div class=\"gear-slot-label\">{label}</div>\
                   {body}\
                   <div class=\"slot-actions\">\
-                    <form method=\"post\" action=\"/unequip\">\
+                    <form method=\"post\" action=\"/unequip\"{onsubmit}>\
                       <input type=\"hidden\" name=\"slot\" value=\"{slot_value}\">\
+                      {confirm_input}\\
                       <button class=\"btn-sm\" type=\"submit\">Unequip</button>\
                     </form>\
                     {repair_html}\
@@ -8380,7 +8423,9 @@ mod unlock_all_render_tests {
     }
 }
 
-fn render_inventory_item(item: &Item, dust: u64) -> String {
+/// `displaced` is whatever is equipped in `item`'s slot right now - the
+/// item the Equip button would swap back into the bag (item 29d's confirm).
+fn render_inventory_item(item: &Item, dust: u64, displaced: Option<&Item>) -> String {
     let repair_html = render_repair_form("/repair-item", "item_id", &item.id, item, dust);
     // Protected items don't even get a Disenchant button - the tick-box
     // below is the only way to get one back (see
@@ -8407,12 +8452,14 @@ fn render_inventory_item(item: &Item, dust: u64) -> String {
     let slot = item.slot;
     let id = item.id.clone();
     let body = item_card_body_html(item);
+    let (onsubmit, confirm_input) = loss_confirm_html(displaced);
     format!(
         "<div class=\"gear-slot\"><div class=\"gear-slot-label\">{slot:?}</div>\
           {body}\
           <div class=\"slot-actions\">\
-            <form method=\"post\" action=\"/equip\">\
+            <form method=\"post\" action=\"/equip\"{onsubmit}>\
               <input type=\"hidden\" name=\"item_id\" value=\"{id}\">\
+              {confirm_input}\\
               <button class=\"btn-sm\" type=\"submit\">Equip</button>\
             </form>\
             {disenchant_html}\

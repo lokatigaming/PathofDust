@@ -3116,10 +3116,18 @@ impl AdventureManager {
 
     /// Web dashboard: equips a specific bag item into its slot, swapping
     /// whatever was there back into the bag - a no-op if they haven't
-    /// joined or don't have that item.
-    pub async fn equip_item(&self, username: &str, item_id: &str) {
+    /// joined or don't have that item. Item 29d: also a no-op, changing
+    /// nothing, when the displaced item would lose a unique
+    /// (`Character::slot_loses_unique_on_unequip`) and the request did not
+    /// carry `confirm_loss` - the server-side backstop behind the page's
+    /// confirm() for a direct POST or a stale tab.
+    pub async fn equip_item(&self, username: &str, item_id: &str, confirm_loss: bool) {
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&username.to_lowercase()) else { return };
+        let Some(slot) = character.inventory.iter().find(|i| i.id == item_id).map(|i| i.slot) else { return };
+        if !confirm_loss && character.slot_loses_unique_on_unequip(slot) {
+            return;
+        }
         if character.equip_from_inventory(item_id) {
             self.persist_characters(&characters);
             drop(characters);
@@ -3129,9 +3137,13 @@ impl AdventureManager {
 
     /// Web dashboard: unequips whatever's in `slot` back into the bag - a
     /// no-op if they haven't joined, the slot's empty, or the bag's full.
-    pub async fn unequip_item(&self, username: &str, slot: EquipSlot) {
+    /// Item 29d: same `confirm_loss` gate as `equip_item`.
+    pub async fn unequip_item(&self, username: &str, slot: EquipSlot, confirm_loss: bool) {
         let mut characters = self.characters.lock().await;
         let Some(character) = characters.get_mut(&username.to_lowercase()) else { return };
+        if !confirm_loss && character.slot_loses_unique_on_unequip(slot) {
+            return;
+        }
         if character.unequip_to_inventory(slot) {
             self.persist_characters(&characters);
             drop(characters);
