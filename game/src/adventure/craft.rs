@@ -652,6 +652,9 @@ pub enum CraftError {
     /// unequipped. Checked BEFORE token consumption, same convention
     /// `ItemLocked`/`AlreadyUnique` already use.
     ConflictingUniqueAffix,
+    /// Item 29, owner ruling 5 - `UniqueAffix::CraftingExpertise` picked
+    /// for an item that is not equipped (see `Character::apply_unique_affix`).
+    UniqueRequiresEquipped,
 }
 
 /// Why `AdventureManager::apply_divinity` didn't run at all. Own error

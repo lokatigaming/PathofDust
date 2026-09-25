@@ -739,6 +739,24 @@ pub struct LiveTunables {
     /// Same role, for Intervene - default 0.50, intervene's own historic
     /// ceiling, deliberately separate from the defensive trio's 0.75.
     pub intervene_overflow_cap: f64,
+    /// Item 29 unique affixes (2026-09-25) - see `UniqueAffix`'s variants
+    /// and the same-named `item.rs` constants for the shipped values.
+    /// Unyielding's "more" life factor: `combat_max_hp × (1 + this)`.
+    pub unyielding_life_more: f64,
+    /// Unyielding's "less" damage factor: `combat_increased_damage` scaled
+    /// by `(1 − this)`. Healing is excluded.
+    pub unyielding_damage_less: f64,
+    /// Crafting Expertise: craft-crit chance multiplier on the Expertise
+    /// item itself (clamped at 1.0; the once-per-lineage gate still holds).
+    pub expertise_craft_crit_mult: f64,
+    /// Crafting Expertise: divine dust crafted, character-wide while equipped.
+    pub expertise_divine_dust_mult: f64,
+    /// Crafting Expertise: panel Reforge dust cost on the Expertise item.
+    /// Reforge Now and channel-points Reforge Gear are untouched.
+    pub expertise_reforge_cost_mult: f64,
+    /// Luckstone roll range (fraction), rolled once on apply.
+    pub luckstone_min_pct: f64,
+    pub luckstone_max_pct: f64,
 }
 
 impl Default for LiveTunables {
@@ -853,6 +871,13 @@ impl Default for LiveTunables {
             block_overflow_cap: 0.75,
             dr_overflow_cap: 0.75,
             intervene_overflow_cap: 0.50,
+            unyielding_life_more: crate::adventure::UNYIELDING_LIFE_MORE,
+            unyielding_damage_less: crate::adventure::UNYIELDING_DAMAGE_LESS,
+            expertise_craft_crit_mult: crate::adventure::EXPERTISE_CRAFT_CRIT_MULT,
+            expertise_divine_dust_mult: crate::adventure::EXPERTISE_DIVINE_DUST_MULT,
+            expertise_reforge_cost_mult: crate::adventure::EXPERTISE_REFORGE_COST_MULT,
+            luckstone_min_pct: crate::adventure::LUCKSTONE_MIN_PCT,
+            luckstone_max_pct: crate::adventure::LUCKSTONE_MAX_PCT,
         }
     }
 }

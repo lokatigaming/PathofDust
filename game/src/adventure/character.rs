@@ -1436,6 +1436,17 @@ pub(crate) fn combine_reduction_sources(sources: &[f64]) -> f64 {
 /// wiki's constant audit - was a bare `0.05` at its one call site.
 pub const RECOMBINE_CRIT_CHANCE: f64 = 0.05;
 
+/// Crafting Expertise's craft-crit multiplier for a craft on `item` (item
+/// 29, ruling 1) - `expertise_craft_crit_mult` when `item` itself carries
+/// the affix, exactly 1.0 otherwise so every other craft rolls unchanged.
+pub(crate) fn expertise_crit_mult(item: &Item, t: &crate::adventure::LiveTunables) -> f64 {
+    if item.unique_affix == Some(UniqueAffix::CraftingExpertise) {
+        t.expertise_craft_crit_mult
+    } else {
+        1.0
+    }
+}
+
 /// Result of `Character::capped_stat_breakdown` - `sources` is
 /// (label, value) per contributor, in fraction form same as every other
 /// combat stat here (0.20 = 20%), not yet multiplied by 100.
@@ -1765,7 +1776,28 @@ impl Character {
     /// the full enumeration (equip, receive, and both unique-granting
     /// craft paths).
     pub(crate) fn has_conflicting_unique_affix_value(&self, unique: UniqueAffix, excluding_slot: EquipSlot) -> bool {
-        EQUIP_SLOTS.iter().filter(|&&s| s != excluding_slot).filter_map(|&s| self.equipped(s).as_ref()).any(|other| other.unique_affix == Some(unique))
+        // Item 29: compared by KIND (a Divine Forge conflicts with any
+        // other Divine Forge whatever its picks); Luckstone is exempt -
+        // it is designed to stack across items (owner ruling 8).
+        if matches!(unique, UniqueAffix::Luckstone { .. }) {
+            return false;
+        }
+        EQUIP_SLOTS.iter().filter(|&&s| s != excluding_slot).filter_map(|&s| self.equipped(s).as_ref()).any(|other| other.unique_affix.is_some_and(|o| o.same_kind(unique)))
+    }
+
+    /// Item 29 - every EQUIPPED Luckstone of `kind`, folded through
+    /// `combine_reduction_sources` (`1 − Π(1 − lᵢ)`), capped at 1.0. 0.0
+    /// for a character wearing none. Item 29a's lucky engine reads this.
+    pub fn luckstone_total(&self, kind: LuckyKind) -> f64 {
+        let sources: Vec<f64> = EQUIP_SLOTS
+            .iter()
+            .filter_map(|&s| self.equipped(s).as_ref())
+            .filter_map(|item| match item.unique_affix {
+                Some(UniqueAffix::Luckstone { kind: k, pct }) if k == kind => Some(pct as f64 / 10_000.0),
+                _ => None,
+            })
+            .collect();
+        combine_reduction_sources(&sources).min(1.0)
     }
 
     pub(crate) fn equip(&mut self, item: Item) {
@@ -2228,8 +2260,8 @@ impl Character {
     /// source item, otherwise the bag). Both source items are ALWAYS
     /// consumed on success, even if the result ends up lost to a full
     /// bag - recombination is a real forge, not a free reroll.
-    pub(crate) fn recombine(&mut self, item_id_a: &str, item_id_b: &str, rng: &mut impl Rng) -> Result<RecombineOutcome, RecombineError> {
-        let roll = self.roll_recombine(item_id_a, item_id_b, false, rng)?;
+    pub(crate) fn recombine(&mut self, item_id_a: &str, item_id_b: &str, t: &crate::adventure::LiveTunables, rng: &mut impl Rng) -> Result<RecombineOutcome, RecombineError> {
+        let roll = self.roll_recombine(item_id_a, item_id_b, false, t, rng)?;
         self.apply_recombine_roll(item_id_a, item_id_b, roll, rng)
     }
 
@@ -2243,7 +2275,7 @@ impl Character {
     /// the normal 50%-per-affix coin flip (see `recombine`'s doc); the
     /// player pays for that certainty via `recombine_gear`'s separate
     /// pool-size surcharge, not here.
-    pub(crate) fn roll_recombine(&self, item_id_a: &str, item_id_b: &str, guaranteed: bool, rng: &mut impl Rng) -> Result<RecombineRoll, RecombineError> {
+    pub(crate) fn roll_recombine(&self, item_id_a: &str, item_id_b: &str, guaranteed: bool, t: &crate::adventure::LiveTunables, rng: &mut impl Rng) -> Result<RecombineRoll, RecombineError> {
         if item_id_a == item_id_b {
             return Err(RecombineError::SameItem);
         }
@@ -2350,7 +2382,10 @@ impl Character {
         // anything in this fn at all - Recombine doesn't grant or roll for
         // it, only ever inherits whichever of it survives the merge below.
         let already_recombine_crit = item_a.recombine_crit_used() || item_b.recombine_crit_used();
-        let bonus_affix = if !already_recombine_crit && rng.gen_bool(RECOMBINE_CRIT_CHANCE) {
+        // Crafting Expertise (item 29) - either source carrying it counts
+        // as a craft on the Expertise item.
+        let crit_chance = (RECOMBINE_CRIT_CHANCE * expertise_crit_mult(item_a, t).max(expertise_crit_mult(item_b, t))).min(1.0);
+        let bonus_affix = if !already_recombine_crit && rng.gen_bool(crit_chance) {
             let present: Vec<Affix> = affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             weighted_affix_pick(&candidates, 1, rng).first().copied().map(|affix| {
@@ -2767,10 +2802,17 @@ impl Character {
     pub(crate) fn apply_unique_affix(&mut self, item_id: &str, unique: UniqueAffix) -> Result<CraftOutcome, CraftError> {
         let existing = self.find_item_by_id(item_id).ok_or(CraftError::ItemNotFound)?;
         let slot = existing.slot;
-        if self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id) && self.has_conflicting_unique_affix_value(unique, slot) {
+        let is_equipped = self.equipped(slot).as_ref().is_some_and(|i| i.id == item_id);
+        if is_equipped && self.has_conflicting_unique_affix_value(unique, slot) {
             return Err(CraftError::ConflictingUniqueAffix);
         }
         let item = self.find_mutable_item(item_id)?;
+        // Item 29, owner ruling 5 - Expertise is lost on unequip, so it is
+        // only ever granted to an item already in a slot. The picker omits
+        // it for a bag item; this is the commit-time backstop.
+        if unique == UniqueAffix::CraftingExpertise && !is_equipped {
+            return Err(CraftError::UniqueRequiresEquipped);
+        }
         let item_name = item.name.clone();
         let slot = item.slot;
         let tier = item.tier;
@@ -2995,7 +3037,7 @@ impl Character {
     /// keeps the target item's id stable across the craft, so this
     /// matches that instead. Same underlying tier-jump/rare-bonus-affix
     /// logic otherwise.
-    pub(crate) fn reforge_item(&mut self, item_id: &str, rng: &mut impl Rng) -> Result<ReforgeOutcome, CraftError> {
+    pub(crate) fn reforge_item(&mut self, item_id: &str, t: &crate::adventure::LiveTunables, rng: &mut impl Rng) -> Result<ReforgeOutcome, CraftError> {
         let item = self.find_mutable_item(item_id)?;
         let item_name = item.name.clone();
         let slot = item.slot;
@@ -3009,7 +3051,10 @@ impl Character {
         // reforge whose crit-granted affix is still on the item gets no
         // further chance - `rng.gen_bool` isn't even called, so this
         // doesn't cost the roll sequence anything either.
-        let bonus_affix = if !item.reforge_crit_used() && rng.gen_bool(reforge_crit_chance(quality_percent, was_perfect)) {
+        // Crafting Expertise (item 29, rulings 1-2) - raises the odds on
+        // this item only; the once-per-lineage gate above still holds.
+        let crit_chance = (reforge_crit_chance(quality_percent, was_perfect) * expertise_crit_mult(item, t)).min(1.0);
+        let bonus_affix = if !item.reforge_crit_used() && rng.gen_bool(crit_chance) {
             let present: Vec<Affix> = item.affixes.iter().map(|(a, _)| *a).collect();
             let candidates: Vec<Affix> = ALL_AFFIXES.into_iter().filter(|a| !present.contains(a) && a.is_eligible_for_slot(slot)).collect();
             let mult = if was_perfect { PERFECT_QUALITY_MULT } else { 1.0 };
@@ -3371,7 +3416,9 @@ impl Character {
         let gear_increased =
             self.archetype.bonus_at(self.level, t.archetype_bonus_curve_weight).max_hp_pct + self.sum_affix(Affix::IncreasedLife) + self.slot_implicit(EquipSlot::Pants);
         let tree_increased = self.passive_bonus().max_hp_pct + self.passive_overflow_bonus(t).max_hp_pct;
-        (base * (1.0 + gear_increased) * (1.0 + tree_increased)).max(1.0).round() as u32
+        // Unyielding (item 29) - its own "more" layer; 1.0 for non-carriers.
+        let unyielding = if self.wears_unique(UniqueAffix::Unyielding) { 1.0 + t.unyielding_life_more } else { 1.0 };
+        (base * (1.0 + gear_increased) * (1.0 + tree_increased) * unyielding).max(1.0).round() as u32
     }
 
     /// Damage dealt per hit against an enemy - every archetype deals
@@ -4097,7 +4144,28 @@ impl Character {
         // Soul Exchange extends Life Tap's own damage-bonus ratio (base
         // 2x, +4%/rank more of the SAME lifetap magnitude).
         let life_tap = self.passive_node_magnitude("lifetap") * (2.0 + self.passive_node_magnitude("soulexchange"));
-        ((1.0 + gear_total) * (1.0 + tree_total) * (1.0 + titans_grip) * (1.0 + overwhelm) * (1.0 + momentousblow) * (1.0 + reckless_swing) * (1.0 + death_wish) * (1.0 + life_tap) - 1.0).max(-0.9)
+        // Unyielding (item 29) - its own "less" layer, same shape as the
+        // Reckless Swing/Death Wish layers above. Healing is exempt (ruling
+        // 9): `simulate_battle`'s heal roll divides this factor back out
+        // via `CombatSimUnit::unyielding_damage_less`.
+        let unyielding = 1.0 - self.unyielding_damage_less(t);
+        ((1.0 + gear_total) * (1.0 + tree_total) * (1.0 + titans_grip) * (1.0 + overwhelm) * (1.0 + momentousblow) * (1.0 + reckless_swing) * (1.0 + death_wish) * (1.0 + life_tap) * unyielding - 1.0).max(-0.9)
+    }
+
+    /// Unyielding's "less damage" fraction for this character - 0.0 unless
+    /// an equipped item carries `UniqueAffix::Unyielding`.
+    pub(crate) fn unyielding_damage_less(&self, t: &crate::adventure::LiveTunables) -> f64 {
+        if self.wears_unique(UniqueAffix::Unyielding) {
+            t.unyielding_damage_less
+        } else {
+            0.0
+        }
+    }
+
+    /// Whether any equipped item carries exactly `unique` - for the
+    /// payload-free variants (item 29).
+    pub(crate) fn wears_unique(&self, unique: UniqueAffix) -> bool {
+        EQUIP_SLOTS.iter().any(|&s| self.equipped(s).as_ref().is_some_and(|i| i.unique_affix == Some(unique)))
     }
 
     /// Mouseover breakdown for "Increased Dmg Dealt" (a live request - "all
@@ -4757,7 +4825,7 @@ mod protection_tests {
         let mut rng = StdRng::seed_from_u64(2);
 
         assert!(matches!(character.polish(&id, &mut rng), Err(CraftError::ItemProtected)), "Polish must refuse a protected item");
-        assert!(matches!(character.reforge_item(&id, &mut rng), Err(CraftError::ItemProtected)), "Reforge must refuse a protected item");
+        assert!(matches!(character.reforge_item(&id, &LiveTunables::default(), &mut rng), Err(CraftError::ItemProtected)), "Reforge must refuse a protected item");
         assert!(
             matches!(character.apply_divine_dust(&id, &mut rng), Err(CraftError::ItemProtected)),
             "Divine Dust must refuse a protected item"
@@ -4794,7 +4862,7 @@ mod protection_tests {
         partner.affixes = vec![(Affix::Evasion, 0.05)];
         let partner_id = partner.id.clone();
         character.inventory.push(partner);
-        let roll = character.roll_recombine(&partner_id, &id, false, &mut rng);
+        let roll = character.roll_recombine(&partner_id, &id, false, &LiveTunables::default(), &mut rng);
         assert!(matches!(roll, Err(RecombineError::ItemProtected)), "row 19: the recombine gate must refuse a protected input");
         assert!(character.find_item_by_id(&id).is_some(), "the protected item must survive a refused recombine");
         assert!(character.find_item_by_id(&partner_id).is_some(), "its partner must survive too");
@@ -5195,7 +5263,7 @@ mod crit_lineage_tests {
         // must NEVER fire across many attempts with a real RNG.
         let mut rng = StdRng::seed_from_u64(2);
         for _ in 0..500 {
-            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            let outcome = character.reforge_item(&item_id, &LiveTunables::default(), &mut rng).expect("reforge should succeed");
             assert!(outcome.bonus_affix.is_none(), "a reforge crit fired despite its crit-granted affix still being present");
             assert!(character.find_item_by_id(&item_id).unwrap().reforge_crit_used(), "the gate must stay locked while Evasion is still on the item");
         }
@@ -5211,7 +5279,7 @@ mod crit_lineage_tests {
         let mut rng = StdRng::seed_from_u64(3);
         let mut crit_count = 0;
         for _ in 0..500 {
-            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            let outcome = character.reforge_item(&item_id, &LiveTunables::default(), &mut rng).expect("reforge should succeed");
             if outcome.bonus_affix.is_some() {
                 crit_count += 1;
             }
@@ -5242,7 +5310,7 @@ mod crit_lineage_tests {
         let mut rng = StdRng::seed_from_u64(6);
         let mut crit_count = 0;
         for _ in 0..500 {
-            let outcome = character.reforge_item(&item_id, &mut rng).expect("reforge should succeed");
+            let outcome = character.reforge_item(&item_id, &LiveTunables::default(), &mut rng).expect("reforge should succeed");
             if outcome.bonus_affix.is_some() {
                 crit_count += 1;
             }
@@ -5267,7 +5335,7 @@ mod crit_lineage_tests {
         character.add_to_inventory(item_b);
 
         let mut rng = StdRng::seed_from_u64(4);
-        let roll = character.roll_recombine(&id_a, &id_b, false, &mut rng).expect("roll should succeed");
+        let roll = character.roll_recombine(&id_a, &id_b, false, &LiveTunables::default(), &mut rng).expect("roll should succeed");
         assert!(roll.bonus_affix.is_none(), "recombine must never roll a crit when a source's recombine_crit_used() is still true");
     }
 
@@ -5289,7 +5357,7 @@ mod crit_lineage_tests {
         // deterministically, so Evasion (and its crit tag) is guaranteed
         // to carry into the result.
         let mut rng = StdRng::seed_from_u64(5);
-        let roll = character.roll_recombine(&id_a, &id_b, true, &mut rng).expect("roll should succeed");
+        let roll = character.roll_recombine(&id_a, &id_b, true, &LiveTunables::default(), &mut rng).expect("roll should succeed");
         assert!(roll.affixes.iter().any(|&(a, _)| a == Affix::Evasion), "test setup sanity: Evasion must have survived the merge");
         assert!(roll.reforge_crit_used(), "reforge_crit_used must inherit true when the crit-granted affix actually survives the merge");
     }
@@ -5314,7 +5382,7 @@ mod crit_lineage_tests {
         character.add_to_inventory(item_b);
 
         let mut rng = StdRng::seed_from_u64(7);
-        let roll = character.roll_recombine(&id_a, &id_b, true, &mut rng).expect("roll should succeed");
+        let roll = character.roll_recombine(&id_a, &id_b, true, &LiveTunables::default(), &mut rng).expect("roll should succeed");
         assert!(!roll.reforge_crit_used(), "a dead crit tag with no surviving affix must not lock the merged item's gate");
     }
 
@@ -6299,6 +6367,183 @@ mod duplicate_unique_effects_tests {
         assert!(matches!(outcome, ReceiveOutcome::AddedToBag), "an empty ring slot must NOT auto-equip a conflicting unique");
         assert!(character.ring2.is_none());
         assert!(character.inventory.iter().any(|i| i.id == id));
+    }
+
+    // ── Item 29 (2026-09-25) ─────────────────────────────────────────
+
+    #[test]
+    fn only_crafting_expertise_is_lost_on_unequip() {
+        let luck = UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 };
+        let forge = UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] };
+        for unique in ALL_UNIQUE_AFFIXES.into_iter().chain([luck, forge]) {
+            assert_eq!(unique.lost_on_unequip(), unique == UniqueAffix::CraftingExpertise, "{unique:?}");
+        }
+    }
+
+    #[test]
+    fn luckstone_total_folds_equipped_stones_of_one_kind_and_ignores_the_rest() {
+        let mut character = Character::new("luck".to_string());
+        assert_eq!(character.luckstone_total(LuckyKind::Crit), 0.0, "a non-carrier reads exactly zero");
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 }));
+        character.ring2 = Some(unique_item(EquipSlot::Ring2, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 }));
+        character.amulet = Some(unique_item(EquipSlot::Amulet, UniqueAffix::Luckstone { kind: LuckyKind::Block, pct: 1400 }));
+        character.inventory.push(unique_item(EquipSlot::Helm, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 5000 }));
+        assert!((character.luckstone_total(LuckyKind::Crit) - 0.19).abs() < 1e-12, "1 − 0.9 × 0.9; the bag stone is ignored");
+        assert!((character.luckstone_total(LuckyKind::Block) - 0.14).abs() < 1e-12);
+        assert_eq!(character.luckstone_total(LuckyKind::Echo), 0.0);
+    }
+
+    #[test]
+    fn luckstones_stack_but_other_uniques_conflict_by_kind() {
+        let mut character = Character::new("kinds".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 1000 }));
+        character.ring2 = Some(unique_item(EquipSlot::Ring2, UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] }));
+        assert!(!character.has_conflicting_unique_affix_value(UniqueAffix::Luckstone { kind: LuckyKind::Crit, pct: 700 }, EquipSlot::Helm), "Luckstone is exempt (ruling 8)");
+        assert!(
+            character.has_conflicting_unique_affix_value(UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::Leech] }, EquipSlot::Helm),
+            "a second Divine Forge conflicts whatever its picks"
+        );
+    }
+
+    #[test]
+    fn crafting_expertise_is_refused_on_a_bag_item() {
+        let mut character = Character::new("bagexp".to_string());
+        let item = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+        let id = item.id.clone();
+        character.inventory.push(item);
+        assert!(matches!(character.apply_unique_affix(&id, UniqueAffix::CraftingExpertise), Err(CraftError::UniqueRequiresEquipped)));
+        assert_eq!(character.find_item_by_id(&id).unwrap().unique_affix, None);
+    }
+
+    #[test]
+    fn divine_forge_is_offered_once_per_affix_pair_and_never_below_two_affixes() {
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        let forges = |item: &Item| unique_affix_candidates(item).into_iter().filter(|u| matches!(u, UniqueAffix::DivineForge { .. })).count();
+        item.affixes = vec![(Affix::IncreasedDamage, 0.1), (Affix::IncreasedLife, 0.1), (Affix::CritChance, 0.1), (Affix::Leech, 0.1)];
+        item.sacred_affix = Some((Affix::Splash, 0.1));
+        assert_eq!(forges(&item), 6, "4 choose 2; the sacred affix is never a pick");
+        assert!(!unique_affix_candidates(&item).iter().any(|u| matches!(u, UniqueAffix::DivineForge { affixes } if affixes.contains(&Affix::Splash))));
+        item.affixes.truncate(1);
+        assert_eq!(forges(&item), 0, "not offered below 2 affixes (ruling 6)");
+        assert_eq!(unique_affix_candidates(&item).iter().filter(|u| matches!(u, UniqueAffix::Luckstone { pct: 0, .. })).count(), 5);
+    }
+
+    /// Stage 5 - the fold caps at 1.0 however many stones are worn.
+    #[test]
+    fn luckstone_total_caps_at_one() {
+        let mut character = Character::new("capped".to_string());
+        for slot in [EquipSlot::Ring1, EquipSlot::Ring2, EquipSlot::Amulet] {
+            character.equip(unique_item(slot, UniqueAffix::Luckstone { kind: LuckyKind::Echo, pct: 10_000 }));
+        }
+        assert_eq!(character.luckstone_total(LuckyKind::Echo), 1.0);
+    }
+
+    /// Stage 5 - payloads live inside the enum, so both carry-over sites
+    /// keep them with no edits: Reforge Now / Reforge Gear rebuild the item,
+    /// and Recombine's child inherits a source's unique.
+    #[test]
+    fn payload_uniques_survive_reforge_equipped_item_and_recombine() {
+        let luck = UniqueAffix::Luckstone { kind: LuckyKind::Splash, pct: 1234 };
+        let mut character = Character::new("carry".to_string());
+        for slot in EQUIP_SLOTS {
+            *character.equipped_mut(slot) = None;
+        }
+        character.equip(unique_item(EquipSlot::Ring1, luck));
+        AdventureManager::reforge_equipped_item(&mut character).expect("one item equipped");
+        assert_eq!(character.ring1.as_ref().unwrap().unique_affix, Some(luck));
+
+        let forge = UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::IncreasedLife] };
+        let a = unique_item(EquipSlot::Helm, forge);
+        let b = generate_item_at_tier(EquipSlot::Helm, 10, &mut rand::thread_rng());
+        let (id_a, id_b) = (a.id.clone(), b.id.clone());
+        character.inventory.push(a);
+        character.inventory.push(b);
+        let outcome = character.recombine(&id_a, &id_b, &LiveTunables::default(), &mut rand::thread_rng()).expect("recombine");
+        assert_eq!(character.find_item_by_id(&outcome.item_id).unwrap().unique_affix, Some(forge));
+    }
+
+    /// Stage 5 - payload variants round-trip through the save format.
+    #[test]
+    fn payload_uniques_round_trip_through_json() {
+        for unique in [UniqueAffix::Luckstone { kind: LuckyKind::Block, pct: 987 }, UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::Leech] }, UniqueAffix::Unyielding] {
+            let json = serde_json::to_string(&unique).unwrap();
+            assert_eq!(serde_json::from_str::<UniqueAffix>(&json).unwrap(), unique, "{json}");
+        }
+    }
+
+    /// Stage 3 - Expertise's 10× applies to crafts on the Expertise item
+    /// only, and the resulting chance clamps at 1.0 (ruling 2).
+    #[test]
+    fn expertise_crit_mult_applies_only_to_the_expertise_item_and_clamps() {
+        let t = LiveTunables::default();
+        let expert = unique_item(EquipSlot::Helm, UniqueAffix::CraftingExpertise);
+        let other = unique_item(EquipSlot::Helm, UniqueAffix::Unyielding);
+        assert_eq!(expertise_crit_mult(&expert, &t), 10.0);
+        assert_eq!(expertise_crit_mult(&other, &t), 1.0);
+        assert!((RECOMBINE_CRIT_CHANCE * expertise_crit_mult(&expert, &t)).min(1.0) - 0.5 < 1e-12);
+        let huge = LiveTunables { expertise_craft_crit_mult: 100.0, ..LiveTunables::default() };
+        assert_eq!((RECOMBINE_CRIT_CHANCE * expertise_crit_mult(&expert, &huge)).min(1.0), 1.0);
+    }
+
+    /// Stage 2 - Unyielding: one "more life" and one "less damage" layer.
+    #[test]
+    fn unyielding_multiplies_life_up_and_damage_down() {
+        let t = LiveTunables::default();
+        let mut character = Character::new("unyielding".to_string());
+        character.ring1 = Some(unique_item(EquipSlot::Ring1, UniqueAffix::Unyielding));
+        character.ring1.as_mut().unwrap().unique_affix = None;
+        let (hp, inc) = (character.combat_max_hp(&t), character.combat_increased_damage(&t));
+        character.ring1.as_mut().unwrap().unique_affix = Some(UniqueAffix::Unyielding);
+        let more_hp = character.combat_max_hp(&t);
+        assert!((more_hp as f64 - (hp as f64) * 1.25).abs() <= 1.0, "{hp} × 1.25 ≈ {more_hp}");
+        assert!(((1.0 + character.combat_increased_damage(&t)) - (1.0 + inc) * 0.75).abs() < 1e-9);
+        assert_eq!(character.unyielding_damage_less(&t), 0.25);
+    }
+
+    /// Stage 2 - Divine Forge doubles exactly its two picked types on its
+    /// own item; the sacred copy and instance counts are untouched, and a
+    /// pick no longer on the item is simply inert.
+    #[test]
+    fn divine_forge_doubles_only_its_two_picked_types() {
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        item.affixes = vec![(Affix::IncreasedDamage, 0.10), (Affix::CritChance, 0.20), (Affix::Leech, 0.05)];
+        item.sacred_affix = Some((Affix::CritChance, 0.03));
+        let before: Vec<f64> = [Affix::IncreasedDamage, Affix::CritChance, Affix::Leech].iter().map(|&a| item.effective_affix_total(a)).collect();
+        item.unique_affix = Some(UniqueAffix::DivineForge { affixes: [Affix::IncreasedDamage, Affix::CritChance] });
+        let decay = item.decay_fraction();
+        assert!((item.effective_affix_total(Affix::IncreasedDamage) - 2.0 * before[0]).abs() < 1e-12);
+        assert!((item.effective_affix_total(Affix::CritChance) - (0.40 + 0.03) * decay).abs() < 1e-12, "normal copy doubled, sacred copy not");
+        assert!((item.effective_affix_total(Affix::Leech) - before[2]).abs() < 1e-12, "an unpicked type is untouched");
+        assert_eq!(item.affix_instance_count(Affix::CritChance), 2, "still counts as one instance per copy (ruling 7)");
+        item.affixes.retain(|(a, _)| *a != Affix::IncreasedDamage);
+        assert_eq!(item.effective_affix_total(Affix::IncreasedDamage), 0.0, "an annulled pick goes inert, nothing breaks");
+    }
+
+    /// GUARD - a character carrying none of the new uniques is unchanged
+    /// by every item-29 dial, however extreme.
+    #[test]
+    fn non_carriers_are_unchanged_by_every_item_29_dial() {
+        let shipped = LiveTunables::default();
+        let extreme = LiveTunables {
+            unyielding_life_more: 5.0,
+            unyielding_damage_less: 0.9,
+            expertise_craft_crit_mult: 100.0,
+            expertise_divine_dust_mult: 10.0,
+            expertise_reforge_cost_mult: 0.0,
+            luckstone_min_pct: 1.0,
+            luckstone_max_pct: 1.0,
+            ..LiveTunables::default()
+        };
+        let mut character = Character::new("plain".to_string());
+        character.helm = Some(unique_item(EquipSlot::Helm, UniqueAffix::SplitPersonality));
+        for t in [&shipped, &extreme] {
+            assert_eq!(character.combat_max_hp(t), character.combat_max_hp(&shipped));
+            assert_eq!(character.combat_increased_damage(t), character.combat_increased_damage(&shipped));
+            assert_eq!(character.unyielding_damage_less(t), 0.0);
+        }
+        for kind in ALL_LUCKY_KINDS {
+            assert_eq!(character.luckstone_total(kind), 0.0);
+        }
     }
 }
 

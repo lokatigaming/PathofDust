@@ -2508,6 +2508,10 @@ pub(crate) struct CombatSimUnit {
     /// construction (see `roll_echo`'s doc for how it becomes an actual
     /// repeat count). 0.0 without any invested.
     echo_pct: f64,
+    /// Unyielding (item 29) - the "less damage" fraction already folded into
+    /// `increased_damage`, kept so the heal roll can divide it back out
+    /// (owner ruling 9: healing is not reduced). 0.0 for everyone else.
+    unyielding_damage_less: f64,
     /// Seed of Life (Druid only, redesigned 2026-08-21 alongside the Echo
     /// rework - see passive_tree.rs's own doc) - THIS unit's own rate.
     /// Every time one of THEIR OWN heals echoes (see `roll_echo`'s doc for
@@ -3470,6 +3474,7 @@ impl Default for CombatSimUnit {
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
             echo_pct: 0.0,
+            unyielding_damage_less: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -3928,6 +3933,18 @@ pub(crate) struct RollAttackerDamageResult {
     crit_remainder: f64,
     crit_remainder_roll: bool,
     deterministic_sources: Vec<(RollCategory, &'static str, f64)>,
+}
+
+/// Item 29, owner ruling 9 - the `increased_damage` a heal roll should use:
+/// Unyielding's "less" factor (`less`, already folded into `increased`)
+/// divided back out. Returns `increased` unchanged when `less` is 0.0,
+/// i.e. for every unit that does not wear Unyielding.
+pub(crate) fn unyielding_heal_increased_damage(increased: f64, less: f64) -> f64 {
+    if less > 0.0 && less < 1.0 {
+        (1.0 + increased) / (1.0 - less) - 1.0
+    } else {
+        increased
+    }
 }
 
 /// `mark_crit_bonus`/`mark_crit_mult_bonus`/`mark_dmg_bonus` are Hunter's
@@ -5786,6 +5803,7 @@ fn zeroed_combat_unit() -> CombatSimUnit {
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
             echo_pct: 0.0,
+            unyielding_damage_less: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -11299,6 +11317,7 @@ pub(crate) fn simulate_battle(
                 templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian"),
                 next_templeguardian_heal_at_ms: 0,
                 echo_pct: c.combat_echo_pct(tunables),
+                unyielding_damage_less: c.unyielding_damage_less(tunables),
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
@@ -12599,6 +12618,7 @@ pub(crate) fn simulate_battle(
             templeguardian_heal_pct: 0.0,
             next_templeguardian_heal_at_ms: 0,
             echo_pct: 0.0,
+            unyielding_damage_less: 0.0,
             seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -13765,6 +13785,7 @@ pub(crate) fn simulate_battle(
                                 templeguardian_heal_pct: 0.0,
                                 next_templeguardian_heal_at_ms: 0,
                                 echo_pct: 0.0,
+                                unyielding_damage_less: 0.0,
                                 seedoflife_shield_pct: 0.0,
             wildheart_self_heal_pct: 0.0,
             wildinstinct_dr_pct: 0.0,
@@ -14522,11 +14543,19 @@ pub(crate) fn simulate_battle(
                     if heal_crit_chance_bonus > 0.0 {
                         units[actor_idx].crit_chance = (original_crit_chance + heal_crit_chance_bonus).min(1.0);
                     }
+                    // Unyielding (item 29, owner ruling 9) - healing is
+                    // not reduced, so its "less" factor is divided back
+                    // out of `increased_damage` for THIS roll only, same
+                    // override-and-restore convention as above. Untouched
+                    // for every unit without it (the field is 0.0).
+                    let original_increased_damage = units[actor_idx].increased_damage;
+                    units[actor_idx].increased_damage = unyielding_heal_increased_damage(original_increased_damage, units[actor_idx].unyielding_damage_less);
                     let heal_roll = roll_attacker_damage(heal_base, &units[actor_idx], at_ms, &mut rng, 0.0, 0.0, 0.0, false, false);
                     let (raw, is_crit) = (heal_roll.damage, heal_roll.is_crit);
                     if heal_crit_chance_bonus > 0.0 {
                         units[actor_idx].crit_chance = original_crit_chance;
                     }
+                    units[actor_idx].increased_damage = original_increased_damage;
                     // Sanctified Touch (rank 2+) - extra value specifically
                     // on a heal crit, on top of the normal crit_multiplier
                     // `roll_attacker_damage` already applied.
@@ -18051,6 +18080,25 @@ mod elementalist_stage_6_golem_type_tests {
         let c = elementalist_with(&[("golemmaster", 1), ("shattering", 3)], vec![GolemType::Water]);
         let golem = spawn_golem(&summoner(1000, 100, 0.0), "caster", 0, GolemType::Water, &c);
         assert_eq!(golem.watergolem_shattering_extra_targets, 3, "rank 3 = 3 extra targets, read via passive_node_rank, independent of any LiveTunables value");
+    }
+
+    /// Item 29, owner ruling 9 - Unyielding's "less damage" does not
+    /// reach healing, and a unit without it is untouched.
+    #[test]
+    fn unyielding_heal_roll_divides_the_less_damage_factor_back_out() {
+        let t = LiveTunables::default();
+        let mut character = Character::new("unyieldinghealer".to_string());
+        let without = character.combat_increased_damage(&t);
+        let mut ring = generate_item_at_tier(EquipSlot::Ring1, 10, &mut rand::thread_rng());
+        ring.affixes.clear();
+        ring.unique_affix = Some(UniqueAffix::Unyielding);
+        character.ring1 = Some(ring);
+        let with = character.combat_increased_damage(&t);
+        assert!(with < without, "damage dealt is reduced");
+        let heal = unyielding_heal_increased_damage(with, character.unyielding_damage_less(&t));
+        let bare = { character.ring1.as_mut().unwrap().unique_affix = None; character.combat_increased_damage(&t) };
+        assert!((heal - bare).abs() < 1e-9, "the heal roll sees exactly the no-Unyielding value");
+        assert_eq!(unyielding_heal_increased_damage(0.42, 0.0), 0.42, "non-carriers unchanged");
     }
 
     #[test]

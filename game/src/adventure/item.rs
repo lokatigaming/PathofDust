@@ -210,17 +210,87 @@ pub enum UniqueAffix {
     /// second tree it unlocks; see `Character::effective_secondary_archetype`/
     /// `secondary_passive_allocations`.
     SplitPersonality,
+    /// Item 29 (2026-09-25) - "more" life and "less" damage dealt, two
+    /// independent multiplicative factors (`LiveTunables::unyielding_life_more`
+    /// / `unyielding_damage_less`). Healing is deliberately NOT reduced
+    /// (owner ruling 9).
+    Unyielding,
+    /// Item 29 - a crafting unique. Raises craft-crit odds and discounts
+    /// panel Reforge on THIS item, and multiplies crafted divine dust
+    /// character-wide while equipped (owner ruling 1). The only unique
+    /// that is lost when its item leaves an equip slot - see
+    /// `lost_on_unequip`. Can only be applied to an equipped item
+    /// (ruling 5, `CraftError::UniqueRequiresEquipped`).
+    CraftingExpertise,
+    /// Item 29 - doubles the rolled value of the two picked affix TYPES on
+    /// this item (`Item::effective_affix_total`). Stored by type, so an
+    /// Annulled or Chanced-away half simply goes inert (ruling 6). The
+    /// sacred affix is never a pick.
+    DivineForge { affixes: [Affix; 2] },
+    /// Item 29 - a "lucky" second roll on one mechanic, `pct` in basis
+    /// points (integer so `Copy`/`Eq`/`Hash` survive). Rolled at commit
+    /// time, never shown in the picker (ruling 10). The one unique that
+    /// may be worn more than once (ruling 8) - copies fold together via
+    /// `Character::luckstone_total`.
+    Luckstone { kind: LuckyKind, pct: u16 },
 }
 
-/// Every `UniqueAffix` variant - what `AdventureManager::craft_item_ex`'s
-/// `CraftAction::UniqueShard` picker offers one candidate per (2026-08-19,
-/// Unified Unique Shards). Data-driven deliberately: a future 3rd variant
-/// only needs its own `name()`/`description()` arm plus whatever combat
-/// effect it implements - the picker itself (candidate building,
-/// `choose_veil_outcome`'s apply, `render_veil_choice_card`'s display)
-/// needs no changes, since all three already iterate/branch on
-/// `Option<UniqueAffix>` generically rather than naming a variant.
-pub const ALL_UNIQUE_AFFIXES: [UniqueAffix; 2] = [UniqueAffix::CelestialConversion, UniqueAffix::SplitPersonality];
+/// Which mechanic a `UniqueAffix::Luckstone` makes lucky. The combat
+/// engine that consumes it is item 29a's; this side only stores and sums.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LuckyKind {
+    Echo,
+    Crit,
+    Evasion,
+    Block,
+    Splash,
+}
+
+pub const ALL_LUCKY_KINDS: [LuckyKind; 5] = [LuckyKind::Echo, LuckyKind::Crit, LuckyKind::Evasion, LuckyKind::Block, LuckyKind::Splash];
+
+impl LuckyKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            LuckyKind::Echo => "Echo",
+            LuckyKind::Crit => "Crit",
+            LuckyKind::Evasion => "Evasion",
+            LuckyKind::Block => "Block",
+            LuckyKind::Splash => "Splash",
+        }
+    }
+}
+
+/// Every payload-free `UniqueAffix` - one picker candidate each. The two
+/// payload variants are expanded per item by `unique_affix_candidates`
+/// (2026-09-25, item 29), which is what the picker actually offers.
+pub const ALL_UNIQUE_AFFIXES: [UniqueAffix; 4] = [UniqueAffix::CelestialConversion, UniqueAffix::SplitPersonality, UniqueAffix::Unyielding, UniqueAffix::CraftingExpertise];
+
+/// The Unique Shard picker's full candidate list for `item` (item 29):
+/// every `ALL_UNIQUE_AFFIXES` entry, one `DivineForge` per unordered pair
+/// of the item's normal affixes (none below 2 affixes; the sacred affix
+/// lives outside `affixes` so it is never a pick - ruling 6), and one
+/// `Luckstone` per `LuckyKind` with `pct: 0` - the real pct is rolled at
+/// commit (`roll_luckstone_pct`). Conflict and bag filtering stay with
+/// the caller, same as before.
+pub fn unique_affix_candidates(item: &Item) -> Vec<UniqueAffix> {
+    let mut out = ALL_UNIQUE_AFFIXES.to_vec();
+    for (i, &(a, _)) in item.affixes.iter().enumerate() {
+        for &(b, _) in &item.affixes[i + 1..] {
+            out.push(UniqueAffix::DivineForge { affixes: [a, b] });
+        }
+    }
+    out.extend(ALL_LUCKY_KINDS.map(|kind| UniqueAffix::Luckstone { kind, pct: 0 }));
+    out
+}
+
+/// A Luckstone's pct in basis points, uniform in
+/// `[luckstone_min_pct, luckstone_max_pct]` (either order tolerated).
+pub fn roll_luckstone_pct(t: &LiveTunables, rng: &mut impl Rng) -> u16 {
+    let (lo, hi) = (t.luckstone_min_pct.min(t.luckstone_max_pct), t.luckstone_min_pct.max(t.luckstone_max_pct));
+    let pct = if hi > lo { rng.gen_range(lo..=hi) } else { lo };
+    (pct.clamp(0.0, 1.0) * 10_000.0).round() as u16
+}
 
 /// Fraction of a heal `UniqueAffix::CelestialConversion` also deals as
 /// bonus damage to a random enemy - flat, not tier-scaled (unlike normal
@@ -228,12 +298,39 @@ pub const ALL_UNIQUE_AFFIXES: [UniqueAffix; 2] = [UniqueAffix::CelestialConversi
 /// effect rather than a rollable magnitude.
 pub const CELESTIAL_CONVERSION_PCT: f64 = 0.10;
 
+/// Item 29 shipped defaults, each a `LiveTunables` field of the same
+/// lowercase name. `description()` quotes these (it only ever sees a bare
+/// `UniqueAffix`, same limitation `CELESTIAL_CONVERSION_PCT` lives with).
+pub const UNYIELDING_LIFE_MORE: f64 = 0.25;
+pub const UNYIELDING_DAMAGE_LESS: f64 = 0.25;
+pub const EXPERTISE_CRAFT_CRIT_MULT: f64 = 10.0;
+pub const EXPERTISE_DIVINE_DUST_MULT: f64 = 2.0;
+pub const EXPERTISE_REFORGE_COST_MULT: f64 = 0.9;
+pub const LUCKSTONE_MIN_PCT: f64 = 0.07;
+pub const LUCKSTONE_MAX_PCT: f64 = 0.14;
+
 impl UniqueAffix {
     pub fn name(self) -> &'static str {
         match self {
             UniqueAffix::CelestialConversion => "Celestial Conversion",
             UniqueAffix::SplitPersonality => "Split Personality",
+            UniqueAffix::Unyielding => "Unyielding",
+            UniqueAffix::CraftingExpertise => "Crafting Expertise",
+            UniqueAffix::DivineForge { .. } => "Divine Forge",
+            UniqueAffix::Luckstone { .. } => "Luckstone",
         }
+    }
+
+    /// True only for `CraftingExpertise` - the one unique stripped when its
+    /// item leaves an equip slot. Item 29d's unequip gate calls this.
+    pub fn lost_on_unequip(&self) -> bool {
+        matches!(self, UniqueAffix::CraftingExpertise)
+    }
+
+    /// Same unique KIND, payload ignored - two Divine Forges with different
+    /// picks are still "the same unique" for the one-worn-at-a-time rule.
+    pub fn same_kind(self, other: UniqueAffix) -> bool {
+        std::mem::discriminant(&self) == std::mem::discriminant(&other)
     }
 
     /// Player-facing blurb - shown above the tier line on any item that
@@ -252,6 +349,25 @@ impl UniqueAffix {
             UniqueAffix::SplitPersonality => {
                 "Pick a 2nd class on /passives and invest your same shared points into its tree too. Grants +1 passive point, plus +1 more per 300 tiers on this item.".to_string()
             }
+            UniqueAffix::Unyielding => format!(
+                "{:.0}% more maximum life, {:.0}% less damage dealt. Healing is not reduced.",
+                UNYIELDING_LIFE_MORE * 100.0,
+                UNYIELDING_DAMAGE_LESS * 100.0
+            ),
+            UniqueAffix::CraftingExpertise => format!(
+                "Crafting on this item: {:.0}× craft crit chance, {:.0}% cheaper Reforge. While equipped: {:.0}× divine dust crafted. Lost if this item is unequipped.",
+                EXPERTISE_CRAFT_CRIT_MULT,
+                (1.0 - EXPERTISE_REFORGE_COST_MULT) * 100.0,
+                EXPERTISE_DIVINE_DUST_MULT
+            ),
+            UniqueAffix::DivineForge { affixes: [a, b] } => format!("Doubles this item's {} and {} modifiers.", affix_name(a), affix_name(b)),
+            UniqueAffix::Luckstone { kind, pct: 0 } => format!(
+                "Lucky {} — strength rolled when applied ({:.0}–{:.0}%). Stacks with other Luckstones.",
+                kind.name(),
+                LUCKSTONE_MIN_PCT * 100.0,
+                LUCKSTONE_MAX_PCT * 100.0
+            ),
+            UniqueAffix::Luckstone { kind, pct } => format!("{:.2}% Lucky {}. Stacks with other Luckstones.", pct as f64 / 100.0, kind.name()),
         }
     }
 }
@@ -657,7 +773,13 @@ impl Item {
     /// implicit) already decays too.
     pub fn effective_affix_total(&self, affix: Affix) -> f64 {
         let decay = self.decay_fraction();
-        let normal: f64 = self.affixes.iter().filter(|(a, _)| *a == affix).map(|(_, v)| v * decay).sum();
+        // Divine Forge (item 29, owner ruling 7) - the forged types' rolled
+        // value doubles HERE, so every consumer downstream (caps, overflow
+        // conversion, crit stacks, both elemental feeds) behaves exactly as
+        // if the item had rolled that value. The sacred copy is never
+        // forged, and `affix_instance_count` is untouched.
+        let forge = if matches!(self.unique_affix, Some(UniqueAffix::DivineForge { affixes }) if affixes.contains(&affix)) { 2.0 } else { 1.0 };
+        let normal: f64 = self.affixes.iter().filter(|(a, _)| *a == affix).map(|(_, v)| v * decay * forge).sum();
         let sacred = self.sacred_affix.filter(|(a, _)| *a == affix).map(|(_, v)| v * decay).unwrap_or(0.0);
         normal + sacred
     }
