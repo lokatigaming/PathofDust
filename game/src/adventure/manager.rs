@@ -901,6 +901,9 @@ pub enum RollCategory {
     /// itself - see `roll_echo`'s doc for why that's what makes "an echo
     /// never itself rolls Echo" structural rather than a flag to remember.
     Echo,
+    /// Lucky splash (item 29a) - the "Lucky splash" roll and the bonus
+    /// damage it lands. The ordinary splash roll itself is not logged.
+    Splash,
 }
 
 /// One named mechanic's contribution to a single hit - the full-detail
