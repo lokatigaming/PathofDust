@@ -1489,6 +1489,17 @@ pub(crate) fn default_free_model_changes() -> u32 {
 /// Same "one constant, both paths" reasoning as
 /// `STARTING_FREE_MODEL_CHANGES`, for `Character::free_recombines`.
 pub(crate) const STARTING_FREE_RECOMBINES: u32 = 1;
+/// Item 29d: removes a unique that is `lost_on_unequip` from an item that
+/// has just left its equip slot. Called only by `unequip_to_inventory` and
+/// for `equip_from_inventory`'s displaced item - the two points every web
+/// unequip and swap passes through. Recombine is NOT an unequip (owner
+/// ruling: the item never leaves the slot), so it never comes through here.
+fn strip_lost_on_unequip(item: &mut Item) {
+    if item.unique_affix.is_some_and(|u| u.lost_on_unequip()) {
+        item.unique_affix = None;
+    }
+}
+
 pub(crate) fn default_free_recombines() -> u32 {
     STARTING_FREE_RECOMBINES
 }
@@ -3147,11 +3158,21 @@ impl Character {
             return false;
         }
         let item = self.inventory.remove(pos);
-        if let Some(previous) = self.equipped_mut(slot).replace(item) {
+        if let Some(mut previous) = self.equipped_mut(slot).replace(item) {
+            strip_lost_on_unequip(&mut previous);
             self.inventory.push(previous);
         }
         self.sync_retreat_status();
         true
+    }
+
+    /// Item 29d: true when `slot`'s occupant carries a unique that is
+    /// `lost_on_unequip` - unequipping it, or equipping anything over it,
+    /// strips that unique for good. The web handlers refuse such a request
+    /// unless it carries `confirm_loss` (see `AdventureManager::equip_item`
+    /// and `unequip_item`).
+    pub fn slot_loses_unique_on_unequip(&self, slot: EquipSlot) -> bool {
+        self.equipped(slot).as_ref().and_then(|i| i.unique_affix).is_some_and(|u| u.lost_on_unequip())
     }
 
     /// Web dashboard: unequips whatever's in `slot` back into the bag -
@@ -3160,7 +3181,8 @@ impl Character {
         if self.equipped(slot).is_none() || self.inventory.len() >= INVENTORY_CAPACITY {
             return false;
         }
-        if let Some(item) = self.equipped_mut(slot).take() {
+        if let Some(mut item) = self.equipped_mut(slot).take() {
+            strip_lost_on_unequip(&mut item);
             self.inventory.push(item);
         }
         self.sync_retreat_status();
@@ -6378,6 +6400,76 @@ mod duplicate_unique_effects_tests {
         for unique in ALL_UNIQUE_AFFIXES.into_iter().chain([luck, forge]) {
             assert_eq!(unique.lost_on_unequip(), unique == UniqueAffix::CraftingExpertise, "{unique:?}");
         }
+    }
+
+    // ── Item 29d: the unequip strip ──────────────────────────────────
+
+    #[test]
+    fn unequipping_a_crafting_expertise_item_strips_the_affix() {
+        let mut character = Character::new("strip_unequip".to_string());
+        let item = unique_item(EquipSlot::Weapon, UniqueAffix::CraftingExpertise);
+        let id = item.id.clone();
+        character.weapon = Some(item);
+        assert!(character.slot_loses_unique_on_unequip(EquipSlot::Weapon));
+
+        assert!(character.unequip_to_inventory(EquipSlot::Weapon));
+        let bagged = character.inventory.iter().find(|i| i.id == id).expect("the item must be in the bag");
+        assert_eq!(bagged.unique_affix, None, "Crafting Expertise must not survive leaving the slot");
+    }
+
+    /// The gear-slot picker and the bag card's Equip button both land in
+    /// `equip_from_inventory` - the displaced item is what gets stripped.
+    #[test]
+    fn swapping_out_a_crafting_expertise_item_strips_the_displaced_one_only() {
+        let mut character = Character::new("strip_swap".to_string());
+        let expertise = unique_item(EquipSlot::Weapon, UniqueAffix::CraftingExpertise);
+        let expertise_id = expertise.id.clone();
+        character.weapon = Some(expertise);
+        let incoming = unique_item(EquipSlot::Weapon, UniqueAffix::SplitPersonality);
+        let incoming_id = incoming.id.clone();
+        character.inventory.push(incoming);
+
+        assert!(character.equip_from_inventory(&incoming_id));
+        let displaced = character.inventory.iter().find(|i| i.id == expertise_id).expect("the displaced item must be in the bag");
+        assert_eq!(displaced.unique_affix, None, "the displaced Expertise item must lose the affix");
+        assert_eq!(character.weapon.as_ref().unwrap().unique_affix, Some(UniqueAffix::SplitPersonality), "the incoming item is not leaving - it is untouched");
+    }
+
+    #[test]
+    fn uniques_not_lost_on_unequip_survive_unequip_and_swap() {
+        let mut character = Character::new("keep_other".to_string());
+        let celestial = unique_item(EquipSlot::Weapon, UniqueAffix::CelestialConversion);
+        let celestial_id = celestial.id.clone();
+        character.weapon = Some(celestial);
+        assert!(!character.slot_loses_unique_on_unequip(EquipSlot::Weapon));
+        let incoming = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        let incoming_id = incoming.id.clone();
+        character.inventory.push(incoming);
+
+        assert!(character.equip_from_inventory(&incoming_id));
+        let displaced = character.inventory.iter().find(|i| i.id == celestial_id).unwrap();
+        assert_eq!(displaced.unique_affix, Some(UniqueAffix::CelestialConversion));
+        assert!(character.equip_from_inventory(&celestial_id));
+        assert!(character.unequip_to_inventory(EquipSlot::Weapon));
+        assert_eq!(character.inventory.iter().find(|i| i.id == celestial_id).unwrap().unique_affix, Some(UniqueAffix::CelestialConversion));
+    }
+
+    /// Owner ruling: recombining an equipped Expertise item is not an
+    /// unequip - the child re-equips into the same slot and keeps it.
+    #[test]
+    fn recombining_an_equipped_crafting_expertise_item_keeps_the_affix() {
+        let mut character = Character::new("recombine_keep".to_string());
+        let equipped = unique_item(EquipSlot::Weapon, UniqueAffix::CraftingExpertise);
+        let equipped_id = equipped.id.clone();
+        character.weapon = Some(equipped);
+        let bagged = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        let bagged_id = bagged.id.clone();
+        character.inventory.push(bagged);
+
+        let outcome = character.recombine(&equipped_id, &bagged_id, &mut rand::thread_rng()).expect("recombine must succeed");
+        let child = character.weapon.as_ref().expect("the child must re-equip into the now-empty slot");
+        assert_eq!(child.id, outcome.item_id);
+        assert_eq!(child.unique_affix, Some(UniqueAffix::CraftingExpertise), "recombine must keep Crafting Expertise");
     }
 
     #[test]
