@@ -10491,3 +10491,7 @@ asked for. §13 already carries the diff-over-hash rule, the log-line swap
 proof, and "there is no bot on this box"; the order's own instruction for
 that case is to say so and skip, so it is skipped. Name the sentence and it
 is a one-line change.
+
+## 2026-09-25 — a: item 29a wire (Luckstones into the player combat unit)
+
+FOUND: `guard_tests::the_five_unchecked_commit_halves_go_through_the_guard` fails on b's 29b stage-1 head `50d3f7a` itself ("apply_unique_affix (audit row 13) no longer takes its item through the guard") — present on the untouched baseline, not caused by 29a.

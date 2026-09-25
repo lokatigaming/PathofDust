@@ -11583,11 +11583,13 @@ pub(crate) fn simulate_battle(
                 templeguardian_heal_pct: c.passive_node_magnitude("templeguardianspirit") + c.passive_node_magnitude("wildguardian"),
                 next_templeguardian_heal_at_ms: 0,
                 echo_pct: c.combat_echo_pct(tunables),
-                lucky_evasion: 0.0,
-                lucky_block: 0.0,
-                lucky_crit: 0.0,
-                lucky_echo: 0.0,
-                lucky_splash: 0.0,
+                // Lucky (item 29a) - every equipped Luckstone of each kind,
+                // already folded `1 − Π(1 − lᵢ)` by `luckstone_total`.
+                lucky_evasion: c.luckstone_total(LuckyKind::Evasion),
+                lucky_block: c.luckstone_total(LuckyKind::Block),
+                lucky_crit: c.luckstone_total(LuckyKind::Crit),
+                lucky_echo: c.luckstone_total(LuckyKind::Echo),
+                lucky_splash: c.luckstone_total(LuckyKind::Splash),
                 seedoflife_shield_pct: c.passive_node_magnitude("seedoflife"),
                 wildheart_self_heal_pct: c.passive_node_magnitude("wildheart"),
                 wildinstinct_dr_pct: c.passive_node_magnitude("wildinstinct"),
@@ -21192,5 +21194,84 @@ mod lucky_tests {
             primaries.insert(direct[0]);
         }
         assert!(primaries.len() > 1, "the fixture must vary the primary (crit/non-crit) or a re-roll would be indistinguishable");
+    }
+
+    /// Item 29a wiring - a Warrior with crit, evasion and block all
+    /// non-zero (so every lucky kind has a base stat to roll against),
+    /// every unique cleared, and one Luckstone per `stones` entry.
+    fn luckstone_character(stones: &[(EquipSlot, LuckyKind, u16)]) -> Character {
+        let mut c = Character::new("lucky".to_string());
+        c.archetype = Archetype::Warrior;
+        c.level = 100;
+        for slot in crate::adventure::EQUIP_SLOTS {
+            if let Some(item) = c.equipped_item_mut_unguarded(slot) {
+                item.affixes.clear();
+                item.unique_affix = None;
+            }
+        }
+        let weapon = c.equipped_item_mut_unguarded(EquipSlot::Weapon).expect("starter kit fills every slot");
+        weapon.affixes.extend([(Affix::CritChance, 0.5), (Affix::Evasion, 0.3), (Affix::BlockChance, 0.3)]);
+        for &(slot, kind, pct) in stones {
+            let mut item = generate_item_at_tier(slot, 10, &mut StdRng::seed_from_u64(0));
+            item.affixes.clear();
+            item.unique_affix = Some(UniqueAffix::Luckstone { kind, pct });
+            c.equip(item);
+        }
+        c
+    }
+
+    fn luckstone_fight_rolls(c: Character) -> Vec<RollEvent> {
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("lucky".to_string(), c);
+        let boss_stats = BossStats {
+            hp: 50_000_000,
+            atk: 1,
+            attack_interval_ms: 1_000,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let mut rng = StdRng::seed_from_u64(29);
+        simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &LiveTunables::default(), TEST_FIGHT_SEED, &mut rng).3
+    }
+
+    const LUCKY_SOURCES: [(LuckyKind, &str); 5] = [
+        (LuckyKind::Echo, "Lucky echo"),
+        (LuckyKind::Crit, "Lucky crit"),
+        (LuckyKind::Evasion, "Lucky evasion"),
+        (LuckyKind::Block, "Lucky block"),
+        (LuckyKind::Splash, "Lucky splash"),
+    ];
+
+    /// End-to-end through `simulate_battle`'s player constructor: one
+    /// Luckstone of a kind makes exactly that kind's lucky roll appear in
+    /// a real fight and no other, and a character wearing none makes no
+    /// lucky roll at all.
+    #[test]
+    fn an_equipped_luckstone_sets_only_its_own_lucky_field_in_a_real_fight() {
+        for (kind, source) in LUCKY_SOURCES {
+            let rolls = luckstone_fight_rolls(luckstone_character(&[(EquipSlot::Ring1, kind, 1000)]));
+            for (_, other) in LUCKY_SOURCES {
+                let seen = rolls.iter().any(|r| r.source == other);
+                assert_eq!(seen, other == source, "a {kind:?} Luckstone: `{other}` roll present = {seen}");
+            }
+        }
+        let rolls = luckstone_fight_rolls(luckstone_character(&[]));
+        assert!(!rolls.iter().any(|r| r.source.starts_with("Lucky")), "no Luckstone must mean no lucky roll");
+    }
+
+    /// Two 10% Echo Luckstones reach the combat unit as 19% (`1 − 0.9²`),
+    /// read straight off the "Lucky echo" roll, whose probability is the
+    /// unit's `lucky_echo` itself.
+    #[test]
+    fn two_luckstones_of_one_kind_reach_the_combat_unit_as_19_percent() {
+        let rolls = luckstone_fight_rolls(luckstone_character(&[(EquipSlot::Ring1, LuckyKind::Echo, 1000), (EquipSlot::Ring2, LuckyKind::Echo, 1000)]));
+        let lucky: Vec<f64> = rolls.iter().filter(|r| r.source == "Lucky echo").filter_map(|r| r.probability).collect();
+        assert!(!lucky.is_empty(), "fixture produced no lucky echo roll - test would be vacuous");
+        assert!(lucky.iter().all(|p| (p - 0.19).abs() < 1e-12), "every lucky echo roll must be at 19%, got {lucky:?}");
     }
 }
