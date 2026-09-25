@@ -7,7 +7,7 @@
 // secrets" -> JWT Token. Set it as STREAMELEMENTS_JWT in .env.
 
 use rust_socketio::asynchronous::{Client, ClientBuilder};
-use rust_socketio::{Payload, TransportType};
+use rust_socketio::{Event, Payload, TransportType};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
@@ -83,6 +83,33 @@ pub async fn start_streamelements_watcher(
         // the JSON error body). Forcing WebSocket-only skips polling
         // entirely and connects directly, which the server does support.
         .transport_type(TransportType::Websocket)
+        // A clean server-side disconnect would otherwise end the watcher for
+        // good, with nothing in the log.
+        .reconnect_on_disconnect(true)
+        // Authenticate from the namespace-connected callback, not straight
+        // after `connect()`: the crate's `connect()` returns once the CONNECT
+        // packet is *sent*, not acknowledged, so an immediate emit races the
+        // handshake and the server silently drops it — the socket then sits
+        // unauthenticated and never receives a tip. This also re-authenticates
+        // after every reconnect.
+        .on(Event::Connect, move |_, client| {
+            let jwt = jwt.clone();
+            Box::pin(async move {
+                if let Err(err) = client.emit("authenticate", json!({ "method": "jwt", "token": jwt })).await {
+                    tracing::error!("StreamElements: failed to send authenticate: {err}");
+                }
+            })
+        })
+        .on(Event::Close, |_, _| {
+            Box::pin(async move {
+                tracing::warn!("StreamElements: socket closed — reconnecting");
+            })
+        })
+        .on(Event::Error, |payload, _| {
+            Box::pin(async move {
+                tracing::error!("StreamElements: socket error: {}", crate::redact::redact(&format!("{payload:?}")));
+            })
+        })
         .on("authenticated", |payload, _| {
             Box::pin(async move {
                 tracing::info!("StreamElements: authenticated ({payload:?})");
@@ -116,8 +143,6 @@ pub async fn start_streamelements_watcher(
         })
         .connect()
         .await?;
-
-    client.emit("authenticate", json!({ "method": "jwt", "token": jwt })).await?;
 
     Ok(Arc::new(StreamElementsWatcher {
         history,
