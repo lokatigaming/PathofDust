@@ -4907,6 +4907,58 @@ impl AdventureManager {
         Ok(output)
     }
 
+    /// Item 31 - the Unique Shard's one-step commit (`POST /craft/unique-shard`).
+    /// The player browses every choice client-side first; nothing is
+    /// spent until this runs. Validates everything `craft_item_ex`'s
+    /// UniqueShard branch does, plus that `choice` is one of this item's
+    /// own candidates, then applies the affix and consumes the shard
+    /// under the one `characters` lock - no `PendingVeil`, so no window
+    /// where a shard is spent but the affix only exists in memory.
+    /// `apply_unique_affix` runs the conflict and bag-Expertise re-checks
+    /// before it mutates, and the token is consumed only on its `Ok`.
+    pub async fn apply_unique_shard(&self, username: &str, item_id: &str, choice: UniqueAffix) -> Result<CraftOutcome, CraftError> {
+        let mut characters = self.characters.lock().await;
+        let character = characters.get_mut(&username.to_lowercase()).ok_or(CraftError::NotJoined)?;
+        if character.craft_token_count(CraftAction::UniqueShard) == 0 {
+            // Same u64::MAX sentinel `craft_item_ex`'s branch uses.
+            return Err(CraftError::InsufficientDust(u64::MAX));
+        }
+        let item = character.check_item_mutable(item_id)?;
+        if item.unique_affix.is_some() {
+            return Err(CraftError::AlreadyUnique);
+        }
+        // A Divine Forge pair is accepted in either order.
+        let offered = unique_affix_candidates(item).into_iter().any(|c| match (c, choice) {
+            (UniqueAffix::DivineForge { affixes: [a, b] }, UniqueAffix::DivineForge { affixes: [x, y] }) => (a, b) == (x, y) || (a, b) == (y, x),
+            (UniqueAffix::Luckstone { kind: k, .. }, UniqueAffix::Luckstone { kind, .. }) => k == kind,
+            (c, choice) => c == choice,
+        });
+        if !offered {
+            return Err(CraftError::InvalidUniqueChoice);
+        }
+        // Ruling 10 - a Luckstone's pct rolls here, on apply.
+        let unique = match choice {
+            UniqueAffix::Luckstone { kind, .. } => UniqueAffix::Luckstone { kind, pct: roll_luckstone_pct(&self.live_tunables(), &mut rand::thread_rng()) },
+            other => other,
+        };
+        let balance_before = character.craft_token_count(CraftAction::UniqueShard);
+        let result = character.apply_unique_affix(item_id, unique);
+        if result.is_ok() {
+            character.consume_craft_token(CraftAction::UniqueShard);
+            character.last_crafted_item_id = Some(item_id.to_string());
+        }
+        let balance_after = character.craft_token_count(CraftAction::UniqueShard);
+        tracing::info!(
+            "Unique Shard apply: character={username} item_id={item_id} chosen_affix={unique:?} shard_balance_before={balance_before} shard_balance_after={balance_after} outcome_ok={}",
+            result.is_ok()
+        );
+        let outcome = result?;
+        self.persist_characters(&characters);
+        drop(characters);
+        self.broadcast_state().await;
+        Ok(outcome)
+    }
+
     /// Web dashboard: read-only check for whether `username` currently
     /// has a veiled craft awaiting a choice - lets the dashboard show
     /// the "pick your outcome" view instead of the normal crafting form.
@@ -9827,6 +9879,97 @@ mod unique_shard_tests {
         assert_eq!(pending.candidates.len(), expected, "every candidate offered, unfiltered by conflicts - only Crafting Expertise is withheld from a bag item");
 
         std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Item 31 - pins three known affixes on `login`'s target item so the
+    /// Divine Forge pairs are deterministic.
+    async fn set_affixes(manager: &Arc<AdventureManager>, login: &str, id: &str) {
+        let mut characters = manager.characters.lock().await;
+        let character = characters.get_mut(login).unwrap();
+        let item = character.find_mutable_item(id).expect("item present");
+        item.affixes = vec![(Affix::CritChance, 1.0), (Affix::Evasion, 1.0), (Affix::BlockChance, 1.0)];
+    }
+
+    /// Item 31 - every rejection at the one-step entry point spends
+    /// nothing and touches nothing, including the conflict re-check.
+    #[tokio::test]
+    async fn one_step_apply_spends_nothing_on_any_rejection() {
+        let (manager, scratch) = disposable_manager("one_step_reject");
+        let bag = joined_with_unique_shard_and_item(&manager, "rejbag", 1).await;
+        set_affixes(&manager, "rejbag", &bag).await;
+        let not_on_item = UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::IncreasedDamage] };
+        assert!(matches!(manager.apply_unique_shard("rejbag", &bag, not_on_item).await, Err(CraftError::InvalidUniqueChoice)));
+        assert!(matches!(manager.apply_unique_shard("rejbag", &bag, UniqueAffix::CraftingExpertise).await, Err(CraftError::UniqueRequiresEquipped)));
+        let character = manager.character("rejbag").await.unwrap();
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a rejected request must not spend the shard");
+        assert_eq!(character.find_item_by_id(&bag).unwrap().unique_affix, None);
+
+        let worn = joined_with_unique_shard_and_equipped_item(&manager, "rejworn", 1, Some(UniqueAffix::Unyielding)).await;
+        assert!(matches!(manager.apply_unique_shard("rejworn", &worn, UniqueAffix::Unyielding).await, Err(CraftError::ConflictingUniqueAffix)), "the conflict re-check applies at this entry point too");
+        let character = manager.character("rejworn").await.unwrap();
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "a conflict rejection must not spend the shard");
+        assert_eq!(character.find_item_by_id(&worn).unwrap().unique_affix, None);
+
+        let (manager2, scratch2) = disposable_manager("one_step_no_token");
+        let id = joined_with_unique_shard_and_item(&manager2, "broke", 0).await;
+        assert!(matches!(manager2.apply_unique_shard("broke", &id, UniqueAffix::Unyielding).await, Err(CraftError::InsufficientDust(u64::MAX))));
+        assert_eq!(manager2.character("broke").await.unwrap().find_item_by_id(&id).unwrap().unique_affix, None);
+
+        std::fs::remove_dir_all(&scratch).ok();
+        std::fs::remove_dir_all(&scratch2).ok();
+    }
+
+    /// Item 31 - a success spends exactly one shard; a repeat on the same
+    /// item is refused and spends nothing more. Divine Forge accepts its
+    /// pair in either order.
+    #[tokio::test]
+    async fn one_step_apply_spends_exactly_once() {
+        let (manager, scratch) = disposable_manager("one_step_once");
+        let id = joined_with_unique_shard_and_item(&manager, "once", 2).await;
+        set_affixes(&manager, "once", &id).await;
+        let reversed = UniqueAffix::DivineForge { affixes: [Affix::BlockChance, Affix::CritChance] };
+        manager.apply_unique_shard("once", &id, reversed).await.expect("an offered pair, reversed");
+        assert!(matches!(manager.apply_unique_shard("once", &id, UniqueAffix::Unyielding).await, Err(CraftError::AlreadyUnique)));
+        let character = manager.character("once").await.unwrap();
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 1, "exactly one shard spent across both requests");
+        assert_eq!(character.find_item_by_id(&id).unwrap().unique_affix, Some(reversed));
+        assert!(manager.pending_veil("once").await.is_none(), "the one-step path never creates a PendingVeil");
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// Item 31 - the in-memory-loss risk. The old path spent the shard at
+    /// PendingVeil insert and held the pick only in memory, so a restart
+    /// before `choose-veil` lost it. Now the spend and the affix land in
+    /// the same persisted write: a fresh manager on the same files (the
+    /// restart) sees both, and a Luckstone carries its rolled pct.
+    #[tokio::test]
+    async fn one_step_apply_survives_a_restart_with_spend_and_affix_together() {
+        let (manager, scratch) = disposable_manager("one_step_restart");
+        let id = joined_with_unique_shard_and_item(&manager, "restart", 1).await;
+        manager.apply_unique_shard("restart", &id, UniqueAffix::Luckstone { kind: LuckyKind::Block, pct: 0 }).await.expect("Luckstone is always offered");
+        drop(manager);
+
+        let reloaded = AdventureManager::new(scratch.join("adventure-characters.json"), scratch.join("adventure-world.json"), scratch.join("adventure-reforge-cooldown.json"));
+        let character = reloaded.character("restart").await.expect("persisted");
+        assert_eq!(character.craft_token_count(CraftAction::UniqueShard), 0);
+        match character.find_item_by_id(&id).unwrap().unique_affix {
+            Some(UniqueAffix::Luckstone { kind: LuckyKind::Block, pct }) => assert!((700..=1400).contains(&pct), "pct rolled on apply in the 7-14% band, got {pct}"),
+            other => panic!("expected a Block Luckstone after restart, got {other:?}"),
+        }
+
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    #[test]
+    fn choice_keys_round_trip_for_every_candidate() {
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        item.affixes = vec![(Affix::CritChance, 1.0), (Affix::Evasion, 1.0), (Affix::BlockChance, 1.0)];
+        for c in unique_affix_candidates(&item) {
+            assert_eq!(UniqueAffix::from_choice_key(&c.choice_key()), Some(c), "{}", c.choice_key());
+        }
+        assert_eq!(UniqueAffix::from_choice_key("divineForge:critChance"), None);
+        assert_eq!(UniqueAffix::from_choice_key("nonsense"), None);
     }
 }
 
