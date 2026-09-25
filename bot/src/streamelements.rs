@@ -19,6 +19,11 @@ const HISTORY_LIMIT: usize = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tip {
+    /// PayPal capture ID for relay tips (lokati.net/tip and the webhook);
+    /// the PayPal watcher skips one already in its history. Absent on
+    /// StreamElements tips and on records saved before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
     pub amount: f64,
     pub currency: String,
@@ -51,6 +56,7 @@ fn parse_tip(payload: &Payload) -> Option<Tip> {
     }
     let data = event.get("data")?;
     Some(Tip {
+        id: None,
         name: data
             .get("username")
             .or_else(|| data.get("displayName"))

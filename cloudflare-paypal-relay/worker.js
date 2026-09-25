@@ -23,8 +23,33 @@
 //     four secrets above) to test against PayPal's free Sandbox instead of
 //     real money — a genuine Sandbox checkout produces a properly-signed
 //     webhook, unlike the Webhooks Simulator's unsigned "mock" events.
+//
+// lokati.net/tip (tip.html in the site folder) is a second, direct source:
+//   - POST /api/tip/order creates a PayPal order for a server-validated
+//     amount and parks the tipper's name/message in KV for an hour.
+//   - POST /api/tip/capture {orderID} captures it server-side and queues the
+//     tip only when PayPal says COMPLETED; amount/currency come from PayPal's
+//     capture response, never from the page.
+// Both this path and the webhook key the tip by PayPal's capture ID
+// (tip:<capture_id>) and set seen:<capture_id>, so the webhook that PayPal
+// also fires for a /tip payment is dropped as a duplicate instead of
+// alerting twice. Routed as lokati.net/api/tip* (same pattern as
+// lokati-feed-cache's lokati.net/api/feed*).
 
 const TIP_TTL_SECONDS = 60 * 60 * 24; // pending tips expire after a day, in case the bot's offline for a while
+const SEEN_TTL_SECONDS = 60 * 60 * 24 * 7; // capture IDs already queued — outlasts PayPal's webhook retries
+const ORDER_TTL_SECONDS = 60 * 60; // name/message parked between order creation and capture
+
+export const TIP_MIN_USD = 1;
+export const TIP_MAX_USD = 500;
+const TIP_CURRENCY = 'USD';
+const NAME_MAX_LEN = 50;
+const MESSAGE_MAX_LEN = 255;
+
+// The page may end up on a different origin than the Worker (if the relay
+// can't be routed under lokati.net), so the /api/tip routes answer CORS for
+// the site's own origin only.
+const TIP_ALLOWED_ORIGIN = 'https://lokati.net';
 
 export default {
   async fetch(request, env) {
@@ -36,6 +61,13 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/pending-tips') {
       return handlePendingTips(request, env);
+    }
+
+    if (url.pathname === '/api/tip/order' || url.pathname === '/api/tip/capture') {
+      if (request.method === 'OPTIONS') return withCors(new Response(null, { status: 204 }));
+      if (request.method !== 'POST') return withCors(new Response('Method not allowed', { status: 405 }));
+      const handler = url.pathname === '/api/tip/order' ? handleTipOrder : handleTipCapture;
+      return withCors(await handler(request, env));
     }
 
     return new Response('Not found', { status: 404 });
@@ -124,6 +156,7 @@ function extractTip(event) {
     null;
 
   return {
+    id: resource.id || null,
     name: payerName || 'Anonymous',
     amount: parseFloat(amount.value || amount.total) || 0,
     currency: amount.currency_code || amount.currency || '',
@@ -158,10 +191,147 @@ async function handleWebhook(request, env) {
   }
 
   const tip = extractTip(event);
-  const key = `tip:${Date.now()}:${crypto.randomUUID()}`;
-  await env.TIPS_KV.put(key, JSON.stringify(tip), { expirationTtl: TIP_TTL_SECONDS });
 
+  // A /tip payment was already queued by the direct capture path — this is
+  // PayPal's webhook for the same capture arriving as backup.
+  if (tip.id && (await env.TIPS_KV.get(`seen:${tip.id}`))) {
+    return new Response('Duplicate', { status: 200 });
+  }
+
+  await queueTip(env, tip);
   return new Response('OK', { status: 200 });
+}
+
+// Keyed by capture ID when there is one, so the direct path and the webhook
+// land on the same key; seen: outlives the tip itself so a late webhook
+// retry after the bot has drained the tip is still recognised.
+async function queueTip(env, tip) {
+  const key = tip.id ? `tip:${tip.id}` : `tip:${Date.now()}:${crypto.randomUUID()}`;
+  await env.TIPS_KV.put(key, JSON.stringify(tip), { expirationTtl: TIP_TTL_SECONDS });
+  if (tip.id) {
+    await env.TIPS_KV.put(`seen:${tip.id}`, '1', { expirationTtl: SEEN_TTL_SECONDS });
+  }
+}
+
+function withCors(response) {
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', TIP_ALLOWED_ORIGIN);
+  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  headers.set('Vary', 'Origin');
+  return new Response(response.body, { status: response.status, headers });
+}
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// Accepts a JSON number or a plain decimal string ("5", "12.50"), at most two
+// decimal places, inside [TIP_MIN_USD, TIP_MAX_USD]. Returns PayPal's
+// "value" string form, or null when the input is out of range or malformed.
+export function validateTipAmount(raw) {
+  const text = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  const value = Number(text);
+  if (!Number.isFinite(value) || value < TIP_MIN_USD || value > TIP_MAX_USD) return null;
+  return value.toFixed(2);
+}
+
+function cleanText(raw, maxLen) {
+  return typeof raw === 'string' ? raw.trim().slice(0, maxLen) : '';
+}
+
+async function handleTipOrder(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') return jsonResponse({ error: 'Invalid request' }, 400);
+
+  const value = validateTipAmount(body.amount);
+  if (!value) {
+    return jsonResponse({ error: `Amount must be between ${TIP_MIN_USD} and ${TIP_MAX_USD}` }, 400);
+  }
+
+  let order;
+  try {
+    const accessToken = await getPaypalAccessToken(env);
+    const resp = await fetch(`${apiBase(env)}/v2/checkout/orders`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        intent: 'CAPTURE',
+        purchase_units: [{ amount: { currency_code: TIP_CURRENCY, value }, description: 'Tip for Lokati' }],
+      }),
+    });
+    order = await resp.json().catch(() => null);
+    if (!resp.ok || !order || !order.id) {
+      console.error('PayPal create order failed', resp.status, JSON.stringify(order));
+      return jsonResponse({ error: 'Could not create order' }, 502);
+    }
+  } catch (err) {
+    console.error('PayPal create order error:', err);
+    return jsonResponse({ error: 'Could not create order' }, 502);
+  }
+
+  const meta = { name: cleanText(body.name, NAME_MAX_LEN), message: cleanText(body.message, MESSAGE_MAX_LEN) };
+  await env.TIPS_KV.put(`order:${order.id}`, JSON.stringify(meta), { expirationTtl: ORDER_TTL_SECONDS });
+
+  return jsonResponse({ id: order.id });
+}
+
+async function handleTipCapture(request, env) {
+  const body = await request.json().catch(() => null);
+  const orderID = body && typeof body.orderID === 'string' ? body.orderID.trim() : '';
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(orderID)) return jsonResponse({ error: 'Invalid order' }, 400);
+
+  let result;
+  try {
+    const accessToken = await getPaypalAccessToken(env);
+    const resp = await fetch(`${apiBase(env)}/v2/checkout/orders/${orderID}/capture`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    result = await resp.json().catch(() => null);
+    if (!resp.ok || !result) {
+      console.error('PayPal capture failed', resp.status, JSON.stringify(result));
+      return jsonResponse({ error: 'Capture failed' }, 502);
+    }
+  } catch (err) {
+    console.error('PayPal capture error:', err);
+    return jsonResponse({ error: 'Capture failed' }, 502);
+  }
+
+  // Only a real COMPLETED capture becomes a tip; PENDING (e.g. an eCheck)
+  // is left to the webhook, which fires when it actually completes.
+  const unit = (result.purchase_units || [])[0] || {};
+  const capture = ((unit.payments || {}).captures || [])[0];
+  if (result.status !== 'COMPLETED' || !capture || capture.status !== 'COMPLETED' || !capture.id) {
+    return jsonResponse({ status: (capture && capture.status) || result.status || 'UNKNOWN' }, 202);
+  }
+
+  const meta = JSON.parse((await env.TIPS_KV.get(`order:${orderID}`)) || '{}');
+  const payerName =
+    result.payer && result.payer.name &&
+    `${result.payer.name.given_name || ''} ${result.payer.name.surname || ''}`.trim();
+  const amount = capture.amount || {};
+
+  await queueTip(env, {
+    id: capture.id,
+    name: meta.name || payerName || 'Anonymous',
+    amount: parseFloat(amount.value) || 0,
+    currency: amount.currency_code || '',
+    message: meta.message || '',
+  });
+  await env.TIPS_KV.delete(`order:${orderID}`);
+
+  return jsonResponse({ status: 'COMPLETED' });
 }
 
 async function handlePendingTips(request, env) {

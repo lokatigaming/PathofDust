@@ -46,8 +46,9 @@ impl PaypalWatcher {
 
         let tips: Vec<Tip> = resp.json().await?;
 
+        let mut history = self.history.lock().await;
+        let tips = unseen_tips(&history, tips);
         if !tips.is_empty() {
-            let mut history = self.history.lock().await;
             for tip in &tips {
                 history.insert(0, tip.clone());
             }
@@ -56,12 +57,22 @@ impl PaypalWatcher {
                 tracing::error!("Failed to persist paypal-tips-history.json: {err}");
             }
         }
+        drop(history);
 
         for tip in tips {
             on_tip(tip);
         }
         Ok(())
     }
+}
+
+/// Drops any tip whose id is already in `history` (or earlier in the same
+/// batch) — the relay dedupes lokati.net/tip's direct capture against
+/// PayPal's backup webhook, and this is the last line behind it. Tips with
+/// no id (older relay records) always pass.
+fn unseen_tips(history: &[Tip], incoming: Vec<Tip>) -> Vec<Tip> {
+    let mut seen: std::collections::HashSet<String> = history.iter().filter_map(|t| t.id.clone()).collect();
+    incoming.into_iter().filter(|tip| tip.id.as_ref().is_none_or(|id| seen.insert(id.clone()))).collect()
 }
 
 pub fn start_paypal_watcher(
@@ -90,4 +101,34 @@ pub fn start_paypal_watcher(
     }
 
     watcher
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tip(id: Option<&str>, name: &str) -> Tip {
+        Tip { id: id.map(str::to_string), name: name.to_string(), amount: 5.0, currency: "USD".to_string(), message: String::new() }
+    }
+
+    #[test]
+    fn tip_deserializes_with_and_without_id() {
+        let old: Tip = serde_json::from_str(r#"{"name":"A","amount":5.0,"currency":"USD","message":"hi"}"#).unwrap();
+        assert_eq!(old.id, None);
+        assert_eq!(old.name, "A");
+        let new: Tip = serde_json::from_str(r#"{"id":"CAP1","name":"B","amount":2.5,"currency":"USD","message":""}"#).unwrap();
+        assert_eq!(new.id.as_deref(), Some("CAP1"));
+        let null_id: Tip = serde_json::from_str(r#"{"id":null,"name":"C","amount":1.0,"currency":"USD"}"#).unwrap();
+        assert_eq!(null_id.id, None);
+        // An id-less tip serializes to the pre-id shape, so saved history is unchanged.
+        assert!(!serde_json::to_string(&old).unwrap().contains("\"id\""));
+    }
+
+    #[test]
+    fn tip_whose_id_is_in_history_is_skipped() {
+        let history = vec![tip(Some("CAP1"), "old"), tip(None, "legacy")];
+        let incoming = vec![tip(Some("CAP1"), "dup"), tip(Some("CAP2"), "new"), tip(None, "no-id"), tip(Some("CAP2"), "dup-in-batch")];
+        let names: Vec<String> = unseen_tips(&history, incoming).into_iter().map(|t| t.name).collect();
+        assert_eq!(names, ["new", "no-id"]);
+    }
 }

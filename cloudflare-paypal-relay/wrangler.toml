@@ -8,6 +8,13 @@ kv_namespaces = [
   { binding = "TIPS_KV", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
 ]
 
+# Serves lokati.net/tip's /api/tip/order and /api/tip/capture on the site's
+# own origin (same pattern as lokati-feed-cache's lokati.net/api/feed*).
+# Needs this Worker in the same Cloudflare account as the lokati.net zone.
+routes = [
+  { pattern = "lokati.net/api/tip*", zone_name = "lokati.net" }
+]
+
 # Secrets are NOT set here — set them with:
 #   wrangler secret put PAYPAL_CLIENT_ID
 #   wrangler secret put PAYPAL_CLIENT_SECRET
