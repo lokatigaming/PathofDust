@@ -10546,3 +10546,28 @@ is empty, and there is no bot on the box.
 
 Not in this release: the Reforge button's on-page price does not show the Expertise
 discount, though the server charges correctly (b's follow-up). The patch notes say so.
+
+## 2026-09-25 — release 35 `divine-forge-display-33` deployed (item 33, window c)
+
+Order `2026-09-25 item 33 FIX`. Display-only change: `gear_stat_line` now renders a Divine
+Forge pick as raw → doubled (`+22% → +44% crit chance`, the owner's ruling). Other affix lines
+and the `Roll: N%` hover are unchanged. Branch `fix/divine-forge-display-33` `bb1614f`, merged
+as `edfe1ac`. New test `gear_stat_line_tests::divine_forge_pick_shows_raw_arrow_doubled_and_other_affixes_stay_plain`.
+No WIKI_IMPACT line, because no mechanic, cost or formula changed.
+
+Suite `cargo test --release --workspace --quiet -j 4`: **1092 / 0 / 0, 49 lines** locally and
+on the box (baseline 1091 + 1 new). Archive `e93d4b9b7708fa5464ff93c9dfc1b55c996d9b2f114035392cfc9de1aceabd9a`
+matched on both ends. Live `05e74c37…` → **`250de20e53269d815625e8fa60760250572bff4e59a2822f32a2202cfd61a64c`**,
+downtime **0.34 s**, slot `deploy-pre-20260925-182244-divine-forge-display-33`. No data-format
+change: a binary-only rollback is safe.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live =
+candidate; 5 **unrun**, it needs an owner cookie and no token was read; 6 port 4005 404 /
+77,589 B (4004: 404 / 0 B); 7 404; 0 panic/ERROR lines. Fight loop `fight-0000023285` →
+`…23287` by 18:24:43, after the 18:22:44 swap.
+
+**Patch notes**: one block dated **September 25, 2026** by the box clock. Pre-edit copy
+`a008b920…` in the slot; diff +11 / −0.
+
+Bot: not redeployed. `git diff --name-only 3377665..edfe1ac -- bot Cargo.lock Cargo.toml`
+is empty, and there is no bot on the box.
