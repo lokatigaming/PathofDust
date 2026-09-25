@@ -39,7 +39,7 @@ use crate::adventure::{
     AutoDisenchantTier, BossKind, BugReportManager, ChangeModelError, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
-    SubmitOutcome, VeilChosenOutcome,
+    SubmitOutcome, UniqueAffix, VeilChosenOutcome,
     ALL_ARCHETYPES, ALL_SPRITES, ARCHETYPE_CHANGE_COST, BUG_REPORTS_PATH, INVENTORY_CAPACITY, LIFE_LEECH_CAP_PER_SEC, MAX_REPORT_LEN, MEMORY_NAME_MAX_LEN, MODEL_CHANGES_FREE_FOR_ALL, MODEL_CHANGE_COST,
     HIDEOUT_WARRIOR_STEPS, NICKNAME_MAX_LEN, PASSIVE_RESPEC_COST, RETREAT_REPAIR_DURATION, SUMMARY_FIGHTS_CAPACITY, TIER_CRAFT_DUST_COST,
     VEIL_EXTRA_COST, WEB_REFORGE_DUST_COST, WINGS_COST, scaled_base_cost,
@@ -8551,9 +8551,20 @@ fn gear_stat_line(item: &Item) -> String {
             // (2026-08-17, a live request) so they stand out from the
             // item's normal, guaranteed modifiers at a glance.
             let class = if item.is_crit_bonus_affix(*a) { "mod-roll mod-roll-crit" } else { "mod-roll" };
+            // Divine Forge (item 33, owner ruling 2026-09-25) - a forged
+            // type shows its raw roll, an arrow, and the doubled value
+            // combat actually uses (`Item::effective_affix_total`). The
+            // Roll% tip above stays on the raw `v` - it's the quality number.
+            let text = if matches!(item.unique_affix, Some(UniqueAffix::DivineForge { affixes }) if affixes.contains(a)) {
+                let raw = affix_display(*a, *v);
+                let raw_value = raw.split_once(' ').map_or(raw.as_str(), |(n, _)| n);
+                format!("{raw_value} → {}", affix_display(*a, *v * 2.0))
+            } else {
+                affix_display(*a, *v)
+            };
             format!(
                 "<li class=\"{class}\" data-tip=\"Roll: {roll_pct:.0}%\">{}</li>",
-                escape_html(&affix_display(*a, *v))
+                escape_html(&text)
             )
         })
         .collect();
@@ -8901,6 +8912,27 @@ mod admin_passives_tests {
 /// have hidden it from crafting too. `DISPLAY_SLOTS`/`BAG_SLOT_ROWS`
 /// replaced them; these tests are what make the NEXT slot addition
 /// noisy instead of silent.
+#[cfg(test)]
+mod gear_stat_line_tests {
+    use super::*;
+    use crate::adventure::generate_item_at_tier;
+
+    /// Item 33 - a Divine Forge pick renders raw → doubled; an unpicked
+    /// affix on the same item stays a single plain value. Roll% stays raw.
+    #[test]
+    fn divine_forge_pick_shows_raw_arrow_doubled_and_other_affixes_stay_plain() {
+        let mut item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut rand::thread_rng());
+        item.affixes = vec![(Affix::CritChance, 0.22), (Affix::Leech, 0.05)];
+        item.unique_affix = Some(UniqueAffix::DivineForge { affixes: [Affix::CritChance, Affix::IncreasedDamage] });
+        let html = gear_stat_line(&item);
+        assert!(html.contains(">+22% → +44% crit chance</li>"), "forged pick shows raw → doubled: {html}");
+        assert!(html.contains(">+5.00% life leech</li>"), "unpicked affix is a single plain value: {html}");
+        assert_eq!(html.matches('→').count(), 1, "only the forged pick is arrowed: {html}");
+        let raw_roll = affix_quality_percent(Affix::CritChance, 0.22, item.tier, item.perfect);
+        assert!(html.contains(&format!("data-tip=\"Roll: {raw_roll:.0}%\">+22% →")), "Roll% stays on the raw value: {html}");
+    }
+}
+
 #[cfg(test)]
 mod display_slots_tests {
     use super::*;
