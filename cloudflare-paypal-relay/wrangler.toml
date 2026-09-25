@@ -1,11 +1,17 @@
-name = "lokati-paypal-relay"
+name = "young-hall-6c35"
 main = "worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-07-24"
 
-# Create with: wrangler kv namespace create TIPS_KV
-# then paste the printed id below.
+# Matches the live dashboard-created Worker (checked 2026-09-26 with
+# `wrangler versions view`). workers.dev MUST stay on: PayPal's live webhook
+# posts to https://young-hall-6c35.parnold-id.workers.dev/paypal-webhook,
+# and wrangler turns workers.dev off when `routes` is set unless told otherwise.
+workers_dev = true
+
+# The live binding: the account's only KV namespace, titled "FEED_KV".
+# Relay keys are prefixed tip: / seen:.
 kv_namespaces = [
-  { binding = "TIPS_KV", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
+  { binding = "TIPS_KV", id = "647f95da1e9248828af1555904d258c1" }
 ]
 
 # Serves lokati.net/tip's /api/tip/order and /api/tip/capture on the site's
@@ -15,7 +21,9 @@ routes = [
   { pattern = "lokati.net/api/tip*", zone_name = "lokati.net" }
 ]
 
-# Secrets are NOT set here — set them with:
+# The live Worker has no plain-text vars: PAYPAL_API_BASE is unset, so the
+# Live API default in worker.js applies. Secrets (all four already set on
+# the live Worker) are NOT set here — set them with:
 #   wrangler secret put PAYPAL_CLIENT_ID
 #   wrangler secret put PAYPAL_CLIENT_SECRET
 #   wrangler secret put PAYPAL_WEBHOOK_ID
