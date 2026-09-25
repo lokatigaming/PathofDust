@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::adventure::{
-    affix_display, affix_name, affix_quality_percent, composite_price, craft_action_def, craft_affix_value_range, list_pinned_fights, recent_summary_fights, AdventureManager, Affix, Archetype,
+    affix_display, affix_name, affix_quality_percent, composite_price, craft_action_def, craft_affix_value_range, list_pinned_fights, panel_reforge_dust_cost, recent_summary_fights, AdventureManager, Affix, Archetype,
     AutoDisenchantTier, BossKind, BugReportManager, ChangeModelError, Character, CraftAction, CraftError, CraftOutcome, CraftResult, DivineDustCraftError, DivineDustOutcome, DivinityError, DivinityReport, EncounterKind, EquipSlot, FightSummarySnapshot, GolemType, Item,
     LiveTunables, OperatorTriggerOutcome, PacingStatus, MemoryError, MemoryLoadReport, NameRejection, PassiveError, PassivePreview, PendingVeil,
     PendingVeilAction, RecombineError, RecombineOutcome, RecombineResult, ReforgeOutcome, SetGolemSlotTypeError, SetSecondaryArchetypeError, StatBreakdown, VeilCandidate,
@@ -7564,7 +7564,7 @@ fn all_items(c: &Character) -> Vec<&Item> {
 /// `quality_line_html`'s own tag already uses) is always shown - the whole
 /// point of this pass (a live request: "each item should list the quality
 /// %/perfect/sacred/etc").
-fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str>) -> String {
+fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str>, reforge_t: Option<&LiveTunables>) -> String {
     // A Krangled item and a "Keep"-ticked one both refuse every craft now
     // (2026-08-24), so both need to say so in the picker - otherwise the
     // only feedback is an error popup after the click. Same padlock, and
@@ -7589,8 +7589,12 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
         format!(" Q{quality:.0}%")
     };
     let slot_prefix = if show_slot { format!("{:?}, ", item.slot) } else { String::new() };
+    // Item 30 - the panel Reforge price the server will actually charge
+    // for THIS item, from the charge site's own function, so Crafting
+    // Expertise's discount shows on the button. Crafting card only.
+    let reforge_cost = reforge_t.map(|t| format!(" data-reforge-cost=\"{}\"", panel_reforge_dust_cost(item, t))).unwrap_or_default();
     format!(
-        "<option value=\"{id}\" data-affixes=\"{mods}\" data-tier=\"{tier}\" data-quality=\"{quality:.0}\" data-perfect=\"{perfect}\" data-polish-room=\"{polish_room}\" data-sacred=\"{sacred}\"{selected}>{name} ({slot_prefix}T{tier}, {mods} mod{plural}{quality_tag}){lock}{unique_mark}</option>",
+        "<option value=\"{id}\" data-affixes=\"{mods}\" data-tier=\"{tier}\" data-quality=\"{quality:.0}\" data-perfect=\"{perfect}\" data-polish-room=\"{polish_room}\" data-sacred=\"{sacred}\"{reforge_cost}{selected}>{name} ({slot_prefix}T{tier}, {mods} mod{plural}{quality_tag}){lock}{unique_mark}</option>",
         id = item.id,
         name = escape_html(&item.display_name()),
         tier = item.tier,
@@ -7630,7 +7634,7 @@ fn craft_item_option_html(item: &Item, show_slot: bool, selected_id: Option<&str
 /// `items`) falls back to the previous behavior: `with_none`'s explicit
 /// "None" option if there is one, otherwise whatever the browser defaults
 /// an unselected `<select>` to (its first option).
-fn craft_item_options(c: &Character, items: &[&Item], with_none: bool, selected_id: Option<&str>) -> String {
+fn craft_item_options(c: &Character, items: &[&Item], with_none: bool, selected_id: Option<&str>, reforge_t: Option<&LiveTunables>) -> String {
     let none_selected = with_none && selected_id.is_none();
     let none_option = if with_none { format!("<option value=\"\"{}>None</option>", if none_selected { " selected" } else { "" }) } else { String::new() };
 
@@ -7640,7 +7644,7 @@ fn craft_item_options(c: &Character, items: &[&Item], with_none: bool, selected_
     let equipped_group = if equipped.is_empty() {
         String::new()
     } else {
-        let opts: String = equipped.iter().map(|i| craft_item_option_html(i, true, selected_id)).collect();
+        let opts: String = equipped.iter().map(|i| craft_item_option_html(i, true, selected_id, reforge_t)).collect();
         format!("<optgroup label=\"Equipped\">{opts}</optgroup>")
     };
 
@@ -7651,7 +7655,7 @@ fn craft_item_options(c: &Character, items: &[&Item], with_none: bool, selected_
             if group_items.is_empty() {
                 return String::new();
             }
-            let opts: String = group_items.iter().map(|i| craft_item_option_html(i, false, selected_id)).collect();
+            let opts: String = group_items.iter().map(|i| craft_item_option_html(i, false, selected_id, reforge_t)).collect();
             format!("<optgroup label=\"{slot:?}\">{opts}</optgroup>")
         })
         .collect();
@@ -7901,8 +7905,8 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
             divine_dust = format_number(c.divine_dust as f64),
         );
     }
-    let options_a = craft_item_options(c, &items, false, c.last_crafted_item_id.as_deref());
-    let options_b = craft_item_options(c, &items, true, None);
+    let options_a = craft_item_options(c, &items, false, c.last_crafted_item_id.as_deref(), Some(tunables));
+    let options_b = craft_item_options(c, &items, true, None, Some(tunables));
     let action_btn = |action: CraftAction| {
         let tip = craft_action_tip(action);
         // A banked free token (see Character::craft_tokens) covers this
@@ -8469,7 +8473,7 @@ fn render_equip_picker(character: &Character, slot: EquipSlot) -> String {
     if candidates.is_empty() {
         return String::new();
     }
-    let options = craft_item_options(character, &candidates, false, None);
+    let options = craft_item_options(character, &candidates, false, None, None);
     let (onsubmit, confirm_input) = loss_confirm_html(character.equipped(slot).as_ref());
     format!(
         "<form method=\"post\" action=\"/equip\" class=\"equip-picker\"{onsubmit}>\
