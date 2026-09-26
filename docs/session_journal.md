@@ -10633,3 +10633,33 @@ candidate; 5 **unrun**: it needs a cookie, and no token was read; 6 port 4005 40
 `7aa18350…` in the slot; diff +8 / −0.
 
 Bot: not redeployed. `git diff --name-only 5997309..10b1ced -- bot Cargo.lock Cargo.toml` is empty.
+
+## 2026-09-26 — release 38 `reforge-price-30` deployed (item 30, window c)
+
+Order `2026-09-26 items 31 + 30`, Part 2. `craft.rs::panel_reforge_dust_cost` is now the single
+Reforge price, Expertise discount included. `craft_item_ex` charges through it and the page reads it
+via `data-reforge-cost`. New test `game/tests/reforge_expertise_price_http.rs`.
+
+Merge `8b400ba` (`--no-ff` of `fix/reforge-expertise-price-30` `407783c` onto `e0fffd2`). One conflict
+hunk: the `WIKI_IMPACT.md` tail, where item 31 and item 30 each appended a line. Resolved keep-both,
+31 then 30. `adventure_web.rs`, `base.html`, `craft.rs` and `manager.rs` auto-merged. Self-correction:
+the first commit of this merge (`65ac7f8`, local, never pushed) kept the conflict markers, because the
+resolver script needed Python, which is absent on the dev box. That commit was amended to `8b400ba`
+before anything was built or pushed. No stored-format change (no struct or serde edits), so a
+binary-only rollback is safe.
+
+Suite `cargo test --release --workspace --quiet -j 4`: **1098 / 0 / 51** locally and on the box,
+matching the prediction (1097/50 + 1 test in a new binary). Archive
+`b037a41583dc50a7a50485bee68a629a886ab96168724f1b26560e4100aaec0c` matched on both ends. Live
+`2a33d501…` → **`6691445a167b2c6eef9cfe192a3f1740d891b773729b492b92e276625a6ae325`**, downtime **0.41 s**,
+slot `deploy-pre-20260926-035448-reforge-price-30`.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live =
+candidate; 5 **unrun**: it needs a cookie, and no token was read; 6 port 4005 404 / 83,124 B
+(4004: 404 / 0 B); 7 404; 0 panic/ERROR lines. The fight loop went `…23832` → `…23833` at 03:55:08,
+after the 03:54:48 swap.
+
+**Patch notes**: new **September 26, 2026** block (box clock). Pre-edit copy `6fb696fd…` in the slot;
+diff +12 / −0. It states that this clears the release-34 known issue.
+
+Bot: not redeployed. `git diff --name-only e0fffd2..8b400ba -- bot Cargo.lock Cargo.toml` is empty.
