@@ -10663,3 +10663,34 @@ after the 03:54:48 swap.
 diff +12 / −0. It states that this clears the release-34 known issue.
 
 Bot: not redeployed. `git diff --name-only e0fffd2..8b400ba -- bot Cargo.lock Cargo.toml` is empty.
+
+## 2026-09-26 — item 35 Cloudflare pieces (owner-deployed) + BOT DEPLOYED: release 39 `tip-dedupe-35` (window c). 3.75 s.
+
+**Item 35 Cloudflare, deployed by the owner by hand** after this window's `wrangler deploy` was refused:
+- Relay `young-hall-6c35` → version `0ad4761d-9c70-46fd-a44e-f5288ce2f38e`. Triggers
+  `young-hall-6c35.parnold-id.workers.dev` and `lokati.net/api/tip*` (zone lokati.net). Binding
+  `TIPS_KV` = `647f95da1e9248828af1555904d258c1`. Rollback: `npx wrangler@4 rollback 63a3c2dd-d97d-4425-b900-4f7ab2271d9c`.
+- Site `throbbing-glitter-e7f1` from `SIK Claude` at `c08147e`, so `/tip` is live. Rollback
+  `a71b0a09-ef0e-4b9b-8d57-3ef24103bc68`. The visual pass is item 35b (window d).
+- End-to-end test PASSED on the release-36 bot. The owner wrote KV `tip:test-1` ("TEST - ignore",
+  $1.00 USD). The bot drained it within seconds and announced it in chat and on the overlay. That
+  entry stays in `paypal-tips-history.json` as owner data. It was not edited.
+
+**Release 39, bot only.** Ships master `a6c1a4c`'s bot half of item 35: `Tip.id` with a serde
+default, and the history-based duplicate skip (`paypal.rs::unseen_tips`), so a tip that arrives both
+directly and by the backup webhook is announced once. `origin/master` was unmoved at `a6c1a4c`, so the
+suite of record stands: **1100 / 0 / 51**. Not re-run. Bot diff since release 36 `2056c48`:
+`bot/src/paypal.rs` +42/−1 and `bot/src/streamelements.rs` +6 only. The bot has no path dependency
+on `game/`. Built from scratch worktree `wt-39-bot` to `target-39`. The only warning is the old dead
+`history_path` field.
+- `backup-bot-data.ps1`: snapshot `bot-backup-20260926-170648`, 13 files, clean. It includes
+  `paypal-tips-history.json`. `tips-history.json` (StreamElements) was absent, as before.
+- Exe `d9b7c2f7…` → **`72e31a9c5392abf3b572d4c3511a80ce101826e205b5902aaa75ed7b20dedabf`**, hash
+  checked after the copy. Rollback: `C:\PathofDust\backup-pre-20260926-170727-tip-dedupe-35\twitch-bot-rs.exe.pre-tip-dedupe-35`.
+- Bot watchdog flag set, then cleared (`TwitchBotRS-Watchdog` Ready). Old PID 9592 exited on its own
+  in 1.32 s, not killed. New PID 34580 holds port 4001. **Downtime 3.75 s**, from `Stop-ScheduledTask`
+  until port 4001 was listening again.
+- Log: `Connected to chat` 09:07:35.03Z; `PayPal watcher started` 09:07:35.57Z; `StreamElements:
+  authenticated` 09:07:36.16Z. 0 ERROR, and so no `PayPal relay poll failed`. One WARN, the
+  playlist Apps Script 404, which was already in the log before the swap. No test tip was written.
+- No game deploy and no game patch notes. The game crate did not change.
