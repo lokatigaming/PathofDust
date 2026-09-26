@@ -8,6 +8,10 @@ compatibility_date = "2026-07-24"
 # and wrangler turns workers.dev off when `routes` is set unless told otherwise.
 workers_dev = true
 
+# Preview URLs off (wrangler warned they default to on at the 2026-09-26
+# deploy). Not needed: the relay is reached only via its routes and workers.dev.
+preview_urls = false
+
 # The live binding: the account's only KV namespace, titled "FEED_KV".
 # Relay keys are prefixed tip: / seen:.
 kv_namespaces = [
