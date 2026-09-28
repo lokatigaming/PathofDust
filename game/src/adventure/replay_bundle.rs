@@ -224,6 +224,8 @@ struct Core<'a> {
     kind: &'a super::EncounterKind,
     stage: u32,
     won: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    draw: bool,
     participants: &'a [String],
     units: &'a [super::CombatUnitInfo],
     display_duration_ms: u32,
@@ -315,6 +317,7 @@ pub(crate) fn build_bundle(
             kind: &result.kind,
             stage: result.stage,
             won: result.won,
+            draw: result.draw,
             participants: &result.participants,
             units: &result.units,
             display_duration_ms: result.display_duration_ms,
@@ -778,6 +781,7 @@ mod dual_write {
             kind: EncounterKind::Boss,
             stage: 2056,
             won: false,
+            draw: false,
             participants: vec!["a_player".to_string()],
             units: vec![CombatUnitInfo {
                 id: "a_player".to_string(),

@@ -731,6 +731,8 @@
     encounter = {
       kind: msg.kind,
       won: msg.won,
+      // Runaway-guard draw (item 41) - absent from the message unless true.
+      draw: msg.draw === true,
       stage: msg.stage,
       startTime: performance.now(),
       displayDurationMs: msg.displayDurationMs,
@@ -2351,7 +2353,11 @@
     }
 
     if (phase && phase.name === 'resolve') {
-      drawBanner(ctxTop, encounter.won ? 'Victory!' : 'Defeated...', encounter.won ? '#7CFC7C' : '#FF6B6B', phase.progress);
+      if (encounter.draw) {
+        drawBanner(ctxTop, 'Draw', '#E0C060', phase.progress);
+      } else {
+        drawBanner(ctxTop, encounter.won ? 'Victory!' : 'Defeated...', encounter.won ? '#7CFC7C' : '#FF6B6B', phase.progress);
+      }
     }
 
     requestAnimationFrame(draw);

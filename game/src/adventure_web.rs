@@ -3552,6 +3552,9 @@ fn default_win_xp_mult() -> f64 {
 fn default_win_xp_cooldown_secs() -> u64 {
     crate::adventure::WIN_XP_COOLDOWN_SECS
 }
+fn default_fight_gap_secs() -> f64 {
+    crate::adventure::FIGHT_GAP_SECS
+}
 
 // Serde default for the argon2 bound (2026-09-05). Same rule as the five
 // above, and the zero here is the worst kind: `password_hash_permits` is
@@ -3748,6 +3751,10 @@ struct TunablesForm {
     /// on this dashboard already uses (see `CraftForm::veiled`).
     #[serde(default)]
     permanent_rampage: Option<String>,
+    /// See `LiveTunables::fight_gap_secs`'s doc. Shipped-constant default,
+    /// same reasoning as `win_xp_flat` below.
+    #[serde(default = "default_fight_gap_secs")]
+    fight_gap_secs: f64,
     /// See `LiveTunables::win_xp_flat`'s doc. `#[serde(default = ...)]`
     /// resolves to the SHIPPED CONSTANT, not `f64::default()` - this
     /// field is consumed by the handler below, so an omitted one would
@@ -4315,6 +4322,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 divine_dust_drop_stage: v.range_u32("divine_dust_drop_stage", form.divine_dust_drop_stage, crate::adventure::DROP_STAGE_MIN, crate::adventure::DROP_STAGE_MAX),
                 sacred_item_stage: v.range_u32("sacred_item_stage", form.sacred_item_stage, crate::adventure::DROP_STAGE_MIN, crate::adventure::DROP_STAGE_MAX),
                 permanent_rampage: form.permanent_rampage.is_some(),
+                fight_gap_secs: v.clamp("fight_gap_secs", form.fight_gap_secs, 0.0, crate::adventure::FIGHT_GAP_SECS_MAX),
                 // Defence-in-depth behind the form's own min/max, same as
                 // the pool cap below: the browser is what REPORTS an
                 // out-of-range value to the operator, and these re-check
@@ -5087,7 +5095,7 @@ fn render_fights_page(viewer: Option<&Character>, fights: &[FightSummarySnapshot
     let cards: String = fights
         .iter()
         .map(|s| {
-            let outcome = if s.won { "Won" } else { "Lost" };
+            let outcome = if s.won { "Won" } else if s.draw { "Draw" } else { "Lost" };
             let title = match s.kind {
                 EncounterKind::Boss => format!("Boss — Stage {} — {outcome}", s.stage),
                 EncounterKind::Basic => format!("Basic — Stage {} — {outcome}", s.stage),
@@ -5760,6 +5768,11 @@ fn render_tunables_page(
               <p class=\"tunable-hint\">Hard ceiling on total bosses: floor(tiers × this). E.g. stage 400 (4 tiers) × 1.5 caps at 6 bosses even though the jitter alone could roll up to 8 — the jitter is what makes any two fights at the same stage different, this is what keeps it from spiraling. Only 5 named boss kinds exist, so past 5 the extra slots duplicate (preferring variety first — see BossKind::random_excluding_multiple).</p>\
             </div>\
             <label class=\"veil-check\"><input type=\"checkbox\" name=\"permanent_rampage\" value=\"1\"{permanent_rampage_checked}> Permanent Rampage</label>\
+            <div class=\"tunable-row\">\
+              <label for=\"fight_gap_secs\">Gap Between Fights (s)</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"{fight_gap_secs_max}\" required id=\"fight_gap_secs\" name=\"fight_gap_secs\" value=\"{fight_gap_secs}\">\
+              <p class=\"tunable-hint\"><strong>Unit: seconds.</strong> Range 0 &ndash; {fight_gap_secs_max}. With Permanent Rampage on, the next fight starts this long after the previous fight&rsquo;s overlay playback ends (charge-in, fight, result banner). Shipped at 15. Values under 5 act as 5: the fight gate always holds 5 s after playback.</p>\
+            </div>\
             <p class=\"tunable-hint\">{gear_excess_readout}</p>\
             <div class=\"tunable-row\">\
               <label for=\"boss_gear_tier_weight\">Gear-Tier Weight (effective levels per tier of gear excess)</label>\
@@ -6097,6 +6110,8 @@ fn render_tunables_page(
         craft_tier_bump_mult_min = trim_float(crate::adventure::CRAFT_TIER_BUMP_MULT_MIN),
         craft_tier_bump_mult_max = trim_float(crate::adventure::CRAFT_TIER_BUMP_MULT_MAX),
         permanent_rampage_checked = if t.permanent_rampage { " checked" } else { "" },
+        fight_gap_secs = t.fight_gap_secs,
+        fight_gap_secs_max = trim_float(crate::adventure::FIGHT_GAP_SECS_MAX),
         win_xp_flat = t.win_xp_flat,
         win_xp_level_pct = t.win_xp_level_pct,
         win_xp_mult = t.win_xp_mult,
