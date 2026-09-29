@@ -849,6 +849,14 @@ pub struct Character {
     /// streak, not a second currency - see `advance_pity`.
     #[serde(default)]
     pub item_pity: f64,
+    /// Item 44: this character's weight in the Unique Shard pick. On every
+    /// shard hit the winner is drawn from the fight's fighters with chance
+    /// pity / group total; the winner's pity is multiplied by
+    /// `unique_shard_pity_win_mult`, every other fighter gains
+    /// `unique_shard_pity_miss_gain`. Uncapped, unrounded, no floor. See
+    /// `roll_unique_shard_for_group`.
+    #[serde(default = "default_unique_shard_pity")]
+    pub unique_shard_pity: f64,
     /// **DEAD FIELD, DELIBERATELY RETAINED (2026-09-02). It no longer pays
     /// out anything, and restoring a payout here would reverse an explicit
     /// owner order.**
@@ -1500,6 +1508,14 @@ fn strip_lost_on_unequip(item: &mut Item) {
     }
 }
 
+/// Item 44: shipped default for `LiveTunables::unique_shard_pity_start` and
+/// the `#[serde(default)]` for `Character::unique_shard_pity`, so a character
+/// saved before the field existed loads at the same value a new one starts at.
+pub const UNIQUE_SHARD_PITY_START: f64 = 100.0;
+pub(crate) fn default_unique_shard_pity() -> f64 {
+    UNIQUE_SHARD_PITY_START
+}
+
 pub(crate) fn default_free_recombines() -> u32 {
     STARTING_FREE_RECOMBINES
 }
@@ -1571,6 +1587,7 @@ impl Character {
             free_archetype_changes: STARTING_FREE_ARCHETYPE_CHANGES,
             craft_tokens: ALL_CRAFT_ACTIONS.iter().map(|&a| (a, 1)).collect(),
             item_pity: 0.0,
+            unique_shard_pity: UNIQUE_SHARD_PITY_START,
             craft_pity: 0.0,
             owns_wings: false,
             received_first_perfect: false,

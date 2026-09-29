@@ -3448,11 +3448,28 @@ async fn admin_tunables_page(State(state): State<AppState>, headers: HeaderMap, 
             let viewer = state.adventure.character(&login).await;
             let current_pacing = state.adventure.current_pacing_status().await;
             let gear_excess = state.adventure.current_gear_tier_excess().await;
-            render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, gear_excess, params.saved.is_some(), None)
+            let mut body = render_tunables_page(viewer.as_ref(), &state.adventure.live_tunables(), current_pacing, gear_excess, params.saved.is_some(), None);
+            body.push_str(&render_unique_shard_pity_table(&state.adventure.all_characters().await));
+            body
         }
         _ => return admin_not_found(),
     };
     Html(render_page(&body)).into_response()
+}
+
+/// Item 44: every character's Unique Shard pity, read-only (no form, no
+/// input - pity is never edited by hand), highest first.
+fn render_unique_shard_pity_table(characters: &[(String, Character)]) -> String {
+    let mut rows: Vec<&Character> = characters.iter().map(|(_, c)| c).collect();
+    rows.sort_by(|a, b| b.unique_shard_pity.total_cmp(&a.unique_shard_pity).then_with(|| a.display_name.cmp(&b.display_name)));
+    let body: String = rows
+        .iter()
+        .map(|c| format!("<tr><td>{}</td><td>{:.1}</td></tr>", escape_html(&c.display_name), c.unique_shard_pity))
+        .collect();
+    format!(
+        "<section id=\"unique-shard-pity\"><h2>Unique Shard Pity (read-only)</h2>\
+         <table><thead><tr><th>Character</th><th>Pity</th></tr></thead><tbody>{body}</tbody></table></section>"
+    )
 }
 
 /// Serde default for `TunablesForm::enemy_hp_pool_hard_cap` - the shipped
@@ -3595,6 +3612,15 @@ fn default_luckstone_min_pct() -> f64 {
 }
 fn default_luckstone_max_pct() -> f64 {
     crate::adventure::LUCKSTONE_MAX_PCT
+}
+fn default_unique_shard_pity_start() -> f64 {
+    crate::adventure::UNIQUE_SHARD_PITY_START
+}
+fn default_unique_shard_pity_win_mult() -> f64 {
+    crate::adventure::UNIQUE_SHARD_PITY_WIN_MULT
+}
+fn default_unique_shard_pity_miss_gain() -> f64 {
+    crate::adventure::UNIQUE_SHARD_PITY_MISS_GAIN
 }
 
 // Serde defaults for the four world-stage drop gates (2026-09-02). Same
@@ -3803,6 +3829,12 @@ struct TunablesForm {
     luckstone_min_pct: f64,
     #[serde(default = "default_luckstone_max_pct")]
     luckstone_max_pct: f64,
+    #[serde(default = "default_unique_shard_pity_start")]
+    unique_shard_pity_start: f64,
+    #[serde(default = "default_unique_shard_pity_win_mult")]
+    unique_shard_pity_win_mult: f64,
+    #[serde(default = "default_unique_shard_pity_miss_gain")]
+    unique_shard_pity_miss_gain: f64,
     /// See `LiveTunables::defensive_stat_hard_cap`'s doc.
     defensive_stat_hard_cap: f64,
     /// See `LiveTunables::enemy_hp_pool_hard_cap`'s doc. `#[serde(default)]`
@@ -4342,6 +4374,9 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 expertise_reforge_cost_mult: v.clamp("expertise_reforge_cost_mult", form.expertise_reforge_cost_mult, 0.0, 1.0),
                 luckstone_min_pct: v.clamp("luckstone_min_pct", form.luckstone_min_pct, 0.0, 1.0),
                 luckstone_max_pct: v.clamp("luckstone_max_pct", form.luckstone_max_pct, 0.0, 1.0),
+                unique_shard_pity_start: v.at_least("unique_shard_pity_start", form.unique_shard_pity_start, 0.0),
+                unique_shard_pity_win_mult: v.clamp("unique_shard_pity_win_mult", form.unique_shard_pity_win_mult, 0.0, 1.0),
+                unique_shard_pity_miss_gain: v.at_least("unique_shard_pity_miss_gain", form.unique_shard_pity_miss_gain, 0.0),
                 shattering_enabled: previous.shattering_enabled,
                 pierce_cap: v.clamp("pierce_cap", form.pierce_cap, 0.0, 1.0),
                 pierce_h: v.at_least("pierce_h", form.pierce_h, 1.0),
@@ -5679,6 +5714,21 @@ fn render_tunables_page(
               <p class=\"tunable-hint\">0 to 1 (e.g. 0.002 = 0.2%). One roll on every real item drop, rolls for every archetype. (Celestial Shard and Unique Shard were merged into one currency 2026-08-19 - this used to be two independent rolls at half this rate each.)</p>\
             </div>\
             <div class=\"tunable-row\">\
+              <label for=\"unique_shard_pity_start\">Unique Shard Pity: Start</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" required id=\"unique_shard_pity_start\" name=\"unique_shard_pity_start\" value=\"{unique_shard_pity_start}\">\
+              <p class=\"tunable-hint\"><strong>Unit: pity.</strong> A newly joined character's shard pity. Characters saved before pity existed load at 100. Shipped 100.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"unique_shard_pity_win_mult\">Unique Shard Pity: Winner Multiplier</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" required id=\"unique_shard_pity_win_mult\" name=\"unique_shard_pity_win_mult\" value=\"{unique_shard_pity_win_mult}\">\
+              <p class=\"tunable-hint\"><strong>Unit: multiplier.</strong> The shard winner's pity is multiplied by this. The winner is drawn from the fight's fighters with chance pity / group total. Shipped 0.5.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
+              <label for=\"unique_shard_pity_miss_gain\">Unique Shard Pity: Miss Gain</label>\
+              <input type=\"number\" step=\"any\" min=\"0\" required id=\"unique_shard_pity_miss_gain\" name=\"unique_shard_pity_miss_gain\" value=\"{unique_shard_pity_miss_gain}\">\
+              <p class=\"tunable-hint\"><strong>Unit: pity.</strong> Every other fighter of the fight gains this on each shard drop. Shipped 100.</p>\
+            </div>\
+            <div class=\"tunable-row\">\
               <label for=\"divine_dust_drop_chance\">Divine Dust Fight-Drop Chance</label>\
               <input type=\"number\" step=\"any\" min=\"0\" max=\"1\" id=\"divine_dust_drop_chance\" name=\"divine_dust_drop_chance\" value=\"{divine_dust_drop_chance}\">\
               <p class=\"tunable-hint\">0 to 1 — chance per fighting character, per win (boss or basic, same eligibility as sand), of gaining exactly 1 Divine Dust.</p>\
@@ -6112,6 +6162,9 @@ fn render_tunables_page(
         expertise_reforge_cost_mult = t.expertise_reforge_cost_mult,
         luckstone_min_pct = t.luckstone_min_pct,
         luckstone_max_pct = t.luckstone_max_pct,
+        unique_shard_pity_start = t.unique_shard_pity_start,
+        unique_shard_pity_win_mult = t.unique_shard_pity_win_mult,
+        unique_shard_pity_miss_gain = t.unique_shard_pity_miss_gain,
         password_hash_permits = t.password_hash_permits,
         password_hash_permits_min = crate::adventure::PASSWORD_HASH_PERMITS_MIN,
         password_hash_permits_max = crate::adventure::PASSWORD_HASH_PERMITS_MAX,
