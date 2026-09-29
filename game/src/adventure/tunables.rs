@@ -762,6 +762,15 @@ pub struct LiveTunables {
     /// Luckstone roll range (fraction), rolled once on apply.
     pub luckstone_min_pct: f64,
     pub luckstone_max_pct: f64,
+    /// Item 44: Unique Shard pity a newly joined character starts at.
+    /// Characters saved before the field existed load at the shipped
+    /// `UNIQUE_SHARD_PITY_START` instead (serde cannot read a live dial).
+    pub unique_shard_pity_start: f64,
+    /// Item 44: the shard winner's pity is multiplied by this.
+    pub unique_shard_pity_win_mult: f64,
+    /// Item 44: every other fighter of the fight gains this much pity on a
+    /// shard hit.
+    pub unique_shard_pity_miss_gain: f64,
 }
 
 impl Default for LiveTunables {
@@ -884,6 +893,9 @@ impl Default for LiveTunables {
             expertise_reforge_cost_mult: crate::adventure::EXPERTISE_REFORGE_COST_MULT,
             luckstone_min_pct: crate::adventure::LUCKSTONE_MIN_PCT,
             luckstone_max_pct: crate::adventure::LUCKSTONE_MAX_PCT,
+            unique_shard_pity_start: crate::adventure::UNIQUE_SHARD_PITY_START,
+            unique_shard_pity_win_mult: crate::adventure::UNIQUE_SHARD_PITY_WIN_MULT,
+            unique_shard_pity_miss_gain: crate::adventure::UNIQUE_SHARD_PITY_MISS_GAIN,
         }
     }
 }

@@ -3131,7 +3131,9 @@ impl AdventureManager {
             }
             return JoinOutcome::AlreadyJoined { level };
         }
-        characters.insert(key, Character::new(display_name.to_string()));
+        let mut character = Character::new(display_name.to_string());
+        character.unique_shard_pity = self.live_tunables().unique_shard_pity_start;
+        characters.insert(key, character);
         self.persist_characters(&characters);
         drop(characters);
         self.broadcast_state().await;
@@ -6161,10 +6163,10 @@ impl AdventureManager {
                     let item_affixes = item.affixes.clone();
                     let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                     maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                    if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                        self.announce_unique_shard_win(character.display_name.clone());
-                    }
                     loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
+                    if let Some(winner) = roll_unique_shard_for_group(&mut characters, &fighting_ids, &mut rng, &tunables) {
+                        self.announce_unique_shard_win(winner);
+                    }
                     item_recipients.insert(recipient_id.clone());
                 }
 
@@ -6229,10 +6231,10 @@ impl AdventureManager {
                         let item_affixes = item.affixes.clone();
                         let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                         maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                        if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                            self.announce_unique_shard_win(character.display_name.clone());
-                        }
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
+                        if let Some(winner) = roll_unique_shard_for_group(&mut characters, &fighting_ids, &mut rng, &tunables) {
+                            self.announce_unique_shard_win(winner);
+                        }
                     }
                 }
                 // The boss craft-token PITY payout lived here until
@@ -6687,10 +6689,10 @@ impl AdventureManager {
                     let item_affixes = item.affixes.clone();
                     let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                     maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                    if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                        self.announce_unique_shard_win(character.display_name.clone());
-                    }
                     loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
+                    if let Some(winner) = roll_unique_shard_for_group(&mut characters, &fighting_ids, &mut rng, &tunables) {
+                        self.announce_unique_shard_win(winner);
+                    }
                     item_recipients.insert(recipient_id.clone());
                 }
             }
@@ -6728,10 +6730,10 @@ impl AdventureManager {
                         let item_affixes = item.affixes.clone();
                         let outcome = character.receive_item_with_auto_disenchant(item, &mut rng, tunables.sand_mult);
                         maybe_drop_wings(character, &mut rng, tunables.wings_drop_chance);
-                        if maybe_drop_unique_shard(character, &mut rng, tunables.celestial_shard_drop_chance) {
-                            self.announce_unique_shard_win(character.display_name.clone());
-                        }
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
+                        if let Some(winner) = roll_unique_shard_for_group(&mut characters, &fighting_ids, &mut rng, &tunables) {
+                            self.announce_unique_shard_win(winner);
+                        }
                     }
                 }
                 // The basic-encounter craft-token PITY payout lived here
@@ -7194,14 +7196,70 @@ pub(crate) fn maybe_drop_wings(character: &mut Character, rng: &mut impl Rng, wi
 /// at every call site (2026-08-19 owner ruling: "no more celestial shard -
 /// only Unique Shards, the old silence rationale retires with the old
 /// currency").
-pub(crate) fn maybe_drop_unique_shard(character: &mut Character, rng: &mut impl Rng, unique_shard_drop_chance: f64) -> bool {
-    if rng.gen_bool(unique_shard_drop_chance) {
-        character.add_craft_token(CraftAction::UniqueShard, 1);
-        true
-    } else {
-        false
+///
+/// Item 44 (2026-09-29, owner ruling "shards don't take up bag space, so bag
+/// room must never decide who gets one, or whether one drops"): the roll is
+/// made once per item DROP EVENT - including one no bag could take - and the
+/// winner is no longer the item's recipient. It is drawn from `group` (the
+/// fight's fighters) with chance `unique_shard_pity` / group total; the
+/// winner's pity is multiplied by `unique_shard_pity_win_mult`, every other
+/// group member gains `unique_shard_pity_miss_gain`, and nobody outside the
+/// group is touched. The per-drop chance itself is the same single
+/// `gen_bool(celestial_shard_drop_chance)` as before. Returns the winner's
+/// display name for the caller to announce.
+pub(crate) fn roll_unique_shard_for_group(
+    characters: &mut HashMap<String, Character>,
+    group: &[&String],
+    rng: &mut impl Rng,
+    tunables: &LiveTunables,
+) -> Option<String> {
+    if !rng.gen_bool(tunables.celestial_shard_drop_chance) {
+        return None;
     }
+    let winner = pick_unique_shard_winner(characters, group, rng)?.clone();
+    for &id in group {
+        let Some(c) = characters.get_mut(id) else { continue };
+        if *id == winner {
+            c.unique_shard_pity *= tunables.unique_shard_pity_win_mult;
+        } else {
+            c.unique_shard_pity += tunables.unique_shard_pity_miss_gain;
+        }
+    }
+    let character = characters.get_mut(&winner)?;
+    character.add_craft_token(CraftAction::UniqueShard, 1);
+    Some(character.display_name.clone())
 }
+
+/// Item 44: pity-weighted pick over the group members that still exist.
+/// A member's weight is its pity (a non-finite or negative value counts as
+/// 0); if every weight is 0 the pick falls back to uniform.
+fn pick_unique_shard_winner<'a>(characters: &HashMap<String, Character>, group: &[&'a String], rng: &mut impl Rng) -> Option<&'a String> {
+    let members: Vec<(&'a String, f64)> = group
+        .iter()
+        .filter_map(|&id| characters.get(id).map(|c| (id, if c.unique_shard_pity.is_finite() { c.unique_shard_pity.max(0.0) } else { 0.0 })))
+        .collect();
+    if members.is_empty() {
+        return None;
+    }
+    let total: f64 = members.iter().map(|(_, w)| w).sum();
+    if !(total.is_finite() && total > 0.0) {
+        return Some(members[rng.gen_range(0..members.len())].0);
+    }
+    let mut roll = rng.gen::<f64>() * total;
+    for &(id, weight) in &members {
+        if roll < weight {
+            return Some(id);
+        }
+        roll -= weight;
+    }
+    members.iter().rev().find(|(_, w)| *w > 0.0).map(|(id, _)| *id)
+}
+
+/// Item 44: shipped defaults for `LiveTunables::unique_shard_pity_win_mult`
+/// and `unique_shard_pity_miss_gain` (the start value lives beside the
+/// `Character` field as `UNIQUE_SHARD_PITY_START`).
+pub const UNIQUE_SHARD_PITY_WIN_MULT: f64 = 0.5;
+pub const UNIQUE_SHARD_PITY_MISS_GAIN: f64 = 100.0;
 
 /// Divine Dust's fight-drop roll (2026-08-19, docs/divine_dust_spec.md) -
 /// unlike `maybe_drop_wings`/`maybe_drop_celestial_shard`/
@@ -11936,5 +11994,116 @@ mod sprite_selection_tests {
             !characters_file.exists(),
             "re-picking the surviving selection must return before the charge path and before the persist - otherwise a reset silently bills every player for continuing to look the same"
         );
+    }
+}
+
+#[cfg(test)]
+mod unique_shard_pity_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn roster(pities: &[(&str, f64)]) -> HashMap<String, Character> {
+        pities
+            .iter()
+            .map(|&(name, pity)| {
+                let mut c = Character::new(name.to_string());
+                c.unique_shard_pity = pity;
+                (name.to_string(), c)
+            })
+            .collect()
+    }
+
+    fn always_hit() -> LiveTunables {
+        LiveTunables { celestial_shard_drop_chance: 1.0, ..LiveTunables::default() }
+    }
+
+    fn fill_bag(c: &mut Character) {
+        let item = generate_item_at_tier(EquipSlot::Weapon, 10, &mut StdRng::seed_from_u64(9));
+        c.inventory = vec![item; INVENTORY_CAPACITY];
+    }
+
+    #[test]
+    fn weighted_pick_splits_50_vs_200_about_1_to_4() {
+        let characters = roster(&[("low", 50.0), ("high", 200.0)]);
+        let (low, high) = ("low".to_string(), "high".to_string());
+        let group = vec![&low, &high];
+        let mut rng = StdRng::seed_from_u64(44);
+        let draws = 100_000;
+        let low_wins = (0..draws).filter(|_| pick_unique_shard_winner(&characters, &group, &mut rng) == Some(&low)).count();
+        let share = low_wins as f64 / draws as f64;
+        assert!((share - 0.2).abs() < 0.01, "50 of 250 total pity should win ~20% of draws, got {share}");
+    }
+
+    #[test]
+    fn winner_halves_others_gain_100_and_non_group_is_untouched() {
+        let mut characters = roster(&[("a", 100.0), ("b", 0.0), ("c", 0.0), ("outsider", 300.0)]);
+        let (a, b, c) = ("a".to_string(), "b".to_string(), "c".to_string());
+        let group = vec![&a, &b, &c];
+        let winner = roll_unique_shard_for_group(&mut characters, &group, &mut StdRng::seed_from_u64(1), &always_hit());
+        assert_eq!(winner.as_deref(), Some("a"), "the only member with weight must win");
+        assert_eq!(characters["a"].unique_shard_pity, 50.0);
+        assert_eq!(characters["b"].unique_shard_pity, 100.0);
+        assert_eq!(characters["c"].unique_shard_pity, 100.0);
+        assert_eq!(characters["outsider"].unique_shard_pity, 300.0, "not in the fight: no accrual, no chance");
+        assert_eq!(characters["outsider"].craft_token_count(CraftAction::UniqueShard), 0, "no shard for a non-fighter");
+        assert_eq!(characters["a"].craft_token_count(CraftAction::UniqueShard), 1);
+    }
+
+    #[test]
+    fn a_member_with_a_full_bag_can_win_and_the_token_lands_on_them() {
+        let mut characters = roster(&[("full", 100.0), ("roomy", 0.0)]);
+        fill_bag(characters.get_mut("full").unwrap());
+        let (full, roomy) = ("full".to_string(), "roomy".to_string());
+        let winner = roll_unique_shard_for_group(&mut characters, &[&full, &roomy], &mut StdRng::seed_from_u64(2), &always_hit());
+        assert_eq!(winner.as_deref(), Some("full"));
+        assert_eq!(characters["full"].inventory.len(), INVENTORY_CAPACITY, "the shard is a token, never a bag item");
+        assert_eq!(characters["full"].craft_token_count(CraftAction::UniqueShard), 1);
+        assert_eq!(characters["roomy"].craft_token_count(CraftAction::UniqueShard), 0);
+    }
+
+    #[test]
+    fn every_bag_full_still_rolls_and_still_awards_a_shard() {
+        let mut characters = roster(&[("x", 100.0), ("y", 100.0), ("z", 100.0)]);
+        characters.values_mut().for_each(fill_bag);
+        let (x, y, z) = ("x".to_string(), "y".to_string(), "z".to_string());
+        let group = vec![&x, &y, &z];
+        // The drop event itself is not skipped when every bag is full.
+        assert_eq!(exclude_full_inventory(&group, &characters).len(), 3);
+        let winner = roll_unique_shard_for_group(&mut characters, &group, &mut StdRng::seed_from_u64(3), &always_hit()).expect("a seeded hit awards a shard");
+        let total: u32 = characters.values().map(|c| c.craft_token_count(CraftAction::UniqueShard)).sum();
+        assert_eq!(total, 1, "exactly one shard awarded");
+        assert_eq!(characters[&winner.to_lowercase()].craft_token_count(CraftAction::UniqueShard), 1);
+    }
+
+    #[test]
+    fn per_drop_chance_is_the_same_single_gen_bool() {
+        let mut characters = roster(&[("p", 100.0), ("q", 100.0)]);
+        let (p, q) = ("p".to_string(), "q".to_string());
+        let group = vec![&p, &q];
+        let tunables = LiveTunables { celestial_shard_drop_chance: 0.05, ..LiveTunables::default() };
+        let (mut ours, mut reference) = (StdRng::seed_from_u64(7), StdRng::seed_from_u64(7));
+        let mut hits = 0;
+        for _ in 0..20_000 {
+            let hit = roll_unique_shard_for_group(&mut characters, &group, &mut ours, &tunables).is_some();
+            let expected = reference.gen_bool(0.05);
+            if expected {
+                let _ = reference.gen::<f64>(); // the weighted pick's one draw
+                hits += 1;
+            }
+            assert_eq!(hit, expected, "one gen_bool(chance) per drop event, nothing else on a miss");
+        }
+        assert!(hits > 0);
+    }
+
+    #[test]
+    fn serde_defaults_pity_to_100_and_round_trips_it() {
+        let mut value = serde_json::to_value(Character::new("old".to_string())).unwrap();
+        value.as_object_mut().unwrap().remove("unique_shard_pity").expect("field serializes under its own name");
+        let old: Character = serde_json::from_value(value).unwrap();
+        assert_eq!(old.unique_shard_pity, 100.0);
+        let mut c = Character::new("saved".to_string());
+        c.unique_shard_pity = 1234.5678;
+        let back: Character = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.unique_shard_pity, 1234.5678);
     }
 }
