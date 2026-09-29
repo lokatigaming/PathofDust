@@ -10694,3 +10694,32 @@ on `game/`. Built from scratch worktree `wt-39-bot` to `target-39`. The only war
   authenticated` 09:07:36.16Z. 0 ERROR, and so no `PayPal relay poll failed`. One WARN, the
   playlist Apps Script 404, which was already in the log before the swap. No test tip was written.
 - No game deploy and no game patch notes. The game crate did not change.
+
+## 2026-09-29 — release 40 `no-timeout-losses-41` deployed (item 41, window c). 0.69 s.
+
+Order `2026-09-28 release 40`. Merge `004c001` (`--no-ff` of `feature/no-timeout-losses-41` `ba3917b`
+onto `e868e1a`; branch base = master tip, zero conflicts). No money migration in the diff.
+Suite `cargo test --release --workspace --quiet -j 4`: **1104 / 0 / 51** locally and on the box, as
+predicted. Golden corpus unchanged. Archive `c835b18f99b80ae361bed54818f35e1ce048257a53b672291157ec1254c64580`
+matched both ends; identity grep `fight_gap_secs` hit. Live `6691445a…` →
+**`a9552ea1ec3ace3c2c36d93cc1affd892f7810c73857693392f31185bcfc2b24`**, downtime **0.69 s**, slot
+`deploy-pre-20260929-070130-no-timeout-losses-41`.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live = candidate;
+5 **unrun** (needs a cookie); 6 port 4005 404 / 83,124 B (4004: 404 / 0 B); 7 404; 0 panic/ERROR lines.
+Tunables file byte-identical before/after (`83a5c642…`, no `fight_gap_secs` key); `LiveTunables` is
+container-level `#[serde(default)]` → 15.0. The /admin/tunables read of 15.0 needs the operator cookie: unrun.
+
+**Cadence** (summaries, `startedAtUnixMs`): post-swap 28125–28130 (all ~45 s playback) had 17.2–21.0 s
+between playback end and the next start. That is 15 s + sim. The decisive pair is 28132 (23.0 s playback) →
+28133 at 43.6 s start-to-start, 18.1 s after playback. The old `max(60 s, playback)` rule would have
+given ≥ 60 s.
+
+**Rollback**: binary-only is safe. `draw` is `#[serde(default, skip_serializing_if = Not::not)]`, and
+`deny_unknown_fields` appears nowhere in `game/src`, so an older binary ignores `draw: true`.
+
+**Patch notes**: new **September 29, 2026** block (box clock). Pre-edit copy `b05cac77…` in the slot;
+diff +13 / −0. Bot: not redeployed. `git diff --name-only e868e1a..004c001 -- bot Cargo.lock Cargo.toml` is empty.
+
+**Bundles**: `adventure-fights-bundle` holds 392 MB in 3 files (largest 202 MB). It is count-bounded
+by `BUNDLE_FIGHTS_CAPACITY = 3` (detail 3, coarse 5, summary 200). `/` has **196 GB free** of 314 GB, not ~10 GB.
