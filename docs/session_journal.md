@@ -10723,3 +10723,40 @@ diff +13 / −0. Bot: not redeployed. `git diff --name-only e868e1a..004c001 -- 
 
 **Bundles**: `adventure-fights-bundle` holds 392 MB in 3 files (largest 202 MB). It is count-bounded
 by `BUNDLE_FIGHTS_CAPACITY = 3` (detail 3, coarse 5, summary 200). `/` has **196 GB free** of 314 GB, not ~10 GB.
+
+## 2026-09-29 — release 41 `shard-pity-44` deployed (item 44, window c). 0.26 s.
+
+Order `2026-09-29 release 40 (item 41) finish + release 41 (item 44)`. Release 40 had already been done
+and reported by the previous c session, at 13:12, under a `-2026-09-28` report name. This session found
+nothing left to do for it (live `a9552ea1…` re-read). Aside: the live tunables file moved
+`83a5c642…` → `dc72de90…` after release 40 and now carries `fight_gap_secs = 15.0`, which means an
+operator saved /admin/tunables in between.
+
+Merge `04310dc` (`--no-ff` of `feature/shard-pity-44` `e1fa892`, base `e868e1a`). One conflict:
+`WIKI_IMPACT.md` EOF hunk, keep-both (item 41's two lines first, then item 44's). `manager.rs`,
+`tunables.rs`, `adventure_web.rs` and `character.rs` auto-merged with no overlapping hunks. Suite
+`cargo test --release --workspace --quiet -j 4`: **1110 / 0 / 51** locally and on the box, which is
+release 40 + 6 with the same number of result lines. Golden corpus unchanged (no fixture in the diff).
+Archive `a154fdf7d8fcdbfa9d1318c75e6dec31881b1c4425e3ef784fc549c9677d32a7` matched on both ends. The
+identity grep for `unique_shard_pity` hit 4 files, and `fight_gap_secs` is present. Live `a9552ea1…` →
+**`0271c2c544f3eb05fd660b69d900ed0d51116d9de021a735893441d9b73799b0`**, downtime **0.26 s**, slot
+`deploy-pre-20260929-133508-shard-pity-44`.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live = candidate;
+5 **unrun** (needs a cookie); 6 port 4005 404 / 83,124 B (4004: 404 / 0 B); 7 404; 0 panic/ERROR lines.
+The fight loop advanced 28492 → 28494.
+
+**Tunables**: the file is byte-identical before and after the swap (`dc72de90…`). The three pity
+tunables are not in the file, so they take the code defaults `UNIQUE_SHARD_PITY_START/_WIN_MULT/_MISS_GAIN`
+= 100 / 0.5 / 100. `celestial_shard_drop_chance = 0.0005` is unchanged. **The pity table on the admin
+page needs the operator cookie, so that read is unrun.** The file-level substitute is that
+`adventure-characters.json` has all 24 characters saved with `unique_shard_pity = 100.0`. No live data
+was edited.
+
+**Data format / rollback**: `Character.unique_shard_pity` is serde-default 100. An older binary ignores
+the field but drops it on its next save, so after a roll-forward everyone's pity resets to 100. The
+owner accepts this. Apart from that, binary-only rollback is safe.
+
+**Patch notes**: a new section in the existing **September 29, 2026** block (box clock). Pre-edit copy
+`8c64f5c1…` is in the slot; diff +8 / −0. Bot: not redeployed.
+`git diff --name-only fdeba16..04310dc -- bot Cargo.lock Cargo.toml` is empty.
