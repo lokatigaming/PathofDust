@@ -3642,10 +3642,40 @@ impl Default for CombatSimUnit {
     }
 }
 
-/// Safety valve — if a fight somehow hasn't resolved by this point (e.g.
-/// an all-Support roster that can never damage the boss), it just ends
-/// as a loss rather than looping forever.
-pub const MAX_FIGHT_DURATION_MS: u32 = 90_000;
+/// Runaway guard - a fight ends only when one side is dead (owner ruling,
+/// item 41, 2026-09-28: hitting a time limit must never count as a loss).
+/// This bound exists only so a true stalemate (healing >= incoming damage
+/// on both sides, or an all-Support roster that can never damage the
+/// boss) cannot loop forever. Reaching it is a `FightOutcome::Draw`: the
+/// stage does not move and no win rewards are paid.
+///
+/// 180 s rather than 10 minutes: the event log grows linearly with fight
+/// time and is held in memory whole (a 44 s stage-203 fight writes a
+/// ~135 MB replay bundle on the box), so 600 s would put one runaway at
+/// several GB against ~10 GB free. 180 s is twice the old 90 s cap and
+/// four times Controller A's 45 s duration target. Was 90_000, and a
+/// LOSS, until item 41.
+pub const MAX_FIGHT_DURATION_MS: u32 = 180_000;
+
+/// How a simulated fight ended. A fight that reaches
+/// `MAX_FIGHT_DURATION_MS` with both sides standing is a `Draw` - never a
+/// loss (item 41).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FightOutcome {
+    Won,
+    Lost,
+    Draw,
+}
+
+impl FightOutcome {
+    pub(crate) fn won(self) -> bool {
+        self == FightOutcome::Won
+    }
+
+    pub(crate) fn draw(self) -> bool {
+        self == FightOutcome::Draw
+    }
+}
 
 /// Flat multiplier applied to a hit's damage when the defender's block
 /// roll succeeds (see `resolve_hit`) - a block halves the hit, it
@@ -11208,7 +11238,7 @@ pub(crate) fn simulate_battle(
     tunables: &LiveTunables,
     fight_seed: u64,
     mut rng: &mut impl Rng,
-) -> (bool, Vec<CombatUnitInfo>, Vec<CombatEvent>, Vec<RollEvent>) {
+) -> (FightOutcome, Vec<CombatUnitInfo>, Vec<CombatEvent>, Vec<RollEvent>) {
     // Fixed for the whole fight (not recomputed as players die) - see
     // `prioritize_above_median`'s doc.
     let median_level = median_u32(&characters.values().map(|c| c.level).collect::<Vec<u32>>());
@@ -15101,6 +15131,15 @@ pub(crate) fn simulate_battle(
     // Won iff every enemy is dead - not just "the first one found", now
     // that a basic encounter can have several (see enemy_targets above).
     let won = !units.iter().any(|u| u.is_boss && u.alive);
+    // Both sides still standing means the loop stopped at the runaway
+    // guard (`MAX_FIGHT_DURATION_MS`) - a draw, never a loss (item 41).
+    let outcome = if won {
+        FightOutcome::Won
+    } else if any_real_player_alive(&units) {
+        FightOutcome::Draw
+    } else {
+        FightOutcome::Lost
+    };
     // Built here, from the FINAL roster, not before the loop ran - a
     // Lich's mid-fight summons (see NextEvent::BossAbility) don't exist
     // yet at the top of this function, so capturing unit_infos early
@@ -15150,7 +15189,7 @@ pub(crate) fn simulate_battle(
             }
         })
         .collect();
-    (won, unit_infos, events, rolls)
+    (outcome, unit_infos, events, rolls)
 }
 
 /// Readability FLOOR for the short end: a one-hit kill still needs to
@@ -17892,6 +17931,70 @@ mod elementalist_stage_5_tests {
         let boss_alive = units.iter().any(|u| u.is_boss && u.alive);
         assert!(boss_alive);
         assert!(!any_real_player_alive(&units), "the fight must be considered over - a lone alive golem must not keep it running");
+    }
+
+    /// Item 41 fixtures: one level-100 warrior against a 0-attack basic
+    /// enemy (`None` kind - no boss abilities to perturb the timeline) of
+    /// `hp` hit points. The boss can never kill, so only the warrior's
+    /// damage or the runaway guard can end the fight.
+    fn item41_fight(hp: u64) -> (FightOutcome, Vec<CombatEvent>) {
+        let mut warrior = Character::new("warrior".to_string());
+        warrior.archetype = Archetype::Warrior;
+        warrior.level = 100;
+        let characters: HashMap<String, Character> = HashMap::from([("warrior".to_string(), warrior)]);
+        let boss_stats = BossStats {
+            hp,
+            atk: 0,
+            attack_interval_ms: 900,
+            damage_reduction: 0.0,
+            block_chance: 0.0,
+            evasion: 0.0,
+            increased_damage: 0.0,
+            crit_chance: 0.0,
+            crit_multiplier: 0.0,
+            splash: 0.0,
+        };
+        let mut rng = StdRng::seed_from_u64(41);
+        let (outcome, _units, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, None, 1.0)], 100, &LiveTunables::default(), TEST_FIGHT_SEED, &mut rng);
+        (outcome, events)
+    }
+
+    /// Item 41: the runaway guard is a DRAW, never a loss. An unkillable,
+    /// harmless boss leaves both sides standing at `MAX_FIGHT_DURATION_MS`.
+    #[test]
+    fn the_runaway_guard_ends_a_stalemate_as_a_draw() {
+        let (outcome, events) = item41_fight(2_000_000_000_000);
+        assert_eq!(outcome, FightOutcome::Draw, "both sides standing at the guard must be a draw");
+        let last_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0);
+        assert!(last_ms > 90_000, "the stalemate must run past the old 90 s cap (last event {last_ms} ms)");
+        assert!(last_ms <= MAX_FIGHT_DURATION_MS, "and stop at the guard (last event {last_ms} ms)");
+    }
+
+    /// Item 41: a fight the old 90 s cap would have ended as a LOSS now
+    /// runs on until one side dies. The boss is given exactly the HP the
+    /// warrior has dealt by 120 s in the stalemate run above (same seed, so
+    /// the same swings), so it dies well past the old cap.
+    #[test]
+    fn a_former_timeout_now_continues_until_one_side_dies() {
+        const OLD_CAP_MS: u32 = 90_000;
+        const START_HP: u64 = 2_000_000_000_000;
+        let (_, stalemate) = item41_fight(START_HP);
+        let hp_left_at_120s = stalemate
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Attack { at_ms, target, target_hp_after, .. } if target != "warrior" && *at_ms <= 120_000 => Some(*target_hp_after),
+                _ => None,
+            })
+            .min()
+            .expect("the warrior must land hits in the first 120 s");
+        let dealt_by_120s = START_HP - hp_left_at_120s;
+        assert!(dealt_by_120s > 0);
+
+        let (outcome, events) = item41_fight(dealt_by_120s);
+        let last_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0);
+        assert_eq!(outcome, FightOutcome::Won, "the boss must die - not time out (last event {last_ms} ms)");
+        assert!(last_ms > OLD_CAP_MS, "the kill must land past the old 90 s cap, or this fixture does not reproduce a former timeout (last event {last_ms} ms)");
+        assert!(events.iter().any(|e| matches!(e, CombatEvent::Defeat { unit, .. } if unit != "warrior")), "the fight ends on the boss's Defeat");
     }
 
     /// Design-intent correction (2026-08-20), item 4 - a golem's own

@@ -330,8 +330,33 @@ struct PendingFightBatch {
 /// delays if the current fight is taking longer than 1 minute)"). The
 /// actual wait is `max(RAMPAGE_MIN_INTERVAL, this fight's real overlay
 /// playback time)`, so a long fight is never interrupted mid-replay.
+///
+/// ITEM 41 (2026-09-28): the loop no longer waits on this. It now waits
+/// `fight_gap_secs` after the previous fight's playback ends - see
+/// `next_fight_at`. The constant stays because
+/// `PLAYBACK_CADENCE_CEILING_MS` is still derived from it.
 pub const RAMPAGE_MIN_INTERVAL_MS: u64 = 60_000;
 pub const RAMPAGE_MIN_INTERVAL: Duration = Duration::from_millis(RAMPAGE_MIN_INTERVAL_MS);
+
+/// Shipped default for `LiveTunables::fight_gap_secs` (item 41, owner
+/// ruling 2026-09-28: "the next fight starts 15 seconds after the previous
+/// fight finishes").
+pub const FIGHT_GAP_SECS: f64 = 15.0;
+/// Upper bound the admin form and handler accept for `fight_gap_secs`.
+pub const FIGHT_GAP_SECS_MAX: f64 = 3_600.0;
+
+/// When the next rampage fight starts: `gap_secs` after the previous
+/// fight's overlay playback ENDS, i.e. after the last thing viewers see
+/// (charge-in + the fight's `display_duration_ms` + resolve banner),
+/// counted from `broadcast_at`, the instant the result went out to the
+/// overlay. `None` (nobody was eligible, nothing was shown) waits the gap
+/// alone. A non-finite gap falls back to the shipped default; a negative
+/// one reads as 0.
+pub(crate) fn next_fight_at(broadcast_at: Instant, display_duration_ms: Option<u32>, gap_secs: f64) -> Instant {
+    let playback_ms = display_duration_ms.map(|ms| OVERLAY_CHARGE_MS + ms as u64 + OVERLAY_RESOLVE_MS).unwrap_or(0);
+    let gap_secs = if gap_secs.is_finite() { gap_secs.clamp(0.0, FIGHT_GAP_SECS_MAX) } else { FIGHT_GAP_SECS };
+    broadcast_at + Duration::from_millis(playback_ms) + Duration::from_secs_f64(gap_secs)
+}
 
 /// The overlay's two fixed, event-free phases around every fight, and the
 /// spacing `run_encounter`/`run_basic_encounter` add after playback ends.
@@ -1508,6 +1533,9 @@ pub struct FightSummarySnapshot {
     pub kind: EncounterKind,
     pub stage: u32,
     pub won: bool,
+    /// See `EncounterResult::draw`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draw: bool,
     pub started_at_unix_ms: u64,
     pub display_duration_ms: u32,
     #[serde(default)]
@@ -1711,6 +1739,12 @@ pub struct EncounterResult {
     /// win — see `won`).
     pub stage: u32,
     pub won: bool,
+    /// The fight reached the runaway guard (`MAX_FIGHT_DURATION_MS`) with
+    /// both sides standing (item 41) - `won` is false, and it is NOT a
+    /// loss. Omitted from the JSON when false, so every non-draw fight
+    /// serializes exactly as it did before the field existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draw: bool,
     pub participants: Vec<String>,
     pub units: Vec<CombatUnitInfo>,
     pub events: Vec<CombatEvent>,
@@ -1891,6 +1925,7 @@ pub(crate) fn save_last_fight(result: &EncounterResult, boss_stats: Vec<BossStat
         kind: result.kind,
         stage: result.stage,
         won: result.won,
+        draw: result.draw,
         started_at_unix_ms,
         display_duration_ms: result.display_duration_ms,
         real_duration_ms: result.real_duration_ms,
@@ -5450,10 +5485,13 @@ impl AdventureManager {
                     self.rampage_notify.notified().await;
                 }
                 while self.live_tunables().permanent_rampage {
+                    // `run_encounter` returns right after the overlay
+                    // broadcast, so "now" is the playback's start. Item 41:
+                    // the next fight starts `fight_gap_secs` after that
+                    // playback ends (was `max(60 s, playback)`).
                     let duration_ms = self.run_encounter(None).await;
-                    let playback_ms = OVERLAY_CHARGE_MS + duration_ms.unwrap_or(0) as u64 + OVERLAY_RESOLVE_MS;
-                    let wait = Duration::from_millis(playback_ms).max(RAMPAGE_MIN_INTERVAL);
-                    tokio::time::sleep(wait).await;
+                    let next = next_fight_at(Instant::now(), duration_ms, self.live_tunables().fight_gap_secs);
+                    tokio::time::sleep_until(next.into()).await;
                 }
             }
         });
@@ -5828,12 +5866,16 @@ impl AdventureManager {
         // The RNG is constructed INSIDE the closure: `ThreadRng` is not `Send`
         // and is thread-local, so it cannot cross the boundary - the same
         // reasoning already documented on the `characters` scopes in this file.
-        let (fighting, tunables, won, units, events, rolls) = tokio::task::spawn_blocking(move || {
-            let (won, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, fight_seed, &mut rand::thread_rng());
-            (fighting, tunables, won, units, events, rolls)
+        let (fighting, tunables, outcome, units, events, rolls) = tokio::task::spawn_blocking(move || {
+            let (outcome, units, events, rolls) = simulate_battle(&fighting, bosses, stage, &tunables, fight_seed, &mut rand::thread_rng());
+            (fighting, tunables, outcome, units, events, rolls)
         })
         .await
         .expect("simulate_battle blocking task panicked");
+        // A draw (the runaway guard, `MAX_FIGHT_DURATION_MS`) is neither a
+        // win nor a loss (item 41): no win rewards, no loss count, the stage
+        // stays put, and Controller B never sees it.
+        let (won, draw) = (outcome.won(), outcome.draw());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         // Dynamic pacing Controller A's per-fight sample inputs (the push
         // itself wins-only-gates later, see pacing::push_dps_sample):
@@ -6001,7 +6043,7 @@ impl AdventureManager {
                         character.received_first_sacred = true;
                         loot.push(LootDrop { display_name: character.display_name.clone(), item_name, slot, outcome, tier: item_tier, affixes: item_affixes });
                     }
-                } else {
+                } else if !draw {
                     character.losses += 1;
                 }
 
@@ -6220,8 +6262,11 @@ impl AdventureManager {
             // a full history of fights it never governed and step off it
             // immediately on the first fight after re-enabling - the
             // opposite of a switch that freezes where it sits.
+            //
+            // A DRAW is not an outcome B counts (item 41): only real wins
+            // and losses enter the window.
             // -----------------------------------------------------------------
-            if pacing_params.enabled {
+            if pacing_params.enabled && !draw {
                 world.recent_boss_outcomes.push_back(won);
                 while world.recent_boss_outcomes.len() > pacing_params.window {
                     world.recent_boss_outcomes.pop_front();
@@ -6238,11 +6283,11 @@ impl AdventureManager {
             // 2026-08-16 until this release; the batch-announcement
             // replay helper in announcements.rs already modeled -2, and
             // this change makes reality match it.) Nothing else writes or
-            // floors the stage.
+            // floors the stage. A DRAW (item 41) leaves the stage where it is.
             // -----------------------------------------------------------------
             if won {
                 world.stage += 1;
-            } else {
+            } else if !draw {
                 world.stage = world.stage.saturating_sub(2).max(1);
             }
             // High-water mark (2026-09-02) - the ONLY writer, deliberately
@@ -6276,7 +6321,7 @@ impl AdventureManager {
                 if won {
                     world.boss_losses_since_win = 0;
                     world.last_boss_win_unix_secs = now_secs;
-                } else {
+                } else if !draw {
                     world.boss_losses_since_win = world.boss_losses_since_win.saturating_add(1);
                 }
                 // Seconds since the last WIN, for the relaxation trigger.
@@ -6324,6 +6369,7 @@ impl AdventureManager {
             kind: EncounterKind::Boss,
             stage,
             won,
+            draw,
             participants,
             units,
             events,
@@ -6376,6 +6422,13 @@ impl AdventureManager {
         .await
         .expect("save_last_fight blocking task panicked");
         result.summary = summary;
+        if result.draw {
+            tracing::warn!(
+                fight_id = result.summary.bundle_seq,
+                stage,
+                "boss fight reached the runaway guard ({MAX_FIGHT_DURATION_MS} ms) with both sides standing - recorded as a draw"
+            );
+        }
         // Presentational only - see `thin_events_for_overlay`'s own doc.
         // The full-fidelity `events` was already persisted above and
         // `newly_downed` already scanned it in full; only the copy going
@@ -6535,13 +6588,16 @@ impl AdventureManager {
         // see that call site's comment for the measurement and the rationale.
         // A filler fight is cheaper than a boss fight but still unbounded, and
         // "cheaper" is not a scheduling guarantee.
-        let (fighting, tunables, won, units, events, rolls) = tokio::task::spawn_blocking(move || {
-            let (won, units, events, rolls) =
+        let (fighting, tunables, outcome, units, events, rolls) = tokio::task::spawn_blocking(move || {
+            let (outcome, units, events, rolls) =
                 simulate_battle(&fighting, enemy_stats.into_iter().map(|s| (s, None, 1.0)).collect(), stage, &tunables, fight_seed, &mut rand::thread_rng());
-            (fighting, tunables, won, units, events, rolls)
+            (fighting, tunables, outcome, units, events, rolls)
         })
         .await
         .expect("simulate_battle blocking task panicked");
+        // A filler fight never moves the stage or the win/loss record, so a
+        // draw here differs from a loss only in how it is labelled.
+        let (won, draw) = (outcome.won(), outcome.draw());
         let real_duration_ms = events.iter().map(|e| e.at_ms()).max().unwrap_or(0).max(1);
         // NO Controller A sample is computed here (2026-08-23 owner
         // ruling): a filler fight is not a pacing signal. See this
@@ -6716,6 +6772,7 @@ impl AdventureManager {
             kind: EncounterKind::Basic,
             stage,
             won,
+            draw,
             participants,
             units,
             events,
@@ -8193,6 +8250,7 @@ mod player_vitals_tests {
             kind: EncounterKind::Boss,
             stage: 5,
             won: true,
+            draw: false,
             participants: vec!["alice".to_string()],
             units: vec![player("alice", 1000)],
             events: vec![],
@@ -10231,6 +10289,82 @@ mod dynamic_pacing_tests {
         );
     }
 
+    /// Item 41: a fight that reaches the runaway guard with both sides
+    /// standing is a DRAW - the stage does not move, no win rewards are
+    /// paid, nothing counts as a loss, and Controller B never sees it.
+    #[tokio::test]
+    async fn a_runaway_draw_leaves_stage_rewards_and_controller_b_untouched() {
+        let manager = disposable_manager("draw").await;
+        manager.join("stalemate", "stalemate").await;
+        {
+            let mut characters = manager.characters.lock().await;
+            let character = characters.get_mut("stalemate").unwrap();
+            // High enough to outlast a 0-attack boss's chip damage (min-1
+            // hits, amplified by its stage secondaries) for the full guard.
+            character.level = 1_000;
+            character.archetype = Archetype::Warrior;
+        }
+        // Unkillable AND harmless: neither side can end it, so only the
+        // guard can. In memory only (see `set_tunables`).
+        let mut t = manager.live_tunables();
+        t.boss_health = 1.0e9;
+        t.boss_power = 0.0;
+        set_tunables(&manager, t);
+        let (stage_before, b_before, streak_before) = {
+            let mut world = manager.world.lock().await;
+            world.stage = 50;
+            world.highest_stage = 50;
+            (world.stage, world.boss_power_mult, world.boss_losses_since_win)
+        };
+        let (xp_before, dust_before) = {
+            let characters = manager.characters.lock().await;
+            let c = characters.get("stalemate").unwrap();
+            (c.xp, c.dust)
+        };
+        // Cthulhu: his only ability is a debuff, so at 0 attack nothing he
+        // does can kill (a random kind could roll a damaging ability).
+        let ran = manager.run_encounter_inner(Some(ForcedBoss::Single(BossKind::Cthulhu, None))).await;
+        assert!(ran.is_some(), "the fight must actually run");
+
+        let world = manager.world.lock().await;
+        assert_eq!(world.stage, stage_before, "a draw must not move the stage (+1 is a win, -2 is a loss)");
+        assert!(world.recent_boss_outcomes.is_empty(), "Controller B counts only real wins and losses - a draw pushes no outcome");
+        assert_eq!(world.boss_power_mult, b_before, "Controller B must not step on a draw");
+        assert_eq!(world.boss_losses_since_win, streak_before, "a draw is not a loss for A's streak either");
+        assert!(world.recent_win_dps.is_empty(), "a draw is not a win - no duration sample");
+        drop(world);
+        let characters = manager.characters.lock().await;
+        let c = characters.get("stalemate").unwrap();
+        assert_eq!((c.wins, c.losses), (0, 0), "a draw is neither a win nor a loss");
+        assert_eq!((c.xp, c.dust), (xp_before, dust_before), "no win rewards on a draw");
+    }
+
+    /// Item 41: the rampage loop starts the next fight exactly
+    /// `fight_gap_secs` after the previous fight's playback ENDS - charge-in
+    /// + the fight's display duration + the resolve banner - on a clock the
+    /// test controls.
+    #[test]
+    fn the_next_fight_starts_exactly_gap_after_playback_ends() {
+        let broadcast_at = Instant::now();
+        let display_ms = 37_500;
+        let playback_end = broadcast_at + Duration::from_millis(OVERLAY_CHARGE_MS + display_ms as u64 + OVERLAY_RESOLVE_MS);
+        assert_eq!(next_fight_at(broadcast_at, Some(display_ms), 15.0), playback_end + Duration::from_secs(15));
+        assert_eq!(next_fight_at(broadcast_at, Some(display_ms), 0.0), playback_end, "a 0 gap is back to back");
+        assert_eq!(next_fight_at(broadcast_at, Some(display_ms), 2.5), playback_end + Duration::from_millis(2_500));
+        // A long fight (past the old 45 s display window) is still anchored
+        // to ITS OWN playback end - no fixed 60 s floor any more.
+        assert_eq!(next_fight_at(broadcast_at, Some(120_000), 15.0), broadcast_at + Duration::from_millis(OVERLAY_CHARGE_MS + 120_000 + OVERLAY_RESOLVE_MS + 15_000));
+        // A short one is NOT held to the old 60 s floor.
+        let short = next_fight_at(broadcast_at, Some(6_000), 15.0);
+        assert!(short - broadcast_at < RAMPAGE_MIN_INTERVAL, "the 60 s rampage floor is gone");
+        // Nobody eligible: nothing played, so just the gap.
+        assert_eq!(next_fight_at(broadcast_at, None, 15.0), broadcast_at + Duration::from_secs(15));
+        // Hostile values never panic: negative reads as 0, non-finite as the shipped default.
+        assert_eq!(next_fight_at(broadcast_at, None, -3.0), broadcast_at);
+        assert_eq!(next_fight_at(broadcast_at, None, f64::NAN), broadcast_at + Duration::from_secs_f64(FIGHT_GAP_SECS));
+        assert_eq!(LiveTunables::default().fight_gap_secs, 15.0, "the gap ships at the owner's 15 s");
+    }
+
     /// Part 3: a back-to-back boss sequence produces exactly one duration
     /// sample per WON encounter - no double-counting, and one outcome per
     /// encounter either way.
@@ -10794,7 +10928,8 @@ mod stage_gate_tests {
     /// A fight is RETRIED rather than assumed. `gated_manager` makes a win
     /// overwhelmingly likely (0-attack bosses at a handful of hit points),
     /// but not certain: a boss that survives `MAX_FIGHT_DURATION_MS`
-    /// against an unlucky run of missed swings still records a loss, and a
+    /// against an unlucky run of missed swings records a draw (a loss
+    /// before item 41), and a
     /// gate test that tolerated one would report a false PASS on its
     /// "below the threshold" half, since a lost fight grants nothing for
     /// entirely the wrong reason. Retrying keeps the test deterministic in
@@ -10839,6 +10974,10 @@ mod stage_gate_tests {
             let mut world = manager.world.lock().await;
             world.stage = stage;
             world.highest_stage = world.highest_stage.max(stage);
+            // `win_at` reads the LAST outcome as this attempt's result. A
+            // draw pushes none (item 41), so a stale earlier win would read
+            // as this attempt's - clearing makes a draw read as "no win".
+            world.recent_boss_outcomes.clear();
         }
         let mut characters = manager.characters.lock().await;
         let character = characters.get_mut("gated").expect("joined in gated_manager");

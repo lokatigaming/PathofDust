@@ -252,6 +252,11 @@ pub struct LiveTunables {
     /// toggle like this should survive a crash/restart, not silently
     /// revert.
     pub permanent_rampage: bool,
+    /// Seconds between the end of one fight's overlay playback and the
+    /// start of the next rampage fight (item 41, 2026-09-28: "the next
+    /// fight starts 15 seconds after the previous fight finishes"). See
+    /// `manager::next_fight_at`. 0 runs fights back to back.
+    pub fight_gap_secs: f64,
     /// Win XP (2026-09-02) — the flat half of the per-boss-win XP grant,
     /// in raw XP. Fixed in XP terms, so its value IN LEVELS decays as
     /// `Character::xp_to_next_level` grows quadratically: this is the
@@ -799,6 +804,7 @@ impl Default for LiveTunables {
             divine_dust_drop_stage: DIVINE_DUST_STAGE_THRESHOLD,
             sacred_item_stage: SACRED_STAGE_THRESHOLD,
             permanent_rampage: false,
+            fight_gap_secs: FIGHT_GAP_SECS,
             win_xp_flat: WIN_XP_FLAT,
             win_xp_level_pct: WIN_XP_LEVEL_PCT,
             win_xp_mult: WIN_XP_MULT,

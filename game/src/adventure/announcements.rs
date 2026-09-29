@@ -52,6 +52,9 @@ fn next_boss_stage(stage: u32, won: bool) -> u32 {
 pub(crate) struct BatchedFight {
     pub kind: super::EncounterKind,
     pub won: bool,
+    /// Neither a win nor a loss (item 41) - counts toward neither tally
+    /// and leaves the replayed stage where it is.
+    pub draw: bool,
     /// The stage this fight was fought AT - matches `EncounterResult::stage`'s
     /// own "before this fight's own win/loss transition" semantics.
     /// Only meaningful for Boss-kind entries; a Basic fight never moves
@@ -75,6 +78,7 @@ impl BatchedFight {
         Self {
             kind: result.kind,
             won: result.won,
+            draw: result.draw,
             stage: result.stage,
             players: result.summary.players.iter().map(|p| (p.display_name.clone(), p.damage_dealt, p.damage_taken, p.healing_done)).collect(),
         }
@@ -122,10 +126,10 @@ pub(crate) fn aggregate_batch(fights: &[BatchedFight]) -> Option<BatchSummaryDat
     for fight in fights {
         if fight.won {
             win_count += 1;
-        } else {
+        } else if !fight.draw {
             loss_count += 1;
         }
-        if fight.kind == super::EncounterKind::Boss {
+        if fight.kind == super::EncounterKind::Boss && !fight.draw {
             stage = next_boss_stage(stage, fight.won);
             stage_peak = stage_peak.max(stage);
         }
@@ -311,6 +315,7 @@ mod tests {
             kind,
             stage: 5,
             won,
+            draw: false,
             participants: vec!["alice".to_string(), "bob".to_string()],
             units: vec![],
             events: vec![],
@@ -329,7 +334,7 @@ mod tests {
     }
 
     fn batched(kind: EncounterKind, won: bool, stage: u32, players: &[(&str, u64, u64, u64)]) -> BatchedFight {
-        BatchedFight { kind, won, stage, players: players.iter().map(|&(name, d, t, h)| (name.to_string(), d, t, h)).collect() }
+        BatchedFight { kind, won, draw: false, stage, players: players.iter().map(|&(name, d, t, h)| (name.to_string(), d, t, h)).collect() }
     }
 
     #[test]

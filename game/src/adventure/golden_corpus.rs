@@ -687,8 +687,8 @@ fn run_scenario(s: &Scenario) -> GoldenSnapshot {
     }
 
     let tunables = LiveTunables::default();
-    let (won, units, events, rolls) = simulate_battle(&characters, vec![(s.boss.clone(), s.boss_kind, 1.0)], s.stage, &tunables, s.seed, &mut rng);
-    GoldenSnapshot { won, units, events, rolls }
+    let (outcome, units, events, rolls) = simulate_battle(&characters, vec![(s.boss.clone(), s.boss_kind, 1.0)], s.stage, &tunables, s.seed, &mut rng);
+    GoldenSnapshot { won: outcome.won(), units, events, rolls }
 }
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
