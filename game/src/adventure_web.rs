@@ -238,6 +238,11 @@ pub async fn start_adventure_web_server(
         // Twitch OAuth login was removed. See accounts.rs.
         .route("/account/register", get(accounts::register_page).post(accounts::do_register))
         .route("/account/login", get(accounts::login_page).post(accounts::do_login))
+        // Item 47a (2026-10-02): owner-issued temporary passwords, and the
+        // forced change they lead to - see accounts.rs.
+        .route(accounts::CHANGE_PASSWORD_PATH, get(accounts::change_password_page).post(accounts::do_change_password))
+        .route("/admin/accounts", get(accounts::admin_accounts_page))
+        .route("/admin/accounts/issue", post(accounts::do_issue_temp_password))
         .route("/logout", get(logout))
         .route("/join", post(do_join))
         .route("/equip", post(do_equip))
@@ -305,6 +310,10 @@ pub async fn start_adventure_web_server(
         .route("/fights/:seq/members/:member", get(bundle_member))
         .route("/overlay", get(overlay_page))
         .route("/ws", get(overlay_ws_handler))
+        // Every route above, so a pending forced change can't be skipped
+        // by typing a URL (item 47a). The static asset services below stay
+        // outside it.
+        .layer(axum::middleware::from_fn_with_state(state.clone(), accounts::forced_change_guard))
         .with_state(state)
         // Same sprite art the OBS overlay uses (public_adventure_overlay/
         // sprites/*.png) - served here too so the dashboard can show a
