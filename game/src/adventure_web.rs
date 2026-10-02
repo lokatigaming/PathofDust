@@ -49,6 +49,7 @@ use crate::adventure::passive_overrides;
 use crate::passive_tree::{PassiveNode, PassiveTier};
 
 mod accounts;
+pub mod mail;
 mod render;
 mod wiki;
 
@@ -103,6 +104,15 @@ struct AppState {
     /// construction and from the tunables save handler, never from a
     /// request path.
     password_hash_permits_applied: Arc<std::sync::atomic::AtomicU32>,
+    /// Outbound email (item 47b). `None` when SMTP is not configured,
+    /// which hides every email feature - see `mail.rs`.
+    email: Option<mail::EmailConfig>,
+    /// Send counters for the two emails a request can trigger
+    /// (verification and password reset), per username and per client IP
+    /// - see `accounts::email_send_allowed`. In memory only, like
+    /// `login_failures`.
+    email_sends_by_user: Arc<Mutex<HashMap<String, accounts::LoginFailure>>>,
+    email_sends_by_ip: Arc<Mutex<HashMap<String, accounts::LoginFailure>>>,
 }
 
 fn now_secs() -> u64 {
@@ -201,6 +211,18 @@ pub async fn start_adventure_web_server(
     adventure: Arc<AdventureManager>,
     sessions_path: PathBuf,
 ) -> anyhow::Result<std::net::SocketAddr> {
+    start_adventure_web_server_with_email(port, adventure, sessions_path, mail::from_env()).await
+}
+
+/// `start_adventure_web_server` with the mail transport passed in rather
+/// than read from the environment (item 47b) - the integration tests pass
+/// a recording fake here so the suite never sends real email.
+pub async fn start_adventure_web_server_with_email(
+    port: u16,
+    adventure: Arc<AdventureManager>,
+    sessions_path: PathBuf,
+    email: Option<mail::EmailConfig>,
+) -> anyhow::Result<std::net::SocketAddr> {
     // Resolved through `data_path` here, at the library entry point, rather
     // than by the caller (2026-08-29, Linux-readiness) - the exact shape
     // `AdventureManager::new` already uses for the three paths IT is handed.
@@ -225,6 +247,9 @@ pub async fn start_adventure_web_server(
         login_failures: Arc::new(Mutex::new(HashMap::new())),
         password_hash_permits: Arc::new(tokio::sync::Semaphore::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX as usize)),
         password_hash_permits_applied: Arc::new(std::sync::atomic::AtomicU32::new(crate::adventure::PASSWORD_HASH_PERMITS_MAX)),
+        email,
+        email_sends_by_user: Arc::new(Mutex::new(HashMap::new())),
+        email_sends_by_ip: Arc::new(Mutex::new(HashMap::new())),
     };
     // Bring the semaphore down from its ceiling to whatever the live
     // tunable says, BEFORE the router starts serving. Built at the max so
@@ -243,6 +268,13 @@ pub async fn start_adventure_web_server(
         .route(accounts::CHANGE_PASSWORD_PATH, get(accounts::change_password_page).post(accounts::do_change_password))
         .route("/admin/accounts", get(accounts::admin_accounts_page))
         .route("/admin/accounts/issue", post(accounts::do_issue_temp_password))
+        // Item 47b (2026-10-02): optional email and email password
+        // recovery. Every one of these 404s when SMTP is not configured.
+        .route(accounts::EMAIL_PATH, get(accounts::email_page).post(accounts::do_send_verification))
+        .route("/account/email/verify", get(accounts::verify_email_page).post(accounts::do_verify_email))
+        .route("/account/email/remove", post(accounts::do_remove_email))
+        .route("/account/forgot", get(accounts::forgot_page).post(accounts::do_forgot))
+        .route("/account/reset", get(accounts::reset_page).post(accounts::do_reset))
         .route("/logout", get(logout))
         .route("/join", post(do_join))
         .route("/equip", post(do_equip))
@@ -522,7 +554,7 @@ async fn index(State(state): State<AppState>, headers: HeaderMap, Query(params):
                 String::new()
             };
             let selections = state.adventure.sprite_selections_snapshot().await;
-            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables(), &state.adventure.recent_announcements(), selections.get(&login).map(String::as_str)))
+            format!("{popup}{}", render_dashboard(&login, &display_name, character.as_ref(), used_this_hour, next_reset_ms, &state.adventure.live_tunables(), &state.adventure.recent_announcements(), selections.get(&login).map(String::as_str), state.email.is_some()))
         }
     };
     Html(render_page(&body))
@@ -6304,6 +6336,7 @@ fn render_announcement_feed(lines: &[String]) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_dashboard(
     login: &str,
     display_name: &str,
@@ -6313,16 +6346,20 @@ fn render_dashboard(
     tunables: &LiveTunables,
     announcements: &[String],
     selected: Option<&str>,
+    email_enabled: bool,
 ) -> String {
     let name = escape_html(display_name);
     let nav = top_nav(character);
+    // Item 47b: the email page is linked only when SMTP is configured, so
+    // the dashboard is byte-identical to stage 1 without it.
+    let account_link = if email_enabled { format!(" &middot; <a href=\"{}\">Account</a>", accounts::EMAIL_PATH) } else { String::new() };
     let Some(c) = character else {
         return format!(
             "{nav}\
               <div class=\"card\"><h1>Welcome, {name}!</h1>\
               <p>You haven't joined the adventure yet.</p>\
               <form method=\"post\" action=\"/join\"><button class=\"btn\" type=\"submit\">Join the Adventure</button></form>\
-              <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a> &middot; <a href=\"/logout\">Log out</a></p></div>"
+              <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a>{account_link} &middot; <a href=\"/logout\">Log out</a></p></div>"
         );
     };
 
@@ -6443,7 +6480,7 @@ fn render_dashboard(
             {announcement_feed_html}\
           </div>\
         </div>\
-        <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a> &middot; <a href=\"/logout\">Log out</a></p>",
+        <p class=\"muted\"><a href=\"/patch-notes\">Patch Notes</a>{account_link} &middot; <a href=\"/logout\">Log out</a></p>",
         role_class = c.archetype.css_class(),
         archetype = c.archetype,
         level = c.level,

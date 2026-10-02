@@ -17,6 +17,13 @@ being part of this product. Player identity will eventually come from an
 external application; it does not exist yet, and the new world starts
 with fresh characters.
 
+> **Partly reversed 2026-10-02 (item 47b), owner ruling.** "Fully standalone"
+> no longer holds in one respect: when SMTP is configured in `.env`, the game
+> sends email (verification, password-reset links, and change/removal
+> notices) through an SMTP server the owner chooses. It is optional and off
+> by default; with SMTP unset the game is standalone exactly as decided here.
+> No Twitch or Patreon coupling returns. See `game/src/adventure_web/mail.rs`.
+
 **Terminology.** "Game crate" = `game/**` (`game.exe`). "Bot crate" =
 the root package `twitch-bot-rs` (`src/**`, three binaries). The bot
 crate leaves the product wholesale; Part 1 enumerates it only where it

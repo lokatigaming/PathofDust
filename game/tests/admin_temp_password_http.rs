@@ -106,6 +106,11 @@ async fn admin_issued_temporary_password_replaces_signs_out_forces_a_change_and_
     )
     .expect("seed accounts");
 
+    // Item 47b: this instance must run with SMTP unset - it is the
+    // "email features hidden and inert, stage 1 unchanged" case.
+    for name in ["SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM", "PUBLIC_BASE_URL"] {
+        std::env::remove_var(name);
+    }
     assert!(game::adventure::set_data_dir(scratch.clone()), "set_data_dir must succeed - only caller in this process");
     let manager = AdventureManager::new(PathBuf::from("adventure-characters.json"), PathBuf::from("adventure-world.json"), PathBuf::from("adventure-reforge-cooldown.json"));
     let bound = game::adventure_web::start_adventure_web_server(0, manager.clone(), sessions_path.clone()).await.expect("server must start");
@@ -130,6 +135,18 @@ async fn admin_issued_temporary_password_replaces_signs_out_forces_a_change_and_
     assert_eq!(issue_fields, vec!["username".to_string()]);
     let login_html = client.get(format!("{base}/account/login")).send().await.unwrap().text().await.unwrap();
     assert!(login_html.contains("Forgot your password? Ask Lokati for a temporary one."));
+
+    // --- SMTP unset: every email feature hidden and inert (item 47b) ----
+    assert!(!login_html.contains("/account/forgot"), "no email-reset link without SMTP");
+    assert!(!get("/", &op).await.unwrap().text().await.unwrap().contains("/account/email"), "no account-email link without SMTP");
+    for path in ["/account/email", "/account/forgot", "/account/reset?token=x", "/account/email/verify?token=x"] {
+        assert_eq!(get(path, &op).await.unwrap().status(), 404, "GET {path} must be inert without SMTP");
+    }
+    for path in ["/account/email", "/account/forgot", "/account/reset", "/account/email/verify", "/account/email/remove"] {
+        let resp = client.post(format!("{base}{path}")).header(reqwest::header::COOKIE, &op).form(&[("username", VICTIM), ("email", "x@example.com"), ("password", "p")]).send().await.unwrap();
+        assert_eq!(resp.status(), 404, "POST {path} must be inert without SMTP");
+    }
+    assert!(!std::fs::read_to_string(&accounts_path).unwrap().contains("example.com"), "nothing stored");
     let login_fields = form_field_names(&login_html, "/account/login");
     let login = |user: &'static str, password: String| {
         let body = body_from(&login_fields, &[("username", user), ("password", &password)]);
