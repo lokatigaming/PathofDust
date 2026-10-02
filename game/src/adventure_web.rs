@@ -7731,6 +7731,25 @@ fn craft_item_options(c: &Character, items: &[&Item], with_none: bool, selected_
     format!("{none_option}{equipped_group}{slot_groups}")
 }
 
+/// Item 42b - which item the crafting card's main picker pre-selects. A
+/// still-owned, craftable `last_crafted_item_id` wins, as before. When
+/// it's gone (or is now Krangled/Keep/already unique), the first craftable
+/// item in the dropdown's own order is used instead - equipped first, then
+/// the bag's per-slot groups - so the picker no longer opens on an item
+/// with every Unique Shard option greyed. Nothing craftable: `None`, the
+/// browser's first-option default, unchanged.
+fn craft_default_item_id<'a>(c: &'a Character, items: &[&'a Item]) -> Option<&'a str> {
+    let craftable = |i: &Item| !i.locked && !i.disenchant_protected && i.unique_affix.is_none();
+    if let Some(id) = c.last_crafted_item_id.as_deref() {
+        if items.iter().any(|i| i.id == id && craftable(i)) {
+            return Some(id);
+        }
+    }
+    let first_equipped = DISPLAY_SLOTS.into_iter().filter_map(|(slot, _)| c.equipped(slot).as_ref()).find(|i| craftable(i));
+    let first_bag = || DISPLAY_SLOTS.into_iter().find_map(|(slot, _)| c.inventory.iter().find(|i| i.slot == slot && craftable(i)));
+    first_equipped.or_else(first_bag).map(|i| i.id.as_str())
+}
+
 /// Unified Crafting card - one item picker (see `craft_item_options`)
 /// feeding all 7 crafting actions (the 6 currencies + Recombine), each
 /// its own submit button under one form (`POST /craft`, dispatching on
@@ -7973,7 +7992,7 @@ fn render_crafting_card(c: &Character, tunables: &LiveTunables, divine_dust_unlo
             divine_dust = format_number(c.divine_dust as f64),
         );
     }
-    let options_a = craft_item_options(c, &items, false, c.last_crafted_item_id.as_deref(), Some(tunables));
+    let options_a = craft_item_options(c, &items, false, craft_default_item_id(c, &items), Some(tunables));
     let options_b = craft_item_options(c, &items, true, None, Some(tunables));
     let action_btn = |action: CraftAction| {
         let tip = craft_action_tip(action);
@@ -9246,6 +9265,55 @@ mod display_slots_tests {
                 assert!(!line.contains("+0."), "{slot:?} at T=50 must not render as a rounded-to-nothing fraction, got {line:?}");
             }
         }
+    }
+}
+
+/// Item 42b - the crafting card's default picker item. Fictional,
+/// heretic-shaped characters built from the starter kit (weapon, helm,
+/// body, gloves, boots all equipped, bag empty).
+#[cfg(test)]
+mod craft_default_item_tests {
+    use super::*;
+
+    fn heretic_shaped() -> Character {
+        let mut c = Character::new("fictional-heretic".to_string());
+        c.inventory.clear();
+        c.weapon.as_mut().expect("starter weapon").locked = true;
+        c.helm.as_mut().expect("starter helm").unique_affix = Some(crate::adventure::ALL_UNIQUE_AFFIXES[0]);
+        c
+    }
+
+    #[test]
+    fn skips_locked_weapon_and_unique_helm_to_land_on_body() {
+        let mut c = heretic_shaped();
+        // The remembered item is the locked weapon - no longer valid.
+        c.last_crafted_item_id = c.weapon.as_ref().map(|i| i.id.clone());
+        let body_id = c.body.as_ref().unwrap().id.clone();
+        let items = all_items(&c);
+        assert_eq!(craft_default_item_id(&c, &items), Some(body_id.as_str()));
+    }
+
+    #[test]
+    fn a_valid_remembered_item_still_wins() {
+        let mut c = heretic_shaped();
+        let boots_id = c.boots.as_ref().expect("starter boots").id.clone();
+        c.last_crafted_item_id = Some(boots_id.clone());
+        let items = all_items(&c);
+        assert_eq!(craft_default_item_id(&c, &items), Some(boots_id.as_str()));
+    }
+
+    #[test]
+    fn nothing_eligible_keeps_todays_default() {
+        let mut c = heretic_shaped();
+        for slot in crate::adventure::EQUIP_SLOTS {
+            if let Some(item) = c.equipped_mut(slot).as_mut() {
+                item.locked = true;
+            }
+        }
+        let items = all_items(&c);
+        assert_eq!(craft_default_item_id(&c, &items), None);
+        // ...and the rendered picker then pre-selects nothing, as before.
+        assert!(!craft_item_options(&c, &items, false, craft_default_item_id(&c, &items), None).contains(" selected"));
     }
 }
 
