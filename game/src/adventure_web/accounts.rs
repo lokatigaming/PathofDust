@@ -12,6 +12,9 @@
 // no reset, no email, no 2FA, no recovery, no profile. An external
 // identity provider replaces this later by calling `mint_session` -
 // that one function is the whole seam.
+//
+// 2026-10-02 (item 47a): "no reset" no longer holds - the owner can issue
+// a temporary password from `/admin/accounts` (see below).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,12 +23,12 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use axum::extract::{Form, State};
-use axum::http::{header, StatusCode};
-use axum::response::{Html, IntoResponse};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Redirect};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    escape_html, now_secs, random_token, render_page, save_sessions, set_cookie_header, AppState, Session, ADMIN_TUNABLES_LOGIN, BUNDLE_OPERATOR_LOGIN,
+    admin_not_found, current_session, escape_html, now_secs, random_token, render_page, save_sessions, set_cookie_header, AppState, Session, ADMIN_TUNABLES_LOGIN, BUNDLE_OPERATOR_LOGIN,
     FIGHTS_PAGE_LOGIN, SESSION_TTL,
 };
 
@@ -49,6 +52,46 @@ pub(super) struct Account {
     password_hash: String,
     /// Seconds since UNIX_EPOCH, like `Session::created_at`.
     created_at: u64,
+    /// Set when the owner issues a temporary password from
+    /// `/admin/accounts` (item 47a, 2026-10-02): the next login lands on
+    /// `/account/change-password` and every other route redirects there
+    /// until a new password is set. `#[serde(default)]` and skipped when
+    /// false, so an account that never had a temporary password
+    /// serializes byte-identically to before and an older binary still
+    /// loads the file (it ignores the unknown keys - and drops them on its
+    /// next save, which turns a pending temporary password into an
+    /// ordinary one).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    must_change_password: bool,
+    /// When the temporary password stops working, seconds since
+    /// UNIX_EPOCH. Only meaningful while `must_change_password` is set;
+    /// cleared with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    temp_password_expires_at: Option<u64>,
+}
+
+/// How long an unused temporary password keeps working (item 47a).
+const TEMP_PASSWORD_TTL_SECS: u64 = 72 * 60 * 60;
+/// Lowercase letters and digits minus the ones that read alike aloud or
+/// on screen (0/o, 1/l/i). 31 symbols, 16 of them: ~79 bits.
+const TEMP_PASSWORD_ALPHABET: &[u8] = b"23456789abcdefghjkmnpqrstuvwxyz";
+const TEMP_PASSWORD_GROUPS: usize = 4;
+const TEMP_PASSWORD_GROUP_LEN: usize = 4;
+pub(super) const CHANGE_PASSWORD_PATH: &str = "/account/change-password";
+
+/// `xxxx-xxxx-xxxx-xxxx` from the OS CSPRNG. The dashes are part of the
+/// password - easy to read aloud in groups, and a paste carries them.
+fn generate_temp_password() -> String {
+    use rand::Rng;
+    let mut rng = rand::rngs::OsRng;
+    (0..TEMP_PASSWORD_GROUPS)
+        .map(|_| (0..TEMP_PASSWORD_GROUP_LEN).map(|_| TEMP_PASSWORD_ALPHABET[rng.gen_range(0..TEMP_PASSWORD_ALPHABET.len())] as char).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn temp_password_expired(account: &Account, now: u64) -> bool {
+    account.must_change_password && account.temp_password_expires_at.is_some_and(|at| now >= at)
 }
 
 const USERNAME_MIN_LEN: usize = 3;
@@ -455,7 +498,7 @@ fn login_page_html(error: Option<&str>) -> String {
         "Log in",
         "Log in with the account you registered here.",
         "Log in",
-        "No account yet? <a href=\"/account/register\">Register</a>.",
+        "No account yet? <a href=\"/account/register\">Register</a>.<br>Forgot your password? Ask Lokati for a temporary one.",
         error,
     )
 }
@@ -532,7 +575,7 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
     if accounts.contains_key(&key) {
         return reject_register("That username is already taken.");
     }
-    accounts.insert(key.clone(), Account { username: typed.clone(), password_hash, created_at: now_secs() });
+    accounts.insert(key.clone(), Account { username: typed.clone(), password_hash, created_at: now_secs(), must_change_password: false, temp_password_expires_at: None });
     if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
         tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
     }
@@ -606,14 +649,232 @@ pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<Cre
         return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("Incorrect username or password."))))).into_response();
     };
 
+    // An owner-issued temporary password that went unused past its TTL
+    // (item 47a). Checked only AFTER the password verified, so the
+    // message tells nothing to anyone who did not already hold it - and
+    // it counts as a failure, so the throttle applies unchanged.
+    if temp_password_expired(&account, now_secs()) {
+        {
+            let mut failures = state.login_failures.lock().await;
+            record_login_failure(&mut failures, &key, std::time::Instant::now());
+        }
+        tracing::warn!("Adventure dashboard: refused an expired temporary password for {key:?}.");
+        return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("That temporary password has expired. Ask Lokati for a new one."))))).into_response();
+    }
+
     // Cleared on success, so a player who eventually remembers their
     // password starts clean rather than carrying a ladder they can only
     // wait out.
     state.login_failures.lock().await.remove(&key);
 
-    tracing::info!("Adventure dashboard: {key} logged in locally.");
     let token = mint_session(&state, &key, &account.username).await;
+    if account.must_change_password {
+        tracing::warn!("Adventure dashboard: {key} logged in with a temporary password; forcing a password change.");
+        return (StatusCode::FOUND, [set_cookie_header(&token, SESSION_TTL.as_secs()), (header::LOCATION, CHANGE_PASSWORD_PATH.to_string())], "").into_response();
+    }
+    tracing::info!("Adventure dashboard: {key} logged in locally.");
     redirect_with_session(&token)
+}
+
+// ---------------------------------------------------------------------
+// Owner-issued temporary passwords (item 47a, 2026-10-02)
+// ---------------------------------------------------------------------
+//
+// `/admin/accounts` replaces an account's hash with a fresh temporary
+// password, flags it `must_change_password`, and removes every session
+// for it. The temporary password is shown to the owner once and never
+// stored or logged in the clear. Logging in with it lands on
+// `/account/change-password`, and `forced_change_guard` redirects every
+// other route there until a new password is set.
+
+/// Router middleware: a session whose account still carries
+/// `must_change_password` can reach the change page and `/logout`, and
+/// nothing else.
+pub(super) async fn forced_change_guard(State(state): State<AppState>, req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let path = req.uri().path();
+    if path != CHANGE_PASSWORD_PATH && path != "/logout" {
+        if let Some((login, _)) = current_session(req.headers(), &state).await {
+            if state.accounts.lock().await.get(&login).is_some_and(|a| a.must_change_password) {
+                return Redirect::to(CHANGE_PASSWORD_PATH).into_response();
+            }
+        }
+    }
+    next.run(req).await
+}
+
+/// `#[serde(default)]` per the form-drift rule, like `CredentialsForm`.
+#[derive(Deserialize)]
+pub(super) struct ChangePasswordForm {
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    confirm: String,
+}
+
+fn change_password_html(error: Option<&str>) -> String {
+    let error_html = error.map_or(String::new(), |msg| format!("<p class=\"muted\">{}</p>", escape_html(msg)));
+    format!(
+        "<div class=\"card\"><h1>Set a new password</h1>\
+          <p>You logged in with a temporary password. Choose a new one (at least {PASSWORD_MIN_LEN} characters) to continue.</p>\
+          {error_html}\
+          <form method=\"post\" action=\"{CHANGE_PASSWORD_PATH}\">\
+            <p><label for=\"password\">New password</label><br>\
+              <input type=\"password\" id=\"password\" name=\"password\" autocomplete=\"new-password\"></p>\
+            <p><label for=\"confirm\">Repeat new password</label><br>\
+              <input type=\"password\" id=\"confirm\" name=\"confirm\" autocomplete=\"new-password\"></p>\
+            <p><button class=\"btn\" type=\"submit\">Set password</button></p>\
+          </form>\
+          <p class=\"muted\"><a href=\"/logout\">Log out</a></p></div>"
+    )
+}
+
+/// The login whose session is on this request AND whose account is
+/// pending a forced change; anyone else is sent to the `Err` path.
+async fn forced_change_login(state: &AppState, headers: &HeaderMap) -> Result<String, &'static str> {
+    let Some((login, _)) = current_session(headers, state).await else {
+        return Err("/account/login");
+    };
+    if !state.accounts.lock().await.get(&login).is_some_and(|a| a.must_change_password) {
+        return Err("/");
+    }
+    Ok(login)
+}
+
+pub(super) async fn change_password_page(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
+    match forced_change_login(&state, &headers).await {
+        Ok(_) => Html(render_page(&change_password_html(None))).into_response(),
+        Err(to) => Redirect::to(to).into_response(),
+    }
+}
+
+pub(super) async fn do_change_password(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<ChangePasswordForm>) -> axum::response::Response {
+    let key = match forced_change_login(&state, &headers).await {
+        Ok(key) => key,
+        Err(to) => return Redirect::to(to).into_response(),
+    };
+    let reject = |msg: &str| (StatusCode::BAD_REQUEST, Html(render_page(&change_password_html(Some(msg))))).into_response();
+    if form.password.len() < PASSWORD_MIN_LEN {
+        return reject("Passwords must be at least 8 characters long.");
+    }
+    if form.password != form.confirm {
+        return reject("The two passwords did not match.");
+    }
+    let Some(_permit) = acquire_password_hash_permit(&state).await else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Html(render_page(&change_password_html(Some("The server is busy right now. Please try again in a moment."))))).into_response();
+    };
+    let password_hash = match hash_password_blocking(form.password.clone()).await {
+        Ok(hash) => hash,
+        Err(err) => {
+            tracing::error!("Forced password change for {key:?} failed: {err}");
+            return reject("Something went wrong setting that password. Try again.");
+        }
+    };
+    let mut accounts = state.accounts.lock().await;
+    // Re-checked under the lock: the owner may have issued a fresh
+    // temporary password while this one was hashing, and that one wins.
+    let Some(account) = accounts.get_mut(&key).filter(|a| a.must_change_password) else {
+        return Redirect::to("/account/login").into_response();
+    };
+    account.password_hash = password_hash;
+    account.must_change_password = false;
+    account.temp_password_expires_at = None;
+    if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
+        tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
+    }
+    drop(accounts);
+    tracing::info!("Adventure dashboard: {key} replaced their temporary password (forced change complete).");
+    Redirect::to("/").into_response()
+}
+
+#[derive(Deserialize)]
+pub(super) struct IssueTempPasswordForm {
+    #[serde(default)]
+    username: String,
+}
+
+fn admin_accounts_html(notice: Option<&str>) -> String {
+    format!(
+        "<div class=\"card\"><h1>Accounts</h1>\
+          <p>Issue a temporary password. It replaces the account's password, signs the player out everywhere, and works once within {hours} hours; on login the player must set a new one.</p>\
+          {notice}\
+          <form method=\"post\" action=\"/admin/accounts/issue\">\
+            <p><label for=\"username\">Username</label><br>\
+              <input type=\"text\" id=\"username\" name=\"username\" maxlength=\"{USERNAME_MAX_LEN}\"></p>\
+            <p><button class=\"btn\" type=\"submit\">Issue temporary password</button></p>\
+          </form></div>",
+        hours = TEMP_PASSWORD_TTL_SECS / 3600,
+        notice = notice.unwrap_or_default(),
+    )
+}
+
+async fn is_operator(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    current_session(headers, state).await.map(|(login, _)| login).filter(|login| *login == *ADMIN_TUNABLES_LOGIN)
+}
+
+pub(super) async fn admin_accounts_page(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
+    if is_operator(&state, &headers).await.is_none() {
+        return admin_not_found();
+    }
+    Html(render_page(&admin_accounts_html(None))).into_response()
+}
+
+pub(super) async fn do_issue_temp_password(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<IssueTempPasswordForm>) -> axum::response::Response {
+    let Some(admin) = is_operator(&state, &headers).await else {
+        return admin_not_found();
+    };
+    let key = form.username.trim().to_lowercase();
+    let unknown = || {
+        let msg = format!("<p class=\"muted\">No account named <code>{}</code>. Nothing was changed.</p>", escape_html(&key));
+        (StatusCode::BAD_REQUEST, Html(render_page(&admin_accounts_html(Some(&msg))))).into_response()
+    };
+    if !state.accounts.lock().await.contains_key(&key) {
+        tracing::warn!("Admin {admin}: temporary password requested for {key:?}, which has no account; nothing changed.");
+        return unknown();
+    }
+    let temp = generate_temp_password();
+    let Some(_permit) = acquire_password_hash_permit(&state).await else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Html(render_page(&admin_accounts_html(Some("<p class=\"muted\">The server is busy hashing passwords. Try again in a moment. Nothing was changed.</p>"))))).into_response();
+    };
+    let password_hash = match hash_password_blocking(temp.clone()).await {
+        Ok(hash) => hash,
+        Err(err) => {
+            tracing::error!("Admin {admin}: hashing a temporary password for {key:?} failed: {err}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(render_page(&admin_accounts_html(Some("<p class=\"muted\">Hashing failed. Nothing was changed.</p>"))))).into_response();
+        }
+    };
+    let expires_at = now_secs() + TEMP_PASSWORD_TTL_SECS;
+    {
+        let mut accounts = state.accounts.lock().await;
+        let Some(account) = accounts.get_mut(&key) else {
+            return unknown();
+        };
+        account.password_hash = password_hash;
+        account.must_change_password = true;
+        account.temp_password_expires_at = Some(expires_at);
+        if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
+            tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
+        }
+    }
+    let removed = {
+        let mut sessions = state.sessions.lock().await;
+        let before = sessions.len();
+        sessions.retain(|_, s| !s.login.eq_ignore_ascii_case(&key));
+        let removed = before - sessions.len();
+        save_sessions(&state, &sessions);
+        removed
+    };
+    tracing::warn!("Admin {admin}: issued a temporary password for {key}; {removed} session(s) removed; it expires at {expires_at} if unused.");
+
+    let notice = format!(
+        "<p>Temporary password for <strong>{name}</strong>, shown only this once:</p>\
+         <p><code style=\"font-size:1.4em;\">{temp}</code></p>\
+         <p class=\"muted\">{removed} session(s) signed out. It stops working in {hours} hours if unused. Issuing again replaces it.</p>",
+        name = escape_html(&key),
+        hours = TEMP_PASSWORD_TTL_SECS / 3600,
+    );
+    // no-store: the one page that carries the password in the clear must
+    // not be kept by the browser or anything between it and the box.
+    ([(header::CACHE_CONTROL, "no-store")], Html(render_page(&admin_accounts_html(Some(&notice))))).into_response()
 }
 
 fn reject_register(reason: &str) -> axum::response::Response {
@@ -735,6 +996,37 @@ mod tests {
         record_login_failure(&mut failures, "newcomer", now);
         assert_eq!(failures.len(), 1, "an all-stale map is swept clean, not evicted one entry at a time");
         assert!(failures.contains_key("newcomer"));
+    }
+
+    #[test]
+    fn temporary_passwords_are_grouped_unambiguous_and_distinct() {
+        let a = generate_temp_password();
+        let groups: Vec<&str> = a.split('-').collect();
+        assert_eq!(groups.len(), TEMP_PASSWORD_GROUPS, "got {a}");
+        assert!(groups.iter().all(|g| g.len() == TEMP_PASSWORD_GROUP_LEN && g.bytes().all(|b| TEMP_PASSWORD_ALPHABET.contains(&b))), "got {a}");
+        assert!(!TEMP_PASSWORD_ALPHABET.iter().any(|b| b"01ilo".contains(b)), "no characters that read alike");
+        assert!(a.len() >= PASSWORD_MIN_LEN);
+        assert_ne!(a, generate_temp_password(), "two issues must not repeat");
+    }
+
+    #[test]
+    fn a_temporary_password_expires_at_its_deadline_and_a_normal_one_never_does() {
+        let mut account = Account { username: "p".into(), password_hash: String::new(), created_at: 0, must_change_password: true, temp_password_expires_at: Some(1_000) };
+        assert!(!temp_password_expired(&account, 999));
+        assert!(temp_password_expired(&account, 1_000));
+        account.must_change_password = false;
+        assert!(!temp_password_expired(&account, u64::MAX), "a changed password carries no expiry");
+    }
+
+    /// The rollback contract: an account that never had a temporary
+    /// password writes exactly the three pre-47a keys, and the pre-47a
+    /// shape still loads.
+    #[test]
+    fn accounts_without_a_temporary_password_serialize_as_before() {
+        let account = Account { username: "p".into(), password_hash: "h".into(), created_at: 7, must_change_password: false, temp_password_expires_at: None };
+        assert_eq!(serde_json::to_string(&account).unwrap(), r#"{"username":"p","password_hash":"h","created_at":7}"#);
+        let old: Account = serde_json::from_str(r#"{"username":"p","password_hash":"h","created_at":7}"#).unwrap();
+        assert!(!old.must_change_password && old.temp_password_expires_at.is_none());
     }
 
     #[test]
