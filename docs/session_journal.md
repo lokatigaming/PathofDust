@@ -10760,3 +10760,37 @@ owner accepts this. Apart from that, binary-only rollback is safe.
 **Patch notes**: a new section in the existing **September 29, 2026** block (box clock). Pre-edit copy
 `8c64f5c1…` is in the slot; diff +8 / −0. Bot: not redeployed.
 `git diff --name-only fdeba16..04310dc -- bot Cargo.lock Cargo.toml` is empty.
+
+## 2026-10-02 — release 42 `admin-temp-password-47a` deployed (item 47a, window c). 0.84 s.
+
+Order `2026-10-02 release 42 (item 47a) … then release 43 (item 42b)`. Merge `78704fc` (`--no-ff` of
+`feature/admin-temp-password-47a` `599f3a3`, base `37fabc0`), with no conflicts. Suite
+`cargo test --release --workspace --quiet --no-fail-fast -j 4`: **1114 / 0 / 52** locally and on the box.
+The known-flaky live_reload test passed in both runs. Golden corpus unchanged (no fixture in the diff).
+Archive `aa843f30c5b63fac954428587f9bcd40315b79a2edfad47e6f5ea7d87eca3dc4` matched on both ends. The
+identity grep for `temp_password_expires_at` hit `accounts.rs` (8). Live `0271c2c5…` →
+**`b8eeb07538483275b88edb9826e252768b4cbaf116b7577c0b8d7eddbb340724`**, downtime 0.84 s, slot
+`deploy-pre-20261002-150445-admin-temp-password-47a`.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live = candidate;
+5 **unrun** (needs a cookie); 6 port 4005 `/admin/tunables` and `/admin/accounts` are both 404 / 83,124 B;
+7 404; 0 panic/ERROR lines. `/account/login` shows "Forgot your password? Ask Lokati for a temporary
+one." The fight loop advanced 32589 → 32590.
+
+**Accounts / sessions / tunables**: `adventure-accounts.json` is byte-identical before and after
+(`8131d260…`). Sessions held 67 before and 67 after. `adventure-live-tunables.toml` is byte-identical
+before and after (`f7783dcb…`). Note: that file differs from release 41's `dc72de90…`, which matches the
+admin-page saves recorded below. No temporary password was issued and no account was registered.
+
+**Rollback**: binary-only rollback is safe. An older binary ignores `must_change_password` /
+`temp_password_expires_at` but drops them on its next accounts save, so a pending temporary password
+becomes an ordinary permanent password, with no forced change and no expiry.
+
+**Patch notes**: a new **October 2, 2026** block (box clock). Pre-edit copy `3f20a867…` is in the slot;
+diff +13 / −0, and it renders on /patch-notes. Bot: not redeployed.
+`git diff --name-only 37fabc0..78704fc -- bot Cargo.lock Cargo.toml` is empty.
+
+**Unrecorded admin tunables saves, recorded here (source: `reports/48-stage-drop-2026-10-02.md`; no
+tunable changed by this session):**
+- 2026-09-28 09:38 UTC: `boss_count_cap_mult` 1.5 → 1.0, saved through /admin/tunables.
+- 2026-09-29 06:06 UTC: `target_win_loss_ratio` 3.0 → 2.0, saved through /admin/tunables.
