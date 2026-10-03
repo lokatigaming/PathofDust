@@ -10818,3 +10818,44 @@ tunables byte-identical (`f7783dcb…`, already carrying the owner's 10-02 14:39
 **Rollback**: binary-only is safe (render-only change, no data format change). **Patch notes**: new
 **October 3, 2026** block; pre-edit copy `42802e76…` in the slot; diff +13 / −0; renders on /patch-notes.
 Bot: not redeployed. `git diff --name-only 93390d6..78a8a62 -- bot Cargo.lock Cargo.toml` is empty.
+
+## 2026-10-03 — release 44 `email-recovery-47b` deployed INERT (item 47b, window c). 0.15 s.
+
+Order `2026-10-03 release 43 (item 42b) … then release 44 (item 47b)`. Merge `f8abef5` (`--no-ff` of
+`feature/email-recovery-47b` `8139155`, base `93390d6`). Conflict: `WIKI_IMPACT.md` only (42b line vs 47b
+line), keep-both; `adventure_web.rs` and `accounts.rs` auto-merged. Suite
+`cargo test --release --workspace --quiet --no-fail-fast -j 4`: **1124 / 0 / 54** locally and on the box.
+Archive `86b2c661f2060db232bb43d6ad11146141274287ebe51e78d727dbc03f36c982` matched on both ends. Live
+`906f8ad2…` → **`555cfc95bb4f1b1a87d7b23ca2c5a590fb0d0aca8dcbb2a2040f3df53d113fc2`**, downtime 0.15 s, slot
+`deploy-pre-20261003-103704-email-recovery-47b`.
+
+**New dependency**: `lettre 0.11.23` (`builder`, `smtp-transport`, `rustls-tls`; no default features). Lock
+adds exactly `lettre`, `email-encoding`, `email_address`, `nom 8`, `quoted_printable`, `base64 0.23`,
+`webpki-roots 1.0.9`. The only other lock edit is the existing `webpki-roots` reference becoming
+`"webpki-roots 0.25.4"` (reqwest 0.11 via twitch-irc, bot) because two versions now coexist. The box build
+downloaded the seven crates from crates.io, as earlier additions did. **OpenSSL**: lettre is rustls-only and
+adds no path to `openssl-sys`. But the game binary has linked `libssl.so.3`/`libcrypto.so.3` since at least
+the 09-03 binaries, so that predates this release. The candidate's `ldd` list is identical to release 43's.
+**Bot**: not redeployed. No `bot/**` or root `Cargo.toml` change, and `cargo tree -p twitch-bot-rs` is
+identical before/after (396 lines).
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live = candidate;
+5 **unrun** (needs a cookie); 6 `/admin/tunables`, `/admin/accounts` 404 / 83,124 B; 7 404; 0 panic/ERROR.
+`/account/email`, `/account/forgot`, `/account/reset` are 404 / 83,124 B on GET and form POST (a bodyless
+POST gets 415 from the form extractor before the handler). `/account/login` is byte-identical to release
+43's (`602b8a44…`). Startup log: `Email features disabled: SMTP is not configured.` Fight loop → 33661
+(10:37:32, after the 10:37:04 swap). No SMTP settings, env files or drop-ins were created.
+
+**Accounts / sessions / tunables**: accounts byte-identical (`8131d260…`), sessions 71 / 71, tunables
+byte-identical. **Patch notes**: none (ordered: invisible to players while SMTP is unset).
+
+**Rollback**: binary-only rollback is safe **while no emails are stored**. Once players add emails, an older
+binary drops the email/verification/reset fields on its next accounts save, which silently loses every
+stored address.
+
+**Decision reversal**: this partly reverses the 09-02 "standalone game" decision. With SMTP configured, the
+game sends email through an SMTP server of the owner's choosing. The reversal note is in
+`docs/external_integration_removal_scope.md`, which is in this merge.
+
+## FOUND
+- 2026-10-03 (window c): the Linux `game` binary links libssl/libcrypto although `cargo tree -p game -i openssl-sys` is empty on the box; openssl-sys is built in the workspace for the bot. Present since at least 09-03. Not investigated.
