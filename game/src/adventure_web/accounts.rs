@@ -15,6 +15,10 @@
 //
 // 2026-10-02 (item 47a): "no reset" no longer holds - the owner can issue
 // a temporary password from `/admin/accounts` (see below).
+//
+// 2026-10-02 (item 47b): nor does "no email" - when SMTP is configured
+// (mail.rs) a player may add a verified email on `/account/email` and use
+// it to reset a forgotten password. Optional, and invisible without SMTP.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,11 +26,12 @@ use std::path::{Path, PathBuf};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use axum::extract::{Form, State};
+use axum::extract::{Form, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect};
 use serde::{Deserialize, Serialize};
 
+use super::mail::{mask_email, valid_email, OutgoingMail};
 use super::{
     admin_not_found, current_session, escape_html, now_secs, random_token, render_page, save_sessions, set_cookie_header, AppState, Session, ADMIN_TUNABLES_LOGIN, BUNDLE_OPERATOR_LOGIN,
     FIGHTS_PAGE_LOGIN, SESSION_TTL,
@@ -46,7 +51,7 @@ pub(super) fn accounts_path(sessions_path: &Path) -> PathBuf {
 /// matching `AdventureManager`'s own `username.to_lowercase()` character
 /// key - `username` here is the as-typed form and is display only, the
 /// same split `Character::display_name` already documents.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub(super) struct Account {
     username: String,
     password_hash: String,
@@ -68,6 +73,36 @@ pub(super) struct Account {
     /// cleared with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     temp_password_expires_at: Option<u64>,
+    /// The player's VERIFIED email (item 47b) - the only address a reset
+    /// link is ever sent to. Personal data: stored here and nowhere else,
+    /// shown only to the player on `/account/email`, logged only masked.
+    /// Same `#[serde(default)]` + skip contract as the 47a fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    email: Option<String>,
+    /// An address the player has entered but not yet confirmed. It does
+    /// not count for anything until verified; a verified `email` stays in
+    /// force meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_email: Option<PendingEmail>,
+    /// An outstanding password-reset link. Only the SHA-256 of the token
+    /// is stored. Cleared on use, on any other password change, and when
+    /// the email is removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reset_token: Option<TokenRecord>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct TokenRecord {
+    token_hash: String,
+    /// Seconds since UNIX_EPOCH.
+    expires_at: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct PendingEmail {
+    address: String,
+    #[serde(flatten)]
+    token: TokenRecord,
 }
 
 /// How long an unused temporary password keeps working (item 47a).
@@ -492,13 +527,16 @@ fn register_page_html(error: Option<&str>) -> String {
     )
 }
 
-fn login_page_html(error: Option<&str>) -> String {
+/// `email_enabled` adds the email-reset link (item 47b); without SMTP the
+/// page is exactly the stage-1 page.
+fn login_page_html(error: Option<&str>, email_enabled: bool) -> String {
+    let email_reset = if email_enabled { "<br>Added an email to your account? <a href=\"/account/forgot\">Reset your password by email</a>." } else { "" };
     render_form(
         "/account/login",
         "Log in",
         "Log in with the account you registered here.",
         "Log in",
-        "No account yet? <a href=\"/account/register\">Register</a>.<br>Forgot your password? Ask Lokati for a temporary one.",
+        &format!("No account yet? <a href=\"/account/register\">Register</a>.<br>Forgot your password? Ask Lokati for a temporary one.{email_reset}"),
         error,
     )
 }
@@ -507,8 +545,8 @@ pub(super) async fn register_page() -> Html<String> {
     Html(render_page(&register_page_html(None)))
 }
 
-pub(super) async fn login_page() -> Html<String> {
-    Html(render_page(&login_page_html(None)))
+pub(super) async fn login_page(State(state): State<AppState>) -> Html<String> {
+    Html(render_page(&login_page_html(None, state.email.is_some())))
 }
 
 /// Open registration, with the one guard that matters: a username that
@@ -575,7 +613,7 @@ pub(super) async fn do_register(State(state): State<AppState>, Form(form): Form<
     if accounts.contains_key(&key) {
         return reject_register("That username is already taken.");
     }
-    accounts.insert(key.clone(), Account { username: typed.clone(), password_hash, created_at: now_secs(), must_change_password: false, temp_password_expires_at: None });
+    accounts.insert(key.clone(), Account { username: typed.clone(), password_hash, created_at: now_secs(), ..Default::default() });
     if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
         tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
     }
@@ -626,7 +664,7 @@ pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<Cre
                 tracing::warn!("Adventure dashboard: argon2 bound saturated, turning away a login for {key:?} without verifying.");
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
-                    Html(render_page(&login_page_html(Some("The server is busy checking sign-ins right now. Please try again in a moment.")))),
+                    Html(render_page(&login_page_html(Some("The server is busy checking sign-ins right now. Please try again in a moment."), state.email.is_some()))),
                 )
                     .into_response();
             };
@@ -646,7 +684,7 @@ pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<Cre
             record_login_failure(&mut failures, &key, std::time::Instant::now());
         }
         tracing::warn!("Adventure dashboard: failed local login for {key:?}.");
-        return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("Incorrect username or password."))))).into_response();
+        return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("Incorrect username or password."), state.email.is_some())))).into_response();
     };
 
     // An owner-issued temporary password that went unused past its TTL
@@ -659,7 +697,7 @@ pub(super) async fn do_login(State(state): State<AppState>, Form(form): Form<Cre
             record_login_failure(&mut failures, &key, std::time::Instant::now());
         }
         tracing::warn!("Adventure dashboard: refused an expired temporary password for {key:?}.");
-        return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("That temporary password has expired. Ask Lokati for a new one."))))).into_response();
+        return (StatusCode::UNAUTHORIZED, Html(render_page(&login_page_html(Some("That temporary password has expired. Ask Lokati for a new one."), state.email.is_some())))).into_response();
     }
 
     // Cleared on success, so a player who eventually remembers their
@@ -778,6 +816,9 @@ pub(super) async fn do_change_password(State(state): State<AppState>, headers: H
     account.password_hash = password_hash;
     account.must_change_password = false;
     account.temp_password_expires_at = None;
+    // A reset link requested while the temporary password was pending
+    // must not outlive the change (item 47b).
+    account.reset_token = None;
     if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
         tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
     }
@@ -851,18 +892,14 @@ pub(super) async fn do_issue_temp_password(State(state): State<AppState>, header
         account.password_hash = password_hash;
         account.must_change_password = true;
         account.temp_password_expires_at = Some(expires_at);
+        // An outstanding email reset link dies with the old password
+        // (item 47b) - the temporary one is now the only way in.
+        account.reset_token = None;
         if let Err(err) = crate::state::save_json(&state.accounts_path, &*accounts) {
             tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
         }
     }
-    let removed = {
-        let mut sessions = state.sessions.lock().await;
-        let before = sessions.len();
-        sessions.retain(|_, s| !s.login.eq_ignore_ascii_case(&key));
-        let removed = before - sessions.len();
-        save_sessions(&state, &sessions);
-        removed
-    };
+    let removed = remove_sessions_for(&state, &key).await;
     tracing::warn!("Admin {admin}: issued a temporary password for {key}; {removed} session(s) removed; it expires at {expires_at} if unused.");
 
     let notice = format!(
@@ -875,6 +912,513 @@ pub(super) async fn do_issue_temp_password(State(state): State<AppState>, header
     // no-store: the one page that carries the password in the clear must
     // not be kept by the browser or anything between it and the box.
     ([(header::CACHE_CONTROL, "no-store")], Html(render_page(&admin_accounts_html(Some(&notice))))).into_response()
+}
+
+/// Signs `key` out everywhere; returns how many sessions went.
+async fn remove_sessions_for(state: &AppState, key: &str) -> usize {
+    let mut sessions = state.sessions.lock().await;
+    let before = sessions.len();
+    sessions.retain(|_, s| !s.login.eq_ignore_ascii_case(key));
+    let removed = before - sessions.len();
+    save_sessions(state, &sessions);
+    removed
+}
+
+// ---------------------------------------------------------------------
+// Optional email + email password recovery (item 47b, 2026-10-02)
+// ---------------------------------------------------------------------
+//
+// A logged-in player may add an email on `/account/email` (current
+// password required). It counts only once the player opens the emailed
+// link WHILE LOGGED IN as that account and confirms - so a typo'd address
+// whose owner's mail scanner prefetches the link cannot end up verified
+// on someone else's account. A verified email can then receive a
+// single-use, one-hour reset link from `/account/forgot`, which answers
+// identically whatever the username. Tokens are 256-bit, stored only as
+// SHA-256. Every route here 404s when SMTP is not configured.
+//
+// Stage-1 interplay: an email reset clears `must_change_password` and the
+// temporary password's expiry (the temporary password is overwritten by
+// the new hash); an owner-issued temporary password clears any
+// outstanding reset link, and so does every other password change.
+
+pub(super) const EMAIL_PATH: &str = "/account/email";
+const EMAIL_VERIFY_TTL_SECS: u64 = 24 * 60 * 60;
+const RESET_TOKEN_TTL_SECS: u64 = 60 * 60;
+/// Emails one username can trigger per `LOGIN_FAILURE_WINDOW` (15 min),
+/// counting verification and reset sends together.
+const EMAIL_SENDS_PER_USER: u32 = 3;
+/// The same, per client IP.
+const EMAIL_SENDS_PER_IP: u32 = 10;
+const FORGOT_RESPONSE: &str = "If that account has a verified email, a reset link is on its way. It works once, within 1 hour. No email on the account? Ask Lokati for a temporary password.";
+
+fn token_hash(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(token.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn new_token(now: u64, ttl: u64) -> (String, TokenRecord) {
+    let token = random_token();
+    let record = TokenRecord { token_hash: token_hash(&token), expires_at: now + ttl };
+    (token, record)
+}
+
+fn token_matches(record: &TokenRecord, token: &str, now: u64) -> bool {
+    now < record.expires_at && record.token_hash == token_hash(token)
+}
+
+/// The per-IP key. Behind the Cloudflare Tunnel every peer is 127.0.0.1
+/// (see the throttle comment above), so this trusts `CF-Connecting-IP`.
+/// A caller who can reach the port directly and forge it only escapes the
+/// per-IP bucket; the per-username limit still holds. No header at all
+/// shares one bucket.
+fn client_ip(headers: &HeaderMap) -> String {
+    headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()).map(str::trim).filter(|v| !v.is_empty()).unwrap_or("direct").to_string()
+}
+
+/// The login-throttle machinery reused as a send limit: an entry within
+/// its window at `limit` sends is exhausted.
+fn email_sends_exhausted(sends: &HashMap<String, LoginFailure>, key: &str, limit: u32, now: std::time::Instant) -> bool {
+    sends.get(key).is_some_and(|e| now.duration_since(e.last) < LOGIN_FAILURE_WINDOW && e.count >= limit)
+}
+
+/// Checks BOTH limits before recording either, then records one send
+/// against each. A refused request is not recorded, so the window runs
+/// out 15 minutes after the last send that was allowed.
+async fn email_send_allowed(state: &AppState, user_key: &str, headers: &HeaderMap) -> bool {
+    let now = std::time::Instant::now();
+    let ip = client_ip(headers);
+    let mut by_user = state.email_sends_by_user.lock().await;
+    let mut by_ip = state.email_sends_by_ip.lock().await;
+    if email_sends_exhausted(&by_user, user_key, EMAIL_SENDS_PER_USER, now) || email_sends_exhausted(&by_ip, &ip, EMAIL_SENDS_PER_IP, now) {
+        return false;
+    }
+    record_login_failure(&mut by_user, user_key, now);
+    record_login_failure(&mut by_ip, &ip, now);
+    true
+}
+
+/// Fire-and-forget on the blocking pool, so the response never waits on
+/// (or reveals timing from) the SMTP server. Logs the address masked
+/// only - including inside a transport error, which can echo it.
+fn send_in_background(state: &AppState, to: String, subject: &str, body: String, what: &'static str) {
+    let Some(email) = state.email.clone() else {
+        return;
+    };
+    let masked = mask_email(&to);
+    let mail = OutgoingMail { to: to.clone(), subject: subject.to_string(), body };
+    tokio::spawn(async move {
+        match tokio::task::spawn_blocking(move || email.mailer.send(&mail)).await {
+            Ok(Ok(())) => tracing::info!("Sent {what} email to {masked}."),
+            Ok(Err(err)) => tracing::warn!("Sending {what} email to {masked} failed: {}", err.to_string().replace(&to, &masked)),
+            Err(err) => tracing::error!("The {what} email task failed: {err}"),
+        }
+    });
+}
+
+fn link(state: &AppState, path: &str, token: &str) -> String {
+    format!("{}{path}?token={}", state.email.as_ref().map_or("", |e| e.base_url.as_str()), urlencoding::encode(token))
+}
+
+fn card(title: &str, body: &str) -> String {
+    format!("<div class=\"card\"><h1>{title}</h1>{body}</div>")
+}
+
+fn notice_html(msg: &str) -> String {
+    format!("<p class=\"muted\">{}</p>", escape_html(msg))
+}
+
+enum PasswordCheck {
+    Correct,
+    Wrong,
+    Busy,
+}
+
+/// Re-checks a logged-in player's current password, through the same
+/// throttle and argon2 bound as `do_login`; a wrong one is a login
+/// failure.
+async fn check_current_password(state: &AppState, key: &str, password: &str) -> PasswordCheck {
+    let delay = {
+        let failures = state.login_failures.lock().await;
+        login_throttle_delay(&failures, key, std::time::Instant::now())
+    };
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    let Some(stored) = state.accounts.lock().await.get(key).map(|a| a.password_hash.clone()) else {
+        return PasswordCheck::Wrong;
+    };
+    let Some(_permit) = acquire_password_hash_permit(state).await else {
+        return PasswordCheck::Busy;
+    };
+    if verify_password_blocking(password.to_string(), stored).await {
+        return PasswordCheck::Correct;
+    }
+    record_login_failure(&mut *state.login_failures.lock().await, key, std::time::Instant::now());
+    tracing::warn!("Adventure dashboard: wrong current password on the email page for {key:?}.");
+    PasswordCheck::Wrong
+}
+
+/// The logged-in login, if it has a local account (an old Twitch-minted
+/// session may not).
+async fn account_login(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let (login, _) = current_session(headers, state).await?;
+    state.accounts.lock().await.contains_key(&login).then_some(login)
+}
+
+fn persist_accounts(state: &AppState, accounts: &HashMap<String, Account>) {
+    if let Err(err) = crate::state::save_json(&state.accounts_path, accounts) {
+        tracing::error!("Failed to persist local accounts to {}: {err}", state.accounts_path.display());
+    }
+}
+
+fn email_page_html(account: &Account, notice: Option<&str>) -> String {
+    let status = match &account.email {
+        Some(email) => format!("<p>Verified email: <strong>{}</strong>. Password reset links are sent here.</p>", escape_html(email)),
+        None => "<p>No verified email on this account. Adding one is optional: it lets you reset a forgotten password yourself.</p>".to_string(),
+    };
+    let pending = account.pending_email.as_ref().map_or(String::new(), |p| {
+        format!("<p>Waiting for you to confirm <strong>{}</strong>: open the link we sent there while logged in here. It is not used for anything until then.</p>", escape_html(&p.address))
+    });
+    let remove = if account.email.is_some() || account.pending_email.is_some() {
+        "<form method=\"post\" action=\"/account/email/remove\">\
+           <p><label for=\"remove_password\">Current password</label><br>\
+             <input type=\"password\" id=\"remove_password\" name=\"password\" autocomplete=\"current-password\"></p>\
+           <p><button class=\"btn\" type=\"submit\">Remove email</button></p>\
+         </form>"
+    } else {
+        ""
+    };
+    card(
+        "Account email",
+        &format!(
+            "{status}{pending}{notice}\
+             <form method=\"post\" action=\"{EMAIL_PATH}\">\
+               <p><label for=\"email\">Email</label><br>\
+                 <input type=\"email\" id=\"email\" name=\"email\" autocomplete=\"email\" maxlength=\"254\"></p>\
+               <p><label for=\"password\">Current password</label><br>\
+                 <input type=\"password\" id=\"password\" name=\"password\" autocomplete=\"current-password\"></p>\
+               <p><button class=\"btn\" type=\"submit\">Send verification link</button></p>\
+             </form>\
+             {remove}\
+             <p class=\"muted\">Your email is stored only with your account on the game server. Only you and the game's owner can see it, and it is used only for verification, password resets, and a notice if it is changed or removed.</p>\
+             <p class=\"muted\"><a href=\"/\">Back</a></p>",
+            notice = notice.map(notice_html).unwrap_or_default(),
+        ),
+    )
+}
+
+#[derive(Deserialize)]
+pub(super) struct EmailForm {
+    #[serde(default)]
+    email: String,
+    #[serde(default)]
+    password: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct PasswordOnlyForm {
+    #[serde(default)]
+    password: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct TokenForm {
+    #[serde(default)]
+    token: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ResetForm {
+    #[serde(default)]
+    token: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    confirm: String,
+}
+
+/// 404 when SMTP is unset (the same generic page an unknown route gets),
+/// else the account's login - or a redirect to log in.
+// The Err is the page to send straight back, as in `forced_change_login`.
+#[allow(clippy::result_large_err)]
+async fn email_account(state: &AppState, headers: &HeaderMap) -> Result<String, axum::response::Response> {
+    if state.email.is_none() {
+        return Err(admin_not_found());
+    }
+    account_login(state, headers).await.ok_or_else(|| Redirect::to("/account/login").into_response())
+}
+
+async fn render_email_page(state: &AppState, key: &str, status: StatusCode, notice: Option<&str>) -> axum::response::Response {
+    let Some(account) = state.accounts.lock().await.get(key).cloned() else {
+        return Redirect::to("/account/login").into_response();
+    };
+    (status, Html(render_page(&email_page_html(&account, notice)))).into_response()
+}
+
+pub(super) async fn email_page(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
+    match email_account(&state, &headers).await {
+        Ok(key) => render_email_page(&state, &key, StatusCode::OK, None).await,
+        Err(resp) => resp,
+    }
+}
+
+pub(super) async fn do_send_verification(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<EmailForm>) -> axum::response::Response {
+    let key = match email_account(&state, &headers).await {
+        Ok(key) => key,
+        Err(resp) => return resp,
+    };
+    let address = form.email.trim().to_string();
+    if !valid_email(&address) {
+        return render_email_page(&state, &key, StatusCode::BAD_REQUEST, Some("That doesn't look like an email address.")).await;
+    }
+    match check_current_password(&state, &key, &form.password).await {
+        PasswordCheck::Correct => {}
+        PasswordCheck::Wrong => return render_email_page(&state, &key, StatusCode::UNAUTHORIZED, Some("Incorrect current password.")).await,
+        PasswordCheck::Busy => return render_email_page(&state, &key, StatusCode::SERVICE_UNAVAILABLE, Some("The server is busy right now. Please try again in a moment.")).await,
+    }
+    if !email_send_allowed(&state, &key, &headers).await {
+        tracing::warn!("Adventure dashboard: email send limit reached for {key:?}; verification not sent.");
+        return render_email_page(&state, &key, StatusCode::TOO_MANY_REQUESTS, Some("Too many emails requested. Try again in 15 minutes.")).await;
+    }
+    let (token, record) = new_token(now_secs(), EMAIL_VERIFY_TTL_SECS);
+    {
+        let mut accounts = state.accounts.lock().await;
+        let Some(account) = accounts.get_mut(&key) else {
+            return Redirect::to("/account/login").into_response();
+        };
+        account.pending_email = Some(PendingEmail { address: address.clone(), token: record });
+        persist_accounts(&state, &accounts);
+    }
+    tracing::info!("Adventure dashboard: {key} asked to verify {}.", mask_email(&address));
+    let body = format!(
+        "Someone (hopefully you) asked to add this address to the Path of Dust account \"{key}\".\n\n\
+         To confirm, open this link while logged in to that account (it expires in 24 hours):\n{}\n\n\
+         If this wasn't you, ignore this email and the address will not be added.\n",
+        link(&state, "/account/email/verify", &token)
+    );
+    send_in_background(&state, address.clone(), "Confirm your Path of Dust email", body, "verification");
+    render_email_page(&state, &key, StatusCode::OK, Some(&format!("We sent a confirmation link to {address}. Open it while logged in here."))).await
+}
+
+pub(super) async fn verify_email_page(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<TokenForm>) -> axum::response::Response {
+    if state.email.is_none() {
+        return admin_not_found();
+    }
+    if account_login(&state, &headers).await.is_none() {
+        return Html(render_page(&card("Confirm your email", "<p>Log in to the account you added this email to, then open the link from the email again.</p><p><a href=\"/account/login\">Log in</a></p>"))).into_response();
+    }
+    Html(render_page(&card(
+        "Confirm your email",
+        &format!(
+            "<form method=\"post\" action=\"/account/email/verify\">\
+               <input type=\"hidden\" name=\"token\" value=\"{}\">\
+               <p><button class=\"btn\" type=\"submit\">Confirm this email</button></p>\
+             </form>",
+            escape_html(&query.token)
+        ),
+    )))
+    .into_response()
+}
+
+pub(super) async fn do_verify_email(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TokenForm>) -> axum::response::Response {
+    let key = match email_account(&state, &headers).await {
+        Ok(key) => key,
+        Err(resp) => return resp,
+    };
+    let (new, old) = {
+        let mut accounts = state.accounts.lock().await;
+        let Some(account) = accounts.get_mut(&key) else {
+            return Redirect::to("/account/login").into_response();
+        };
+        let Some(pending) = account.pending_email.take_if(|p| token_matches(&p.token, &form.token, now_secs())) else {
+            drop(accounts);
+            return render_email_page(&state, &key, StatusCode::BAD_REQUEST, Some("That confirmation link is invalid or has expired. Send a new one.")).await;
+        };
+        let old = account.email.replace(pending.address.clone());
+        // A reset link already out to the previous address dies with it.
+        account.reset_token = None;
+        persist_accounts(&state, &accounts);
+        (pending.address, old)
+    };
+    tracing::info!("Adventure dashboard: {key} verified {}.", mask_email(&new));
+    if let Some(old) = old.filter(|o| !o.eq_ignore_ascii_case(&new)) {
+        let body = format!("The email on the Path of Dust account \"{key}\" was changed to another address. Password reset links now go there.\n\nIf you didn't do this, contact Lokati.\n");
+        send_in_background(&state, old, "Your Path of Dust email was changed", body, "change notice");
+    }
+    render_email_page(&state, &key, StatusCode::OK, Some("Email verified.")).await
+}
+
+pub(super) async fn do_remove_email(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<PasswordOnlyForm>) -> axum::response::Response {
+    let key = match email_account(&state, &headers).await {
+        Ok(key) => key,
+        Err(resp) => return resp,
+    };
+    match check_current_password(&state, &key, &form.password).await {
+        PasswordCheck::Correct => {}
+        PasswordCheck::Wrong => return render_email_page(&state, &key, StatusCode::UNAUTHORIZED, Some("Incorrect current password.")).await,
+        PasswordCheck::Busy => return render_email_page(&state, &key, StatusCode::SERVICE_UNAVAILABLE, Some("The server is busy right now. Please try again in a moment.")).await,
+    }
+    let old = {
+        let mut accounts = state.accounts.lock().await;
+        let Some(account) = accounts.get_mut(&key) else {
+            return Redirect::to("/account/login").into_response();
+        };
+        account.pending_email = None;
+        account.reset_token = None;
+        let old = account.email.take();
+        persist_accounts(&state, &accounts);
+        old
+    };
+    tracing::info!("Adventure dashboard: {key} removed their email.");
+    if let Some(old) = old {
+        let body = format!("The email was removed from the Path of Dust account \"{key}\". It can no longer be used to reset that account's password.\n\nIf you didn't do this, contact Lokati.\n");
+        send_in_background(&state, old, "Your Path of Dust email was removed", body, "removal notice");
+    }
+    render_email_page(&state, &key, StatusCode::OK, Some("Email removed.")).await
+}
+
+fn forgot_html(notice: Option<&str>) -> String {
+    card(
+        "Forgot your password",
+        &format!(
+            "<p>Enter your username. If the account has a verified email, we'll send a link to set a new password.</p>{}\
+             <form method=\"post\" action=\"/account/forgot\">\
+               <p><label for=\"username\">Username</label><br>\
+                 <input type=\"text\" id=\"username\" name=\"username\" autocomplete=\"username\" maxlength=\"{USERNAME_MAX_LEN}\"></p>\
+               <p><button class=\"btn\" type=\"submit\">Send reset link</button></p>\
+             </form>\
+             <p class=\"muted\"><a href=\"/account/login\">Back to log in</a></p>",
+            notice.map(notice_html).unwrap_or_default()
+        ),
+    )
+}
+
+pub(super) async fn forgot_page(State(state): State<AppState>) -> axum::response::Response {
+    if state.email.is_none() {
+        return admin_not_found();
+    }
+    Html(render_page(&forgot_html(None))).into_response()
+}
+
+/// ONE response for every outcome - unknown name, no email, unverified
+/// email, rate-limited, sent - so the page cannot be used to find
+/// accounts or emails. The send itself is in the background.
+pub(super) async fn do_forgot(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<IssueTempPasswordForm>) -> axum::response::Response {
+    if state.email.is_none() {
+        return admin_not_found();
+    }
+    let key = form.username.trim().to_lowercase();
+    if !email_send_allowed(&state, &key, &headers).await {
+        tracing::warn!("Adventure dashboard: email send limit reached; reset for {key:?} not sent.");
+    } else {
+        let (token, record) = new_token(now_secs(), RESET_TOKEN_TTL_SECS);
+        let to = {
+            let mut accounts = state.accounts.lock().await;
+            let to = accounts.get_mut(&key).and_then(|account| {
+                let email = account.email.clone()?;
+                // Issuing again replaces the earlier link.
+                account.reset_token = Some(record);
+                Some(email)
+            });
+            if to.is_some() {
+                persist_accounts(&state, &accounts);
+            }
+            to
+        };
+        match to {
+            Some(to) => {
+                tracing::info!("Adventure dashboard: password reset link for {key} sent to {}.", mask_email(&to));
+                let body = format!(
+                    "Someone (hopefully you) asked to reset the password for the Path of Dust account \"{key}\".\n\n\
+                     Set a new password here (works once, within 1 hour):\n{}\n\n\
+                     If this wasn't you, ignore this email; your password has not changed.\n",
+                    link(&state, "/account/reset", &token)
+                );
+                send_in_background(&state, to, "Reset your Path of Dust password", body, "password reset");
+            }
+            None => tracing::info!("Adventure dashboard: password reset asked for {key:?}, which has no verified email; nothing sent."),
+        }
+    }
+    Html(render_page(&forgot_html(Some(FORGOT_RESPONSE)))).into_response()
+}
+
+fn reset_html(token: &str, error: Option<&str>) -> String {
+    card(
+        "Set a new password",
+        &format!(
+            "<p>Choose a new password (at least {PASSWORD_MIN_LEN} characters). This signs you out everywhere.</p>{}\
+             <form method=\"post\" action=\"/account/reset\">\
+               <input type=\"hidden\" name=\"token\" value=\"{}\">\
+               <p><label for=\"password\">New password</label><br>\
+                 <input type=\"password\" id=\"password\" name=\"password\" autocomplete=\"new-password\"></p>\
+               <p><label for=\"confirm\">Repeat new password</label><br>\
+                 <input type=\"password\" id=\"confirm\" name=\"confirm\" autocomplete=\"new-password\"></p>\
+               <p><button class=\"btn\" type=\"submit\">Set password</button></p>\
+             </form>",
+            error.map(notice_html).unwrap_or_default(),
+            escape_html(token)
+        ),
+    )
+}
+
+pub(super) async fn reset_page(State(state): State<AppState>, Query(query): Query<TokenForm>) -> axum::response::Response {
+    if state.email.is_none() {
+        return admin_not_found();
+    }
+    ([(header::CACHE_CONTROL, "no-store")], Html(render_page(&reset_html(&query.token, None)))).into_response()
+}
+
+fn reset_holder(accounts: &HashMap<String, Account>, token: &str, now: u64) -> Option<String> {
+    accounts.iter().find(|(_, a)| a.reset_token.as_ref().is_some_and(|r| token_matches(r, token, now))).map(|(k, _)| k.clone())
+}
+
+pub(super) async fn do_reset(State(state): State<AppState>, Form(form): Form<ResetForm>) -> axum::response::Response {
+    if state.email.is_none() {
+        return admin_not_found();
+    }
+    let reject = |status: StatusCode, msg: &str| (status, Html(render_page(&reset_html(&form.token, Some(msg))))).into_response();
+    if form.password.len() < PASSWORD_MIN_LEN {
+        return reject(StatusCode::BAD_REQUEST, "Passwords must be at least 8 characters long.");
+    }
+    if form.password != form.confirm {
+        return reject(StatusCode::BAD_REQUEST, "The two passwords did not match.");
+    }
+    const INVALID: &str = "This reset link is invalid, already used, or expired. Request a new one from the Forgot password page.";
+    if reset_holder(&*state.accounts.lock().await, &form.token, now_secs()).is_none() {
+        return reject(StatusCode::BAD_REQUEST, INVALID);
+    }
+    let Some(_permit) = acquire_password_hash_permit(&state).await else {
+        return reject(StatusCode::SERVICE_UNAVAILABLE, "The server is busy right now. Please try again in a moment.");
+    };
+    let password_hash = match hash_password_blocking(form.password.clone()).await {
+        Ok(hash) => hash,
+        Err(err) => {
+            tracing::error!("Email password reset failed while hashing: {err}");
+            return reject(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong setting that password. Try again.");
+        }
+    };
+    // Re-found under the re-taken lock: a second submit of the same link
+    // may have used it while this one was hashing, and only one wins.
+    let key = {
+        let mut accounts = state.accounts.lock().await;
+        let Some(key) = reset_holder(&accounts, &form.token, now_secs()) else {
+            drop(accounts);
+            return reject(StatusCode::BAD_REQUEST, INVALID);
+        };
+        let account = accounts.get_mut(&key).expect("reset_holder returned a present key");
+        account.password_hash = password_hash;
+        account.reset_token = None;
+        // A pending owner-issued temporary password is superseded.
+        account.must_change_password = false;
+        account.temp_password_expires_at = None;
+        persist_accounts(&state, &accounts);
+        key
+    };
+    let removed = remove_sessions_for(&state, &key).await;
+    state.login_failures.lock().await.remove(&key);
+    tracing::warn!("Adventure dashboard: {key} reset their password by email; {removed} session(s) removed.");
+    Html(render_page(&card("Password changed", "<p>Your password has been changed and you have been signed out everywhere.</p><p><a href=\"/account/login\">Log in</a></p>"))).into_response()
 }
 
 fn reject_register(reason: &str) -> axum::response::Response {
@@ -1011,7 +1555,7 @@ mod tests {
 
     #[test]
     fn a_temporary_password_expires_at_its_deadline_and_a_normal_one_never_does() {
-        let mut account = Account { username: "p".into(), password_hash: String::new(), created_at: 0, must_change_password: true, temp_password_expires_at: Some(1_000) };
+        let mut account = Account { username: "p".into(), password_hash: String::new(), created_at: 0, must_change_password: true, temp_password_expires_at: Some(1_000), ..Default::default() };
         assert!(!temp_password_expired(&account, 999));
         assert!(temp_password_expired(&account, 1_000));
         account.must_change_password = false;
@@ -1023,10 +1567,62 @@ mod tests {
     /// shape still loads.
     #[test]
     fn accounts_without_a_temporary_password_serialize_as_before() {
-        let account = Account { username: "p".into(), password_hash: "h".into(), created_at: 7, must_change_password: false, temp_password_expires_at: None };
+        let account = Account { username: "p".into(), password_hash: "h".into(), created_at: 7, ..Default::default() };
         assert_eq!(serde_json::to_string(&account).unwrap(), r#"{"username":"p","password_hash":"h","created_at":7}"#);
         let old: Account = serde_json::from_str(r#"{"username":"p","password_hash":"h","created_at":7}"#).unwrap();
         assert!(!old.must_change_password && old.temp_password_expires_at.is_none());
+    }
+
+    /// The 47b rollback contract: the email fields are skipped when unset
+    /// (so the test above still holds), and a 47b account with every
+    /// field set still loads in a struct that knows none of them -
+    /// standing in for an older binary, which ignores unknown keys.
+    #[test]
+    fn email_fields_round_trip_and_an_older_reader_ignores_them() {
+        let account = Account {
+            username: "p".into(),
+            password_hash: "h".into(),
+            created_at: 7,
+            email: Some("p@example.com".into()),
+            pending_email: Some(PendingEmail { address: "q@example.com".into(), token: TokenRecord { token_hash: "a".into(), expires_at: 9 } }),
+            reset_token: Some(TokenRecord { token_hash: "b".into(), expires_at: 10 }),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&account).unwrap();
+        let back: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.email.as_deref(), Some("p@example.com"));
+        assert_eq!(back.pending_email.as_ref().map(|p| (p.address.as_str(), p.token.expires_at)), Some(("q@example.com", 9)));
+        assert_eq!(back.reset_token.as_ref().map(|r| r.expires_at), Some(10));
+        #[derive(Deserialize)]
+        struct PreEmail {
+            username: String,
+        }
+        assert_eq!(serde_json::from_str::<PreEmail>(&json).unwrap().username, "p");
+    }
+
+    #[test]
+    fn a_token_matches_only_itself_and_only_before_expiry() {
+        let (token, record) = new_token(1_000, RESET_TOKEN_TTL_SECS);
+        assert_ne!(record.token_hash, token, "only the hash is stored");
+        assert_eq!(record.token_hash.len(), 64, "sha-256 hex");
+        assert!(token_matches(&record, &token, 1_000));
+        assert!(token_matches(&record, &token, 1_000 + RESET_TOKEN_TTL_SECS - 1));
+        assert!(!token_matches(&record, &token, 1_000 + RESET_TOKEN_TTL_SECS), "one hour, then dead");
+        assert!(!token_matches(&record, "some-other-token", 1_000));
+        assert_eq!(RESET_TOKEN_TTL_SECS, 3600);
+    }
+
+    #[test]
+    fn email_sends_stop_at_the_limit_and_reopen_after_the_window() {
+        let mut sends = HashMap::new();
+        let now = std::time::Instant::now();
+        for _ in 0..EMAIL_SENDS_PER_USER {
+            assert!(!email_sends_exhausted(&sends, "p", EMAIL_SENDS_PER_USER, now));
+            record_login_failure(&mut sends, "p", now);
+        }
+        assert!(email_sends_exhausted(&sends, "p", EMAIL_SENDS_PER_USER, now));
+        assert!(!email_sends_exhausted(&sends, "other", EMAIL_SENDS_PER_USER, now), "per key");
+        assert!(!email_sends_exhausted(&sends, "p", EMAIL_SENDS_PER_USER, now + LOGIN_FAILURE_WINDOW), "the window runs out");
     }
 
     #[test]
