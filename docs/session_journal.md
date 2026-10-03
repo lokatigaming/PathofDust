@@ -10794,3 +10794,27 @@ diff +13 / −0, and it renders on /patch-notes. Bot: not redeployed.
 tunable changed by this session):**
 - 2026-09-28 09:38 UTC: `boss_count_cap_mult` 1.5 → 1.0, saved through /admin/tunables.
 - 2026-09-29 06:06 UTC: `target_win_loss_ratio` 3.0 → 2.0, saved through /admin/tunables.
+
+## 2026-10-03 — release 43 `craft-dropdown-default-42b` deployed (item 42b, window c). 0.23 s.
+
+Order `2026-10-03 release 43 (item 42b) … then release 44 (item 47b)`. Merge `78a8a62` (`--no-ff` of
+`fix/craft-dropdown-default-42b` `09a394a`, base `37fabc0`). Conflict: `WIKI_IMPACT.md` only (47a line vs
+42b line), keep-both; `game/src/adventure_web.rs` auto-merged. Suite
+`cargo test --release --workspace --quiet --no-fail-fast -j 4`: **1118 / 0 / 53** locally and on the box.
+Golden corpus unchanged. Archive `86fff3b7898741baab53a4890ffa0e3fe75f1e93e89277c74cc266f6727b2f11` matched
+on both ends; identity grep `craft_default_item_id` hit `adventure_web.rs` (6). Live `b8eeb075…` →
+**`906f8ad261cbbed49dbd3687b7bae577c6a6b90e5e9d86481c2ad922cd26e86e`**, downtime 0.23 s, slot
+`deploy-pre-20261003-101525-craft-dropdown-default-42b`.
+
+**Checks**: 1 `active`; 2 NRestarts `0`; 3 `loaded 24 characters` = file `24`; 4 live = candidate;
+5 **unrun** (needs a cookie); 6 port 4005 `/admin/tunables` and `/admin/accounts` are 404 / 83,124 B;
+7 404; 0 panic/ERROR lines. Fight loop 33602 → 33641 (10:15:49, after the 10:15:25 swap). Crafting-card
+live check **unrun**: `/inventory` needs a session and no token was read. The diff changes only the
+`selected` default passed to `craft_item_options`, so the option list and order are unchanged by
+construction (covered by `tests/craft_default_item_http.rs`).
+
+**Accounts / sessions / tunables**: accounts byte-identical (`8131d260…`), sessions 71 before and after,
+tunables byte-identical (`f7783dcb…`, already carrying the owner's 10-02 14:39 `target_win_loss_ratio` 2.5).
+**Rollback**: binary-only is safe (render-only change, no data format change). **Patch notes**: new
+**October 3, 2026** block; pre-edit copy `42802e76…` in the slot; diff +13 / −0; renders on /patch-notes.
+Bot: not redeployed. `git diff --name-only 93390d6..78a8a62 -- bot Cargo.lock Cargo.toml` is empty.
