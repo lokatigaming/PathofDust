@@ -145,6 +145,7 @@ $CoreFiles = @(
     'playrandom-state.json'                  # playrandom.rs:274 STATE_PATH - the !playrandom on/off flag. Tiny, and included because its absence has ALREADY been misread once as "continuous mode randomly stopping on its own" (that comment's own words) when it was every bot restart.
     'playrandom-log.json'                    # playrandom.rs PLAY_LOG_PATH - every random song that actually reached the stream (timestamp, id, title). A record of what was played, with no second copy anywhere. CAPPED at PLAY_LOG_MAX_ENTRIES = 10,000 entries, oldest dropped, because this file rides in every hourly snapshot and was the only allow-listed file with no ceiling; at ~100 bytes an entry that bounds it near a megabyte.
     'playrandom-history.json'                # playrandom.rs HISTORY_PATH - the last 100 random video ids, which is what the no-repeat window IS. Losing it does not break playback; it makes !playrandom start repeating songs it just played, which reads as the feature having silently stopped working.
+    'play-record.json'                       # song_requests.rs play_record_path - item 50's no-repeat record: video id -> when it last started, from any source, pruned to SONG_NO_REPEAT_HOURS. Losing it does not break playback; songs from the last few hours become playable again early.
     'playrandom-blocklist.json'              # playrandom.rs BLOCKLIST_PATH - random videos the overlay could not play, with the reason. Each entry cost one dead slot on stream to learn; losing the file means paying for every one of them again.
 )
 

@@ -170,7 +170,7 @@ impl EntranceThemeManager {
     /// Actually starts a theme playing via song_requests' insert
     /// mechanism, and announces `ThemeStartedEvent` once it succeeds.
     async fn start_theme(&self, username: String, youtube_url: String, song_requests: &Arc<SongRequestManager>) {
-        match song_requests.insert_song(&youtube_url, "Entrance Theme").await {
+        match song_requests.insert_intro(&youtube_url, "Entrance Theme").await {
             Ok(SongInsertOutcome::Inserted { song }) => {
                 // Same safety net !songinsert's chat command spawns — if
                 // the overlay never reports the theme actually ended

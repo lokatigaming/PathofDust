@@ -20,7 +20,7 @@ use twitch_bot_rs::paypal;
 use twitch_bot_rs::personal_playlists::PersonalPlaylistManager;
 use twitch_bot_rs::playrandom::PlayRandomManager;
 use twitch_bot_rs::song_overlay_server;
-use twitch_bot_rs::song_requests::{SongInsertOutcome, SongRequestManager, INSERT_BACKSTOP_GRACE_SECS};
+use twitch_bot_rs::song_requests::{RequestError, SongInsertOutcome, SongRequestManager, INSERT_BACKSTOP_GRACE_SECS};
 use twitch_bot_rs::streamelements::{self, Tip};
 use twitch_bot_rs::twitch::auth::AuthClient;
 use twitch_bot_rs::twitch::eventsub::{self, TwitchEvent};
@@ -130,7 +130,7 @@ async fn handle_theme_redemption(
             // Re-resolving the same query here is a free cache hit (same
             // cache resolve_song_preview just populated) — not a second
             // YouTube API call.
-            match song_requests.insert_song(query, &user_name).await {
+            match song_requests.insert_intro(query, &user_name).await {
                 Ok(SongInsertOutcome::Inserted { song: inserted }) => {
                     let sr = song_requests.clone();
                     let video_id = inserted.video_id.clone();
@@ -239,14 +239,26 @@ async fn handle_interrupt_redemption(
         return;
     }
 
-    if let Err(err) = song_requests.resolve_song_preview(query).await {
-        let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
-        if announce {
-            chat_client
-                .say(format!("{user_name}, couldn't interrupt with that ({err}) — refunded, redeem again with a different link/search."))
-                .await;
+    match song_requests.resolve_song_preview(query).await {
+        Err(err) => {
+            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
+            if announce {
+                chat_client
+                    .say(format!("{user_name}, couldn't interrupt with that ({err}) — refunded, redeem again with a different link/search."))
+                    .await;
+            }
+            return;
         }
-        return;
+        // The no-repeat rule (item 50): a song that started inside the
+        // window is dropped, and a dropped request costs nothing — the
+        // points are refunded, the skip cooldown is never started and
+        // the current song is not skipped. Silent by ruling: no chat
+        // line, even for a replayed backlog; `would_repeat` logs it.
+        Ok(song) if song_requests.would_repeat(&song) => {
+            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
+            return;
+        }
+        Ok(_) => {}
     }
 
     // The song resolved fine, so this redemption is genuinely going
@@ -296,6 +308,11 @@ async fn handle_interrupt_redemption(
                     ))
                     .await;
             }
+        }
+        // Only reachable if the song started in the instant since the
+        // check above. Same ruling: refunded, and silent.
+        Err(RequestError::Repeat { .. }) => {
+            let _ = helix.update_redemption_status(broadcaster_id, &reward_id, &redemption_id, "CANCELED").await;
         }
         Err(err) => {
             tracing::warn!("Interrupt redemption for {user_name}: skip happened but insert failed: {err}");
@@ -436,6 +453,8 @@ async fn async_main() -> anyhow::Result<()> {
             config.song_request_votevolume_threshold,
             PathBuf::from("song-queue.json"),
             PathBuf::from("search-cache.json"),
+            config.song_no_repeat_hours,
+            PathBuf::from("play-record.json"),
         );
         song_overlay_server::start_song_overlay_server(
             config.song_request_server_port,

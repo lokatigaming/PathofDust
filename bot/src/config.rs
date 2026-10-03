@@ -62,6 +62,9 @@ pub struct Config {
     /// particular volume level (always clamped to 50-75, see
     /// `song_requests::{MIN_VOTE_VOLUME, MAX_VOTE_VOLUME}`).
     pub song_request_votevolume_threshold: u32,
+    /// Hours a song that started playing is kept from playing again,
+    /// from any source except an intro (item 50). 0 turns the rule off.
+    pub song_no_repeat_hours: u64,
 
     /// League poe.ninja economy lookups (!essenceprofit) are scoped to —
     /// update this in .env when a new league launches, no redeploy needed.
@@ -176,6 +179,7 @@ impl Config {
             song_request_voteresume_threshold: env_u32_or("SONG_REQUEST_VOTERESUME_THRESHOLD", 3),
             song_request_resume_cooldown_secs: env_u64_or("SONG_REQUEST_RESUME_COOLDOWN_SECONDS", 30),
             song_request_votevolume_threshold: env_u32_or("SONG_REQUEST_VOTEVOLUME_THRESHOLD", 3),
+            song_no_repeat_hours: env_u64_or("SONG_NO_REPEAT_HOURS", 4),
             poe_ninja_league: env_var_or("POE_NINJA_LEAGUE", "Allflame"),
             chat_overlay_server_port: env_u16_or("CHAT_OVERLAY_SERVER_PORT", 4003),
             playlist_sync_secret: env_var("PLAYLIST_SYNC_SECRET"),
