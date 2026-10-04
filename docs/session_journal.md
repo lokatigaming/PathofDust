@@ -10857,5 +10857,47 @@ stored address.
 game sends email through an SMTP server of the owner's choosing. The reversal note is in
 `docs/external_integration_removal_scope.md`, which is in this merge.
 
+## 2026-10-04 — item 47c: email recovery switched ON (window c). Box settings + one restart, no deploy.
+
+Binary unchanged (`555cfc95…`, release 44, master `66f9e8c`). Nothing merged, bot untouched.
+
+**Created on the box** (no values recorded anywhere):
+- `/etc/pathofdust/mail.env`, root:root 0600 (the directory was already there, root 0700 and empty). `SMTP_HOST`,
+  `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_FROM`, `PUBLIC_BASE_URL`, plus one `SMTP_PASSWORD` line (the Resend API
+  key, typed in by the owner; verified only as 1 line, 36 chars, `re_` prefix).
+- `/etc/systemd/system/pathofdust.service.d/20-mail.conf`, root:root 0644: `[Service]` / `EnvironmentFile=/etc/pathofdust/mail.env`.
+- `/usr/local/sbin/pod-set-mail-key`, root:root 0700. Reads the key with no echo, refuses empty, non-`re_`,
+  whitespace or non-tty input, replaces the one `SMTP_PASSWORD=` line atomically (root/600 kept), and prints only
+  "Saved." or a reason. Run as `ssh -t root@<box> /usr/local/sbin/pod-set-mail-key` to rotate the key; a
+  restart is needed afterwards.
+
+**Port change from b's proposal: `SMTP_PORT=2587`, not 465.** The box's provider blocks outbound 465 and 587
+(TCP fails); Resend's 2465/2587 are open. `mail.rs` uses implicit TLS only for 465 and STARTTLS for everything
+else, so 2587 (STARTTLS, cert verified, TLSv1.3) is the port that works unmodified. systemd passes
+`SMTP_FROM=Path of Dust <noreply@lokati.net>` intact unquoted (tested with `systemd-run`).
+
+**Restart**: once, 09:11:04 CEST, MainPID 1236501 → 1248013. Log: `Email features enabled (SMTP port 2587).`
+Checks: 1 active; 2 NRestarts 0; 3 `loaded 24` = file 24; 4 `555cfc95…`; 5 **unrun** (cookie needed); 6 404;
+7 404; 0 panic/ERROR. `/account/login` now carries `Reset your password by email` (`365a6ac0…`, 83,780 B);
+`/account/forgot` 200. Accounts `322999b7…` byte-identical before/after the restart, sessions 77 / 77,
+tunables `cmp` identical. Fight seq 34961 → 34962 after the restart.
+
+**Owner's live test: PASS.** 09:29:14 `Sent verification email to p***@g***.com.`, mail arrived, and the link
+was clicked; 09:29:40 `lokati verified p***@g***.com.` Resend accepted the send, so the domain is usable.
+
+**Patch notes**: an "October 4, 2026" block with the release-44 wording, +13/−0. Pre-edit copy is
+`/root/47c-snap/patch-notes.pre.json`.
+
+**Backups**: `pathofdust-backup.timer` backs up only `/var/lib/pathofdust`. The settings file is NOT backed up
+(not added, as ordered). If the box is rebuilt, re-create the file and re-run the helper.
+
+**Switch off**: `rm /etc/systemd/system/pathofdust.service.d/20-mail.conf && systemctl daemon-reload &&
+systemctl restart pathofdust`. The log then says `Email features disabled: SMTP is not configured.` and the
+email routes return 404. Stored emails stay in the accounts file (an email-aware binary keeps them).
+
+**Rollback note (stands from release 44, now live)**: at least one email is stored, so a binary older than release 44
+would drop the email fields on its next accounts save. Binary-only rollback below release 44 is no longer safe.
+
 ## FOUND
 - 2026-10-03 (window c): the Linux `game` binary links libssl/libcrypto although `cargo tree -p game -i openssl-sys` is empty on the box; openssl-sys is built in the workspace for the bot. Present since at least 09-03. Not investigated.
+- 2026-10-04 (window c): the release-44 patch-note wording says to use "Forgot your password?" on the login page, but the link there reads "Reset your password by email".
