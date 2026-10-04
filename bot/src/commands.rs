@@ -673,11 +673,19 @@ async fn handle_builtin(
                     }
                     match play_random.find_similar_songs(song_requests, count).await {
                         Ok((genres, songs)) => {
-                            let titles: Vec<String> = songs.iter().map(|s| format!("\"{}\"", s.title)).collect();
-                            let n = songs.len();
-                            for song in songs {
-                                song_requests.queue_song(song);
+                            // Only what was actually queued is named — a
+                            // no-repeat drop is silent (item 50).
+                            let titles: Vec<String> = songs
+                                .into_iter()
+                                .filter_map(|song| {
+                                    let title = format!("\"{}\"", song.title);
+                                    (!matches!(song_requests.queue_song(song), RequestOutcome::Dropped)).then_some(title)
+                                })
+                                .collect();
+                            if titles.is_empty() {
+                                return Some(Reply::None);
                             }
+                            let n = titles.len();
                             Some(
                                 format!("Queued {n} song(s) from recent genres ({}): {}", genres.join(", "), titles.join(", "))
                                     .into(),
@@ -798,6 +806,9 @@ async fn handle_builtin(
                     services.personal_playlists.add_song(user, &song).await;
                     Some(format!("Queued \"{}\" at position {position}.", song.title).into())
                 }
+                // A no-repeat drop (item 50): silent, and not saved to
+                // their playlist either — nothing happened.
+                Ok(RequestOutcome::Dropped) => Some(Reply::None),
                 Err(err) => err.chat_reply().map(Into::into),
             }
         }
@@ -904,8 +915,14 @@ async fn handle_builtin(
                             }
                             PlayOutcome::Song { display_name, song } => {
                                 let title = song.title.clone();
-                                song_requests.queue_song(song);
-                                format!("Queued \"{title}\" from {display_name}'s playlist.").into()
+                                // A deliberate pick, so a viewer request
+                                // under the no-repeat rule: a repeat is
+                                // dropped silently (item 50).
+                                if matches!(song_requests.queue_song(song), RequestOutcome::Dropped) {
+                                    Reply::None
+                                } else {
+                                    format!("Queued \"{title}\" from {display_name}'s playlist.").into()
+                                }
                             }
                         });
                     }
@@ -922,7 +939,13 @@ async fn handle_builtin(
                     already_queued.extend(snapshot.now_playing.iter().map(|s| s.video_id.clone()));
                     already_queued.extend(snapshot.active_insert.iter().map(|s| s.video_id.clone()));
 
-                    match services.personal_playlists.sample(&target, PLAYLIST_QUEUE_SAMPLE_SIZE, &already_queued).await
+                    // The no-repeat record (item 50): the sample prefers
+                    // songs that have not started inside the window.
+                    let recently_started = song_requests.recently_started();
+                    match services
+                        .personal_playlists
+                        .sample(&target, PLAYLIST_QUEUE_SAMPLE_SIZE, &already_queued, &recently_started)
+                        .await
                     {
                         SampleOutcome::NoPlaylist => Some(format!("{target} hasn't requested any songs yet.").into()),
                         SampleOutcome::Empty { display_name } => {
@@ -932,9 +955,17 @@ async fn handle_builtin(
                             Some(format!("Every song in {display_name}'s playlist is already playing or queued.").into())
                         }
                         SampleOutcome::Songs { display_name, songs } => {
-                            let titles: Vec<String> = songs.iter().map(|s| format!("\"{}\"", s.title)).collect();
-                            for song in songs {
-                                song_requests.queue_song(song);
+                            // Only what was actually queued is named — a
+                            // no-repeat drop is silent (item 50).
+                            let titles: Vec<String> = songs
+                                .into_iter()
+                                .filter_map(|song| {
+                                    let title = format!("\"{}\"", song.title);
+                                    (!matches!(song_requests.queue_song(song), RequestOutcome::Dropped)).then_some(title)
+                                })
+                                .collect();
+                            if titles.is_empty() {
+                                return Some(Reply::None);
                             }
                             Some(
                                 format!(
@@ -1013,7 +1044,7 @@ async fn handle_builtin(
                     // handle_theme_redemption) — a mod setting someone's
                     // theme plays it right now instead of only mattering
                     // the next time that person happens to chat.
-                    match song_requests.insert_song(&query, &username).await {
+                    match song_requests.insert_intro(&query, &username).await {
                         Ok(SongInsertOutcome::Inserted { song: inserted }) => {
                             let sr = song_requests.clone();
                             let video_id = inserted.video_id.clone();
@@ -1424,7 +1455,7 @@ mod theme_remove_tests {
     use super::*;
     use crate::twitch::auth::AuthClient;
 
-    fn test_dir() -> PathBuf {
+    pub(super) fn test_dir() -> PathBuf {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("theme-remove-test-{}-{unique}", std::process::id()));
@@ -1436,7 +1467,7 @@ mod theme_remove_tests {
     /// touched. `AuthClient::new` refuses to start without a tokens.json,
     /// so one is written with placeholder values; it is never used,
     /// because none of these commands reaches Helix.
-    async fn services_in(dir: &std::path::Path) -> Services {
+    pub(super) async fn services_in(dir: &std::path::Path) -> Services {
         std::fs::write(
             dir.join("tokens.json"),
             r#"{"accessToken":"t","refreshToken":"r","scope":[],"expiresIn":99999,"obtainmentTimestamp":0}"#,
@@ -1466,11 +1497,11 @@ mod theme_remove_tests {
         }
     }
 
-    fn args(list: &[&str]) -> Vec<String> {
+    pub(super) fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
     }
 
-    fn reply_text(reply: Reply) -> String {
+    pub(super) fn reply_text(reply: Reply) -> String {
         match reply {
             Reply::One(s) => s,
             Reply::Many(v) => v.join(" | "),
@@ -1618,5 +1649,149 @@ mod theme_remove_tests {
         );
         assert_eq!(persisted_names(&dir), ["alice"], "and removes nobody");
         assert_eq!(std::fs::read_to_string(dir.join("entrance-themes.json")).unwrap(), before);
+    }
+}
+
+/// The no-repeat rule (item 50) as chat sees it: a repeat from a chat
+/// command is skipped with no reply at all, and an intro still plays.
+/// The record's clock is pinned, so nothing here waits.
+#[cfg(test)]
+mod no_repeat_tests {
+    use super::theme_remove_tests::{args, reply_text, services_in, test_dir};
+    use super::*;
+    use crate::song_requests::Song;
+    use chrono::{DateTime, Utc};
+
+    /// Services with a live song manager whose lookups are pre-seeded,
+    /// so nothing reaches YouTube, and whose clock is a dial.
+    async fn services_with_songs(ids: &[&str]) -> (Services, Arc<std::sync::Mutex<DateTime<Utc>>>) {
+        let dir = test_dir();
+        let mut services = services_in(&dir).await;
+        let manager = SongRequestManager::test_in(&dir, 1);
+        for id in ids {
+            manager.seed_cache(id, &format!("song {id}"), 200);
+        }
+        let at = Arc::new(std::sync::Mutex::new(Utc::now()));
+        let dial = at.clone();
+        manager.set_clock(Arc::new(move || *dial.lock().unwrap()));
+        services.song_requests = Some(manager);
+        (services, at)
+    }
+
+    fn songs(services: &Services) -> &Arc<SongRequestManager> {
+        services.song_requests.as_ref().unwrap()
+    }
+
+    fn saved(id: &str) -> Song {
+        Song {
+            video_id: id.to_string(),
+            title: format!("song {id}"),
+            duration_secs: 200,
+            requested_by: "saver".to_string(),
+            thumbnail_url: String::new(),
+            repeat_fallback: false,
+        }
+    }
+
+    fn link(id: &str) -> String {
+        format!("https://youtu.be/{id}")
+    }
+
+    /// Plays `id` through the queue start to finish, as a request.
+    fn play_through(services: &Services, id: &str) {
+        songs(services).queue_song(Song { requested_by: "viewer".to_string(), ..saved(id) });
+        songs(services).advance();
+    }
+
+    #[tokio::test]
+    async fn a_songrequest_of_a_repeat_says_nothing_and_queues_nothing() {
+        let (services, _clock) = services_with_songs(&["AAAAAAAAAAA"]).await;
+        let first = handle_command("sr", "viewer", &args(&[&link("AAAAAAAAAAA")]), false, false, &services).await;
+        assert_eq!(reply_text(first), "Now playing: song AAAAAAAAAAA");
+        songs(&services).advance();
+
+        let again = handle_command("sr", "other", &args(&[&link("AAAAAAAAAAA")]), false, false, &services).await;
+
+        assert!(matches!(again, Reply::None), "no chat line for a skipped repeat");
+        assert!(songs(&services).snapshot().now_playing.is_none());
+        assert!(songs(&services).snapshot().queue.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_playlist_play_of_a_repeat_says_nothing() {
+        let (services, _clock) = services_with_songs(&[]).await;
+        services.personal_playlists.add_song("saver", &saved("AAAAAAAAAAA")).await;
+        play_through(&services, "AAAAAAAAAAA");
+
+        let reply = handle_command("playlist", "viewer", &args(&["saver", "play", "1"]), false, false, &services).await;
+
+        assert!(matches!(reply, Reply::None));
+        assert!(songs(&services).snapshot().now_playing.is_none());
+    }
+
+    /// Source: the !playlist <user> sample — the bot's own pick, so it
+    /// chooses among songs that have not played while any exist.
+    #[tokio::test]
+    async fn a_playlist_sample_never_picks_a_repeat_while_a_fresh_song_exists() {
+        let (services, _clock) = services_with_songs(&[]).await;
+        let ids = ["AAAAAAAAAAA", "BBBBBBBBBBB", "CCCCCCCCCCC", "DDDDDDDDDDD", "EEEEEEEEEEE", "FFFFFFFFFFF"];
+        for id in ids {
+            services.personal_playlists.add_song("saver", &saved(id)).await;
+        }
+        for id in &ids[..3] {
+            play_through(&services, id);
+        }
+
+        // Sample size is 5 and only three are fresh: if a repeat could be
+        // drawn, five would be.
+        let reply = reply_text(handle_command("playlist", "viewer", &args(&["saver"]), false, false, &services).await);
+
+        assert!(reply.starts_with("Queued 3 song(s)"), "{reply}");
+        for id in &ids[..3] {
+            assert!(!reply.contains(id), "{id} played inside the window: {reply}");
+        }
+        for id in &ids[3..] {
+            assert!(reply.contains(id), "{id} is fresh: {reply}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_playlist_sample_falls_back_to_the_song_played_longest_ago() {
+        let (services, clock) = services_with_songs(&[]).await;
+        for id in ["AAAAAAAAAAA", "BBBBBBBBBBB"] {
+            services.personal_playlists.add_song("saver", &saved(id)).await;
+        }
+        play_through(&services, "BBBBBBBBBBB");
+        *clock.lock().unwrap() += chrono::Duration::minutes(5);
+        play_through(&services, "AAAAAAAAAAA");
+
+        let reply = handle_command("playlist", "viewer", &args(&["saver"]), false, false, &services).await;
+
+        assert_eq!(reply_text(reply), "Queued 1 song(s) from saver's playlist: \"song BBBBBBBBBBB\"");
+        assert_eq!(songs(&services).snapshot().now_playing.map(|s| s.video_id).as_deref(), Some("BBBBBBBBBBB"));
+    }
+
+    #[tokio::test]
+    async fn a_songinsert_of_a_repeat_says_nothing() {
+        let (services, _clock) = services_with_songs(&["AAAAAAAAAAA"]).await;
+        play_through(&services, "AAAAAAAAAAA");
+        let mut overlay_commands = songs(&services).subscribe_commands();
+
+        let reply = handle_command("si", "somemod", &args(&[&link("AAAAAAAAAAA")]), true, false, &services).await;
+
+        assert!(matches!(reply, Reply::None));
+        assert!(overlay_commands.try_recv().is_err(), "nothing reached the overlay");
+    }
+
+    #[tokio::test]
+    async fn settheme_plays_the_intro_even_when_its_song_is_in_the_record() {
+        let (services, _clock) = services_with_songs(&["AAAAAAAAAAA"]).await;
+        play_through(&services, "AAAAAAAAAAA");
+
+        let reply =
+            handle_command("settheme", "somemod", &args(&["Alice", &link("AAAAAAAAAAA")]), true, false, &services).await;
+
+        assert_eq!(reply_text(reply), "Set Alice's entrance theme to \"song AAAAAAAAAAA\" — playing now!");
+        assert!(songs(&services).snapshot().active_insert.is_some());
     }
 }

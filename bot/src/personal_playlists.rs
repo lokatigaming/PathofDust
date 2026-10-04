@@ -14,7 +14,8 @@
 // `?playlists=1`, same "fetch it all, filter client-side" shape as the
 // build feed already uses.
 
-use crate::song_requests::Song;
+use crate::song_requests::{longest_ago, Song};
+use chrono::{DateTime, Utc};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -201,7 +202,18 @@ impl PersonalPlaylistManager {
     /// a second time by this — especially relevant for the random pick,
     /// which would otherwise happily re-pick something already sitting
     /// in the queue from an earlier `!playlist` run.
-    pub async fn sample(&self, username: &str, count: usize, already_queued: &HashSet<String>) -> SampleOutcome {
+    ///
+    /// `recently_started` is the no-repeat record (item 50): the sample
+    /// draws only from songs not in it. When every eligible song is in
+    /// it, the music still does not stop — the one that started longest
+    /// ago is returned alone, marked as the fallback (`longest_ago`).
+    pub async fn sample(
+        &self,
+        username: &str,
+        count: usize,
+        already_queued: &HashSet<String>,
+        recently_started: &HashMap<String, DateTime<Utc>>,
+    ) -> SampleOutcome {
         let key = username.to_lowercase();
         let playlists = self.playlists.lock().await;
         let Some(entry) = playlists.get(&key) else { return SampleOutcome::NoPlaylist };
@@ -215,8 +227,14 @@ impl PersonalPlaylistManager {
             return SampleOutcome::AllAlreadyQueued { display_name: entry.display_name.clone() };
         }
 
-        let mut rng = rand::thread_rng();
-        let songs: Vec<Song> = eligible.choose_multiple(&mut rng, count).map(|&s| s.clone()).collect();
+        let fresh: Vec<&Song> = eligible.iter().copied().filter(|s| !recently_started.contains_key(&s.video_id)).collect();
+        let songs: Vec<Song> = if fresh.is_empty() {
+            let eligible: Vec<Song> = eligible.into_iter().cloned().collect();
+            longest_ago(&eligible, recently_started, "!playlist").into_iter().collect()
+        } else {
+            let mut rng = rand::thread_rng();
+            fresh.choose_multiple(&mut rng, count).map(|&s| s.clone()).collect()
+        };
         SampleOutcome::Songs { display_name: entry.display_name.clone(), songs }
     }
 

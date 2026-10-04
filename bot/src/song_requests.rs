@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -25,6 +26,17 @@ pub struct Song {
     pub duration_secs: u64,
     pub requested_by: String,
     pub thumbnail_url: String,
+    /// Set only on a song the bot picked itself (!playrandom, a
+    /// !playlist sample) when every candidate had already played inside
+    /// the no-repeat window, so it took the one played longest ago —
+    /// see `longest_ago`. Lets that one song through the repeat check in
+    /// `queue_song` and again when its turn comes in `advance`, so the
+    /// fallback that keeps the music going is not dropped by the very
+    /// rule it falls back from. Omitted from JSON when false, so the
+    /// overlay payload and the saved files are unchanged for every
+    /// other song.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub repeat_fallback: bool,
 }
 
 impl Song {
@@ -170,6 +182,10 @@ pub struct QueueState {
 pub enum RequestOutcome {
     NowPlaying(Song),
     Queued { song: Song, position: usize },
+    /// The song started inside the no-repeat window, so it was dropped
+    /// without queueing (item 50). Callers say nothing — the skip is
+    /// silent by ruling, and the bot log already has the line.
+    Dropped,
 }
 
 pub enum VoteSkipOutcome {
@@ -262,16 +278,24 @@ pub enum RequestError {
         status: u16,
         announce: bool,
     },
+    /// An insert (!songinsert, Interrupt the Music) of a song that
+    /// started inside the no-repeat window (item 50). Never reaches
+    /// chat — `chat_reply` is `None` for it — so the skip is silent;
+    /// this Display only ever lands in the bot log.
+    #[error("\"{title}\" played inside the no-repeat window — skipped.")]
+    Repeat { title: String },
 }
 
 impl RequestError {
     /// The line to put in chat, or `None` when this one is deliberately
     /// silent because a run of lookup failures has already been
-    /// announced. Every chat call site goes through this rather than
-    /// `to_string()`, so neither the redaction nor the rate limit
-    /// depends on the call site remembering them.
+    /// announced, or because it is a no-repeat skip. Every chat call
+    /// site goes through this rather than `to_string()`, so neither the
+    /// redaction nor the rate limit depends on the call site
+    /// remembering them.
     pub fn chat_reply(&self) -> Option<String> {
         match self {
+            Self::Repeat { .. } => None,
             Self::Unreachable { announce } | Self::Status { announce, .. } if !announce => None,
             other => Some(other.to_string()),
         }
@@ -337,6 +361,40 @@ struct Inner {
     /// progress, so the next failure speaks. See
     /// `claim_lookup_failure_announcement`.
     last_lookup_failure_at: Option<Instant>,
+    /// The no-repeat record (item 50): video id -> when it last STARTED
+    /// playing, from any source, intros included. Only the latest start
+    /// per id is kept, because that is the only one the window asks
+    /// about. Pruned to the window on load and on every write, and
+    /// persisted to play-record.json so a restart does not forget.
+    played: HashMap<String, DateTime<Utc>>,
+}
+
+/// What play-record.json holds — see `Inner::played`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PersistedPlayRecord {
+    started: HashMap<String, DateTime<Utc>>,
+}
+
+/// The wall clock the no-repeat record reads. Injected so the tests can
+/// move time across the window without waiting.
+pub type Clock = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
+
+/// The bot's own pick when every candidate played inside the window:
+/// the one whose last start is oldest, marked so the repeat check lets
+/// it through (see `Song::repeat_fallback`). `None` only for an empty
+/// slice. Shared by !playrandom and the !playlist sample — the two
+/// places the bot chooses a song itself — so "the music never stops
+/// because of this rule" has one definition.
+pub fn longest_ago(candidates: &[Song], played: &HashMap<String, DateTime<Utc>>, source: &str) -> Option<Song> {
+    let mut pick = candidates.iter().min_by_key(|s| played.get(&s.video_id).copied())?.clone();
+    pick.repeat_fallback = true;
+    tracing::warn!(
+        "no-repeat: every {source} candidate played inside the window — falling back to \"{}\" ({}), last started {}",
+        pick.title,
+        pick.video_id,
+        played.get(&pick.video_id).map(|t| t.to_rfc3339()).unwrap_or_else(|| "never".to_string()),
+    );
+    Some(pick)
 }
 
 /// How many recently-played songs !playrandom keeps around to derive "the
@@ -456,6 +514,10 @@ pub struct SongRequestManager {
     resume_cooldown: Duration,
     queue_path: PathBuf,
     cache_path: PathBuf,
+    /// The no-repeat window (item 50) — `SONG_NO_REPEAT_HOURS`.
+    no_repeat_window: chrono::Duration,
+    play_record_path: PathBuf,
+    clock: Mutex<Clock>,
     cache: Mutex<SearchCache>,
     state: Mutex<Inner>,
     tx: broadcast::Sender<QueueState>,
@@ -465,6 +527,7 @@ pub struct SongRequestManager {
 }
 
 impl SongRequestManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         youtube_api_keys: Vec<String>,
         max_duration_secs: u64,
@@ -475,6 +538,8 @@ impl SongRequestManager {
         votevolume_threshold: u32,
         queue_path: PathBuf,
         cache_path: PathBuf,
+        no_repeat_hours: u64,
+        play_record_path: PathBuf,
     ) -> Arc<Self> {
         assert!(!youtube_api_keys.is_empty(), "SongRequestManager::new requires at least one YouTube API key");
         let (tx, _rx) = broadcast::channel(16);
@@ -483,6 +548,11 @@ impl SongRequestManager {
         let (playback_halted_tx, _rx) = broadcast::channel(16);
         let persisted: PersistedQueue = crate::state::load_json(&queue_path).unwrap_or_default();
         let cache: SearchCache = crate::state::load_json(&cache_path).unwrap_or_default();
+        let no_repeat_window = chrono::Duration::hours(no_repeat_hours as i64);
+        let clock: Clock = Arc::new(Utc::now);
+        let mut played = crate::state::load_json::<PersistedPlayRecord>(&play_record_path).unwrap_or_default().started;
+        let cutoff = clock() - no_repeat_window;
+        played.retain(|_, started| *started > cutoff);
         Arc::new(Self {
             youtube_api_keys,
             current_key_index: AtomicUsize::new(0),
@@ -495,6 +565,9 @@ impl SongRequestManager {
             max_duration_secs,
             queue_path,
             cache_path,
+            no_repeat_window,
+            play_record_path,
+            clock: Mutex::new(clock),
             cache: Mutex::new(cache),
             state: Mutex::new(Inner {
                 now_playing: persisted.now_playing,
@@ -514,6 +587,7 @@ impl SongRequestManager {
                 history: VecDeque::new(),
                 consecutive_stalls: 0,
                 last_lookup_failure_at: None,
+                played,
             }),
             tx,
             command_tx,
@@ -532,6 +606,89 @@ impl SongRequestManager {
     fn persist_cache(&self, cache: &SearchCache) {
         if let Err(err) = crate::state::save_json(&self.cache_path, cache) {
             tracing::error!("Failed to persist search-cache.json: {err}");
+        }
+    }
+
+    fn now(&self) -> DateTime<Utc> {
+        (self.clock.lock().unwrap())()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_clock(&self, clock: Clock) {
+        *self.clock.lock().unwrap() = clock;
+    }
+
+    /// Seeds the lookup cache so a test can `request`/`insert_song` a
+    /// video id without touching YouTube.
+    #[cfg(test)]
+    pub(crate) fn seed_cache(&self, video_id: &str, title: &str, duration_secs: u64) {
+        self.cache.lock().unwrap().videos.insert(video_id.to_string(), (title.to_string(), duration_secs));
+    }
+
+    /// A manager whose files all live in `dir` — shared by the tests in
+    /// this file and the command-level tests in commands.rs. Paths that
+    /// don't exist yet are fine: `new` loads them with unwrap_or_default,
+    /// so this needs no fixture and touches no live data. Building a
+    /// second one on the same `dir` is how a test restarts the bot.
+    #[cfg(test)]
+    pub(crate) fn test_in(dir: &std::path::Path, voteskip_threshold: u32) -> Arc<Self> {
+        Self::new(
+            vec!["test-key".to_string()],
+            3600,
+            voteskip_threshold,
+            1,
+            1,
+            1,
+            1,
+            dir.join("queue.json"),
+            dir.join("cache.json"),
+            4,
+            dir.join("play-record.json"),
+        )
+    }
+
+    /// When `video_id` last started, if that was inside the no-repeat
+    /// window — `None` means it may play.
+    fn repeat_start(&self, state: &Inner, video_id: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        state.played.get(video_id).copied().filter(|started| *started > now - self.no_repeat_window)
+    }
+
+    /// The no-repeat record as it stands right now, trimmed to the
+    /// window: every video id that started inside it, with when. The
+    /// bot's own pickers (!playrandom, the !playlist sample) read this
+    /// to choose among songs that have not played.
+    pub fn recently_started(&self) -> HashMap<String, DateTime<Utc>> {
+        let cutoff = self.now() - self.no_repeat_window;
+        let state = self.state.lock().unwrap();
+        state.played.iter().filter(|(_, started)| **started > cutoff).map(|(id, t)| (id.clone(), *t)).collect()
+    }
+
+    /// Whether `song` would be skipped as a repeat right now — logged as
+    /// a skip when it would. For a caller that has to decide before it
+    /// does anything costly: Interrupt the Music checks this before it
+    /// starts the skip cooldown or skips the current song, so a dropped
+    /// redemption is refunded with nothing spent.
+    pub fn would_repeat(&self, song: &Song) -> bool {
+        let now = self.now();
+        let state = self.state.lock().unwrap();
+        match self.repeat_start(&state, &song.video_id, now) {
+            Some(last) => {
+                log_repeat_skip(song, "when redeemed", last, now);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Notes that `song` started playing now, prunes what has aged out
+    /// of the window, and saves the record.
+    fn record_start(&self, state: &mut Inner, song: &Song, now: DateTime<Utc>) {
+        state.played.insert(song.video_id.clone(), now);
+        let cutoff = now - self.no_repeat_window;
+        state.played.retain(|_, started| *started > cutoff);
+        let persisted = PersistedPlayRecord { started: state.played.clone() };
+        if let Err(err) = crate::state::save_json(&self.play_record_path, &persisted) {
+            tracing::error!("Failed to persist play-record.json: {err}");
         }
     }
 
@@ -735,7 +892,7 @@ impl SongRequestManager {
         }
 
         let thumbnail_url = format!("https://i.ytimg.com/vi/{video_id}/mqdefault.jpg");
-        Ok(Song { video_id, title, duration_secs, requested_by: requested_by.to_string(), thumbnail_url })
+        Ok(Song { video_id, title, duration_secs, requested_by: requested_by.to_string(), thumbnail_url, repeat_fallback: false })
     }
 
     /// Resolves a query into full song info (title/duration/video id)
@@ -758,8 +915,18 @@ impl SongRequestManager {
     /// YouTube API (or even the cache) for details that are already
     /// known.
     pub fn queue_song(&self, song: Song) -> RequestOutcome {
+        let now = self.now();
         let outcome = {
             let mut state = self.state.lock().unwrap();
+            // The no-repeat rule (item 50), checked before anything else
+            // so a dropped song retires nothing, persists nothing and
+            // broadcasts nothing — the overlay never hears of it.
+            if !song.repeat_fallback {
+                if let Some(last) = self.repeat_start(&state, &song.video_id, now) {
+                    log_repeat_skip(&song, "when requested", last, now);
+                    return RequestOutcome::Dropped;
+                }
+            }
             // A real request retires whatever !playrandom had queued
             // behind it. `now_playing` is deliberately NOT touched: the
             // song already on stream finishes, and the request plays
@@ -775,6 +942,7 @@ impl SongRequestManager {
                 state.queue.retain(|queued| !queued.is_random());
             }
             let outcome = if state.now_playing.is_none() {
+                self.record_start(&mut state, &song, now);
                 state.now_playing = Some(song.clone());
                 RequestOutcome::NowPlaying(song)
             } else {
@@ -797,6 +965,19 @@ impl SongRequestManager {
     /// side and resumes it directly, so there's nothing here to restore
     /// afterward.
     pub async fn insert_song(&self, query: &str, requested_by: &str) -> Result<SongInsertOutcome, RequestError> {
+        self.insert(query, requested_by, false).await
+    }
+
+    /// An entrance theme — the walk-on, !settheme's immediate play, or
+    /// the theme redemption's. Identical to `insert_song` except that
+    /// it is exempt from the no-repeat rule (owner ruling 2026-10-03:
+    /// "never skip an intro"). It is still recorded, so the same song
+    /// coming up from any other source inside the window is skipped.
+    pub async fn insert_intro(&self, query: &str, requested_by: &str) -> Result<SongInsertOutcome, RequestError> {
+        self.insert(query, requested_by, true).await
+    }
+
+    async fn insert(&self, query: &str, requested_by: &str, intro: bool) -> Result<SongInsertOutcome, RequestError> {
         // Best-effort, not a hard guarantee under a true race (two mods
         // hitting !songinsert at the exact same instant) — acceptable
         // given chat commands are processed one at a time in practice.
@@ -810,7 +991,15 @@ impl SongRequestManager {
         let song = self.resolve_song(query, requested_by).await?;
 
         {
+            let now = self.now();
             let mut state = self.state.lock().unwrap();
+            if !intro {
+                if let Some(last) = self.repeat_start(&state, &song.video_id, now) {
+                    log_repeat_skip(&song, "as an insert", last, now);
+                    return Err(RequestError::Repeat { title: song.title });
+                }
+            }
+            self.record_start(&mut state, &song, now);
             state.active_insert = Some(song.clone());
         }
         self.broadcast_state();
@@ -903,6 +1092,7 @@ impl SongRequestManager {
     /// ended naturally — every path that changes the current song, so vote
     /// tallies always reset with it.
     pub fn advance(&self) -> Option<Song> {
+        let now = self.now();
         let next = {
             let mut state = self.state.lock().unwrap();
             if let Some(finished) = state.now_playing.take() {
@@ -911,7 +1101,24 @@ impl SongRequestManager {
                     state.history.pop_front();
                 }
             }
-            state.now_playing = state.queue.pop_front();
+            // The no-repeat rule's second look (item 50): a queued song
+            // is checked again when its turn comes, because it may have
+            // played since it was queued — as an intro, or as an earlier
+            // copy of itself further up the queue. A repeat is dropped
+            // here and the next one is tried, so it never becomes
+            // now_playing and never reaches the overlay.
+            state.now_playing = None;
+            while let Some(candidate) = state.queue.pop_front() {
+                if !candidate.repeat_fallback {
+                    if let Some(last) = self.repeat_start(&state, &candidate.video_id, now) {
+                        log_repeat_skip(&candidate, "when its turn came", last, now);
+                        continue;
+                    }
+                }
+                self.record_start(&mut state, &candidate, now);
+                state.now_playing = Some(candidate);
+                break;
+            }
             state.votes.clear();
             state.voteskip_locked = false;
             state.pause_votes.clear();
@@ -1414,6 +1621,20 @@ static VIDEO_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})").unwrap()
 });
 
+/// The one bot-log line per no-repeat skip (item 50) — song, source and
+/// when it last started, so "why didn't my song play" has an answer.
+/// `when` says which check caught it.
+fn log_repeat_skip(song: &Song, when: &str, last: DateTime<Utc>, now: DateTime<Utc>) {
+    let source = if song.is_random() { "!playrandom".to_string() } else { format!("requester \"{}\"", song.requested_by) };
+    tracing::info!(
+        "no-repeat: skipped \"{}\" ({}) from {source} {when} — last started {} ({} min ago)",
+        song.title,
+        song.video_id,
+        last.to_rfc3339(),
+        (now - last).num_minutes(),
+    );
+}
+
 fn extract_video_id(input: &str) -> Option<String> {
     VIDEO_ID_RE.captures(input).map(|caps| caps[1].to_string())
 }
@@ -1455,20 +1676,7 @@ mod tests {
         let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("song-requests-test-{}-{unique}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        // Paths that don't exist yet — `new` loads them with
-        // unwrap_or_default, so this needs no fixture and touches no
-        // live data.
-        SongRequestManager::new(
-            vec!["test-key".to_string()],
-            3600,
-            voteskip_threshold,
-            1,
-            1,
-            1,
-            1,
-            dir.join("queue.json"),
-            dir.join("cache.json"),
-        )
+        SongRequestManager::test_in(&dir, voteskip_threshold)
     }
 
     fn test_song(video_id: &str) -> Song {
@@ -1478,6 +1686,7 @@ mod tests {
             duration_secs: 11,
             requested_by: "Entrance Theme".to_string(),
             thumbnail_url: String::new(),
+            repeat_fallback: false,
         }
     }
 
@@ -2011,5 +2220,240 @@ mod tests {
 
         assert!(manager.snapshot().active_insert.is_some(), "a superseded backstop must leave the running insert alone");
         assert!(commands.try_recv().is_err(), "a superseded backstop must not relay SkipInsert");
+    }
+
+    // ── The no-repeat rule (item 50) ─────────────────────────────────
+    //
+    // Every test pins the record's clock and moves it by hand, so the
+    // 4-hour window is crossed without waiting.
+
+    /// Pins `mgr`'s clock to a fixed instant and hands back the dial.
+    fn pinned_clock(mgr: &SongRequestManager) -> Arc<Mutex<DateTime<Utc>>> {
+        let at = Arc::new(Mutex::new(DateTime::parse_from_rfc3339("2026-10-03T12:00:00Z").unwrap().with_timezone(&Utc)));
+        let dial = at.clone();
+        mgr.set_clock(Arc::new(move || *dial.lock().unwrap()));
+        at
+    }
+
+    fn wind(clock: &Mutex<DateTime<Utc>>, minutes: i64) {
+        *clock.lock().unwrap() += chrono::Duration::minutes(minutes);
+    }
+
+    fn now_playing_id(mgr: &SongRequestManager) -> Option<String> {
+        mgr.snapshot().now_playing.map(|s| s.video_id)
+    }
+
+    fn youtu_be(id: &str) -> String {
+        format!("https://youtu.be/{id}")
+    }
+
+    /// Plays `id` start to finish through the queue, as a request.
+    fn play_through(mgr: &SongRequestManager, id: &str) {
+        assert!(matches!(mgr.queue_song(requested_song(id, "viewer")), RequestOutcome::NowPlaying(_)));
+        mgr.advance();
+    }
+
+    #[test]
+    fn a_repeat_inside_the_window_is_dropped_and_plays_again_once_it_has_passed() {
+        let mgr = test_manager();
+        let clock = pinned_clock(&mgr);
+        play_through(&mgr, "AAAAAAAAAAA");
+
+        wind(&clock, 4 * 60 - 1);
+        assert!(matches!(mgr.queue_song(requested_song("AAAAAAAAAAA", "viewer")), RequestOutcome::Dropped));
+        assert_eq!(now_playing_id(&mgr), None, "a dropped song never becomes now_playing");
+
+        wind(&clock, 2);
+        assert!(matches!(mgr.queue_song(requested_song("AAAAAAAAAAA", "viewer")), RequestOutcome::NowPlaying(_)));
+    }
+
+    /// A song counts from the moment it starts — skipped straight away,
+    /// it is still in the record.
+    #[test]
+    fn a_song_skipped_partway_still_counts() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        mgr.queue_song(requested_song("AAAAAAAAAAA", "viewer"));
+        mgr.advance(); // !skip, voteskip, the dock's skip — all advance()
+        assert!(matches!(mgr.queue_song(requested_song("AAAAAAAAAAA", "other")), RequestOutcome::Dropped));
+    }
+
+    /// Source: the dock's "add" — `request(query, "Streamer")`. No
+    /// exemption for the owner.
+    #[tokio::test]
+    async fn a_dock_add_of_a_repeat_is_dropped() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        mgr.seed_cache("AAAAAAAAAAA", "a", 200);
+        play_through(&mgr, "AAAAAAAAAAA");
+        let outcome = mgr.request(&youtu_be("AAAAAAAAAAA"), "Streamer").await.unwrap();
+        assert!(matches!(outcome, RequestOutcome::Dropped));
+        assert!(mgr.snapshot().queue.is_empty());
+    }
+
+    /// Source: !playrandom — both `!playrandom <n>` and the continuous
+    /// top-up queue through `queue_song`.
+    #[test]
+    fn a_random_pick_of_a_repeat_is_dropped() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        play_through(&mgr, "AAAAAAAAAAA");
+        assert!(matches!(mgr.queue_song(random_song("AAAAAAAAAAA")), RequestOutcome::Dropped));
+    }
+
+    /// Source: !songinsert/!si — a mod insert is not an intro, and mods
+    /// get no exemption.
+    #[tokio::test]
+    async fn a_mod_insert_of_a_repeat_is_skipped_and_reaches_neither_chat_nor_overlay() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        mgr.seed_cache("AAAAAAAAAAA", "a", 200);
+        play_through(&mgr, "AAAAAAAAAAA");
+        let mut overlay_state = mgr.subscribe();
+        let mut overlay_commands = mgr.subscribe_commands();
+
+        let Err(err) = mgr.insert_song(&youtu_be("AAAAAAAAAAA"), "somemod").await else { panic!("a repeat insert went through") };
+
+        assert!(matches!(err, RequestError::Repeat { .. }));
+        assert_eq!(err.chat_reply(), None, "nothing to chat");
+        assert!(overlay_commands.try_recv().is_err(), "no InsertSong reached the overlay");
+        assert!(overlay_state.try_recv().is_err(), "no state broadcast either");
+        assert!(mgr.snapshot().active_insert.is_none());
+    }
+
+    #[test]
+    fn a_dropped_song_broadcasts_nothing_to_the_overlay() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        play_through(&mgr, "AAAAAAAAAAA");
+        let mut overlay_state = mgr.subscribe();
+        mgr.queue_song(requested_song("AAAAAAAAAAA", "viewer"));
+        assert!(overlay_state.try_recv().is_err());
+    }
+
+    /// Source: entrance themes (walk-on, !settheme, theme redemption) —
+    /// all three go through `insert_intro`.
+    #[tokio::test]
+    async fn an_intro_plays_even_when_its_song_is_in_the_record() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        mgr.seed_cache("AAAAAAAAAAA", "theme", 11);
+        play_through(&mgr, "AAAAAAAAAAA");
+        let mut overlay_commands = mgr.subscribe_commands();
+
+        let outcome = mgr.insert_intro(&youtu_be("AAAAAAAAAAA"), "Entrance Theme").await.unwrap();
+
+        assert!(matches!(outcome, SongInsertOutcome::Inserted { .. }));
+        assert!(matches!(overlay_commands.try_recv(), Ok(ControlAction::InsertSong { .. })));
+        // ...and a second intro of the same song, right after.
+        mgr.clear_active_insert();
+        assert!(matches!(
+            mgr.insert_intro(&youtu_be("AAAAAAAAAAA"), "someone").await.unwrap(),
+            SongInsertOutcome::Inserted { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_song_that_played_as_an_intro_is_skipped_from_every_other_source() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        mgr.seed_cache("AAAAAAAAAAA", "theme", 11);
+        mgr.insert_intro(&youtu_be("AAAAAAAAAAA"), "Entrance Theme").await.unwrap();
+        mgr.clear_active_insert();
+
+        // random pick, a playlist song (carries its saver's name), a
+        // request, a dock add, a mod insert
+        assert!(matches!(mgr.queue_song(random_song("AAAAAAAAAAA")), RequestOutcome::Dropped));
+        assert!(matches!(mgr.queue_song(requested_song("AAAAAAAAAAA", "saver")), RequestOutcome::Dropped));
+        assert!(matches!(mgr.request(&youtu_be("AAAAAAAAAAA"), "viewer").await.unwrap(), RequestOutcome::Dropped));
+        assert!(matches!(mgr.request(&youtu_be("AAAAAAAAAAA"), "Streamer").await.unwrap(), RequestOutcome::Dropped));
+        assert!(matches!(mgr.insert_song(&youtu_be("AAAAAAAAAAA"), "somemod").await, Err(RequestError::Repeat { .. })));
+    }
+
+    /// The second look: a queued song is checked again when its turn
+    /// comes — here it played as an intro while it waited, and a second
+    /// copy of another song was queued behind its first.
+    #[tokio::test]
+    async fn a_queued_song_is_checked_again_when_its_turn_comes() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        mgr.seed_cache("AAAAAAAAAAA", "theme", 11);
+        mgr.queue_song(requested_song("XXXXXXXXXXX", "viewer")); // on stream
+        mgr.queue_song(requested_song("AAAAAAAAAAA", "viewer")); // waits
+        mgr.queue_song(requested_song("BBBBBBBBBBB", "viewer")); // first copy
+        mgr.queue_song(requested_song("BBBBBBBBBBB", "other")); // second copy
+        mgr.queue_song(requested_song("CCCCCCCCCCC", "viewer"));
+
+        mgr.insert_intro(&youtu_be("AAAAAAAAAAA"), "Entrance Theme").await.unwrap();
+        mgr.clear_active_insert();
+
+        assert_eq!(mgr.advance().map(|s| s.video_id).as_deref(), Some("BBBBBBBBBBB"), "A skipped at its turn");
+        assert_eq!(mgr.advance().map(|s| s.video_id).as_deref(), Some("CCCCCCCCCCC"), "the second B skipped too");
+        assert!(mgr.snapshot().queue.is_empty());
+    }
+
+    #[test]
+    fn the_record_survives_a_restart_and_old_entries_are_pruned() {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("song-no-repeat-restart-{}-{unique}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+
+        // Real time, since the restarted manager prunes against it.
+        let real_now = Utc::now();
+        let before = SongRequestManager::test_in(&dir, 1);
+        let at = Arc::new(Mutex::new(real_now - chrono::Duration::hours(5)));
+        let dial = at.clone();
+        before.set_clock(Arc::new(move || *dial.lock().unwrap()));
+        play_through(&before, "OLDOLDOLDOL"); // 5h ago: outside the window
+        *at.lock().unwrap() = real_now - chrono::Duration::hours(1);
+        play_through(&before, "NEWNEWNEWNE"); // 1h ago: inside
+        drop(before);
+
+        let after = SongRequestManager::test_in(&dir, 1);
+        let kept: Vec<String> = after.state.lock().unwrap().played.keys().cloned().collect();
+        assert_eq!(kept, vec!["NEWNEWNEWNE".to_string()], "the 5h-old entry was pruned on load");
+        assert!(matches!(after.queue_song(requested_song("NEWNEWNEWNE", "viewer")), RequestOutcome::Dropped));
+        assert!(matches!(after.queue_song(requested_song("OLDOLDOLDOL", "viewer")), RequestOutcome::NowPlaying(_)));
+    }
+
+    /// The bot's own pick, when every candidate played inside the window:
+    /// the one played longest ago, marked so it actually plays — through
+    /// the request check and through its turn.
+    #[test]
+    fn the_fallback_takes_the_song_played_longest_ago_and_it_plays() {
+        let mgr = test_manager();
+        let clock = pinned_clock(&mgr);
+        play_through(&mgr, "BBBBBBBBBBB");
+        wind(&clock, 10);
+        play_through(&mgr, "AAAAAAAAAAA");
+        wind(&clock, 10);
+        play_through(&mgr, "CCCCCCCCCCC");
+
+        let candidates = [random_song("AAAAAAAAAAA"), random_song("BBBBBBBBBBB"), random_song("CCCCCCCCCCC")];
+        let pick = longest_ago(&candidates, &mgr.recently_started(), "!playrandom").unwrap();
+        assert_eq!(pick.video_id, "BBBBBBBBBBB");
+        assert!(pick.repeat_fallback);
+
+        mgr.queue_song(requested_song("XXXXXXXXXXX", "viewer"));
+        assert!(matches!(mgr.queue_song(pick), RequestOutcome::Queued { .. }));
+        assert_eq!(mgr.advance().map(|s| s.video_id).as_deref(), Some("BBBBBBBBBBB"), "it survives its turn too");
+    }
+
+    /// Interrupt the Music checks `would_repeat` before it starts the
+    /// skip cooldown or skips anything, and refunds on `true` (main.rs).
+    /// This pins the half that lives here: the check itself spends
+    /// nothing.
+    #[test]
+    fn a_dropped_interrupt_costs_the_viewer_nothing() {
+        let mgr = test_manager();
+        let _clock = pinned_clock(&mgr);
+        play_through(&mgr, "AAAAAAAAAAA");
+        mgr.queue_song(requested_song("XXXXXXXXXXX", "viewer"));
+
+        assert!(mgr.would_repeat(&requested_song("AAAAAAAAAAA", "redeemer")));
+        assert_eq!(mgr.skip_cooldown_remaining("redeemer"), None, "no cooldown spent");
+        assert_eq!(now_playing_id(&mgr).as_deref(), Some("XXXXXXXXXXX"), "nothing skipped");
+        assert!(!mgr.would_repeat(&requested_song("FRESHFRESHF", "redeemer")));
     }
 }

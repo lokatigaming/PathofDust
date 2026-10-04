@@ -569,6 +569,8 @@ impl PlayRandomManager {
         let mut already_known_skips = 0u32;
         let mut blocklisted_skips = 0u32;
         let mut recently_played_skips = 0u32;
+        let mut window_skips: Vec<Song> = Vec::new();
+        let recently_started = song_requests.recently_started();
         let mut resolve_failures = 0u32;
         for (artist, track) in candidates {
             if resolved.len() >= count {
@@ -596,6 +598,12 @@ impl PlayRandomManager {
                 Ok(song) if self.was_recently_played(&song.video_id) => {
                     recently_played_skips += 1;
                 }
+                // Started inside the song-wide no-repeat window (item 50) —
+                // any source, intros included. Kept aside, not discarded:
+                // if nothing fresh resolves, the oldest of these plays.
+                Ok(song) if recently_started.contains_key(&song.video_id) => {
+                    window_skips.push(song);
+                }
                 Ok(song) => {
                     tracing::info!("!playrandom: resolved candidate \"{query}\" -> \"{}\"", song.title);
                     resolved.push(song);
@@ -607,10 +615,17 @@ impl PlayRandomManager {
             }
         }
         tracing::info!(
-            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {blocklisted_skips} blocklisted skip(s), {recently_played_skips} no-repeat skip(s), {resolve_failures} resolve failure(s)",
-            resolved.len()
+            "!playrandom: genres {genres:?} -> {} resolved, {already_known_skips} already-known skip(s), {blocklisted_skips} blocklisted skip(s), {recently_played_skips} no-repeat skip(s), {} no-repeat-window skip(s), {resolve_failures} resolve failure(s)",
+            resolved.len(),
+            window_skips.len()
         );
 
+        // The music never stops because of the no-repeat rule: when every
+        // candidate that resolved had played inside the window, the one
+        // that played longest ago goes out instead.
+        if resolved.is_empty() {
+            resolved.extend(crate::song_requests::longest_ago(&window_skips, &recently_started, "!playrandom"));
+        }
         if resolved.is_empty() {
             return Err(PlayRandomError::NoCandidatesResolved);
         }
@@ -700,6 +715,7 @@ mod tests {
             duration_secs: 200,
             requested_by: requested_by.to_string(),
             thumbnail_url: String::new(),
+            repeat_fallback: false,
         }
     }
 
