@@ -10898,6 +10898,46 @@ email routes return 404. Stored emails stay in the accounts file (an email-aware
 **Rollback note (stands from release 44, now live)**: at least one email is stored, so a binary older than release 44
 would drop the email fields on its next accounts save. Binary-only rollback below release 44 is no longer safe.
 
+## 2026-10-05 — BOT DEPLOYED: release 45 `no-repeat-4h-50` (item 50, window c). 4.26 s.
+
+Order `2026-10-04 release 45 (item 50)`. Merge `6e47431` (`--no-ff` of `feature/no-repeat-4h-50` `0f86ff2`
+onto `0a9f4fa`). One conflict: `WIKI_IMPACT.md` EOF hunk, keep-both (the 47b line first, then item 50's).
+Suite `cargo test --release --workspace --quiet -j 4`: **1142 / 0 / 54**, as predicted (release 44's
+1124 / 0 / 54 + 18 tests in existing binaries). No failures, no non-zero `filtered out`.
+
+**No game deploy.** `git diff --name-only 0a9f4fa..6e47431` = `WIKI_IMPACT.md`, `bot/.env.example`,
+`bot/backup-bot-data.ps1`, and 7 files under `bot/src/`. No `game/**`, root `Cargo.toml` or `Cargo.lock`.
+The game stays on release 44 `555cfc95…`, not restarted.
+
+**Bot swap.** Built from `6e47431` in worktree `wt-r45` to `target-45`; the only warning is the old
+`history_path` one. Data snapshot `bot-backup-20261005-015034`, 13 files, clean (`tips-history.json` absent,
+as before). Exe `72e31a9c…` (release 39) → **`b93dd4e395cffe0685a21d3faaac859b8309cf178852ffb28684c9791eb99cde`**,
+hash checked on disk. Backup hash-matched: `C:\PathofDust\backup-pre-20261005-015047-no-repeat-4h-50\twitch-bot-rs.exe.pre-no-repeat-4h-50`.
+Bot flag set, then cleared (`TwitchBotRS-Watchdog` Ready). Old PID 9644 exited on its own in 1.42 s, not killed.
+New PID 15520 holds port 4001. **Downtime 4.26 s**, from `Stop-ScheduledTask` until port 4001 was listening again.
+Log: `Connected to chat` 17:50:55.99Z, `Fetched login name` 17:50:56.26Z, `PayPal watcher started`
+17:50:56.48Z, `StreamElements: authenticated` 17:50:57.07Z. 0 ERROR and 0 WARN since the swap.
+
+**Backup script**: the live `C:\PathofDust\backup-bot-data.ps1` was refreshed to the repo copy `384702dd…`. The old
+copy was saved in the backup dir. The dry run lists `play-record.json` (absent-not-error before the first song) and
+completed clean: 13 files.
+
+**Feature, read-only**: the next song started at 17:52:14Z, and `play-record.json` appeared with one entry in valid
+JSON (`{"started":{<id>:<time>}}`). No `no-repeat:` line was seen, and none was caused. `SONG_NO_REPEAT_HOURS`
+was not added to the live `.env` (the default 4 h applies).
+
+**Data**: sha256 of all 17 `C:\PathofDust\*.json` before and after. 16 are byte-identical, including
+`song-queue.json` and `personal-playlists.json`. Only `tokens.json` changed: the bot rewrote it itself
+at startup, at 01:50:53 local.
+
+**Patch-note fix (game box, no restart)**: in the "October 4, 2026" block, `"Forgot your password?"` became
+`"Reset your password by email"`, the real link text. The edit is one line, `a1ed060f…` → `9f0dfef7…`. The
+pre-edit copy is `/root/r45-snap/patch-notes.pre.json`. `/patch-notes` on 4005 returns 200 and shows the new
+text. There are no release-45 patch notes: this release changes bot behaviour, not game content.
+
+**Rollback**: copy the backup exe back over `C:\PathofDust\target\release\twitch-bot-rs.exe` (flag, stop, swap, start,
+clear). The old binary ignores `play-record.json`, so this is a plain swap back.
+
 ## FOUND
 - 2026-10-03 (window c): the Linux `game` binary links libssl/libcrypto although `cargo tree -p game -i openssl-sys` is empty on the box; openssl-sys is built in the workspace for the bot. Present since at least 09-03. Not investigated.
-- 2026-10-04 (window c): the release-44 patch-note wording says to use "Forgot your password?" on the login page, but the link there reads "Reset your password by email".
+- 2026-10-04 (window c): the release-44 patch-note wording says to use "Forgot your password?" on the login page, but the link there reads "Reset your password by email". — 2026-10-05: fixed in the live patch notes (release 45, window c).
