@@ -127,9 +127,8 @@ pub fn start_playlist_removal_watcher(watcher: PlaylistRemovalWatcher, poll_inte
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::personal_playlists::SampleOutcome;
+    use crate::personal_playlists::PlayOutcome;
     use crate::song_requests::Song;
-    use std::collections::HashSet;
 
     fn temp_dir() -> PathBuf {
         let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
@@ -138,8 +137,10 @@ mod tests {
         dir
     }
 
+    // Built from the saved-file shape so fields added to Song later
+    // (all #[serde(default)]) don't break these tests.
     fn song(video_id: &str, title: &str) -> Song {
-        Song { video_id: video_id.to_string(), title: title.to_string(), duration_secs: 200, requested_by: "Viewer".to_string(), thumbnail_url: String::new() }
+        serde_json::from_value(serde_json::json!({ "videoId": video_id, "title": title, "durationSecs": 200, "requestedBy": "Viewer", "thumbnailUrl": "" })).unwrap()
     }
 
     fn removal(id: &str, login: &str, video_id: &str) -> PendingRemoval {
@@ -157,14 +158,12 @@ mod tests {
     }
 
     async fn video_ids(playlists: &PersonalPlaylistManager) -> Vec<String> {
-        match playlists.sample("viewer", 100, &HashSet::new()).await {
-            SampleOutcome::Songs { songs, .. } => {
-                let mut ids: Vec<String> = songs.into_iter().map(|s| s.video_id).collect();
-                ids.sort();
-                ids
-            }
-            _ => Vec::new(),
+        let mut ids = Vec::new();
+        while let PlayOutcome::Song { song, .. } = playlists.get_song_at("viewer", ids.len() + 1).await {
+            ids.push(song.video_id);
         }
+        ids.sort();
+        ids
     }
 
     #[tokio::test]
