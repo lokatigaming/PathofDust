@@ -35,6 +35,17 @@
 // also fires for a /tip payment is dropped as a duplicate instead of
 // alerting twice. Routed as lokati.net/api/tip* (same pattern as
 // lokati-feed-cache's lokati.net/api/feed*).
+//
+// lokati.net/playlist.html's trash icon (routed as lokati.net/api/playlist*):
+//   - GET /api/playlist/me and POST /api/playlist/remove {videoId, owner?}
+//     take the viewer's Twitch token (implicit grant on the site's own
+//     public app) and check it against id.twitch.tv/oauth2/validate — the
+//     login comes from Twitch, never from the page. A viewer edits only
+//     their own playlist; `owner` is honoured for the broadcaster alone.
+//   - A removal is queued one KV key per removal (plrm:<id>) as
+//     {id, login, videoId, at}; the bot drains GET /pending-playlist-removals
+//     (RELAY_TOKEN, like /pending-tips) and applies each id at most once
+//     (bot/src/playlist_removals.rs).
 
 const TIP_TTL_SECONDS = 60 * 60 * 24; // pending tips expire after a day, in case the bot's offline for a while
 const SEEN_TTL_SECONDS = 60 * 60 * 24 * 7; // capture IDs already queued — outlasts PayPal's webhook retries
@@ -51,6 +62,15 @@ const MESSAGE_MAX_LEN = 255;
 // the site's own origin only.
 const TIP_ALLOWED_ORIGIN = 'https://lokati.net';
 
+// The site's own public Twitch app (implicit grant, no secret, no scopes).
+export const TWITCH_CLIENT_ID = 'a5gxtjb5712k7oadgq0d443mq3oo9i';
+// The bot's TWITCH_CHANNEL — the one login allowed to edit any playlist.
+export const BROADCASTER_LOGIN = 'lokati_gaming';
+const REMOVAL_TTL_SECONDS = 60 * 60 * 24; // same as tips: survives a day of the bot being offline
+export const REMOVALS_PER_MINUTE = 30;
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const LOGIN_RE = /^[a-z0-9_]{1,25}$/;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -61,6 +81,19 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/pending-tips') {
       return handlePendingTips(request, env);
+    }
+
+    if (request.method === 'GET' && url.pathname === '/pending-playlist-removals') {
+      return handlePendingRemovals(request, env);
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/playlist/me') {
+      return handlePlaylistMe(request);
+    }
+
+    if (url.pathname === '/api/playlist/remove') {
+      if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+      return handlePlaylistRemove(request, env);
     }
 
     if (url.pathname === '/api/tip/order' || url.pathname === '/api/tip/capture') {
@@ -352,4 +385,80 @@ async function handlePendingTips(request, env) {
   return new Response(JSON.stringify(tips), {
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+// Twitch's own answer for who holds this token, or null when it is
+// missing, invalid, expired, minted for another app, or an app token.
+async function twitchViewer(request) {
+  const auth = request.headers.get('Authorization') || '';
+  const match = /^Bearer (\S+)$/.exec(auth);
+  if (!match) return null;
+  let resp;
+  try {
+    resp = await fetch('https://id.twitch.tv/oauth2/validate', {
+      headers: { Authorization: `OAuth ${match[1]}` },
+    });
+  } catch {
+    return null;
+  }
+  if (!resp.ok) return null;
+  const data = await resp.json().catch(() => null);
+  if (!data || data.client_id !== TWITCH_CLIENT_ID || typeof data.login !== 'string' || !data.login) return null;
+  const login = data.login.toLowerCase();
+  return { login, isBroadcaster: login === BROADCASTER_LOGIN };
+}
+
+async function handlePlaylistMe(request) {
+  const viewer = await twitchViewer(request);
+  if (!viewer) return jsonResponse({ error: 'unauthorized' }, 401);
+  return jsonResponse(viewer);
+}
+
+async function handlePlaylistRemove(request, env) {
+  const viewer = await twitchViewer(request);
+  if (!viewer) return jsonResponse({ error: 'unauthorized' }, 401);
+
+  const body = await request.json().catch(() => null);
+  const videoId = body && typeof body.videoId === 'string' ? body.videoId : '';
+  if (!VIDEO_ID_RE.test(videoId)) return jsonResponse({ error: 'bad videoId' }, 400);
+
+  // Your own playlist, always — `owner` is honoured for the broadcaster only.
+  let login = viewer.login;
+  if (viewer.isBroadcaster && body && typeof body.owner === 'string' && body.owner.trim()) {
+    login = body.owner.trim().toLowerCase();
+    if (!LOGIN_RE.test(login)) return jsonResponse({ error: 'bad owner' }, 400);
+  }
+
+  const cached = await env.TIPS_KV.get('feed:playlists');
+  let playlists = null;
+  try { playlists = cached ? JSON.parse(cached) : null; } catch { playlists = null; }
+  const songs = playlists && playlists[login] && Array.isArray(playlists[login].songs) ? playlists[login].songs : [];
+  if (!songs.some((s) => s && s.videoId === videoId)) return jsonResponse({ error: 'not found' }, 404);
+
+  const rateKey = `plrl:${viewer.login}:${Math.floor(Date.now() / 60000)}`;
+  const used = parseInt((await env.TIPS_KV.get(rateKey)) || '0', 10) || 0;
+  if (used >= REMOVALS_PER_MINUTE) return jsonResponse({ error: 'too many removals, try again in a minute' }, 429);
+  await env.TIPS_KV.put(rateKey, String(used + 1), { expirationTtl: 120 });
+
+  const removal = { id: crypto.randomUUID(), login, videoId, at: Date.now() };
+  await env.TIPS_KV.put(`plrm:${removal.id}`, JSON.stringify(removal), { expirationTtl: REMOVAL_TTL_SECONDS });
+  return jsonResponse({ ok: true, id: removal.id });
+}
+
+async function handlePendingRemovals(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  if (auth !== `Bearer ${env.RELAY_TOKEN}`) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  const list = await env.TIPS_KV.list({ prefix: 'plrm:' });
+  const removals = [];
+
+  for (const key of list.keys) {
+    const value = await env.TIPS_KV.get(key.name);
+    if (value) removals.push(JSON.parse(value));
+    await env.TIPS_KV.delete(key.name);
+  }
+
+  return jsonResponse(removals);
 }

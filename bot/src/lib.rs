@@ -31,6 +31,7 @@ pub mod logging;
 pub mod obs_websocket;
 pub mod paypal;
 pub mod personal_playlists;
+pub mod playlist_removals;
 pub mod playrandom;
 pub mod poe_ninja;
 pub mod redact;

@@ -13,7 +13,7 @@ workers_dev = true
 preview_urls = false
 
 # The live binding: the account's only KV namespace, titled "FEED_KV".
-# Relay keys are prefixed tip: / seen:.
+# Relay keys are prefixed tip: / seen: / order: / plrm: / plrl:.
 kv_namespaces = [
   { binding = "TIPS_KV", id = "647f95da1e9248828af1555904d258c1" }
 ]
@@ -22,7 +22,9 @@ kv_namespaces = [
 # own origin (same pattern as lokati-feed-cache's lokati.net/api/feed*).
 # Needs this Worker in the same Cloudflare account as the lokati.net zone.
 routes = [
-  { pattern = "lokati.net/api/tip*", zone_name = "lokati.net" }
+  { pattern = "lokati.net/api/tip*", zone_name = "lokati.net" },
+  # lokati.net/playlist.html's trash icon: /api/playlist/me, /api/playlist/remove.
+  { pattern = "lokati.net/api/playlist*", zone_name = "lokati.net" }
 ]
 
 # The live Worker has no plain-text vars: PAYPAL_API_BASE is unset, so the

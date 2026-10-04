@@ -18,6 +18,7 @@ use twitch_bot_rs::essence_pricing;
 use twitch_bot_rs::obs_websocket::ObsClient;
 use twitch_bot_rs::paypal;
 use twitch_bot_rs::personal_playlists::PersonalPlaylistManager;
+use twitch_bot_rs::playlist_removals;
 use twitch_bot_rs::playrandom::PlayRandomManager;
 use twitch_bot_rs::song_overlay_server;
 use twitch_bot_rs::song_requests::{SongInsertOutcome, SongRequestManager, INSERT_BACKSTOP_GRACE_SECS};
@@ -772,6 +773,21 @@ async fn async_main() -> anyhow::Result<()> {
                 tracing::info!("Removed {removed} playlist song(s) over the 10-minute cap.");
             }
         });
+    }
+
+    // lokati.net/playlist.html's trash icon — same relay and token as
+    // PayPal tips, polled at the same cadence (see playlist_removals.rs).
+    if let (Some(relay_url), Some(relay_token)) = (&config.paypal_relay_url, &config.paypal_relay_token) {
+        playlist_removals::start_playlist_removal_watcher(
+            playlist_removals::PlaylistRemovalWatcher::new(
+                relay_url.clone(),
+                relay_token.clone(),
+                personal_playlists.clone(),
+                PathBuf::from("playlist-removals-applied.json"),
+            ),
+            config.paypal_poll_interval_ms,
+        );
+        tracing::info!("Playlist removal watcher started — polling the relay for website removals.");
     }
 
     // Continuous mode's actual top-ups happen here, watching the live

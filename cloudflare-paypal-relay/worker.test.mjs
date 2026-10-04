@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import worker, { validateTipAmount } from './worker.js';
+import worker, { validateTipAmount, TWITCH_CLIENT_ID, BROADCASTER_LOGIN, REMOVALS_PER_MINUTE } from './worker.js';
 
 function memoryKv() {
   const store = new Map();
@@ -205,4 +205,146 @@ test('a webhook for a capture not seen before still queues (backup path intact)'
   await worker.fetch(webhookFor('CAPW'), env);
   assert.deepEqual(tipKeys(env), ['tip:CAPW']);
   assert.ok(env.TIPS_KV.store.has('seen:CAPW'));
+});
+
+// ----------------------------------------------- /api/playlist (item 43)
+
+// Twitch's validate endpoint, mocked: token -> what Twitch says about it.
+function mockTwitch(tokens) {
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.host !== 'id.twitch.tv' || u.pathname !== '/oauth2/validate') throw new Error(`unexpected call ${url}`);
+    const token = (init.headers.Authorization || '').replace(/^OAuth /, '');
+    calls.push(token);
+    const info = tokens[token];
+    if (!info) return new Response(JSON.stringify({ status: 401, message: 'invalid access token' }), { status: 401 });
+    return new Response(JSON.stringify({ scopes: [], expires_in: 3600, ...info }), { status: 200 });
+  };
+  return calls;
+}
+
+const TOKENS = {
+  'viewer-tok': { client_id: TWITCH_CLIENT_ID, login: 'Viewer', user_id: '1' },
+  'other-app-tok': { client_id: 'someone-elses-app', login: 'viewer', user_id: '1' },
+  'app-tok': { client_id: TWITCH_CLIENT_ID },
+  'bc-tok': { client_id: TWITCH_CLIENT_ID, login: BROADCASTER_LOGIN, user_id: '2' },
+};
+
+function playlistEnv() {
+  const env = makeEnv();
+  env.TIPS_KV.store.set('feed:playlists', JSON.stringify({
+    viewer: { displayName: 'Viewer', songs: [{ videoId: 'vidA' }, { videoId: 'vidA' }, { videoId: 'vidB' }] },
+    someone: { displayName: 'Someone', songs: [{ videoId: 'vidS' }] },
+  }));
+  return env;
+}
+
+const playlistReq = (path, { token, body, method = body ? 'POST' : 'GET' } = {}) => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return new Request(`https://lokati.net${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+};
+
+const queued = (env) =>
+  [...env.TIPS_KV.store.entries()].filter(([k]) => k.startsWith('plrm:')).map(([, v]) => JSON.parse(v));
+
+test('/me: no token, invalid token, and another app\'s token are all 401', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  for (const token of [undefined, 'expired-or-invalid', 'other-app-tok', 'app-tok']) {
+    const resp = await worker.fetch(playlistReq('/api/playlist/me', { token }), env);
+    assert.equal(resp.status, 401, `token ${token}`);
+  }
+});
+
+test('/me: a valid token answers the login Twitch gives, lowercased', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  const viewer = await (await worker.fetch(playlistReq('/api/playlist/me', { token: 'viewer-tok' }), env)).json();
+  assert.deepEqual(viewer, { login: 'viewer', isBroadcaster: false });
+  const bc = await (await worker.fetch(playlistReq('/api/playlist/me', { token: 'bc-tok' }), env)).json();
+  assert.deepEqual(bc, { login: BROADCASTER_LOGIN, isBroadcaster: true });
+});
+
+test('/remove: no token, invalid, or another client_id is 401 and queues nothing', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  for (const token of [undefined, 'expired-or-invalid', 'other-app-tok']) {
+    const resp = await worker.fetch(playlistReq('/api/playlist/remove', { token, body: { videoId: 'vidA' } }), env);
+    assert.equal(resp.status, 401, `token ${token}`);
+  }
+  assert.equal(queued(env).length, 0);
+});
+
+test('/remove: own playlist queues exactly one removal', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  const resp = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'vidA' } }), env);
+  assert.equal(resp.status, 200);
+  const q = queued(env);
+  assert.equal(q.length, 1);
+  assert.equal(q[0].login, 'viewer');
+  assert.equal(q[0].videoId, 'vidA');
+  assert.ok(q[0].id && typeof q[0].at === 'number');
+  assert.equal((await resp.json()).id, q[0].id);
+});
+
+test('/remove: a non-broadcaster sending someone else\'s owner still edits only their own', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  // vidS is only on someone's list, so honouring owner would have queued it.
+  const denied = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'vidS', owner: 'someone' } }), env);
+  assert.equal(denied.status, 404);
+  const own = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'vidB', owner: 'someone' } }), env);
+  assert.equal(own.status, 200);
+  assert.deepEqual(queued(env).map((r) => r.login), ['viewer']);
+});
+
+test('/remove: the broadcaster with owner edits that playlist', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  const resp = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'bc-tok', body: { videoId: 'vidS', owner: 'Someone' } }), env);
+  assert.equal(resp.status, 200);
+  assert.deepEqual(queued(env).map((r) => [r.login, r.videoId]), [['someone', 'vidS']]);
+});
+
+test('/remove: unknown videoId is 404 and nothing is queued', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  const resp = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'nope' } }), env);
+  assert.equal(resp.status, 404);
+  assert.equal(queued(env).length, 0);
+});
+
+test('/remove: the 31st removal in a minute is 429', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  for (let i = 0; i < REMOVALS_PER_MINUTE; i++) {
+    const resp = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'vidA' } }), env);
+    assert.equal(resp.status, 200, `removal ${i + 1}`);
+  }
+  const resp = await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'vidA' } }), env);
+  assert.equal(resp.status, 429);
+  assert.equal(queued(env).length, REMOVALS_PER_MINUTE);
+});
+
+test('/pending-playlist-removals refuses without RELAY_TOKEN and drains with it', async () => {
+  mockTwitch(TOKENS);
+  const env = playlistEnv();
+  await worker.fetch(playlistReq('/api/playlist/remove', { token: 'viewer-tok', body: { videoId: 'vidA' } }), env);
+  for (const auth of [undefined, 'Bearer viewer-tok', 'Bearer wrong']) {
+    const headers = auth ? { Authorization: auth } : {};
+    const resp = await worker.fetch(new Request('https://relay.test/pending-playlist-removals', { headers }), env);
+    assert.equal(resp.status, 401);
+  }
+  assert.equal(queued(env).length, 1);
+  const resp = await worker.fetch(
+    new Request('https://relay.test/pending-playlist-removals', { headers: { Authorization: `Bearer ${env.RELAY_TOKEN}` } }),
+    env,
+  );
+  const removals = await resp.json();
+  assert.equal(removals.length, 1);
+  assert.equal(removals[0].videoId, 'vidA');
+  assert.equal(queued(env).length, 0);
 });

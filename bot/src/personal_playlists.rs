@@ -19,6 +19,7 @@ use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -93,12 +94,15 @@ pub struct PersonalPlaylistManager {
     /// way; only the public site falls behind).
     sync_secret: Option<String>,
     http: reqwest::Client,
+    /// How many times `sync_to_sheet` has been asked to push — lets tests
+    /// see a change synced exactly once even with no secret configured.
+    sync_calls: AtomicUsize,
 }
 
 impl PersonalPlaylistManager {
     pub fn new(path: PathBuf, sync_secret: Option<String>) -> Arc<Self> {
         let playlists: HashMap<String, UserPlaylist> = crate::state::load_json(&path).unwrap_or_default();
-        let this = Arc::new(Self { playlists: Mutex::new(playlists), path, sync_secret, http: reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build") });
+        let this = Arc::new(Self { playlists: Mutex::new(playlists), path, sync_secret, http: reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("reqwest client build"), sync_calls: AtomicUsize::new(0) });
         // Pushes local state to the sheet once at startup too, so a
         // restart (or a hand-edited local JSON file) doesn't leave the
         // public site showing stale data until the next actual change.
@@ -173,6 +177,25 @@ impl PersonalPlaylistManager {
         self.persist(&playlists);
         self.sync_to_sheet(&playlists);
         RemoveOutcome::Removed(removed)
+    }
+
+    /// lokati.net/playlist.html's trash icon, applied from the relay's
+    /// removal queue (see playlist_removals.rs) — drops the first saved
+    /// entry with exactly this video id, so a song saved twice loses only
+    /// one copy. None when nothing matches (already gone): a quiet no-op.
+    pub async fn remove_video(&self, username: &str, video_id: &str) -> Option<Song> {
+        let key = username.to_lowercase();
+        let mut playlists = self.playlists.lock().await;
+        let entry = playlists.get_mut(&key)?;
+        let index = entry.songs.iter().position(|s| s.video_id == video_id)?;
+        let removed = entry.songs.remove(index);
+        self.persist(&playlists);
+        self.sync_to_sheet(&playlists);
+        Some(removed)
+    }
+
+    pub fn sync_calls(&self) -> usize {
+        self.sync_calls.load(Ordering::Relaxed)
     }
 
     /// !playlist clear — wipes one saved playlist entirely: your own, or
@@ -251,6 +274,7 @@ impl PersonalPlaylistManager {
     /// behavior (the local file, !playlist <username> sampling) must
     /// never block on — or break because of — this succeeding.
     fn sync_to_sheet(&self, playlists: &HashMap<String, UserPlaylist>) {
+        self.sync_calls.fetch_add(1, Ordering::Relaxed);
         let Some(secret) = self.sync_secret.clone() else { return };
         let payload = serde_json::json!({ "playlists": playlists });
         let http = self.http.clone();
