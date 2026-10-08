@@ -10938,6 +10938,56 @@ text. There are no release-45 patch notes: this release changes bot behaviour, n
 **Rollback**: copy the backup exe back over `C:\PathofDust\target\release\twitch-bot-rs.exe` (flag, stop, swap, start,
 clear). The old binary ignores `play-record.json`, so this is a plain swap back.
 
+## 2026-10-08 — release 46 `golems-51-pony-shard-53` deployed (items 51 + 53, window c). 0.65 s.
+
+**Merge.** `origin/master` `c17aa16` ← `0e5b7fc` (`--no-ff` of a's `b282d12`, item 51) ← `4652880` (`--no-ff` of
+`fix/pony-unique-shard-53` `481151e`, item 53) ← `9e66fc3` (golden-corpus regeneration). No conflicts.
+**Golden corpus:** only `elementalist_thunder_golems_vs_dragon_stage1000` was regenerated (deleted, then recaptured). The other 5 scenarios pass
+unchanged, and `git status` showed that one file only.
+**Suite** `cargo test --release --workspace --quiet --no-fail-fast -j 4`: **1150 / 0 / 54** locally and on the box. The order's
+1146 is 1142 + a's 4; this run adds the migration's 4. The first local run was 1149 / 1: I had not bumped the
+`Store::ALL` count to 57 for the new marker. Fixed in `481151e`, then the merge was redone.
+
+**Deploy.** Archive `969d903589048d801fdfcc82ae5e647fdad168376f0ed353625b8c1f62f29b23` matched on both ends. Identity grep found
+`run_pony_unique_shard_return` and the `57` count. Box build exit 0, suite exit 0. `555cfc95…` → **`655f8cba71b02f4ea1730450f7299cb65996ead5341191aa15c6695555d5782d`**,
+downtime **0.65 s**. Slot `deploy-pre-20261008-164714-golems-51-pony-shard-53`. Data backup `pod-backup-20261008-164714.tar.gz`
+(taken by deploy-linux before the stop). Checks: 1 active · 2 NRestarts 0 · 3 `loaded 26` = file 26 · 4 live = candidate ·
+5 unrun (no cookie) · 6 404 / 83,124 B on 4005 · 7 404. 0 panic/ERROR lines since the swap. The fight loop went 40992 → 40993 → 40994.
+
+**Baseline for the owner, read at the swap (16:47 CEST), no tunable touched:** stage **292**, controller A
+`hp_pacing_mult` **9274.75**, controller B `boss_power_mult` **0.4** (its floor), `target_win_loss_ratio` **2.5**. Last 200 boss
+fights before the swap: **131 won = 65.5%** (stages 294–299 at the end of the window).
+**Expected effect of item 51 (a's Part 3):** fewer golem deaths and fewer Terrifying explosions, and a lower win rate
+(simulated 44.8% → 33.0%, n=400). B is already at its 0.4 floor, so only A can compensate. The owner: "the dynamic
+scaling should smooth it out". a's Part 2b (the hand-back fix for dead players) was never built and is not in this release.
+
+**Golems after the swap** (`thunderNetAbsorbed` from the detail tier). Fight 40992, the last before the swap: GalquinSucks's golems
+527k/593k/462k (11 lives each); Tarekis 1,316k/545k. Fight 40993, the first after: GalquinSucks 208k/162k/166k (6 lives each), Lokati
+261k/203k/183k, Tarekis 316k/314k, Kibukah 64k/66k, _atarekis_ 16k/17k. Fight 40994 owner shares: Tarekis 59.8%, Lokati 18.6%, GalquinSucks 18.1%,
+Kibukah 2.4%, _atarekis_ 1.1%. Golems under one owner now take near-equal shares.
+
+**Item 53 grant.** Facts from the game log: `2026-10-05T03:43:27Z Unique Shard apply: character=pony item_id=c049a83440264322
+chosen_affix=DivineForge { affixes: [Echo, CritChance] } shard_balance_before=1 shard_balance_after=0 outcome_ok=true`. So the
+forge cost exactly one Unique Shard. The Chance that removed it cannot be quoted, because Chance crafts are not logged, and the item
+is no longer in live data. There is no admin grant path, so the grant is a marker-guarded one-shot startup migration
+(`run_pony_unique_shard_return`, modelled on `migrate_refund_reforge_now_overcharge`). Log line:
+`2026-10-08T14:47:39.618891Z INFO game::adventure::migrations: pony unique shard return: account=pony unique_shards 0 -> 1 (+1)`.
+Marker `adventure-pony-unique-shard-return-marker.json` = `true`.
+Verified: a copy of the characters file was taken at 16:47:39.551, 67 ms before the migration, while the game was
+stopped. Compared with the file after the first fight, `craft_tokens` changed for pony alone (`uniqueshard` 0 → 1, the other 8
+token counts identical). Every other difference, across all 26 characters, is in the fields fight 40993 writes (`xp`, `dust`, `sand`, `wins`,
+gear, `inventory`, `item_pity`). The roster held 26 characters before and after. Accounts, tunables, passive overrides and item balance pass `sha256sum -c`.
+Sessions: 85 before and after. (A pre-stop copy also showed pc_glory's `inventory` changing in the 25 s before the stop. That was a
+player action, not the release.)
+
+**Patch notes** (box clock, "October 8, 2026"): "All your Thunder Golems now share the tanking", with 3 items. The pre-edit copy is in the slot,
+and the rest of the file is unchanged. No note for pony's shard.
+
+**Rollback:** `rollback-linux.sh golems-51-pony-shard-53`. A binary-only rollback restores the old golem behaviour. It does **not**
+take back pony's shard, and the old binary ignores the marker.
+
 ## FOUND
 - 2026-10-03 (window c): the Linux `game` binary links libssl/libcrypto although `cargo tree -p game -i openssl-sys` is empty on the box; openssl-sys is built in the workspace for the bot. Present since at least 09-03. Not investigated.
 - 2026-10-04 (window c): the release-44 patch-note wording says to use "Forgot your password?" on the login page, but the link there reads "Reset your password by email". — 2026-10-05: fixed in the live patch notes (release 45, window c).
+- 2026-10-08 (window c): Chance crafts write no log line (only Unique Shard applies do), so a Chance that removes a unique affix cannot be dated or quoted from the logs (item 53).
+- 2026-10-08 (window c): the box's `/opt/pathofdust/bin/backup-game-data.sh` (Sep 4) lacks the repo's newer allow-list markers, including `adventure-refund-reforge-now-overcharge-marker.json` and the new `adventure-pony-unique-shard-return-marker.json`; not refreshed (out of scope).
