@@ -2392,6 +2392,7 @@ impl AdventureManager {
         // Water / Hundred Fists tier swap's allocation move) - see
         // `CHARACTER_MIGRATIONS`'s doc.
         run_character_migrations(&characters_path, &mut characters);
+        run_pony_unique_shard_return(&characters_path, &mut characters);
 
         // One-time distribution: every character who joined before free
         // craft tokens existed gets one of each `CraftAction` right now
