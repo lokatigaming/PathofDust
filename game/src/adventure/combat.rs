@@ -6546,8 +6546,17 @@ pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize,
     if units[target_idx].is_boss || units[target_idx].golem_type == Some(GolemType::Thunder) {
         return target_idx;
     }
-    if let Some(thunder_idx) = units.iter().position(|u| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder)) {
-        return thunder_idx;
+    // Item 51 (2026-10-07) - EVERY alive Thunder Golem absorbs, not just
+    // the first in unit order (this was a first-match `position`, so a
+    // second Elementalist's golem only ever took a hit while the first
+    // was dead). Each hit still goes WHOLE to ONE golem - the one-golem
+    // rule unchanged per golem - picked uniformly among the alive ones.
+    // A lone golem draws no rng, so one-golem fights replay unchanged.
+    let thunder: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder)).map(|(i, _)| i).collect();
+    match thunder.len() {
+        0 => {}
+        1 => return thunder[0],
+        n => return thunder[rng.gen_range(0..n)],
     }
     if is_protected_golem(&units[target_idx]) {
         let real_players: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && !u.is_golem && u.alive).map(|(i, _)| i).collect();
@@ -6636,6 +6645,50 @@ mod thunder_golem_redirect_party_wide_tests {
         let mut rng = rand::rngs::mock::StepRng::new(0, 1);
         assert_eq!(thunder_golem_redirect(&units, 2, &mut rng), 2, "damage to a boss never redirects");
         assert_eq!(thunder_golem_redirect(&units, 1, &mut rng), 1, "a Thunder Golem doesn't redirect its own incoming damage onto itself");
+    }
+
+    /// Item 51 (2026-10-07) - the owner's ruling: with several Thunder
+    /// Golems out from different Elementalists, EVERY one absorbs. Before
+    /// the fix the redirect was a first-match `position`, so only the
+    /// first alive golem in unit order ever took a hit.
+    fn redirect_counts(units: &[CombatSimUnit], target_idx: usize, hits: usize) -> Vec<usize> {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(51);
+        let mut counts = vec![0; units.len()];
+        for _ in 0..hits {
+            counts[thunder_golem_redirect(units, target_idx, &mut rng)] += 1;
+        }
+        counts
+    }
+
+    #[test]
+    fn item_51_two_golems_from_different_players_both_absorb() {
+        let units = vec![player("bob"), thunder_golem("alice_golem", "alice"), thunder_golem("carol_golem", "carol")];
+        let counts = redirect_counts(&units, 0, 1000);
+        assert_eq!(counts[0], 0, "no hit may leak to the player while a Thunder Golem is out");
+        assert!(counts[1] > 400 && counts[2] > 400, "both golems must absorb, got {counts:?}");
+    }
+
+    #[test]
+    fn item_51_three_golems_all_absorb_and_a_dead_one_stops() {
+        let mut units = vec![player("bob"), thunder_golem("a_golem", "a"), thunder_golem("c_golem", "c"), thunder_golem("d_golem", "d")];
+        let counts = redirect_counts(&units, 0, 1500);
+        assert_eq!(counts[0], 0);
+        assert!(counts[1..].iter().all(|&c| c > 400), "all three golems must absorb, got {counts:?}");
+        units[2].alive = false;
+        let counts = redirect_counts(&units, 0, 1000);
+        assert_eq!(counts[2], 0, "a dead golem stops absorbing");
+        assert!(counts[1] > 400 && counts[3] > 400, "the survivors carry on, got {counts:?}");
+    }
+
+    #[test]
+    fn item_51_one_golem_draws_no_rng_so_one_golem_fights_replay_unchanged() {
+        use rand::SeedableRng;
+        let units = vec![player("bob"), thunder_golem("alice_golem", "alice")];
+        let mut rng = rand::rngs::StdRng::seed_from_u64(51);
+        let mut untouched = rand::rngs::StdRng::seed_from_u64(51);
+        assert_eq!(thunder_golem_redirect(&units, 0, &mut rng), 1);
+        assert_eq!(rng.gen::<u64>(), untouched.gen::<u64>(), "a single golem must not consume rng");
     }
 }
 
@@ -8505,7 +8558,7 @@ pub(crate) fn apply_hit(
     // unit including every Thunder Golem gets its own splash slot)
     // landing MULTIPLE independently-redirected hits on the SAME
     // already-dead Thunder Golem within one turn (once the first kills
-    // it, `thunder_golem_redirect`'s own "first alive Thunder golem"
+    // it, `thunder_golem_redirect`'s own alive-Thunder-golem
     // search moves on - but a hit that was ALREADY resolved to this now-
     // dead golem before that still lands here). Each extra hit re-ran
     // the entire pipeline against a corpse: double-counting
@@ -19144,6 +19197,73 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
             "no_thunder_golem: expected a real hp timeline (more than just seed + death), got {} samples - regression #33 would collapse this to 2 by redirecting their damage onto an unrelated summoner's Thunder Golem",
             no_thunder_golem.hp_samples.len()
         );
+    }
+
+    /// Item 51 (2026-10-07), through the real `simulate_battle` pipeline -
+    /// two Elementalists' Thunder Golems out at once must BOTH absorb (the
+    /// old first-match redirect gave the second only hits aimed at it
+    /// directly), each golem must die and reform mid-fight with the other
+    /// carrying on, and no hit may land on two golems.
+    #[test]
+    fn item_51_two_summoners_thunder_golems_share_the_party_damage_and_never_double_absorb() {
+        fn thunder_elementalist(id: &str) -> Character {
+            let mut c = Character::new(id.to_string());
+            c.archetype = Archetype::Elementalist;
+            c.level = 100;
+            c.passive_allocations.insert("golemmaster".to_string(), 1);
+            c.passive_allocations.insert("thundergolem".to_string(), 4);
+            c.golem_slot_types = vec![GolemType::Thunder];
+            c
+        }
+        let mut ally = Character::new("ally".to_string());
+        ally.archetype = Archetype::Cleric;
+        ally.level = 100;
+        let mut characters: HashMap<String, Character> = HashMap::new();
+        characters.insert("elementalist_a".to_string(), thunder_elementalist("elementalist_a"));
+        characters.insert("elementalist_b".to_string(), thunder_elementalist("elementalist_b"));
+        characters.insert("ally".to_string(), ally);
+
+        let boss_stats = BossStats {
+            hp: 500_000_000,
+            atk: 3,
+            attack_interval_ms: 1_200,
+            damage_reduction: 0.15,
+            block_chance: 0.10,
+            evasion: 0.05,
+            increased_damage: 0.20,
+            crit_chance: 0.15,
+            crit_multiplier: 0.50,
+            splash: 0.0,
+        };
+        let tunables = LiveTunables::default();
+        let mut rng = StdRng::seed_from_u64(4242);
+        let (_won, unit_infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+
+        let golems: Vec<&CombatUnitInfo> = unit_infos.iter().filter(|u| u.golem_type == Some(GolemType::Thunder)).collect();
+        assert_eq!(golems.len(), 2, "fixture must produce one Thunder Golem per Elementalist");
+        let absorbed: Vec<u64> = golems
+            .iter()
+            .map(|g| events.iter().filter_map(|e| match e {
+                CombatEvent::Attack { target, damage, .. } if *target == g.id => Some(*damage),
+                _ => None,
+            }).sum())
+            .collect();
+        let (lo, hi) = (absorbed[0].min(absorbed[1]), absorbed[0].max(absorbed[1]));
+        assert!(lo > 0 && lo as f64 >= 0.5 * hi as f64, "both golems must absorb a comparable share, got {absorbed:?}");
+        for g in &golems {
+            assert!(!g.thunder_incarnations.is_empty(), "{} never died - the test must cover a golem dying mid-fight", g.id);
+        }
+
+        // No double-absorb: every hit id lands on exactly one target.
+        let mut targets_by_hit: HashMap<u64, HashSet<&str>> = HashMap::new();
+        for e in &events {
+            if let CombatEvent::Attack { target, hit_id, .. } = e {
+                if *hit_id != 0 {
+                    targets_by_hit.entry(*hit_id).or_default().insert(target.as_str());
+                }
+            }
+        }
+        assert!(targets_by_hit.values().all(|t| t.len() == 1), "a single hit landed on more than one unit");
     }
 
     /// Ticket #24 verification (2026-08-20) - the parser's report claimed
