@@ -589,7 +589,7 @@ mod tests {
     fn all_lists_every_variant_exactly_once() {
         assert_eq!(
             Store::ALL.len(),
-            56,
+            57,
             "ALL must list every variant of `Store` exactly once. If you added a store, add it here too and bump this number; if this fires without you touching the enum, something removed an entry."
         );
     }
