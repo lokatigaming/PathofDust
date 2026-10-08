@@ -142,6 +142,10 @@ MARKER_FILES=(
   # to need adding here by hand; the drift check stages an unknown marker
   # but the allow-list is what makes it a recorded, intended file.
   adventure-refund-reforge-now-overcharge-marker.json
+  # Item 53 (release 46): the one Unique Shard returned to pony. A guard on
+  # a currency grant, like the refund above: restoring without it would
+  # grant the shard again on the next start.
+  adventure-pony-unique-shard-return-marker.json
 )
 
 # Fight-tier sequence counters. THESE ARE COPIED LAST, AFTER the fight

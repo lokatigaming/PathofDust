@@ -550,6 +550,41 @@ pub(crate) fn migrate_refund_reforge_now_overcharge(character: &mut Character) {
 pub(crate) const REFORGE_NOW_OVERCHARGE_REFUNDS: [(&str, u64); 5] =
     [("wright", 5654), ("merkosh", 5376), ("jachiny", 5012), ("roxus", 3966), ("kibukah", 1460)];
 
+/// Item 53 (owner, 2026-10-08): returns the one Unique Shard `pony` spent
+/// putting Divine Forge on item `c049a83440264322` (game log 2026-10-05
+/// 03:43:27Z, `shard_balance_before=1 shard_balance_after=0`), which a
+/// later Chance removed. Chance removing a unique affix stays as designed;
+/// this is a one-off return for his testing, not a rule.
+///
+/// Same save-then-mark-done contract as `run_character_migrations`, but
+/// map-level rather than a `CHARACTER_MIGRATIONS` row, because a
+/// `fn(&mut Character)` cannot see that the account is missing - and a
+/// missing account must be a logged no-op. The marker is written either
+/// way, so a later start never grants.
+pub(crate) fn run_pony_unique_shard_return(characters_path: &PathBuf, characters: &mut HashMap<String, Character>) {
+    let marker = Store::PonyUniqueShardReturnMarker;
+    if crate::state::load_json::<bool>(marker_path(characters_path, marker)).is_some() {
+        return;
+    }
+    match characters.get_mut(PONY_UNIQUE_SHARD_RETURN_ACCOUNT) {
+        Some(character) => {
+            let before = character.craft_token_count(CraftAction::UniqueShard);
+            character.add_craft_token(CraftAction::UniqueShard, 1);
+            let after = character.craft_token_count(CraftAction::UniqueShard);
+            tracing::info!("pony unique shard return: account={PONY_UNIQUE_SHARD_RETURN_ACCOUNT} unique_shards {before} -> {after} (+1)");
+            if let Err(err) = crate::state::save_json(characters_path, characters) {
+                tracing::error!("Failed to persist character migration '{marker}' to {}: {err}", characters_path.display());
+            }
+        }
+        None => tracing::warn!("pony unique shard return: account={PONY_UNIQUE_SHARD_RETURN_ACCOUNT} not found - nothing granted"),
+    }
+    if let Err(err) = crate::state::save_json(marker_path(characters_path, marker), &true) {
+        tracing::error!("Failed to persist character migration marker to {marker}: {err}");
+    }
+}
+
+pub(crate) const PONY_UNIQUE_SHARD_RETURN_ACCOUNT: &str = "pony";
+
 /// Echo replaces Lingering Effect (2026-08-21, docs/echo_spec.md) - renames
 /// every existing `Affix::LingeringEffect` entry, on every item this
 /// character owns (equipped + bag), to `Affix::Echo` at HALF its stored
@@ -1899,5 +1934,73 @@ mod refund_reforge_now_overcharge_tests {
             assert!(refund > 0, "{name} is in the refund table for zero dust, which means they should not be in it");
             assert_eq!(name, name.to_lowercase(), "{name} must be the lowercase login the match compares against");
         }
+    }
+}
+
+/// Item 53: exactly one Unique Shard, to `pony`, once.
+#[cfg(test)]
+mod pony_unique_shard_return_tests {
+    use super::*;
+
+    fn scratch(label: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("pony_shard_return_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("adventure-characters.json")
+    }
+
+    fn roster(names: &[&str]) -> HashMap<String, Character> {
+        names.iter().map(|n| (n.to_string(), Character::new(n.to_string()))).collect()
+    }
+
+    fn shards(characters: &HashMap<String, Character>, name: &str) -> u32 {
+        characters[name].craft_token_count(CraftAction::UniqueShard)
+    }
+
+    #[test]
+    fn grants_exactly_one_and_writes_the_marker() {
+        let path = scratch("once");
+        let mut characters = roster(&["pony"]);
+        let before = shards(&characters, "pony");
+        run_pony_unique_shard_return(&path, &mut characters);
+        assert_eq!(shards(&characters, "pony"), before + 1);
+        assert!(crate::state::load_json::<bool>(marker_path(&path, Store::PonyUniqueShardReturnMarker)).is_some());
+        let saved: HashMap<String, Character> = crate::state::load_json(&path).expect("the grant must be persisted");
+        assert_eq!(shards(&saved, "pony"), before + 1);
+    }
+
+    #[test]
+    fn a_second_start_grants_nothing() {
+        let path = scratch("twice");
+        let mut characters = roster(&["pony"]);
+        let before = shards(&characters, "pony");
+        run_pony_unique_shard_return(&path, &mut characters);
+        run_pony_unique_shard_return(&path, &mut characters);
+        assert_eq!(shards(&characters, "pony"), before + 1);
+    }
+
+    #[test]
+    fn another_account_is_untouched() {
+        let path = scratch("other");
+        let mut characters = roster(&["pony", "merkosh"]);
+        let other_before = serde_json::to_string(&characters["merkosh"]).unwrap();
+        run_pony_unique_shard_return(&path, &mut characters);
+        assert_eq!(serde_json::to_string(&characters["merkosh"]).unwrap(), other_before);
+    }
+
+    #[test]
+    fn a_missing_account_is_a_no_op_and_still_marks_done() {
+        let path = scratch("missing");
+        let mut characters = roster(&["merkosh"]);
+        let before = serde_json::to_string(&characters["merkosh"]).unwrap();
+        run_pony_unique_shard_return(&path, &mut characters);
+        assert_eq!(characters.len(), 1, "no account may be created");
+        assert_eq!(serde_json::to_string(&characters["merkosh"]).unwrap(), before);
+        assert!(crate::state::load_json::<bool>(marker_path(&path, Store::PonyUniqueShardReturnMarker)).is_some());
+        // Arriving later must not trigger a grant: the marker is the guard.
+        characters.insert("pony".into(), Character::new("pony".into()));
+        let pony_before = shards(&characters, "pony");
+        run_pony_unique_shard_return(&path, &mut characters);
+        assert_eq!(shards(&characters, "pony"), pony_before);
     }
 }
