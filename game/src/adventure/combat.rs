@@ -18974,8 +18974,10 @@ mod elementalist_stage_6_golem_type_tests {
         assert!(events.iter().any(|e| matches!(e, CombatEvent::Defeat { unit, .. } if unit == "alice")), "must push a real Defeat event, same as any other killing blow");
     }
 
+    /// Restated for item 57: a dead recipient's remaining share is lost, so
+    /// the clock clears at once rather than advancing to a second tick.
     #[test]
-    fn a_tick_against_an_already_dead_recipient_deals_no_damage_but_still_advances_the_clock() {
+    fn a_tick_against_an_already_dead_recipient_deals_no_damage_and_clears_the_clock() {
         let mut recipient = real_player("alice", 100_000);
         recipient.alive = false;
         recipient.hp = 0;
@@ -18985,8 +18987,8 @@ mod elementalist_stage_6_golem_type_tests {
         let mut events = Vec::new();
         apply_thunder_redistribution_tick(&mut units, 0, 5_000, &mut events, 1_000);
         assert!(!events.iter().any(|e| matches!(e, CombatEvent::Attack { .. })), "an already-dead recipient must take no further damage");
-        assert_eq!(units[0].thunder_redistribution_ticks_remaining, 1, "the clock still advances so tick 2 still fires and clears it");
-        assert_eq!(units[0].next_thunder_redistribution_tick_at_ms, 6_000);
+        assert_eq!(units[0].thunder_redistribution_ticks_remaining, 0, "the rest of the share is lost - no later tick");
+        assert_eq!(units[0].next_thunder_redistribution_tick_at_ms, u32::MAX);
     }
 }
 
