@@ -38,16 +38,16 @@
       "isBoss": false,
       "golemSummonerId": "elementalist_thunder_golems_vs_dragon_stage1000",
       "golemType": "thunder",
-      "thunderNetAbsorbed": 3504,
+      "thunderNetAbsorbed": 5808,
       "archetype": null,
       "role": "melee",
       "maxHp": 4917,
       "thunderIncarnations": [
         {
-          "absorbed": 3504,
+          "absorbed": 5808,
           "redistributed": 0,
           "maxHp": 4917,
-          "lifespanMs": 3200
+          "lifespanMs": 3300
         }
       ]
     },
@@ -1524,23 +1524,108 @@
       "atMs": 3200,
       "attacker": "__thunder_redistribution__",
       "target": "elementalist_thunder_golems_vs_dragon_stage1000",
-      "damage": 2904,
-      "unmitigatedDamage": 2904,
-      "targetHpAfter": 0,
+      "damage": 1452,
+      "unmitigatedDamage": 1452,
+      "targetHpAfter": 899,
       "isCrit": false,
       "evaded": false,
       "hitId": 2497,
       "sourceKind": "environmental"
     },
     {
-      "kind": "defeat",
-      "atMs": 3200,
-      "unit": "elementalist_thunder_golems_vs_dragon_stage1000"
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          549.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          24.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          24.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "damage": 2304,
+      "unmitigatedDamage": 2289,
+      "targetHpAfter": 0,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2498,
+      "sourceKind": "direct"
     },
     {
       "kind": "defeat",
-      "atMs": 3200,
+      "atMs": 3300,
       "unit": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "fire_dr_debuff_stacks",
+          549.0
+        ],
+        [
+          "cold_evasion_debuff_stacks",
+          24.0
+        ],
+        [
+          "lightning_dmg_taken_stacks",
+          24.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 3300,
+      "unit": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "buffs": [
+        [
+          "fire_dr_buff_stacks",
+          3.0
+        ],
+        [
+          "cold_evasion_buff_stacks",
+          3.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "damage": 1774,
+      "unmitigatedDamage": 2289,
+      "targetHpAfter": 0,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2505,
+      "sourceKind": "splash"
+    },
+    {
+      "kind": "defeat",
+      "atMs": 3300,
+      "unit": "elementalist_thunder_golems_vs_dragon_stage1000"
+    },
+    {
+      "kind": "skillCast",
+      "atMs": 3300,
+      "unit": "__enemy_0__",
+      "skill": "Dragon's Breath"
     }
   ],
   "rolls": [
@@ -5301,6 +5386,130 @@
       "target": "__enemy_0__",
       "probability": 1.0,
       "succeeded": true
+    },
+    {
+      "eventId": 2499,
+      "hitId": 2498,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2500,
+      "hitId": 2498,
+      "atMs": 3300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2501,
+      "hitId": 2498,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 2502,
+      "hitId": 2498,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": 0.08456644085404444
+    },
+    {
+      "eventId": 2503,
+      "hitId": 2498,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 2504,
+      "hitId": 2498,
+      "atMs": 3300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "__golem_elementalist_thunder_golems_vs_dragon_stage1000_1",
+      "magnitude": 228.93580394842024
+    },
+    {
+      "eventId": 2506,
+      "hitId": 2505,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.03,
+      "succeeded": false
+    },
+    {
+      "eventId": 2507,
+      "hitId": 2505,
+      "atMs": 3300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2508,
+      "hitId": 2505,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 2509,
+      "hitId": 2505,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": 0.28626194198195287
+    },
+    {
+      "eventId": 2510,
+      "hitId": 2505,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 2511,
+      "hitId": 2505,
+      "atMs": 3300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "elementalist_thunder_golems_vs_dragon_stage1000",
+      "magnitude": 228.93580394842024
     }
   ]
 }
