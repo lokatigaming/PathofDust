@@ -310,7 +310,12 @@ pub(crate) fn affix_def(affix: Affix) -> AffixDef {
         // primary stat (see base_power_for_slot's Body entry, 12.0/tier)
         // rather than the tiny per-tier coefficients above, since this
         // has to read as a meaningful raw hp number, not a fraction.
-        FlatLife => AffixDef { name: "max hp", label: "max hp", decimals: 0, is_percent: false, eligible_slots: None, default_per_tier: 5.0, default_weight: 1.0 },
+        // 5.0 -> 50.0 (item 54, owner 2026-10-08: "the flat health affix
+        // on gear got squished ... adjust it by a factor of 10 across the
+        // board"). The 2026-09-02 tier curve cut it to 5 * f(T); this is
+        // a pure coefficient change on that same curve, like Leech's.
+        // Already-rolled values are multiplied by `run_flat_life_x10`.
+        FlatLife => AffixDef { name: "max hp", label: "max hp", decimals: 0, is_percent: false, eligible_slots: None, default_per_tier: 50.0, default_weight: 1.0 },
         // The 5 damage types (2026-08-15 rework - see Affix::ColdDamage's
         // doc) dropped 100x from their old flat-IncreasedDamage-equivalent
         // coefficient (0.03*t) to make room for their new bespoke on-hit/

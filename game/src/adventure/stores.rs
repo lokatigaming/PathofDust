@@ -149,6 +149,7 @@ pub enum Store {
     CritValueNerfMarker,
     DuplicateUniqueEffectsCleanupMarker,
     FightsStorageMigrationMarker,
+    FlatLifeX10Marker,
     FlowlikewaterSwapMarker,
     GlovesSpeedRebalanceMarker,
     HelmRebalanceV2Marker,
@@ -215,6 +216,7 @@ impl Store {
     Store::CritValueNerfMarker,
     Store::DuplicateUniqueEffectsCleanupMarker,
     Store::FightsStorageMigrationMarker,
+    Store::FlatLifeX10Marker,
     Store::FlowlikewaterSwapMarker,
     Store::GlovesSpeedRebalanceMarker,
     Store::HelmRebalanceV2Marker,
@@ -284,6 +286,7 @@ impl Store {
             Store::CritValueNerfMarker => "adventure-crit-value-nerf-marker.json",
             Store::DuplicateUniqueEffectsCleanupMarker => "adventure-duplicate-unique-effects-cleanup-marker.json",
             Store::FightsStorageMigrationMarker => "adventure-fights-storage-migration-marker.json",
+            Store::FlatLifeX10Marker => "adventure-flat-life-x10-marker.json",
             Store::FlowlikewaterSwapMarker => "adventure-flowlikewater-swap-marker.json",
             Store::GlovesSpeedRebalanceMarker => "adventure-gloves-speed-rebalance-marker.json",
             Store::HelmRebalanceV2Marker => "adventure-helm-rebalance-v2-marker.json",
@@ -347,6 +350,7 @@ impl Store {
             Store::CritValueNerfMarker => StoreScope::World,
             Store::DuplicateUniqueEffectsCleanupMarker => StoreScope::World,
             Store::FightsStorageMigrationMarker => StoreScope::World,
+            Store::FlatLifeX10Marker => StoreScope::World,
             Store::FlowlikewaterSwapMarker => StoreScope::World,
             Store::GlovesSpeedRebalanceMarker => StoreScope::World,
             Store::HelmRebalanceV2Marker => StoreScope::World,
@@ -412,6 +416,7 @@ impl Store {
             Store::CritValueNerfMarker => StoreKind::File,
             Store::DuplicateUniqueEffectsCleanupMarker => StoreKind::File,
             Store::FightsStorageMigrationMarker => StoreKind::File,
+            Store::FlatLifeX10Marker => StoreKind::File,
             Store::FlowlikewaterSwapMarker => StoreKind::File,
             Store::GlovesSpeedRebalanceMarker => StoreKind::File,
             Store::HelmRebalanceV2Marker => StoreKind::File,
@@ -476,6 +481,7 @@ impl Store {
             Store::CritValueNerfMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::DuplicateUniqueEffectsCleanupMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::FightsStorageMigrationMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
+            Store::FlatLifeX10Marker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::FlowlikewaterSwapMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::GlovesSpeedRebalanceMarker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
             Store::HelmRebalanceV2Marker => "one-time migration marker - records that a backfill already ran against THIS world's characters",
@@ -589,7 +595,7 @@ mod tests {
     fn all_lists_every_variant_exactly_once() {
         assert_eq!(
             Store::ALL.len(),
-            57,
+            58,
             "ALL must list every variant of `Store` exactly once. If you added a store, add it here too and bump this number; if this fires without you touching the enum, something removed an entry."
         );
     }
