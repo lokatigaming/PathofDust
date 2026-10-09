@@ -585,6 +585,59 @@ pub(crate) fn run_pony_unique_shard_return(characters_path: &PathBuf, characters
 
 pub(crate) const PONY_UNIQUE_SHARD_RETURN_ACCOUNT: &str = "pony";
 
+/// Item 54 (owner, 2026-10-08): multiplies every already-rolled `FlatLife`
+/// value by 10, to match `affix_def`'s 5.0 -> 50.0 coefficient. Affix
+/// values are stored, so without this only new rolls would move.
+///
+/// Touches `affixes` and `sacred_affix` (both stored, both rolled through
+/// `affix_base_value`) on every item every character owns, equipped and
+/// bag - `owned_items_mut_unguarded` is the complete list. No other affix
+/// is touched. Multiplying (not recomputing) keeps each item's jitter,
+/// Perfect boost and polish, so `affix_quality_percent` - and the sand
+/// price Polishing derives from it - reads exactly as before.
+///
+/// Same save-then-mark-done contract as `run_pony_unique_shard_return`,
+/// map-level so it can log per-location counts and totals.
+pub(crate) fn run_flat_life_x10(characters_path: &PathBuf, characters: &mut HashMap<String, Character>) {
+    let marker = Store::FlatLifeX10Marker;
+    if crate::state::load_json::<bool>(marker_path(characters_path, marker)).is_some() {
+        return;
+    }
+    let (mut equipped, mut bag, mut sacred) = (0u32, 0u32, 0u32);
+    let (mut before, mut after) = (0.0f64, 0.0f64);
+    for character in characters.values_mut() {
+        let bag_ids: std::collections::HashSet<String> = character.inventory.iter().map(|i| i.id.clone()).collect();
+        for item in character.owned_items_mut_unguarded() {
+            let in_bag = bag_ids.contains(&item.id);
+            let mut scale = |value: &mut f64| {
+                before += *value;
+                *value *= FLAT_LIFE_X10;
+                after += *value;
+            };
+            for (affix, value) in item.affixes.iter_mut() {
+                if *affix == Affix::FlatLife {
+                    scale(value);
+                    if in_bag { bag += 1 } else { equipped += 1 }
+                }
+            }
+            if let Some((Affix::FlatLife, value)) = item.sacred_affix.as_mut() {
+                scale(value);
+                sacred += 1;
+            }
+        }
+    }
+    tracing::info!("flat life x10: affixes equipped={equipped} bag={bag} sacred={sacred} total {before:.1} -> {after:.1}");
+    if let Err(err) = crate::state::save_json(characters_path, characters) {
+        tracing::error!("Failed to persist item migration '{marker}' to {}: {err}", characters_path.display());
+    }
+    if let Err(err) = crate::state::save_json(marker_path(characters_path, marker), &true) {
+        tracing::error!("Failed to persist item migration marker to {marker}: {err}");
+    }
+}
+
+/// The factor `run_flat_life_x10` applies - the owner's, exactly.
+pub(crate) const FLAT_LIFE_X10: f64 = 10.0;
+
 /// Echo replaces Lingering Effect (2026-08-21, docs/echo_spec.md) - renames
 /// every existing `Affix::LingeringEffect` entry, on every item this
 /// character owns (equipped + bag), to `Affix::Echo` at HALF its stored
@@ -2002,5 +2055,118 @@ mod pony_unique_shard_return_tests {
         let pony_before = shards(&characters, "pony");
         run_pony_unique_shard_return(&path, &mut characters);
         assert_eq!(shards(&characters, "pony"), pony_before);
+    }
+}
+
+/// Item 54: flat life x10 - new rolls and the one-shot stored-value migration.
+#[cfg(test)]
+mod flat_life_x10_tests {
+    use super::*;
+
+    fn scratch(label: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("flat_life_x10_{}_{label}_{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("adventure-characters.json")
+    }
+
+    fn item(id: &str, tier: u32, affixes: Vec<(Affix, f64)>, sacred_affix: Option<(Affix, f64)>) -> Item {
+        Item {
+            id: id.into(),
+            name: id.into(),
+            slot: EquipSlot::Helm,
+            tier,
+            power: 100.0,
+            power_roll: 1.0,
+            max_uses: None,
+            uses: 0,
+            affixes,
+            locked: false,
+            nickname: None,
+            disenchant_protected: false,
+            unique_affix: None,
+            perfect: false,
+            sacred_affix,
+            legacy_reforge_crit_used: false,
+            legacy_recombine_crit_used: false,
+            legacy_crit_bonus_affixes: vec![],
+            crit_bonus_affixes: vec![],
+        }
+    }
+
+    /// One character: a worn helm (FlatLife + Splash, sacred FlatLife) and
+    /// a bag item (FlatLife + IncreasedLife) - the values a 5.0-era roll
+    /// at tier 290 left behind.
+    fn roster() -> HashMap<String, Character> {
+        let mut c = Character::new("alice".into());
+        c.helm = Some(item("worn", 290, vec![(Affix::FlatLife, 68.0), (Affix::Splash, 0.4)], Some((Affix::FlatLife, 81.5))));
+        c.inventory.push(item("bag", 50, vec![(Affix::FlatLife, 35.0), (Affix::IncreasedLife, 0.2)], None));
+        HashMap::from([("alice".to_string(), c)])
+    }
+
+    fn flat(c: &Character) -> (f64, f64, f64) {
+        let helm = c.helm.as_ref().unwrap();
+        (helm.affixes[0].1, helm.sacred_affix.unwrap().1, c.inventory[0].affixes[0].1)
+    }
+
+    #[test]
+    fn new_rolls_are_ten_times_the_old_coefficient_at_every_tier() {
+        const OLD_PER_TIER: f64 = 5.0;
+        for tier in [1u32, 10, 50, 100, 200, 290, 500, 1000, 5000] {
+            let old = OLD_PER_TIER * affix_tier_curve(tier);
+            let ratio = affix_base_value(Affix::FlatLife, tier) / old;
+            assert!((ratio - 10.0).abs() < 1e-9, "tier {tier}: FlatLife must roll exactly 10x its 5.0-era value, got {ratio}x");
+        }
+    }
+
+    #[test]
+    fn multiplies_only_flat_life_equipped_bag_and_sacred_and_persists() {
+        let path = scratch("once");
+        let mut characters = roster();
+        run_flat_life_x10(&path, &mut characters);
+        let c = &characters["alice"];
+        assert_eq!(flat(c), (680.0, 815.0, 350.0));
+        assert_eq!(c.helm.as_ref().unwrap().affixes[1], (Affix::Splash, 0.4), "no other affix may move");
+        assert_eq!(c.inventory[0].affixes[1], (Affix::IncreasedLife, 0.2), "no other affix may move");
+        assert!(crate::state::load_json::<bool>(marker_path(&path, Store::FlatLifeX10Marker)).is_some());
+        let saved: HashMap<String, Character> = crate::state::load_json(&path).expect("the migration must be persisted");
+        assert_eq!(flat(&saved["alice"]), (680.0, 815.0, 350.0));
+    }
+
+    #[test]
+    fn a_second_start_does_nothing() {
+        let path = scratch("twice");
+        let mut characters = roster();
+        run_flat_life_x10(&path, &mut characters);
+        run_flat_life_x10(&path, &mut characters);
+        assert_eq!(flat(&characters["alice"]), (680.0, 815.0, 350.0));
+    }
+
+    /// Prices: nothing the game charges reads an affix's value. Item
+    /// quality (disenchant sand, Polishing) is `power_roll`; the per-affix
+    /// quality that gates Polishing must read exactly as it did.
+    #[test]
+    fn quality_and_item_quality_are_unchanged() {
+        let path = scratch("quality");
+        let mut characters = roster();
+        let worn = characters["alice"].helm.clone().unwrap();
+        let old_quality = 68.0 / (5.0 * affix_tier_curve(290));
+        let item_quality = worn.quality_percent();
+        run_flat_life_x10(&path, &mut characters);
+        let helm = characters["alice"].helm.clone().unwrap();
+        let new_quality = helm.affixes[0].1 / affix_base_value(Affix::FlatLife, 290);
+        assert!((new_quality - old_quality).abs() < 1e-12);
+        assert_eq!(affix_quality_percent(Affix::FlatLife, helm.affixes[0].1, 290, false), affix_quality_percent(Affix::FlatLife, 10.0 * worn.affixes[0].1, 290, false));
+        assert_eq!(helm.quality_percent(), item_quality);
+    }
+
+    #[test]
+    fn an_existing_items_displayed_value_reads_ten_times_higher() {
+        let path = scratch("display");
+        let mut characters = roster();
+        let before = affix_display(Affix::FlatLife, characters["alice"].helm.as_ref().unwrap().affixes[0].1);
+        run_flat_life_x10(&path, &mut characters);
+        let after = affix_display(Affix::FlatLife, characters["alice"].helm.as_ref().unwrap().affixes[0].1);
+        assert_eq!((before.as_str(), after.as_str()), ("+68 max hp", "+680 max hp"));
     }
 }

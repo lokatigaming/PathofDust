@@ -2393,6 +2393,7 @@ impl AdventureManager {
         // `CHARACTER_MIGRATIONS`'s doc.
         run_character_migrations(&characters_path, &mut characters);
         run_pony_unique_shard_return(&characters_path, &mut characters);
+        run_flat_life_x10(&characters_path, &mut characters);
 
         // One-time distribution: every character who joined before free
         // craft tokens existed gets one of each `CraftAction` right now
