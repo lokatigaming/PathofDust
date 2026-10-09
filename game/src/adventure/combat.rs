@@ -7023,6 +7023,11 @@ fn apply_rising_phoenix_revival(units: &mut [CombatSimUnit], target_idx: usize, 
     units[target_idx].hp = 0;
     units[target_idx].alive_since_ms = at_ms;
     units[target_idx].revive_at_ms = u32::MAX;
+    // Item 57 - a Thunder Golem hand-back share still owed at death is lost,
+    // not resumed after the revive (see `apply_thunder_redistribution_tick`).
+    units[target_idx].thunder_redistribution_ticks_remaining = 0;
+    units[target_idx].thunder_redistribution_per_tick_amount = 0.0;
+    units[target_idx].next_thunder_redistribution_tick_at_ms = u32::MAX;
     let caster_id = units[target_idx].revive_caster_id.clone();
     // Release 1.1 item 6 - names the CASTING Elementalist, not the
     // revived ally, for consistency with the Heal event pushed just
@@ -7370,11 +7375,11 @@ fn thunder_redistribution_tick_count(duration_ms: u32) -> u32 {
 /// `Defeat` push, `alive = false` - specifically so the main loop's own
 /// generic "who died since last iteration" sweep (which drives Rising
 /// Phoenix eligibility) picks it up on its very next iteration with no
-/// special-casing needed here (B1 - "deaths resolve normally"). A no-op
-/// against an already-dead recipient (first tick already killed them) -
-/// the clock still advances/clears correctly, it just deals no damage,
-/// same spirit as `next_thunder_redistribution_tick_at_ms`'s own "checked
-/// even on a dead unit" doc in the main loop.
+/// special-casing needed here (B1 - "deaths resolve normally"). Against an
+/// already-dead recipient (an earlier tick or anything else killed them)
+/// it deals nothing to anyone and clears the clock for good - the share is
+/// lost (item 57), which is why the main loop still checks the clock on a
+/// dead unit.
 fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: usize, at_ms: u32, events: &mut Vec<CombatEvent>, tick_interval_ms: u32) {
     let ticks_remaining = units[target_idx].thunder_redistribution_ticks_remaining;
     if ticks_remaining == 0 {
@@ -7401,7 +7406,21 @@ fn apply_thunder_redistribution_tick(units: &mut [CombatSimUnit], target_idx: us
     // initial scheduling already uses. Silently drops only if the WHOLE
     // party is down (nowhere left to redirect to - a fight-ending state
     // regardless).
-    let recipient_idx = if units[target_idx].alive && !is_damage_immune(&units[target_idx], at_ms) {
+    //
+    // Item 57 (2026-10-09) reverses that for a DEAD recipient. The owner:
+    // "if a player dies during the handoff the damage should just be lost,
+    // not handed off again to someone else." A dead recipient's remaining
+    // ticks deal nothing to anyone and the clock clears for good, so a
+    // later revive (`apply_rising_phoenix_revival` clears it too) never
+    // picks the share back up. The redirect above survives only for an
+    // alive-but-immune recipient, which the ruling does not cover.
+    if !units[target_idx].alive {
+        units[target_idx].thunder_redistribution_ticks_remaining = 0;
+        units[target_idx].thunder_redistribution_per_tick_amount = 0.0;
+        units[target_idx].next_thunder_redistribution_tick_at_ms = u32::MAX;
+        return;
+    }
+    let recipient_idx = if !is_damage_immune(&units[target_idx], at_ms) {
         Some(target_idx)
     } else {
         units.iter().position(|u| !u.is_boss && !u.is_golem && u.alive && !is_damage_immune(u, at_ms))
@@ -19677,12 +19696,15 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
     /// redistribution tick being scheduled and it actually firing. The
     /// original code just silently skipped a dead recipient's own tick -
     /// nothing applied, nowhere. Fixed to redirect that tick to another
-    /// currently-alive, eligible party member instead. Two recipients
-    /// (alice, bob) split a golem's redistribution evenly; alice is then
-    /// killed by an unrelated hit before either of her own ticks fires -
-    /// both must land on bob instead of vanishing.
+    /// currently-alive, eligible party member instead.
+    ///
+    /// Item 57 (2026-10-09) reverses that by owner ruling: "if a player dies
+    /// during the handoff the damage should just be lost, not handed off
+    /// again to someone else." Restated: alice is killed by an unrelated hit
+    /// before either of her own ticks fires - both are lost, bob takes none
+    /// of them, and alice's clock still clears.
     #[test]
-    fn a_recipients_own_unrelated_death_redirects_their_pending_ticks_instead_of_losing_them() {
+    fn a_recipients_own_unrelated_death_loses_their_pending_ticks_instead_of_redirecting_them() {
         let golem = dead_thunder_golem(1000.0);
         let mut units = vec![golem, real_player("alice", 1_000_000), real_player("bob", 1_000_000)];
         let mut events = Vec::new();
@@ -19701,7 +19723,8 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
 
         apply_thunder_redistribution_tick(&mut units, 1, 1_000, &mut events, 1_000);
         apply_thunder_redistribution_tick(&mut units, 1, 2_000, &mut events, 1_000);
-        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0, "the clock still runs to completion even though delivery redirected elsewhere");
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0, "a dead recipient's clock clears for good");
+        assert_eq!(units[1].next_thunder_redistribution_tick_at_ms, u32::MAX);
 
         let redirected_to_bob: i64 = events
             .iter()
@@ -19710,14 +19733,75 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
                 _ => None,
             })
             .sum();
-        assert_eq!(redirected_to_bob, 250, "alice's own full 250 (both ticks) must land on bob, the only other alive eligible recipient, instead of vanishing");
-        assert_eq!(bob_hp_before - units[2].hp, 250, "bob's own hp must actually reflect the redirected damage");
+        assert_eq!(redirected_to_bob, 0, "alice's 250 is lost - none of it may land on bob (item 57)");
+        assert_eq!(bob_hp_before, units[2].hp, "bob's hp must be untouched by alice's lost share");
 
         let sent_to_alice: usize = events
             .iter()
             .filter(|e| matches!(e, CombatEvent::Attack { target, source_kind: AttackSourceKind::Environmental, .. } if target == "alice"))
             .count();
         assert_eq!(sent_to_alice, 0, "a dead recipient must never receive an Attack event for their own no-longer-deliverable tick");
+    }
+
+    /// Item 57 - the order's own case: a recipient who dies after tick 1 of
+    /// a 4 s hand-back loses ticks 2-4, and every other player takes exactly
+    /// what they would have taken had nobody died. 2400 absorbed x 0.5 =
+    /// 1200, 400 each to alice/bob/carol, as 4 ticks of 100.
+    #[test]
+    fn a_recipient_who_dies_after_tick_one_loses_the_rest_and_nobody_else_takes_it() {
+        let run = |kill_alice_after_tick_1: bool| {
+            let mut units = vec![dead_thunder_golem(2400.0), real_player("alice", 1_000_000), real_player("bob", 1_000_000), real_player("carol", 1_000_000)];
+            let mut events = Vec::new();
+            let mut rolls = Vec::new();
+            let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+            handle_golem_death(&mut units, 0, 0, &mut events, &mut rolls, &mut rng, 0.5, 4_000);
+            let mut delivered: Vec<(u32, String, u64)> = Vec::new();
+            while let Some((i, _)) = units.iter().enumerate().filter(|(_, u)| u.next_thunder_redistribution_tick_at_ms != u32::MAX).min_by_key(|(_, u)| (u.next_thunder_redistribution_tick_at_ms, u.id.clone())) {
+                let at_ms = units[i].next_thunder_redistribution_tick_at_ms;
+                // Alice dies of something unrelated right after her tick 1.
+                if kill_alice_after_tick_1 && at_ms == 2_000 && units[1].alive {
+                    units[1].alive = false;
+                    units[1].hp = 0;
+                }
+                let start = events.len();
+                apply_thunder_redistribution_tick(&mut units, i, at_ms, &mut events, THUNDER_REDISTRIBUTION_TICK_SPACING_MS);
+                for e in &events[start..] {
+                    if let CombatEvent::Attack { at_ms, target, damage, .. } = e {
+                        delivered.push((*at_ms, target.clone(), *damage));
+                    }
+                }
+            }
+            (units, delivered)
+        };
+        let (_, baseline) = run(false);
+        let (units, with_death) = run(true);
+        let to = |d: &[(u32, String, u64)], id: &str| d.iter().filter(|(_, t, _)| t == id).map(|(at, _, dmg)| (*at, *dmg)).collect::<Vec<_>>();
+        assert_eq!(to(&baseline, "alice"), vec![(1_000, 100), (2_000, 100), (3_000, 100), (4_000, 100)], "baseline: 4 ticks of 100");
+        assert_eq!(to(&with_death, "alice"), vec![(1_000, 100)], "alice took tick 1, then died - ticks 2-4 are lost");
+        for id in ["bob", "carol"] {
+            assert_eq!(to(&with_death, id), to(&baseline, id), "{id} must take exactly what they would have taken anyway");
+        }
+        assert_eq!(with_death.iter().map(|(_, _, d)| d).sum::<u64>(), 1_200 - 300, "the 300 alice still owed is gone, not delivered anywhere");
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0);
+        assert_eq!(units[1].next_thunder_redistribution_tick_at_ms, u32::MAX);
+    }
+
+    /// Item 57 - a recipient who dies and is revived by Rising Phoenix
+    /// before their next tick does NOT pick their lost share back up.
+    #[test]
+    fn a_revived_recipient_does_not_resume_their_lost_share() {
+        let mut units = vec![dead_thunder_golem(2400.0), real_player("alice", 1_000_000), real_player("bob", 1_000_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 0, &mut events, &mut rolls, &mut rng, 0.5, 4_000);
+        units[1].alive = false;
+        units[1].hp = 0;
+        apply_rising_phoenix_revival(&mut units, 1, 1_500, &mut events, &mut rng);
+        assert!(units[1].alive, "fixture: the revive must have brought alice back");
+        assert_eq!(units[1].thunder_redistribution_ticks_remaining, 0, "the revive must not carry the owed ticks over");
+        assert_eq!(units[1].next_thunder_redistribution_tick_at_ms, u32::MAX);
+        assert_eq!(units[2].thunder_redistribution_ticks_remaining, 4, "bob's own share is untouched");
     }
 
     /// Release 1.2 item 4's second half - investigating hereticgamingdad's
