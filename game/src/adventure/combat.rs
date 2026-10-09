@@ -19534,6 +19534,86 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         assert!(gap <= absorbed, "the gap between the expected and actual net_absorbed ({gap}) is implausibly large for a single truncated incarnation - looks like a real miscalculation, not end-of-fight truncation");
     }
 
+    /// Item 57 - one real fight per variant, shipped default tunables (4 s
+    /// hand-back): an Elementalist's Thunder Golem dies and its hand-back
+    /// lands as 4 ticks 1 s apart. With no healer in the party, no healing
+    /// lands inside any hand-back; with a Cleric, healing lands on a
+    /// hand-back recipient strictly BETWEEN two of that death's ticks -
+    /// the room the owner asked for.
+    #[test]
+    fn healing_lands_between_handback_ticks_only_when_a_healer_is_in_the_party() {
+        let fight = |ally_archetype: Archetype| {
+            let mut character = Character::new("elementalist".to_string());
+            character.archetype = Archetype::Elementalist;
+            character.level = 100;
+            character.passive_allocations.insert("golemmaster".to_string(), 1);
+            character.passive_allocations.insert("thundergolem".to_string(), 4);
+            character.passive_allocations.insert("gigantify".to_string(), 3);
+            character.passive_allocations.insert("growing".to_string(), 3);
+            character.golem_slot_types = vec![GolemType::Thunder];
+            let mut ally = Character::new("ally".to_string());
+            ally.archetype = ally_archetype;
+            ally.level = 100;
+            let mut characters: HashMap<String, Character> = HashMap::new();
+            characters.insert("elementalist".to_string(), character);
+            characters.insert("ally".to_string(), ally);
+            let boss_stats = BossStats {
+                hp: 500_000_000,
+                atk: 100,
+                attack_interval_ms: 1_200,
+                damage_reduction: 0.15,
+                block_chance: 0.10,
+                evasion: 0.05,
+                increased_damage: 0.20,
+                crit_chance: 0.15,
+                crit_multiplier: 0.50,
+                splash: 0.0,
+            };
+            let tunables = LiveTunables::default();
+            assert_eq!(tunables.thunder_redistribution_duration_secs, 4.0);
+            let mut rng = StdRng::seed_from_u64(5757);
+            let (_won, _infos, events, _rolls) = simulate_battle(&characters, vec![(boss_stats, Some(BossKind::Dragon), 1.0)], 100, &tunables, TEST_FIGHT_SEED, &mut rng);
+            events
+        };
+        // (death_ms, recipient, [tick times]) for every hand-back whose
+        // four ticks all landed before the fight ended.
+        let handbacks = |events: &[CombatEvent]| {
+            let deaths: Vec<u32> = events.iter().filter_map(|e| match e { CombatEvent::SkillCast { at_ms, skill, .. } if skill == "Thunder Golem Redistribution" => Some(*at_ms), _ => None }).collect();
+            let mut out: Vec<(u32, String, Vec<u32>)> = Vec::new();
+            for &d in &deaths {
+                for id in ["elementalist", "ally"] {
+                    let ticks: Vec<u32> = events.iter().filter_map(|e| match e { CombatEvent::Attack { at_ms, attacker, target, .. } if attacker == THUNDER_REDISTRIBUTION_ATTACKER_ID && target == id && *at_ms > d && *at_ms <= d + 4_000 => Some(*at_ms), _ => None }).collect();
+                    if ticks.len() == 4 {
+                        out.push((d, id.to_string(), ticks));
+                    }
+                }
+            }
+            out
+        };
+        let heals_between_ticks = |events: &[CombatEvent], hb: &[(u32, String, Vec<u32>)]| {
+            events
+                .iter()
+                .filter(|e| match e {
+                    CombatEvent::Heal { at_ms, target, .. } => hb.iter().any(|(_, id, ticks)| id == target && *at_ms > ticks[0] && *at_ms < ticks[3]),
+                    _ => false,
+                })
+                .count()
+        };
+
+        let solo = fight(Archetype::Warrior);
+        let solo_hb = handbacks(&solo);
+        assert!(!solo_hb.is_empty(), "no complete hand-back in the no-healer fight - test would be vacuous");
+        for (d, id, ticks) in &solo_hb {
+            assert_eq!(ticks, &vec![d + 1_000, d + 2_000, d + 3_000, d + 4_000], "{id}: 4 ticks, 1 s apart, after the death at {d}");
+        }
+        assert_eq!(heals_between_ticks(&solo, &solo_hb), 0, "no healer, so no healing may land inside a hand-back");
+
+        let healed = fight(Archetype::Cleric);
+        let healed_hb = handbacks(&healed);
+        assert!(!healed_hb.is_empty(), "no complete hand-back in the healer fight - test would be vacuous");
+        assert!(heals_between_ticks(&healed, &healed_hb) > 0, "the Cleric's healing must land on a recipient between hand-back ticks");
+    }
+
     /// Ledger #35/#36 observability round-trip - the SAME fixture as
     /// `thunder_net_absorbed_equals_the_event_logs_own_absorbed_minus_redistributed_sums`
     /// above (a real multi-reform fight through the full `simulate_battle`
