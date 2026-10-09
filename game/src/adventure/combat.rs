@@ -6552,11 +6552,25 @@ pub(crate) fn thunder_golem_redirect(units: &[CombatSimUnit], target_idx: usize,
     // was dead). Each hit still goes WHOLE to ONE golem - the one-golem
     // rule unchanged per golem - picked uniformly among the alive ones.
     // A lone golem draws no rng, so one-golem fights replay unchanged.
-    let thunder: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder)).map(|(i, _)| i).collect();
-    match thunder.len() {
-        0 => {}
-        1 => return thunder[0],
-        n => return thunder[rng.gen_range(0..n)],
+    //
+    // Item 56 (2026-10-09) - the pick is no longer uniform: the alive
+    // Thunder Golem with the LOWEST current hp takes the hit (ties go to
+    // the first in unit order; no rng drawn). Uniform sent a share of
+    // every fight's hits to the ~1M-hp golems, and each of their deaths
+    // redistributes ~0.5M onto the party inside 2s - the release-46 stage
+    // drop (reports/56-release-46-stage-drop-2026-10-09.md). Lowest-hp
+    // finishes a wounded golem before opening a fresh one, so every golem
+    // still absorbs, but the big ones die - and burst - far less often.
+    if let Some(&golem_idx) = units
+        .iter()
+        .enumerate()
+        .filter(|(_, u)| !u.is_boss && u.is_golem && u.alive && u.golem_type == Some(GolemType::Thunder))
+        .map(|(i, _)| i)
+        .collect::<Vec<usize>>()
+        .iter()
+        .min_by_key(|&&i| units[i].hp)
+    {
+        return golem_idx;
     }
     if is_protected_golem(&units[target_idx]) {
         let real_players: Vec<usize> = units.iter().enumerate().filter(|(_, u)| !u.is_boss && !u.is_golem && u.alive).map(|(i, _)| i).collect();
@@ -6650,35 +6664,87 @@ mod thunder_golem_redirect_party_wide_tests {
     /// Item 51 (2026-10-07) - the owner's ruling: with several Thunder
     /// Golems out from different Elementalists, EVERY one absorbs. Before
     /// the fix the redirect was a first-match `position`, so only the
-    /// first alive golem in unit order ever took a hit.
-    fn redirect_counts(units: &[CombatSimUnit], target_idx: usize, hits: usize) -> Vec<usize> {
+    /// first alive golem in unit order ever took a hit. Item 56: each hit
+    /// here deals 100 to the golem it lands on, and a golem at 0 hp dies
+    /// and reforms at full 5 hits later (one 5-hit life), so the
+    /// lowest-hp pick rotates the way a fight does. A full-hp golem takes
+    /// nothing while a wounded one is alive.
+    fn redirect_counts(units: &mut [CombatSimUnit], target_idx: usize, hits: usize) -> Vec<usize> {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(51);
         let mut counts = vec![0; units.len()];
-        for _ in 0..hits {
-            counts[thunder_golem_redirect(units, target_idx, &mut rng)] += 1;
+        let mut reform_at: Vec<Option<usize>> = vec![None; units.len()];
+        for hit in 0..hits {
+            for (u, at) in units.iter_mut().zip(reform_at.iter_mut()) {
+                if *at == Some(hit) {
+                    u.alive = true;
+                    u.hp = u.max_hp as i64;
+                    *at = None;
+                }
+            }
+            let i = thunder_golem_redirect(units, target_idx, &mut rng);
+            counts[i] += 1;
+            if units[i].is_golem {
+                units[i].hp -= 100;
+                if units[i].hp <= 0 {
+                    units[i].alive = false;
+                    reform_at[i] = Some(hit + 5);
+                }
+            }
         }
         counts
     }
 
     #[test]
     fn item_51_two_golems_from_different_players_both_absorb() {
-        let units = vec![player("bob"), thunder_golem("alice_golem", "alice"), thunder_golem("carol_golem", "carol")];
-        let counts = redirect_counts(&units, 0, 1000);
+        let mut units = vec![player("bob"), thunder_golem("alice_golem", "alice"), thunder_golem("carol_golem", "carol")];
+        let counts = redirect_counts(&mut units, 0, 1000);
         assert_eq!(counts[0], 0, "no hit may leak to the player while a Thunder Golem is out");
         assert!(counts[1] > 400 && counts[2] > 400, "both golems must absorb, got {counts:?}");
     }
 
     #[test]
-    fn item_51_three_golems_all_absorb_and_a_dead_one_stops() {
-        let mut units = vec![player("bob"), thunder_golem("a_golem", "a"), thunder_golem("c_golem", "c"), thunder_golem("d_golem", "d")];
-        let counts = redirect_counts(&units, 0, 1500);
-        assert_eq!(counts[0], 0);
-        assert!(counts[1..].iter().all(|&c| c > 400), "all three golems must absorb, got {counts:?}");
+    fn item_51_three_golems_a_dead_one_stops_and_the_reserve_takes_over() {
+        // Item 56: a full-hp golem is held in reserve while a wounded one
+        // is alive, and takes the hits once the others are down.
+        let fresh = || vec![player("bob"), thunder_golem("a_golem", "a"), thunder_golem("c_golem", "c"), thunder_golem("d_golem", "d")];
+        let mut units = fresh();
+        units[1].alive = false;
         units[2].alive = false;
-        let counts = redirect_counts(&units, 0, 1000);
+        let counts = redirect_counts(&mut units, 0, 3);
+        assert_eq!(counts, vec![0, 0, 0, 3], "the reserve golem absorbs once the others are down");
+        let mut units = fresh();
+        units[2].alive = false;
+        let counts = redirect_counts(&mut units, 0, 1000);
+        assert_eq!(counts[0], 0);
         assert_eq!(counts[2], 0, "a dead golem stops absorbing");
         assert!(counts[1] > 400 && counts[3] > 400, "the survivors carry on, got {counts:?}");
+    }
+
+    /// Item 56 (2026-10-09) - the alive Thunder Golem with the lowest
+    /// current hp takes the hit, whatever its max hp or unit order; a tie
+    /// goes to the first in unit order.
+    #[test]
+    fn item_56_the_lowest_current_hp_thunder_golem_takes_the_hit() {
+        let mut units = vec![player("bob"), thunder_golem("a_golem", "a"), thunder_golem("big_golem", "big"), thunder_golem("c_golem", "c")];
+        units[2].max_hp = 1_000_000;
+        units[2].hp = 300;
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        assert_eq!(thunder_golem_redirect(&units, 0, &mut rng), 2, "the wounded golem takes it, even the biggest one");
+        units[2].hp = 1_000_000;
+        assert_eq!(thunder_golem_redirect(&units, 0, &mut rng), 1, "a tie at 500 goes to the first in unit order");
+        units[3].hp = 499;
+        assert_eq!(thunder_golem_redirect(&units, 0, &mut rng), 3);
+    }
+
+    #[test]
+    fn item_56_several_golems_draw_no_rng() {
+        use rand::SeedableRng;
+        let units = vec![player("bob"), thunder_golem("a_golem", "a"), thunder_golem("c_golem", "c")];
+        let mut rng = rand::rngs::StdRng::seed_from_u64(56);
+        let mut untouched = rand::rngs::StdRng::seed_from_u64(56);
+        thunder_golem_redirect(&units, 0, &mut rng);
+        assert_eq!(rng.gen::<u64>(), untouched.gen::<u64>(), "the golem pick must not consume rng");
     }
 
     #[test]
