@@ -1953,13 +1953,14 @@ pub(crate) struct CombatSimUnit {
     /// clock if the first one killed the recipient.
     next_thunder_redistribution_tick_at_ms: u32,
     /// This unit's own per-tick share of a Thunder Golem's redistributed
-    /// absorption - HALF of their even split of the total (2 ticks per
-    /// the spec), reused unchanged for both ticks. 0.0 when nothing
+    /// absorption - their even split of the total divided by the tick
+    /// count (`thunder_redistribution_tick_count`, 4 by default since item
+    /// 57, 2 before), reused unchanged for every tick. 0.0 when nothing
     /// pending.
     thunder_redistribution_per_tick_amount: f64,
-    /// How many redistribution ticks this unit still has coming (2, then
-    /// 1, then 0/cleared). Distinct from `next_thunder_redistribution_tick_at_ms`
-    /// == `u32::MAX` only after the SECOND tick fires - needed so the
+    /// How many redistribution ticks this unit still has coming (the tick
+    /// count, counting down to 0/cleared). Distinct from `next_thunder_redistribution_tick_at_ms`
+    /// == `u32::MAX` only after the LAST tick fires - needed so the
     /// handler knows whether to reschedule for a second tick or clear
     /// the clock for good.
     thunder_redistribution_ticks_remaining: u32,
@@ -7096,14 +7097,14 @@ fn sweep_golem_deaths(
     rolls: &mut Vec<RollEvent>,
     rng: &mut impl Rng,
     redistribution_pct: f64,
-    redistribution_window_ms: u32,
+    redistribution_duration_ms: u32,
 ) {
     let newly_dead_summoners: Vec<String> =
         (0..units.len()).filter(|&i| !units[i].is_boss && !units[i].is_golem && prev_alive[i] && !units[i].alive).map(|i| units[i].id.clone()).collect();
     kill_golems_of_dead_summoners(units, &newly_dead_summoners, at_ms, events);
     for i in 0..units.len() {
         if units[i].is_golem && prev_alive[i] && !units[i].alive {
-            handle_golem_death(units, i, at_ms, events, rolls, rng, redistribution_pct, redistribution_window_ms);
+            handle_golem_death(units, i, at_ms, events, rolls, rng, redistribution_pct, redistribution_duration_ms);
         }
     }
 }
@@ -7150,7 +7151,7 @@ fn handle_golem_death(
     rolls: &mut Vec<RollEvent>,
     rng: &mut impl Rng,
     redistribution_pct: f64,
-    redistribution_window_ms: u32,
+    redistribution_duration_ms: u32,
 ) {
     let terrifying_pct = units[golem_idx].thundergolem_terrifying_pct;
     if terrifying_pct > 0.0 {
@@ -7168,8 +7169,9 @@ fn handle_golem_death(
     // alive REAL party member (B2 - golems are excluded from the
     // candidate pool outright, so this can never land on another golem
     // even a second Thunder Golem also currently alive, no
-    // `thunder_golem_redirect` call needed) as a 2-tick unmitigated DoT
-    // spread across `redistribution_window_ms`. Only ever nonzero for a
+    // `thunder_golem_redirect` call needed) as an unmitigated DoT of one
+    // equal tick per second across `redistribution_duration_ms` (item 57 -
+    // `thunder_redistribution_tick_count`; 2 ticks before). Only ever nonzero for a
     // Thunder Golem (every other golem type never increments
     // `thundergolem_absorbed_this_incarnation` in the first place), so
     // this is naturally a no-op for Flame/Water/Basic without its own
@@ -7191,7 +7193,7 @@ fn handle_golem_death(
             // it up separately once the ticks actually land below.
             units[golem_idx].thundergolem_net_absorbed -= total_redistributed;
             let per_recipient = total_redistributed / recipients.len() as f64;
-            let tick_interval_ms = (redistribution_window_ms / 2).max(1);
+            let ticks = thunder_redistribution_tick_count(redistribution_duration_ms);
             let golem_id = units[golem_idx].id.clone();
             events.push(CombatEvent::SkillCast { at_ms, unit: golem_id, skill: "Thunder Golem Redistribution".to_string() });
             for &recipient_idx in &recipients {
@@ -7218,10 +7220,10 @@ fn handle_golem_death(
                 // shape as Enshrouded/Guardian Fire's shared temp_*
                 // buff slots) guarantees nothing is ever lost.
                 let still_owed = units[recipient_idx].thunder_redistribution_per_tick_amount * units[recipient_idx].thunder_redistribution_ticks_remaining as f64;
-                let combined_per_tick = (still_owed + per_recipient) / 2.0;
-                units[recipient_idx].next_thunder_redistribution_tick_at_ms = at_ms + tick_interval_ms;
+                let combined_per_tick = (still_owed + per_recipient) / ticks as f64;
+                units[recipient_idx].next_thunder_redistribution_tick_at_ms = at_ms + THUNDER_REDISTRIBUTION_TICK_SPACING_MS;
                 units[recipient_idx].thunder_redistribution_per_tick_amount = combined_per_tick;
-                units[recipient_idx].thunder_redistribution_ticks_remaining = 2;
+                units[recipient_idx].thunder_redistribution_ticks_remaining = ticks;
             }
         }
     }
@@ -7332,6 +7334,22 @@ fn reform_thunder_golem(units: &mut [CombatSimUnit], golem_idx: usize, at_ms: u3
 /// rather than an empty one purely so the detail-tier combat log still
 /// shows something legible instead of a blank attacker column.
 const THUNDER_REDISTRIBUTION_ATTACKER_ID: &str = "__thunder_redistribution__";
+
+/// Item 57 (2026-10-09) - the hand-back's fixed tick spacing. The first
+/// tick lands this long after the golem's death and each later one this
+/// long after the last, so the live dial
+/// (`LiveTunables::thunder_redistribution_duration_secs`) sets only how
+/// many ticks there are.
+const THUNDER_REDISTRIBUTION_TICK_SPACING_MS: u32 = 1_000;
+
+/// How many equal ticks a hand-back of `duration_ms` is split into: the
+/// duration in whole seconds, rounded to nearest, never fewer than 1 (a
+/// zero, sub-1.5 s or nonsense duration is one tick carrying the whole
+/// share - the tunable's own "disable" is `thunder_redistribution_pct` 0,
+/// not this). 2_000 gives the pre-item-57 two ticks.
+fn thunder_redistribution_tick_count(duration_ms: u32) -> u32 {
+    ((duration_ms as f64 / THUNDER_REDISTRIBUTION_TICK_SPACING_MS as f64).round() as u32).max(1)
+}
 
 /// Thunder Golem absorbed-damage redistribution's own per-tick payoff
 /// (docs/elementalist_spec.md, Release 1 Part B) - applies THIS unit's
@@ -13391,7 +13409,7 @@ pub(crate) fn simulate_battle(
                 &mut rolls,
                 &mut rng,
                 tunables.thunder_redistribution_pct,
-                (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
+                (tunables.thunder_redistribution_duration_secs * 1000.0).max(0.0) as u32,
             );
             break;
         }
@@ -13424,7 +13442,7 @@ pub(crate) fn simulate_battle(
             &mut rolls,
             &mut rng,
             tunables.thunder_redistribution_pct,
-            (tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32,
+            (tunables.thunder_redistribution_duration_secs * 1000.0).max(0.0) as u32,
         );
         // Water Golem's own Shattering modifier - any enemy that just died.
         // Gated on the live kill-switch (see `LiveTunables::shattering_enabled`'s
@@ -13613,16 +13631,10 @@ pub(crate) fn simulate_battle(
                 continue;
             }
             NextEvent::ThunderRedistributionTick(target_idx) => {
-                // Same interval `handle_golem_death` used to schedule tick
-                // 1 - re-derived from the live tunable rather than stored
-                // on the unit, since `redistribution_window_ms` is the
-                // SAME for every recipient/tick of a given death and
-                // storing it again per-unit would be a third field for no
-                // new information (see `thunder_redistribution_ticks_remaining`'s
-                // own doc for why only the amount/remaining-count need to
-                // live on the unit).
-                let tick_interval_ms = (((tunables.thunder_redistribution_window_secs * 1000.0).max(0.0) as u32) / 2).max(1);
-                apply_thunder_redistribution_tick(&mut units, target_idx, at_ms, &mut events, tick_interval_ms);
+                // Same fixed spacing `handle_golem_death` used to schedule
+                // tick 1 (item 57 - the duration tunable sets the tick
+                // count, never the spacing).
+                apply_thunder_redistribution_tick(&mut units, target_idx, at_ms, &mut events, THUNDER_REDISTRIBUTION_TICK_SPACING_MS);
                 continue;
             }
             NextEvent::Revive(target_idx) => {
@@ -18681,6 +18693,77 @@ mod elementalist_stage_6_golem_type_tests {
         assert!(events.iter().any(|e| matches!(e, CombatEvent::SkillCast { skill, .. } if skill == "Thunder Golem Redistribution")), "must log a distinct observability marker");
     }
 
+    /// Item 57 - fires every scheduled hand-back tick in time order, the way
+    /// the main loop's `NextEvent::ThunderRedistributionTick` does, and
+    /// returns each delivered tick as (at_ms, target, damage).
+    fn drive_handback(units: &mut [CombatSimUnit], events: &mut Vec<CombatEvent>) -> Vec<(u32, String, u64)> {
+        let start = events.len();
+        while let Some((i, _)) = units.iter().enumerate().filter(|(_, u)| u.next_thunder_redistribution_tick_at_ms != u32::MAX).min_by_key(|(_, u)| u.next_thunder_redistribution_tick_at_ms) {
+            let at_ms = units[i].next_thunder_redistribution_tick_at_ms;
+            apply_thunder_redistribution_tick(units, i, at_ms, events, THUNDER_REDISTRIBUTION_TICK_SPACING_MS);
+        }
+        events[start..]
+            .iter()
+            .filter_map(|e| match e {
+                CombatEvent::Attack { at_ms, attacker, target, damage, .. } if attacker == THUNDER_REDISTRIBUTION_ATTACKER_ID => Some((*at_ms, target.clone(), *damage)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Item 57 - one golem death handed back at `duration_ms`: 2400 absorbed
+    /// x 0.5 = 1200 total, 600 to each of alice and bob.
+    fn handback_at(duration_ms: u32) -> (Vec<CombatSimUnit>, Vec<(u32, String, u64)>) {
+        let mut units = vec![dead_thunder_golem(2400.0), real_player("alice", 100_000), real_player("bob", 100_000)];
+        let mut events = Vec::new();
+        let mut rolls = Vec::new();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 1);
+        handle_golem_death(&mut units, 0, 5_000, &mut events, &mut rolls, &mut rng, 0.5, duration_ms);
+        let ticks = drive_handback(&mut units, &mut events);
+        (units, ticks)
+    }
+
+    #[test]
+    fn the_handback_arrives_as_four_quarter_ticks_one_second_apart_with_the_same_total() {
+        let (units, ticks) = handback_at(4_000);
+        for id in ["alice", "bob"] {
+            let mine: Vec<(u32, u64)> = ticks.iter().filter(|(_, t, _)| t == id).map(|(at, _, d)| (*at, *d)).collect();
+            assert_eq!(mine, vec![(6_000, 150), (7_000, 150), (8_000, 150), (9_000, 150)], "{id}: four quarter-ticks of their 600, 1 s apart, the first 1 s after the death");
+        }
+        assert_eq!(ticks.iter().map(|(_, _, d)| d).sum::<u64>(), 1_200, "the total handed back is unchanged: absorbed x pct");
+        assert_eq!(units[1].hp, 100_000 - 600);
+        assert_eq!(units[2].hp, 100_000 - 600);
+    }
+
+    #[test]
+    fn the_duration_sets_the_tick_count_and_two_seconds_reproduces_the_old_two_tick_handback() {
+        for (duration_ms, expected) in [(2_000u32, vec![(6_000u32, 300u64), (7_000, 300)]), (4_000, vec![(6_000, 150), (7_000, 150), (8_000, 150), (9_000, 150)]), (6_000, vec![(6_000, 100), (7_000, 100), (8_000, 100), (9_000, 100), (10_000, 100), (11_000, 100)])] {
+            let (_, ticks) = handback_at(duration_ms);
+            let alice: Vec<(u32, u64)> = ticks.iter().filter(|(_, t, _)| t == "alice").map(|(at, _, d)| (*at, *d)).collect();
+            assert_eq!(alice, expected, "duration {duration_ms} ms");
+            assert_eq!(ticks.iter().map(|(_, _, d)| d).sum::<u64>(), 1_200, "duration {duration_ms} ms must hand back the same total");
+        }
+        // 2 s is exactly what the pre-item-57 code did with its default 2 s
+        // window: tick 1 at death + window/2 = +1 s, tick 2 1 s later, each
+        // half the share - pinned literally above as (6_000, 300), (7_000, 300).
+    }
+
+    #[test]
+    fn the_tick_count_rounds_to_whole_seconds_and_never_drops_below_one() {
+        for (duration_ms, ticks) in [(0u32, 1u32), (400, 1), (1_000, 1), (1_499, 1), (1_500, 2), (2_000, 2), (2_400, 2), (3_600, 4), (4_000, 4), (6_000, 6)] {
+            assert_eq!(thunder_redistribution_tick_count(duration_ms), ticks, "{duration_ms} ms");
+        }
+        let (_, ticks) = handback_at(0);
+        assert_eq!(ticks.iter().filter(|(_, t, _)| t == "alice").map(|(at, _, d)| (*at, *d)).collect::<Vec<_>>(), vec![(6_000, 600)], "a zero duration is one tick carrying the whole share, not nothing");
+    }
+
+    #[test]
+    fn the_shipped_default_duration_is_four_seconds() {
+        let t = LiveTunables::default();
+        assert_eq!(t.thunder_redistribution_duration_secs, 4.0);
+        assert_eq!(thunder_redistribution_tick_count((t.thunder_redistribution_duration_secs * 1000.0) as u32), 4);
+    }
+
     fn neutral_golem_for_redistribution_test(id: &str, golem_type: GolemType) -> CombatSimUnit {
         CombatSimUnit { id: id.to_string(), display_name: id.to_string(), alive: true, hp: 100, max_hp: 100, is_golem: true, golem_type: Some(golem_type), ..Default::default() }
     }
@@ -19390,7 +19473,7 @@ mod elementalist_stage_6_thunder_golem_isolation_tests {
         // independent sources of slack, both legitimate:
         // 1. The fight can end before the FINAL incarnation's scheduled 2
         //    ticks both get a chance to fire (redistribution ticks land up
-        //    to `redistribution_window_ms` after the death that scheduled
+        //    to `redistribution_duration_ms` after the death that scheduled
         //    them; nothing guarantees the fight runs that much longer).
         //    `thundergolem_net_absorbed` debits the FULL theoretical
         //    amount unconditionally at death time (a death-time

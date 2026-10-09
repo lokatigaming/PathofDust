@@ -128,7 +128,7 @@ async fn admin_tunables_save_gates_writes_and_the_splash_fields_round_trip() {
     // silently defaulting.
     let passive_form: Vec<(&str, String)> = vec![
         ("thunder_redistribution_pct", baseline.thunder_redistribution_pct.to_string()),
-        ("thunder_redistribution_window_secs", baseline.thunder_redistribution_window_secs.to_string()),
+        ("thunder_redistribution_duration_secs", baseline.thunder_redistribution_duration_secs.to_string()),
         ("rf_self_damage_pct_rank1", baseline.rf_self_damage_pct_rank1.to_string()),
         ("rf_self_damage_pct_rank2", baseline.rf_self_damage_pct_rank2.to_string()),
         ("rf_self_damage_pct_rank3", baseline.rf_self_damage_pct_rank3.to_string()),

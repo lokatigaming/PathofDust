@@ -38,8 +38,13 @@ const ADMIN_LOGIN: &str = "lokati_gaming";
 /// deserializing. Re-rendering it would re-arm a switch taken out of service
 /// after an incident.
 ///
+/// `thunder_redistribution_window_secs` joined it 2026-10-09 (item 57): the
+/// hand-back's fixed 2-tick window was replaced by
+/// `thunder_redistribution_duration_secs`, a new field so its 4 s default
+/// reaches a live file that pins the old 2.0. Read by no code path.
+///
 /// Anything ADDED to this list is a decision someone has to defend in writing.
-const DELIBERATELY_UNRENDERED: &[&str] = &["dynamic_scaling_mult"];
+const DELIBERATELY_UNRENDERED: &[&str] = &["dynamic_scaling_mult", "thunder_redistribution_window_secs"];
 
 fn rendered_names(html: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
