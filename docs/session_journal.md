@@ -10986,8 +10986,47 @@ and the rest of the file is unchanged. No note for pony's shard.
 **Rollback:** `rollback-linux.sh golems-51-pony-shard-53`. A binary-only rollback restores the old golem behaviour. It does **not**
 take back pony's shard, and the old binary ignores the marker.
 
+## 2026-10-09 — release 47 `flat-health-x10-54` deployed (item 54, window c). 0.23 s.
+
+**Merge.** `origin/master` `cd4f739` ← `c0507d9` (`--no-ff` of b's `fix/flat-health-x10-54` `6bc73f7`) ← `e550879` (golden-corpus
+regeneration). No conflicts; the branch sat on `cd4f739`, so the `WIKI_IMPACT.md` line came in unconflicted.
+**Golden corpus:** before regenerating, the corpus test named exactly b's 11 divergent fixtures and no others. Those 11 were deleted and recaptured; the other 13 are unchanged.
+**Suite** `cargo test --release --workspace --quiet --no-fail-fast -j 4`: **1155 / 0 / 54** locally and on the box (1150 + b's 5), as predicted.
+**Item 56** (a's golem fix, `fix/golem-redistribution-56` `75afa53`) was built but **not shipped, by the owner's decision**. Branch left unmerged and untouched.
+
+**Deploy.** Archive `16f3c7f80990895d5a86635801c17fb8a132a15cb393e5fa5caf2dd1177a7bbb` matched on both ends. Identity grep found
+`run_flat_life_x10` / `FlatLifeX10Marker` and `default_per_tier: 50.0`. Box build exit 0, suite exit 0. `655f8cba…` → **`400a9f6b4c376981cb68c3d9e39fb6f03fab3cd9582e4d996688fe49e95f52b7`**,
+downtime **0.23 s**. Slot `deploy-pre-20261009-174814-flat-health-x10-54`. Data backup `pod-backup-20261009-174814.tar.gz` (taken by deploy-linux before the stop).
+Checks: 1 active · 2 NRestarts 0 · 3 `loaded 26` = file 26 · 4 live = candidate · 5 unrun (no cookie) · 6 404 / 83,124 B on 4005 · 7 404.
+0 panic/ERROR lines since the swap. The fight loop went 42476 → 42481.
+
+**Baseline, read at the swap (17:48 CEST), no tunable touched:** stage **198**, `hp_pacing_mult` **29091.69**, `boss_power_mult` **0.2**,
+`target_win_loss_ratio` **3.0**, `dmg_multiplier_floor` **0.2**. Last 200 boss fights before the swap: **131 won = 65.5%** (stages 205–200 at the end of the window).
+
+**Migration.** `2026-10-09T15:48:35.441356Z INFO game::adventure::migrations: flat life x10: affixes equipped=75 bag=227 sacred=37 total 14291.0 -> 142910.5`.
+Marker `adventure-flat-life-x10-marker.json` = `true`. b's survey had 317 + 35; live at the swap was 302 + 37 (the bags had changed since).
+**Other affixes:** "before" is a copy of the characters file taken 0.3 s before `deploy-linux.sh` started. "After" is a copy taken when the marker appeared,
+while the newest fight was still 42476, so **no fight had written between them**. Matched by item id: 3,039 items in both, none added or lost.
+All 339 FlatLife values are exactly ×10 (equipped 6,122.1 → 61,221.3, bag 6,107.3 → 61,073.1, sacred 2,061.6 → 20,616.1). Of the non-FlatLife affix, sacred
+and `power_roll` values, 10,579 are bit-identical and 251 differ in the **last bit only** (≤ 2.2e-16 relative; no real change).
+**Where the last-bit drift comes from:** reloading floats, not the migration. The migration multiplies only FlatLife. 220 of the 225 affected items were created
+since the release-46 restart, so this was their first reload. Release 46's own before/after pair shows 0 such diffs.
+Unique affixes, crit-bonus affixes and tiers are identical. Accounts, tunables, passive overrides and item balance pass `sha256sum -c`. Sessions 86 before and after.
+
+**After the swap.** Party max HP (23 players): fights 42473–42476 **1,249,9xx** → fights 42477–42479 **1,990,3xx** (+59%; b simulated +59%).
+Golem first-incarnation HP = owner max HP × 0.33 × (1 + Gigantify), so it follows each owner. Example: hereticgamingdad 141,331 → 305,262 owner HP, golems 100,737.
+**Pre-swap golem detail is gone** (the detail tier keeps the last 3 fights, and neither the slot nor the data backup pins it). The only pre-swap reading is
+_atarekis_'s golem in fight 42440, 5,590, against 8,778 now: ×1.57, the same ratio as the owner (5,665 → 8,867). The stored values are ×10 (lokati's Eternal Axe,
+tier 217: 90.07 → 900.68). **The item-page view is unrun:** the anonymous character page shows no gear affixes, and the inventory page needs a cookie.
+
+**Patch notes** (box clock, "October 9, 2026"): "Flat max HP on gear is ten times stronger", 3 items. The pre-edit copy is in the slot.
+
+**Rollback:** `rollback-linux.sh flat-health-x10-54` restores the old code, **but the stored FlatLife values stay ×10**, because the migration is permanent.
+An old binary would also roll new FlatLife at the old size (5 per tier), so new and old items would then disagree by ×10.
+
 ## FOUND
 - 2026-10-03 (window c): the Linux `game` binary links libssl/libcrypto although `cargo tree -p game -i openssl-sys` is empty on the box; openssl-sys is built in the workspace for the bot. Present since at least 09-03. Not investigated.
 - 2026-10-04 (window c): the release-44 patch-note wording says to use "Forgot your password?" on the login page, but the link there reads "Reset your password by email". — 2026-10-05: fixed in the live patch notes (release 45, window c).
 - 2026-10-08 (window c): Chance crafts write no log line (only Unique Shard applies do), so a Chance that removes a unique affix cannot be dated or quoted from the logs (item 53).
 - 2026-10-08 (window c): the box's `/opt/pathofdust/bin/backup-game-data.sh` (Sep 4) lacks the repo's newer allow-list markers, including `adventure-refund-reforge-now-overcharge-marker.json` and the new `adventure-pony-unique-shard-return-marker.json`; not refreshed (out of scope).
+- 2026-10-09 (window c): a load/save cycle of `adventure-characters.json` moves some 17-digit floats by one last bit (251 values at release 47, all on items not reloaded since the previous restart). Likely serde_json's default float parsing (no `float_roundtrip`); not investigated.
