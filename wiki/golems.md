@@ -89,12 +89,16 @@ own Righteous Fire self-burn - that's still yours to manage.
 
 When a Thunder Golem dies, a share of everything it had absorbed doesn't just
 disappear - it splits evenly across your whole party as real, unavoidable
-damage spread over the next couple of seconds (the remainder is forgiven).
+damage handed back in equal pieces, one per second, over the next few seconds
+(four seconds by default; the remainder is forgiven). The slower pieces are
+deliberate: they give your healers time to top people up between them.
 Losing a Thunder Golem has real weight: the more it was tanking, the more your
 party feels its death. This can down a party member exactly like any other
-lethal damage.
+lethal damage. If a party member dies before all their pieces land, the rest
+of their share is simply lost - it is not passed on to anyone else, and it
+does not come back if they are revived.
 
-<p class="muted">What share gets redistributed, and how long it spreads over, are operator dials rather than fixed numbers - the mechanic is "some of what it absorbed comes back at the party when it dies, the rest is forgiven," and the split can be retuned. Several bugs that used to make the real delivery fall short of the configured share have been fixed: a recipient who died before their tick landed no longer loses it (it redirects to someone still alive), and a golem dying twice in quick succession no longer discards the first death's undelivered amount.</p>
+<p class="muted">What share gets redistributed, and how many seconds it spreads over, are operator dials rather than fixed numbers - the mechanic is "some of what it absorbed comes back at the party when it dies, the rest is forgiven," and the split can be retuned. A golem dying twice in quick succession no longer discards the first death's undelivered amount: anything still owed is folded into the new hand-back.</p>
 
 <h3 id="flame">Flame Golem</h3>
 

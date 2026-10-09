@@ -3995,8 +3995,8 @@ struct TunablesForm {
 struct PassiveTunablesForm {
     /// See `LiveTunables::thunder_redistribution_pct`'s doc.
     thunder_redistribution_pct: f64,
-    /// See `LiveTunables::thunder_redistribution_window_secs`'s doc.
-    thunder_redistribution_window_secs: f64,
+    /// See `LiveTunables::thunder_redistribution_duration_secs`'s doc.
+    thunder_redistribution_duration_secs: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank1`'s doc.
     rf_self_damage_pct_rank1: f64,
     /// See `LiveTunables::rf_self_damage_pct_rank2`'s doc.
@@ -4444,6 +4444,7 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
                 fight_summary_batch_size: v.at_least_u32("fight_summary_batch_size", form.fight_summary_batch_size, 1),
                 thunder_redistribution_pct: previous.thunder_redistribution_pct,
                 thunder_redistribution_window_secs: previous.thunder_redistribution_window_secs,
+                thunder_redistribution_duration_secs: previous.thunder_redistribution_duration_secs,
                 reactive_proc_cap_ms: form.reactive_proc_cap_ms,
                 divine_dust_drop_chance: v.clamp("divine_dust_drop_chance", form.divine_dust_drop_chance, 0.0, 1.0),
                 divine_dust_disenchant_chance: v.clamp("divine_dust_disenchant_chance", form.divine_dust_disenchant_chance, 0.0, 1.0),
@@ -4531,7 +4532,9 @@ fn tunables_from_form(form: &TunablesForm, previous: &LiveTunables, v: &mut Tuna
 fn passive_tunables_from_form(form: &PassiveTunablesForm, previous: &LiveTunables, v: &mut TunableViolations) -> LiveTunables {
     LiveTunables {
         thunder_redistribution_pct: v.clamp("thunder_redistribution_pct", form.thunder_redistribution_pct, 0.0, 1.0),
-        thunder_redistribution_window_secs: v.at_least("thunder_redistribution_window_secs", form.thunder_redistribution_window_secs, 0.0),
+        // Retired (item 57): off the page, preserved as on file. See its doc.
+        thunder_redistribution_window_secs: previous.thunder_redistribution_window_secs,
+        thunder_redistribution_duration_secs: v.at_least("thunder_redistribution_duration_secs", form.thunder_redistribution_duration_secs, 0.0),
         rf_self_damage_pct_rank1: v.clamp("rf_self_damage_pct_rank1", form.rf_self_damage_pct_rank1, 0.0, 1.0),
         rf_self_damage_pct_rank2: v.clamp("rf_self_damage_pct_rank2", form.rf_self_damage_pct_rank2, 0.0, 1.0),
         rf_self_damage_pct_rank3: v.clamp("rf_self_damage_pct_rank3", form.rf_self_damage_pct_rank3, 0.0, 1.0),
@@ -5423,9 +5426,9 @@ fn passive_tunables_fields_html(t: &LiveTunables) -> String {
                 <p class=\"tunable-hint\">0 to 1 — what fraction of a Thunder Golem incarnation's total absorbed damage gets split across the party as an unmitigated DoT when it dies. 0 disables redistribution entirely.</p>\
               </div>\
               <div class=\"tunable-row\">\
-                <label for=\"thunder_redistribution_window_secs\">Thunder Golem Redistribution Window (s)</label>\
-                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_window_secs\" name=\"thunder_redistribution_window_secs\" value=\"{thunder_redistribution_window_secs}\">\
-                <p class=\"tunable-hint\">Total seconds the 2-tick redistribution DoT is spread across (tick 1 at half this, tick 2 at the full amount).</p>\
+                <label for=\"thunder_redistribution_duration_secs\">Thunder Golem Redistribution Duration (s)</label>\
+                <input type=\"number\" step=\"any\" min=\"0\" id=\"thunder_redistribution_duration_secs\" name=\"thunder_redistribution_duration_secs\" value=\"{thunder_redistribution_duration_secs}\">\
+                <p class=\"tunable-hint\">How many seconds the hand-back lasts: one equal tick per second, the first one second after the golem dies, so 4 = four quarter-ticks over 4 s. Rounded to whole seconds; anything under 1.5 is a single tick. 2 is the old behaviour.</p>\
               </div>\
             <h2>Splash (player ladder)</h2>\n          <p class=\"tunable-hint\">These six govern the <strong>player</strong> splash ladder — how many extra targets a player's splash reaches and at what damage. <strong>Boss splash is a separate roll</strong>, scaled from stage in <code>boss_stats_for</code> and configured on /admin/tunables, not here. If you are looking for how hard bosses splash, this is the wrong group.</p>\n            <p class=\"tunable-hint\">Splash % is a CHANCE (capped 100% for the roll itself), rolled once per action, all-or-nothing. ATTACK splash (a normal hit/heal's own splash) grants 0 extra targets on a miss or at 0% splash. The four SUPPORT sites (Radiant Smite heal, Relentless/Cauterizing Flames, Cleansing Flames' cleanse + buff-refresh) fall back to the floor below instead — they never do nothing. Every caller keeps its own base target count (Gelatinous Cube, the Dragon, Storm of Arrows/Wider Burst/Stormcaller, Zealotry all stay exactly as designed) — the fields below only tune the roll/floor/overcap/ladder LAYER shared by every splash site, on top of each caller's own base.</p>\
               <div class=\"tunable-row\">\
@@ -5460,7 +5463,7 @@ fn passive_tunables_fields_html(t: &LiveTunables) -> String {
               </div>\
         ",
         thunder_redistribution_pct = t.thunder_redistribution_pct,
-        thunder_redistribution_window_secs = t.thunder_redistribution_window_secs,
+        thunder_redistribution_duration_secs = t.thunder_redistribution_duration_secs,
         rf_self_damage_pct_rank1 = t.rf_self_damage_pct_rank1,
         rf_self_damage_pct_rank2 = t.rf_self_damage_pct_rank2,
         rf_self_damage_pct_rank3 = t.rf_self_damage_pct_rank3,
@@ -5517,7 +5520,7 @@ fn passive_tunables_fields_html(t: &LiveTunables) -> String {
 fn ungrouped_tunables_html(form_html: &str, passive_html: &str, t: &LiveTunables) -> String {
     /// Fields that exist on `LiveTunables` and are deliberately NOT on any
     /// page. Adding to this list is a decision someone has to write down.
-    const RETIRED: &[&str] = &["dynamic_scaling_mult"];
+    const RETIRED: &[&str] = &["dynamic_scaling_mult", "thunder_redistribution_window_secs"];
 
     // Both strings are RENDERED markup, so they carry real quotes - the
     // backslashes in the source are Rust's own escaping and are long gone by

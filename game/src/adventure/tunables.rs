@@ -419,9 +419,23 @@ pub struct LiveTunables {
     /// disables redistribution entirely (nothing ever gets scheduled -
     /// see `handle_golem_death`'s own `redistribution_pct > 0.0` guard).
     pub thunder_redistribution_pct: f64,
-    /// Same mechanic - total time (seconds) the 2-tick redistribution DoT
-    /// is spread across (tick 1 at half this, tick 2 at the full amount).
+    /// RETIRED 2026-10-09 (item 57), replaced by
+    /// `thunder_redistribution_duration_secs`. It was the total time the
+    /// old fixed 2-tick DoT was spread across. Read by no code path; kept
+    /// declared only so existing `adventure-live-tunables.toml` files keep
+    /// deserializing. The live file pins it at 2.0, which is why the new
+    /// duration is a NEW field rather than a re-read of this one: a new
+    /// default here would never have reached the live game. Absent from
+    /// the admin pages; a save preserves whatever value is on file. Same
+    /// retirement shape as `dynamic_scaling_mult`.
     pub thunder_redistribution_window_secs: f64,
+    /// Same mechanic - how many seconds the hand-back lasts. One tick per
+    /// second (the first one second after the golem's death), so the tick
+    /// count is this rounded to the nearest whole second, never fewer than
+    /// 1: anything below 1.5, including 0 or a negative, is one tick
+    /// carrying the whole share. 2.0 reproduces the pre-item-57 behaviour
+    /// exactly; the shipped 4.0 is the same total in four quarter-ticks.
+    pub thunder_redistribution_duration_secs: f64,
     /// Warrior's Retaliation / the shared Rogue's Voidstep, Monk's
     /// Counterflow, Druid's Wild Fury group - the deliberate "at most one
     /// real counter-attack per this many ms" cap on the evade-counter
@@ -842,6 +856,7 @@ impl Default for LiveTunables {
             fight_summary_batch_size: 10,
             thunder_redistribution_pct: 0.50,
             thunder_redistribution_window_secs: 2.0,
+            thunder_redistribution_duration_secs: 4.0,
             reactive_proc_cap_ms: 1_000,
             divine_dust_drop_chance: 0.1,
             divine_dust_disenchant_chance: 0.1,
