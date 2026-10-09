@@ -10,7 +10,7 @@
       "thunderNetAbsorbed": 0,
       "archetype": "paladin",
       "role": "melee",
-      "maxHp": 2257,
+      "maxHp": 2788,
       "thunderIncarnations": []
     },
     {
@@ -34,10 +34,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 0,
       "unmitigatedDamage": 669,
-      "targetHpAfter": 2257,
+      "targetHpAfter": 2788,
       "isCrit": false,
       "evaded": true,
-      "hitId": 250,
+      "hitId": 478,
       "sourceKind": "direct"
     },
     {
@@ -47,10 +47,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 0,
       "unmitigatedDamage": 144,
-      "targetHpAfter": 2257,
+      "targetHpAfter": 2788,
       "isCrit": false,
       "evaded": true,
-      "hitId": 252,
+      "hitId": 480,
       "sourceKind": "direct"
     },
     {
@@ -60,10 +60,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 372,
       "unmitigatedDamage": 715,
-      "targetHpAfter": 1885,
+      "targetHpAfter": 2416,
       "isCrit": false,
       "evaded": false,
-      "hitId": 254,
+      "hitId": 482,
       "sourceKind": "direct"
     },
     {
@@ -73,10 +73,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 167,
       "unmitigatedDamage": 153,
-      "targetHpAfter": 1718,
+      "targetHpAfter": 2249,
       "isCrit": false,
       "evaded": false,
-      "hitId": 263,
+      "hitId": 491,
       "sourceKind": "direct"
     },
     {
@@ -85,7 +85,7 @@
       "healer": "paladin_vs_cube_stage500",
       "target": "paladin_vs_cube_stage500",
       "amount": 539,
-      "targetHpAfter": 2257,
+      "targetHpAfter": 2788,
       "isRevive": false
     },
     {
@@ -128,10 +128,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 987,
       "unmitigatedDamage": 771,
-      "targetHpAfter": 1270,
+      "targetHpAfter": 1801,
       "isCrit": false,
       "evaded": false,
-      "hitId": 272,
+      "hitId": 500,
       "sourceKind": "direct"
     },
     {
@@ -152,10 +152,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 229,
       "unmitigatedDamage": 166,
-      "targetHpAfter": 1041,
+      "targetHpAfter": 1572,
       "isCrit": false,
       "evaded": false,
-      "hitId": 281,
+      "hitId": 509,
       "sourceKind": "direct"
     },
     {
@@ -164,7 +164,7 @@
       "healer": "paladin_vs_cube_stage500",
       "target": "paladin_vs_cube_stage500",
       "amount": 1216,
-      "targetHpAfter": 2257,
+      "targetHpAfter": 2788,
       "isRevive": false
     },
     {
@@ -213,10 +213,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 1203,
       "unmitigatedDamage": 752,
-      "targetHpAfter": 1054,
+      "targetHpAfter": 1585,
       "isCrit": false,
       "evaded": false,
-      "hitId": 290,
+      "hitId": 518,
       "sourceKind": "direct"
     },
     {
@@ -237,10 +237,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 150,
       "unmitigatedDamage": 161,
-      "targetHpAfter": 904,
+      "targetHpAfter": 1435,
       "isCrit": false,
       "evaded": false,
-      "hitId": 299,
+      "hitId": 527,
       "sourceKind": "direct"
     },
     {
@@ -249,7 +249,7 @@
       "healer": "paladin_vs_cube_stage500",
       "target": "paladin_vs_cube_stage500",
       "amount": 1353,
-      "targetHpAfter": 2257,
+      "targetHpAfter": 2788,
       "isRevive": false
     },
     {
@@ -292,10 +292,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 1412,
       "unmitigatedDamage": 771,
-      "targetHpAfter": 845,
+      "targetHpAfter": 1376,
       "isCrit": false,
       "evaded": false,
-      "hitId": 309,
+      "hitId": 537,
       "sourceKind": "direct"
     },
     {
@@ -316,10 +316,10 @@
       "target": "paladin_vs_cube_stage500",
       "damage": 167,
       "unmitigatedDamage": 166,
-      "targetHpAfter": 678,
+      "targetHpAfter": 1209,
       "isCrit": false,
       "evaded": false,
-      "hitId": 318,
+      "hitId": 546,
       "sourceKind": "direct"
     },
     {
@@ -332,7 +332,7 @@
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 328,
+      "hitId": 556,
       "sourceKind": "direct"
     },
     {
@@ -343,8 +343,8 @@
   ],
   "rolls": [
     {
-      "eventId": 251,
-      "hitId": 250,
+      "eventId": 479,
+      "hitId": 478,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -353,8 +353,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 253,
-      "hitId": 252,
+      "eventId": 481,
+      "hitId": 480,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -363,8 +363,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 255,
-      "hitId": 254,
+      "eventId": 483,
+      "hitId": 482,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -374,8 +374,8 @@
       "succeeded": false
     },
     {
-      "eventId": 256,
-      "hitId": 254,
+      "eventId": 484,
+      "hitId": 482,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -385,8 +385,8 @@
       "succeeded": true
     },
     {
-      "eventId": 257,
-      "hitId": 254,
+      "eventId": 485,
+      "hitId": 482,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -395,8 +395,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 258,
-      "hitId": 254,
+      "eventId": 486,
+      "hitId": 482,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -405,8 +405,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 259,
-      "hitId": 254,
+      "eventId": 487,
+      "hitId": 482,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -415,8 +415,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 260,
-      "hitId": 254,
+      "eventId": 488,
+      "hitId": 482,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -425,8 +425,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 261,
-      "hitId": 254,
+      "eventId": 489,
+      "hitId": 482,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -435,8 +435,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 262,
-      "hitId": 254,
+      "eventId": 490,
+      "hitId": 482,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -445,8 +445,8 @@
       "magnitude": 21.019960482910896
     },
     {
-      "eventId": 264,
-      "hitId": 263,
+      "eventId": 492,
+      "hitId": 491,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -456,8 +456,8 @@
       "succeeded": false
     },
     {
-      "eventId": 265,
-      "hitId": 263,
+      "eventId": 493,
+      "hitId": 491,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -467,8 +467,8 @@
       "succeeded": false
     },
     {
-      "eventId": 266,
-      "hitId": 263,
+      "eventId": 494,
+      "hitId": 491,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -477,8 +477,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 267,
-      "hitId": 263,
+      "eventId": 495,
+      "hitId": 491,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -487,8 +487,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 268,
-      "hitId": 263,
+      "eventId": 496,
+      "hitId": 491,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -497,8 +497,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 269,
-      "hitId": 263,
+      "eventId": 497,
+      "hitId": 491,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -507,8 +507,8 @@
       "magnitude": -0.1
     },
     {
-      "eventId": 270,
-      "hitId": 263,
+      "eventId": 498,
+      "hitId": 491,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -517,8 +517,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 271,
-      "hitId": 263,
+      "eventId": 499,
+      "hitId": 491,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -527,8 +527,8 @@
       "magnitude": 4.513768169833138
     },
     {
-      "eventId": 273,
-      "hitId": 272,
+      "eventId": 501,
+      "hitId": 500,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -538,8 +538,8 @@
       "succeeded": false
     },
     {
-      "eventId": 274,
-      "hitId": 272,
+      "eventId": 502,
+      "hitId": 500,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -549,8 +549,8 @@
       "succeeded": false
     },
     {
-      "eventId": 275,
-      "hitId": 272,
+      "eventId": 503,
+      "hitId": 500,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -559,8 +559,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 276,
-      "hitId": 272,
+      "eventId": 504,
+      "hitId": 500,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -569,8 +569,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 277,
-      "hitId": 272,
+      "eventId": 505,
+      "hitId": 500,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -579,8 +579,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 278,
-      "hitId": 272,
+      "eventId": 506,
+      "hitId": 500,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -589,8 +589,8 @@
       "magnitude": -0.2
     },
     {
-      "eventId": 279,
-      "hitId": 272,
+      "eventId": 507,
+      "hitId": 500,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -599,8 +599,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 280,
-      "hitId": 272,
+      "eventId": 508,
+      "hitId": 500,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -609,8 +609,8 @@
       "magnitude": 22.691008162541912
     },
     {
-      "eventId": 282,
-      "hitId": 281,
+      "eventId": 510,
+      "hitId": 509,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -620,8 +620,8 @@
       "succeeded": false
     },
     {
-      "eventId": 283,
-      "hitId": 281,
+      "eventId": 511,
+      "hitId": 509,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -631,8 +631,8 @@
       "succeeded": false
     },
     {
-      "eventId": 284,
-      "hitId": 281,
+      "eventId": 512,
+      "hitId": 509,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -641,8 +641,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 285,
-      "hitId": 281,
+      "eventId": 513,
+      "hitId": 509,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -651,8 +651,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 286,
-      "hitId": 281,
+      "eventId": 514,
+      "hitId": 509,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -661,8 +661,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 287,
-      "hitId": 281,
+      "eventId": 515,
+      "hitId": 509,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -671,8 +671,8 @@
       "magnitude": -0.30000000000000004
     },
     {
-      "eventId": 288,
-      "hitId": 281,
+      "eventId": 516,
+      "hitId": 509,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -681,8 +681,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 289,
-      "hitId": 281,
+      "eventId": 517,
+      "hitId": 509,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -691,8 +691,8 @@
       "magnitude": 4.872604326196238
     },
     {
-      "eventId": 291,
-      "hitId": 290,
+      "eventId": 519,
+      "hitId": 518,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -702,8 +702,8 @@
       "succeeded": false
     },
     {
-      "eventId": 292,
-      "hitId": 290,
+      "eventId": 520,
+      "hitId": 518,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -713,8 +713,8 @@
       "succeeded": false
     },
     {
-      "eventId": 293,
-      "hitId": 290,
+      "eventId": 521,
+      "hitId": 518,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -723,8 +723,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 294,
-      "hitId": 290,
+      "eventId": 522,
+      "hitId": 518,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -733,8 +733,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 295,
-      "hitId": 290,
+      "eventId": 523,
+      "hitId": 518,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -743,8 +743,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 296,
-      "hitId": 290,
+      "eventId": 524,
+      "hitId": 518,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -753,8 +753,8 @@
       "magnitude": -0.4
     },
     {
-      "eventId": 297,
-      "hitId": 290,
+      "eventId": 525,
+      "hitId": 518,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -763,8 +763,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 298,
-      "hitId": 290,
+      "eventId": 526,
+      "hitId": 518,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -773,8 +773,8 @@
       "magnitude": 22.117107598290918
     },
     {
-      "eventId": 300,
-      "hitId": 299,
+      "eventId": 528,
+      "hitId": 527,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -784,8 +784,8 @@
       "succeeded": false
     },
     {
-      "eventId": 301,
-      "hitId": 299,
+      "eventId": 529,
+      "hitId": 527,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -795,8 +795,8 @@
       "succeeded": true
     },
     {
-      "eventId": 302,
-      "hitId": 299,
+      "eventId": 530,
+      "hitId": 527,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -805,8 +805,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 303,
-      "hitId": 299,
+      "eventId": 531,
+      "hitId": 527,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -815,8 +815,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 304,
-      "hitId": 299,
+      "eventId": 532,
+      "hitId": 527,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -825,8 +825,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 305,
-      "hitId": 299,
+      "eventId": 533,
+      "hitId": 527,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -835,8 +835,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 306,
-      "hitId": 299,
+      "eventId": 534,
+      "hitId": 527,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -845,8 +845,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 307,
-      "hitId": 299,
+      "eventId": 535,
+      "hitId": 527,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -855,8 +855,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 308,
-      "hitId": 299,
+      "eventId": 536,
+      "hitId": 527,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -865,8 +865,8 @@
       "magnitude": 4.7493665065213895
     },
     {
-      "eventId": 310,
-      "hitId": 309,
+      "eventId": 538,
+      "hitId": 537,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -876,8 +876,8 @@
       "succeeded": false
     },
     {
-      "eventId": 311,
-      "hitId": 309,
+      "eventId": 539,
+      "hitId": 537,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -887,8 +887,8 @@
       "succeeded": false
     },
     {
-      "eventId": 312,
-      "hitId": 309,
+      "eventId": 540,
+      "hitId": 537,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -897,8 +897,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 313,
-      "hitId": 309,
+      "eventId": 541,
+      "hitId": 537,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -907,8 +907,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 314,
-      "hitId": 309,
+      "eventId": 542,
+      "hitId": 537,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -917,8 +917,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 315,
-      "hitId": 309,
+      "eventId": 543,
+      "hitId": 537,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -927,8 +927,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 316,
-      "hitId": 309,
+      "eventId": 544,
+      "hitId": 537,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -937,8 +937,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 317,
-      "hitId": 309,
+      "eventId": 545,
+      "hitId": 537,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -947,8 +947,8 @@
       "magnitude": 22.680932709323955
     },
     {
-      "eventId": 319,
-      "hitId": 318,
+      "eventId": 547,
+      "hitId": 546,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -958,8 +958,8 @@
       "succeeded": false
     },
     {
-      "eventId": 320,
-      "hitId": 318,
+      "eventId": 548,
+      "hitId": 546,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -969,8 +969,8 @@
       "succeeded": true
     },
     {
-      "eventId": 321,
-      "hitId": 318,
+      "eventId": 549,
+      "hitId": 546,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -979,8 +979,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 322,
-      "hitId": 318,
+      "eventId": 550,
+      "hitId": 546,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -989,8 +989,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 323,
-      "hitId": 318,
+      "eventId": 551,
+      "hitId": 546,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Block reduction (Second Skin)",
@@ -999,8 +999,8 @@
       "magnitude": 0.5
     },
     {
-      "eventId": 324,
-      "hitId": 318,
+      "eventId": 552,
+      "hitId": 546,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1009,8 +1009,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 325,
-      "hitId": 318,
+      "eventId": 553,
+      "hitId": 546,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -1019,8 +1019,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 326,
-      "hitId": 318,
+      "eventId": 554,
+      "hitId": 546,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1029,8 +1029,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 327,
-      "hitId": 318,
+      "eventId": 555,
+      "hitId": 546,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1039,8 +1039,8 @@
       "magnitude": 4.870440751242383
     },
     {
-      "eventId": 329,
-      "hitId": 328,
+      "eventId": 557,
+      "hitId": 556,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1050,8 +1050,8 @@
       "succeeded": false
     },
     {
-      "eventId": 330,
-      "hitId": 328,
+      "eventId": 558,
+      "hitId": 556,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
@@ -1061,8 +1061,8 @@
       "succeeded": false
     },
     {
-      "eventId": 331,
-      "hitId": 328,
+      "eventId": 559,
+      "hitId": 556,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1071,8 +1071,8 @@
       "magnitude": 0.1512011981878827
     },
     {
-      "eventId": 332,
-      "hitId": 328,
+      "eventId": 560,
+      "hitId": 556,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1081,8 +1081,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 333,
-      "hitId": 328,
+      "eventId": 561,
+      "hitId": 556,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1091,8 +1091,8 @@
       "magnitude": 0.17482249757815205
     },
     {
-      "eventId": 334,
-      "hitId": 328,
+      "eventId": 562,
+      "hitId": 556,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Gelatinous Cube shred",
@@ -1101,8 +1101,8 @@
       "magnitude": -0.5
     },
     {
-      "eventId": 335,
-      "hitId": 328,
+      "eventId": 563,
+      "hitId": 556,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1111,8 +1111,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 336,
-      "hitId": 328,
+      "eventId": 564,
+      "hitId": 556,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",

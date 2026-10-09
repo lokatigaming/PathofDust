@@ -10,7 +10,7 @@
       "thunderNetAbsorbed": 0,
       "archetype": "rogue",
       "role": "melee",
-      "maxHp": 234,
+      "maxHp": 398,
       "thunderIncarnations": []
     },
     {
@@ -47,7 +47,7 @@
       "target": "rogue_vs_generic_stage50",
       "damage": 0,
       "unmitigatedDamage": 156,
-      "targetHpAfter": 234,
+      "targetHpAfter": 398,
       "isCrit": false,
       "evaded": true,
       "hitId": 44,
@@ -60,7 +60,7 @@
       "target": "rogue_vs_generic_stage50",
       "damage": 159,
       "unmitigatedDamage": 159,
-      "targetHpAfter": 75,
+      "targetHpAfter": 239,
       "isCrit": false,
       "evaded": false,
       "hitId": 46,
@@ -86,15 +86,41 @@
       "target": "rogue_vs_generic_stage50",
       "damage": 161,
       "unmitigatedDamage": 161,
-      "targetHpAfter": 0,
+      "targetHpAfter": 78,
       "isCrit": false,
       "evaded": false,
       "hitId": 61,
       "sourceKind": "direct"
     },
     {
+      "kind": "attack",
+      "atMs": 2564,
+      "attacker": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "damage": 346,
+      "unmitigatedDamage": 353,
+      "targetHpAfter": 7465,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 67,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 3300,
+      "attacker": "__enemy_0__",
+      "target": "rogue_vs_generic_stage50",
+      "damage": 156,
+      "unmitigatedDamage": 156,
+      "targetHpAfter": 0,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 77,
+      "sourceKind": "direct"
+    },
+    {
       "kind": "defeat",
-      "atMs": 2200,
+      "atMs": 3300,
       "unit": "rogue_vs_generic_stage50"
     }
   ],
@@ -329,6 +355,154 @@
       "actor": "rogue_vs_generic_stage50",
       "target": "__enemy_0__",
       "magnitude": -0.044000000000000004
+    },
+    {
+      "eventId": 68,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.1290569415042095,
+      "succeeded": true
+    },
+    {
+      "eventId": 69,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "rogue_vs_generic_stage50",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 70,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "rogue_vs_generic_stage50",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 71,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.1290569415042095
+    },
+    {
+      "eventId": 72,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 2.0
+    },
+    {
+      "eventId": 73,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.23254104709802403
+    },
+    {
+      "eventId": 74,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "elementalProc",
+      "source": "Fire proc",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.007381769666343847,
+      "succeeded": false
+    },
+    {
+      "eventId": 75,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "elementalProc",
+      "source": "Lightning proc",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.00826600466142593,
+      "succeeded": false
+    },
+    {
+      "eventId": 76,
+      "hitId": 67,
+      "atMs": 2564,
+      "category": "elementalProc",
+      "source": "Divine proc",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.007606330382032636,
+      "succeeded": false
+    },
+    {
+      "eventId": 78,
+      "hitId": 77,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.047296203348289656,
+      "succeeded": false
+    },
+    {
+      "eventId": 79,
+      "hitId": 77,
+      "atMs": 3300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 80,
+      "hitId": 77,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": 0.047296203348289656
+    },
+    {
+      "eventId": 81,
+      "hitId": 77,
+      "atMs": 3300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
+    },
+    {
+      "eventId": 82,
+      "hitId": 77,
+      "atMs": 3300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "rogue_vs_generic_stage50",
+      "target": "__enemy_0__",
+      "magnitude": -0.066
     }
   ]
 }

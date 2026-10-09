@@ -10,7 +10,7 @@
       "thunderNetAbsorbed": 0,
       "archetype": "cleric",
       "role": "support",
-      "maxHp": 605,
+      "maxHp": 889,
       "thunderIncarnations": []
     },
     {
@@ -34,10 +34,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 0,
       "unmitigatedDamage": 469,
-      "targetHpAfter": 605,
+      "targetHpAfter": 889,
       "isCrit": false,
       "evaded": true,
-      "hitId": 232,
+      "hitId": 248,
       "sourceKind": "direct"
     },
     {
@@ -47,10 +47,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 0,
       "unmitigatedDamage": 37,
-      "targetHpAfter": 605,
+      "targetHpAfter": 889,
       "isCrit": false,
       "evaded": true,
-      "hitId": 236,
+      "hitId": 252,
       "sourceKind": "direct"
     },
     {
@@ -60,10 +60,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 366,
       "unmitigatedDamage": 406,
-      "targetHpAfter": 239,
+      "targetHpAfter": 523,
       "isCrit": false,
       "evaded": false,
-      "hitId": 240,
+      "hitId": 256,
       "sourceKind": "direct"
     },
     {
@@ -73,10 +73,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 28,
       "unmitigatedDamage": 32,
-      "targetHpAfter": 211,
+      "targetHpAfter": 495,
       "isCrit": false,
       "evaded": false,
-      "hitId": 250,
+      "hitId": 266,
       "sourceKind": "direct"
     },
     {
@@ -85,7 +85,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 394,
-      "targetHpAfter": 605,
+      "targetHpAfter": 889,
       "isRevive": false
     },
     {
@@ -95,10 +95,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 395,
       "unmitigatedDamage": 406,
-      "targetHpAfter": 210,
+      "targetHpAfter": 494,
       "isCrit": false,
       "evaded": false,
-      "hitId": 260,
+      "hitId": 276,
       "sourceKind": "direct"
     },
     {
@@ -108,10 +108,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 31,
       "unmitigatedDamage": 32,
-      "targetHpAfter": 179,
+      "targetHpAfter": 463,
       "isCrit": false,
       "evaded": false,
-      "hitId": 270,
+      "hitId": 286,
       "sourceKind": "direct"
     },
     {
@@ -120,7 +120,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 400,
-      "targetHpAfter": 579,
+      "targetHpAfter": 863,
       "isRevive": false
     },
     {
@@ -163,10 +163,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 409,
       "unmitigatedDamage": 390,
-      "targetHpAfter": 170,
+      "targetHpAfter": 454,
       "isCrit": false,
       "evaded": false,
-      "hitId": 280,
+      "hitId": 296,
       "sourceKind": "direct"
     },
     {
@@ -187,10 +187,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 32,
       "unmitigatedDamage": 30,
-      "targetHpAfter": 138,
+      "targetHpAfter": 422,
       "isCrit": false,
       "evaded": false,
-      "hitId": 290,
+      "hitId": 306,
       "sourceKind": "direct"
     },
     {
@@ -199,7 +199,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 365,
-      "targetHpAfter": 503,
+      "targetHpAfter": 787,
       "isRevive": false
     },
     {
@@ -230,7 +230,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 102,
-      "targetHpAfter": 605,
+      "targetHpAfter": 889,
       "isRevive": false
     },
     {
@@ -273,10 +273,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 397,
       "unmitigatedDamage": 353,
-      "targetHpAfter": 208,
+      "targetHpAfter": 492,
       "isCrit": false,
       "evaded": false,
-      "hitId": 300,
+      "hitId": 316,
       "sourceKind": "direct"
     },
     {
@@ -297,10 +297,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 31,
       "unmitigatedDamage": 27,
-      "targetHpAfter": 177,
+      "targetHpAfter": 461,
       "isCrit": false,
       "evaded": false,
-      "hitId": 310,
+      "hitId": 326,
       "sourceKind": "direct"
     },
     {
@@ -309,7 +309,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 428,
-      "targetHpAfter": 605,
+      "targetHpAfter": 889,
       "isRevive": false
     },
     {
@@ -352,10 +352,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 526,
       "unmitigatedDamage": 438,
-      "targetHpAfter": 79,
+      "targetHpAfter": 363,
       "isCrit": false,
       "evaded": false,
-      "hitId": 320,
+      "hitId": 336,
       "sourceKind": "direct"
     },
     {
@@ -376,10 +376,10 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 41,
       "unmitigatedDamage": 34,
-      "targetHpAfter": 38,
+      "targetHpAfter": 322,
       "isCrit": false,
       "evaded": false,
-      "hitId": 330,
+      "hitId": 346,
       "sourceKind": "direct"
     },
     {
@@ -388,7 +388,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 519,
-      "targetHpAfter": 557,
+      "targetHpAfter": 841,
       "isRevive": false
     },
     {
@@ -419,7 +419,7 @@
       "healer": "cleric_grace_companion_stage200",
       "target": "cleric_grace_companion_stage200",
       "amount": 48,
-      "targetHpAfter": 605,
+      "targetHpAfter": 889,
       "isRevive": false
     },
     {
@@ -462,22 +462,156 @@
       "target": "cleric_grace_companion_stage200",
       "damage": 778,
       "unmitigatedDamage": 611,
-      "targetHpAfter": 0,
+      "targetHpAfter": 111,
       "isCrit": true,
       "evaded": false,
-      "hitId": 340,
+      "hitId": 356,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6600,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 35,
+      "unmitigatedDamage": 27,
+      "targetHpAfter": 76,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 367,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 6930,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 562,
+      "targetHpAfter": 638,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6930,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6930,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 7000,
+      "healer": "cleric_grace_companion_stage200",
+      "target": "cleric_grace_companion_stage200",
+      "amount": 251,
+      "targetHpAfter": 889,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7000,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7000,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7700,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 7700,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 852,
+      "unmitigatedDamage": 632,
+      "targetHpAfter": 37,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 377,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7700,
+      "unit": "cleric_grace_companion_stage200",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          2.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 7700,
+      "attacker": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "damage": 38,
+      "unmitigatedDamage": 28,
+      "targetHpAfter": 0,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 388,
       "sourceKind": "direct"
     },
     {
       "kind": "defeat",
-      "atMs": 6600,
+      "atMs": 7700,
       "unit": "cleric_grace_companion_stage200"
     }
   ],
   "rolls": [
     {
-      "eventId": 233,
-      "hitId": 232,
+      "eventId": 249,
+      "hitId": 248,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -487,8 +621,8 @@
       "succeeded": false
     },
     {
-      "eventId": 234,
-      "hitId": 232,
+      "eventId": 250,
+      "hitId": 248,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -497,8 +631,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 235,
-      "hitId": 232,
+      "eventId": 251,
+      "hitId": 248,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -507,8 +641,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 237,
-      "hitId": 236,
+      "eventId": 253,
+      "hitId": 252,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -518,8 +652,8 @@
       "succeeded": false
     },
     {
-      "eventId": 238,
-      "hitId": 236,
+      "eventId": 254,
+      "hitId": 252,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -528,8 +662,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 239,
-      "hitId": 236,
+      "eventId": 255,
+      "hitId": 252,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -538,8 +672,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 241,
-      "hitId": 240,
+      "eventId": 257,
+      "hitId": 256,
       "atMs": 1100,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -549,8 +683,8 @@
       "succeeded": false
     },
     {
-      "eventId": 242,
-      "hitId": 240,
+      "eventId": 258,
+      "hitId": 256,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -560,8 +694,8 @@
       "succeeded": false
     },
     {
-      "eventId": 243,
-      "hitId": 240,
+      "eventId": 259,
+      "hitId": 256,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -571,8 +705,8 @@
       "succeeded": false
     },
     {
-      "eventId": 244,
-      "hitId": 240,
+      "eventId": 260,
+      "hitId": 256,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -581,8 +715,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 245,
-      "hitId": 240,
+      "eventId": 261,
+      "hitId": 256,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -591,8 +725,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 246,
-      "hitId": 240,
+      "eventId": 262,
+      "hitId": 256,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -601,8 +735,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 247,
-      "hitId": 240,
+      "eventId": 263,
+      "hitId": 256,
       "atMs": 1100,
       "category": "crit",
       "source": "Crit chance",
@@ -611,8 +745,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 248,
-      "hitId": 240,
+      "eventId": 264,
+      "hitId": 256,
       "atMs": 1100,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -621,8 +755,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 249,
-      "hitId": 240,
+      "eventId": 265,
+      "hitId": 256,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -631,8 +765,8 @@
       "magnitude": 2.011603716240657
     },
     {
-      "eventId": 251,
-      "hitId": 250,
+      "eventId": 267,
+      "hitId": 266,
       "atMs": 1100,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -642,8 +776,8 @@
       "succeeded": false
     },
     {
-      "eventId": 252,
-      "hitId": 250,
+      "eventId": 268,
+      "hitId": 266,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -653,8 +787,8 @@
       "succeeded": false
     },
     {
-      "eventId": 253,
-      "hitId": 250,
+      "eventId": 269,
+      "hitId": 266,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -664,8 +798,8 @@
       "succeeded": false
     },
     {
-      "eventId": 254,
-      "hitId": 250,
+      "eventId": 270,
+      "hitId": 266,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -674,8 +808,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 255,
-      "hitId": 250,
+      "eventId": 271,
+      "hitId": 266,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -684,8 +818,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 256,
-      "hitId": 250,
+      "eventId": 272,
+      "hitId": 266,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -694,8 +828,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 257,
-      "hitId": 250,
+      "eventId": 273,
+      "hitId": 266,
       "atMs": 1100,
       "category": "crit",
       "source": "Crit chance",
@@ -704,8 +838,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 258,
-      "hitId": 250,
+      "eventId": 274,
+      "hitId": 266,
       "atMs": 1100,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -714,8 +848,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 259,
-      "hitId": 250,
+      "eventId": 275,
+      "hitId": 266,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -724,8 +858,8 @@
       "magnitude": 0.1565848433043975
     },
     {
-      "eventId": 261,
-      "hitId": 260,
+      "eventId": 277,
+      "hitId": 276,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -735,8 +869,8 @@
       "succeeded": false
     },
     {
-      "eventId": 262,
-      "hitId": 260,
+      "eventId": 278,
+      "hitId": 276,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -746,8 +880,8 @@
       "succeeded": false
     },
     {
-      "eventId": 263,
-      "hitId": 260,
+      "eventId": 279,
+      "hitId": 276,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -757,8 +891,8 @@
       "succeeded": false
     },
     {
-      "eventId": 264,
-      "hitId": 260,
+      "eventId": 280,
+      "hitId": 276,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -767,8 +901,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 265,
-      "hitId": 260,
+      "eventId": 281,
+      "hitId": 276,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -777,8 +911,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 266,
-      "hitId": 260,
+      "eventId": 282,
+      "hitId": 276,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -787,8 +921,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 267,
-      "hitId": 260,
+      "eventId": 283,
+      "hitId": 276,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance",
@@ -797,8 +931,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 268,
-      "hitId": 260,
+      "eventId": 284,
+      "hitId": 276,
       "atMs": 2200,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -807,8 +941,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 269,
-      "hitId": 260,
+      "eventId": 285,
+      "hitId": 276,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -817,8 +951,8 @@
       "magnitude": 2.007551647154186
     },
     {
-      "eventId": 271,
-      "hitId": 270,
+      "eventId": 287,
+      "hitId": 286,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -828,8 +962,8 @@
       "succeeded": false
     },
     {
-      "eventId": 272,
-      "hitId": 270,
+      "eventId": 288,
+      "hitId": 286,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -839,8 +973,8 @@
       "succeeded": false
     },
     {
-      "eventId": 273,
-      "hitId": 270,
+      "eventId": 289,
+      "hitId": 286,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -850,8 +984,8 @@
       "succeeded": false
     },
     {
-      "eventId": 274,
-      "hitId": 270,
+      "eventId": 290,
+      "hitId": 286,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -860,8 +994,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 275,
-      "hitId": 270,
+      "eventId": 291,
+      "hitId": 286,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -870,8 +1004,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 276,
-      "hitId": 270,
+      "eventId": 292,
+      "hitId": 286,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -880,8 +1014,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 277,
-      "hitId": 270,
+      "eventId": 293,
+      "hitId": 286,
       "atMs": 2200,
       "category": "crit",
       "source": "Crit chance",
@@ -890,8 +1024,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 278,
-      "hitId": 270,
+      "eventId": 294,
+      "hitId": 286,
       "atMs": 2200,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -900,8 +1034,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 279,
-      "hitId": 270,
+      "eventId": 295,
+      "hitId": 286,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -910,8 +1044,8 @@
       "magnitude": 0.1562694270035421
     },
     {
-      "eventId": 281,
-      "hitId": 280,
+      "eventId": 297,
+      "hitId": 296,
       "atMs": 3300,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -921,8 +1055,8 @@
       "succeeded": false
     },
     {
-      "eventId": 282,
-      "hitId": 280,
+      "eventId": 298,
+      "hitId": 296,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -932,8 +1066,8 @@
       "succeeded": false
     },
     {
-      "eventId": 283,
-      "hitId": 280,
+      "eventId": 299,
+      "hitId": 296,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -943,8 +1077,8 @@
       "succeeded": false
     },
     {
-      "eventId": 284,
-      "hitId": 280,
+      "eventId": 300,
+      "hitId": 296,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -953,8 +1087,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 285,
-      "hitId": 280,
+      "eventId": 301,
+      "hitId": 296,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -963,8 +1097,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 286,
-      "hitId": 280,
+      "eventId": 302,
+      "hitId": 296,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -973,8 +1107,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 287,
-      "hitId": 280,
+      "eventId": 303,
+      "hitId": 296,
       "atMs": 3300,
       "category": "crit",
       "source": "Crit chance",
@@ -983,8 +1117,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 288,
-      "hitId": 280,
+      "eventId": 304,
+      "hitId": 296,
       "atMs": 3300,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -993,8 +1127,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 289,
-      "hitId": 280,
+      "eventId": 305,
+      "hitId": 296,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1003,8 +1137,8 @@
       "magnitude": 1.9304266509166155
     },
     {
-      "eventId": 291,
-      "hitId": 290,
+      "eventId": 307,
+      "hitId": 306,
       "atMs": 3300,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1014,8 +1148,8 @@
       "succeeded": false
     },
     {
-      "eventId": 292,
-      "hitId": 290,
+      "eventId": 308,
+      "hitId": 306,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -1025,8 +1159,8 @@
       "succeeded": false
     },
     {
-      "eventId": 293,
-      "hitId": 290,
+      "eventId": 309,
+      "hitId": 306,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -1036,8 +1170,8 @@
       "succeeded": false
     },
     {
-      "eventId": 294,
-      "hitId": 290,
+      "eventId": 310,
+      "hitId": 306,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1046,8 +1180,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 295,
-      "hitId": 290,
+      "eventId": 311,
+      "hitId": 306,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1056,8 +1190,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 296,
-      "hitId": 290,
+      "eventId": 312,
+      "hitId": 306,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1066,8 +1200,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 297,
-      "hitId": 290,
+      "eventId": 313,
+      "hitId": 306,
       "atMs": 3300,
       "category": "crit",
       "source": "Crit chance",
@@ -1076,8 +1210,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 298,
-      "hitId": 290,
+      "eventId": 314,
+      "hitId": 306,
       "atMs": 3300,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1086,8 +1220,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 299,
-      "hitId": 290,
+      "eventId": 315,
+      "hitId": 306,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1096,8 +1230,8 @@
       "magnitude": 0.15026595556768624
     },
     {
-      "eventId": 301,
-      "hitId": 300,
+      "eventId": 317,
+      "hitId": 316,
       "atMs": 4400,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1107,8 +1241,8 @@
       "succeeded": false
     },
     {
-      "eventId": 302,
-      "hitId": 300,
+      "eventId": 318,
+      "hitId": 316,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -1118,8 +1252,8 @@
       "succeeded": false
     },
     {
-      "eventId": 303,
-      "hitId": 300,
+      "eventId": 319,
+      "hitId": 316,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -1129,8 +1263,8 @@
       "succeeded": false
     },
     {
-      "eventId": 304,
-      "hitId": 300,
+      "eventId": 320,
+      "hitId": 316,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1139,8 +1273,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 305,
-      "hitId": 300,
+      "eventId": 321,
+      "hitId": 316,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1149,8 +1283,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 306,
-      "hitId": 300,
+      "eventId": 322,
+      "hitId": 316,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1159,8 +1293,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 307,
-      "hitId": 300,
+      "eventId": 323,
+      "hitId": 316,
       "atMs": 4400,
       "category": "crit",
       "source": "Crit chance",
@@ -1169,8 +1303,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 308,
-      "hitId": 300,
+      "eventId": 324,
+      "hitId": 316,
       "atMs": 4400,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1179,8 +1313,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 309,
-      "hitId": 300,
+      "eventId": 325,
+      "hitId": 316,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1189,8 +1323,8 @@
       "magnitude": 1.7487250731028232
     },
     {
-      "eventId": 311,
-      "hitId": 310,
+      "eventId": 327,
+      "hitId": 326,
       "atMs": 4400,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1200,8 +1334,8 @@
       "succeeded": false
     },
     {
-      "eventId": 312,
-      "hitId": 310,
+      "eventId": 328,
+      "hitId": 326,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -1211,8 +1345,8 @@
       "succeeded": false
     },
     {
-      "eventId": 313,
-      "hitId": 310,
+      "eventId": 329,
+      "hitId": 326,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -1222,8 +1356,8 @@
       "succeeded": false
     },
     {
-      "eventId": 314,
-      "hitId": 310,
+      "eventId": 330,
+      "hitId": 326,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1232,8 +1366,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 315,
-      "hitId": 310,
+      "eventId": 331,
+      "hitId": 326,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1242,8 +1376,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 316,
-      "hitId": 310,
+      "eventId": 332,
+      "hitId": 326,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1252,8 +1386,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 317,
-      "hitId": 310,
+      "eventId": 333,
+      "hitId": 326,
       "atMs": 4400,
       "category": "crit",
       "source": "Crit chance",
@@ -1262,8 +1396,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 318,
-      "hitId": 310,
+      "eventId": 334,
+      "hitId": 326,
       "atMs": 4400,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1272,8 +1406,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 319,
-      "hitId": 310,
+      "eventId": 335,
+      "hitId": 326,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1282,8 +1416,8 @@
       "magnitude": 0.13612215932172095
     },
     {
-      "eventId": 321,
-      "hitId": 320,
+      "eventId": 337,
+      "hitId": 336,
       "atMs": 5500,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1293,8 +1427,8 @@
       "succeeded": false
     },
     {
-      "eventId": 322,
-      "hitId": 320,
+      "eventId": 338,
+      "hitId": 336,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1304,8 +1438,8 @@
       "succeeded": false
     },
     {
-      "eventId": 323,
-      "hitId": 320,
+      "eventId": 339,
+      "hitId": 336,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
@@ -1315,8 +1449,8 @@
       "succeeded": false
     },
     {
-      "eventId": 324,
-      "hitId": 320,
+      "eventId": 340,
+      "hitId": 336,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1325,8 +1459,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 325,
-      "hitId": 320,
+      "eventId": 341,
+      "hitId": 336,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1335,8 +1469,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 326,
-      "hitId": 320,
+      "eventId": 342,
+      "hitId": 336,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1345,8 +1479,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 327,
-      "hitId": 320,
+      "eventId": 343,
+      "hitId": 336,
       "atMs": 5500,
       "category": "crit",
       "source": "Crit chance",
@@ -1355,8 +1489,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 328,
-      "hitId": 320,
+      "eventId": 344,
+      "hitId": 336,
       "atMs": 5500,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1365,8 +1499,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 329,
-      "hitId": 320,
+      "eventId": 345,
+      "hitId": 336,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1375,8 +1509,8 @@
       "magnitude": 2.170551675596203
     },
     {
-      "eventId": 331,
-      "hitId": 330,
+      "eventId": 347,
+      "hitId": 346,
       "atMs": 5500,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1386,8 +1520,8 @@
       "succeeded": false
     },
     {
-      "eventId": 332,
-      "hitId": 330,
+      "eventId": 348,
+      "hitId": 346,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1397,8 +1531,8 @@
       "succeeded": false
     },
     {
-      "eventId": 333,
-      "hitId": 330,
+      "eventId": 349,
+      "hitId": 346,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
@@ -1408,8 +1542,8 @@
       "succeeded": false
     },
     {
-      "eventId": 334,
-      "hitId": 330,
+      "eventId": 350,
+      "hitId": 346,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1418,8 +1552,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 335,
-      "hitId": 330,
+      "eventId": 351,
+      "hitId": 346,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1428,8 +1562,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 336,
-      "hitId": 330,
+      "eventId": 352,
+      "hitId": 346,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1438,8 +1572,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 337,
-      "hitId": 330,
+      "eventId": 353,
+      "hitId": 346,
       "atMs": 5500,
       "category": "crit",
       "source": "Crit chance",
@@ -1448,8 +1582,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 338,
-      "hitId": 330,
+      "eventId": 354,
+      "hitId": 346,
       "atMs": 5500,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1458,8 +1592,8 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 339,
-      "hitId": 330,
+      "eventId": 355,
+      "hitId": 346,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1468,8 +1602,8 @@
       "magnitude": 0.1689574796782032
     },
     {
-      "eventId": 341,
-      "hitId": 340,
+      "eventId": 357,
+      "hitId": 356,
       "atMs": 6600,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1479,8 +1613,8 @@
       "succeeded": true
     },
     {
-      "eventId": 342,
-      "hitId": 340,
+      "eventId": 358,
+      "hitId": 356,
       "atMs": 6600,
       "category": "evasion",
       "source": "Evasion",
@@ -1490,8 +1624,8 @@
       "succeeded": false
     },
     {
-      "eventId": 343,
-      "hitId": 340,
+      "eventId": 359,
+      "hitId": 356,
       "atMs": 6600,
       "category": "block",
       "source": "Block chance",
@@ -1501,8 +1635,8 @@
       "succeeded": false
     },
     {
-      "eventId": 344,
-      "hitId": 340,
+      "eventId": 360,
+      "hitId": 356,
       "atMs": 6600,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1511,8 +1645,8 @@
       "magnitude": -0.132
     },
     {
-      "eventId": 345,
-      "hitId": 340,
+      "eventId": 361,
+      "hitId": 356,
       "atMs": 6600,
       "category": "mitigation",
       "source": "Damage reduction",
@@ -1521,8 +1655,8 @@
       "magnitude": 0.26136712873773926
     },
     {
-      "eventId": 346,
-      "hitId": 340,
+      "eventId": 362,
+      "hitId": 356,
       "atMs": 6600,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1531,8 +1665,8 @@
       "magnitude": -0.132
     },
     {
-      "eventId": 347,
-      "hitId": 340,
+      "eventId": 363,
+      "hitId": 356,
       "atMs": 6600,
       "category": "crit",
       "source": "Crit chance",
@@ -1541,8 +1675,8 @@
       "magnitude": 0.15
     },
     {
-      "eventId": 348,
-      "hitId": 340,
+      "eventId": 364,
+      "hitId": 356,
       "atMs": 6600,
       "category": "crit",
       "source": "Crit multiplier",
@@ -1551,8 +1685,8 @@
       "magnitude": 2.5
     },
     {
-      "eventId": 349,
-      "hitId": 340,
+      "eventId": 365,
+      "hitId": 356,
       "atMs": 6600,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1561,14 +1695,303 @@
       "magnitude": 0.1
     },
     {
-      "eventId": 350,
-      "hitId": 340,
+      "eventId": 366,
+      "hitId": 356,
       "atMs": 6600,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "cleric_grace_companion_stage200",
       "magnitude": 3.0245795842154517
+    },
+    {
+      "eventId": 368,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 369,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 370,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 371,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 372,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 373,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 374,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 375,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 376,
+      "hitId": 367,
+      "atMs": 6600,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.13453468321459877
+    },
+    {
+      "eventId": 378,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": true
+    },
+    {
+      "eventId": 379,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 380,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 381,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 382,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 383,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 384,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 385,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 2.5
+    },
+    {
+      "eventId": 386,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 387,
+      "hitId": 377,
+      "atMs": 7700,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 3.126672802120149
+    },
+    {
+      "eventId": 389,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "probability": 0.15,
+      "succeeded": false
+    },
+    {
+      "eventId": 390,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 391,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 392,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 393,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Damage reduction",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.26136712873773926
+    },
+    {
+      "eventId": 394,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "cleric_grace_companion_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 395,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.15
+    },
+    {
+      "eventId": 396,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1
+    },
+    {
+      "eventId": 397,
+      "hitId": 388,
+      "atMs": 7700,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "cleric_grace_companion_stage200",
+      "magnitude": 0.1390758362399143
     }
   ]
 }

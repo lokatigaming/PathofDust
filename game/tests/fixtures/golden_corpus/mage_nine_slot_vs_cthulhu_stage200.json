@@ -10,7 +10,7 @@
       "thunderNetAbsorbed": 0,
       "archetype": "mage",
       "role": "ranged",
-      "maxHp": 1083,
+      "maxHp": 1840,
       "thunderIncarnations": []
     },
     {
@@ -37,7 +37,7 @@
       "targetHpAfter": 40000,
       "isCrit": false,
       "evaded": true,
-      "hitId": 4521,
+      "hitId": 6250,
       "sourceKind": "direct"
     },
     {
@@ -47,10 +47,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 0,
       "unmitigatedDamage": 356,
-      "targetHpAfter": 1083,
+      "targetHpAfter": 1840,
       "isCrit": false,
       "evaded": true,
-      "hitId": 4527,
+      "hitId": 6256,
       "sourceKind": "direct"
     },
     {
@@ -60,10 +60,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 0,
       "unmitigatedDamage": 27,
-      "targetHpAfter": 1083,
+      "targetHpAfter": 1840,
       "isCrit": false,
       "evaded": true,
-      "hitId": 4529,
+      "hitId": 6258,
       "sourceKind": "direct"
     },
     {
@@ -76,7 +76,7 @@
       "targetHpAfter": 39188,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4531,
+      "hitId": 6260,
       "sourceKind": "direct"
     },
     {
@@ -86,10 +86,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 2,
       "unmitigatedDamage": 366,
-      "targetHpAfter": 1081,
+      "targetHpAfter": 1838,
       "isCrit": false,
       "evaded": true,
-      "hitId": 4540,
+      "hitId": 6269,
       "sourceKind": "direct"
     },
     {
@@ -99,10 +99,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 33,
       "unmitigatedDamage": 27,
-      "targetHpAfter": 1048,
+      "targetHpAfter": 1805,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4545,
+      "hitId": 6274,
       "sourceKind": "direct"
     },
     {
@@ -111,7 +111,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 35,
-      "targetHpAfter": 1083,
+      "targetHpAfter": 1840,
       "isRevive": false
     },
     {
@@ -124,7 +124,7 @@
       "targetHpAfter": 38266,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4552,
+      "hitId": 6281,
       "sourceKind": "direct"
     },
     {
@@ -137,7 +137,7 @@
       "targetHpAfter": 37153,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4561,
+      "hitId": 6290,
       "sourceKind": "direct"
     },
     {
@@ -147,10 +147,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 472,
       "unmitigatedDamage": 364,
-      "targetHpAfter": 611,
+      "targetHpAfter": 1368,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4570,
+      "hitId": 6299,
       "sourceKind": "direct"
     },
     {
@@ -160,10 +160,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 0,
       "unmitigatedDamage": 27,
-      "targetHpAfter": 611,
+      "targetHpAfter": 1368,
       "isCrit": false,
       "evaded": true,
-      "hitId": 4577,
+      "hitId": 6306,
       "sourceKind": "direct"
     },
     {
@@ -172,7 +172,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 65,
-      "targetHpAfter": 676,
+      "targetHpAfter": 1433,
       "isRevive": false
     },
     {
@@ -185,7 +185,7 @@
       "targetHpAfter": 36037,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4582,
+      "hitId": 6311,
       "sourceKind": "direct"
     },
     {
@@ -200,7 +200,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 57,
-      "targetHpAfter": 733,
+      "targetHpAfter": 1490,
       "isRevive": false
     },
     {
@@ -213,7 +213,7 @@
       "targetHpAfter": 35056,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4591,
+      "hitId": 6320,
       "sourceKind": "direct"
     },
     {
@@ -223,10 +223,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 495,
       "unmitigatedDamage": 354,
-      "targetHpAfter": 238,
+      "targetHpAfter": 995,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4601,
+      "hitId": 6330,
       "sourceKind": "direct"
     },
     {
@@ -236,10 +236,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 37,
       "unmitigatedDamage": 26,
-      "targetHpAfter": 201,
+      "targetHpAfter": 958,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4608,
+      "hitId": 6337,
       "sourceKind": "direct"
     },
     {
@@ -248,7 +248,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 384,
-      "targetHpAfter": 585,
+      "targetHpAfter": 1342,
       "isRevive": false
     },
     {
@@ -268,7 +268,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 54,
-      "targetHpAfter": 639,
+      "targetHpAfter": 1396,
       "isRevive": false
     },
     {
@@ -281,7 +281,7 @@
       "targetHpAfter": 34138,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4615,
+      "hitId": 6344,
       "sourceKind": "direct"
     },
     {
@@ -301,7 +301,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 105,
-      "targetHpAfter": 744,
+      "targetHpAfter": 1501,
       "isRevive": false
     },
     {
@@ -314,7 +314,7 @@
       "targetHpAfter": 32348,
       "isCrit": true,
       "evaded": false,
-      "hitId": 4625,
+      "hitId": 6354,
       "sourceKind": "direct"
     },
     {
@@ -335,10 +335,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 556,
       "unmitigatedDamage": 372,
-      "targetHpAfter": 188,
+      "targetHpAfter": 945,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4636,
+      "hitId": 6365,
       "sourceKind": "direct"
     },
     {
@@ -359,10 +359,10 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 42,
       "unmitigatedDamage": 28,
-      "targetHpAfter": 146,
+      "targetHpAfter": 903,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4643,
+      "hitId": 6372,
       "sourceKind": "direct"
     },
     {
@@ -382,7 +382,7 @@
       "healer": "mage_nine_slot_vs_cthulhu_stage200",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "amount": 122,
-      "targetHpAfter": 268,
+      "targetHpAfter": 1025,
       "isRevive": false
     },
     {
@@ -395,7 +395,7 @@
       "targetHpAfter": 30264,
       "isCrit": true,
       "evaded": false,
-      "hitId": 4650,
+      "hitId": 6379,
       "sourceKind": "direct"
     },
     {
@@ -416,22 +416,265 @@
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "damage": 570,
       "unmitigatedDamage": 357,
+      "targetHpAfter": 455,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6389,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5500,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 5500,
+      "attacker": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "damage": 43,
+      "unmitigatedDamage": 27,
+      "targetHpAfter": 412,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6396,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 5652,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 5652,
+      "healer": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "amount": 71,
+      "targetHpAfter": 483,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 5652,
+      "attacker": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "damage": 1211,
+      "unmitigatedDamage": 1303,
+      "targetHpAfter": 29053,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6403,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "skillCast",
+      "atMs": 6000,
+      "unit": "__enemy_0__",
+      "skill": "Bubble"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6280,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 6280,
+      "healer": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "amount": 144,
+      "targetHpAfter": 627,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 6280,
+      "attacker": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "damage": 2457,
+      "unmitigatedDamage": 2644,
+      "targetHpAfter": 26596,
+      "isCrit": true,
+      "evaded": false,
+      "hitId": 6412,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6600,
+      "attacker": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "damage": 557,
+      "unmitigatedDamage": 328,
+      "targetHpAfter": 70,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6423,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6600,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 6600,
+      "attacker": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "damage": 42,
+      "unmitigatedDamage": 25,
+      "targetHpAfter": 28,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6430,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 6908,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 6908,
+      "healer": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "amount": 68,
+      "targetHpAfter": 96,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 6908,
+      "attacker": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "damage": 1164,
+      "unmitigatedDamage": 1252,
+      "targetHpAfter": 25432,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6437,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 7000,
+      "healer": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "amount": 427,
+      "targetHpAfter": 523,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7536,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "heal",
+      "atMs": 7536,
+      "healer": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "amount": 71,
+      "targetHpAfter": 594,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 7536,
+      "attacker": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "damage": 1216,
+      "unmitigatedDamage": 1308,
+      "targetHpAfter": 24216,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 6447,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7700,
+      "unit": "__enemy_0__",
+      "buffs": [
+        [
+          "cold_evasion_debuff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 7700,
+      "attacker": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "damage": 611,
+      "unmitigatedDamage": 340,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 4660,
+      "hitId": 6457,
       "sourceKind": "direct"
     },
     {
       "kind": "defeat",
-      "atMs": 5500,
+      "atMs": 7700,
       "unit": "mage_nine_slot_vs_cthulhu_stage200"
     }
   ],
   "rolls": [
     {
-      "eventId": 4522,
-      "hitId": 4521,
+      "eventId": 6251,
+      "hitId": 6250,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -441,8 +684,8 @@
       "succeeded": true
     },
     {
-      "eventId": 4523,
-      "hitId": 4521,
+      "eventId": 6252,
+      "hitId": 6250,
       "atMs": 0,
       "category": "crit",
       "source": "Crit chance",
@@ -451,8 +694,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4524,
-      "hitId": 4521,
+      "eventId": 6253,
+      "hitId": 6250,
       "atMs": 0,
       "category": "crit",
       "source": "Crit multiplier",
@@ -461,8 +704,8 @@
       "magnitude": 2.5989838599366406
     },
     {
-      "eventId": 4525,
-      "hitId": 4521,
+      "eventId": 6254,
+      "hitId": 6250,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -471,8 +714,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4526,
-      "hitId": 4521,
+      "eventId": 6255,
+      "hitId": 6250,
       "atMs": 0,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -481,8 +724,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4528,
-      "hitId": 4527,
+      "eventId": 6257,
+      "hitId": 6256,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -491,8 +734,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4530,
-      "hitId": 4529,
+      "eventId": 6259,
+      "hitId": 6258,
       "atMs": 0,
       "category": "evasion",
       "source": "Evasion",
@@ -501,8 +744,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4532,
-      "hitId": 4531,
+      "eventId": 6261,
+      "hitId": 6260,
       "atMs": 628,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -512,8 +755,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4533,
-      "hitId": 4531,
+      "eventId": 6262,
+      "hitId": 6260,
       "atMs": 628,
       "category": "evasion",
       "source": "Evasion",
@@ -523,8 +766,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4534,
-      "hitId": 4531,
+      "eventId": 6263,
+      "hitId": 6260,
       "atMs": 628,
       "category": "block",
       "source": "Block chance",
@@ -534,8 +777,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4535,
-      "hitId": 4531,
+      "eventId": 6264,
+      "hitId": 6260,
       "atMs": 628,
       "category": "crit",
       "source": "Crit chance",
@@ -544,8 +787,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4536,
-      "hitId": 4531,
+      "eventId": 6265,
+      "hitId": 6260,
       "atMs": 628,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -554,8 +797,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4537,
-      "hitId": 4531,
+      "eventId": 6266,
+      "hitId": 6260,
       "atMs": 628,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -564,8 +807,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4538,
-      "hitId": 4531,
+      "eventId": 6267,
+      "hitId": 6260,
       "atMs": 628,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -575,8 +818,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4539,
-      "hitId": 4531,
+      "eventId": 6268,
+      "hitId": 6260,
       "atMs": 628,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -586,8 +829,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4541,
-      "hitId": 4540,
+      "eventId": 6270,
+      "hitId": 6269,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -597,8 +840,8 @@
       "succeeded": true
     },
     {
-      "eventId": 4542,
-      "hitId": 4540,
+      "eventId": 6271,
+      "hitId": 6269,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -607,8 +850,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4543,
-      "hitId": 4540,
+      "eventId": 6272,
+      "hitId": 6269,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -617,8 +860,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 4544,
-      "hitId": 4540,
+      "eventId": 6273,
+      "hitId": 6269,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -627,8 +870,8 @@
       "magnitude": 1.8100924739655344
     },
     {
-      "eventId": 4546,
-      "hitId": 4545,
+      "eventId": 6275,
+      "hitId": 6274,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -638,8 +881,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4547,
-      "hitId": 4545,
+      "eventId": 6276,
+      "hitId": 6274,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -649,8 +892,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4548,
-      "hitId": 4545,
+      "eventId": 6277,
+      "hitId": 6274,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -659,8 +902,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4549,
-      "hitId": 4545,
+      "eventId": 6278,
+      "hitId": 6274,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -669,8 +912,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 4550,
-      "hitId": 4545,
+      "eventId": 6279,
+      "hitId": 6274,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -679,8 +922,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 4551,
-      "hitId": 4545,
+      "eventId": 6280,
+      "hitId": 6274,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -689,8 +932,8 @@
       "magnitude": 0.135112446001999
     },
     {
-      "eventId": 4553,
-      "hitId": 4552,
+      "eventId": 6282,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -700,8 +943,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4554,
-      "hitId": 4552,
+      "eventId": 6283,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "evasion",
       "source": "Evasion",
@@ -711,8 +954,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4555,
-      "hitId": 4552,
+      "eventId": 6284,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "block",
       "source": "Block chance",
@@ -722,8 +965,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4556,
-      "hitId": 4552,
+      "eventId": 6285,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "crit",
       "source": "Crit chance",
@@ -732,8 +975,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4557,
-      "hitId": 4552,
+      "eventId": 6286,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -742,8 +985,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4558,
-      "hitId": 4552,
+      "eventId": 6287,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -752,8 +995,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4559,
-      "hitId": 4552,
+      "eventId": 6288,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -763,8 +1006,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4560,
-      "hitId": 4552,
+      "eventId": 6289,
+      "hitId": 6281,
       "atMs": 1256,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -774,8 +1017,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4562,
-      "hitId": 4561,
+      "eventId": 6291,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -785,8 +1028,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4563,
-      "hitId": 4561,
+      "eventId": 6292,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "evasion",
       "source": "Evasion",
@@ -796,8 +1039,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4564,
-      "hitId": 4561,
+      "eventId": 6293,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "block",
       "source": "Block chance",
@@ -807,8 +1050,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4565,
-      "hitId": 4561,
+      "eventId": 6294,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "crit",
       "source": "Crit chance",
@@ -817,8 +1060,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4566,
-      "hitId": 4561,
+      "eventId": 6295,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -827,8 +1070,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4567,
-      "hitId": 4561,
+      "eventId": 6296,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -837,8 +1080,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4568,
-      "hitId": 4561,
+      "eventId": 6297,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -848,8 +1091,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4569,
-      "hitId": 4561,
+      "eventId": 6298,
+      "hitId": 6290,
       "atMs": 1884,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -859,8 +1102,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4571,
-      "hitId": 4570,
+      "eventId": 6300,
+      "hitId": 6299,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -870,8 +1113,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4572,
-      "hitId": 4570,
+      "eventId": 6301,
+      "hitId": 6299,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -881,8 +1124,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4573,
-      "hitId": 4570,
+      "eventId": 6302,
+      "hitId": 6299,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -891,8 +1134,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4574,
-      "hitId": 4570,
+      "eventId": 6303,
+      "hitId": 6299,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -901,8 +1144,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 4575,
-      "hitId": 4570,
+      "eventId": 6304,
+      "hitId": 6299,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -911,8 +1154,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 4576,
-      "hitId": 4570,
+      "eventId": 6305,
+      "hitId": 6299,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -921,8 +1164,8 @@
       "magnitude": 1.8012110640953014
     },
     {
-      "eventId": 4578,
-      "hitId": 4577,
+      "eventId": 6307,
+      "hitId": 6306,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -932,8 +1175,8 @@
       "succeeded": true
     },
     {
-      "eventId": 4579,
-      "hitId": 4577,
+      "eventId": 6308,
+      "hitId": 6306,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -942,8 +1185,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4580,
-      "hitId": 4577,
+      "eventId": 6309,
+      "hitId": 6306,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -952,8 +1195,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 4581,
-      "hitId": 4577,
+      "eventId": 6310,
+      "hitId": 6306,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -962,8 +1205,8 @@
       "magnitude": 0.13444950251774454
     },
     {
-      "eventId": 4583,
-      "hitId": 4582,
+      "eventId": 6312,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -973,8 +1216,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4584,
-      "hitId": 4582,
+      "eventId": 6313,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "evasion",
       "source": "Evasion",
@@ -984,8 +1227,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4585,
-      "hitId": 4582,
+      "eventId": 6314,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "block",
       "source": "Block chance",
@@ -995,8 +1238,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4586,
-      "hitId": 4582,
+      "eventId": 6315,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "crit",
       "source": "Crit chance",
@@ -1005,8 +1248,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4587,
-      "hitId": 4582,
+      "eventId": 6316,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1015,8 +1258,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4588,
-      "hitId": 4582,
+      "eventId": 6317,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1025,8 +1268,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4589,
-      "hitId": 4582,
+      "eventId": 6318,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1036,8 +1279,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4590,
-      "hitId": 4582,
+      "eventId": 6319,
+      "hitId": 6311,
       "atMs": 2512,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1047,8 +1290,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4592,
-      "hitId": 4591,
+      "eventId": 6321,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1058,8 +1301,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4593,
-      "hitId": 4591,
+      "eventId": 6322,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "evasion",
       "source": "Evasion",
@@ -1069,8 +1312,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4594,
-      "hitId": 4591,
+      "eventId": 6323,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "block",
       "source": "Block chance",
@@ -1080,8 +1323,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4595,
-      "hitId": 4591,
+      "eventId": 6324,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "crit",
       "source": "Crit chance",
@@ -1090,8 +1333,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4596,
-      "hitId": 4591,
+      "eventId": 6325,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1100,8 +1343,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4597,
-      "hitId": 4591,
+      "eventId": 6326,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "increasedDamage",
       "source": "Cthulhu's debuff",
@@ -1110,8 +1353,8 @@
       "magnitude": -0.05
     },
     {
-      "eventId": 4598,
-      "hitId": 4591,
+      "eventId": 6327,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1120,8 +1363,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4599,
-      "hitId": 4591,
+      "eventId": 6328,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1131,8 +1374,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4600,
-      "hitId": 4591,
+      "eventId": 6329,
+      "hitId": 6320,
       "atMs": 3140,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1142,8 +1385,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4602,
-      "hitId": 4601,
+      "eventId": 6331,
+      "hitId": 6330,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -1153,8 +1396,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4603,
-      "hitId": 4601,
+      "eventId": 6332,
+      "hitId": 6330,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -1164,8 +1407,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4604,
-      "hitId": 4601,
+      "eventId": 6333,
+      "hitId": 6330,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -1174,8 +1417,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4605,
-      "hitId": 4601,
+      "eventId": 6334,
+      "hitId": 6330,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1184,8 +1427,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 4606,
-      "hitId": 4601,
+      "eventId": 6335,
+      "hitId": 6330,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1194,8 +1437,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 4607,
-      "hitId": 4601,
+      "eventId": 6336,
+      "hitId": 6330,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1204,8 +1447,8 @@
       "magnitude": 1.7532576128096888
     },
     {
-      "eventId": 4609,
-      "hitId": 4608,
+      "eventId": 6338,
+      "hitId": 6337,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -1215,8 +1458,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4610,
-      "hitId": 4608,
+      "eventId": 6339,
+      "hitId": 6337,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -1226,8 +1469,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4611,
-      "hitId": 4608,
+      "eventId": 6340,
+      "hitId": 6337,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -1236,8 +1479,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4612,
-      "hitId": 4608,
+      "eventId": 6341,
+      "hitId": 6337,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1246,8 +1489,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 4613,
-      "hitId": 4608,
+      "eventId": 6342,
+      "hitId": 6337,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1256,8 +1499,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 4614,
-      "hitId": 4608,
+      "eventId": 6343,
+      "hitId": 6337,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1266,8 +1509,8 @@
       "magnitude": 0.13087006765978812
     },
     {
-      "eventId": 4616,
-      "hitId": 4615,
+      "eventId": 6345,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1277,8 +1520,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4617,
-      "hitId": 4615,
+      "eventId": 6346,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "evasion",
       "source": "Evasion",
@@ -1288,8 +1531,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4618,
-      "hitId": 4615,
+      "eventId": 6347,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "block",
       "source": "Block chance",
@@ -1299,8 +1542,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4619,
-      "hitId": 4615,
+      "eventId": 6348,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "crit",
       "source": "Crit chance",
@@ -1309,8 +1552,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4620,
-      "hitId": 4615,
+      "eventId": 6349,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1319,8 +1562,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4621,
-      "hitId": 4615,
+      "eventId": 6350,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "increasedDamage",
       "source": "Cthulhu's debuff",
@@ -1329,8 +1572,8 @@
       "magnitude": -0.05
     },
     {
-      "eventId": 4622,
-      "hitId": 4615,
+      "eventId": 6351,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1339,8 +1582,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4623,
-      "hitId": 4615,
+      "eventId": 6352,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1350,8 +1593,8 @@
       "succeeded": true
     },
     {
-      "eventId": 4624,
-      "hitId": 4615,
+      "eventId": 6353,
+      "hitId": 6344,
       "atMs": 3768,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1361,8 +1604,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4626,
-      "hitId": 4625,
+      "eventId": 6355,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1372,8 +1615,8 @@
       "succeeded": true
     },
     {
-      "eventId": 4627,
-      "hitId": 4625,
+      "eventId": 6356,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "evasion",
       "source": "Evasion",
@@ -1383,8 +1626,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4628,
-      "hitId": 4625,
+      "eventId": 6357,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "block",
       "source": "Block chance",
@@ -1394,8 +1637,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4629,
-      "hitId": 4625,
+      "eventId": 6358,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "crit",
       "source": "Crit chance",
@@ -1404,8 +1647,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4630,
-      "hitId": 4625,
+      "eventId": 6359,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "crit",
       "source": "Crit multiplier",
@@ -1414,8 +1657,8 @@
       "magnitude": 2.5989838599366406
     },
     {
-      "eventId": 4631,
-      "hitId": 4625,
+      "eventId": 6360,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1424,8 +1667,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4632,
-      "hitId": 4625,
+      "eventId": 6361,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "increasedDamage",
       "source": "Cthulhu's debuff",
@@ -1434,8 +1677,8 @@
       "magnitude": -0.05
     },
     {
-      "eventId": 4633,
-      "hitId": 4625,
+      "eventId": 6362,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1444,8 +1687,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4634,
-      "hitId": 4625,
+      "eventId": 6363,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1455,8 +1698,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4635,
-      "hitId": 4625,
+      "eventId": 6364,
+      "hitId": 6354,
       "atMs": 4396,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1466,8 +1709,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4637,
-      "hitId": 4636,
+      "eventId": 6366,
+      "hitId": 6365,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -1477,8 +1720,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4638,
-      "hitId": 4636,
+      "eventId": 6367,
+      "hitId": 6365,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -1488,8 +1731,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4639,
-      "hitId": 4636,
+      "eventId": 6368,
+      "hitId": 6365,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -1498,8 +1741,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4640,
-      "hitId": 4636,
+      "eventId": 6369,
+      "hitId": 6365,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1508,8 +1751,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 4641,
-      "hitId": 4636,
+      "eventId": 6370,
+      "hitId": 6365,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1518,8 +1761,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 4642,
-      "hitId": 4636,
+      "eventId": 6371,
+      "hitId": 6365,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1528,8 +1771,8 @@
       "magnitude": 1.8393440664434308
     },
     {
-      "eventId": 4644,
-      "hitId": 4643,
+      "eventId": 6373,
+      "hitId": 6372,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -1539,8 +1782,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4645,
-      "hitId": 4643,
+      "eventId": 6374,
+      "hitId": 6372,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -1550,8 +1793,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4646,
-      "hitId": 4643,
+      "eventId": 6375,
+      "hitId": 6372,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -1560,8 +1803,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4647,
-      "hitId": 4643,
+      "eventId": 6376,
+      "hitId": 6372,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1570,8 +1813,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 4648,
-      "hitId": 4643,
+      "eventId": 6377,
+      "hitId": 6372,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1580,8 +1823,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 4649,
-      "hitId": 4643,
+      "eventId": 6378,
+      "hitId": 6372,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1590,8 +1833,8 @@
       "magnitude": 0.1372959003094376
     },
     {
-      "eventId": 4651,
-      "hitId": 4650,
+      "eventId": 6380,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "crit",
       "source": "Crit chance remainder",
@@ -1601,8 +1844,8 @@
       "succeeded": true
     },
     {
-      "eventId": 4652,
-      "hitId": 4650,
+      "eventId": 6381,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "evasion",
       "source": "Evasion",
@@ -1612,8 +1855,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4653,
-      "hitId": 4650,
+      "eventId": 6382,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "block",
       "source": "Block chance",
@@ -1623,8 +1866,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4654,
-      "hitId": 4650,
+      "eventId": 6383,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "crit",
       "source": "Crit chance",
@@ -1633,8 +1876,8 @@
       "magnitude": 0.18354942747068556
     },
     {
-      "eventId": 4655,
-      "hitId": 4650,
+      "eventId": 6384,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "crit",
       "source": "Crit multiplier",
@@ -1643,8 +1886,8 @@
       "magnitude": 2.5989838599366406
     },
     {
-      "eventId": 4656,
-      "hitId": 4650,
+      "eventId": 6385,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "increasedDamage",
       "source": "Increased damage (gear/tree)",
@@ -1653,8 +1896,8 @@
       "magnitude": 0.5458997574963047
     },
     {
-      "eventId": 4657,
-      "hitId": 4650,
+      "eventId": 6386,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "increasedDamage",
       "source": "Late-stage damage penalty",
@@ -1663,8 +1906,8 @@
       "magnitude": -0.09090909090909091
     },
     {
-      "eventId": 4658,
-      "hitId": 4650,
+      "eventId": 6387,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "elementalProc",
       "source": "Cold proc",
@@ -1674,8 +1917,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4659,
-      "hitId": 4650,
+      "eventId": 6388,
+      "hitId": 6379,
       "atMs": 5024,
       "category": "elementalProc",
       "source": "Chaos proc",
@@ -1685,8 +1928,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4661,
-      "hitId": 4660,
+      "eventId": 6390,
+      "hitId": 6389,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1696,8 +1939,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4662,
-      "hitId": 4660,
+      "eventId": 6391,
+      "hitId": 6389,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
@@ -1707,8 +1950,8 @@
       "succeeded": false
     },
     {
-      "eventId": 4663,
-      "hitId": 4660,
+      "eventId": 6392,
+      "hitId": 6389,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1717,8 +1960,8 @@
       "magnitude": 0.10793643169805922
     },
     {
-      "eventId": 4664,
-      "hitId": 4660,
+      "eventId": 6393,
+      "hitId": 6389,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1727,8 +1970,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 4665,
-      "hitId": 4660,
+      "eventId": 6394,
+      "hitId": 6389,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1737,14 +1980,642 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 4666,
-      "hitId": 4660,
+      "eventId": 6395,
+      "hitId": 6389,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "mage_nine_slot_vs_cthulhu_stage200",
       "magnitude": 1.7655630293693665
+    },
+    {
+      "eventId": 6397,
+      "hitId": 6396,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.10793643169805922,
+      "succeeded": false
+    },
+    {
+      "eventId": 6398,
+      "hitId": 6396,
+      "atMs": 5500,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6399,
+      "hitId": 6396,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10793643169805922
+    },
+    {
+      "eventId": 6400,
+      "hitId": 6396,
+      "atMs": 5500,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 6401,
+      "hitId": 6396,
+      "atMs": 5500,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.11
+    },
+    {
+      "eventId": 6402,
+      "hitId": 6396,
+      "atMs": 5500,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "magnitude": 0.1317885925165923
+    },
+    {
+      "eventId": 6404,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.18354942747068556,
+      "succeeded": false
+    },
+    {
+      "eventId": 6405,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6406,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6407,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.18354942747068556
+    },
+    {
+      "eventId": 6408,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.5458997574963047
+    },
+    {
+      "eventId": 6409,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.09090909090909091
+    },
+    {
+      "eventId": 6410,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.013160604969475544,
+      "succeeded": false
+    },
+    {
+      "eventId": 6411,
+      "hitId": 6403,
+      "atMs": 5652,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.04142937078015493,
+      "succeeded": false
+    },
+    {
+      "eventId": 6413,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.18354942747068556,
+      "succeeded": true
+    },
+    {
+      "eventId": 6414,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6415,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6416,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.18354942747068556
+    },
+    {
+      "eventId": 6417,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "crit",
+      "source": "Crit multiplier",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 2.5989838599366406
+    },
+    {
+      "eventId": 6418,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.5458997574963047
+    },
+    {
+      "eventId": 6419,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "increasedDamage",
+      "source": "Cthulhu's debuff",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.05
+    },
+    {
+      "eventId": 6420,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.09090909090909091
+    },
+    {
+      "eventId": 6421,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.013160604969475544,
+      "succeeded": false
+    },
+    {
+      "eventId": 6422,
+      "hitId": 6412,
+      "atMs": 6280,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.04142937078015493,
+      "succeeded": false
+    },
+    {
+      "eventId": 6424,
+      "hitId": 6423,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.10793643169805922,
+      "succeeded": false
+    },
+    {
+      "eventId": 6425,
+      "hitId": 6423,
+      "atMs": 6600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6426,
+      "hitId": 6423,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10793643169805922
+    },
+    {
+      "eventId": 6427,
+      "hitId": 6423,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 6428,
+      "hitId": 6423,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 6429,
+      "hitId": 6423,
+      "atMs": 6600,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "magnitude": 1.6259277377025658
+    },
+    {
+      "eventId": 6431,
+      "hitId": 6430,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.10793643169805922,
+      "succeeded": false
+    },
+    {
+      "eventId": 6432,
+      "hitId": 6430,
+      "atMs": 6600,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6433,
+      "hitId": 6430,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10793643169805922
+    },
+    {
+      "eventId": 6434,
+      "hitId": 6430,
+      "atMs": 6600,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 6435,
+      "hitId": 6430,
+      "atMs": 6600,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.132
+    },
+    {
+      "eventId": 6436,
+      "hitId": 6430,
+      "atMs": 6600,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "magnitude": 0.12136566325929779
+    },
+    {
+      "eventId": 6438,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.18354942747068556,
+      "succeeded": false
+    },
+    {
+      "eventId": 6439,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6440,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6441,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.18354942747068556
+    },
+    {
+      "eventId": 6442,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.5458997574963047
+    },
+    {
+      "eventId": 6443,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "increasedDamage",
+      "source": "Cthulhu's debuff",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.05
+    },
+    {
+      "eventId": 6444,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.09090909090909091
+    },
+    {
+      "eventId": 6445,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.013160604969475544,
+      "succeeded": false
+    },
+    {
+      "eventId": 6446,
+      "hitId": 6437,
+      "atMs": 6908,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.04142937078015493,
+      "succeeded": false
+    },
+    {
+      "eventId": 6448,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "crit",
+      "source": "Crit chance remainder",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.18354942747068556,
+      "succeeded": false
+    },
+    {
+      "eventId": 6449,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6450,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6451,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "crit",
+      "source": "Crit chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.18354942747068556
+    },
+    {
+      "eventId": 6452,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "increasedDamage",
+      "source": "Increased damage (gear/tree)",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.5458997574963047
+    },
+    {
+      "eventId": 6453,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "increasedDamage",
+      "source": "Cthulhu's debuff",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.05
+    },
+    {
+      "eventId": 6454,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "increasedDamage",
+      "source": "Late-stage damage penalty",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.09090909090909091
+    },
+    {
+      "eventId": 6455,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "elementalProc",
+      "source": "Cold proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.013160604969475544,
+      "succeeded": false
+    },
+    {
+      "eventId": 6456,
+      "hitId": 6447,
+      "atMs": 7536,
+      "category": "elementalProc",
+      "source": "Chaos proc",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.04142937078015493,
+      "succeeded": false
+    },
+    {
+      "eventId": 6458,
+      "hitId": 6457,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.10793643169805922,
+      "succeeded": false
+    },
+    {
+      "eventId": 6459,
+      "hitId": 6457,
+      "atMs": 7700,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 6460,
+      "hitId": 6457,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": 0.10793643169805922
+    },
+    {
+      "eventId": 6461,
+      "hitId": 6457,
+      "atMs": 7700,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 6462,
+      "hitId": 6457,
+      "atMs": 7700,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "mage_nine_slot_vs_cthulhu_stage200",
+      "target": "__enemy_0__",
+      "magnitude": -0.154
+    },
+    {
+      "eventId": 6463,
+      "hitId": 6457,
+      "atMs": 7700,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "mage_nine_slot_vs_cthulhu_stage200",
+      "magnitude": 1.6852634739449135
     }
   ]
 }

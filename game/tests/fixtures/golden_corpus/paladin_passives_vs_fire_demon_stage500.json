@@ -10,7 +10,7 @@
       "thunderNetAbsorbed": 0,
       "archetype": "paladin",
       "role": "melee",
-      "maxHp": 1661,
+      "maxHp": 2148,
       "thunderIncarnations": []
     },
     {
@@ -34,10 +34,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 0,
       "unmitigatedDamage": 557,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isCrit": false,
       "evaded": true,
-      "hitId": 2258,
+      "hitId": 2498,
       "sourceKind": "direct"
     },
     {
@@ -47,10 +47,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 0,
       "unmitigatedDamage": 457,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isCrit": false,
       "evaded": true,
-      "hitId": 2259,
+      "hitId": 2499,
       "sourceKind": "direct"
     },
     {
@@ -60,10 +60,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 598,
       "unmitigatedDamage": 501,
-      "targetHpAfter": 1063,
+      "targetHpAfter": 1550,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2260,
+      "hitId": 2500,
       "sourceKind": "direct"
     },
     {
@@ -73,10 +73,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 490,
       "unmitigatedDamage": 411,
-      "targetHpAfter": 573,
+      "targetHpAfter": 1060,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2266,
+      "hitId": 2506,
       "sourceKind": "direct"
     },
     {
@@ -85,7 +85,7 @@
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "amount": 1088,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isRevive": false
     },
     {
@@ -95,10 +95,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 694,
       "unmitigatedDamage": 538,
-      "targetHpAfter": 967,
+      "targetHpAfter": 1454,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2272,
+      "hitId": 2512,
       "sourceKind": "direct"
     },
     {
@@ -108,10 +108,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 569,
       "unmitigatedDamage": 441,
-      "targetHpAfter": 398,
+      "targetHpAfter": 885,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2278,
+      "hitId": 2518,
       "sourceKind": "direct"
     },
     {
@@ -120,7 +120,7 @@
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "amount": 1263,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isRevive": false
     },
     {
@@ -130,10 +130,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 749,
       "unmitigatedDamage": 539,
-      "targetHpAfter": 912,
+      "targetHpAfter": 1399,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2284,
+      "hitId": 2524,
       "sourceKind": "direct"
     },
     {
@@ -143,10 +143,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 614,
       "unmitigatedDamage": 442,
-      "targetHpAfter": 298,
+      "targetHpAfter": 785,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2290,
+      "hitId": 2530,
       "sourceKind": "direct"
     },
     {
@@ -155,7 +155,7 @@
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "amount": 628,
-      "targetHpAfter": 926,
+      "targetHpAfter": 1413,
       "isRevive": false
     },
     {
@@ -186,7 +186,7 @@
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "amount": 735,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isRevive": false
     },
     {
@@ -222,7 +222,7 @@
       "atMs": 4400,
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
-      "amount": 166
+      "amount": 215
     },
     {
       "kind": "buffSnapshot",
@@ -231,7 +231,7 @@
       "buffs": [
         [
           "shield_hp",
-          166.10000000000002
+          214.8
         ],
         [
           "cold_evasion_buff_stacks",
@@ -244,12 +244,12 @@
       "atMs": 4400,
       "attacker": "__enemy_0__",
       "target": "paladin_passives_vs_fire_demon_stage500",
-      "damage": 565,
+      "damage": 516,
       "unmitigatedDamage": 492,
-      "targetHpAfter": 1096,
+      "targetHpAfter": 1632,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2296,
+      "hitId": 2536,
       "sourceKind": "direct"
     },
     {
@@ -270,10 +270,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 599,
       "unmitigatedDamage": 403,
-      "targetHpAfter": 497,
+      "targetHpAfter": 1033,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2303,
+      "hitId": 2543,
       "sourceKind": "direct"
     },
     {
@@ -281,8 +281,8 @@
       "atMs": 4518,
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
-      "amount": 1164,
-      "targetHpAfter": 1661,
+      "amount": 1115,
+      "targetHpAfter": 2148,
       "isRevive": false
     },
     {
@@ -325,10 +325,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 868,
       "unmitigatedDamage": 549,
-      "targetHpAfter": 793,
+      "targetHpAfter": 1280,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2309,
+      "hitId": 2549,
       "sourceKind": "direct"
     },
     {
@@ -349,10 +349,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 712,
       "unmitigatedDamage": 450,
-      "targetHpAfter": 81,
+      "targetHpAfter": 568,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2315,
+      "hitId": 2555,
       "sourceKind": "direct"
     },
     {
@@ -361,7 +361,7 @@
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "amount": 1580,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isRevive": false
     },
     {
@@ -404,10 +404,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 745,
       "unmitigatedDamage": 444,
-      "targetHpAfter": 916,
+      "targetHpAfter": 1403,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2321,
+      "hitId": 2561,
       "sourceKind": "direct"
     },
     {
@@ -428,10 +428,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 611,
       "unmitigatedDamage": 364,
-      "targetHpAfter": 305,
+      "targetHpAfter": 792,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2327,
+      "hitId": 2567,
       "sourceKind": "direct"
     },
     {
@@ -440,7 +440,7 @@
       "healer": "paladin_passives_vs_fire_demon_stage500",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "amount": 1356,
-      "targetHpAfter": 1661,
+      "targetHpAfter": 2148,
       "isRevive": false
     },
     {
@@ -491,10 +491,10 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 986,
       "unmitigatedDamage": 555,
-      "targetHpAfter": 675,
+      "targetHpAfter": 1162,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2333,
+      "hitId": 2573,
       "sourceKind": "direct"
     },
     {
@@ -515,22 +515,543 @@
       "target": "paladin_passives_vs_fire_demon_stage500",
       "damage": 808,
       "unmitigatedDamage": 455,
+      "targetHpAfter": 354,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2579,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 7781,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 1794,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7781,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 7781,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "skillCast",
+      "atMs": 8800,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "skill": "Divine Shield"
+    },
+    {
+      "kind": "shield",
+      "atMs": 8800,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 215
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8800,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "shield_hp",
+          214.8
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 8800,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 710,
+      "unmitigatedDamage": 494,
+      "targetHpAfter": 1438,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2585,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 8800,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 8800,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 758,
+      "unmitigatedDamage": 405,
+      "targetHpAfter": 680,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2592,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 9036,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 1468,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 9036,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 9036,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 9900,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 9900,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 869,
+      "unmitigatedDamage": 441,
+      "targetHpAfter": 1279,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2598,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 9900,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 9900,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 712,
+      "unmitigatedDamage": 362,
+      "targetHpAfter": 567,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2604,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 10040,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 1581,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 10040,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 10040,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 11000,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 1056,
+      "unmitigatedDamage": 511,
+      "targetHpAfter": 1092,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2610,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 11000,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 866,
+      "unmitigatedDamage": 419,
+      "targetHpAfter": 226,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2616,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 11044,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 1922,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "attack",
+      "atMs": 12100,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 969,
+      "unmitigatedDamage": 448,
+      "targetHpAfter": 1179,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2622,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "attack",
+      "atMs": 12100,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 794,
+      "unmitigatedDamage": 367,
+      "targetHpAfter": 385,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2628,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 12299,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 1763,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 12299,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 12299,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "skillCast",
+      "atMs": 13200,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "skill": "Divine Shield"
+    },
+    {
+      "kind": "shield",
+      "atMs": 13200,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 215
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 13200,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "shield_hp",
+          214.8
+        ],
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 13200,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 1019,
+      "unmitigatedDamage": 546,
+      "targetHpAfter": 1129,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2634,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 13200,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 13200,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 1012,
+      "unmitigatedDamage": 447,
+      "targetHpAfter": 117,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2641,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 13303,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 2031,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 13303,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 13303,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 14300,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 14300,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 1141,
+      "unmitigatedDamage": 484,
+      "targetHpAfter": 1007,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2647,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 14300,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 14300,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 936,
+      "unmitigatedDamage": 397,
+      "targetHpAfter": 71,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2653,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "heal",
+      "atMs": 14307,
+      "healer": "paladin_passives_vs_fire_demon_stage500",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "amount": 2077,
+      "targetHpAfter": 2148,
+      "isRevive": false
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 14307,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 14307,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 15400,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 15400,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 1338,
+      "unmitigatedDamage": 545,
+      "targetHpAfter": 810,
+      "isCrit": false,
+      "evaded": false,
+      "hitId": 2659,
+      "sourceKind": "direct"
+    },
+    {
+      "kind": "buffSnapshot",
+      "atMs": 15400,
+      "unit": "paladin_passives_vs_fire_demon_stage500",
+      "buffs": [
+        [
+          "divine_heal_power_buff_stacks",
+          1.0
+        ]
+      ]
+    },
+    {
+      "kind": "attack",
+      "atMs": 15400,
+      "attacker": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "damage": 1097,
+      "unmitigatedDamage": 447,
       "targetHpAfter": 0,
       "isCrit": false,
       "evaded": false,
-      "hitId": 2339,
+      "hitId": 2665,
       "sourceKind": "direct"
     },
     {
       "kind": "defeat",
-      "atMs": 7700,
+      "atMs": 15400,
       "unit": "paladin_passives_vs_fire_demon_stage500"
     }
   ],
   "rolls": [
     {
-      "eventId": 2261,
-      "hitId": 2260,
+      "eventId": 2501,
+      "hitId": 2500,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -540,8 +1061,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2262,
-      "hitId": 2260,
+      "eventId": 2502,
+      "hitId": 2500,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -551,8 +1072,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2263,
-      "hitId": 2260,
+      "eventId": 2503,
+      "hitId": 2500,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -561,8 +1082,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 2264,
-      "hitId": 2260,
+      "eventId": 2504,
+      "hitId": 2500,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -571,8 +1092,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 2265,
-      "hitId": 2260,
+      "eventId": 2505,
+      "hitId": 2500,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -581,8 +1102,8 @@
       "magnitude": 14.732810147650046
     },
     {
-      "eventId": 2267,
-      "hitId": 2266,
+      "eventId": 2507,
+      "hitId": 2506,
       "atMs": 1100,
       "category": "evasion",
       "source": "Evasion",
@@ -592,8 +1113,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2268,
-      "hitId": 2266,
+      "eventId": 2508,
+      "hitId": 2506,
       "atMs": 1100,
       "category": "block",
       "source": "Block chance",
@@ -603,8 +1124,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2269,
-      "hitId": 2266,
+      "eventId": 2509,
+      "hitId": 2506,
       "atMs": 1100,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -613,8 +1134,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 2270,
-      "hitId": 2266,
+      "eventId": 2510,
+      "hitId": 2506,
       "atMs": 1100,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -623,8 +1144,8 @@
       "magnitude": -0.022000000000000002
     },
     {
-      "eventId": 2271,
-      "hitId": 2266,
+      "eventId": 2511,
+      "hitId": 2506,
       "atMs": 1100,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -633,8 +1154,8 @@
       "magnitude": 12.080562593011813
     },
     {
-      "eventId": 2273,
-      "hitId": 2272,
+      "eventId": 2513,
+      "hitId": 2512,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -644,8 +1165,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2274,
-      "hitId": 2272,
+      "eventId": 2514,
+      "hitId": 2512,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -655,8 +1176,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2275,
-      "hitId": 2272,
+      "eventId": 2515,
+      "hitId": 2512,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -665,8 +1186,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 2276,
-      "hitId": 2272,
+      "eventId": 2516,
+      "hitId": 2512,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -675,8 +1196,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 2277,
-      "hitId": 2272,
+      "eventId": 2517,
+      "hitId": 2512,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -685,8 +1206,8 @@
       "magnitude": 15.811936253565008
     },
     {
-      "eventId": 2279,
-      "hitId": 2278,
+      "eventId": 2519,
+      "hitId": 2518,
       "atMs": 2200,
       "category": "evasion",
       "source": "Evasion",
@@ -696,8 +1217,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2280,
-      "hitId": 2278,
+      "eventId": 2520,
+      "hitId": 2518,
       "atMs": 2200,
       "category": "block",
       "source": "Block chance",
@@ -707,8 +1228,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2281,
-      "hitId": 2278,
+      "eventId": 2521,
+      "hitId": 2518,
       "atMs": 2200,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -717,8 +1238,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 2282,
-      "hitId": 2278,
+      "eventId": 2522,
+      "hitId": 2518,
       "atMs": 2200,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -727,8 +1248,8 @@
       "magnitude": -0.044000000000000004
     },
     {
-      "eventId": 2283,
-      "hitId": 2278,
+      "eventId": 2523,
+      "hitId": 2518,
       "atMs": 2200,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -737,8 +1258,8 @@
       "magnitude": 12.965420969493248
     },
     {
-      "eventId": 2285,
-      "hitId": 2284,
+      "eventId": 2525,
+      "hitId": 2524,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -748,8 +1269,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2286,
-      "hitId": 2284,
+      "eventId": 2526,
+      "hitId": 2524,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -759,8 +1280,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2287,
-      "hitId": 2284,
+      "eventId": 2527,
+      "hitId": 2524,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -769,8 +1290,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 2288,
-      "hitId": 2284,
+      "eventId": 2528,
+      "hitId": 2524,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -779,8 +1300,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 2289,
-      "hitId": 2284,
+      "eventId": 2529,
+      "hitId": 2524,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -789,8 +1310,8 @@
       "magnitude": 15.86081215563401
     },
     {
-      "eventId": 2291,
-      "hitId": 2290,
+      "eventId": 2531,
+      "hitId": 2530,
       "atMs": 3300,
       "category": "evasion",
       "source": "Evasion",
@@ -800,8 +1321,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2292,
-      "hitId": 2290,
+      "eventId": 2532,
+      "hitId": 2530,
       "atMs": 3300,
       "category": "block",
       "source": "Block chance",
@@ -811,8 +1332,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2293,
-      "hitId": 2290,
+      "eventId": 2533,
+      "hitId": 2530,
       "atMs": 3300,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -821,8 +1342,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 2294,
-      "hitId": 2290,
+      "eventId": 2534,
+      "hitId": 2530,
       "atMs": 3300,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -831,8 +1352,8 @@
       "magnitude": -0.066
     },
     {
-      "eventId": 2295,
-      "hitId": 2290,
+      "eventId": 2535,
+      "hitId": 2530,
       "atMs": 3300,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -841,8 +1362,8 @@
       "magnitude": 13.005498075511523
     },
     {
-      "eventId": 2297,
-      "hitId": 2296,
+      "eventId": 2537,
+      "hitId": 2536,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -852,8 +1373,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2298,
-      "hitId": 2296,
+      "eventId": 2538,
+      "hitId": 2536,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -863,8 +1384,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2299,
-      "hitId": 2296,
+      "eventId": 2539,
+      "hitId": 2536,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -873,8 +1394,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 2300,
-      "hitId": 2296,
+      "eventId": 2540,
+      "hitId": 2536,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -883,8 +1404,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 2301,
-      "hitId": 2296,
+      "eventId": 2541,
+      "hitId": 2536,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -893,18 +1414,18 @@
       "magnitude": 14.470965424168918
     },
     {
-      "eventId": 2302,
-      "hitId": 2296,
+      "eventId": 2542,
+      "hitId": 2536,
       "atMs": 4400,
       "category": "shieldAbsorb",
       "source": "Shield",
       "actor": "paladin_passives_vs_fire_demon_stage500",
       "target": "__enemy_0__",
-      "magnitude": 166.10000000000002
+      "magnitude": 214.8
     },
     {
-      "eventId": 2304,
-      "hitId": 2303,
+      "eventId": 2544,
+      "hitId": 2543,
       "atMs": 4400,
       "category": "evasion",
       "source": "Evasion",
@@ -914,8 +1435,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2305,
-      "hitId": 2303,
+      "eventId": 2545,
+      "hitId": 2543,
       "atMs": 4400,
       "category": "block",
       "source": "Block chance",
@@ -925,8 +1446,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2306,
-      "hitId": 2303,
+      "eventId": 2546,
+      "hitId": 2543,
       "atMs": 4400,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -935,8 +1456,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 2307,
-      "hitId": 2303,
+      "eventId": 2547,
+      "hitId": 2543,
       "atMs": 4400,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -945,8 +1466,8 @@
       "magnitude": -0.08800000000000001
     },
     {
-      "eventId": 2308,
-      "hitId": 2303,
+      "eventId": 2548,
+      "hitId": 2543,
       "atMs": 4400,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -955,8 +1476,8 @@
       "magnitude": 11.865855993255066
     },
     {
-      "eventId": 2310,
-      "hitId": 2309,
+      "eventId": 2550,
+      "hitId": 2549,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -966,8 +1487,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2311,
-      "hitId": 2309,
+      "eventId": 2551,
+      "hitId": 2549,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
@@ -977,8 +1498,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2312,
-      "hitId": 2309,
+      "eventId": 2552,
+      "hitId": 2549,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -987,8 +1508,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 2313,
-      "hitId": 2309,
+      "eventId": 2553,
+      "hitId": 2549,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -997,8 +1518,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 2314,
-      "hitId": 2309,
+      "eventId": 2554,
+      "hitId": 2549,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1007,8 +1528,8 @@
       "magnitude": 16.143054273866056
     },
     {
-      "eventId": 2316,
-      "hitId": 2315,
+      "eventId": 2556,
+      "hitId": 2555,
       "atMs": 5500,
       "category": "evasion",
       "source": "Evasion",
@@ -1018,8 +1539,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2317,
-      "hitId": 2315,
+      "eventId": 2557,
+      "hitId": 2555,
       "atMs": 5500,
       "category": "block",
       "source": "Block chance",
@@ -1029,8 +1550,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2318,
-      "hitId": 2315,
+      "eventId": 2558,
+      "hitId": 2555,
       "atMs": 5500,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1039,8 +1560,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 2319,
-      "hitId": 2315,
+      "eventId": 2559,
+      "hitId": 2555,
       "atMs": 5500,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1049,8 +1570,8 @@
       "magnitude": -0.11
     },
     {
-      "eventId": 2320,
-      "hitId": 2315,
+      "eventId": 2560,
+      "hitId": 2555,
       "atMs": 5500,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1059,8 +1580,8 @@
       "magnitude": 13.23693006584572
     },
     {
-      "eventId": 2322,
-      "hitId": 2321,
+      "eventId": 2562,
+      "hitId": 2561,
       "atMs": 6600,
       "category": "evasion",
       "source": "Evasion",
@@ -1070,8 +1591,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2323,
-      "hitId": 2321,
+      "eventId": 2563,
+      "hitId": 2561,
       "atMs": 6600,
       "category": "block",
       "source": "Block chance",
@@ -1081,8 +1602,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2324,
-      "hitId": 2321,
+      "eventId": 2564,
+      "hitId": 2561,
       "atMs": 6600,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1091,8 +1612,8 @@
       "magnitude": -0.132
     },
     {
-      "eventId": 2325,
-      "hitId": 2321,
+      "eventId": 2565,
+      "hitId": 2561,
       "atMs": 6600,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1101,8 +1622,8 @@
       "magnitude": -0.132
     },
     {
-      "eventId": 2326,
-      "hitId": 2321,
+      "eventId": 2566,
+      "hitId": 2561,
       "atMs": 6600,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1111,8 +1632,8 @@
       "magnitude": 13.045614397541122
     },
     {
-      "eventId": 2328,
-      "hitId": 2327,
+      "eventId": 2568,
+      "hitId": 2567,
       "atMs": 6600,
       "category": "evasion",
       "source": "Evasion",
@@ -1122,8 +1643,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2329,
-      "hitId": 2327,
+      "eventId": 2569,
+      "hitId": 2567,
       "atMs": 6600,
       "category": "block",
       "source": "Block chance",
@@ -1133,8 +1654,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2330,
-      "hitId": 2327,
+      "eventId": 2570,
+      "hitId": 2567,
       "atMs": 6600,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1143,8 +1664,8 @@
       "magnitude": -0.132
     },
     {
-      "eventId": 2331,
-      "hitId": 2327,
+      "eventId": 2571,
+      "hitId": 2567,
       "atMs": 6600,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1153,8 +1674,8 @@
       "magnitude": -0.132
     },
     {
-      "eventId": 2332,
-      "hitId": 2327,
+      "eventId": 2572,
+      "hitId": 2567,
       "atMs": 6600,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1163,8 +1684,8 @@
       "magnitude": 10.697101212488597
     },
     {
-      "eventId": 2334,
-      "hitId": 2333,
+      "eventId": 2574,
+      "hitId": 2573,
       "atMs": 7700,
       "category": "evasion",
       "source": "Evasion",
@@ -1174,8 +1695,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2335,
-      "hitId": 2333,
+      "eventId": 2575,
+      "hitId": 2573,
       "atMs": 7700,
       "category": "block",
       "source": "Block chance",
@@ -1185,8 +1706,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2336,
-      "hitId": 2333,
+      "eventId": 2576,
+      "hitId": 2573,
       "atMs": 7700,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1195,8 +1716,8 @@
       "magnitude": -0.154
     },
     {
-      "eventId": 2337,
-      "hitId": 2333,
+      "eventId": 2577,
+      "hitId": 2573,
       "atMs": 7700,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1205,8 +1726,8 @@
       "magnitude": -0.154
     },
     {
-      "eventId": 2338,
-      "hitId": 2333,
+      "eventId": 2578,
+      "hitId": 2573,
       "atMs": 7700,
       "category": "pierce",
       "source": "Boss Pierce",
@@ -1215,8 +1736,8 @@
       "magnitude": 16.322931483145986
     },
     {
-      "eventId": 2340,
-      "hitId": 2339,
+      "eventId": 2580,
+      "hitId": 2579,
       "atMs": 7700,
       "category": "evasion",
       "source": "Evasion",
@@ -1226,8 +1747,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2341,
-      "hitId": 2339,
+      "eventId": 2581,
+      "hitId": 2579,
       "atMs": 7700,
       "category": "block",
       "source": "Block chance",
@@ -1237,8 +1758,8 @@
       "succeeded": false
     },
     {
-      "eventId": 2342,
-      "hitId": 2339,
+      "eventId": 2582,
+      "hitId": 2579,
       "atMs": 7700,
       "category": "evasion",
       "source": "Boss Pressure",
@@ -1247,8 +1768,8 @@
       "magnitude": -0.154
     },
     {
-      "eventId": 2343,
-      "hitId": 2339,
+      "eventId": 2583,
+      "hitId": 2579,
       "atMs": 7700,
       "category": "mitigation",
       "source": "Boss Pressure",
@@ -1257,14 +1778,762 @@
       "magnitude": -0.154
     },
     {
-      "eventId": 2344,
-      "hitId": 2339,
+      "eventId": 2584,
+      "hitId": 2579,
       "atMs": 7700,
       "category": "pierce",
       "source": "Boss Pierce",
       "actor": "__enemy_0__",
       "target": "paladin_passives_vs_fire_demon_stage500",
       "magnitude": 13.38442520519692
+    },
+    {
+      "eventId": 2586,
+      "hitId": 2585,
+      "atMs": 8800,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2587,
+      "hitId": 2585,
+      "atMs": 8800,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2588,
+      "hitId": 2585,
+      "atMs": 8800,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.17600000000000002
+    },
+    {
+      "eventId": 2589,
+      "hitId": 2585,
+      "atMs": 8800,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.17600000000000002
+    },
+    {
+      "eventId": 2590,
+      "hitId": 2585,
+      "atMs": 8800,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 14.517906097450277
+    },
+    {
+      "eventId": 2591,
+      "hitId": 2585,
+      "atMs": 8800,
+      "category": "shieldAbsorb",
+      "source": "Shield",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": 214.8
+    },
+    {
+      "eventId": 2593,
+      "hitId": 2592,
+      "atMs": 8800,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2594,
+      "hitId": 2592,
+      "atMs": 8800,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2595,
+      "hitId": 2592,
+      "atMs": 8800,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.17600000000000002
+    },
+    {
+      "eventId": 2596,
+      "hitId": 2592,
+      "atMs": 8800,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.17600000000000002
+    },
+    {
+      "eventId": 2597,
+      "hitId": 2592,
+      "atMs": 8800,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 11.904346256555177
+    },
+    {
+      "eventId": 2599,
+      "hitId": 2598,
+      "atMs": 9900,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2600,
+      "hitId": 2598,
+      "atMs": 9900,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2601,
+      "hitId": 2598,
+      "atMs": 9900,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.198
+    },
+    {
+      "eventId": 2602,
+      "hitId": 2598,
+      "atMs": 9900,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.198
+    },
+    {
+      "eventId": 2603,
+      "hitId": 2598,
+      "atMs": 9900,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 12.968249443183389
+    },
+    {
+      "eventId": 2605,
+      "hitId": 2604,
+      "atMs": 9900,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2606,
+      "hitId": 2604,
+      "atMs": 9900,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2607,
+      "hitId": 2604,
+      "atMs": 9900,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.198
+    },
+    {
+      "eventId": 2608,
+      "hitId": 2604,
+      "atMs": 9900,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.198
+    },
+    {
+      "eventId": 2609,
+      "hitId": 2604,
+      "atMs": 9900,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 10.633663744398156
+    },
+    {
+      "eventId": 2611,
+      "hitId": 2610,
+      "atMs": 11000,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2612,
+      "hitId": 2610,
+      "atMs": 11000,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2613,
+      "hitId": 2610,
+      "atMs": 11000,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.22
+    },
+    {
+      "eventId": 2614,
+      "hitId": 2610,
+      "atMs": 11000,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.22
+    },
+    {
+      "eventId": 2615,
+      "hitId": 2610,
+      "atMs": 11000,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 15.018380521519742
+    },
+    {
+      "eventId": 2617,
+      "hitId": 2616,
+      "atMs": 11000,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2618,
+      "hitId": 2616,
+      "atMs": 11000,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2619,
+      "hitId": 2616,
+      "atMs": 11000,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.22
+    },
+    {
+      "eventId": 2620,
+      "hitId": 2616,
+      "atMs": 11000,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.22
+    },
+    {
+      "eventId": 2621,
+      "hitId": 2616,
+      "atMs": 11000,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 12.314723675769873
+    },
+    {
+      "eventId": 2623,
+      "hitId": 2622,
+      "atMs": 12100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2624,
+      "hitId": 2622,
+      "atMs": 12100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2625,
+      "hitId": 2622,
+      "atMs": 12100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.242
+    },
+    {
+      "eventId": 2626,
+      "hitId": 2622,
+      "atMs": 12100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.242
+    },
+    {
+      "eventId": 2627,
+      "hitId": 2622,
+      "atMs": 12100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 13.164190331607156
+    },
+    {
+      "eventId": 2629,
+      "hitId": 2628,
+      "atMs": 12100,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2630,
+      "hitId": 2628,
+      "atMs": 12100,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2631,
+      "hitId": 2628,
+      "atMs": 12100,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.242
+    },
+    {
+      "eventId": 2632,
+      "hitId": 2628,
+      "atMs": 12100,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.242
+    },
+    {
+      "eventId": 2633,
+      "hitId": 2628,
+      "atMs": 12100,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 10.79433072804969
+    },
+    {
+      "eventId": 2635,
+      "hitId": 2634,
+      "atMs": 13200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2636,
+      "hitId": 2634,
+      "atMs": 13200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2637,
+      "hitId": 2634,
+      "atMs": 13200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.264
+    },
+    {
+      "eventId": 2638,
+      "hitId": 2634,
+      "atMs": 13200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.264
+    },
+    {
+      "eventId": 2639,
+      "hitId": 2634,
+      "atMs": 13200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 16.049796611635845
+    },
+    {
+      "eventId": 2640,
+      "hitId": 2634,
+      "atMs": 13200,
+      "category": "shieldAbsorb",
+      "source": "Shield",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": 214.8
+    },
+    {
+      "eventId": 2642,
+      "hitId": 2641,
+      "atMs": 13200,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2643,
+      "hitId": 2641,
+      "atMs": 13200,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2644,
+      "hitId": 2641,
+      "atMs": 13200,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.264
+    },
+    {
+      "eventId": 2645,
+      "hitId": 2641,
+      "atMs": 13200,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.264
+    },
+    {
+      "eventId": 2646,
+      "hitId": 2641,
+      "atMs": 13200,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 13.16046094593177
+    },
+    {
+      "eventId": 2648,
+      "hitId": 2647,
+      "atMs": 14300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2649,
+      "hitId": 2647,
+      "atMs": 14300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2650,
+      "hitId": 2647,
+      "atMs": 14300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.28600000000000003
+    },
+    {
+      "eventId": 2651,
+      "hitId": 2647,
+      "atMs": 14300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.28600000000000003
+    },
+    {
+      "eventId": 2652,
+      "hitId": 2647,
+      "atMs": 14300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 14.227017983006077
+    },
+    {
+      "eventId": 2654,
+      "hitId": 2653,
+      "atMs": 14300,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2655,
+      "hitId": 2653,
+      "atMs": 14300,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2656,
+      "hitId": 2653,
+      "atMs": 14300,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.28600000000000003
+    },
+    {
+      "eventId": 2657,
+      "hitId": 2653,
+      "atMs": 14300,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.28600000000000003
+    },
+    {
+      "eventId": 2658,
+      "hitId": 2653,
+      "atMs": 14300,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 11.665824749871208
+    },
+    {
+      "eventId": 2660,
+      "hitId": 2659,
+      "atMs": 15400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2661,
+      "hitId": 2659,
+      "atMs": 15400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2662,
+      "hitId": 2659,
+      "atMs": 15400,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.308
+    },
+    {
+      "eventId": 2663,
+      "hitId": 2659,
+      "atMs": 15400,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.308
+    },
+    {
+      "eventId": 2664,
+      "hitId": 2659,
+      "atMs": 15400,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 16.025113869094206
+    },
+    {
+      "eventId": 2666,
+      "hitId": 2665,
+      "atMs": 15400,
+      "category": "evasion",
+      "source": "Evasion",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2667,
+      "hitId": 2665,
+      "atMs": 15400,
+      "category": "block",
+      "source": "Block chance",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "probability": 0.0,
+      "succeeded": false
+    },
+    {
+      "eventId": 2668,
+      "hitId": 2665,
+      "atMs": 15400,
+      "category": "evasion",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.308
+    },
+    {
+      "eventId": 2669,
+      "hitId": 2665,
+      "atMs": 15400,
+      "category": "mitigation",
+      "source": "Boss Pressure",
+      "actor": "paladin_passives_vs_fire_demon_stage500",
+      "target": "__enemy_0__",
+      "magnitude": -0.308
+    },
+    {
+      "eventId": 2670,
+      "hitId": 2665,
+      "atMs": 15400,
+      "category": "pierce",
+      "source": "Boss Pierce",
+      "actor": "__enemy_0__",
+      "target": "paladin_passives_vs_fire_demon_stage500",
+      "magnitude": 13.140221669564728
     }
   ]
 }
