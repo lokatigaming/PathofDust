@@ -11024,9 +11024,51 @@ tier 217: 90.07 → 900.68). **The item-page view is unrun:** the anonymous char
 **Rollback:** `rollback-linux.sh flat-health-x10-54` restores the old code, **but the stored FlatLife values stay ×10**, because the migration is permanent.
 An old binary would also roll new FlatLife at the old size (5 per tier), so new and old items would then disagree by ×10.
 
+## 2026-10-10 — release 48 `golem-handback-57` deployed (item 57, window c). 0.27 s.
+
+**Merge.** `origin/master` `a15b67a` ← `29c1169` (`--no-ff` of a's `feature/golem-handback-4s-57` `e8b796a`, which was based on `cd4f739`) ← `5d4af98` (golden-corpus
+regeneration). **One conflict, `WIKI_IMPACT.md`, resolved keep-both:** item 54's FlatLife line and item 57's hand-back line are both kept, in that order. `wiki/golems.md` merged clean.
+**Golden corpus:** before regenerating, the corpus test named exactly `elementalist_thunder_golems_vs_dragon_stage1000` and no other fixture. Only that fixture was recaptured; the other 23 are unchanged.
+**Suite** `cargo test --release --workspace --quiet --no-fail-fast -j 4`. Before regeneration: 1161 / 1 (the fixture) / 54, as predicted. **On the box after regeneration: 1162 / 0 / 54, as predicted.**
+Locally the first post-regeneration run read 1161 / 1 / 54. The failure was **a's new test `healing_lands_between_handback_ticks_only_when_a_healer_is_in_the_party`, which is flaky.**
+It failed in isolation too (2 of 6 runs, then 1 of 30). A temporary print, since reverted, showed the "no healer" fight's Warrior ally self-healing 3 HP (`healer ally target ally`) between two hand-back ticks.
+Whether that happens changes from process to process, even with the fixed seed. The fault is in the test's assumption, not in shipped code. Logged under FOUND.
+A second full local run on `5d4af98` read **1162 / 0 / 54**.
+
+**Retired key.** The live `adventure-live-tunables.toml` still pins `thunder_redistribution_window_secs = 2.0` and has no `thunder_redistribution_duration_secs`.
+`LiveTunables` is `#[serde(default)]`, so the missing key takes the 4.0 default and the extra key is kept but read by nothing. Its only reads are the admin save, which carries `previous` through.
+A temporary unit test (not committed) parsed a copy of the live file and got window 2.0, duration 4.0, pct 0.5, with no error.
+**What the startup log says:** nothing. `load_live_tunables` logs only on a parse failure, and there was none. The single WARN at startup is the old `item-balance.toml` 'lingeringEffect' line; it has appeared 72 times in the journal, at every start, release 47's included.
+
+**Deploy.** Archive `663f99e889a3eae977402a05d2f3d4bf5128eaa2852f7229035f965462efdcc3` matched on both ends. The identity grep found `thunder_redistribution_duration_secs` in combat.rs, tunables.rs and adventure_web.rs.
+The box build and suite both used `-j 4`, and both exited 0. `400a9f6b…` → **`828a73ecb1117344f24c8fe30bb5fc896e067ed3dca58ae8a0ca9cdb2ba0e8c6`**, downtime **0.27 s**.
+Slot `deploy-pre-20261010-015550-golem-handback-57`. Data backup `pod-backup-20261010-015550.tar.gz` was finished at 01:56:09, before the restart at 01:56:11.
+Checks: 1 active · 2 NRestarts 0 · 3 `loaded 26` = file 26 · 4 live = candidate · 5 unrun (no cookie) · 6 404 / 83,124 B on 4005 · 7 404. 0 panic/ERROR lines. The fight loop went 42915 → 42918.
+**/admin/passives** returns 404 anonymously, so the page reading was not taken. The effective value of 4 comes from two places: the parse of the live file above (duration falls to the 4.0 default), and the live 4-tick hand-backs below.
+Accounts, item balance, tunables and passive overrides pass `sha256sum -c` against pre-swap hashes. Sessions: 86 before and after.
+
+**Baseline, read at the swap (01:55:50 CEST), no tunable touched:** stage **256**, `hp_pacing_mult` **16119.58**, `boss_power_mult` **0.2**,
+`target_win_loss_ratio` **3.0**, `dmg_multiplier_floor` **0.2**. Last 200 boss fights before the swap: **141 won = 70.5%** (stages 233–255).
+
+**Hand-back ticks, live, fights 42916–42918 (all started after the restart).** The detail clock runs a little under real ms, so the 1 s spacing reads as k = 949 / 936 / 862 ms; release 47's fight 42900 read 922.
+- **Fight 42916:** 22 hand-backs ran uninterrupted. **Every one was exactly 4 ticks**, at k, 2k, 3k and 4k after the golem's death. Release 47's fight 42900 had 144 such runs, every one exactly 2 ticks.
+- **Fights 42917 and 42918:** golems died more than once every 4 s, so each new death merged the owed amount into a fresh 4-tick run before the old one ended. This is the existing "re-level on each new source" rule (`combat.rs` `handle_golem_death`).
+- **Deaths:** 11 recipients died mid-hand-back, and they received **0 ticks after dying**.
+- **Nobody else's ticks grew:** across all three fights, tick size never varied within a run, and no recipient took two ticks in the same ms. A redirect would show as either.
+
+**Patch notes** (box clock, "October 10, 2026"): "Thunder Golem hand-back spread over 4 seconds", 2 items. The pre-edit copy is in the slot.
+
+**Dials.** New: `thunder_redistribution_duration_secs` (default 4.0, on /admin/passives under Elementalist; 1 tick per second, rounded, minimum 1; 2.0 reproduces the old behaviour).
+Retired: `thunder_redistribution_window_secs`. It is no longer read and is off the admin page; the live file still holds 2.0, and it is preserved on save.
+
+**Rollback:** `rollback-linux.sh golem-handback-57` restores release 47's binary (`400a9f6b…`). **An older binary loads the files cleanly even if the owner has since set the new dial.**
+Release 47's `LiveTunables` is `#[serde(default)]` without `deny_unknown_fields`, so it ignores a saved `thunder_redistribution_duration_secs`. It reads `thunder_redistribution_window_secs`, which every save keeps (2.0 on file), and so goes back to 2 half-ticks over 2 s.
+No data migration came with this release.
+
 ## FOUND
 - 2026-10-03 (window c): the Linux `game` binary links libssl/libcrypto although `cargo tree -p game -i openssl-sys` is empty on the box; openssl-sys is built in the workspace for the bot. Present since at least 09-03. Not investigated.
 - 2026-10-04 (window c): the release-44 patch-note wording says to use "Forgot your password?" on the login page, but the link there reads "Reset your password by email". — 2026-10-05: fixed in the live patch notes (release 45, window c).
 - 2026-10-08 (window c): Chance crafts write no log line (only Unique Shard applies do), so a Chance that removes a unique affix cannot be dated or quoted from the logs (item 53).
 - 2026-10-08 (window c): the box's `/opt/pathofdust/bin/backup-game-data.sh` (Sep 4) lacks the repo's newer allow-list markers, including `adventure-refund-reforge-now-overcharge-marker.json` and the new `adventure-pony-unique-shard-return-marker.json`; not refreshed (out of scope).
 - 2026-10-09 (window c): a load/save cycle of `adventure-characters.json` moves some 17-digit floats by one last bit (251 values at release 47, all on items not reloaded since the previous restart). Likely serde_json's default float parsing (no `float_roundtrip`); not investigated.
+- 2026-10-10 (window c): item 57's new test `healing_lands_between_handback_ticks_only_when_a_healer_is_in_the_party` is flaky even in isolation (about 1 in 30 runs, 2 in 6 in an earlier burst). Its "no healer" fight uses a Warrior ally whose own 3 HP self-heal can land between two hand-back ticks, depending on per-process ordering. The fault is in the test, not the shipped code; not fixed (out of scope).
